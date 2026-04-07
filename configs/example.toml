@@ -1,0 +1,55 @@
+# clambhook configuration example
+
+# Active profile name (supports emoji)
+active = "🇺🇸 US Fast"
+
+[[profile]]
+name = "🇺🇸 US Fast"
+
+  [profile.listen]
+  socks5 = "127.0.0.1:1080"
+  http   = "127.0.0.1:8080"
+
+  [profile.api]
+  listen = "127.0.0.1:9090"
+
+  [[profile.chain]]
+  name = "default"
+
+    [[profile.chain.server]]
+    name     = "us-east-1"
+    address  = "us1.example.com:443"
+    protocol = "trojan"
+
+      [profile.chain.server.settings]
+      password = "your-password-here"
+      sni      = "example.com"
+
+[[profile]]
+name = "🔒 Double Hop"
+
+  [profile.listen]
+  socks5 = "127.0.0.1:1080"
+
+  [profile.api]
+  listen = "127.0.0.1:9090"
+
+  [[profile.chain]]
+  name = "chain-eu-us"
+
+    [[profile.chain.server]]
+    name     = "eu-entry"
+    address  = "eu.example.com:443"
+    protocol = "trojan"
+
+      [profile.chain.server.settings]
+      password = "pass1"
+
+    [[profile.chain.server]]
+    name     = "us-exit"
+    address  = "us.example.com:443"
+    protocol = "shadowsocks"
+
+      [profile.chain.server.settings]
+      method   = "aes-256-gcm"
+      password = "pass2"

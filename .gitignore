@@ -1,2 +1,9 @@
 RealREADME.md
 .DS_Store
+
+# Build artifacts
+bin/
+*.o
+*.a
+*.so
+*.dylib
