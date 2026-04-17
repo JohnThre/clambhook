@@ -167,6 +167,100 @@ func readRequest(r io.Reader) (request, error) {
 	}, nil
 }
 
+// udpHeader is a parsed SOCKS5 UDP datagram header (RFC 1928 §7).
+//
+// Wire format:
+//
+//	+----+------+------+----------+----------+----------+
+//	|RSV | FRAG | ATYP | DST.ADDR | DST.PORT |   DATA   |
+//	+----+------+------+----------+----------+----------+
+//	| 2  |  1   |  1   | Variable |    2     | Variable |
+//	+----+------+------+----------+----------+----------+
+type udpHeader struct {
+	addr string // dotted IPv4 / bare IPv6 / domain — no port
+	port uint16
+}
+
+// target returns addr:port suitable for downstream dialing.
+func (h udpHeader) target() string {
+	if ip := net.ParseIP(h.addr); ip != nil && ip.To4() == nil {
+		return "[" + h.addr + "]:" + strconv.Itoa(int(h.port))
+	}
+	return net.JoinHostPort(h.addr, strconv.Itoa(int(h.port)))
+}
+
+// parseUDPDatagram parses a SOCKS5-wrapped UDP datagram and returns the
+// target address plus the payload (the payload slice aliases buf). It
+// rejects fragmentation (FRAG != 0) — almost nothing uses it and
+// reassembly is a separate codebase's worth of work.
+func parseUDPDatagram(buf []byte) (udpHeader, []byte, error) {
+	if len(buf) < 4 {
+		return udpHeader{}, nil, fmt.Errorf("socks5 udp: header too short (%d)", len(buf))
+	}
+	// buf[0:2] = RSV (must be 0x0000, ignored in practice)
+	if buf[2] != 0x00 {
+		return udpHeader{}, nil, fmt.Errorf("socks5 udp: fragmentation unsupported (FRAG=%#x)", buf[2])
+	}
+
+	var h udpHeader
+	idx := 4 // RSV(2) + FRAG(1) + ATYP(1)
+	switch buf[3] {
+	case atypIPv4:
+		if len(buf) < idx+4+2 {
+			return h, nil, fmt.Errorf("socks5 udp: short ipv4 addr")
+		}
+		h.addr = net.IP(buf[idx : idx+4]).String()
+		idx += 4
+	case atypIPv6:
+		if len(buf) < idx+16+2 {
+			return h, nil, fmt.Errorf("socks5 udp: short ipv6 addr")
+		}
+		h.addr = net.IP(buf[idx : idx+16]).String()
+		idx += 16
+	case atypDomain:
+		if len(buf) <= idx {
+			return h, nil, fmt.Errorf("socks5 udp: short domain length")
+		}
+		dlen := int(buf[idx])
+		idx++
+		if dlen == 0 || len(buf) < idx+dlen+2 {
+			return h, nil, fmt.Errorf("socks5 udp: short domain")
+		}
+		h.addr = string(buf[idx : idx+dlen])
+		idx += dlen
+	default:
+		return h, nil, fmt.Errorf("socks5 udp: unsupported ATYP %#x", buf[3])
+	}
+	h.port = uint16(buf[idx])<<8 | uint16(buf[idx+1])
+	idx += 2
+	return h, buf[idx:], nil
+}
+
+// encodeUDPDatagram prepends a SOCKS5 UDP header identifying addr as the
+// source peer. For the chain→client direction, "addr" is the remote target
+// that sent the reply.
+func encodeUDPDatagram(addr string, port uint16, payload []byte) ([]byte, error) {
+	out := []byte{0x00, 0x00, 0x00} // RSV RSV FRAG
+	if ip := net.ParseIP(addr); ip != nil {
+		if v4 := ip.To4(); v4 != nil {
+			out = append(out, atypIPv4)
+			out = append(out, v4...)
+		} else {
+			out = append(out, atypIPv6)
+			out = append(out, ip.To16()...)
+		}
+	} else {
+		if len(addr) == 0 || len(addr) > 255 {
+			return nil, fmt.Errorf("socks5 udp: domain length %d out of range", len(addr))
+		}
+		out = append(out, atypDomain, byte(len(addr)))
+		out = append(out, addr...)
+	}
+	out = append(out, byte(port>>8), byte(port))
+	out = append(out, payload...)
+	return out, nil
+}
+
 // writeReply sends a SOCKS5 reply. bnd is the bound address we want to
 // report (usually "0.0.0.0:0" for CONNECT — clients don't consult it).
 func writeReply(w io.Writer, rep byte, bnd string) error {
