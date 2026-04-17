@@ -19,24 +19,24 @@ func TestSHA224RFC3874Vector(t *testing.T) {
 	}
 }
 
-func TestEncodeAddressIPv4(t *testing.T) {
-	got, err := encodeAddress("1.2.3.4:80")
+func TestEncodeAddrIPv4(t *testing.T) {
+	got, err := encodeAddr("1.2.3.4:80")
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []byte{cmdConnect, atypIPv4, 1, 2, 3, 4, 0x00, 0x50}
+	want := []byte{atypIPv4, 1, 2, 3, 4, 0x00, 0x50}
 	if !bytes.Equal(got, want) {
 		t.Fatalf("got %x, want %x", got, want)
 	}
 }
 
-func TestEncodeAddressIPv6(t *testing.T) {
-	got, err := encodeAddress("[2001:db8::1]:443")
+func TestEncodeAddrIPv6(t *testing.T) {
+	got, err := encodeAddr("[2001:db8::1]:443")
 	if err != nil {
 		t.Fatal(err)
 	}
 	want := []byte{
-		cmdConnect, atypIPv6,
+		atypIPv6,
 		0x20, 0x01, 0x0d, 0xb8, 0x00, 0x00, 0x00, 0x00,
 		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01,
 		0x01, 0xbb,
@@ -46,13 +46,13 @@ func TestEncodeAddressIPv6(t *testing.T) {
 	}
 }
 
-func TestEncodeAddressDomain(t *testing.T) {
-	got, err := encodeAddress("example.com:443")
+func TestEncodeAddrDomain(t *testing.T) {
+	got, err := encodeAddr("example.com:443")
 	if err != nil {
 		t.Fatal(err)
 	}
 	want := []byte{
-		cmdConnect, atypDomain, 11,
+		atypDomain, 11,
 		'e', 'x', 'a', 'm', 'p', 'l', 'e', '.', 'c', 'o', 'm',
 		0x01, 0xbb,
 	}
@@ -61,27 +61,26 @@ func TestEncodeAddressDomain(t *testing.T) {
 	}
 }
 
-func TestEncodeAddressRejectsBadInput(t *testing.T) {
+func TestEncodeAddrRejectsBadInput(t *testing.T) {
 	cases := []string{
 		"",                    // empty
 		"example.com",         // no port
-		"example.com:0",       // port out of range
 		"example.com:99999",   // port out of range
 		"example.com:notanum", // non-numeric port
 	}
 	for _, c := range cases {
-		if _, err := encodeAddress(c); err == nil {
+		if _, err := encodeAddr(c); err == nil {
 			t.Errorf("expected error for %q", c)
 		}
 	}
 }
 
-func TestEncodeAddressRejectsLongDomain(t *testing.T) {
+func TestEncodeAddrRejectsLongDomain(t *testing.T) {
 	long := make([]byte, 256)
 	for i := range long {
 		long[i] = 'a'
 	}
-	if _, err := encodeAddress(string(long) + ":443"); err == nil {
+	if _, err := encodeAddr(string(long) + ":443"); err == nil {
 		t.Error("expected error for domain > 255 bytes")
 	}
 }
@@ -91,7 +90,7 @@ func TestEncodeHeaderFullBytes(t *testing.T) {
 	sum := cnet.SHA224([]byte("secret"))
 	hex.Encode(hashHex[:], sum)
 
-	got, err := encodeHeader(hashHex, "1.2.3.4:80")
+	got, err := encodeHeader(hashHex, cmdConnect, "1.2.3.4:80")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,6 +103,24 @@ func TestEncodeHeaderFullBytes(t *testing.T) {
 
 	if !bytes.Equal(got, want) {
 		t.Fatalf("header mismatch\n got=%x\nwant=%x", got, want)
+	}
+}
+
+func TestEncodeHeaderUDPAssociate(t *testing.T) {
+	var hashHex [56]byte
+	sum := cnet.SHA224([]byte("secret"))
+	hex.Encode(hashHex[:], sum)
+
+	got, err := encodeHeader(hashHex, cmdUDPAssociate, "0.0.0.0:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Bytes at offset 58 should be CMD=0x03, then atypIPv4, then 0.0.0.0:0.
+	if got[58] != cmdUDPAssociate {
+		t.Errorf("cmd byte = %#x, want %#x", got[58], cmdUDPAssociate)
+	}
+	if got[59] != atypIPv4 {
+		t.Errorf("atyp = %#x, want %#x", got[59], atypIPv4)
 	}
 }
 
