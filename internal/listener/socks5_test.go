@@ -375,6 +375,74 @@ func TestSOCKSv5BindRejected(t *testing.T) {
 	}
 }
 
+func TestSOCKSv5MaxConnections(t *testing.T) {
+	// A dialer that blocks forever: lets us pin concurrent handlers.
+	block := make(chan struct{})
+	defer close(block)
+	blockingDial := func(ctx context.Context, network, address string) (net.Conn, error) {
+		<-block
+		return nil, errors.New("unblocked for teardown")
+	}
+
+	s := &SOCKSv5{
+		addr: "127.0.0.1:0",
+		dial: blockingDial,
+		opts: Options{MaxConnections: 1},
+		sem:  make(chan struct{}, 1),
+	}
+	if err := s.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	defer s.Stop()
+
+	// First client: take the single slot.
+	first, err := net.Dial("tcp", s.Addr())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer first.Close()
+	greet := []byte{0x05, 0x01, 0x00}
+	if _, err := first.Write(greet); err != nil {
+		t.Fatal(err)
+	}
+	methodReply := make([]byte, 2)
+	if _, err := readFull(first, methodReply); err != nil {
+		t.Fatal(err)
+	}
+	// Issue a CONNECT so the handler enters the blocking dial.
+	req := []byte{0x05, 0x01, 0x00, 0x01, 1, 1, 1, 1, 0, 80}
+	if _, err := first.Write(req); err != nil {
+		t.Fatal(err)
+	}
+
+	// Wait until the slot is consumed.
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if len(s.sem) == 1 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if len(s.sem) != 1 {
+		t.Fatalf("semaphore not filled; got len=%d", len(s.sem))
+	}
+
+	// Second client: connects but the handler goroutine is blocked on the
+	// semaphore; verify the TCP connection was accepted (kernel queue) but no
+	// second dial has fired.
+	second, err := net.Dial("tcp", s.Addr())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer second.Close()
+
+	// The semaphore should still be at 1 — no second handler advanced.
+	time.Sleep(50 * time.Millisecond)
+	if got := len(s.sem); got != 1 {
+		t.Errorf("expected semaphore still full at 1, got %d", got)
+	}
+}
+
 func TestSOCKSv5Stop(t *testing.T) {
 	s, addr := newTestListener(t, nil, func(ctx context.Context, network, address string) (net.Conn, error) {
 		return nil, errors.New("no dialer wanted")

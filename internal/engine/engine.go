@@ -13,6 +13,11 @@ import (
 	"github.com/clambhook/clambhook/internal/protocol"
 )
 
+// defaultSOCKS5MaxConns is the default concurrent-handler ceiling when the
+// profile doesn't set socks5_max_connections. Generous for personal use;
+// bounds the blast radius of a runaway client.
+const defaultSOCKS5MaxConns = 512
+
 // Status represents the engine's current state.
 type Status struct {
 	Running   bool             `json:"running"`
@@ -161,7 +166,15 @@ func buildListeners(profile *config.Profile) ([]listener.Listener, error) {
 				Password: profile.Listen.SOCKS5Auth.Password,
 			}
 		}
-		out = append(out, listener.NewSOCKSv5(addr, auth, ch))
+		maxConns := profile.Listen.SOCKS5MaxConns
+		if maxConns == 0 {
+			// Default ceiling — generous enough for a personal proxy but bounded
+			// so a runaway client can't exhaust FDs. Operators set 0 explicitly
+			// via config is treated the same; override with any positive int.
+			maxConns = defaultSOCKS5MaxConns
+		}
+		opts := listener.Options{MaxConnections: maxConns}
+		out = append(out, listener.NewSOCKSv5(addr, auth, ch, opts))
 	}
 
 	return out, nil
