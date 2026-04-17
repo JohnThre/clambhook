@@ -37,10 +37,11 @@ type ServerConfig struct {
 
 // ListenConfig defines local proxy listener addresses.
 type ListenConfig struct {
-	SOCKS5      string      `toml:"socks5"`
-	SOCKS5Chain string      `toml:"socks5_chain"`
-	SOCKS5Auth  *SOCKS5Auth `toml:"socks5_auth,omitempty"`
-	HTTP        string      `toml:"http"`
+	SOCKS5         string      `toml:"socks5"`
+	SOCKS5Chain    string      `toml:"socks5_chain"`
+	SOCKS5Auth     *SOCKS5Auth `toml:"socks5_auth,omitempty"`
+	SOCKS5MaxConns int         `toml:"socks5_max_connections"`
+	HTTP           string      `toml:"http"`
 }
 
 // SOCKS5Auth carries optional RFC 1929 credentials for the SOCKS5 listener.

@@ -12,6 +12,9 @@ name = "🇺🇸 US Fast"
   # socks5_chain selects which chain the SOCKS5 listener routes through.
   # Omit to use the first chain defined below.
   # socks5_chain = "default"
+  # socks5_max_connections caps concurrent in-flight handlers. Omit or set
+  # to 0 for the built-in default (512). New clients block until a slot frees.
+  # socks5_max_connections = 512
 
   # Optional RFC 1929 username/password auth for the SOCKS5 listener.
   # Presence of this table switches the listener to require credentials.

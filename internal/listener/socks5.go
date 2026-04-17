@@ -23,8 +23,29 @@ type AuthCreds struct {
 	Password string
 }
 
-// stopGrace is how long Stop waits for in-flight handlers to finish.
-const stopGrace = 5 * time.Second
+// Options tunes per-listener runtime behavior. Zero values mean "use the
+// default" for each field — callers can pass a zero-valued Options and get
+// sensible behavior.
+type Options struct {
+	// MaxConnections caps concurrent in-flight client handlers. 0 means
+	// unlimited (the previous behavior). When the ceiling is hit, new
+	// accepts are held until an existing handler finishes.
+	MaxConnections int
+
+	// HandshakeTimeout is the deadline applied to a client from the moment
+	// we accept it until we finish the SOCKS5 handshake. 0 means use the
+	// default.
+	HandshakeTimeout time.Duration
+}
+
+const (
+	// stopGrace is how long Stop waits for in-flight handlers to finish.
+	stopGrace = 5 * time.Second
+
+	// defaultHandshakeTimeout bounds the pre-relay handshake so a silent
+	// client can't pin a goroutine forever.
+	defaultHandshakeTimeout = 30 * time.Second
+)
 
 // dialFunc abstracts "open a connection to address through whatever
 // transport the listener is wired to". Production wires it to chain.Dial;
@@ -38,6 +59,11 @@ type SOCKSv5 struct {
 	auth      *AuthCreds
 	dial      dialFunc
 	chainName string // for logging
+	opts      Options
+
+	// sem, if non-nil, is a buffered channel acting as a concurrency
+	// semaphore: acquire before spawning a handler, release on return.
+	sem chan struct{}
 
 	mu     sync.Mutex
 	ln     net.Listener
@@ -46,8 +72,8 @@ type SOCKSv5 struct {
 }
 
 // NewSOCKSv5 constructs a listener. ch must be non-nil; addr must be a TCP
-// address understood by net.Listen.
-func NewSOCKSv5(addr string, auth *AuthCreds, ch *chain.Chain) *SOCKSv5 {
+// address understood by net.Listen. Pass a zero-valued Options for defaults.
+func NewSOCKSv5(addr string, auth *AuthCreds, ch *chain.Chain, opts Options) *SOCKSv5 {
 	var dial dialFunc
 	name := ""
 	if ch != nil {
@@ -56,7 +82,19 @@ func NewSOCKSv5(addr string, auth *AuthCreds, ch *chain.Chain) *SOCKSv5 {
 			return ch.Dial(ctx, network, address)
 		}
 	}
-	return &SOCKSv5{addr: addr, auth: auth, dial: dial, chainName: name}
+	s := &SOCKSv5{addr: addr, auth: auth, dial: dial, chainName: name, opts: opts}
+	if opts.MaxConnections > 0 {
+		s.sem = make(chan struct{}, opts.MaxConnections)
+	}
+	return s
+}
+
+// handshakeTimeout returns the configured timeout or the default.
+func (s *SOCKSv5) handshakeTimeout() time.Duration {
+	if s.opts.HandshakeTimeout > 0 {
+		return s.opts.HandshakeTimeout
+	}
+	return defaultHandshakeTimeout
 }
 
 // Protocol implements Listener.
@@ -148,10 +186,27 @@ func (s *SOCKSv5) acceptLoop(ctx context.Context, ln net.Listener) {
 			}
 			continue
 		}
+
+		// Acquire a slot from the semaphore before spawning the handler.
+		// When the ceiling is hit, this blocks until another handler
+		// finishes, applying natural back-pressure to new accepts.
+		// During shutdown, ctx.Done() unblocks and we close the conn.
+		if s.sem != nil {
+			select {
+			case s.sem <- struct{}{}:
+			case <-ctx.Done():
+				_ = conn.Close()
+				return
+			}
+		}
+
 		s.wg.Add(1)
 		go func() {
 			defer s.wg.Done()
 			defer conn.Close()
+			if s.sem != nil {
+				defer func() { <-s.sem }()
+			}
 			s.handleConn(ctx, conn)
 		}()
 	}
@@ -160,7 +215,7 @@ func (s *SOCKSv5) acceptLoop(ctx context.Context, ln net.Listener) {
 func (s *SOCKSv5) handleConn(ctx context.Context, client net.Conn) {
 	// Bound the handshake so a silent client can't pin a goroutine forever.
 	// Once relaying starts we clear the deadline.
-	_ = client.SetDeadline(time.Now().Add(30 * time.Second))
+	_ = client.SetDeadline(time.Now().Add(s.handshakeTimeout()))
 
 	if err := s.negotiate(client); err != nil {
 		log.Printf("socks5: negotiation from %s failed: %v", client.RemoteAddr(), err)
