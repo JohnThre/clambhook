@@ -443,6 +443,57 @@ func TestSOCKSv5MaxConnections(t *testing.T) {
 	}
 }
 
+func TestSOCKSv5ActiveConnsCounter(t *testing.T) {
+	block := make(chan struct{})
+	defer close(block)
+	blockingDial := func(ctx context.Context, network, address string) (net.Conn, error) {
+		<-block
+		return nil, errors.New("unblocked for teardown")
+	}
+
+	s := &SOCKSv5{
+		addr: "127.0.0.1:0",
+		dial: blockingDial,
+	}
+	if err := s.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	defer s.Stop()
+
+	if got := s.ActiveConns(); got != 0 {
+		t.Errorf("initial ActiveConns = %d, want 0", got)
+	}
+
+	client, err := net.Dial("tcp", s.Addr())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+	if _, err := client.Write([]byte{0x05, 0x01, 0x00}); err != nil {
+		t.Fatal(err)
+	}
+	greet := make([]byte, 2)
+	if _, err := readFull(client, greet); err != nil {
+		t.Fatal(err)
+	}
+	req := []byte{0x05, 0x01, 0x00, 0x01, 1, 1, 1, 1, 0, 80}
+	if _, err := client.Write(req); err != nil {
+		t.Fatal(err)
+	}
+
+	// Wait for handler to enter the blocking dial (counter becomes 1).
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if s.ActiveConns() == 1 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if got := s.ActiveConns(); got != 1 {
+		t.Errorf("ActiveConns during handshake = %d, want 1", got)
+	}
+}
+
 func TestSOCKSv5Stop(t *testing.T) {
 	s, addr := newTestListener(t, nil, func(ctx context.Context, network, address string) (net.Conn, error) {
 		return nil, errors.New("no dialer wanted")
