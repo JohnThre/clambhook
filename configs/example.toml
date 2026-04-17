@@ -9,6 +9,15 @@ name = "🇺🇸 US Fast"
   [profile.listen]
   socks5 = "127.0.0.1:1080"
   http   = "127.0.0.1:8080"
+  # socks5_chain selects which chain the SOCKS5 listener routes through.
+  # Omit to use the first chain defined below.
+  # socks5_chain = "default"
+
+  # Optional RFC 1929 username/password auth for the SOCKS5 listener.
+  # Presence of this table switches the listener to require credentials.
+  # [profile.listen.socks5_auth]
+  # username = "alice"
+  # password = "hunter2"
 
   [profile.api]
   listen = "127.0.0.1:9090"
