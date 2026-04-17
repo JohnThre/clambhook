@@ -37,8 +37,18 @@ type ServerConfig struct {
 
 // ListenConfig defines local proxy listener addresses.
 type ListenConfig struct {
-	SOCKS5 string `toml:"socks5"`
-	HTTP   string `toml:"http"`
+	SOCKS5      string      `toml:"socks5"`
+	SOCKS5Chain string      `toml:"socks5_chain"`
+	SOCKS5Auth  *SOCKS5Auth `toml:"socks5_auth,omitempty"`
+	HTTP        string      `toml:"http"`
+}
+
+// SOCKS5Auth carries optional RFC 1929 credentials for the SOCKS5 listener.
+// Presence of this stanza (even with empty fields) switches the listener to
+// require username/password authentication.
+type SOCKS5Auth struct {
+	Username string `toml:"username"`
+	Password string `toml:"password"`
 }
 
 // APIConfig defines the API server settings.
