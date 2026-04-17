@@ -26,4 +26,8 @@ type Listener interface {
 	// Protocol returns a short identifier ("socks5", "http") for Status
 	// reporting.
 	Protocol() string
+
+	// ActiveConns returns the count of handlers currently in flight.
+	// Cheap (atomic load) — safe to call from a status-polling loop.
+	ActiveConns() int64
 }

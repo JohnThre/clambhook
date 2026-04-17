@@ -9,6 +9,7 @@ import (
 	"log"
 	"net"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/clambhook/clambhook/internal/chain"
@@ -65,11 +66,18 @@ type SOCKSv5 struct {
 	// semaphore: acquire before spawning a handler, release on return.
 	sem chan struct{}
 
+	// active tracks in-flight handlers for observability. Incremented once
+	// the goroutine is actually running, decremented on return.
+	active atomic.Int64
+
 	mu     sync.Mutex
 	ln     net.Listener
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
 }
+
+// ActiveConns implements Listener.
+func (s *SOCKSv5) ActiveConns() int64 { return s.active.Load() }
 
 // NewSOCKSv5 constructs a listener. ch must be non-nil; addr must be a TCP
 // address understood by net.Listen. Pass a zero-valued Options for defaults.
@@ -207,6 +215,8 @@ func (s *SOCKSv5) acceptLoop(ctx context.Context, ln net.Listener) {
 			if s.sem != nil {
 				defer func() { <-s.sem }()
 			}
+			s.active.Add(1)
+			defer s.active.Add(-1)
 			s.handleConn(ctx, conn)
 		}()
 	}

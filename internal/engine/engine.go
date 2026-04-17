@@ -27,8 +27,9 @@ type Status struct {
 
 // ListenerStatus reports a single active listener.
 type ListenerStatus struct {
-	Protocol string `json:"protocol"`
-	Addr     string `json:"addr"`
+	Protocol    string `json:"protocol"`
+	Addr        string `json:"addr"`
+	ActiveConns int64  `json:"active_conns"`
 }
 
 // Engine manages the connection lifecycle.
@@ -191,8 +192,9 @@ func (e *Engine) Status() Status {
 	}
 	for _, l := range e.listeners {
 		s.Listeners = append(s.Listeners, ListenerStatus{
-			Protocol: l.Protocol(),
-			Addr:     l.Addr(),
+			Protocol:    l.Protocol(),
+			Addr:        l.Addr(),
+			ActiveConns: l.ActiveConns(),
 		})
 	}
 	return s
