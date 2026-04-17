@@ -46,6 +46,11 @@ func New(cfg *config.Config) *Engine {
 }
 
 // Start begins accepting connections with the active profile.
+//
+// The supplied ctx is used only for orchestrating the startup itself (e.g.,
+// cancelling a slow listener bind). Listener lifetime is governed by the
+// engine's own internal context; callers with a short-lived ctx (like an
+// HTTP handler) can safely return without tearing listeners down.
 func (e *Engine) Start(ctx context.Context) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -53,39 +58,7 @@ func (e *Engine) Start(ctx context.Context) error {
 	if e.running {
 		return fmt.Errorf("engine already running")
 	}
-
-	profile, err := e.cfg.ActiveProfile()
-	if err != nil {
-		return fmt.Errorf("start engine: %w", err)
-	}
-
-	ctx, e.cancel = context.WithCancel(ctx)
-
-	listeners, err := buildListeners(profile)
-	if err != nil {
-		e.cancel()
-		e.cancel = nil
-		return fmt.Errorf("start engine: %w", err)
-	}
-
-	for i, l := range listeners {
-		if err := l.Start(ctx); err != nil {
-			// Roll back the listeners we already started.
-			for j := 0; j < i; j++ {
-				if stopErr := listeners[j].Stop(); stopErr != nil {
-					log.Printf("engine: rollback stop %s: %v", listeners[j].Protocol(), stopErr)
-				}
-			}
-			e.cancel()
-			e.cancel = nil
-			return fmt.Errorf("start %s: %w", l.Protocol(), err)
-		}
-	}
-
-	e.listeners = listeners
-	e.running = true
-	log.Printf("engine started with profile %q (%d listeners)", profile.Name, len(listeners))
-	return nil
+	return e.startLocked()
 }
 
 // Stop shuts down the engine.
@@ -96,7 +69,101 @@ func (e *Engine) Stop() error {
 	if !e.running {
 		return nil
 	}
+	err := e.stopLocked()
+	log.Printf("engine stopped")
+	return err
+}
 
+// Reload applies a new configuration. If the engine is currently running,
+// listeners are torn down and rebuilt against the new profile — so a switch
+// of active profile or a listener-affecting config change takes effect
+// without requiring an explicit disconnect/connect cycle.
+func (e *Engine) Reload(cfg *config.Config) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	e.cfg = cfg
+	if !e.running {
+		log.Printf("engine configuration reloaded (idle)")
+		return nil
+	}
+
+	// Restart listeners against the new profile. If startup fails we leave
+	// the engine stopped — the caller can inspect Status and retry with a
+	// corrected config.
+	if err := e.stopLocked(); err != nil {
+		log.Printf("reload: stop listeners: %v", err)
+	}
+	if err := e.startLocked(); err != nil {
+		return fmt.Errorf("reload: restart: %w", err)
+	}
+	log.Printf("engine reloaded live — listeners rebuilt")
+	return nil
+}
+
+// SetActiveProfile switches the active profile and, if running, rebuilds
+// listeners for it. Returns an error if the profile isn't defined.
+func (e *Engine) SetActiveProfile(name string) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	if _, ok := e.cfg.ProfileByName(name); !ok {
+		return fmt.Errorf("profile %q not found", name)
+	}
+	e.cfg.Active = name
+	if !e.running {
+		return nil
+	}
+	if err := e.stopLocked(); err != nil {
+		log.Printf("profile switch: stop listeners: %v", err)
+	}
+	if err := e.startLocked(); err != nil {
+		return fmt.Errorf("profile switch: restart: %w", err)
+	}
+	log.Printf("engine switched to profile %q — listeners rebuilt", name)
+	return nil
+}
+
+// startLocked performs the actual listener setup. Caller holds e.mu.
+func (e *Engine) startLocked() error {
+	profile, err := e.cfg.ActiveProfile()
+	if err != nil {
+		return fmt.Errorf("start engine: %w", err)
+	}
+
+	// Engine owns its own context — independent of any caller's ctx. This
+	// lets short-lived callers (HTTP handlers, CLI one-shots) invoke Start
+	// without their ctx cancellation tearing listeners down.
+	ctx, cancel := context.WithCancel(context.Background())
+
+	listeners, err := buildListeners(profile)
+	if err != nil {
+		cancel()
+		return fmt.Errorf("start engine: %w", err)
+	}
+
+	for i, l := range listeners {
+		if startErr := l.Start(ctx); startErr != nil {
+			// Roll back the listeners we already started.
+			for j := 0; j < i; j++ {
+				if stopErr := listeners[j].Stop(); stopErr != nil {
+					log.Printf("engine: rollback stop %s: %v", listeners[j].Protocol(), stopErr)
+				}
+			}
+			cancel()
+			return fmt.Errorf("start %s: %w", l.Protocol(), startErr)
+		}
+	}
+
+	e.cancel = cancel
+	e.listeners = listeners
+	e.running = true
+	log.Printf("engine started with profile %q (%d listeners)", profile.Name, len(listeners))
+	return nil
+}
+
+// stopLocked performs the actual listener teardown. Caller holds e.mu.
+func (e *Engine) stopLocked() error {
 	var errs []error
 	for _, l := range e.listeners {
 		if err := l.Stop(); err != nil {
@@ -110,17 +177,7 @@ func (e *Engine) Stop() error {
 		e.cancel = nil
 	}
 	e.running = false
-	log.Printf("engine stopped")
 	return errors.Join(errs...)
-}
-
-// Reload applies a new configuration.
-func (e *Engine) Reload(cfg *config.Config) error {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	e.cfg = cfg
-	log.Printf("engine configuration reloaded")
-	return nil
 }
 
 // Status returns the engine's current status.
