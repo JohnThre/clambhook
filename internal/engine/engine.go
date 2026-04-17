@@ -173,7 +173,10 @@ func buildListeners(profile *config.Profile) ([]listener.Listener, error) {
 			// via config is treated the same; override with any positive int.
 			maxConns = defaultSOCKS5MaxConns
 		}
-		opts := listener.Options{MaxConnections: maxConns}
+		opts := listener.Options{
+			MaxConnections:   maxConns,
+			HandshakeTimeout: profile.Listen.SOCKS5HandshakeTimeout.Std(),
+		}
 		out = append(out, listener.NewSOCKSv5(addr, auth, ch, opts))
 	}
 
