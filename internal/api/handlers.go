@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 )
 
 func (s *Server) registerRoutes(mux *http.ServeMux) {
@@ -34,14 +35,16 @@ func (s *Server) handleSetActiveProfile(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	cfg := s.engine.Config()
-	if _, ok := cfg.ProfileByName(req.Name); !ok {
-		http.Error(w, "profile not found", http.StatusNotFound)
+	if err := s.engine.SetActiveProfile(req.Name); err != nil {
+		// "not found" is the only user-correctable case.
+		status := http.StatusInternalServerError
+		if strings.Contains(err.Error(), "not found") {
+			status = http.StatusNotFound
+		}
+		http.Error(w, err.Error(), status)
 		return
 	}
-
-	cfg.Active = req.Name
-	writeJSON(w, map[string]string{"active": req.Name})
+	writeJSON(w, s.engine.Status())
 }
 
 func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request) {
