@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/BurntSushi/toml"
 )
@@ -37,12 +38,30 @@ type ServerConfig struct {
 
 // ListenConfig defines local proxy listener addresses.
 type ListenConfig struct {
-	SOCKS5         string      `toml:"socks5"`
-	SOCKS5Chain    string      `toml:"socks5_chain"`
-	SOCKS5Auth     *SOCKS5Auth `toml:"socks5_auth,omitempty"`
-	SOCKS5MaxConns int         `toml:"socks5_max_connections"`
-	HTTP           string      `toml:"http"`
+	SOCKS5                 string      `toml:"socks5"`
+	SOCKS5Chain            string      `toml:"socks5_chain"`
+	SOCKS5Auth             *SOCKS5Auth `toml:"socks5_auth,omitempty"`
+	SOCKS5MaxConns         int         `toml:"socks5_max_connections"`
+	SOCKS5HandshakeTimeout Duration    `toml:"socks5_handshake_timeout"`
+	HTTP                   string      `toml:"http"`
 }
+
+// Duration is a time.Duration that parses from a TOML string like "30s" or
+// "2m". BurntSushi/toml supports this via a TextUnmarshaler.
+type Duration time.Duration
+
+// UnmarshalText parses a Go-duration-formatted string.
+func (d *Duration) UnmarshalText(text []byte) error {
+	v, err := time.ParseDuration(string(text))
+	if err != nil {
+		return err
+	}
+	*d = Duration(v)
+	return nil
+}
+
+// Std returns the value as a standard library time.Duration.
+func (d Duration) Std() time.Duration { return time.Duration(d) }
 
 // SOCKS5Auth carries optional RFC 1929 credentials for the SOCKS5 listener.
 // Presence of this stanza (even with empty fields) switches the listener to

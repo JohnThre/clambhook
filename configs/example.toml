@@ -15,6 +15,11 @@ name = "🇺🇸 US Fast"
   # socks5_max_connections caps concurrent in-flight handlers. Omit or set
   # to 0 for the built-in default (512). New clients block until a slot frees.
   # socks5_max_connections = 512
+  # socks5_handshake_timeout bounds how long a client has to complete the
+  # SOCKS5 greeting + auth + request before the listener disconnects it.
+  # Accepts any Go duration ("30s", "2m"). Default 30s. Cleared before relay,
+  # so long-lived tunnels are unaffected.
+  # socks5_handshake_timeout = "30s"
 
   # Optional RFC 1929 username/password auth for the SOCKS5 listener.
   # Presence of this table switches the listener to require credentials.
