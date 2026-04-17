@@ -53,14 +53,21 @@ const (
 // tests use a net.Pipe-backed stub.
 type dialFunc func(ctx context.Context, network, address string) (net.Conn, error)
 
+// packetDialFunc abstracts "open a UDP-carrying session through the chain".
+// Production wires it to chain.DialPacket; tests stub it out. nil means the
+// listener's chain does not support UDP — UDP ASSOCIATE requests will be
+// rejected with reply 0x07 (command not supported).
+type packetDialFunc func(ctx context.Context, address string) (net.PacketConn, error)
+
 // SOCKSv5 is a SOCKS5 TCP listener that routes each accepted connection
 // through a single chain.
 type SOCKSv5 struct {
-	addr      string
-	auth      *AuthCreds
-	dial      dialFunc
-	chainName string // for logging
-	opts      Options
+	addr       string
+	auth       *AuthCreds
+	dial       dialFunc
+	dialPacket packetDialFunc // optional — nil means UDP ASSOCIATE is rejected
+	chainName  string         // for logging
+	opts       Options
 
 	// sem, if non-nil, is a buffered channel acting as a concurrency
 	// semaphore: acquire before spawning a handler, release on return.
@@ -81,16 +88,35 @@ func (s *SOCKSv5) ActiveConns() int64 { return s.active.Load() }
 
 // NewSOCKSv5 constructs a listener. ch must be non-nil; addr must be a TCP
 // address understood by net.Listen. Pass a zero-valued Options for defaults.
+//
+// The returned listener advertises UDP ASSOCIATE support by probing ch for
+// a PacketDialer at Start time. If any hop in the chain can't carry UDP,
+// UDP requests fall back to reply 0x07 (command not supported).
 func NewSOCKSv5(addr string, auth *AuthCreds, ch *chain.Chain, opts Options) *SOCKSv5 {
 	var dial dialFunc
+	var dialPacket packetDialFunc
 	name := ""
 	if ch != nil {
 		name = ch.Name
 		dial = func(ctx context.Context, network, address string) (net.Conn, error) {
 			return ch.Dial(ctx, network, address)
 		}
+		dialPacket = func(ctx context.Context, address string) (net.PacketConn, error) {
+			pc, err := ch.DialPacket(ctx, address)
+			if err != nil {
+				return nil, err
+			}
+			return pc, nil
+		}
 	}
-	s := &SOCKSv5{addr: addr, auth: auth, dial: dial, chainName: name, opts: opts}
+	s := &SOCKSv5{
+		addr:       addr,
+		auth:       auth,
+		dial:       dial,
+		dialPacket: dialPacket,
+		chainName:  name,
+		opts:       opts,
+	}
 	if opts.MaxConnections > 0 {
 		s.sem = make(chan struct{}, opts.MaxConnections)
 	}
@@ -242,7 +268,13 @@ func (s *SOCKSv5) handleConn(ctx context.Context, client net.Conn) {
 	switch req.cmd {
 	case cmdConnect:
 		s.handleConnect(ctx, client, req)
-	case cmdUDPAssociate, cmdBind:
+	case cmdUDPAssociate:
+		if s.dialPacket == nil {
+			_ = writeReply(client, repCmdNotSupported, "")
+			return
+		}
+		s.handleUDPAssociate(ctx, client)
+	case cmdBind:
 		_ = writeReply(client, repCmdNotSupported, "")
 	default:
 		_ = writeReply(client, repCmdNotSupported, "")
