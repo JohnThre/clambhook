@@ -1,19 +1,47 @@
 #include "cnet.h"
+#include <sodium.h>
+#include <stdlib.h>
 #include <string.h>
+
+_Static_assert(crypto_aead_aes256gcm_ABYTES == 16,
+               "AES-256-GCM tag size must be 16 bytes");
+_Static_assert(crypto_aead_aes256gcm_KEYBYTES == 32,
+               "AES-256-GCM key size must be 32 bytes");
+_Static_assert(crypto_aead_aes256gcm_NPUBBYTES == 12,
+               "AES-256-GCM nonce size must be 12 bytes");
+_Static_assert(crypto_aead_chacha20poly1305_ietf_ABYTES == 16,
+               "ChaCha20-Poly1305-IETF tag size must be 16 bytes");
+_Static_assert(crypto_aead_chacha20poly1305_ietf_KEYBYTES == 32,
+               "ChaCha20-Poly1305-IETF key size must be 32 bytes");
+_Static_assert(crypto_aead_chacha20poly1305_ietf_NPUBBYTES == 12,
+               "ChaCha20-Poly1305-IETF nonce size must be 12 bytes");
+
+__attribute__((constructor))
+static void cnet_crypto_init(void) {
+    if (sodium_init() < 0) {
+        abort();
+    }
+}
+
+int cnet_aes256gcm_available(void) {
+    return crypto_aead_aes256gcm_is_available();
+}
 
 int cnet_aes256gcm_encrypt(const uint8_t *key, const uint8_t *nonce,
                            const uint8_t *plaintext, size_t pt_len,
                            const uint8_t *aad, size_t aad_len,
                            uint8_t *ciphertext, uint8_t *tag) {
-    (void)key;
-    (void)nonce;
-    (void)plaintext;
-    (void)pt_len;
-    (void)aad;
-    (void)aad_len;
-    (void)ciphertext;
-    (void)tag;
-    return 0;
+    if (!crypto_aead_aes256gcm_is_available()) {
+        return CNET_ERR_AES_UNAVAIL;
+    }
+    if (crypto_aead_aes256gcm_encrypt_detached(
+            ciphertext, tag, NULL,
+            plaintext, pt_len,
+            aad, aad_len,
+            NULL, nonce, key) != 0) {
+        return CNET_ERR_INIT;
+    }
+    return CNET_OK;
 }
 
 int cnet_aes256gcm_decrypt(const uint8_t *key, const uint8_t *nonce,
@@ -21,30 +49,31 @@ int cnet_aes256gcm_decrypt(const uint8_t *key, const uint8_t *nonce,
                            const uint8_t *aad, size_t aad_len,
                            const uint8_t *tag,
                            uint8_t *plaintext) {
-    (void)key;
-    (void)nonce;
-    (void)ciphertext;
-    (void)ct_len;
-    (void)aad;
-    (void)aad_len;
-    (void)tag;
-    (void)plaintext;
-    return 0;
+    if (!crypto_aead_aes256gcm_is_available()) {
+        return CNET_ERR_AES_UNAVAIL;
+    }
+    if (crypto_aead_aes256gcm_decrypt_detached(
+            plaintext, NULL,
+            ciphertext, ct_len,
+            tag, aad, aad_len,
+            nonce, key) != 0) {
+        return CNET_ERR_AUTH;
+    }
+    return CNET_OK;
 }
 
 int cnet_chacha20poly1305_encrypt(const uint8_t *key, const uint8_t *nonce,
                                   const uint8_t *plaintext, size_t pt_len,
                                   const uint8_t *aad, size_t aad_len,
                                   uint8_t *ciphertext, uint8_t *tag) {
-    (void)key;
-    (void)nonce;
-    (void)plaintext;
-    (void)pt_len;
-    (void)aad;
-    (void)aad_len;
-    (void)ciphertext;
-    (void)tag;
-    return 0;
+    if (crypto_aead_chacha20poly1305_ietf_encrypt_detached(
+            ciphertext, tag, NULL,
+            plaintext, pt_len,
+            aad, aad_len,
+            NULL, nonce, key) != 0) {
+        return CNET_ERR_INIT;
+    }
+    return CNET_OK;
 }
 
 int cnet_chacha20poly1305_decrypt(const uint8_t *key, const uint8_t *nonce,
@@ -52,15 +81,14 @@ int cnet_chacha20poly1305_decrypt(const uint8_t *key, const uint8_t *nonce,
                                   const uint8_t *aad, size_t aad_len,
                                   const uint8_t *tag,
                                   uint8_t *plaintext) {
-    (void)key;
-    (void)nonce;
-    (void)ciphertext;
-    (void)ct_len;
-    (void)aad;
-    (void)aad_len;
-    (void)tag;
-    (void)plaintext;
-    return 0;
+    if (crypto_aead_chacha20poly1305_ietf_decrypt_detached(
+            plaintext, NULL,
+            ciphertext, ct_len,
+            tag, aad, aad_len,
+            nonce, key) != 0) {
+        return CNET_ERR_AUTH;
+    }
+    return CNET_OK;
 }
 
 /* SHA-256 round constants: first 32 bits of the fractional parts of
