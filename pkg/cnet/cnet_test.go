@@ -48,6 +48,67 @@ func TestSHA224(t *testing.T) {
 	}
 }
 
+// TestAES128GCM uses NIST SP 800-38D Test Case 4: 128-bit key, 96-bit IV,
+// 60-byte plaintext, 20-byte AAD. Verifies the new AES-128 path against the
+// canonical NIST vector (and validates the cgo bridge handles AAD correctly).
+func TestAES128GCM(t *testing.T) {
+	if !AES128GCMAvailable() {
+		t.Skip("AES-128-GCM not available on this host (no AES-NI / ARM Crypto)")
+	}
+
+	key := mustHex(t, "feffe9928665731c6d6a8f9467308308")
+	nonce := mustHex(t, "cafebabefacedbaddecaf888")
+	aad := mustHex(t, "feedfacedeadbeeffeedfacedeadbeefabaddad2")
+	plaintext := mustHex(t,
+		"d9313225f88406e5a55909c5aff5269a"+
+			"86a7a9531534f7da2e4c303d8a318a72"+
+			"1c3c0c95956809532fcf0e2449a6b525"+
+			"b16aedf5aa0de657ba637b39")
+	wantCT := mustHex(t,
+		"42831ec2217774244b7221b784d0d49c"+
+			"e3aa212f2c02a4e035c17e2329aca12e"+
+			"21d514b25466931c7d8f6a5aac84aa05"+
+			"1ba30b396a0aac973d58e091")
+	wantTag := mustHex(t, "5bc94fbc3221a5db94fae95ae7121a47")
+
+	ct, tag, err := AES128GCMEncrypt(key, nonce, plaintext, aad)
+	if err != nil {
+		t.Fatalf("encrypt: %v", err)
+	}
+	if !bytes.Equal(ct, wantCT) {
+		t.Errorf("ciphertext mismatch\n  got  %x\n  want %x", ct, wantCT)
+	}
+	if !bytes.Equal(tag, wantTag) {
+		t.Errorf("tag mismatch\n  got  %x\n  want %x", tag, wantTag)
+	}
+
+	pt, err := AES128GCMDecrypt(key, nonce, ct, aad, tag)
+	if err != nil {
+		t.Fatalf("decrypt: %v", err)
+	}
+	if !bytes.Equal(pt, plaintext) {
+		t.Errorf("round-trip plaintext mismatch\n  got  %x\n  want %x", pt, plaintext)
+	}
+}
+
+func TestAES128GCMTamper(t *testing.T) {
+	if !AES128GCMAvailable() {
+		t.Skip("AES-128-GCM not available on this host")
+	}
+	key := bytes.Repeat([]byte{0xaa}, 16)
+	nonce := bytes.Repeat([]byte{0xbb}, 12)
+	plaintext := []byte("sensitive payload")
+
+	ct, tag, err := AES128GCMEncrypt(key, nonce, plaintext, nil)
+	if err != nil {
+		t.Fatalf("encrypt: %v", err)
+	}
+	ct[0] ^= 1
+	if _, err := AES128GCMDecrypt(key, nonce, ct, nil, tag); err == nil {
+		t.Fatal("decrypt unexpectedly succeeded on tampered ciphertext")
+	}
+}
+
 // TestAES256GCM uses NIST SP 800-38D Test Case 16: 256-bit key, 96-bit IV,
 // 64-byte plaintext, no AAD.
 func TestAES256GCM(t *testing.T) {

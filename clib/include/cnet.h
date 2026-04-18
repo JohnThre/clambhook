@@ -30,6 +30,9 @@ int cnet_process_packet(const uint8_t *in, size_t in_len,
  * Returns CNET_OK on success; CNET_ERR_AUTH when decrypt authentication
  * fails; CNET_ERR_AES_UNAVAIL if AES-256-GCM is called on a host without
  * hardware AES.
+ *
+ * AES-128-GCM is provided in Go (pkg/cnet) using crypto/aes; libsodium
+ * intentionally omits 128-bit AES-GCM.
  */
 
 int cnet_aes256gcm_encrypt(const uint8_t *key, const uint8_t *nonce,
