@@ -70,3 +70,40 @@ name = "🔒 Double Hop"
       [profile.chain.server.settings]
       method   = "aes-256-gcm"
       password = "pass2"
+
+[[profile]]
+name = "🛡️ WireGuard"
+
+  [profile.listen]
+  socks5 = "127.0.0.1:1080"
+
+  [profile.api]
+  listen = "127.0.0.1:9090"
+
+  # WireGuard must be a single-hop chain: it can't tunnel inside another
+  # stream protocol, because its UDP-bound transport needs raw datagrams.
+  # Place it as the chain's only hop. The top-level `address` and the
+  # peer's `endpoint` must match (or `address` may be omitted entirely).
+  # Hostnames in `endpoint` are resolved at startup via the OS resolver
+  # — by design, since the endpoint sits *outside* the tunnel.
+  [[profile.chain]]
+  name = "wg-only"
+
+    [[profile.chain.server]]
+    name     = "wg-example"
+    address  = "wg.example.com:51820"
+    protocol = "wireguard"
+
+      [profile.chain.server.settings]
+      private_key = "REPLACE_WITH_BASE64_PRIVATE_KEY="
+      addresses   = ["10.0.0.2/32"]    # interior IP(s) on the WG NIC
+      dns         = ["1.1.1.1"]        # optional, used for in-tunnel DNS
+      mtu         = 1420               # optional, default 1420
+      log_level   = "error"            # silent | error | verbose
+
+        [[profile.chain.server.settings.peers]]
+        public_key           = "REPLACE_WITH_BASE64_PEER_PUBLIC_KEY="
+        endpoint             = "wg.example.com:51820"
+        allowed_ips          = ["0.0.0.0/0", "::/0"]
+        # preshared_key      = "REPLACE_WITH_BASE64_PSK="   # optional
+        persistent_keepalive = 25
