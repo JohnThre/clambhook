@@ -27,6 +27,13 @@ type Dialer interface {
 
 	// DialThrough establishes a connection using an existing connection
 	// as the transport layer. This enables chain proxy support.
+	//
+	// Ownership contract on error: if DialThrough returns a non-nil error,
+	// the implementation MUST have closed underlying. On success, ownership
+	// transfers to the returned Conn (whose Close is responsible for
+	// closing the whole chain). Callers — chain.Chain in particular — rely
+	// on this so they don't need to track underlying separately across the
+	// DialThrough boundary.
 	DialThrough(ctx context.Context, underlying io.ReadWriteCloser, address string) (Conn, error)
 
 	// Protocol returns the protocol name.
@@ -52,6 +59,9 @@ type PacketDialer interface {
 	// DialPacketThrough opens a UDP-carrying session using an existing
 	// connection as transport. Used when the final hop of a chain offers
 	// UDP over a stream already tunneled by the previous hops.
+	//
+	// Same ownership contract as Dialer.DialThrough: on error, the
+	// implementation MUST close underlying.
 	DialPacketThrough(ctx context.Context, underlying io.ReadWriteCloser, address string) (PacketConn, error)
 }
 
