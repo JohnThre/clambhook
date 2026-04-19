@@ -161,7 +161,7 @@ func TestUDPRoundTripThroughTLS(t *testing.T) {
 		t.Fatalf("write header: %v", err)
 	}
 
-	pc := &packetConn{tls: tlsConn, target: "1.1.1.1:53"}
+	pc := &packetConn{stream: tlsConn, target: "1.1.1.1:53"}
 	payload := []byte{0xde, 0xad, 0xbe, 0xef}
 	if _, err := pc.WriteTo(payload, &net.UDPAddr{IP: net.ParseIP("1.1.1.1"), Port: 53}); err != nil {
 		t.Fatalf("WriteTo: %v", err)

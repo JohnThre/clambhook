@@ -1,7 +1,6 @@
 package vless
 
 import (
-	"crypto/tls"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -24,12 +23,12 @@ import (
 // WriteTo's `addr` argument is ignored; ReadFrom reports the target baked
 // in at Dial time.
 type packetConn struct {
-	tls    *tls.Conn
-	target string // the per-session target set by DialPacket
+	stream net.Conn // outer transport: either *tls.Conn or *utls.UConn (Reality)
+	target string   // the per-session target set by DialPacket
 
-	// tls.Conn allows concurrent Read+Write but not concurrent Reads or
-	// concurrent Writes. Framing is message-boundary-aware, so serialize
-	// each direction to keep frames intact.
+	// The outer transport allows concurrent Read+Write but not concurrent
+	// Reads or concurrent Writes. Framing is message-boundary-aware, so
+	// serialize each direction to keep frames intact.
 	readMu   sync.Mutex
 	writeMu  sync.Mutex
 	respOnce sync.Once
@@ -46,7 +45,7 @@ func (p *packetConn) ReadFrom(buf []byte) (int, net.Addr, error) {
 	// The VLESS response header prefixes the entire session (not each
 	// datagram) — consume it lazily on first ReadFrom so DialPacket can
 	// return without blocking on server I/O.
-	p.respOnce.Do(func() { p.respErr = readResponse(p.tls) })
+	p.respOnce.Do(func() { p.respErr = readResponse(p.stream) })
 	if p.respErr != nil {
 		return 0, nil, p.respErr
 	}
@@ -55,7 +54,7 @@ func (p *packetConn) ReadFrom(buf []byte) (int, net.Addr, error) {
 	defer p.readMu.Unlock()
 
 	var lb [2]byte
-	if _, err := io.ReadFull(p.tls, lb[:]); err != nil {
+	if _, err := io.ReadFull(p.stream, lb[:]); err != nil {
 		return 0, nil, fmt.Errorf("vless: read udp length: %w", err)
 	}
 	length := int(binary.BigEndian.Uint16(lb[:]))
@@ -66,7 +65,7 @@ func (p *packetConn) ReadFrom(buf []byte) (int, net.Addr, error) {
 	addr := packetAddr{target: p.target}
 
 	if length <= len(buf) {
-		if _, err := io.ReadFull(p.tls, buf[:length]); err != nil {
+		if _, err := io.ReadFull(p.stream, buf[:length]); err != nil {
 			return 0, nil, fmt.Errorf("vless: read udp payload: %w", err)
 		}
 		return length, addr, nil
@@ -75,7 +74,7 @@ func (p *packetConn) ReadFrom(buf []byte) (int, net.Addr, error) {
 	// Payload larger than caller's buffer — read into scratch and truncate,
 	// matching net.PacketConn.ReadFrom semantics.
 	scratch := make([]byte, length)
-	if _, err := io.ReadFull(p.tls, scratch); err != nil {
+	if _, err := io.ReadFull(p.stream, scratch); err != nil {
 		return 0, nil, fmt.Errorf("vless: read udp payload: %w", err)
 	}
 	return copy(buf, scratch), addr, nil
@@ -97,19 +96,19 @@ func (p *packetConn) WriteTo(payload []byte, addr net.Addr) (int, error) {
 	frame := make([]byte, 0, 2+len(payload))
 	frame = binary.BigEndian.AppendUint16(frame, uint16(len(payload)))
 	frame = append(frame, payload...)
-	if _, err := p.tls.Write(frame); err != nil {
+	if _, err := p.stream.Write(frame); err != nil {
 		return 0, fmt.Errorf("vless: write udp frame: %w", err)
 	}
 	return len(payload), nil
 }
 
-func (p *packetConn) Close() error              { return p.tls.Close() }
-func (p *packetConn) LocalAddr() net.Addr       { return p.tls.LocalAddr() }
+func (p *packetConn) Close() error              { return p.stream.Close() }
+func (p *packetConn) LocalAddr() net.Addr       { return p.stream.LocalAddr() }
 func (p *packetConn) SetDeadline(t time.Time) error {
-	return p.tls.SetDeadline(t)
+	return p.stream.SetDeadline(t)
 }
-func (p *packetConn) SetReadDeadline(t time.Time) error  { return p.tls.SetReadDeadline(t) }
-func (p *packetConn) SetWriteDeadline(t time.Time) error { return p.tls.SetWriteDeadline(t) }
+func (p *packetConn) SetReadDeadline(t time.Time) error  { return p.stream.SetReadDeadline(t) }
+func (p *packetConn) SetWriteDeadline(t time.Time) error { return p.stream.SetWriteDeadline(t) }
 
 // packetAddr reports the session-wide target. Every datagram on this
 // packetConn has the same remote; it's set by DialPacket.
