@@ -28,9 +28,24 @@ name = "🇺🇸 US Fast"
   # so long-lived tunnels are unaffected.
   # socks5_handshake_timeout = "30s"
 
+  # HTTP proxy listener options mirror their SOCKS5 siblings. Both CONNECT
+  # (HTTPS tunnels) and plain-HTTP forward requests are accepted; one
+  # request per connection (keep-alive is disabled so each request gets a
+  # fresh chain dial).
+  # http_chain = "default"
+  # http_max_connections = 512
+  # http_handshake_timeout = "30s"
+
   # Optional RFC 1929 username/password auth for the SOCKS5 listener.
   # Presence of this table switches the listener to require credentials.
   # [profile.listen.socks5_auth]
+  # username = "alice"
+  # password = "hunter2"
+
+  # Optional RFC 7617 Basic auth for the HTTP proxy listener. Credentials
+  # are sent in the Proxy-Authorization header; missing or wrong creds
+  # return 407 Proxy Authentication Required.
+  # [profile.listen.http_auth]
   # username = "alice"
   # password = "hunter2"
 

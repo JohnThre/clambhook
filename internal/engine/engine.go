@@ -19,6 +19,9 @@ import (
 // bounds the blast radius of a runaway client.
 const defaultSOCKS5MaxConns = 512
 
+// defaultHTTPMaxConns mirrors defaultSOCKS5MaxConns for the HTTP listener.
+const defaultHTTPMaxConns = 512
+
 // Status represents the engine's current state.
 type Status struct {
 	Running   bool             `json:"running"`
@@ -295,6 +298,29 @@ func buildListeners(profile *config.Profile) ([]listener.Listener, error) {
 			HandshakeTimeout: profile.Listen.SOCKS5HandshakeTimeout.Std(),
 		}
 		out = append(out, listener.NewSOCKSv5(addr, auth, ch, opts))
+	}
+
+	if addr := profile.Listen.HTTP; addr != "" {
+		ch, err := resolveChain(profile, profile.Listen.HTTPChain)
+		if err != nil {
+			return nil, fmt.Errorf("http: %w", err)
+		}
+		var auth *listener.AuthCreds
+		if profile.Listen.HTTPAuth != nil {
+			auth = &listener.AuthCreds{
+				Username: profile.Listen.HTTPAuth.Username,
+				Password: profile.Listen.HTTPAuth.Password,
+			}
+		}
+		maxConns := profile.Listen.HTTPMaxConns
+		if maxConns == 0 {
+			maxConns = defaultHTTPMaxConns
+		}
+		opts := listener.Options{
+			MaxConnections:   maxConns,
+			HandshakeTimeout: profile.Listen.HTTPHandshakeTimeout.Std(),
+		}
+		out = append(out, listener.NewHTTP(addr, auth, ch, opts))
 	}
 
 	return out, nil

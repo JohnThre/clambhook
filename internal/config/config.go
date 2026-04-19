@@ -56,6 +56,10 @@ type ListenConfig struct {
 	SOCKS5MaxConns         int         `toml:"socks5_max_connections"`
 	SOCKS5HandshakeTimeout Duration    `toml:"socks5_handshake_timeout"`
 	HTTP                   string      `toml:"http"`
+	HTTPChain              string      `toml:"http_chain"`
+	HTTPAuth               *HTTPAuth   `toml:"http_auth,omitempty"`
+	HTTPMaxConns           int         `toml:"http_max_connections"`
+	HTTPHandshakeTimeout   Duration    `toml:"http_handshake_timeout"`
 }
 
 // Duration is a time.Duration that parses from a TOML string like "30s" or
@@ -79,6 +83,14 @@ func (d Duration) Std() time.Duration { return time.Duration(d) }
 // Presence of this stanza (even with empty fields) switches the listener to
 // require username/password authentication.
 type SOCKS5Auth struct {
+	Username string `toml:"username"`
+	Password string `toml:"password"`
+}
+
+// HTTPAuth carries optional RFC 7617 Basic credentials for the HTTP proxy
+// listener. Presence of this stanza switches the listener to require a
+// valid Proxy-Authorization: Basic <base64> header.
+type HTTPAuth struct {
 	Username string `toml:"username"`
 	Password string `toml:"password"`
 }
