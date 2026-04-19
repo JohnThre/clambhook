@@ -37,6 +37,10 @@ const (
 	TypeConnectionBytes       = "connection.bytes"
 	TypeConnectionClosed      = "connection.closed"
 
+	// Engine/daemon-level events. Emitted on shard 0 via Bus.PublishListener.
+	TypeConfigReloaded      = "config.reloaded"
+	TypeConfigReloadFailed  = "config.reload_failed"
+
 	// TypeReplayGap is emitted once when a subscriber's Since cursor points
 	// further back than the ring buffer retains. The subscriber should treat
 	// it as a signal that history is incomplete and re-sync UI state.
@@ -126,6 +130,19 @@ type ConnectionClosedData struct {
 type ReplayGapData struct {
 	ShardID       uint64 `json:"shard_id"`
 	OldestLamport uint64 `json:"oldest_lamport"`
+}
+
+// ConfigReloadedData is emitted after the daemon successfully reloads a
+// config file from disk (file watcher or explicit trigger).
+type ConfigReloadedData struct {
+	Path string `json:"path"`
+}
+
+// ConfigReloadFailedData is emitted when a config reload attempt fails —
+// either parse error from disk or the engine rejected the new config.
+type ConfigReloadFailedData struct {
+	Path  string `json:"path"`
+	Error string `json:"error"`
 }
 
 // Close reasons used by the listener teardown path.

@@ -201,6 +201,16 @@ func (b *Bus) NewEmitter(shard *Shard) Emitter {
 	return &busEmitter{bus: b, shard: shard}
 }
 
+// PublishListener emits an engine/daemon-level event on the reserved
+// shard 0 — for things like config reloads that aren't tied to any single
+// connection. No-op when the bus is nil so callers don't need to null-check.
+func (b *Bus) PublishListener(eventType string, data any) {
+	if b == nil {
+		return
+	}
+	b.Publish(b.listenerShard, eventType, data)
+}
+
 // Subscription is an open subscriber's view of the bus. It owns a buffered
 // channel and a context; cancelling the context tears down the subscription.
 type Subscription struct {
