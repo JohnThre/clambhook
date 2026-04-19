@@ -72,6 +72,60 @@ name = "🔒 Double Hop"
       password = "pass2"
 
 [[profile]]
+name = "🛰️ VLESS"
+
+  [profile.listen]
+  socks5 = "127.0.0.1:1080"
+
+  [profile.api]
+  listen = "127.0.0.1:9090"
+
+  # VLESS is plaintext — all confidentiality comes from the TLS wrapper
+  # beneath it. `uuid` is required; `flow` is restricted to "none" in this
+  # build (no xtls-rprx-vision / xudp).
+  [[profile.chain]]
+  name = "vless-only"
+
+    [[profile.chain.server]]
+    name     = "vless-us"
+    address  = "vless.example.com:443"
+    protocol = "vless"
+
+      [profile.chain.server.settings]
+      uuid = "REPLACE-WITH-USER-UUID-0000-000000000000"
+      sni  = "vless.example.com"
+      # alpn = ["h2", "http/1.1"]
+      # skip_cert_verify = false   # never set true in production
+
+[[profile]]
+name = "📮 VMess"
+
+  [profile.listen]
+  socks5 = "127.0.0.1:1080"
+
+  [profile.api]
+  listen = "127.0.0.1:9090"
+
+  # VMess AEAD. Legacy alter_id>0 and plaintext security modes are rejected.
+  # `security` selects the body AEAD: aes-128-gcm (default) or
+  # chacha20-poly1305. TLS is on by default; set tls=false only for local
+  # loopback testing.
+  [[profile.chain]]
+  name = "vmess-only"
+
+    [[profile.chain.server]]
+    name     = "vmess-eu"
+    address  = "vmess.example.com:443"
+    protocol = "vmess"
+
+      [profile.chain.server.settings]
+      uuid     = "REPLACE-WITH-USER-UUID-0000-000000000000"
+      security = "aes-128-gcm"       # or "chacha20-poly1305"
+      sni      = "vmess.example.com"
+      # tls = true
+      # alpn = ["h2", "http/1.1"]
+
+[[profile]]
 name = "🛡️ WireGuard"
 
   [profile.listen]
