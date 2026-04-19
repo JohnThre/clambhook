@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/BurntSushi/toml"
@@ -12,6 +13,17 @@ import (
 type Config struct {
 	Active   string    `toml:"active"`
 	Profiles []Profile `toml:"profile"`
+	Geo      GeoConfig `toml:"geo"`
+}
+
+// GeoConfig points at an MMDB file for IP → country/city lookups. Geo is a
+// display-side feature and applies across profiles, so it lives at the top
+// level rather than per-profile.
+type GeoConfig struct {
+	// Database is the path to an MMDB file (MaxMind GeoLite2 or a
+	// schema-compatible vendor). Relative paths are resolved against the
+	// config file's directory by Load. Empty = geo disabled.
+	Database string `toml:"database"`
 }
 
 // Profile represents a named configuration profile.
@@ -86,6 +98,12 @@ func Load(path string) (*Config, error) {
 	var cfg Config
 	if err := toml.Unmarshal(data, &cfg); err != nil {
 		return nil, fmt.Errorf("parse config: %w", err)
+	}
+
+	// Resolve a relative geo.database path against the config file's
+	// directory — matches how users intuitively think about TOML paths.
+	if cfg.Geo.Database != "" && !filepath.IsAbs(cfg.Geo.Database) {
+		cfg.Geo.Database = filepath.Join(filepath.Dir(path), cfg.Geo.Database)
 	}
 
 	return &cfg, nil

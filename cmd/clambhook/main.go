@@ -77,5 +77,8 @@ func main() {
 
 	log.Printf("shutting down...")
 	eng.Stop()
+	if err := eng.CloseGeo(); err != nil {
+		log.Printf("close geo: %v", err)
+	}
 	srv.Shutdown(context.Background())
 }
