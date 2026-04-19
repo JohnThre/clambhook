@@ -3,7 +3,9 @@ package chain
 import (
 	"context"
 	"fmt"
+	"time"
 
+	"github.com/clambhook/clambhook/internal/events"
 	"github.com/clambhook/clambhook/internal/protocol"
 )
 
@@ -11,6 +13,48 @@ import (
 type Chain struct {
 	Name  string
 	Nodes []protocol.Server
+}
+
+// emitHopDialing publishes hop.dialing if an emitter is attached to the
+// context. No-op when events are disabled (ctx has no emitter).
+func emitHopDialing(ctx context.Context, idx int, node protocol.Server) {
+	em, ok := events.EmitterFrom(ctx)
+	if !ok {
+		return
+	}
+	em.Emit(events.TypeHopDialing, events.HopDialingData{
+		ConnID:   events.ConnIDFrom(ctx),
+		HopIndex: idx,
+		HopName:  node.Name,
+		Protocol: node.Protocol,
+		Address:  node.Address,
+	})
+}
+
+// emitHopConnected publishes hop.connected with the elapsed dial time.
+func emitHopConnected(ctx context.Context, idx int, start time.Time) {
+	em, ok := events.EmitterFrom(ctx)
+	if !ok {
+		return
+	}
+	em.Emit(events.TypeHopConnected, events.HopConnectedData{
+		ConnID:    events.ConnIDFrom(ctx),
+		HopIndex:  idx,
+		ElapsedNs: time.Since(start).Nanoseconds(),
+	})
+}
+
+// emitHopError publishes hop.error for a failed dial.
+func emitHopError(ctx context.Context, idx int, err error) {
+	em, ok := events.EmitterFrom(ctx)
+	if !ok {
+		return
+	}
+	em.Emit(events.TypeHopError, events.HopErrorData{
+		ConnID:   events.ConnIDFrom(ctx),
+		HopIndex: idx,
+		Error:    err.Error(),
+	})
 }
 
 // DialPacket connects through the chain to open a UDP-carrying session.
@@ -29,6 +73,7 @@ func (c *Chain) DialPacket(ctx context.Context, address string) (protocol.Packet
 	}
 
 	last := c.Nodes[len(c.Nodes)-1]
+	lastIdx := len(c.Nodes) - 1
 	lastDialer, err := protocol.NewDialer(last)
 	if err != nil {
 		return nil, fmt.Errorf("chain %q last hop: %w", c.Name, err)
@@ -40,7 +85,15 @@ func (c *Chain) DialPacket(ctx context.Context, address string) (protocol.Packet
 
 	// Single-hop: dial directly as UDP.
 	if len(c.Nodes) == 1 {
-		return pd.DialPacket(ctx, address)
+		emitHopDialing(ctx, 0, last)
+		start := time.Now()
+		pc, err := pd.DialPacket(ctx, address)
+		if err != nil {
+			emitHopError(ctx, 0, err)
+			return nil, err
+		}
+		emitHopConnected(ctx, 0, start)
+		return pc, nil
 	}
 
 	// Multi-hop: stream-tunnel through all prior hops, then layer UDP on top.
@@ -48,22 +101,40 @@ func (c *Chain) DialPacket(ctx context.Context, address string) (protocol.Packet
 	if err != nil {
 		return nil, fmt.Errorf("chain %q node 0: %w", c.Name, err)
 	}
+	emitHopDialing(ctx, 0, c.Nodes[0])
+	firstStart := time.Now()
 	conn, err := first.Dial(ctx, "tcp", c.Nodes[1].Address)
 	if err != nil {
+		emitHopError(ctx, 0, err)
 		return nil, fmt.Errorf("chain %q node 0 dial: %w", c.Name, err)
 	}
+	emitHopConnected(ctx, 0, firstStart)
+
 	for i := 1; i < len(c.Nodes)-1; i++ {
 		dialer, err := protocol.NewDialer(c.Nodes[i])
 		if err != nil {
 			conn.Close()
 			return nil, fmt.Errorf("chain %q node %d: %w", c.Name, i, err)
 		}
+		emitHopDialing(ctx, i, c.Nodes[i])
+		hopStart := time.Now()
 		conn, err = dialer.DialThrough(ctx, conn, c.Nodes[i+1].Address)
 		if err != nil {
+			emitHopError(ctx, i, err)
 			return nil, fmt.Errorf("chain %q node %d dial: %w", c.Name, i, err)
 		}
+		emitHopConnected(ctx, i, hopStart)
 	}
-	return pd.DialPacketThrough(ctx, conn, address)
+
+	emitHopDialing(ctx, lastIdx, last)
+	lastStart := time.Now()
+	pc, err := pd.DialPacketThrough(ctx, conn, address)
+	if err != nil {
+		emitHopError(ctx, lastIdx, err)
+		return nil, err
+	}
+	emitHopConnected(ctx, lastIdx, lastStart)
+	return pc, nil
 }
 
 // Dial connects through the entire chain to reach the final address.
@@ -83,10 +154,14 @@ func (c *Chain) Dial(ctx context.Context, network, address string) (protocol.Con
 		target = c.Nodes[1].Address
 	}
 
+	emitHopDialing(ctx, 0, c.Nodes[0])
+	firstStart := time.Now()
 	conn, err := first.Dial(ctx, network, target)
 	if err != nil {
+		emitHopError(ctx, 0, err)
 		return nil, fmt.Errorf("chain %q node 0 dial: %w", c.Name, err)
 	}
+	emitHopConnected(ctx, 0, firstStart)
 
 	// Subsequent hops: DialThrough the previous connection.
 	for i := 1; i < len(c.Nodes); i++ {
@@ -101,11 +176,32 @@ func (c *Chain) Dial(ctx context.Context, network, address string) (protocol.Con
 			nextTarget = c.Nodes[i+1].Address
 		}
 
+		emitHopDialing(ctx, i, c.Nodes[i])
+		hopStart := time.Now()
 		conn, err = dialer.DialThrough(ctx, conn, nextTarget)
 		if err != nil {
+			emitHopError(ctx, i, err)
 			return nil, fmt.Errorf("chain %q node %d dial: %w", c.Name, i, err)
 		}
+		emitHopConnected(ctx, i, hopStart)
 	}
 
 	return conn, nil
+}
+
+// HopInfo returns lightweight descriptors for each chain hop. Used by
+// listeners to populate the `connection.dialing` event's `hops` field
+// before the dial begins (so the subscriber sees the full chain shape
+// even if a mid-hop fails).
+func (c *Chain) HopInfo() []events.HopInfo {
+	out := make([]events.HopInfo, len(c.Nodes))
+	for i, n := range c.Nodes {
+		out[i] = events.HopInfo{
+			Index:    i,
+			Name:     n.Name,
+			Protocol: n.Protocol,
+			Address:  n.Address,
+		}
+	}
+	return out
 }

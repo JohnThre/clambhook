@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/clambhook/clambhook/internal/chain"
+	"github.com/clambhook/clambhook/internal/events"
 )
 
 const (
@@ -37,6 +38,7 @@ type HTTP struct {
 	addr      string
 	auth      *AuthCreds
 	dial      dialFunc
+	ch        *chain.Chain
 	chainName string
 	opts      Options
 	sem       chan struct{}
@@ -63,6 +65,7 @@ func NewHTTP(addr string, auth *AuthCreds, ch *chain.Chain, opts Options) *HTTP 
 		addr:      addr,
 		auth:      auth,
 		dial:      dial,
+		ch:        ch,
 		chainName: name,
 		opts:      opts,
 	}
@@ -189,12 +192,22 @@ func (s *HTTP) acceptLoop(ctx context.Context, ln net.Listener) {
 			}
 			s.active.Add(1)
 			defer s.active.Add(-1)
-			s.handleConn(ctx, conn)
+
+			ce := newConnEvents(s.opts.EventBus, events.ListenerInfo{
+				Protocol: s.Protocol(),
+				Addr:     s.Addr(),
+			}, conn.RemoteAddr().String(), s.chainName)
+			ce.emitOpened()
+
+			relayErr := s.handleConn(ctx, conn, ce)
+			ce.emitClosed(classifyClose(ctx, relayErr))
 		}()
 	}
 }
 
-func (s *HTTP) handleConn(ctx context.Context, client net.Conn) {
+// handleConn returns the relay/forward error (if any) so connection.closed
+// can classify the reason.
+func (s *HTTP) handleConn(ctx context.Context, client net.Conn, ce *connEvents) error {
 	// Bound the initial request read so a silent client can't pin a goroutine.
 	// Cleared inside each handler before relaying/streaming.
 	_ = client.SetDeadline(time.Now().Add(s.handshakeTimeout()))
@@ -212,20 +225,20 @@ func (s *HTTP) handleConn(ctx context.Context, client net.Conn) {
 			log.Printf("http: read request from %s: %v", client.RemoteAddr(), err)
 		}
 		writeSimpleStatus(client, "HTTP/1.1", http.StatusBadRequest, "Bad Request")
-		return
+		return nil
 	}
 	cr.capped = false
 
 	if !s.checkProxyAuth(req.Header) {
 		writeProxyAuthRequired(client, req.Proto)
-		return
+		return nil
 	}
 
 	switch {
 	case req.Method == http.MethodConnect:
-		s.handleConnect(ctx, client, br, req)
+		return s.handleConnect(ctx, client, br, req, ce)
 	case req.URL.IsAbs() && strings.EqualFold(req.URL.Scheme, "http"):
-		s.handleForward(ctx, client, req)
+		return s.handleForward(ctx, client, req, ce)
 	case req.URL.IsAbs() && strings.EqualFold(req.URL.Scheme, "https"):
 		// Plain GET/POST to https://... would require MITM. Reject —
 		// clients should use CONNECT for TLS targets.
@@ -235,43 +248,53 @@ func (s *HTTP) handleConn(ctx context.Context, client net.Conn) {
 		writeSimpleStatus(client, req.Proto, http.StatusBadRequest,
 			"Bad Request: absolute-URI required")
 	}
+	return nil
 }
 
-func (s *HTTP) handleConnect(ctx context.Context, client net.Conn, br *bufio.Reader, req *http.Request) {
+func (s *HTTP) handleConnect(ctx context.Context, client net.Conn, br *bufio.Reader, req *http.Request, ce *connEvents) error {
 	if req.ContentLength > 0 || len(req.TransferEncoding) > 0 {
 		writeSimpleStatus(client, req.Proto, http.StatusBadRequest,
 			"Bad Request: body on CONNECT")
-		return
+		return nil
 	}
 	if req.Host == "" {
 		writeSimpleStatus(client, req.Proto, http.StatusBadRequest,
 			"Bad Request: missing target")
-		return
+		return nil
 	}
 	// Validate host:port form (also handles IPv6 brackets via SplitHostPort).
 	if _, _, err := net.SplitHostPort(req.Host); err != nil {
 		writeSimpleStatus(client, req.Proto, http.StatusBadRequest,
 			"Bad Request: invalid target")
-		return
+		return nil
 	}
 
 	dialCtx, cancel := context.WithTimeout(ctx, dialTimeout)
 	defer cancel()
+
+	dialCtx = ce.attach(dialCtx)
+	var hops []events.HopInfo
+	if s.ch != nil {
+		hops = s.ch.HopInfo()
+	}
+	ce.emitDialing(req.Host, hops)
 
 	remote, err := s.dial(dialCtx, "tcp", req.Host)
 	if err != nil {
 		log.Printf("http: CONNECT chain dial %s failed: %v", req.Host, err)
 		code, reason := httpStatusForDialErr(err)
 		writeSimpleStatus(client, req.Proto, code, reason)
-		return
+		return err
 	}
 	defer remote.Close()
 
 	if _, err := io.WriteString(client,
 		"HTTP/1.1 200 Connection established\r\nProxy-Agent: clambhook\r\n\r\n"); err != nil {
 		log.Printf("http: write CONNECT 200 to %s: %v", client.RemoteAddr(), err)
-		return
+		return err
 	}
+
+	ce.emitEstablished()
 
 	// Clear the handshake deadline — long-lived tunnels must not time out.
 	_ = client.SetDeadline(time.Time{})
@@ -294,17 +317,17 @@ func (s *HTTP) handleConnect(ctx context.Context, client net.Conn, br *bufio.Rea
 	// (e.g. a TLS ClientHello sent in the same syscall as CONNECT). A raw
 	// net.Conn would have already consumed those into the bufio buffer.
 	shim := &bufReadConn{Conn: client, br: br}
-	relay(shim, remote)
+	return relay(shim, remote, ce.rxCounter(), ce.txCounter())
 }
 
-func (s *HTTP) handleForward(ctx context.Context, client net.Conn, req *http.Request) {
+func (s *HTTP) handleForward(ctx context.Context, client net.Conn, req *http.Request, ce *connEvents) error {
 	// Resolve target host:port — default port 80 for http://.
 	host := req.URL.Hostname()
 	port := req.URL.Port()
 	if host == "" {
 		writeSimpleStatus(client, req.Proto, http.StatusBadRequest,
 			"Bad Request: missing host")
-		return
+		return nil
 	}
 	if port == "" {
 		port = "80"
@@ -312,15 +335,23 @@ func (s *HTTP) handleForward(ctx context.Context, client net.Conn, req *http.Req
 	target := net.JoinHostPort(host, port)
 
 	dialCtx, dialCancel := context.WithTimeout(ctx, dialTimeout)
+	dialCtx = ce.attach(dialCtx)
+	var hops []events.HopInfo
+	if s.ch != nil {
+		hops = s.ch.HopInfo()
+	}
+	ce.emitDialing(target, hops)
+
 	remote, err := s.dial(dialCtx, "tcp", target)
 	dialCancel()
 	if err != nil {
 		log.Printf("http: forward chain dial %s failed: %v", target, err)
 		code, reason := httpStatusForDialErr(err)
 		writeSimpleStatus(client, req.Proto, code, reason)
-		return
+		return err
 	}
 	defer remote.Close()
+	ce.emitEstablished()
 
 	// Watchdog: close both sides on ctx cancel so resp.Write / req.Write /
 	// body reads all unblock within stopGrace.
@@ -345,17 +376,30 @@ func (s *HTTP) handleForward(ctx context.Context, client net.Conn, req *http.Req
 	req.URL.Scheme = ""                // origin form on the wire
 	req.URL.Host = ""
 
+	if ce != nil {
+		// Count bytes flowing in each direction. For forward proxying we
+		// can't easily instrument the stdlib req/resp write path, so we
+		// count at the request-write / response-write boundary: bytes
+		// written to remote are "tx", bytes read from remote (via the
+		// ReadResponse bufio) are "rx". We approximate by wrapping the
+		// remote conn's reads/writes. req.Write/resp.Write don't support
+		// injecting a wrapper, so forward-proxy meters fall back to an
+		// approximation at the boundary. (CONNECT tunnels use the precise
+		// relay path.)
+		remote = &meteredConn{Conn: remote, rxCounter: ce.rxCounter(), txCounter: ce.txCounter()}
+	}
+
 	if err := req.Write(remote); err != nil {
 		log.Printf("http: forward write request to %s: %v", target, err)
 		// Nothing sensible to say to the client — close.
-		return
+		return err
 	}
 
 	resp, err := http.ReadResponse(bufio.NewReader(remote), req)
 	if err != nil {
 		log.Printf("http: forward read response from %s: %v", target, err)
 		writeSimpleStatus(client, req.Proto, http.StatusBadGateway, "Bad Gateway")
-		return
+		return err
 	}
 	defer resp.Body.Close()
 
@@ -364,8 +408,34 @@ func (s *HTTP) handleForward(ctx context.Context, client net.Conn, req *http.Req
 	if err := resp.Write(client); err != nil {
 		// Client likely hung up mid-response — log and move on.
 		log.Printf("http: forward write response to %s: %v", client.RemoteAddr(), err)
-		return
+		return err
 	}
+	return nil
+}
+
+// meteredConn wraps a net.Conn to count bytes in both directions. Used on
+// the forward-proxy path where req.Write / http.ReadResponse can't accept
+// a plain io.Reader/Writer wrapper.
+type meteredConn struct {
+	net.Conn
+	rxCounter *atomic.Uint64 // bytes from remote (Read)
+	txCounter *atomic.Uint64 // bytes to remote (Write)
+}
+
+func (m *meteredConn) Read(p []byte) (int, error) {
+	n, err := m.Conn.Read(p)
+	if n > 0 && m.rxCounter != nil {
+		m.rxCounter.Add(uint64(n))
+	}
+	return n, err
+}
+
+func (m *meteredConn) Write(p []byte) (int, error) {
+	n, err := m.Conn.Write(p)
+	if n > 0 && m.txCounter != nil {
+		m.txCounter.Add(uint64(n))
+	}
+	return n, err
 }
 
 // checkProxyAuth verifies the Proxy-Authorization header against s.auth.

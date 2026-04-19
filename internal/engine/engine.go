@@ -9,6 +9,7 @@ import (
 
 	"github.com/clambhook/clambhook/internal/chain"
 	"github.com/clambhook/clambhook/internal/config"
+	"github.com/clambhook/clambhook/internal/events"
 	"github.com/clambhook/clambhook/internal/geo"
 	"github.com/clambhook/clambhook/internal/listener"
 	"github.com/clambhook/clambhook/internal/protocol"
@@ -44,13 +45,19 @@ type Engine struct {
 	cancel    context.CancelFunc
 	listeners []listener.Listener
 	geoReader *geo.Reader
+	bus       *events.Bus
 }
 
-// New creates a new engine with the given configuration. If a geo database
-// is configured but fails to open, the error is logged and geo stays
-// disabled — a bad geo path must never prevent the daemon from starting.
-func New(cfg *config.Config) *Engine {
-	e := &Engine{cfg: cfg}
+// New creates a new engine with the given configuration and (optional)
+// event bus. The bus is threaded into each listener so per-connection
+// lifecycle and bandwidth events flow out to WS subscribers. Pass nil to
+// disable events (useful in tests).
+//
+// If a geo database is configured but fails to open, the error is logged
+// and geo stays disabled — a bad geo path must never prevent the daemon
+// from starting.
+func New(cfg *config.Config, bus *events.Bus) *Engine {
+	e := &Engine{cfg: cfg, bus: bus}
 	if r, err := geo.Open(cfg.Geo.Database); err != nil {
 		log.Printf("geo: %v; continuing without geo lookups", err)
 	} else if r != nil {
@@ -59,6 +66,9 @@ func New(cfg *config.Config) *Engine {
 	}
 	return e
 }
+
+// Bus returns the engine's event bus (may be nil).
+func (e *Engine) Bus() *events.Bus { return e.bus }
 
 // Start begins accepting connections with the active profile.
 //
@@ -155,7 +165,7 @@ func (e *Engine) startLocked() error {
 	// without their ctx cancellation tearing listeners down.
 	ctx, cancel := context.WithCancel(context.Background())
 
-	listeners, err := buildListeners(profile)
+	listeners, err := buildListeners(profile, e.bus)
 	if err != nil {
 		cancel()
 		return fmt.Errorf("start engine: %w", err)
@@ -270,8 +280,9 @@ func (e *Engine) swapGeoLocked() {
 
 // buildListeners constructs all listeners configured on the active profile.
 // It does not start them — Start does that so partial-startup can be rolled
-// back cleanly.
-func buildListeners(profile *config.Profile) ([]listener.Listener, error) {
+// back cleanly. bus is threaded into each listener for event emission; may
+// be nil to disable events.
+func buildListeners(profile *config.Profile, bus *events.Bus) ([]listener.Listener, error) {
 	var out []listener.Listener
 
 	if addr := profile.Listen.SOCKS5; addr != "" {
@@ -296,6 +307,7 @@ func buildListeners(profile *config.Profile) ([]listener.Listener, error) {
 		opts := listener.Options{
 			MaxConnections:   maxConns,
 			HandshakeTimeout: profile.Listen.SOCKS5HandshakeTimeout.Std(),
+			EventBus:         bus,
 		}
 		out = append(out, listener.NewSOCKSv5(addr, auth, ch, opts))
 	}
@@ -319,6 +331,7 @@ func buildListeners(profile *config.Profile) ([]listener.Listener, error) {
 		opts := listener.Options{
 			MaxConnections:   maxConns,
 			HandshakeTimeout: profile.Listen.HTTPHandshakeTimeout.Std(),
+			EventBus:         bus,
 		}
 		out = append(out, listener.NewHTTP(addr, auth, ch, opts))
 	}
