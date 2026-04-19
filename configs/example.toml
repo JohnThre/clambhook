@@ -3,6 +3,13 @@
 # Active profile name (supports emoji)
 active = "🇺🇸 US Fast"
 
+# Optional: IP → country/city lookups for server display. Point `database`
+# at an MMDB file (MaxMind GeoLite2 City/Country, DB-IP, or IPinfo).
+# Relative paths resolve against this config file's directory. Omit the
+# section to disable — the daemon runs fine without a geo database.
+# [geo]
+# database = "GeoLite2-City.mmdb"
+
 [[profile]]
 name = "🇺🇸 US Fast"
 

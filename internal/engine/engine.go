@@ -9,6 +9,7 @@ import (
 
 	"github.com/clambhook/clambhook/internal/chain"
 	"github.com/clambhook/clambhook/internal/config"
+	"github.com/clambhook/clambhook/internal/geo"
 	"github.com/clambhook/clambhook/internal/listener"
 	"github.com/clambhook/clambhook/internal/protocol"
 )
@@ -39,11 +40,21 @@ type Engine struct {
 	running   bool
 	cancel    context.CancelFunc
 	listeners []listener.Listener
+	geoReader *geo.Reader
 }
 
-// New creates a new engine with the given configuration.
+// New creates a new engine with the given configuration. If a geo database
+// is configured but fails to open, the error is logged and geo stays
+// disabled — a bad geo path must never prevent the daemon from starting.
 func New(cfg *config.Config) *Engine {
-	return &Engine{cfg: cfg}
+	e := &Engine{cfg: cfg}
+	if r, err := geo.Open(cfg.Geo.Database); err != nil {
+		log.Printf("geo: %v; continuing without geo lookups", err)
+	} else if r != nil {
+		log.Printf("geo: opened %q", cfg.Geo.Database)
+		e.geoReader = r
+	}
+	return e
 }
 
 // Start begins accepting connections with the active profile.
@@ -83,7 +94,11 @@ func (e *Engine) Reload(cfg *config.Config) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
+	oldGeoPath := e.cfg.Geo.Database
 	e.cfg = cfg
+	if cfg.Geo.Database != oldGeoPath {
+		e.swapGeoLocked()
+	}
 	if !e.running {
 		log.Printf("engine configuration reloaded (idle)")
 		return nil
@@ -205,6 +220,49 @@ func (e *Engine) Config() *config.Config {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 	return e.cfg
+}
+
+// GeoReader returns the current geo reader. The returned value may be nil
+// if geo is disabled or failed to load — callers treat nil as "disabled"
+// (Reader.Lookup is nil-safe).
+func (e *Engine) GeoReader() *geo.Reader {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return e.geoReader
+}
+
+// CloseGeo releases the geo database handle. Separate from Stop because
+// Reload-while-stopped can still update the geo DB; Stop only tears down
+// listeners. Safe to call when geo is disabled.
+func (e *Engine) CloseGeo() error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	r := e.geoReader
+	e.geoReader = nil
+	return r.Close()
+}
+
+// swapGeoLocked opens the DB at e.cfg.Geo.Database and replaces the
+// current geoReader. On failure the old reader is preserved so live
+// lookups survive a bad config. Caller holds e.mu.
+func (e *Engine) swapGeoLocked() {
+	newR, err := geo.Open(e.cfg.Geo.Database)
+	if err != nil {
+		log.Printf("geo: reload failed (%v); keeping previous reader", err)
+		return
+	}
+	old := e.geoReader
+	e.geoReader = newR
+	if old != nil {
+		if err := old.Close(); err != nil {
+			log.Printf("geo: closing previous reader: %v", err)
+		}
+	}
+	if newR != nil {
+		log.Printf("geo: swapped to %q", e.cfg.Geo.Database)
+	} else {
+		log.Printf("geo: disabled (database path cleared)")
+	}
 }
 
 // buildListeners constructs all listeners configured on the active profile.
