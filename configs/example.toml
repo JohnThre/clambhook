@@ -98,6 +98,44 @@ name = "🛰️ VLESS"
       # skip_cert_verify = false   # never set true in production
 
 [[profile]]
+name = "🎭 VLESS + Reality"
+
+  [profile.listen]
+  socks5 = "127.0.0.1:1080"
+
+  [profile.api]
+  listen = "127.0.0.1:9090"
+
+  # Reality is an anti-censorship TLS handshake: clambhook emits a
+  # ClientHello indistinguishable from a real browser visiting
+  # `server_name` (the decoy site the Reality server fronts), and proves
+  # itself to the server through an X25519-authenticated session_id.
+  # Probes and DPI see normal HTTPS to a popular site.
+  #
+  # `public_key` is the server's static X25519 pub, in hex (64 chars) or
+  # unpadded base64-url (43 chars). `short_id` is hex, ≤ 8 bytes.
+  # `fingerprint` chooses the browser shape: chrome/firefox/safari/
+  # ios/android/edge/360/qq (default chrome). `server_name` must be the
+  # SNI of the decoy site the server is configured to forward to.
+  [[profile.chain]]
+  name = "vless-reality"
+
+    [[profile.chain.server]]
+    name     = "vless-reality-us"
+    address  = "reality.example.com:443"
+    protocol = "vless"
+
+      [profile.chain.server.settings]
+      uuid     = "REPLACE-WITH-USER-UUID-0000-000000000000"
+      security = "reality"
+
+        [profile.chain.server.settings.reality]
+        server_name = "www.microsoft.com"
+        fingerprint = "chrome"
+        public_key  = "REPLACE_WITH_SERVER_X25519_PUBLIC_KEY"
+        short_id    = "a1b2c3d4"
+
+[[profile]]
 name = "📮 VMess"
 
   [profile.listen]

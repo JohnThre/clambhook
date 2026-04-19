@@ -1,11 +1,14 @@
-// Package vless implements the VLESS outbound client, wrapped in TLS.
+// Package vless implements the VLESS outbound client with a choice of
+// outer transport: stock TLS (default) or XTLS Reality when the profile
+// sets security = "reality".
 //
-// VLESS has no built-in encryption — security is delegated entirely to the
-// TLS layer beneath it. The wire format is a tiny plaintext header on top of
-// the TLS stream, followed by raw application bytes in both directions.
+// VLESS has no built-in encryption — confidentiality is delegated to the
+// outer transport. The VLESS wire format is a tiny plaintext header on
+// top of that stream, followed by raw application bytes in both
+// directions.
 //
 // Scope of this v1 implementation:
-//   - Transport: TCP + TLS only (no WebSocket/gRPC/Reality/mKCP/QUIC).
+//   - Transport: TCP + (TLS or Reality). No WebSocket/gRPC/mKCP/QUIC.
 //   - Flow: "none" only (no xtls-rprx-vision, no xudp, no Mux).
 //   - UDP: single-target per session, framed as [addr][len][payload].
 package vless
@@ -20,6 +23,7 @@ import (
 	"time"
 
 	"github.com/clambhook/clambhook/internal/protocol"
+	"github.com/clambhook/clambhook/internal/protocol/reality"
 )
 
 func init() {
@@ -44,19 +48,19 @@ func (d *dialer) Dial(ctx context.Context, network, address string) (protocol.Co
 	if err != nil {
 		return nil, fmt.Errorf("vless: dial %s: %w", d.server.Address, err)
 	}
-	tlsConn, err := d.handshake(ctx, raw, cmdTCP, address)
+	stream, err := d.handshake(ctx, raw, cmdTCP, address)
 	if err != nil {
 		return nil, err
 	}
-	return &conn{Conn: tlsConn}, nil
+	return &conn{Conn: stream}, nil
 }
 
 func (d *dialer) DialThrough(ctx context.Context, underlying io.ReadWriteCloser, address string) (protocol.Conn, error) {
-	tlsConn, err := d.handshake(ctx, &netConnAdapter{rwc: underlying}, cmdTCP, address)
+	stream, err := d.handshake(ctx, &netConnAdapter{rwc: underlying}, cmdTCP, address)
 	if err != nil {
 		return nil, err
 	}
-	return &conn{Conn: tlsConn}, nil
+	return &conn{Conn: stream}, nil
 }
 
 // DialPacket opens a VLESS single-target UDP session. The per-session target
@@ -67,54 +71,69 @@ func (d *dialer) DialPacket(ctx context.Context, address string) (protocol.Packe
 	if err != nil {
 		return nil, fmt.Errorf("vless: dial %s: %w", d.server.Address, err)
 	}
-	tlsConn, err := d.handshake(ctx, raw, cmdUDP, address)
+	stream, err := d.handshake(ctx, raw, cmdUDP, address)
 	if err != nil {
 		return nil, err
 	}
-	return &packetConn{tls: tlsConn, target: address}, nil
+	return &packetConn{stream: stream, target: address}, nil
 }
 
 // DialPacketThrough opens a VLESS UDP session over an already-chained stream.
 func (d *dialer) DialPacketThrough(ctx context.Context, underlying io.ReadWriteCloser, address string) (protocol.PacketConn, error) {
-	tlsConn, err := d.handshake(ctx, &netConnAdapter{rwc: underlying}, cmdUDP, address)
+	stream, err := d.handshake(ctx, &netConnAdapter{rwc: underlying}, cmdUDP, address)
 	if err != nil {
 		return nil, err
 	}
-	return &packetConn{tls: tlsConn, target: address}, nil
+	return &packetConn{stream: stream, target: address}, nil
 }
 
-// handshake runs TLS over raw, then writes the VLESS request header. Shared
-// by TCP and UDP dial paths (cmd differs).
-func (d *dialer) handshake(ctx context.Context, raw net.Conn, cmd byte, address string) (*tls.Conn, error) {
-	tlsConn := tls.Client(raw, &tls.Config{
-		ServerName:         d.cfg.sni,
-		NextProtos:         d.cfg.alpn,
-		InsecureSkipVerify: d.cfg.skipVerify,
-		MinVersion:         tls.VersionTLS12,
-	})
+// handshake establishes the outer transport (TLS or Reality), then writes
+// the VLESS request header. Return type is net.Conn so the same path can
+// carry either a *tls.Conn or a *utls.UConn — both satisfy net.Conn and
+// both give VLESS a single record-boundary-safe byte stream.
+func (d *dialer) handshake(ctx context.Context, raw net.Conn, cmd byte, address string) (net.Conn, error) {
+	var stream net.Conn
 
-	if err := tlsConn.HandshakeContext(ctx); err != nil {
-		raw.Close()
-		return nil, fmt.Errorf("vless: tls handshake: %w", err)
+	switch d.cfg.security {
+	case "reality":
+		s, err := reality.Client(ctx, raw, d.cfg.realityOpts)
+		if err != nil {
+			raw.Close()
+			return nil, fmt.Errorf("vless: reality: %w", err)
+		}
+		stream = s
+	default: // "" and "tls"
+		tlsConn := tls.Client(raw, &tls.Config{
+			ServerName:         d.cfg.sni,
+			NextProtos:         d.cfg.alpn,
+			InsecureSkipVerify: d.cfg.skipVerify,
+			MinVersion:         tls.VersionTLS12,
+		})
+		if err := tlsConn.HandshakeContext(ctx); err != nil {
+			raw.Close()
+			return nil, fmt.Errorf("vless: tls handshake: %w", err)
+		}
+		stream = tlsConn
 	}
 
 	header, err := encodeRequest(d.cfg.uuid, cmd, address)
 	if err != nil {
-		tlsConn.Close()
+		stream.Close()
 		return nil, err
 	}
-	if _, err := tlsConn.Write(header); err != nil {
-		tlsConn.Close()
+	if _, err := stream.Write(header); err != nil {
+		stream.Close()
 		return nil, fmt.Errorf("vless: write header: %w", err)
 	}
-	return tlsConn, nil
+	return stream, nil
 }
 
-// conn wraps a post-handshake TLS connection and strips the VLESS response
-// header on the first Read. The header is small (2 bytes + optional addons)
-// and is consumed lazily so Dial() doesn't block on server data.
+// conn wraps a post-handshake outer-transport connection (TLS or Reality)
+// and strips the VLESS response header on the first Read. The header is
+// small (2 bytes + optional addons) and is consumed lazily so Dial()
+// doesn't block on server data.
 type conn struct {
-	*tls.Conn
+	net.Conn
 	readOnce sync.Once
 	readErr  error
 }
