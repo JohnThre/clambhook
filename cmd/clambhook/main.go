@@ -12,6 +12,7 @@ import (
 	"github.com/clambhook/clambhook/internal/api"
 	"github.com/clambhook/clambhook/internal/config"
 	"github.com/clambhook/clambhook/internal/engine"
+	"github.com/clambhook/clambhook/internal/events"
 
 	// Register all protocols.
 	_ "github.com/clambhook/clambhook/internal/protocol/openvpn"
@@ -61,9 +62,10 @@ func main() {
 		}
 	}
 
-	eng := engine.New(cfg)
+	bus := events.NewBus(events.DefaultConfig())
+	eng := engine.New(cfg, bus)
 
-	srv := api.New(eng)
+	srv := api.New(eng, bus)
 	if err := srv.Start(*apiAddr); err != nil {
 		log.Fatalf("start api: %v", err)
 	}
@@ -80,5 +82,6 @@ func main() {
 	if err := eng.CloseGeo(); err != nil {
 		log.Printf("close geo: %v", err)
 	}
+	bus.Close()
 	srv.Shutdown(context.Background())
 }

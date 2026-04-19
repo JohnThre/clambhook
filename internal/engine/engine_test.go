@@ -53,7 +53,7 @@ func TestEngineSetActiveProfileRebuildsListeners(t *testing.T) {
 		},
 	}
 
-	e := New(cfg)
+	e := New(cfg, nil)
 	if err := e.Start(context.Background()); err != nil {
 		t.Fatalf("start: %v", err)
 	}
@@ -96,7 +96,7 @@ func TestEngineSetActiveProfileNotFound(t *testing.T) {
 		Active:   "A",
 		Profiles: []config.Profile{fixedPortProfile("A", freePort(t))},
 	}
-	e := New(cfg)
+	e := New(cfg, nil)
 	if err := e.SetActiveProfile("bogus"); err == nil {
 		t.Error("expected error for unknown profile")
 	}
@@ -107,7 +107,7 @@ func TestEngineReloadIdle(t *testing.T) {
 		Active:   "A",
 		Profiles: []config.Profile{fixedPortProfile("A", freePort(t))},
 	}
-	e := New(cfg)
+	e := New(cfg, nil)
 	// Reload before Start — should just swap config without error.
 	cfg2 := &config.Config{
 		Active:   "B",

@@ -7,17 +7,20 @@ import (
 	"net/http"
 
 	"github.com/clambhook/clambhook/internal/engine"
+	"github.com/clambhook/clambhook/internal/events"
 )
 
 // Server is the HTTP API server for frontend communication.
 type Server struct {
 	engine *engine.Engine
+	bus    *events.Bus
 	server *http.Server
 }
 
-// New creates a new API server.
-func New(eng *engine.Engine) *Server {
-	s := &Server{engine: eng}
+// New creates a new API server. bus may be nil to disable the
+// /api/v1/events WebSocket endpoint.
+func New(eng *engine.Engine, bus *events.Bus) *Server {
+	s := &Server{engine: eng, bus: bus}
 	mux := http.NewServeMux()
 	s.registerRoutes(mux)
 	s.server = &http.Server{Handler: mux}

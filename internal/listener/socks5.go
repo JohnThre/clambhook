@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/clambhook/clambhook/internal/chain"
+	"github.com/clambhook/clambhook/internal/events"
 )
 
 // AuthCreds carries optional username/password credentials. When nil, the
@@ -37,6 +38,11 @@ type Options struct {
 	// we accept it until we finish the SOCKS5 handshake. 0 means use the
 	// default.
 	HandshakeTimeout time.Duration
+
+	// EventBus, when non-nil, receives per-connection lifecycle and
+	// bandwidth events. nil disables emission entirely — no allocations,
+	// no atomic adds — so tests that don't exercise events pay zero cost.
+	EventBus *events.Bus
 }
 
 const (
@@ -66,6 +72,7 @@ type SOCKSv5 struct {
 	auth       *AuthCreds
 	dial       dialFunc
 	dialPacket packetDialFunc // optional — nil means UDP ASSOCIATE is rejected
+	ch         *chain.Chain   // kept for HopInfo emission; nil disables hop events
 	chainName  string         // for logging
 	opts       Options
 
@@ -114,6 +121,7 @@ func NewSOCKSv5(addr string, auth *AuthCreds, ch *chain.Chain, opts Options) *SO
 		auth:       auth,
 		dial:       dial,
 		dialPacket: dialPacket,
+		ch:         ch,
 		chainName:  name,
 		opts:       opts,
 	}
@@ -243,42 +251,59 @@ func (s *SOCKSv5) acceptLoop(ctx context.Context, ln net.Listener) {
 			}
 			s.active.Add(1)
 			defer s.active.Add(-1)
-			s.handleConn(ctx, conn)
+
+			// Allocate per-connection event plumbing. nil when events are
+			// disabled (Options.EventBus unset); all connEvents methods
+			// below are nil-safe.
+			ce := newConnEvents(s.opts.EventBus, events.ListenerInfo{
+				Protocol: s.Protocol(),
+				Addr:     s.Addr(),
+			}, conn.RemoteAddr().String(), s.chainName)
+			ce.emitOpened()
+
+			relayErr := s.handleConn(ctx, conn, ce)
+			ce.emitClosed(classifyClose(ctx, relayErr))
 		}()
 	}
 }
 
-func (s *SOCKSv5) handleConn(ctx context.Context, client net.Conn) {
+// handleConn returns the relay error (if any) so the deferred
+// connection.closed event can classify the close reason correctly. A nil
+// return covers both "handshake failed before relay started" (where reason
+// is determined by ctx) and "relay finished cleanly".
+func (s *SOCKSv5) handleConn(ctx context.Context, client net.Conn, ce *connEvents) error {
 	// Bound the handshake so a silent client can't pin a goroutine forever.
 	// Once relaying starts we clear the deadline.
 	_ = client.SetDeadline(time.Now().Add(s.handshakeTimeout()))
 
 	if err := s.negotiate(client); err != nil {
 		log.Printf("socks5: negotiation from %s failed: %v", client.RemoteAddr(), err)
-		return
+		return nil
 	}
 
 	req, err := readRequest(client)
 	if err != nil {
 		log.Printf("socks5: request from %s failed: %v", client.RemoteAddr(), err)
 		_ = writeReply(client, repGeneralFailure, "")
-		return
+		return nil
 	}
 
 	switch req.cmd {
 	case cmdConnect:
-		s.handleConnect(ctx, client, req)
+		return s.handleConnect(ctx, client, req, ce)
 	case cmdUDPAssociate:
 		if s.dialPacket == nil {
 			_ = writeReply(client, repCmdNotSupported, "")
-			return
+			return nil
 		}
 		s.handleUDPAssociate(ctx, client)
+		return nil
 	case cmdBind:
 		_ = writeReply(client, repCmdNotSupported, "")
 	default:
 		_ = writeReply(client, repCmdNotSupported, "")
 	}
+	return nil
 }
 
 // negotiate runs the method-selection and (optional) user/pass handshakes.
@@ -319,46 +344,94 @@ func (s *SOCKSv5) negotiate(client net.Conn) error {
 	return nil
 }
 
-func (s *SOCKSv5) handleConnect(ctx context.Context, client net.Conn, req request) {
+func (s *SOCKSv5) handleConnect(ctx context.Context, client net.Conn, req request, ce *connEvents) error {
 	dialCtx, cancelDial := context.WithTimeout(ctx, 30*time.Second)
 	defer cancelDial()
 
+	// Attach event plumbing so chain.Dial can emit per-hop events.
+	dialCtx = ce.attach(dialCtx)
+
 	target := req.target()
+	var hops []events.HopInfo
+	if s.ch != nil {
+		hops = s.ch.HopInfo()
+	}
+	ce.emitDialing(target, hops)
+
 	remote, err := s.dial(dialCtx, "tcp", target)
 	if err != nil {
 		log.Printf("socks5: chain dial %s failed: %v", target, err)
 		_ = writeReply(client, replyCodeForDialErr(err), "")
-		return
+		return err
 	}
 	defer remote.Close()
 
 	if err := writeReply(client, repSuccess, ""); err != nil {
 		log.Printf("socks5: write success reply: %v", err)
-		return
+		return err
 	}
 	// Relay begins now — clear the handshake deadline.
 	_ = client.SetDeadline(time.Time{})
 
-	relay(client, remote)
+	ce.emitEstablished()
+
+	return relay(client, remote, ce.rxCounter(), ce.txCounter())
 }
 
-// relay shuttles bytes between the SOCKS client and the proxy chain until
-// either side closes. It closes the read-side of the other peer when one
-// direction finishes so io.Copy returns promptly.
-func relay(a, b net.Conn) {
+// relay shuttles bytes between the SOCKS client `a` and the proxy-chain
+// endpoint `b` until either side closes. It closes the read-side of the
+// other peer when one direction finishes so io.Copy returns promptly.
+//
+// rxCounter and txCounter are optional byte meters. rxCounter accumulates
+// bytes read FROM b (flowing to a) — "incoming" from the client's
+// perspective. txCounter accumulates bytes read FROM a (flowing to b) —
+// "outgoing". Passing nil for either counter disables metering for that
+// direction.
+//
+// Returns the first non-EOF / non-ErrClosed error observed on either copy
+// direction. Normal termination returns nil — which the caller uses to
+// classify the connection.closed reason.
+func relay(a, b net.Conn, rxCounter, txCounter *atomic.Uint64) error {
 	var wg sync.WaitGroup
+	var rxErr, txErr error
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		_, _ = io.Copy(a, b)
+		src := io.Reader(b)
+		if rxCounter != nil {
+			src = events.NewMeteredReader(b, rxCounter)
+		}
+		_, err := io.Copy(a, src)
+		rxErr = normalizeRelayErr(err)
 		_ = closeWrite(a)
 	}()
 	go func() {
 		defer wg.Done()
-		_, _ = io.Copy(b, a)
+		src := io.Reader(a)
+		if txCounter != nil {
+			src = events.NewMeteredReader(a, txCounter)
+		}
+		_, err := io.Copy(b, src)
+		txErr = normalizeRelayErr(err)
 		_ = closeWrite(b)
 	}()
 	wg.Wait()
+
+	if rxErr != nil {
+		return rxErr
+	}
+	return txErr
+}
+
+// normalizeRelayErr filters out the "expected" end-of-stream signals that
+// a proxy relay sees on every healthy close so they don't pollute the
+// close-reason classification. EOF and net.ErrClosed both mean "the peer
+// hung up cleanly" in this context.
+func normalizeRelayErr(err error) error {
+	if err == nil || errors.Is(err, io.EOF) || errors.Is(err, net.ErrClosed) {
+		return nil
+	}
+	return err
 }
 
 // closeWrite performs a half-close if the conn supports it, otherwise a

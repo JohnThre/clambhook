@@ -12,6 +12,7 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("PUT /api/v1/profiles/active", s.handleSetActiveProfile)
 	mux.HandleFunc("POST /api/v1/connect", s.handleConnect)
 	mux.HandleFunc("POST /api/v1/disconnect", s.handleDisconnect)
+	mux.HandleFunc("GET /api/v1/events", s.handleEvents)
 }
 
 func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
