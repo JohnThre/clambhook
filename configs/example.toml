@@ -199,3 +199,75 @@ name = "🛡️ WireGuard"
         allowed_ips          = ["0.0.0.0/0", "::/0"]
         # preshared_key      = "REPLACE_WITH_BASE64_PSK="   # optional
         persistent_keepalive = 25
+
+[[profile]]
+name = "🧅 Tor"
+
+  [profile.listen]
+  socks5 = "127.0.0.1:1080"
+
+  [profile.api]
+  listen = "127.0.0.1:9090"
+
+  # clambhook does not implement onion routing itself — it speaks SOCKS5 to a
+  # locally-running tor daemon (e.g. `brew install tor && tor`). Point
+  # `address` at tor's SOCKS5 port (default 127.0.0.1:9050).
+  #
+  # .onion hostnames work transparently: the address is sent to tor as a
+  # domain, so tor resolves it inside its own circuit — no DNS leaks.
+  [[profile.chain]]
+  name = "tor-only"
+
+    [[profile.chain.server]]
+    name     = "tor-local"
+    address  = "127.0.0.1:9050"
+    protocol = "tor"
+
+      [profile.chain.server.settings]
+      # Optional stream-isolation credentials. Tor doesn't authenticate
+      # these — it uses unique pairs as tokens, giving each pair its own
+      # circuit. Leave both unset to share a circuit across flows.
+      # isolation_user = "clambhook"
+      # isolation_pass = "profile-1"
+
+[[profile]]
+name = "🔐 OpenVPN"
+
+  [profile.listen]
+  socks5 = "127.0.0.1:1080"
+
+  [profile.api]
+  listen = "127.0.0.1:9090"
+
+  # OpenVPN, like WireGuard, is an L3 VPN — it can't tunnel inside another
+  # stream protocol, so the chain must be single-hop with OpenVPN at the
+  # top. Only UDP transport is supported; TLS 1.2+ with tls-ekm is required
+  # (OpenVPN 2.6+ servers by default). tls-auth / tls-crypt / tls-crypt-v2
+  # and CBC data-channel ciphers are not supported in this pass.
+  [[profile.chain]]
+  name = "ovpn-only"
+
+    [[profile.chain.server]]
+    name     = "ovpn-example"
+    address  = "vpn.example.com:1194"
+    protocol = "openvpn"
+
+      [profile.chain.server.settings]
+      # PEM blocks are inlined (consistent with how WireGuard inlines its
+      # private_key). Triple-quoted TOML strings preserve newlines.
+      ca_cert = """-----BEGIN CERTIFICATE-----
+REPLACE_WITH_SERVER_CA_PEM
+-----END CERTIFICATE-----"""
+      client_cert = """-----BEGIN CERTIFICATE-----
+REPLACE_WITH_CLIENT_CERT_PEM
+-----END CERTIFICATE-----"""
+      client_key = """-----BEGIN PRIVATE KEY-----
+REPLACE_WITH_CLIENT_KEY_PEM
+-----END PRIVATE KEY-----"""
+      # Optional, for servers with `--auth-user-pass`:
+      # username = "alice"
+      # password = "hunter2"
+      # Optional. Omit to let NCP negotiate; typical result is AES-256-GCM.
+      # cipher  = "AES-256-GCM"          # or "CHACHA20-POLY1305"
+      # tun_mtu = 1500
+      # server_cn = "vpn.example.com"    # optional cert CommonName pin
