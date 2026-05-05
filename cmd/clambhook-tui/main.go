@@ -9,40 +9,6 @@ import (
 
 var version = "dev"
 
-type model struct {
-	apiAddr string
-	status  string
-}
-
-func newModel(apiAddr string) model {
-	return model{
-		apiAddr: apiAddr,
-		status:  "disconnected",
-	}
-}
-
-func (m model) Init() tea.Cmd {
-	return nil
-}
-
-func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	switch msg := msg.(type) {
-	case tea.KeyMsg:
-		switch msg.String() {
-		case "q", "ctrl+c":
-			return m, tea.Quit
-		}
-	}
-	return m, nil
-}
-
-func (m model) View() string {
-	return fmt.Sprintf(
-		"clambhook %s\n\nStatus: %s\nAPI: %s\n\nPress q to quit.\n",
-		version, m.status, m.apiAddr,
-	)
-}
-
 func main() {
 	apiAddr := "127.0.0.1:9090"
 	if len(os.Args) > 1 {

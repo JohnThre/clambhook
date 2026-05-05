@@ -9,6 +9,7 @@ import (
 func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/status", s.handleStatus)
 	mux.HandleFunc("GET /api/v1/profiles", s.handleProfiles)
+	mux.HandleFunc("GET /api/v1/servers", s.handleServers)
 	mux.HandleFunc("PUT /api/v1/profiles/active", s.handleSetActiveProfile)
 	mux.HandleFunc("POST /api/v1/connect", s.handleConnect)
 	mux.HandleFunc("POST /api/v1/disconnect", s.handleDisconnect)

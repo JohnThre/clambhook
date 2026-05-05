@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -23,7 +24,8 @@ import (
 // relay-mode fake server.
 //
 // Topology:
-//   client → SS-hop-1 → SS-hop-2 → echo target
+//
+//	client → SS-hop-1 → SS-hop-2 → echo target
 //
 // The two SS relays use different passwords, so each hop decrypts a distinct
 // layer. A byte-for-byte round-trip of a non-trivial payload proves the full
@@ -173,7 +175,7 @@ func runSSRelayOnce(ln net.Listener, password, method string, spec *cipherSpec) 
 		return fmt.Errorf("read addr: %w", err)
 	}
 
-	target, err := net.Dial("tcp", fmt.Sprintf("%s:%d", host, port))
+	target, err := net.Dial("tcp", net.JoinHostPort(host, strconv.Itoa(int(port))))
 	if err != nil {
 		return fmt.Errorf("dial target: %w", err)
 	}
