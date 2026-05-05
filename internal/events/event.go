@@ -38,8 +38,9 @@ const (
 	TypeConnectionClosed      = "connection.closed"
 
 	// Engine/daemon-level events. Emitted on shard 0 via Bus.PublishListener.
-	TypeConfigReloaded      = "config.reloaded"
-	TypeConfigReloadFailed  = "config.reload_failed"
+	TypeConfigReloaded     = "config.reloaded"
+	TypeConfigReloadFailed = "config.reload_failed"
+	TypeLogLine            = "log.line"
 
 	// TypeReplayGap is emitted once when a subscriber's Since cursor points
 	// further back than the ring buffer retains. The subscriber should treat
@@ -143,6 +144,11 @@ type ConfigReloadedData struct {
 type ConfigReloadFailedData struct {
 	Path  string `json:"path"`
 	Error string `json:"error"`
+}
+
+// LogLineData carries one newline-delimited daemon log line.
+type LogLineData struct {
+	Line string `json:"line"`
 }
 
 // Close reasons used by the listener teardown path.

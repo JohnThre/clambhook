@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"os/signal"
@@ -13,6 +14,7 @@ import (
 	"github.com/clambhook/clambhook/internal/config"
 	"github.com/clambhook/clambhook/internal/engine"
 	"github.com/clambhook/clambhook/internal/events"
+	"github.com/clambhook/clambhook/internal/logstream"
 	"github.com/clambhook/clambhook/internal/watcher"
 
 	// Register all protocols.
@@ -65,6 +67,7 @@ func main() {
 	}
 
 	bus := events.NewBus(events.DefaultConfig())
+	log.SetOutput(io.MultiWriter(os.Stderr, logstream.NewWriter(bus)))
 	eng := engine.New(cfg, bus)
 
 	srv := api.New(eng, bus)

@@ -118,7 +118,7 @@ func (c apiClient) setActiveProfile(name string) error {
 }
 
 func (c apiClient) eventsURL() string {
-	return c.wsBaseURL + "/api/v1/events?types=connection.*"
+	return c.wsBaseURL + "/api/v1/events?types=connection.*,log.*"
 }
 
 func (c apiClient) getJSON(path string, out any) error {
