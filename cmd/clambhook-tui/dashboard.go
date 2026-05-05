@@ -28,6 +28,8 @@ type model struct {
 	profiles profilesPayload
 	servers  serversPayload
 
+	selectedProfile int
+
 	bandwidth bandwidthSeries
 	apiOnline bool
 	errText   string
@@ -119,6 +121,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.switchProfileCmd(-1)
 		case "]":
 			return m, m.switchProfileCmd(1)
+		case "up", "k":
+			m.moveProfileSelection(-1)
+			return m, nil
+		case "down", "j":
+			m.moveProfileSelection(1)
+			return m, nil
+		case "enter":
+			return m, m.switchSelectedProfileCmd()
 		case "r":
 			return m, m.loadDashboardCmd()
 		}
@@ -133,6 +143,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.status = msg.Status
 		m.profiles = msg.Profiles
 		m.servers = msg.Servers
+		m.syncSelectedProfile()
 		return m, nil
 	case statusLoadedMsg:
 		if msg.Err != nil {
@@ -143,6 +154,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.apiOnline = true
 		m.errText = ""
 		m.status = msg.Status
+		m.syncSelectedProfile()
 		return m, nil
 	case actionDoneMsg:
 		if msg.Err != nil {
@@ -186,6 +198,23 @@ func (m model) View() string {
 	fmt.Fprintf(&b, "Status: %s  Profile: %s\n", runState, emptyDash(m.status.Profile))
 	if m.errText != "" {
 		fmt.Fprintf(&b, "Error: %s\n", m.errText)
+	}
+
+	b.WriteString("\nProfiles\n")
+	if len(m.profiles.Profiles) == 0 {
+		b.WriteString("  -- no profiles\n")
+	} else {
+		active := m.activeProfile()
+		for i, profile := range m.profiles.Profiles {
+			marker := " "
+			switch {
+			case profile == active:
+				marker = "●"
+			case i == m.selectedProfile:
+				marker = "›"
+			}
+			fmt.Fprintf(&b, "%s %s\n", marker, profile)
+		}
 	}
 
 	b.WriteString("\nListeners\n")
@@ -267,14 +296,27 @@ func (m model) switchProfileCmd(delta int) tea.Cmd {
 	})
 }
 
+func (m model) switchSelectedProfileCmd() tea.Cmd {
+	if len(m.profiles.Profiles) == 0 {
+		return nil
+	}
+	if m.selectedProfile < 0 || m.selectedProfile >= len(m.profiles.Profiles) {
+		return nil
+	}
+	next := m.profiles.Profiles[m.selectedProfile]
+	if next == m.activeProfile() {
+		return nil
+	}
+	return m.actionCmd(func() error {
+		return m.client.setActiveProfile(next)
+	})
+}
+
 func (m model) profileAt(delta int) (string, bool) {
 	if len(m.profiles.Profiles) == 0 {
 		return "", false
 	}
-	active := m.profiles.Active
-	if active == "" {
-		active = m.status.Profile
-	}
+	active := m.activeProfile()
 	idx := 0
 	for i, name := range m.profiles.Profiles {
 		if name == active {
@@ -284,6 +326,38 @@ func (m model) profileAt(delta int) (string, bool) {
 	}
 	next := (idx + delta + len(m.profiles.Profiles)) % len(m.profiles.Profiles)
 	return m.profiles.Profiles[next], true
+}
+
+func (m *model) syncSelectedProfile() {
+	if len(m.profiles.Profiles) == 0 {
+		m.selectedProfile = 0
+		return
+	}
+	active := m.activeProfile()
+	for i, name := range m.profiles.Profiles {
+		if name == active {
+			m.selectedProfile = i
+			return
+		}
+	}
+	if m.selectedProfile < 0 || m.selectedProfile >= len(m.profiles.Profiles) {
+		m.selectedProfile = 0
+	}
+}
+
+func (m *model) moveProfileSelection(delta int) {
+	if len(m.profiles.Profiles) == 0 {
+		m.selectedProfile = 0
+		return
+	}
+	m.selectedProfile = (m.selectedProfile + delta + len(m.profiles.Profiles)) % len(m.profiles.Profiles)
+}
+
+func (m model) activeProfile() string {
+	if m.profiles.Active != "" {
+		return m.profiles.Active
+	}
+	return m.status.Profile
 }
 
 func (m model) startEventStreamCmd() tea.Cmd {

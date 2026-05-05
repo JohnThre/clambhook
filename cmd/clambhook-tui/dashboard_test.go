@@ -101,6 +101,108 @@ func TestDashboardViewIncludesStatusServersAndGraph(t *testing.T) {
 	}
 }
 
+func TestProfileListRendersEmojiNamesAndActiveMarker(t *testing.T) {
+	m := newModel("127.0.0.1:9090")
+	m.profiles = profilesPayload{
+		Profiles: []string{"🇺🇸 US Fast", "🔒 Double Hop", "🎭 Reality"},
+		Active:   "🔒 Double Hop",
+	}
+	m.status = statusPayload{Profile: "🔒 Double Hop"}
+	m.syncSelectedProfile()
+
+	view := m.View()
+	for _, want := range []string{"Profiles", "  🇺🇸 US Fast", "● 🔒 Double Hop", "  🎭 Reality"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("view missing %q:\n%s", want, view)
+		}
+	}
+}
+
+func TestProfileSelectionMovesAndWraps(t *testing.T) {
+	m := newModel("127.0.0.1:9090")
+	m.profiles = profilesPayload{
+		Profiles: []string{"A", "B", "C"},
+		Active:   "B",
+	}
+	m.syncSelectedProfile()
+
+	if m.selectedProfile != 1 {
+		t.Fatalf("selectedProfile = %d, want 1", m.selectedProfile)
+	}
+
+	updated, _ := m.Update(keyMsg("down"))
+	m = updated.(model)
+	if m.selectedProfile != 2 {
+		t.Fatalf("after down selectedProfile = %d, want 2", m.selectedProfile)
+	}
+
+	updated, _ = m.Update(keyMsg("down"))
+	m = updated.(model)
+	if m.selectedProfile != 0 {
+		t.Fatalf("after wrap down selectedProfile = %d, want 0", m.selectedProfile)
+	}
+
+	updated, _ = m.Update(keyMsg("up"))
+	m = updated.(model)
+	if m.selectedProfile != 2 {
+		t.Fatalf("after wrap up selectedProfile = %d, want 2", m.selectedProfile)
+	}
+}
+
+func TestEnterSwitchesSelectedInactiveProfile(t *testing.T) {
+	var requests []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests = append(requests, r.Method+" "+r.URL.Path)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"running":true,"profile":"B"}`))
+	}))
+	defer srv.Close()
+
+	m := newModel("127.0.0.1:9090")
+	m.client = newAPIClientFromBaseURL(srv.URL)
+	m.status = statusPayload{Profile: "A"}
+	m.profiles = profilesPayload{Profiles: []string{"A", "B"}, Active: "A"}
+	m.selectedProfile = 1
+
+	_, cmd := m.Update(keyMsg("enter"))
+	if cmd == nil {
+		t.Fatal("enter returned nil command for inactive selected profile")
+	}
+	_ = cmd()
+
+	if len(requests) == 0 || requests[0] != "PUT /api/v1/profiles/active" {
+		t.Fatalf("first request = %v, want PUT /api/v1/profiles/active", requests)
+	}
+}
+
+func TestEnterOnActiveProfileDoesNotCallAPI(t *testing.T) {
+	m := newModel("127.0.0.1:9090")
+	m.status = statusPayload{Profile: "A"}
+	m.profiles = profilesPayload{Profiles: []string{"A", "B"}, Active: "A"}
+	m.selectedProfile = 0
+
+	_, cmd := m.Update(keyMsg("enter"))
+	if cmd != nil {
+		t.Fatal("enter returned command for already-active selected profile")
+	}
+}
+
+func TestDashboardLoadRealignsSelectedProfileToActive(t *testing.T) {
+	m := newModel("127.0.0.1:9090")
+	m.selectedProfile = 0
+
+	updated, _ := m.Update(dashboardLoadedMsg{
+		Status:   statusPayload{Profile: "C"},
+		Profiles: profilesPayload{Profiles: []string{"A", "B", "C"}, Active: "C"},
+		Servers:  serversPayload{},
+	})
+	m = updated.(model)
+
+	if m.selectedProfile != 2 {
+		t.Fatalf("selectedProfile = %d, want 2", m.selectedProfile)
+	}
+}
+
 func TestKeyActionsCallExpectedAPIEndpoints(t *testing.T) {
 	var requests []string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -141,5 +243,13 @@ func TestKeyActionsCallExpectedAPIEndpoints(t *testing.T) {
 }
 
 func keyMsg(key string) tea.KeyMsg {
+	switch key {
+	case "enter":
+		return tea.KeyMsg{Type: tea.KeyEnter}
+	case "up":
+		return tea.KeyMsg{Type: tea.KeyUp}
+	case "down":
+		return tea.KeyMsg{Type: tea.KeyDown}
+	}
 	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(key)}
 }
