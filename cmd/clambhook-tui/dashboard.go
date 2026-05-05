@@ -16,8 +16,17 @@ import (
 const (
 	bandwidthSampleLimit = 60
 	graphWidth           = 30
+	maxLogLines          = 200
+	defaultLogViewHeight = 24
 	refreshInterval      = 2 * time.Second
 	reconnectInterval    = 2 * time.Second
+)
+
+type viewMode int
+
+const (
+	viewModeDashboard viewMode = iota
+	viewModeLogs
 )
 
 type model struct {
@@ -29,8 +38,13 @@ type model struct {
 	servers  serversPayload
 
 	selectedProfile int
+	viewMode        viewMode
+	width           int
+	height          int
 
 	bandwidth bandwidthSeries
+	logs      []string
+	logScroll int
 	apiOnline bool
 	errText   string
 
@@ -100,6 +114,11 @@ func (m model) Init() tea.Cmd {
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.width = msg.Width
+		m.height = msg.Height
+		m.clampLogScroll()
+		return m, nil
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "q", "ctrl+c":
@@ -107,6 +126,30 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.cancelEvents()
 			}
 			return m, tea.Quit
+		case "l":
+			if m.viewMode == viewModeLogs {
+				m.viewMode = viewModeDashboard
+			} else {
+				m.viewMode = viewModeLogs
+				m.logScroll = 0
+			}
+			return m, nil
+		}
+		if m.viewMode == viewModeLogs {
+			switch msg.String() {
+			case "up", "k":
+				m.scrollLogs(1)
+				return m, nil
+			case "down", "j":
+				m.scrollLogs(-1)
+				return m, nil
+			case "end":
+				m.logScroll = 0
+				return m, nil
+			}
+			return m, nil
+		}
+		switch msg.String() {
 		case "c":
 			if m.status.Running {
 				return m, nil
@@ -183,6 +226,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) View() string {
+	if m.viewMode == viewModeLogs {
+		return m.logView()
+	}
+
 	var b strings.Builder
 
 	apiState := "offline"
@@ -249,7 +296,33 @@ func (m model) View() string {
 	fmt.Fprintf(&b, "  Rx %-10s %s\n", formatRate(current.RxBps), m.bandwidth.graph(true))
 	fmt.Fprintf(&b, "  Tx %-10s %s\n", formatRate(current.TxBps), m.bandwidth.graph(false))
 
-	b.WriteString("\nKeys: c connect  d disconnect  [ prev profile  ] next profile  r refresh  q quit\n")
+	b.WriteString("\nKeys: c connect  d disconnect  [ prev profile  ] next profile  l logs  r refresh  q quit\n")
+	return b.String()
+}
+
+func (m model) logView() string {
+	var b strings.Builder
+
+	apiState := "offline"
+	if m.apiOnline {
+		apiState = "online"
+	}
+
+	fmt.Fprintf(&b, "clambhook %s  API %s (%s)\n", version, m.apiAddr, apiState)
+	b.WriteString("Logs\n")
+	if m.errText != "" {
+		fmt.Fprintf(&b, "Error: %s\n", m.errText)
+	}
+
+	if len(m.logs) == 0 {
+		b.WriteString("  -- no logs yet\n")
+	} else {
+		for _, line := range m.visibleLogLines() {
+			fmt.Fprintf(&b, "  %s\n", line)
+		}
+	}
+
+	b.WriteString("\nKeys: l dashboard  up/k scroll  down/j scroll  end tail  q quit\n")
 	return b.String()
 }
 
@@ -434,6 +507,12 @@ func tickCmd() tea.Cmd {
 }
 
 func (m *model) applyEvent(ev events.Event) {
+	if ev.Type == events.TypeLogLine {
+		if line, ok := eventLogLine(ev.Data); ok {
+			m.appendLogLine(line)
+		}
+		return
+	}
 	if ev.Type != events.TypeConnectionBytes {
 		return
 	}
@@ -448,6 +527,94 @@ func (m *model) applyEvent(ev events.Event) {
 		RxBps: rxDelta / seconds,
 		TxBps: txDelta / seconds,
 	})
+}
+
+func (m *model) appendLogLine(line string) {
+	wasTailing := m.logScroll == 0
+	if !wasTailing {
+		m.logScroll++
+	}
+	m.logs = append(m.logs, line)
+	if len(m.logs) > maxLogLines {
+		m.logs = m.logs[len(m.logs)-maxLogLines:]
+	}
+	if wasTailing {
+		m.logScroll = 0
+		return
+	}
+	m.clampLogScroll()
+}
+
+func (m *model) scrollLogs(delta int) {
+	m.logScroll += delta
+	m.clampLogScroll()
+}
+
+func (m *model) clampLogScroll() {
+	if m.logScroll < 0 {
+		m.logScroll = 0
+	}
+	if maxScroll := m.maxLogScroll(); m.logScroll > maxScroll {
+		m.logScroll = maxScroll
+	}
+}
+
+func (m model) maxLogScroll() int {
+	visible := m.logVisibleRows()
+	if len(m.logs) <= visible {
+		return 0
+	}
+	return len(m.logs) - visible
+}
+
+func (m model) visibleLogLines() []string {
+	if len(m.logs) == 0 {
+		return nil
+	}
+	visible := m.logVisibleRows()
+	end := len(m.logs) - m.logScroll
+	if end < 0 {
+		end = 0
+	}
+	if end > len(m.logs) {
+		end = len(m.logs)
+	}
+	start := end - visible
+	if start < 0 {
+		start = 0
+	}
+	return m.logs[start:end]
+}
+
+func (m model) logVisibleRows() int {
+	height := m.height
+	if height <= 0 {
+		height = defaultLogViewHeight
+	}
+	rows := height - 4
+	if m.errText != "" {
+		rows--
+	}
+	if rows < 1 {
+		return 1
+	}
+	return rows
+}
+
+func eventLogLine(data any) (string, bool) {
+	switch d := data.(type) {
+	case map[string]any:
+		line, ok := d["line"].(string)
+		return line, ok
+	case events.LogLineData:
+		return d.Line, true
+	case *events.LogLineData:
+		if d == nil {
+			return "", false
+		}
+		return d.Line, true
+	}
+	return "", false
 }
 
 func eventNumber(data any, key string) (float64, bool) {

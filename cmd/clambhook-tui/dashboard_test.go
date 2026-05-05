@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -10,6 +11,14 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/clambhook/clambhook/internal/events"
 )
+
+func TestEventsURLSubscribesToConnectionAndLogEvents(t *testing.T) {
+	c := newAPIClientFromBaseURL("http://127.0.0.1:9090")
+
+	if got := c.eventsURL(); !strings.Contains(got, "types=connection.*,log.*") {
+		t.Fatalf("eventsURL() = %q, want connection and log event filters", got)
+	}
+}
 
 func TestCountryFlag(t *testing.T) {
 	if got := countryFlag("GB"); got != "🇬🇧" {
@@ -63,6 +72,26 @@ func TestDashboardAppliesConnectionBytesToAggregateGraph(t *testing.T) {
 	}
 }
 
+func TestDashboardAppliesLogLineEventsWithCap(t *testing.T) {
+	m := newModel("127.0.0.1:9090")
+	for i := 0; i < maxLogLines+5; i++ {
+		m.applyEvent(events.Event{
+			Type: events.TypeLogLine,
+			Data: map[string]any{"line": fmt.Sprintf("line-%d", i)},
+		})
+	}
+
+	if len(m.logs) != maxLogLines {
+		t.Fatalf("logs = %d, want %d", len(m.logs), maxLogLines)
+	}
+	if m.logs[0] != "line-5" {
+		t.Fatalf("first retained log = %q, want line-5", m.logs[0])
+	}
+	if m.logs[len(m.logs)-1] != fmt.Sprintf("line-%d", maxLogLines+4) {
+		t.Fatalf("last retained log = %q", m.logs[len(m.logs)-1])
+	}
+}
+
 func TestDashboardViewIncludesStatusServersAndGraph(t *testing.T) {
 	m := newModel("127.0.0.1:9090")
 	m.apiOnline = true
@@ -98,6 +127,76 @@ func TestDashboardViewIncludesStatusServersAndGraph(t *testing.T) {
 		if !strings.Contains(view, want) {
 			t.Fatalf("view missing %q:\n%s", want, view)
 		}
+	}
+}
+
+func TestLogViewToggleAndRender(t *testing.T) {
+	m := newModel("127.0.0.1:9090")
+	m.apiOnline = true
+	m.appendLogLine("api listening on 127.0.0.1:9090")
+
+	updated, _ := m.Update(keyMsg("l"))
+	m = updated.(model)
+
+	if m.viewMode != viewModeLogs {
+		t.Fatalf("viewMode = %v, want logs", m.viewMode)
+	}
+	view := m.View()
+	for _, want := range []string{"Logs", "api listening on 127.0.0.1:9090", "l dashboard"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("log view missing %q:\n%s", want, view)
+		}
+	}
+	if strings.Contains(view, "Servers") {
+		t.Fatalf("log view should not render dashboard sections:\n%s", view)
+	}
+}
+
+func TestLogModeScrollKeysDoNotMoveProfileSelection(t *testing.T) {
+	m := newModel("127.0.0.1:9090")
+	m.viewMode = viewModeLogs
+	m.height = 6
+	m.profiles = profilesPayload{Profiles: []string{"A", "B", "C"}, Active: "B"}
+	m.syncSelectedProfile()
+	for i := 0; i < 10; i++ {
+		m.appendLogLine(fmt.Sprintf("line-%d", i))
+	}
+
+	updated, _ := m.Update(keyMsg("up"))
+	m = updated.(model)
+	if m.selectedProfile != 1 {
+		t.Fatalf("selectedProfile = %d, want 1", m.selectedProfile)
+	}
+	if m.logScroll != 1 {
+		t.Fatalf("logScroll after up = %d, want 1", m.logScroll)
+	}
+
+	updated, _ = m.Update(keyMsg("down"))
+	m = updated.(model)
+	if m.selectedProfile != 1 {
+		t.Fatalf("selectedProfile after down = %d, want 1", m.selectedProfile)
+	}
+	if m.logScroll != 0 {
+		t.Fatalf("logScroll after down = %d, want 0", m.logScroll)
+	}
+}
+
+func TestWindowSizeLimitsRenderedLogLines(t *testing.T) {
+	m := newModel("127.0.0.1:9090")
+	m.viewMode = viewModeLogs
+	m.height = 6
+	for i := 0; i < 10; i++ {
+		m.appendLogLine(fmt.Sprintf("entry-%02d", i))
+	}
+
+	view := m.View()
+	for _, want := range []string{"entry-08", "entry-09"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("log view missing %q:\n%s", want, view)
+		}
+	}
+	if strings.Contains(view, "entry-07") {
+		t.Fatalf("log view rendered too many rows:\n%s", view)
 	}
 }
 
@@ -250,6 +349,8 @@ func keyMsg(key string) tea.KeyMsg {
 		return tea.KeyMsg{Type: tea.KeyUp}
 	case "down":
 		return tea.KeyMsg{Type: tea.KeyDown}
+	case "end":
+		return tea.KeyMsg{Type: tea.KeyEnd}
 	}
 	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(key)}
 }
