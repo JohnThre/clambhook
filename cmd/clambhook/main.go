@@ -33,6 +33,7 @@ var version = "dev"
 func main() {
 	configPath := flag.String("config", "", "path to config file")
 	apiAddr := flag.String("api", "127.0.0.1:9090", "API listen address")
+	apiToken := flag.String("api-token", os.Getenv("CLAMBHOOK_API_TOKEN"), "bearer token required for API access")
 	noWatch := flag.Bool("no-watch", false, "disable config file hot-reload")
 	showVersion := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
@@ -70,7 +71,11 @@ func main() {
 	log.SetOutput(io.MultiWriter(os.Stderr, logstream.NewWriter(bus)))
 	eng := engine.New(cfg, bus)
 
-	srv := api.New(eng, bus)
+	if err := api.ValidateAuthConfig(*apiAddr, *apiToken); err != nil {
+		log.Fatalf("api auth: %v", err)
+	}
+
+	srv := api.NewWithOptions(eng, bus, api.Options{AuthToken: *apiToken})
 	if err := srv.Start(*apiAddr); err != nil {
 		log.Fatalf("start api: %v", err)
 	}
