@@ -6,6 +6,10 @@ bin/
 ui/apple/.build/
 ui/apple/.swiftpm/
 ui/apple/**/xcuserdata/
+ui/android/.gradle/
+ui/android/build/
+ui/android/app/build/
+ui/android/local.properties
 *.o
 *.a
 *.so

@@ -1,0 +1,97 @@
+package com.clambhook.android
+
+import android.content.Context
+import androidx.datastore.preferences.core.booleanPreferencesKey
+import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.preferences.preferencesDataStore
+import androidx.security.crypto.EncryptedSharedPreferences
+import androidx.security.crypto.MasterKey
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.withContext
+
+private val Context.clambhookDataStore by preferencesDataStore(name = "clambhook_settings")
+
+data class AppSettings(
+    val apiBaseUrl: String = defaultAndroidApiBaseUrl,
+    val refreshIntervalSeconds: Int = 5,
+    val eventStreamEnabled: Boolean = true
+) {
+    val normalizedBaseUrl: String
+        get() = apiBaseUrl.trim().trimEnd('/').ifBlank { defaultAndroidApiBaseUrl }
+
+    val normalizedRefreshIntervalSeconds: Int
+        get() = refreshIntervalSeconds.coerceIn(2, 60)
+}
+
+const val defaultAndroidApiBaseUrl = "http://10.0.2.2:9090"
+
+interface SettingsStore {
+    val settings: Flow<AppSettings>
+    suspend fun save(settings: AppSettings)
+}
+
+class DataStoreSettingsStore(context: Context) : SettingsStore {
+    private val dataStore = context.applicationContext.clambhookDataStore
+
+    override val settings: Flow<AppSettings> = dataStore.data.map { prefs ->
+        AppSettings(
+            apiBaseUrl = prefs[Keys.apiBaseUrl] ?: defaultAndroidApiBaseUrl,
+            refreshIntervalSeconds = prefs[Keys.refreshIntervalSeconds] ?: 5,
+            eventStreamEnabled = prefs[Keys.eventStreamEnabled] ?: true
+        )
+    }
+
+    override suspend fun save(settings: AppSettings) {
+        dataStore.edit { prefs ->
+            prefs[Keys.apiBaseUrl] = settings.normalizedBaseUrl
+            prefs[Keys.refreshIntervalSeconds] = settings.normalizedRefreshIntervalSeconds
+            prefs[Keys.eventStreamEnabled] = settings.eventStreamEnabled
+        }
+    }
+
+    private object Keys {
+        val apiBaseUrl = stringPreferencesKey("api_base_url")
+        val refreshIntervalSeconds = intPreferencesKey("refresh_interval_seconds")
+        val eventStreamEnabled = booleanPreferencesKey("event_stream_enabled")
+    }
+}
+
+interface TokenStore {
+    val token: Flow<String>
+    fun currentToken(): String
+    suspend fun saveToken(token: String)
+}
+
+class EncryptedTokenStore(context: Context) : TokenStore {
+    private val prefs = EncryptedSharedPreferences.create(
+        context.applicationContext,
+        "clambhook_secrets",
+        MasterKey.Builder(context.applicationContext)
+            .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+            .build(),
+        EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+        EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+    )
+    private val tokenState = MutableStateFlow(prefs.getString(apiTokenKey, "").orEmpty())
+
+    override val token: Flow<String> = tokenState
+
+    override fun currentToken(): String = tokenState.value
+
+    override suspend fun saveToken(token: String) {
+        val trimmed = token.trim()
+        withContext(Dispatchers.IO) {
+            prefs.edit().putString(apiTokenKey, trimmed).apply()
+        }
+        tokenState.value = trimmed
+    }
+
+    private companion object {
+        const val apiTokenKey = "api_token"
+    }
+}

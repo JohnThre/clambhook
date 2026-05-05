@@ -1,6 +1,7 @@
-.PHONY: all build build-clib build-daemon build-tui generate-apple build-apple test-apple test lint clean
+.PHONY: all build build-clib build-daemon build-tui generate-apple build-apple test-apple test-android build-android test lint clean
 
 export CGO_ENABLED=1
+ANDROID_HOME ?= $(HOME)/Library/Android/sdk
 
 all: build
 
@@ -25,6 +26,12 @@ build-apple: build-daemon generate-apple
 test-apple:
 	swift test --package-path ui/apple
 
+test-android:
+	cd ui/android && ANDROID_HOME="$(ANDROID_HOME)" ./gradlew :app:testDebugUnitTest
+
+build-android:
+	cd ui/android && ANDROID_HOME="$(ANDROID_HOME)" ./gradlew :app:assembleDebug
+
 test:
 	go test ./...
 
@@ -33,4 +40,5 @@ lint:
 
 clean:
 	rm -rf bin/
+	rm -rf ui/android/build/ ui/android/app/build/
 	$(MAKE) -C clib clean
