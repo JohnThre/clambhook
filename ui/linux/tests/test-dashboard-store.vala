@@ -1,0 +1,112 @@
+namespace Clambhook.Tests {
+    private class FakeApi : Object, ClambhookApiProviding {
+        public StatusPayload status_payload = new StatusPayload();
+        public ProfilesPayload profiles_payload = new ProfilesPayload();
+        public ServersPayload servers_payload = new ServersPayload();
+        public Gee.ArrayList<string> actions = new Gee.ArrayList<string>();
+
+        public async StatusPayload status() throws Error {
+            return status_payload;
+        }
+
+        public async ProfilesPayload profiles() throws Error {
+            return profiles_payload;
+        }
+
+        public async ServersPayload servers() throws Error {
+            return servers_payload;
+        }
+
+        public async void connect() throws Error {
+            actions.add("connect");
+        }
+
+        public async void disconnect() throws Error {
+            actions.add("disconnect");
+        }
+
+        public async void set_active_profile(string name) throws Error {
+            actions.add("profile:%s".printf(name));
+        }
+    }
+
+    public void add_dashboard_store_tests() {
+        Test.add_func("/linux/dashboard-store/refresh-loads-status-profiles-and-servers", () => {
+            var api = new FakeApi();
+            api.status_payload = StatusPayload.from_json("""{"running":true,"profile":"A","listeners":[{"protocol":"socks5","addr":"127.0.0.1:1080","active_conns":3}]}""");
+            api.profiles_payload = ProfilesPayload.from_json("""{"profiles":["A","B"],"active":"A"}""");
+            api.servers_payload = ServersPayload.from_json("""{"profile":"A","chains":[{"name":"default","servers":[{"name":"london","address":"uk.example:443","protocol":"vless"}]}]}""");
+
+            var store = new DashboardStore(api);
+            store.refresh_dashboard.begin((obj, res) => {
+                try {
+                    store.refresh_dashboard.end(res);
+                    assert_true(store.status.running);
+                    assert_cmpint(store.active_connections(), CompareOperator.EQ, 3);
+                    assert_cmpstr(store.profiles.profiles[1], CompareOperator.EQ, "B");
+                    assert_cmpstr(store.servers.chains[0].servers[0].name, CompareOperator.EQ, "london");
+                    Test.message("dashboard refresh completed");
+                } catch (Error err) {
+                    assert_not_reached();
+                }
+            });
+            MainContext.default().iteration(true);
+        });
+
+        Test.add_func("/linux/dashboard-store/event-rate-and-log-retention", () => {
+            var store = new DashboardStore(new FakeApi());
+
+            for (int i = 0; i < 65; i++) {
+                store.apply_event(new DaemonEvent.from_values("connection.bytes")
+                    .with_number("rx_delta", (i + 1) * 1024)
+                    .with_number("tx_delta", (i + 1) * 512)
+                    .with_number("interval_ns", 1000000000));
+            }
+
+            assert_cmpint(store.bandwidth_samples.size, CompareOperator.EQ, BANDWIDTH_SAMPLE_LIMIT);
+            assert_cmpfloat(store.current_bandwidth().rx_bps, CompareOperator.EQ, 65 * 1024);
+
+            for (int i = 0; i < 205; i++) {
+                store.apply_event(new DaemonEvent.from_values("log.line").with_string("line", "line-%d".printf(i)));
+            }
+
+            assert_cmpint(store.logs.size, CompareOperator.EQ, MAX_LOG_LINES);
+            assert_cmpstr(store.logs[0], CompareOperator.EQ, "line-5");
+            assert_cmpstr(store.logs[199], CompareOperator.EQ, "line-204");
+        });
+
+        Test.add_func("/linux/dashboard-store/actions-refresh-after-change", () => {
+            var api = new FakeApi();
+            var store = new DashboardStore(api);
+
+            store.connect.begin((obj, res) => {
+                try {
+                    store.connect.end(res);
+                    store.disconnect.begin((obj2, res2) => {
+                        try {
+                            store.disconnect.end(res2);
+                            store.set_active_profile.begin("B", (obj3, res3) => {
+                                try {
+                                    store.set_active_profile.end(res3);
+                                    assert_cmpstr(api.actions[0], CompareOperator.EQ, "connect");
+                                    assert_cmpstr(api.actions[1], CompareOperator.EQ, "disconnect");
+                                    assert_cmpstr(api.actions[2], CompareOperator.EQ, "profile:B");
+                                } catch (Error err) {
+                                    assert_not_reached();
+                                }
+                            });
+                        } catch (Error err) {
+                            assert_not_reached();
+                        }
+                    });
+                } catch (Error err) {
+                    assert_not_reached();
+                }
+            });
+
+            for (int i = 0; i < 6; i++) {
+                MainContext.default().iteration(true);
+            }
+        });
+    }
+}

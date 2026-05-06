@@ -10,6 +10,7 @@ ui/android/.gradle/
 ui/android/build/
 ui/android/app/build/
 ui/android/local.properties
+ui/linux/builddir/
 ui/windows/**/bin/
 ui/windows/**/obj/
 ui/windows/.vs/
