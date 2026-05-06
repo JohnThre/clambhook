@@ -12,6 +12,7 @@ A network utility.
 - `make test`: run Go tests.
 - `make test-apple`: run the shared Swift package tests.
 - `make build-apple`: build the daemon, generate `ui/apple/Clambhook.xcodeproj`, then build the macOS and iOS SwiftUI apps.
+- `make release-macos`: build a self-contained Apple Silicon macOS app, sign it with a Developer ID Application certificate, notarize it, staple the ticket, and write `dist/macos/ClambhookMac-arm64.zip`.
 - `make test-android`: run the Android companion app unit tests.
 - `make build-android`: build the Android companion app debug APK.
 - `make test-windows`: run the Windows WinUI app unit tests on a machine with the .NET SDK and Windows SDK.
@@ -38,6 +39,28 @@ stores settings at `$XDG_CONFIG_HOME/clambhook/linux-settings.json`, stores the
 API token with Secret Service, and can launch a configured `clambhook` daemon or
 a bundled executable placed next to the app. Development builds require Meson,
 Vala, GTK4, libadwaita, libsoup 3, json-glib, libsecret, and gee.
+
+## macOS Developer ID release
+
+Direct macOS distribution requires a paid Apple Developer account with a
+`Developer ID Application` certificate installed in the signing keychain. Create
+a notarytool keychain profile once with:
+
+```sh
+xcrun notarytool store-credentials "clambhook-notary" --apple-id "<apple-id>" --team-id "<team-id>" --password "<app-specific-password>"
+```
+
+Then build the signed, notarized Apple Silicon app:
+
+```sh
+CLAMBHOOK_DEVELOPMENT_TEAM="<team-id>" NOTARYTOOL_PROFILE="clambhook-notary" make release-macos
+```
+
+The release script embeds the Go daemon in `Contents/MacOS`, embeds
+`libsodium.26.dylib` in `Contents/Frameworks`, rewrites the daemon load path so
+it does not depend on Homebrew, signs nested executables, notarizes the exported
+app, staples the ticket, and verifies the result with `codesign`, `stapler`, and
+`spctl`.
 
 ## License
 

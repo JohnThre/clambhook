@@ -3,6 +3,7 @@ RealREADME.md
 
 # Build artifacts
 bin/
+dist/
 ui/apple/.build/
 ui/apple/.swiftpm/
 ui/apple/**/xcuserdata/

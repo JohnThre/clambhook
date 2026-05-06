@@ -1,4 +1,4 @@
-.PHONY: all build build-clib build-daemon build-tui generate-apple build-apple test-apple test-android build-android test-windows build-windows test-linux build-linux test lint clean
+.PHONY: all build build-clib build-daemon build-tui prepare-apple-runtime generate-apple build-apple release-macos test-apple test-android build-android test-windows build-windows test-linux build-linux test lint clean
 
 export CGO_ENABLED=1
 ANDROID_HOME ?= $(HOME)/Library/Android/sdk
@@ -10,19 +10,27 @@ build-clib:
 	$(MAKE) -C clib
 
 build-daemon: build-clib
+	mkdir -p bin
 	go build -o bin/clambhook ./cmd/clambhook
 
 build-tui: build-clib
+	mkdir -p bin
 	go build -o bin/clambhook-tui ./cmd/clambhook-tui
 
 build: build-daemon build-tui
 
+prepare-apple-runtime: build-daemon
+	./scripts/prepare-macos-runtime.sh
+
 generate-apple:
 	cd ui/apple && xcodegen generate --spec project.yml
 
-build-apple: build-daemon generate-apple
+build-apple: prepare-apple-runtime generate-apple
 	xcodebuild -project ui/apple/Clambhook.xcodeproj -scheme ClambhookMac -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO build
 	xcodebuild -project ui/apple/Clambhook.xcodeproj -scheme ClambhookiOS -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build
+
+release-macos:
+	./scripts/release-macos.sh
 
 test-apple:
 	swift test --package-path ui/apple

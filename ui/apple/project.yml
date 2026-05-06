@@ -11,6 +11,10 @@ settings:
   base:
     SWIFT_VERSION: "5.0"
     DEVELOPMENT_TEAM: ""
+    CODE_SIGN_STYLE: Automatic
+    ARCHS: arm64
+    ONLY_ACTIVE_ARCH: NO
+    ENABLE_HARDENED_RUNTIME: YES
 targets:
   ClambhookMac:
     type: application
@@ -19,7 +23,13 @@ targets:
       - path: SharedApp
       - path: ClambhookMac
       - path: ../../bin/clambhook
-        buildPhase: resources
+        buildPhase:
+          copyFiles:
+            destination: executables
+      - path: ../../bin/libsodium.26.dylib
+        buildPhase:
+          copyFiles:
+            destination: frameworks
     dependencies:
       - package: ClambhookShared
       - target: ClambhookMacWidgetExtension
@@ -29,6 +39,7 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.clambhook.mac
         INFOPLIST_FILE: ClambhookMac/Info.plist
         CODE_SIGN_ENTITLEMENTS: ClambhookMac/ClambhookMac.entitlements
+        ENABLE_APP_SANDBOX: YES
   ClambhookiOS:
     type: application
     platform: iOS
@@ -56,6 +67,7 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.clambhook.mac.widgets
         INFOPLIST_FILE: ClambhookWidgets/Info.plist
         CODE_SIGN_ENTITLEMENTS: ClambhookWidgets/ClambhookMacWidgetExtension.entitlements
+        ENABLE_APP_SANDBOX: YES
         SKIP_INSTALL: YES
   ClambhookiOSWidgetExtension:
     type: app-extension
