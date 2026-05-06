@@ -42,6 +42,9 @@ final class DaemonSupervisor: ObservableObject {
         if !settings.daemonBinaryPath.isEmpty {
             return URL(fileURLWithPath: settings.daemonBinaryPath)
         }
+        if let bundled = Bundle.main.url(forAuxiliaryExecutable: "clambhook") {
+            return bundled
+        }
         if let bundled = Bundle.main.url(forResource: "clambhook", withExtension: nil) {
             return bundled
         }
@@ -66,7 +69,7 @@ enum DaemonSupervisorError: Error, LocalizedError {
     var errorDescription: String? {
         switch self {
         case .missingBinary:
-            return "Set a daemon binary path in Settings or include clambhook in the app bundle."
+            return "Set a daemon binary path in Settings or include clambhook in the app bundle executables."
         }
     }
 }

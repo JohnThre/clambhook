@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+DAEMON="$ROOT_DIR/bin/clambhook"
+SODIUM_NAME="libsodium.26.dylib"
+SODIUM_LIBDIR="$(pkg-config --variable=libdir libsodium)"
+SODIUM_SOURCE="$SODIUM_LIBDIR/$SODIUM_NAME"
+SODIUM_DEST="$ROOT_DIR/bin/$SODIUM_NAME"
+SODIUM_BUNDLE_PATH="@executable_path/../Frameworks/$SODIUM_NAME"
+
+if [[ ! -x "$DAEMON" ]]; then
+    echo "missing daemon executable at $DAEMON" >&2
+    exit 1
+fi
+
+if [[ ! -f "$SODIUM_SOURCE" ]]; then
+    echo "missing libsodium dylib at $SODIUM_SOURCE" >&2
+    exit 1
+fi
+
+mkdir -p "$ROOT_DIR/bin"
+cp "$SODIUM_SOURCE" "$SODIUM_DEST"
+chmod 755 "$SODIUM_DEST"
+
+current_sodium_path="$(otool -L "$DAEMON" | awk '/libsodium/ { print $1; exit }')"
+if [[ -z "$current_sodium_path" ]]; then
+    echo "daemon does not link against libsodium" >&2
+    exit 1
+fi
+
+if [[ "$current_sodium_path" != "$SODIUM_BUNDLE_PATH" ]]; then
+    install_name_tool -change "$current_sodium_path" "$SODIUM_BUNDLE_PATH" "$DAEMON"
+fi
+
+if otool -L "$DAEMON" | grep -q '/opt/homebrew'; then
+    echo "daemon still contains a Homebrew runtime dependency" >&2
+    otool -L "$DAEMON" >&2
+    exit 1
+fi
