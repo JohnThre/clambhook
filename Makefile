@@ -1,7 +1,8 @@
-.PHONY: all build build-clib build-daemon build-tui generate-apple build-apple test-apple test-android build-android test lint clean
+.PHONY: all build build-clib build-daemon build-tui generate-apple build-apple test-apple test-android build-android test-windows build-windows test lint clean
 
 export CGO_ENABLED=1
 ANDROID_HOME ?= $(HOME)/Library/Android/sdk
+DOTNET ?= dotnet
 
 all: build
 
@@ -32,6 +33,12 @@ test-android:
 build-android:
 	cd ui/android && ANDROID_HOME="$(ANDROID_HOME)" ./gradlew :app:assembleDebug
 
+test-windows:
+	$(DOTNET) test ui/windows/Clambhook.Windows.sln
+
+build-windows:
+	$(DOTNET) build ui/windows/Clambhook.Windows.sln -c Debug
+
 test:
 	go test ./...
 
@@ -41,4 +48,5 @@ lint:
 clean:
 	rm -rf bin/
 	rm -rf ui/android/build/ ui/android/app/build/
+	find ui/windows -type d \( -name bin -o -name obj \) -prune -exec rm -rf {} +
 	$(MAKE) -C clib clean
