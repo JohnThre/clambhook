@@ -1,0 +1,59 @@
+namespace Clambhook.Tests {
+    public void add_settings_daemon_tests() {
+        Test.add_func("/linux/settings/normalizes-defaults-and-refresh-interval", () => {
+            var settings = new AppSettings();
+            settings.api_endpoint = "   ";
+            settings.refresh_interval_seconds = 1;
+            settings.daemon_path = " /usr/local/bin/clambhook ";
+
+            var normalized = settings.normalized();
+            assert_cmpstr(normalized.api_endpoint, CompareOperator.EQ, "http://127.0.0.1:9090");
+            assert_cmpint(normalized.refresh_interval_seconds, CompareOperator.EQ, 2);
+            assert_cmpstr(normalized.daemon_path, CompareOperator.EQ, "/usr/local/bin/clambhook");
+        });
+
+        Test.add_func("/linux/settings/persists-json-to-config-path", () => {
+            var temp_root = Path.build_filename(Environment.get_tmp_dir(), "clambhook-linux-settings-test");
+            DirUtils.create_with_parents(temp_root, 0700);
+            var path = Path.build_filename(temp_root, "settings.json");
+            var store = new FileSettingsStore(path);
+            var settings = new AppSettings();
+            settings.api_endpoint = " http://proxy.example:9090/ ";
+            settings.refresh_interval_seconds = 90;
+            settings.event_stream_enabled = false;
+
+            try {
+                store.save(settings);
+            } catch (Error err) {
+                assert_not_reached();
+            }
+            var loaded = store.load();
+
+            assert_cmpstr(loaded.api_endpoint, CompareOperator.EQ, "http://proxy.example:9090");
+            assert_cmpint(loaded.refresh_interval_seconds, CompareOperator.EQ, 60);
+            assert_false(loaded.event_stream_enabled);
+        });
+
+        Test.add_func("/linux/daemon/resolves-configured-then-bundled-path-and-arguments", () => {
+            var settings = new AppSettings();
+            settings.daemon_path = "/definitely/missing/clambhook";
+            settings.config_path = " /tmp/clambhook.toml ";
+
+            assert_true(DaemonSupervisor.resolve_executable_path(settings, "/tmp/app") == null);
+            var args = DaemonSupervisor.build_arguments(settings, " token ");
+
+            assert_cmpstr(args, CompareOperator.EQ, "-api \"http://127.0.0.1:9090\" -api-token \"token\" -config \"/tmp/clambhook.toml\"");
+        });
+
+        Test.add_func("/linux/formatters/formats-rates-and-server-location", () => {
+            assert_cmpstr(Formatters.format_rate(512), CompareOperator.EQ, "512 B/s");
+            assert_cmpstr(Formatters.format_rate(1536), CompareOperator.EQ, "1.5 KB/s");
+
+            var server = new ServerPayload();
+            server.address = "uk.example:443";
+            server.geo.city = "London";
+            server.geo.country = "United Kingdom";
+            assert_cmpstr(Formatters.server_location(server), CompareOperator.EQ, "London, United Kingdom");
+        });
+    }
+}

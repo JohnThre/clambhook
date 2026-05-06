@@ -1,4 +1,4 @@
-.PHONY: all build build-clib build-daemon build-tui generate-apple build-apple test-apple test-android build-android test-windows build-windows test lint clean
+.PHONY: all build build-clib build-daemon build-tui generate-apple build-apple test-apple test-android build-android test-windows build-windows test-linux build-linux test lint clean
 
 export CGO_ENABLED=1
 ANDROID_HOME ?= $(HOME)/Library/Android/sdk
@@ -39,6 +39,12 @@ test-windows:
 build-windows:
 	$(DOTNET) build ui/windows/Clambhook.Windows.sln -c Debug
 
+test-linux:
+	cd ui/linux && meson setup builddir --reconfigure && meson test -C builddir
+
+build-linux: build-daemon
+	cd ui/linux && meson setup builddir --reconfigure && meson compile -C builddir
+
 test:
 	go test ./...
 
@@ -48,5 +54,6 @@ lint:
 clean:
 	rm -rf bin/
 	rm -rf ui/android/build/ ui/android/app/build/
+	rm -rf ui/linux/builddir/
 	find ui/windows -type d \( -name bin -o -name obj \) -prune -exec rm -rf {} +
 	$(MAKE) -C clib clean

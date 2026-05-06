@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=clambhook
+Comment=Desktop controller for the clambhook daemon
+Exec=clambhook-linux
+Icon=@app_id@
+Terminal=false
+Type=Application
+Categories=Network;GTK;
+StartupNotify=true
