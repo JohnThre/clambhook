@@ -6,6 +6,7 @@ import SwiftUI
 final class AppleAppModel: ObservableObject {
     @Published var settingsStore: AppSettingsStore
     @Published private(set) var dashboard: DashboardStore
+    @Published var standaloneConfigStore: StandaloneConfigStore
     @Published var apiToken = ""
     @Published var daemonMessage = ""
 
@@ -30,6 +31,7 @@ final class AppleAppModel: ObservableObject {
         self.platform = platform
         self.settingsStore = settingsStore
         self.credentialStore = credentialStore
+        self.standaloneConfigStore = StandaloneConfigStore(defaults: UserDefaults(suiteName: defaultAppGroupIdentifier) ?? .standard)
         self.snapshotStore = FileSnapshotStore.appGroupStore(groupIdentifier: settingsStore.settings.appGroupIdentifier)
         let initialToken = (try? credentialStore.readToken(account: settingsStore.settings.apiEndpoint.absoluteString)) ?? ""
         self.apiToken = initialToken
@@ -43,9 +45,9 @@ final class AppleAppModel: ObservableObject {
         if settingsStore.settings.launchDaemonOnStart {
             launchDaemon()
         }
-        #endif
         dashboard.startEventStream(from: apiClient)
         Task { await dashboard.refreshDashboard() }
+        #endif
     }
 
     func stop() {

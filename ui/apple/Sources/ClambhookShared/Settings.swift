@@ -1,7 +1,7 @@
 import Foundation
 
 public let defaultAPIEndpoint = URL(string: "http://127.0.0.1:9090")!
-public let defaultAppGroupIdentifier = "group.com.clambhook.shared"
+public let defaultAppGroupIdentifier = appleAppGroupIdentifier
 
 public struct AppSettings: Codable, Equatable, Sendable {
     public var apiEndpoint: URL

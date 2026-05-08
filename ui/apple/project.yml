@@ -7,10 +7,12 @@ options:
 packages:
   ClambhookShared:
     path: .
+configFiles:
+  Debug: Signing.local.xcconfig
+  Release: Signing.local.xcconfig
 settings:
   base:
     SWIFT_VERSION: "5.0"
-    DEVELOPMENT_TEAM: ""
     CODE_SIGN_STYLE: Automatic
     ARCHS: arm64
     ONLY_ACTIVE_ARCH: NO
@@ -50,11 +52,35 @@ targets:
       - package: ClambhookShared
       - target: ClambhookiOSWidgetExtension
         embed: true
+      - target: ClambhookiOSPacketTunnel
+        embed: true
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.clambhook.ios
+        PRODUCT_BUNDLE_IDENTIFIER: org.jpfchang.clambhook.ios
         INFOPLIST_FILE: ClambhookiOS/Info.plist
         CODE_SIGN_ENTITLEMENTS: ClambhookiOS/ClambhookiOS.entitlements
+  ClambhookiOSPacketTunnel:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: ClambhookiOSPacketTunnel
+    dependencies:
+      - package: ClambhookShared
+    preBuildScripts:
+      - name: Build TunnelCore XCFramework
+        script: |
+          "${PROJECT_DIR}/scripts/build-tunnelcore-xcframework.sh"
+        basedOnDependencyAnalysis: false
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: org.jpfchang.clambhook.ios.packet-tunnel
+        INFOPLIST_FILE: ClambhookiOSPacketTunnel/Info.plist
+        CODE_SIGN_ENTITLEMENTS: ClambhookiOSPacketTunnel/ClambhookiOSPacketTunnel.entitlements
+        HEADER_SEARCH_PATHS: "$(inherited) $(DERIVED_FILE_DIR)/tunnelcore/headers"
+        LIBRARY_SEARCH_PATHS: "$(inherited) $(DERIVED_FILE_DIR)/tunnelcore/link"
+        OTHER_LDFLAGS: "$(inherited) -lClambhookTunnelCore"
+        SWIFT_INCLUDE_PATHS: "$(inherited) $(DERIVED_FILE_DIR)/tunnelcore/headers"
+        SKIP_INSTALL: YES
   ClambhookMacWidgetExtension:
     type: app-extension
     platform: macOS
@@ -78,7 +104,7 @@ targets:
       - package: ClambhookShared
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.clambhook.ios.widgets
+        PRODUCT_BUNDLE_IDENTIFIER: org.jpfchang.clambhook.ios.widgets
         INFOPLIST_FILE: ClambhookWidgets/Info.plist
         CODE_SIGN_ENTITLEMENTS: ClambhookWidgets/ClambhookiOSWidgetExtension.entitlements
         SKIP_INSTALL: YES
