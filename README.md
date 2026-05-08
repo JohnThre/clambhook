@@ -16,7 +16,8 @@ A network utility.
 - `make test-android`: run the Android companion app unit tests.
 - `make build-android`: build the Android companion app debug APK.
 - `make test-windows`: run the Windows WinUI app unit tests on a machine with the .NET SDK and Windows SDK.
-- `make build-windows`: build the Windows WinUI unpackaged debug app.
+- `make build-windows`: build the Windows daemon and WinUI unpackaged debug app.
+- `make publish-windows`: publish a self-contained Windows app folder with the daemon, .NET runtime, and Windows App SDK runtime bundled.
 - `make test-linux`: configure the GTK/libadwaita Meson project and run the Linux app GLib tests.
 - `make build-linux`: build the daemon and compile the Linux GTK controller.
 
@@ -31,8 +32,11 @@ daemon running on the host machine; physical devices should use the daemon host'
 LAN URL and a bearer token.
 
 The Windows app is an unpackaged WinUI 3 desktop controller under `ui/windows/`.
-It can connect to a configured daemon API, use a bearer token, and launch a
-configured `clambhook.exe` or a bundled executable placed next to the app.
+It can connect to a configured daemon API, use a bearer token, and launches the
+bundled `clambhook.exe` by default. Use `make publish-windows` on a Windows
+machine with the .NET SDK and Windows SDK to create a standalone publish folder;
+WinUI 3 unpackaged apps cannot be distributed as a single `.exe`, so distribute
+the whole publish directory.
 
 The Linux app is a GTK4/libadwaita desktop controller under `ui/linux/`. It
 stores settings at `$XDG_CONFIG_HOME/clambhook/linux-settings.json`, stores the

@@ -1,3 +1,4 @@
+using System.Xml.Linq;
 using Clambhook.Windows.Core;
 
 namespace Clambhook.Windows.Tests;
@@ -38,6 +39,12 @@ public sealed class SettingsAndDaemonTests
     }
 
     [Fact]
+    public void DefaultSettingsLaunchBundledDaemon()
+    {
+        Assert.True(new AppSettings().LaunchDaemonOnStart);
+    }
+
+    [Fact]
     public void DaemonSupervisorBuildsExpectedArguments()
     {
         var settings = new AppSettings
@@ -65,5 +72,47 @@ public sealed class SettingsAndDaemonTests
 
         File.WriteAllText(configured, "");
         Assert.Equal(configured, DaemonSupervisor.ResolveExecutablePath(new AppSettings { DaemonPath = configured }, root));
+    }
+
+    [Fact]
+    public void WindowsAppProjectPublishesSelfContainedWithBundledDaemon()
+    {
+        var projectPath = FindFromCurrentDirectory(Path.Combine("ui", "windows", "src", "Clambhook.Windows", "Clambhook.Windows.csproj"));
+        var project = XDocument.Load(projectPath);
+
+        Assert.Equal("true", ProjectProperty(project, "WindowsAppSDKSelfContained"));
+        Assert.Equal("true", ProjectProperty(project, "PublishSelfContained"));
+        Assert.Contains("win-x64", ProjectProperty(project, "RuntimeIdentifiers").Split(';'));
+        Assert.Contains("win-arm64", ProjectProperty(project, "RuntimeIdentifiers").Split(';'));
+
+        var targetNames = project.Descendants("Target")
+            .Select(target => target.Attribute("Name")?.Value)
+            .OfType<string>()
+            .ToHashSet();
+
+        Assert.Contains("RequireClambhookDaemonOnPublish", targetNames);
+        Assert.Contains("CopyClambhookDaemonOnPublish", targetNames);
+    }
+
+    private static string ProjectProperty(XDocument project, string propertyName)
+    {
+        return project.Descendants(propertyName).Single().Value;
+    }
+
+    private static string FindFromCurrentDirectory(string relativePath)
+    {
+        var directory = new DirectoryInfo(Environment.CurrentDirectory);
+        while (directory is not null)
+        {
+            var candidate = Path.Combine(directory.FullName, relativePath);
+            if (File.Exists(candidate))
+            {
+                return candidate;
+            }
+
+            directory = directory.Parent;
+        }
+
+        throw new FileNotFoundException($"Could not find {relativePath} from {Environment.CurrentDirectory}");
     }
 }
