@@ -2,6 +2,7 @@ RealREADME.md
 .DS_Store
 
 # Build artifacts
+.worktrees/
 bin/
 dist/
 ui/apple/.build/
