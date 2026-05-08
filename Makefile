@@ -1,8 +1,13 @@
-.PHONY: all build build-clib build-daemon build-tui prepare-apple-runtime generate-apple build-apple release-macos test-apple test-android build-android test-windows build-windows test-linux build-linux test lint clean
+.PHONY: all build build-clib build-daemon build-tui prepare-apple-runtime generate-apple build-apple release-macos test-apple test-android build-android test-windows build-windows-daemon build-windows publish-windows test-linux build-linux test lint clean
 
 export CGO_ENABLED=1
 ANDROID_HOME ?= $(HOME)/Library/Android/sdk
 DOTNET ?= dotnet
+WINDOWS_RID ?= win-x64
+WINDOWS_GOARCH_win-x64 := amd64
+WINDOWS_GOARCH_win-arm64 := arm64
+WINDOWS_GOARCH := $(WINDOWS_GOARCH_$(WINDOWS_RID))
+WINDOWS_DAEMON := bin/windows/$(WINDOWS_RID)/clambhook.exe
 
 all: build
 
@@ -44,8 +49,16 @@ build-android:
 test-windows:
 	$(DOTNET) test ui/windows/Clambhook.Windows.sln
 
-build-windows:
-	$(DOTNET) build ui/windows/Clambhook.Windows.sln -c Debug
+build-windows-daemon:
+	@if [ -z "$(WINDOWS_GOARCH)" ]; then echo "unsupported WINDOWS_RID=$(WINDOWS_RID) (expected win-x64 or win-arm64)" >&2; exit 2; fi
+	mkdir -p bin/windows/$(WINDOWS_RID)
+	CGO_ENABLED=0 GOOS=windows GOARCH=$(WINDOWS_GOARCH) go build -o $(WINDOWS_DAEMON) ./cmd/clambhook
+
+build-windows: build-windows-daemon
+	$(DOTNET) build ui/windows/src/Clambhook.Windows/Clambhook.Windows.csproj -c Debug -r $(WINDOWS_RID) -p:ClambhookDaemonPath="$(abspath $(WINDOWS_DAEMON))"
+
+publish-windows: build-windows-daemon
+	$(DOTNET) publish ui/windows/src/Clambhook.Windows/Clambhook.Windows.csproj -c Release -r $(WINDOWS_RID) --self-contained true -p:ClambhookDaemonPath="$(abspath $(WINDOWS_DAEMON))"
 
 test-linux:
 	cd ui/linux && meson setup builddir --reconfigure && meson test -C builddir

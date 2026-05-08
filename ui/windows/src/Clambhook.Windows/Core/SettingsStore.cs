@@ -7,7 +7,7 @@ public sealed class AppSettings
     public string ApiEndpoint { get; set; } = "http://127.0.0.1:9090";
     public string DaemonPath { get; set; } = "";
     public string ConfigPath { get; set; } = "";
-    public bool LaunchDaemonOnStart { get; set; } = false;
+    public bool LaunchDaemonOnStart { get; set; } = true;
     public bool StopDaemonOnExit { get; set; } = true;
     public bool EventStreamEnabled { get; set; } = true;
     public bool MinimizeToTray { get; set; } = true;
