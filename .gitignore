@@ -22,6 +22,28 @@ ui/windows/AppPackages/
 *.so
 *.dylib
 
-# codex
+# AI coding tool local files
 AGENTS.md
+CLAUDE.md
+GEMINI.md
+.claude/
+.codex/
+.cursor/
+.cursorignore
+.cursorrules
+.aider*
+.continue/
+.windsurf/
+.windsurfrules
+.copilot/
+.mcp.json
+.roo/
+.kiro/
+.amazonq/
+.gemini/
+.openai/
+.codeium/
+.github/copilot-instructions.md
+.github/instructions/
 .superpowers/
+docs/superpowers/
