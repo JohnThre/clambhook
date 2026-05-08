@@ -1,0 +1,4 @@
+// Copy to Signing.local.xcconfig for local device/archive signing.
+// The real file is ignored so each machine can use its own paid Apple team.
+DEVELOPMENT_TEAM = <your-paid-apple-team-id>
+CODE_SIGN_STYLE = Automatic

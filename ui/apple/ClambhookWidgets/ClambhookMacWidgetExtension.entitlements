@@ -6,7 +6,7 @@
 	<true/>
 	<key>com.apple.security.application-groups</key>
 	<array>
-		<string>group.com.clambhook.shared</string>
+		<string>group.org.jpfchang.clambhook.shared</string>
 	</array>
 	<key>com.apple.security.network.client</key>
 	<true/>

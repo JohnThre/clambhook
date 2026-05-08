@@ -3,10 +3,14 @@ RealREADME.md
 
 # Build artifacts
 bin/
+build/
 dist/
+export/
 ui/apple/.build/
 ui/apple/.swiftpm/
+ui/apple/Frameworks/
 ui/apple/**/xcuserdata/
+ui/apple/Signing.local.xcconfig
 ui/android/.gradle/
 ui/android/build/
 ui/android/app/build/
