@@ -62,7 +62,7 @@ namespace Clambhook {
             var normalized = settings.normalized();
             var args = new Gee.ArrayList<string>();
             args.add("-api");
-            args.add(normalized.api_endpoint);
+            args.add(api_listen_address(normalized.api_endpoint));
             var trimmed_token = token.strip();
             if (trimmed_token != "") {
                 args.add("-api-token");
@@ -73,6 +73,26 @@ namespace Clambhook {
                 args.add(normalized.config_path);
             }
             return args;
+        }
+
+        private static string api_listen_address(string endpoint) {
+            try {
+                string? scheme;
+                string? host;
+                int port;
+                if (Uri.split_network(endpoint, UriFlags.NONE, out scheme, out host, out port) && host != null && host != "") {
+                    var address_host = host;
+                    if (address_host.index_of(":") >= 0 && !address_host.has_prefix("[")) {
+                        address_host = "[%s]".printf(address_host);
+                    }
+                    if (port >= 0) {
+                        return "%s:%d".printf(address_host, port);
+                    }
+                    return address_host;
+                }
+            } catch (UriError err) {
+            }
+            return endpoint;
         }
 
         private static string quote(string value) {
