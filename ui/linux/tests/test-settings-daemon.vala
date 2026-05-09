@@ -13,8 +13,9 @@ namespace Clambhook.Tests {
         });
 
         Test.add_func("/linux/settings/persists-json-to-config-path", () => {
-            var temp_root = Path.build_filename(Environment.get_tmp_dir(), "clambhook-linux-settings-test");
-            DirUtils.create_with_parents(temp_root, 0700);
+            var temp_template = Path.build_filename(Environment.get_tmp_dir(), "clambhook-linux-settings-test-XXXXXX");
+            var temp_root = DirUtils.mkdtemp(temp_template);
+            assert_true(temp_root != null);
             var path = Path.build_filename(temp_root, "settings.json");
             var store = new FileSettingsStore(path);
             var settings = new AppSettings();
@@ -34,15 +35,45 @@ namespace Clambhook.Tests {
             assert_false(loaded.event_stream_enabled);
         });
 
-        Test.add_func("/linux/daemon/resolves-configured-then-bundled-path-and-arguments", () => {
+        Test.add_func("/linux/daemon/resolves-configured-flatpak-and-adjacent-paths", () => {
+            var temp_template = Path.build_filename(Environment.get_tmp_dir(), "clambhook-linux-daemon-path-test-XXXXXX");
+            var temp_root = DirUtils.mkdtemp(temp_template);
+            assert_true(temp_root != null);
+            var configured = Path.build_filename(temp_root, "configured", "clambhook");
+            var flatpak = Path.build_filename(temp_root, "flatpak", "clambhook");
+            var app_dir = Path.build_filename(temp_root, "app");
+            var adjacent = Path.build_filename(app_dir, "clambhook");
+
+            assert_cmpint(DirUtils.create_with_parents(Path.get_dirname(configured), 0700), CompareOperator.EQ, 0);
+            assert_cmpint(DirUtils.create_with_parents(Path.get_dirname(flatpak), 0700), CompareOperator.EQ, 0);
+            assert_cmpint(DirUtils.create_with_parents(app_dir, 0700), CompareOperator.EQ, 0);
+            try {
+                FileUtils.set_contents(configured, "configured daemon");
+                FileUtils.set_contents(flatpak, "flatpak daemon");
+            } catch (Error err) {
+                assert_not_reached();
+            }
+
             var settings = new AppSettings();
-            settings.daemon_path = "/definitely/missing/clambhook";
-            settings.config_path = " /tmp/clambhook.toml ";
+            settings.daemon_path = " %s ".printf(configured);
+            assert_cmpstr(DaemonSupervisor.resolve_executable_path(settings, app_dir, flatpak), CompareOperator.EQ, configured);
 
-            assert_true(DaemonSupervisor.resolve_executable_path(settings, "/tmp/app") == null);
+            settings.daemon_path = "";
+            assert_cmpstr(DaemonSupervisor.resolve_executable_path(settings, app_dir, flatpak), CompareOperator.EQ, flatpak);
+
+            assert_cmpint(FileUtils.remove(flatpak), CompareOperator.EQ, 0);
+            try {
+                FileUtils.set_contents(adjacent, "adjacent daemon");
+            } catch (Error err) {
+                assert_not_reached();
+            }
+            assert_cmpstr(DaemonSupervisor.resolve_executable_path(settings, app_dir, flatpak), CompareOperator.EQ, adjacent);
+
+            assert_cmpint(FileUtils.remove(adjacent), CompareOperator.EQ, 0);
+            assert_true(DaemonSupervisor.resolve_executable_path(settings, app_dir, flatpak) == null);
+
             var args = DaemonSupervisor.build_arguments(settings, " token ");
-
-            assert_cmpstr(args, CompareOperator.EQ, "-api \"http://127.0.0.1:9090\" -api-token \"token\" -config \"/tmp/clambhook.toml\"");
+            assert_cmpstr(args, CompareOperator.EQ, "-api \"http://127.0.0.1:9090\" -api-token \"token\"");
         });
 
         Test.add_func("/linux/formatters/formats-rates-and-server-location", () => {
