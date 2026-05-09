@@ -73,7 +73,11 @@ namespace Clambhook.Tests {
             assert_true(DaemonSupervisor.resolve_executable_path(settings, app_dir, flatpak) == null);
 
             var args = DaemonSupervisor.build_arguments(settings, " token ");
-            assert_cmpstr(args, CompareOperator.EQ, "-api \"http://127.0.0.1:9090\" -api-token \"token\"");
+            assert_cmpstr(args, CompareOperator.EQ, "-api \"127.0.0.1:9090\" -api-token \"token\"");
+
+            settings.api_endpoint = " http://[::1]:9091/ ";
+            args = DaemonSupervisor.build_arguments(settings, " token ");
+            assert_cmpstr(args, CompareOperator.EQ, "-api \"[::1]:9091\" -api-token \"token\"");
         });
 
         Test.add_func("/linux/formatters/formats-rates-and-server-location", () => {
