@@ -19,3 +19,24 @@ From the repository root, `make test-linux` runs the Meson test suite and
 Settings are stored in `$XDG_CONFIG_HOME/clambhook/linux-settings.json`, falling
 back to `~/.config/clambhook/linux-settings.json` through GLib. The API bearer
 token is stored through Secret Service via libsecret.
+
+## Flatpak
+
+Install Flatpak Builder and configure the Flathub remote, then run from the
+repository root:
+
+```sh
+make build-linux-flatpak
+```
+
+The build writes `dist/linux/com.clambhook.Clambhook.flatpak`. The Flatpak uses
+GNOME Platform 50, starts `clambhook-linux` as the desktop app, and installs the
+bundled daemon at `/app/libexec/clambhook`. The daemon is built with
+`CGO_ENABLED=0` so the installed Flatpak does not depend on host `libsodium` or
+the repository C static library.
+
+Run the local Flatpak smoke check with:
+
+```sh
+make test-linux-flatpak
+```

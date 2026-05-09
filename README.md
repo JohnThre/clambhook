@@ -20,6 +20,7 @@ A network utility.
 - `make publish-windows`: publish a self-contained Windows app folder with the daemon, .NET runtime, and Windows App SDK runtime bundled.
 - `make test-linux`: configure the GTK/libadwaita Meson project and run the Linux app GLib tests.
 - `make build-linux`: build the daemon and compile the Linux GTK controller.
+- `make build-linux-flatpak`: build a standalone Flatpak bundle at `dist/linux/com.clambhook.Clambhook.flatpak` with the GTK controller and bundled daemon.
 
 The HTTP API binds to `127.0.0.1:9090` by default. If you bind it to a
 non-loopback address for iOS or remote control, start the daemon with
@@ -42,7 +43,9 @@ The Linux app is a GTK4/libadwaita desktop controller under `ui/linux/`. It
 stores settings at `$XDG_CONFIG_HOME/clambhook/linux-settings.json`, stores the
 API token with Secret Service, and can launch a configured `clambhook` daemon or
 a bundled executable placed next to the app. Development builds require Meson,
-Vala, GTK4, libadwaita, libsoup 3, json-glib, libsecret, and gee.
+Vala, GTK4, libadwaita, libsoup 3, json-glib, libsecret, and gee. The Flatpak
+build uses GNOME Platform 50 and bundles a pure-Go `clambhook` daemon at
+`/app/libexec/clambhook`.
 
 ## macOS Developer ID release
 
