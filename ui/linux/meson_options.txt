@@ -1,0 +1,6 @@
+option(
+  'clambhook_daemon',
+  type: 'string',
+  value: '',
+  description: 'Path to a clambhook daemon executable to install into libexecdir.',
+)
