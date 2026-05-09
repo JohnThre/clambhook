@@ -1,4 +1,4 @@
-.PHONY: all build build-clib build-daemon build-tui prepare-apple-runtime generate-apple build-apple release-macos test-apple test-android build-android test-windows build-windows-daemon build-windows publish-windows test-linux build-linux test lint clean
+.PHONY: all build build-clib build-daemon build-tui prepare-apple-runtime generate-apple build-apple release-macos test-apple test-android build-android test-windows build-windows-daemon build-windows publish-windows test-linux build-linux build-linux-flatpak test-linux-flatpak test lint clean
 
 export CGO_ENABLED=1
 ANDROID_HOME ?= $(HOME)/Library/Android/sdk
@@ -8,6 +8,10 @@ WINDOWS_GOARCH_win-x64 := amd64
 WINDOWS_GOARCH_win-arm64 := arm64
 WINDOWS_GOARCH := $(WINDOWS_GOARCH_$(WINDOWS_RID))
 WINDOWS_DAEMON := bin/windows/$(WINDOWS_RID)/clambhook.exe
+LINUX_FLATPAK_MANIFEST := ui/linux/com.clambhook.Clambhook.yml
+LINUX_FLATPAK_BUILD_DIR := dist/linux/build
+LINUX_FLATPAK_REPO := dist/linux/repo
+LINUX_FLATPAK_BUNDLE := dist/linux/com.clambhook.Clambhook.flatpak
 
 all: build
 
@@ -65,6 +69,19 @@ test-linux:
 
 build-linux: build-daemon
 	cd ui/linux && meson setup builddir --reconfigure && meson compile -C builddir
+
+build-linux-flatpak:
+	@command -v flatpak-builder >/dev/null || { echo "flatpak-builder is required. Install flatpak-builder and configure the Flathub remote." >&2; exit 127; }
+	@command -v flatpak >/dev/null || { echo "flatpak is required. Install flatpak and configure the Flathub remote." >&2; exit 127; }
+	mkdir -p dist/linux
+	flatpak-builder --force-clean --install-deps-from=flathub --repo=$(LINUX_FLATPAK_REPO) $(LINUX_FLATPAK_BUILD_DIR) $(LINUX_FLATPAK_MANIFEST)
+	flatpak build-bundle $(LINUX_FLATPAK_REPO) $(LINUX_FLATPAK_BUNDLE) com.clambhook.Clambhook
+	@echo "Created $(LINUX_FLATPAK_BUNDLE)"
+
+test-linux-flatpak: build-linux-flatpak
+	test -x $(LINUX_FLATPAK_BUILD_DIR)/files/bin/clambhook-linux
+	test -x $(LINUX_FLATPAK_BUILD_DIR)/files/libexec/clambhook
+	flatpak build $(LINUX_FLATPAK_BUILD_DIR) /app/libexec/clambhook -version
 
 test:
 	go test ./...
