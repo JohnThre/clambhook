@@ -58,6 +58,22 @@ executable(
   install: true,
 )
 
+daemon_path = get_option('clambhook_daemon')
+if daemon_path != ''
+  install_data(
+    daemon_path,
+    install_dir: get_option('libexecdir'),
+    install_mode: 'rwxr-xr-x',
+    rename: 'clambhook',
+  )
+endif
+
+install_data(
+  '../../clambhook-icon-1024.png',
+  install_dir: get_option('datadir') / 'icons' / 'hicolor' / '1024x1024' / 'apps',
+  rename: '@0@.png'.format(app_id),
+)
+
 test_exe = executable(
   'clambhook-linux-tests',
   core_sources + files(
