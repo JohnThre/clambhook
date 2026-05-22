@@ -1,4 +1,4 @@
-.PHONY: all build build-clib build-daemon build-tui install prepare-apple-runtime generate-apple build-apple release-macos test-apple test-android build-android test-windows build-windows-daemon build-windows publish-windows test-linux build-linux test lint clean
+.PHONY: all build build-clib build-daemon build-tui install prepare-apple-runtime generate-apple build-apple release-macos test-apple test-android build-android-mobile-aar test-android build-android build-android-release test-windows build-windows-daemon build-windows publish-windows test-linux build-linux test lint clean
 
 export CGO_ENABLED=1
 PREFIX ?= /usr/local
@@ -51,8 +51,14 @@ test-apple:
 test-android:
 	cd ui/android && ANDROID_HOME="$(ANDROID_HOME)" ./gradlew :app:testDebugUnitTest
 
+build-android-mobile-aar:
+	./scripts/build-android-mobile-aar.sh
+
 build-android:
 	cd ui/android && ANDROID_HOME="$(ANDROID_HOME)" ./gradlew :app:assembleDebug
+
+build-android-release:
+	cd ui/android && ANDROID_HOME="$(ANDROID_HOME)" ./gradlew :app:assembleRelease
 
 test-windows:
 	$(DOTNET) test ui/windows/Clambhook.Windows.sln
@@ -82,7 +88,7 @@ lint:
 
 clean:
 	rm -rf bin/
-	rm -rf ui/android/build/ ui/android/app/build/
+	rm -rf ui/android/build/ ui/android/app/build/ ui/android/app/libs/
 	rm -rf ui/linux/builddir/
 	find ui/windows -type d \( -name bin -o -name obj \) -prune -exec rm -rf {} +
 	$(MAKE) -C clib clean

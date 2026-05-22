@@ -12,6 +12,13 @@ ui/android/.gradle/
 ui/android/build/
 ui/android/app/build/
 ui/android/local.properties
+ui/android/**/*.aar
+ui/android/**/*.apk
+ui/android/**/*.aab
+ui/android/**/*.jks
+ui/android/**/*.keystore
+ui/android/**/*.p12
+ui/android/**/keystore.properties
 ui/linux/builddir/
 ui/windows/**/bin/
 ui/windows/**/obj/

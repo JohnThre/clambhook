@@ -10,7 +10,7 @@ android {
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "com.clambhook.android"
+        applicationId = "org.jpfchang.clambhook"
         minSdk = 26
         targetSdk = 36
         versionCode = 1
@@ -30,6 +30,23 @@ android {
     packaging {
         resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
     }
+}
+
+val clambhookMobileAar = layout.projectDirectory.file("libs/clambhookmobile.aar")
+val generateClambhookMobileAar by tasks.registering(Exec::class) {
+    val repoRoot = rootProject.layout.projectDirectory.dir("../..")
+    workingDir = repoRoot.asFile
+    commandLine(
+        repoRoot.file("scripts/build-android-mobile-aar.sh").asFile.absolutePath,
+        clambhookMobileAar.asFile.absolutePath
+    )
+    outputs.file(clambhookMobileAar)
+}
+
+tasks.matching {
+    it.name in setOf("assembleDebug", "assembleRelease", "bundleRelease")
+}.configureEach {
+    dependsOn(generateClambhookMobileAar)
 }
 
 kotlin {
@@ -56,6 +73,7 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation(fileTree("libs") { include("*.aar") })
 
     debugImplementation("androidx.compose.ui:ui-tooling")
 

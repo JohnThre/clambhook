@@ -6,6 +6,9 @@ import androidx.activity.compose.setContent
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.lifecycle.viewmodel.compose.viewModel
 
 class MainActivity : ComponentActivity() {
@@ -14,33 +17,66 @@ class MainActivity : ComponentActivity() {
 
         val settingsStore = DataStoreSettingsStore(this)
         val tokenStore = EncryptedTokenStore(this)
+        val configStore = AndroidConfigStore(this)
 
         setContent {
             val settings by settingsStore.settings.collectAsState(initial = AppSettings())
             val token by tokenStore.token.collectAsState(initial = tokenStore.currentToken())
+            var configToml by remember { mutableStateOf(defaultAndroidConfigToml) }
+
+            LaunchedEffect(Unit) {
+                configToml = configStore.readConfig()
+            }
+            LaunchedEffect(settings.embeddedDaemonEnabled, token) {
+                configStore.ensureConfig()
+                if (settings.embeddedDaemonEnabled) {
+                    LocalDaemonService.start(this@MainActivity)
+                } else {
+                    LocalDaemonService.stop(this@MainActivity)
+                }
+            }
+
+            val effectiveSettings = if (settings.embeddedDaemonEnabled) {
+                settings.copy(apiBaseUrl = defaultAndroidApiBaseUrl)
+            } else {
+                settings
+            }
             val apiClient = ClambhookApiClient(
-                baseUrl = settings.normalizedBaseUrl,
+                baseUrl = effectiveSettings.normalizedBaseUrl,
                 tokenProvider = { token }
             )
             val viewModel: DashboardViewModel = viewModel(
-                key = "${settings.normalizedBaseUrl}:${token.hashCode()}",
+                key = "${effectiveSettings.normalizedBaseUrl}:${token.hashCode()}",
                 factory = DashboardViewModelFactory(apiClient)
             )
 
-            LaunchedEffect(viewModel, settings.normalizedRefreshIntervalSeconds) {
-                viewModel.startPolling(settings.normalizedRefreshIntervalSeconds)
+            LaunchedEffect(viewModel, effectiveSettings.normalizedRefreshIntervalSeconds) {
+                viewModel.startPolling(effectiveSettings.normalizedRefreshIntervalSeconds)
             }
-            LaunchedEffect(viewModel, settings.eventStreamEnabled) {
-                viewModel.startEventStream(settings.eventStreamEnabled)
+            LaunchedEffect(viewModel, effectiveSettings.eventStreamEnabled) {
+                viewModel.startEventStream(effectiveSettings.eventStreamEnabled)
             }
 
             ClambhookApp(
                 viewModel = viewModel,
-                settings = settings,
+                settings = effectiveSettings,
                 token = token,
-                onSaveSettings = { nextSettings, nextToken ->
-                    settingsStore.save(nextSettings)
+                configToml = configToml,
+                onSaveSettings = { nextSettings, nextToken, nextConfigToml ->
+                    val normalizedSettings = if (nextSettings.embeddedDaemonEnabled) {
+                        nextSettings.copy(apiBaseUrl = defaultAndroidApiBaseUrl)
+                    } else {
+                        nextSettings
+                    }
+                    configStore.saveConfig(nextConfigToml)
+                    configToml = nextConfigToml
+                    settingsStore.save(normalizedSettings)
                     tokenStore.saveToken(nextToken)
+                    if (normalizedSettings.embeddedDaemonEnabled) {
+                        LocalDaemonService.restart(this@MainActivity)
+                    } else {
+                        LocalDaemonService.stop(this@MainActivity)
+                    }
                 }
             )
         }
