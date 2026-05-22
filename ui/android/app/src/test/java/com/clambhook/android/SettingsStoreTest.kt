@@ -18,6 +18,7 @@ class SettingsStoreTest {
         assertEquals(2, blank.normalizedRefreshIntervalSeconds)
         assertEquals("http://proxy.example:9090", custom.normalizedBaseUrl)
         assertEquals(60, custom.normalizedRefreshIntervalSeconds)
+        assertEquals("127.0.0.1:9090", defaultAndroidApiListenAddress)
     }
 
     @Test
@@ -29,7 +30,8 @@ class SettingsStoreTest {
             AppSettings(
                 apiBaseUrl = " http://proxy.example:9090/ ",
                 refreshIntervalSeconds = 1,
-                eventStreamEnabled = false
+                eventStreamEnabled = false,
+                embeddedDaemonEnabled = false
             )
         )
         tokenStore.saveToken(" secret-token ")
@@ -38,8 +40,19 @@ class SettingsStoreTest {
         assertEquals("http://proxy.example:9090", settings.apiBaseUrl)
         assertEquals(2, settings.refreshIntervalSeconds)
         assertFalse(settings.eventStreamEnabled)
+        assertFalse(settings.embeddedDaemonEnabled)
         assertEquals("secret-token", tokenStore.currentToken())
         assertEquals("secret-token", tokenStore.token.first())
+    }
+
+    @Test
+    fun generatedApiTokenIsUrlSafe() {
+        val token = generateApiToken()
+
+        assertEquals(43, token.length)
+        assertFalse(token.contains("+"))
+        assertFalse(token.contains("/"))
+        assertFalse(token.contains("="))
     }
 }
 
@@ -51,7 +64,8 @@ private class FakeSettingsStore : SettingsStore {
         state.value = AppSettings(
             apiBaseUrl = settings.normalizedBaseUrl,
             refreshIntervalSeconds = settings.normalizedRefreshIntervalSeconds,
-            eventStreamEnabled = settings.eventStreamEnabled
+            eventStreamEnabled = settings.eventStreamEnabled,
+            embeddedDaemonEnabled = settings.embeddedDaemonEnabled
         )
     }
 }

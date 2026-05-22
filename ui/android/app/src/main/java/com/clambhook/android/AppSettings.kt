@@ -13,13 +13,16 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
+import java.security.SecureRandom
+import java.util.Base64
 
 private val Context.clambhookDataStore by preferencesDataStore(name = "clambhook_settings")
 
 data class AppSettings(
     val apiBaseUrl: String = defaultAndroidApiBaseUrl,
     val refreshIntervalSeconds: Int = 5,
-    val eventStreamEnabled: Boolean = true
+    val eventStreamEnabled: Boolean = true,
+    val embeddedDaemonEnabled: Boolean = true
 ) {
     val normalizedBaseUrl: String
         get() = apiBaseUrl.trim().trimEnd('/').ifBlank { defaultAndroidApiBaseUrl }
@@ -28,7 +31,8 @@ data class AppSettings(
         get() = refreshIntervalSeconds.coerceIn(2, 60)
 }
 
-const val defaultAndroidApiBaseUrl = "http://10.0.2.2:9090"
+const val defaultAndroidApiListenAddress = "127.0.0.1:9090"
+const val defaultAndroidApiBaseUrl = "http://$defaultAndroidApiListenAddress"
 
 interface SettingsStore {
     val settings: Flow<AppSettings>
@@ -42,7 +46,8 @@ class DataStoreSettingsStore(context: Context) : SettingsStore {
         AppSettings(
             apiBaseUrl = prefs[Keys.apiBaseUrl] ?: defaultAndroidApiBaseUrl,
             refreshIntervalSeconds = prefs[Keys.refreshIntervalSeconds] ?: 5,
-            eventStreamEnabled = prefs[Keys.eventStreamEnabled] ?: true
+            eventStreamEnabled = prefs[Keys.eventStreamEnabled] ?: true,
+            embeddedDaemonEnabled = prefs[Keys.embeddedDaemonEnabled] ?: true
         )
     }
 
@@ -51,6 +56,7 @@ class DataStoreSettingsStore(context: Context) : SettingsStore {
             prefs[Keys.apiBaseUrl] = settings.normalizedBaseUrl
             prefs[Keys.refreshIntervalSeconds] = settings.normalizedRefreshIntervalSeconds
             prefs[Keys.eventStreamEnabled] = settings.eventStreamEnabled
+            prefs[Keys.embeddedDaemonEnabled] = settings.embeddedDaemonEnabled
         }
     }
 
@@ -58,6 +64,7 @@ class DataStoreSettingsStore(context: Context) : SettingsStore {
         val apiBaseUrl = stringPreferencesKey("api_base_url")
         val refreshIntervalSeconds = intPreferencesKey("refresh_interval_seconds")
         val eventStreamEnabled = booleanPreferencesKey("event_stream_enabled")
+        val embeddedDaemonEnabled = booleanPreferencesKey("embedded_daemon_enabled")
     }
 }
 
@@ -77,7 +84,12 @@ class EncryptedTokenStore(context: Context) : TokenStore {
         EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
         EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
     )
-    private val tokenState = MutableStateFlow(prefs.getString(apiTokenKey, "").orEmpty())
+    private val initialToken = prefs.getString(apiTokenKey, "").orEmpty().ifBlank {
+        generateApiToken().also { generated ->
+            prefs.edit().putString(apiTokenKey, generated).apply()
+        }
+    }
+    private val tokenState = MutableStateFlow(initialToken)
 
     override val token: Flow<String> = tokenState
 
@@ -94,4 +106,10 @@ class EncryptedTokenStore(context: Context) : TokenStore {
     private companion object {
         const val apiTokenKey = "api_token"
     }
+}
+
+fun generateApiToken(): String {
+    val bytes = ByteArray(32)
+    SecureRandom().nextBytes(bytes)
+    return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes)
 }

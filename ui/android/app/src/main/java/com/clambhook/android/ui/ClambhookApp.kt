@@ -35,7 +35,8 @@ fun ClambhookApp(
     viewModel: DashboardViewModel,
     settings: AppSettings,
     token: String,
-    onSaveSettings: suspend (AppSettings, String) -> Unit
+    configToml: String,
+    onSaveSettings: suspend (AppSettings, String, String) -> Unit
 ) {
     val context = LocalContext.current
     val colorScheme = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -80,6 +81,7 @@ fun ClambhookApp(
                     AppTab.Settings -> SettingsScreen(
                         settings = settings,
                         token = token,
+                        configToml = configToml,
                         onSave = onSaveSettings,
                         modifier = Modifier.padding(padding)
                     )
