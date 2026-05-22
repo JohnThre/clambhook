@@ -331,4 +331,3 @@ func TestSOCKSv5UDPAssociateUnsupportedWhenNoPacketDial(t *testing.T) {
 		t.Errorf("got rep=%#x, want %#x (cmd not supported)", reply[1], repCmdNotSupported)
 	}
 }
-

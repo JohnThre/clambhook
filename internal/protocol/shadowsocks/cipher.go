@@ -3,7 +3,7 @@ package shadowsocks
 import (
 	"fmt"
 
-	"github.com/clambhook/clambhook/pkg/cnet"
+	"github.com/JohnThre/clambhook/pkg/cnet"
 )
 
 // cipherSpec captures the parameters and primitive AEAD operations for one

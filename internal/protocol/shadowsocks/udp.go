@@ -11,8 +11,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/clambhook/clambhook/internal/protocol"
-	"github.com/clambhook/clambhook/internal/socks"
+	"github.com/JohnThre/clambhook/internal/protocol"
+	"github.com/JohnThre/clambhook/internal/socks"
 )
 
 // Shadowsocks AEAD UDP is a one-shot per-packet AEAD, not the chunked-stream

@@ -19,10 +19,10 @@ import (
 // scheme is identical to what OpenVPN's reference C client does with
 // `key_method=2` and TLS-EKM.
 const (
-	keyBlockSize    = 256
-	slotSize        = 64
-	cipherKeySize   = 32 // both AES-256-GCM and ChaCha20-Poly1305 use 32-byte keys
-	implicitIVSize  = 8  // first 8 bytes of each HMAC-slot
+	keyBlockSize   = 256
+	slotSize       = 64
+	cipherKeySize  = 32 // both AES-256-GCM and ChaCha20-Poly1305 use 32-byte keys
+	implicitIVSize = 8  // first 8 bytes of each HMAC-slot
 )
 
 // tlsEKMLabel is the RFC 5705 exporter label OpenVPN 2.6 standardised
@@ -35,9 +35,9 @@ const tlsEKMLabel = "EXPORTER-OpenVPN-datakeys"
 // is XORed (conceptually — actually concatenated) with the packet ID to
 // form the 12-byte nonce on every packet.
 type keyMaterial struct {
-	clientCipherKey []byte
+	clientCipherKey  []byte
 	clientImplicitIV []byte // 8 bytes
-	serverCipherKey []byte
+	serverCipherKey  []byte
 	serverImplicitIV []byte // 8 bytes
 }
 

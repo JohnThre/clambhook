@@ -13,9 +13,9 @@ import "sync"
 type Ring struct {
 	mu    sync.Mutex
 	buf   []Event
-	head  int  // index of next write slot
-	size  int  // number of valid entries (≤ len(buf))
-	capn  int  // cached cap, avoids repeated len(buf) calls
+	head  int    // index of next write slot
+	size  int    // number of valid entries (≤ len(buf))
+	capn  int    // cached cap, avoids repeated len(buf) calls
 	total uint64 // lifetime append count (for debugging / metrics)
 }
 

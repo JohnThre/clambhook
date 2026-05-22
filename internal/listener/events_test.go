@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/clambhook/clambhook/internal/events"
+	"github.com/JohnThre/clambhook/internal/events"
 )
 
 // newTestListenerWithBus builds a SOCKSv5 listener wired to the given bus

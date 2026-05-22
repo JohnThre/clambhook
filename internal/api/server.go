@@ -7,8 +7,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/clambhook/clambhook/internal/engine"
-	"github.com/clambhook/clambhook/internal/events"
+	"github.com/JohnThre/clambhook/internal/engine"
+	"github.com/JohnThre/clambhook/internal/events"
 )
 
 // Server is the HTTP API server for frontend communication.

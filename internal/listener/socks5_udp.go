@@ -22,10 +22,10 @@ import (
 //     relay socket's BND address.
 //  4. Run two goroutines:
 //     - clientToChain: reads datagrams from the relay socket, parses the
-//       SOCKS5 UDP header, forwards the payload via chain.DialPacket.
+//     SOCKS5 UDP header, forwards the payload via chain.DialPacket.
 //     - chainToClient: reads payloads from the chain, wraps them in a
-//       SOCKS5 UDP header identifying the source peer, and writes to the
-//       relay socket (addressed to the SOCKS client).
+//     SOCKS5 UDP header identifying the source peer, and writes to the
+//     relay socket (addressed to the SOCKS client).
 //  5. The association lives for as long as the TCP control connection is
 //     open. When the client closes the TCP control, both goroutines exit
 //     and the relay socket is closed.

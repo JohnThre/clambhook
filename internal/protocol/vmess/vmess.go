@@ -27,7 +27,7 @@ import (
 	"net"
 	"time"
 
-	"github.com/clambhook/clambhook/internal/protocol"
+	"github.com/JohnThre/clambhook/internal/protocol"
 )
 
 func init() {

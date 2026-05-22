@@ -3,7 +3,7 @@ package api
 import (
 	"net/http"
 
-	"github.com/clambhook/clambhook/internal/geo"
+	"github.com/JohnThre/clambhook/internal/geo"
 )
 
 type serversPayload struct {

@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"testing"
 
-	"github.com/clambhook/clambhook/pkg/cnet"
+	"github.com/JohnThre/clambhook/pkg/cnet"
 )
 
 // makeKeys builds symmetric keyMaterial where client and server share

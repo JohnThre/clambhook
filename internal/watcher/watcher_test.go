@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/clambhook/clambhook/internal/config"
+	"github.com/JohnThre/clambhook/internal/config"
 )
 
 const validTOML = `active = "p1"

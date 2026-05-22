@@ -16,7 +16,7 @@ import (
 	"golang.zx2c4.com/wireguard/device"
 	"golang.zx2c4.com/wireguard/tun/netstack"
 
-	"github.com/clambhook/clambhook/internal/protocol"
+	"github.com/JohnThre/clambhook/internal/protocol"
 )
 
 // TestRoundTripTCPAndUDP wires two userspace WireGuard instances together
@@ -288,4 +288,3 @@ func mustParsePort(t *testing.T, s string) int {
 	}
 	return p
 }
-

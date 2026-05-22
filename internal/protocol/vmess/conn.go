@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/clambhook/clambhook/internal/protocol"
+	"github.com/JohnThre/clambhook/internal/protocol"
 )
 
 // conn wraps a VMess session over an io.ReadWriteCloser (TCP, TCP+TLS, or a
@@ -15,17 +15,17 @@ import (
 // response-header handshake to the first Read so Dial doesn't block on
 // server I/O.
 type conn struct {
-	rwc      io.ReadWriteCloser
+	rwc        io.ReadWriteCloser
 	writeCodec *chunkCodec
-	state    requestState
-	security byte
+	state      requestState
+	security   byte
 
 	writeMu sync.Mutex
 
-	readOnce sync.Once
-	readErr  error
+	readOnce  sync.Once
+	readErr   error
 	readCodec *chunkCodec
-	pending  []byte
+	pending   []byte
 
 	readMu sync.Mutex
 }

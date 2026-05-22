@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/clambhook/clambhook/internal/protocol"
+	"github.com/JohnThre/clambhook/internal/protocol"
 )
 
 // This file registers test-only protocols with the global protocol registry.
@@ -330,11 +330,11 @@ func (c *loopbackConn) Write(p []byte) (int, error) {
 	return c.rwc.Write(enc)
 }
 
-func (c *loopbackConn) Close() error                     { return c.rwc.Close() }
-func (c *loopbackConn) Protocol() string                 { return c.name }
-func (c *loopbackConn) LocalAddr() net.Addr              { return loopbackAddr{} }
-func (c *loopbackConn) RemoteAddr() net.Addr             { return loopbackAddr{} }
-func (c *loopbackConn) SetDeadline(t time.Time) error    { return nil }
+func (c *loopbackConn) Close() error                       { return c.rwc.Close() }
+func (c *loopbackConn) Protocol() string                   { return c.name }
+func (c *loopbackConn) LocalAddr() net.Addr                { return loopbackAddr{} }
+func (c *loopbackConn) RemoteAddr() net.Addr               { return loopbackAddr{} }
+func (c *loopbackConn) SetDeadline(t time.Time) error      { return nil }
 func (c *loopbackConn) SetReadDeadline(t time.Time) error  { return nil }
 func (c *loopbackConn) SetWriteDeadline(t time.Time) error { return nil }
 
@@ -387,10 +387,10 @@ func (pc *loopbackPacketConn) WriteTo(p []byte, addr net.Addr) (int, error) {
 	return len(p), nil
 }
 
-func (pc *loopbackPacketConn) Close() error                     { return pc.rwc.Close() }
-func (pc *loopbackPacketConn) Protocol() string                 { return pc.name }
-func (pc *loopbackPacketConn) LocalAddr() net.Addr              { return loopbackAddr{} }
-func (pc *loopbackPacketConn) SetDeadline(t time.Time) error    { return nil }
+func (pc *loopbackPacketConn) Close() error                       { return pc.rwc.Close() }
+func (pc *loopbackPacketConn) Protocol() string                   { return pc.name }
+func (pc *loopbackPacketConn) LocalAddr() net.Addr                { return loopbackAddr{} }
+func (pc *loopbackPacketConn) SetDeadline(t time.Time) error      { return nil }
 func (pc *loopbackPacketConn) SetReadDeadline(t time.Time) error  { return nil }
 func (pc *loopbackPacketConn) SetWriteDeadline(t time.Time) error { return nil }
 

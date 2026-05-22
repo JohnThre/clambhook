@@ -19,8 +19,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/clambhook/clambhook/internal/protocol"
-	"github.com/clambhook/clambhook/internal/protocol/v2ray"
+	"github.com/JohnThre/clambhook/internal/protocol"
+	"github.com/JohnThre/clambhook/internal/protocol/v2ray"
 	"github.com/google/uuid"
 )
 
@@ -314,4 +314,3 @@ func newTestCert(t *testing.T) (tls.Certificate, *x509.CertPool) {
 	}
 	return cert, pool
 }
-

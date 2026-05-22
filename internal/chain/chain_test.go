@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/clambhook/clambhook/internal/protocol"
+	"github.com/JohnThre/clambhook/internal/protocol"
 )
 
 // These tests exercise the chain orchestration in chain.go using a test-only

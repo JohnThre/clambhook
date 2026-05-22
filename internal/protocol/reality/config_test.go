@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/clambhook/clambhook/internal/protocol"
+	"github.com/JohnThre/clambhook/internal/protocol"
 )
 
 // 32-byte sample key — purely arbitrary for testing.

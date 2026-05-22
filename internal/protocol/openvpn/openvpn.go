@@ -36,7 +36,7 @@ import (
 	"strconv"
 	"sync"
 
-	"github.com/clambhook/clambhook/internal/protocol"
+	"github.com/JohnThre/clambhook/internal/protocol"
 	"gvisor.dev/gvisor/pkg/tcpip/adapters/gonet"
 )
 

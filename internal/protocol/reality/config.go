@@ -8,7 +8,7 @@ import (
 	"net"
 	"strings"
 
-	"github.com/clambhook/clambhook/internal/protocol"
+	"github.com/JohnThre/clambhook/internal/protocol"
 )
 
 // Options carries the validated, handshake-ready settings for a Reality

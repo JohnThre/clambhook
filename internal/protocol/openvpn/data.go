@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/clambhook/clambhook/pkg/cnet"
+	"github.com/JohnThre/clambhook/pkg/cnet"
 )
 
 // dataChannel seals and opens P_DATA_V2 packets for one direction-pair.
@@ -18,9 +18,9 @@ import (
 // is discarded when renegotiation produces new keys (out of scope for
 // v1, but this struct is designed to allow a clean rebuild).
 type dataChannel struct {
-	cipher  string // "AES-256-GCM" or "CHACHA20-POLY1305"
-	keyID   byte
-	peerID  uint32 // server-assigned, 0 until PUSH_REPLY arrives
+	cipher string // "AES-256-GCM" or "CHACHA20-POLY1305"
+	keyID  byte
+	peerID uint32 // server-assigned, 0 until PUSH_REPLY arrives
 
 	sendKey        []byte
 	sendImplicitIV []byte

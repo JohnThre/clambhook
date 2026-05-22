@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/clambhook/clambhook/pkg/cnet"
+	"github.com/JohnThre/clambhook/pkg/cnet"
 )
 
 func TestCipherByNameAES128(t *testing.T) {

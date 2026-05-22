@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/clambhook/clambhook/internal/protocol"
-	"github.com/clambhook/clambhook/internal/socks"
+	"github.com/JohnThre/clambhook/internal/protocol"
+	"github.com/JohnThre/clambhook/internal/socks"
 )
 
 // TestUDPRoundTrip runs a real SS-AEAD UDP echo: the client dials a fake

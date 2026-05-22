@@ -12,7 +12,7 @@ import (
 
 	"gvisor.dev/gvisor/pkg/tcpip/adapters/gonet"
 
-	"github.com/clambhook/clambhook/internal/protocol"
+	"github.com/JohnThre/clambhook/internal/protocol"
 )
 
 // DialPacket opens a UDP-carrying session through the WireGuard tunnel.

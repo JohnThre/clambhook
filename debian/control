@@ -1,0 +1,25 @@
+Source: clambhook
+Section: net
+Priority: optional
+Maintainer: clambhook contributors <noreply@example.invalid>
+Build-Depends:
+ debhelper-compat (= 13),
+ dh-golang,
+ golang-any,
+ libsodium-dev,
+ pkgconf
+Standards-Version: 4.7.0
+Homepage: https://github.com/JohnThre/clambhook
+Vcs-Browser: https://github.com/JohnThre/clambhook
+Vcs-Git: https://github.com/JohnThre/clambhook.git
+Rules-Requires-Root: no
+XS-Go-Import-Path: github.com/JohnThre/clambhook
+
+Package: clambhook
+Architecture: any
+Depends:
+ ${misc:Depends},
+ ${shlibs:Depends}
+Description: local network client daemon and terminal dashboard
+ clambhook provides a local network client daemon, HTTP control API, and
+ terminal dashboard.

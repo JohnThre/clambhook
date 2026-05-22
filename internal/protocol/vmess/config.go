@@ -5,22 +5,22 @@ import (
 	"fmt"
 	"net"
 
-	"github.com/clambhook/clambhook/internal/protocol"
+	"github.com/JohnThre/clambhook/internal/protocol"
 	"github.com/google/uuid"
 )
 
 // VMess data-cipher (security) byte values per V2Fly spec.
 const (
-	securityAES128GCM         byte = 0x03
-	securityChaCha20Poly1305  byte = 0x04
+	securityAES128GCM        byte = 0x03
+	securityChaCha20Poly1305 byte = 0x04
 )
 
 type config struct {
-	uuid     uuid.UUID
-	security byte
-	useTLS   bool
-	sni      string
-	alpn     []string
+	uuid       uuid.UUID
+	security   byte
+	useTLS     bool
+	sni        string
+	alpn       []string
 	skipVerify bool
 }
 

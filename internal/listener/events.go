@@ -5,7 +5,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/clambhook/clambhook/internal/events"
+	"github.com/JohnThre/clambhook/internal/events"
 	"github.com/google/uuid"
 )
 

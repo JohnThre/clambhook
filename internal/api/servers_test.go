@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/clambhook/clambhook/internal/config"
-	"github.com/clambhook/clambhook/internal/engine"
+	"github.com/JohnThre/clambhook/internal/config"
+	"github.com/JohnThre/clambhook/internal/engine"
 )
 
 type serversResponse struct {

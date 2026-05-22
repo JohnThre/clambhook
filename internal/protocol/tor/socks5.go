@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/clambhook/clambhook/internal/socks"
+	"github.com/JohnThre/clambhook/internal/socks"
 )
 
 // SOCKS5 method and reply constants (RFC 1928 §3, RFC 1929 §2).

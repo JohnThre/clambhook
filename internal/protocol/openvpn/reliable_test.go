@@ -6,7 +6,7 @@ import (
 	"io"
 	"testing"
 
-	"github.com/clambhook/clambhook/internal/protocol"
+	"github.com/JohnThre/clambhook/internal/protocol"
 )
 
 // TestOpenvpnDialThroughRejected guards the "OpenVPN can't ride a chained

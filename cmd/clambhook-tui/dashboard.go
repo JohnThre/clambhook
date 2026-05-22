@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/JohnThre/clambhook/internal/events"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/clambhook/clambhook/internal/events"
 	"github.com/coder/websocket"
 )
 

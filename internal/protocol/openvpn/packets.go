@@ -26,9 +26,9 @@ const (
 
 	// AEAD nonce layout: [packet_id (4, BE)] || [implicit_iv (8)]. The
 	// implicit IV is derived from the HMAC-slot key material per side.
-	aeadNonceLen       = 12
-	aeadPacketIDLen    = 4
-	aeadImplicitIVLen  = 8
+	aeadNonceLen      = 12
+	aeadPacketIDLen   = 4
+	aeadImplicitIVLen = 8
 
 	// P_DATA_V2 prepends a 3-byte peer-id to everything; the first byte of
 	// the datagram is op+keyid, so the opcode+peer-id form a 4-byte prefix.
