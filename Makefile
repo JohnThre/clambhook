@@ -1,6 +1,9 @@
-.PHONY: all build build-clib build-daemon build-tui prepare-apple-runtime generate-apple build-apple release-macos test-apple test-android build-android test-windows build-windows-daemon build-windows publish-windows test-linux build-linux test lint clean
+.PHONY: all build build-clib build-daemon build-tui install prepare-apple-runtime generate-apple build-apple release-macos test-apple test-android build-android test-windows build-windows-daemon build-windows publish-windows test-linux build-linux test lint clean
 
 export CGO_ENABLED=1
+PREFIX ?= /usr/local
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+GO_LDFLAGS ?= -X main.version=$(VERSION)
 ANDROID_HOME ?= $(HOME)/Library/Android/sdk
 DOTNET ?= dotnet
 WINDOWS_RID ?= win-x64
@@ -16,13 +19,18 @@ build-clib:
 
 build-daemon: build-clib
 	mkdir -p bin
-	go build -o bin/clambhook ./cmd/clambhook
+	go build -ldflags "$(GO_LDFLAGS)" -o bin/clambhook ./cmd/clambhook
 
 build-tui: build-clib
 	mkdir -p bin
-	go build -o bin/clambhook-tui ./cmd/clambhook-tui
+	go build -ldflags "$(GO_LDFLAGS)" -o bin/clambhook-tui ./cmd/clambhook-tui
 
 build: build-daemon build-tui
+
+install: build
+	install -d "$(DESTDIR)$(PREFIX)/bin"
+	install -m 0755 bin/clambhook "$(DESTDIR)$(PREFIX)/bin/clambhook"
+	install -m 0755 bin/clambhook-tui "$(DESTDIR)$(PREFIX)/bin/clambhook-tui"
 
 prepare-apple-runtime: build-daemon
 	./scripts/prepare-macos-runtime.sh

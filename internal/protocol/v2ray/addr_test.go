@@ -123,10 +123,10 @@ func TestReadAddrRejectsUnknownATYP(t *testing.T) {
 
 func TestReadAddrRejectsShortInput(t *testing.T) {
 	cases := [][]byte{
-		{},                             // no ATYP
-		{ATYPIPv4, 1, 2, 3},            // truncated IPv4 before port
-		{ATYPDomain, 5, 'a', 'b'},      // short domain
-		{ATYPDomain, 0, 1, 2},          // empty domain
+		{},                        // no ATYP
+		{ATYPIPv4, 1, 2, 3},       // truncated IPv4 before port
+		{ATYPDomain, 5, 'a', 'b'}, // short domain
+		{ATYPDomain, 0, 1, 2},     // empty domain
 	}
 	for i, c := range cases {
 		if _, _, err := ReadAddr(bytes.NewReader(c)); err == nil {

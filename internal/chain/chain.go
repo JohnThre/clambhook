@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/clambhook/clambhook/internal/events"
-	"github.com/clambhook/clambhook/internal/protocol"
+	"github.com/JohnThre/clambhook/internal/events"
+	"github.com/JohnThre/clambhook/internal/protocol"
 )
 
 // Chain represents an ordered sequence of protocol hops.

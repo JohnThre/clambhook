@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/clambhook/clambhook/internal/protocol"
+	"github.com/JohnThre/clambhook/internal/protocol"
 )
 
 // packetConn carries UDP datagrams over a trojan-flavored TLS stream.
@@ -157,7 +157,7 @@ func (a packetAddr) String() string {
 // An accidental signature drift (missing return type, renamed method) now
 // fails at build time rather than at runtime.
 var (
-	_ net.PacketConn       = (*packetConn)(nil)
+	_ net.PacketConn        = (*packetConn)(nil)
 	_ protocol.PacketConn   = (*packetConn)(nil)
 	_ protocol.PacketDialer = (*dialer)(nil)
 )

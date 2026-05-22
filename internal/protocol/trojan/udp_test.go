@@ -127,4 +127,3 @@ func buildFrameForTest(t *testing.T, address string, payload []byte) ([]byte, er
 	out = append(out, payload...)
 	return out, nil
 }
-

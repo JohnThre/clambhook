@@ -8,7 +8,7 @@ import (
 	"net"
 	"strings"
 
-	"github.com/clambhook/clambhook/internal/protocol"
+	"github.com/JohnThre/clambhook/internal/protocol"
 )
 
 // config is the internal, validated form of an OpenVPN TOML settings
@@ -16,15 +16,15 @@ import (
 // the daemon process. PEM blocks are pre-parsed into their Go crypto
 // forms so bring-up doesn't need to re-parse on every dial.
 type config struct {
-	remote      string
-	caPool      *x509.CertPool
-	clientCert  tls.Certificate
-	serverCN    string // empty = don't pin
-	skipVerify  bool
-	username    string
-	password    string
-	cipher      string // "" = let NCP decide; "AES-256-GCM" | "CHACHA20-POLY1305"
-	tunMTU      int
+	remote     string
+	caPool     *x509.CertPool
+	clientCert tls.Certificate
+	serverCN   string // empty = don't pin
+	skipVerify bool
+	username   string
+	password   string
+	cipher     string // "" = let NCP decide; "AES-256-GCM" | "CHACHA20-POLY1305"
+	tunMTU     int
 }
 
 // supportedCiphers is the set of AEAD ciphers we can actually speak.

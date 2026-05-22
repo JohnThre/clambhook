@@ -1,0 +1,21 @@
+class Clambhook < Formula
+  desc "Local network client daemon and terminal dashboard"
+  homepage "https://github.com/JohnThre/clambhook"
+  url "https://github.com/JohnThre/clambhook.git",
+      tag:      "v0.1.0"
+  license "GPL-3.0-only"
+
+  depends_on "go" => :build
+  depends_on "pkgconf" => :build
+  depends_on "libsodium"
+
+  def install
+    system "make", "build", "VERSION=#{version}"
+    bin.install "bin/clambhook"
+    bin.install "bin/clambhook-tui"
+  end
+
+  test do
+    assert_match version.to_s, shell_output("#{bin}/clambhook -version")
+  end
+end

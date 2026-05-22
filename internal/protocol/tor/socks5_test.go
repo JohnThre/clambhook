@@ -8,18 +8,18 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/clambhook/clambhook/internal/socks"
+	"github.com/JohnThre/clambhook/internal/socks"
 )
 
 // fakeSocks5 plays the server side of a SOCKS5 exchange on the far end of
 // a net.Pipe. Call it in a goroutine with the server-side pipe half; it
 // scripts a handshake based on opts and then (optionally) echoes bytes.
 type fakeSocks5Opts struct {
-	requireUserPass bool            // reject no-auth, require user/pass
-	expectUser      string          // if set, verify user matches
-	expectPass      string          // if set, verify pass matches
-	failAuth        bool            // reply to user/pass with failure
-	connectReply    byte            // reply status for CONNECT
+	requireUserPass bool   // reject no-auth, require user/pass
+	expectUser      string // if set, verify user matches
+	expectPass      string // if set, verify pass matches
+	failAuth        bool   // reply to user/pass with failure
+	connectReply    byte   // reply status for CONNECT
 	captureReq      *capturedCONNECT
 }
 

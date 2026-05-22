@@ -5,7 +5,7 @@ import (
 	"bytes"
 	"sync"
 
-	"github.com/clambhook/clambhook/internal/events"
+	"github.com/JohnThre/clambhook/internal/events"
 )
 
 // Writer is an io.Writer that publishes newline-delimited log lines to the

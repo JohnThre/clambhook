@@ -7,12 +7,12 @@ import (
 	"log"
 	"sync"
 
-	"github.com/clambhook/clambhook/internal/chain"
-	"github.com/clambhook/clambhook/internal/config"
-	"github.com/clambhook/clambhook/internal/events"
-	"github.com/clambhook/clambhook/internal/geo"
-	"github.com/clambhook/clambhook/internal/listener"
-	"github.com/clambhook/clambhook/internal/protocol"
+	"github.com/JohnThre/clambhook/internal/chain"
+	"github.com/JohnThre/clambhook/internal/config"
+	"github.com/JohnThre/clambhook/internal/events"
+	"github.com/JohnThre/clambhook/internal/geo"
+	"github.com/JohnThre/clambhook/internal/listener"
+	"github.com/JohnThre/clambhook/internal/protocol"
 )
 
 // defaultSOCKS5MaxConns is the default concurrent-handler ceiling when the

@@ -5,8 +5,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/clambhook/clambhook/internal/config"
-	"github.com/clambhook/clambhook/internal/engine"
+	"github.com/JohnThre/clambhook/internal/config"
+	"github.com/JohnThre/clambhook/internal/engine"
 )
 
 func TestAuthTokenIsOptionalForLoopbackDefaults(t *testing.T) {

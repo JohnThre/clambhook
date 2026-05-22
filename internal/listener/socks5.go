@@ -12,8 +12,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/clambhook/clambhook/internal/chain"
-	"github.com/clambhook/clambhook/internal/events"
+	"github.com/JohnThre/clambhook/internal/chain"
+	"github.com/JohnThre/clambhook/internal/events"
 )
 
 // AuthCreds carries optional username/password credentials. When nil, the

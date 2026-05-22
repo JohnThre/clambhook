@@ -1,4 +1,4 @@
-module github.com/clambhook/clambhook
+module github.com/JohnThre/clambhook
 
 go 1.24.0
 

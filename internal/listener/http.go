@@ -16,8 +16,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/clambhook/clambhook/internal/chain"
-	"github.com/clambhook/clambhook/internal/events"
+	"github.com/JohnThre/clambhook/internal/chain"
+	"github.com/JohnThre/clambhook/internal/events"
 )
 
 const (
@@ -371,9 +371,9 @@ func (s *HTTP) handleForward(ctx context.Context, client net.Conn, req *http.Req
 
 	// Rewrite to origin-form and strip hop-by-hop headers before forwarding.
 	stripHopByHopHeaders(req.Header)
-	req.RequestURI = ""                // required by (*Request).Write
-	req.Host = req.URL.Host            // per RFC 7230 §5.4 for absolute-form
-	req.URL.Scheme = ""                // origin form on the wire
+	req.RequestURI = ""     // required by (*Request).Write
+	req.Host = req.URL.Host // per RFC 7230 §5.4 for absolute-form
+	req.URL.Scheme = ""     // origin form on the wire
 	req.URL.Host = ""
 
 	if ce != nil {

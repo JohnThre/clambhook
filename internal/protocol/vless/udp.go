@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/clambhook/clambhook/internal/protocol"
+	"github.com/JohnThre/clambhook/internal/protocol"
 )
 
 // packetConn carries UDP datagrams over a VLESS-over-TLS stream.
@@ -102,8 +102,8 @@ func (p *packetConn) WriteTo(payload []byte, addr net.Addr) (int, error) {
 	return len(payload), nil
 }
 
-func (p *packetConn) Close() error              { return p.stream.Close() }
-func (p *packetConn) LocalAddr() net.Addr       { return p.stream.LocalAddr() }
+func (p *packetConn) Close() error        { return p.stream.Close() }
+func (p *packetConn) LocalAddr() net.Addr { return p.stream.LocalAddr() }
 func (p *packetConn) SetDeadline(t time.Time) error {
 	return p.stream.SetDeadline(t)
 }
@@ -121,6 +121,6 @@ func (a packetAddr) String() string  { return a.target }
 
 // Compile-time guards.
 var (
-	_ net.PacketConn     = (*packetConn)(nil)
+	_ net.PacketConn      = (*packetConn)(nil)
 	_ protocol.PacketConn = (*packetConn)(nil)
 )

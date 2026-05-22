@@ -22,8 +22,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/clambhook/clambhook/internal/protocol"
-	"github.com/clambhook/clambhook/internal/protocol/reality"
+	"github.com/JohnThre/clambhook/internal/protocol"
+	"github.com/JohnThre/clambhook/internal/protocol/reality"
 )
 
 func init() {

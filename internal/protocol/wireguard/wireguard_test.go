@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/clambhook/clambhook/internal/protocol"
+	"github.com/JohnThre/clambhook/internal/protocol"
 )
 
 // validKeyB64 is 32 zero bytes encoded as base64. Suitable for parser

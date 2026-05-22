@@ -28,7 +28,7 @@ import (
 	"golang.zx2c4.com/wireguard/device"
 	"gvisor.dev/gvisor/pkg/tcpip/adapters/gonet"
 
-	"github.com/clambhook/clambhook/internal/protocol"
+	"github.com/JohnThre/clambhook/internal/protocol"
 )
 
 func init() {

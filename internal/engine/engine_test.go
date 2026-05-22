@@ -5,7 +5,7 @@ import (
 	"net"
 	"testing"
 
-	"github.com/clambhook/clambhook/internal/config"
+	"github.com/JohnThre/clambhook/internal/config"
 )
 
 // fixedPortProfile returns a minimal profile with one chain and the given

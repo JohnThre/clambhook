@@ -5,7 +5,7 @@ import (
 	"net"
 	"time"
 
-	"github.com/clambhook/clambhook/internal/protocol"
+	"github.com/JohnThre/clambhook/internal/protocol"
 )
 
 // packetConn layers UDP-semantics on top of a VMess body stream opened with

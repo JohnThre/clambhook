@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/clambhook/clambhook/internal/events"
+	"github.com/JohnThre/clambhook/internal/events"
 )
 
 func TestWriterPublishesOneEventPerCompleteLine(t *testing.T) {

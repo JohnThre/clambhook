@@ -33,6 +33,8 @@ GEMINI.md
 .cursorignore
 .cursorrules
 .aider*
+.cline/
+.clinerules
 .continue/
 .windsurf/
 .windsurfrules

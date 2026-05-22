@@ -25,10 +25,10 @@ type control struct {
 	// Read-side state: a bytes.Buffer stores un-read bytes pulled from the
 	// reliable layer. Read() fills from this buffer; when empty, blocks
 	// on reliable.recv() to pull the next P_CONTROL_V1 payload.
-	rmu    sync.Mutex
-	rbuf   bytes.Buffer
-	rerr   error
-	rctx   context.Context
+	rmu  sync.Mutex
+	rbuf bytes.Buffer
+	rerr error
+	rctx context.Context
 
 	// Write-side state — no buffer needed; fragmentation happens inline.
 	wctx context.Context

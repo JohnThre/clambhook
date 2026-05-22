@@ -16,8 +16,8 @@ import (
 
 	"github.com/fsnotify/fsnotify"
 
-	"github.com/clambhook/clambhook/internal/config"
-	"github.com/clambhook/clambhook/internal/events"
+	"github.com/JohnThre/clambhook/internal/config"
+	"github.com/JohnThre/clambhook/internal/events"
 )
 
 // defaultDebounce is long enough to coalesce an editor's CREATE+WRITE+RENAME

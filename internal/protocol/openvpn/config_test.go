@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/clambhook/clambhook/internal/protocol"
+	"github.com/JohnThre/clambhook/internal/protocol"
 )
 
 // Fixtures (CA + client cert/key PEMs) come from fixtures_test.go via

@@ -5,8 +5,8 @@ import (
 	"encoding/hex"
 	"testing"
 
-	"github.com/clambhook/clambhook/internal/protocol"
-	"github.com/clambhook/clambhook/pkg/cnet"
+	"github.com/JohnThre/clambhook/internal/protocol"
+	"github.com/JohnThre/clambhook/pkg/cnet"
 )
 
 // Verifies cnet.SHA224 matches the canonical RFC 3874 vector. Guards both the

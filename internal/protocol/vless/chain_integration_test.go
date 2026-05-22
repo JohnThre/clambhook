@@ -13,9 +13,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/clambhook/clambhook/internal/chain"
-	"github.com/clambhook/clambhook/internal/protocol"
-	"github.com/clambhook/clambhook/internal/protocol/v2ray"
+	"github.com/JohnThre/clambhook/internal/chain"
+	"github.com/JohnThre/clambhook/internal/protocol"
+	"github.com/JohnThre/clambhook/internal/protocol/v2ray"
 )
 
 // TestChain_TwoVLESSHops_TCP verifies a real chain of two VLESS-over-TLS
@@ -24,7 +24,8 @@ import (
 // and to access internal constants (version, cmdTCP, atyp codes).
 //
 // Topology:
-//   client → VLESS-hop-1 (TLS) → VLESS-hop-2 (TLS) → echo target
+//
+//	client → VLESS-hop-1 (TLS) → VLESS-hop-2 (TLS) → echo target
 //
 // The two hops use the same UUID for simplicity (servers don't validate it
 // here); the TLS certs are self-signed via newTestCert, and the client is

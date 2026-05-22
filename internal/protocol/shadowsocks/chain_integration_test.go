@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/clambhook/clambhook/internal/chain"
-	"github.com/clambhook/clambhook/internal/protocol"
-	"github.com/clambhook/clambhook/internal/socks"
+	"github.com/JohnThre/clambhook/internal/chain"
+	"github.com/JohnThre/clambhook/internal/protocol"
+	"github.com/JohnThre/clambhook/internal/socks"
 )
 
 // TestChain_TwoSSHops_TCP verifies that the chain orchestrator routes traffic

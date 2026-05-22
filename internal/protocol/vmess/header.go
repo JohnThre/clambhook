@@ -14,7 +14,7 @@ import (
 	mathrand "math/rand/v2"
 	"time"
 
-	"github.com/clambhook/clambhook/internal/protocol/v2ray"
+	"github.com/JohnThre/clambhook/internal/protocol/v2ray"
 	"github.com/google/uuid"
 )
 

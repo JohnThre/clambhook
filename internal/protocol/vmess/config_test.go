@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/clambhook/clambhook/internal/protocol"
+	"github.com/JohnThre/clambhook/internal/protocol"
 )
 
 const testUUID = "b831381d-6324-4d53-ad4f-8cda48b30811"
