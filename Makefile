@@ -1,4 +1,4 @@
-.PHONY: all build build-clib build-daemon build-tui install prepare-apple-runtime generate-apple build-apple release-macos release-check test-apple test-android build-android-mobile-aar test-android build-android build-android-release test-windows build-windows-daemon build-windows publish-windows test-linux build-linux test e2e e2e-release lint clean
+.PHONY: all build build-clib build-daemon build-tui install prepare-apple-runtime generate-apple build-apple release-macos release-check test-apple test-android build-android-mobile-aar test-android build-android build-android-release check-windows-host test-windows build-windows-daemon build-windows publish-windows check-linux-ui-deps test-linux build-linux test e2e e2e-release lint clean
 
 export CGO_ENABLED=1
 PREFIX ?= /usr/local
@@ -12,7 +12,17 @@ WINDOWS_GOARCH_win-arm64 := arm64
 WINDOWS_GOARCH := $(WINDOWS_GOARCH_$(WINDOWS_RID))
 WINDOWS_DAEMON := bin/windows/$(WINDOWS_RID)/clambhook.exe
 
+require-command = @command -v $(1) >/dev/null 2>&1 || { echo "$(1) is required for $(2)." >&2; echo "$(3)" >&2; exit 2; }
+require-windows-host = @if [ "$(OS)" != "Windows_NT" ]; then echo "test-windows must run on Windows; current host is $$(uname -s 2>/dev/null || echo unknown)." >&2; echo "The Windows tests target net10.0-windows and WinUI. Use a Windows host or CI runner." >&2; exit 2; fi
+
 all: build
+
+check-windows-host:
+	$(require-windows-host)
+
+check-linux-ui-deps:
+	$(call require-command,meson,Linux UI targets,Install Meson and the GTK development toolchain for your distribution.)
+	$(call require-command,valac,Linux UI targets,Install Vala plus GTK4/libadwaita/gee/json-glib/libsoup 3/libsecret development packages.)
 
 build-clib:
 	$(MAKE) -C clib
@@ -62,7 +72,7 @@ build-android:
 build-android-release:
 	cd ui/android && ANDROID_HOME="$(ANDROID_HOME)" ./gradlew :app:assembleRelease
 
-test-windows:
+test-windows: check-windows-host
 	$(DOTNET) test ui/windows/Clambhook.Windows.sln
 
 build-windows-daemon:
@@ -76,10 +86,10 @@ build-windows: build-windows-daemon
 publish-windows: build-windows-daemon
 	$(DOTNET) publish ui/windows/src/Clambhook.Windows/Clambhook.Windows.csproj -c Release -r $(WINDOWS_RID) --self-contained true -p:ClambhookDaemonPath="$(abspath $(WINDOWS_DAEMON))"
 
-test-linux:
+test-linux: check-linux-ui-deps
 	cd ui/linux && meson setup builddir --reconfigure && meson test -C builddir
 
-build-linux: build-daemon
+build-linux: check-linux-ui-deps build-daemon
 	cd ui/linux && meson setup builddir --reconfigure && meson compile -C builddir
 
 test:
