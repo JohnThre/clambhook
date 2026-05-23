@@ -3,7 +3,6 @@ package openvpn
 import (
 	"context"
 	"crypto/rand"
-	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -364,17 +363,3 @@ func (r *reliable) closeWith(err error) {
 		r.cancel()
 	})
 }
-
-// sessionIDString renders a sessionID as a hex pair for log lines. Not
-// used in protocol wire format — pure diagnostics.
-func sessionIDString(s sessionID) string {
-	const hex = "0123456789abcdef"
-	b := make([]byte, 0, sessionIDLen*2)
-	for _, c := range s {
-		b = append(b, hex[c>>4], hex[c&0x0F])
-	}
-	return string(b)
-}
-
-// errSessionClosed is returned to callers that call recv/send after close.
-var errSessionClosed = errors.New("openvpn: session closed")

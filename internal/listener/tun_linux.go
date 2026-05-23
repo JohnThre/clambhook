@@ -39,6 +39,7 @@ const (
 	tunDialTimeout                 = 30 * time.Second
 	tunUDPIdleTimeout              = 2 * time.Minute
 	tunUDPPollInterval             = 30 * time.Second
+	defaultTUNMTU                  = 1500
 )
 
 // TUN is a Linux device-wide ingress listener backed by a kernel TUN device
@@ -67,6 +68,13 @@ func NewTUN(opts TUNOptions, ch *chain.Chain) Listener {
 func TUNSupported() bool { return true }
 
 func (t *TUN) Protocol() string { return "tun" }
+
+func (o TUNOptions) mtu() int {
+	if o.MTU > 0 {
+		return o.MTU
+	}
+	return defaultTUNMTU
+}
 
 func (t *TUN) Addr() string {
 	t.mu.Lock()

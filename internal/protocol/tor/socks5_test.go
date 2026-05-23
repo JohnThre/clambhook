@@ -2,6 +2,7 @@ package tor
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"io"
 	"net"
@@ -333,7 +334,7 @@ func TestDialThroughUsesUnderlying(t *testing.T) {
 	}()
 
 	d := &dialer{cfg: config{socksAddr: "unused:0"}}
-	c, err := d.DialThrough(nil, client, "example.com:443")
+	c, err := d.DialThrough(context.Background(), client, "example.com:443")
 	if err != nil {
 		t.Fatalf("DialThrough: %v", err)
 	}
