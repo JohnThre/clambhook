@@ -44,6 +44,7 @@ type Engine struct {
 	running   bool
 	cancel    context.CancelFunc
 	listeners []listener.Listener
+	chains    []*chain.Chain
 	geoReader *geo.Reader
 	bus       *events.Bus
 }
@@ -165,7 +166,7 @@ func (e *Engine) startLocked() error {
 	// without their ctx cancellation tearing listeners down.
 	ctx, cancel := context.WithCancel(context.Background())
 
-	listeners, err := buildListeners(profile, e.bus)
+	listeners, chains, err := buildListeners(profile, e.bus)
 	if err != nil {
 		cancel()
 		return fmt.Errorf("start engine: %w", err)
@@ -179,6 +180,9 @@ func (e *Engine) startLocked() error {
 					log.Printf("engine: rollback stop %s: %v", listeners[j].Protocol(), stopErr)
 				}
 			}
+			if closeErr := closeChains(chains); closeErr != nil {
+				log.Printf("engine: rollback close chains: %v", closeErr)
+			}
 			cancel()
 			return fmt.Errorf("start %s: %w", l.Protocol(), startErr)
 		}
@@ -186,6 +190,7 @@ func (e *Engine) startLocked() error {
 
 	e.cancel = cancel
 	e.listeners = listeners
+	e.chains = chains
 	e.running = true
 	log.Printf("engine started with profile %q (%d listeners)", profile.Name, len(listeners))
 	return nil
@@ -205,7 +210,24 @@ func (e *Engine) stopLocked() error {
 		e.cancel()
 		e.cancel = nil
 	}
+	if err := closeChains(e.chains); err != nil {
+		errs = append(errs, err)
+	}
+	e.chains = nil
 	e.running = false
+	return errors.Join(errs...)
+}
+
+func closeChains(chains []*chain.Chain) error {
+	var errs []error
+	for _, ch := range chains {
+		if ch == nil {
+			continue
+		}
+		if err := ch.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("chain %q: %w", ch.Name, err))
+		}
+	}
 	return errors.Join(errs...)
 }
 
@@ -282,13 +304,21 @@ func (e *Engine) swapGeoLocked() {
 // It does not start them — Start does that so partial-startup can be rolled
 // back cleanly. bus is threaded into each listener for event emission; may
 // be nil to disable events.
-func buildListeners(profile *config.Profile, bus *events.Bus) ([]listener.Listener, error) {
+func buildListeners(profile *config.Profile, bus *events.Bus) (listeners []listener.Listener, chains []*chain.Chain, err error) {
 	var out []listener.Listener
+	resolver := newChainResolver(profile)
+	defer func() {
+		if err != nil {
+			if closeErr := closeChains(resolver.chains); closeErr != nil {
+				err = errors.Join(err, closeErr)
+			}
+		}
+	}()
 
 	if addr := profile.Listen.SOCKS5; addr != "" {
-		ch, err := resolveChain(profile, profile.Listen.SOCKS5Chain)
+		ch, err := resolver.resolve(profile.Listen.SOCKS5Chain)
 		if err != nil {
-			return nil, fmt.Errorf("socks5: %w", err)
+			return nil, nil, fmt.Errorf("socks5: %w", err)
 		}
 		var auth *listener.AuthCreds
 		if profile.Listen.SOCKS5Auth != nil {
@@ -313,9 +343,9 @@ func buildListeners(profile *config.Profile, bus *events.Bus) ([]listener.Listen
 	}
 
 	if addr := profile.Listen.HTTP; addr != "" {
-		ch, err := resolveChain(profile, profile.Listen.HTTPChain)
+		ch, err := resolver.resolve(profile.Listen.HTTPChain)
 		if err != nil {
-			return nil, fmt.Errorf("http: %w", err)
+			return nil, nil, fmt.Errorf("http: %w", err)
 		}
 		var auth *listener.AuthCreds
 		if profile.Listen.HTTPAuth != nil {
@@ -337,9 +367,9 @@ func buildListeners(profile *config.Profile, bus *events.Bus) ([]listener.Listen
 	}
 
 	if tunCfg := profile.Listen.TUN; tunCfg != nil && tunCfg.Enabled {
-		ch, err := resolveChain(profile, tunCfg.Chain)
+		ch, err := resolver.resolve(tunCfg.Chain)
 		if err != nil {
-			return nil, fmt.Errorf("tun: %w", err)
+			return nil, nil, fmt.Errorf("tun: %w", err)
 		}
 		opts := listener.TUNOptions{
 			Name:         tunCfg.Name,
@@ -353,25 +383,52 @@ func buildListeners(profile *config.Profile, bus *events.Bus) ([]listener.Listen
 		out = append(out, listener.NewTUN(opts, ch))
 	}
 
-	return out, nil
+	return out, resolver.chains, nil
 }
 
-// resolveChain picks the chain a listener should route through. An empty
-// name selects the first chain in the profile — this matches the plan's
-// decision to keep routing implicit until rule-based routing lands.
-func resolveChain(profile *config.Profile, name string) (*chain.Chain, error) {
-	if len(profile.Chains) == 0 {
+type chainResolver struct {
+	profile *config.Profile
+	chains  []*chain.Chain
+	byName  map[string]*chain.Chain
+}
+
+func newChainResolver(profile *config.Profile) *chainResolver {
+	return &chainResolver{profile: profile}
+}
+
+// resolve picks the chain a listener should route through. An empty name
+// selects the first chain in the profile. Each configured chain is converted
+// at most once per active engine generation so listeners share dialer state.
+func (r *chainResolver) resolve(name string) (*chain.Chain, error) {
+	if len(r.profile.Chains) == 0 {
 		return nil, errors.New("profile has no chains")
 	}
-	if name == "" {
-		return chainFromConfig(profile.Chains[0]), nil
+	if err := r.ensureBuilt(); err != nil {
+		return nil, err
 	}
-	for i := range profile.Chains {
-		if profile.Chains[i].Name == name {
-			return chainFromConfig(profile.Chains[i]), nil
-		}
+	if name == "" {
+		return r.chains[0], nil
+	}
+	if ch, ok := r.byName[name]; ok {
+		return ch, nil
 	}
 	return nil, fmt.Errorf("chain %q not found", name)
+}
+
+func (r *chainResolver) ensureBuilt() error {
+	if r.chains != nil {
+		return nil
+	}
+	r.chains = make([]*chain.Chain, 0, len(r.profile.Chains))
+	r.byName = make(map[string]*chain.Chain, len(r.profile.Chains))
+	for i := range r.profile.Chains {
+		ch := chainFromConfig(r.profile.Chains[i])
+		r.chains = append(r.chains, ch)
+		if _, exists := r.byName[ch.Name]; !exists {
+			r.byName[ch.Name] = ch
+		}
+	}
+	return nil
 }
 
 // chainFromConfig converts a TOML-parsed chain stanza into the protocol-layer

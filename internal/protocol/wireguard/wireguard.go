@@ -231,9 +231,12 @@ type dialer struct {
 	server protocol.Server
 	cfg    config
 
+	mu   sync.Mutex
 	once sync.Once
 	inst *wgInstance
 	err  error
+
+	closed bool
 }
 
 func (d *dialer) Protocol() string { return "wireguard" }
@@ -242,9 +245,52 @@ func (d *dialer) Protocol() string { return "wireguard" }
 // the cached instance (or the cached startup error).
 func (d *dialer) instance() (*wgInstance, error) {
 	d.once.Do(func() {
-		d.inst, d.err = newInstance(&d.cfg, d.server.Name)
+		d.mu.Lock()
+		closed := d.closed
+		d.mu.Unlock()
+		if closed {
+			return
+		}
+
+		inst, err := newInstance(&d.cfg, d.server.Name)
+
+		d.mu.Lock()
+		if d.closed {
+			d.mu.Unlock()
+			if inst != nil {
+				_ = inst.Close()
+			}
+			return
+		}
+		d.inst = inst
+		d.err = err
+		d.mu.Unlock()
 	})
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.closed {
+		return nil, errors.New("wireguard: dialer closed")
+	}
 	return d.inst, d.err
+}
+
+// Close tears down the reusable WireGuard instance owned by this dialer.
+// It is safe to call before the first Dial; future dials fail clearly.
+func (d *dialer) Close() error {
+	d.mu.Lock()
+	if d.closed {
+		d.mu.Unlock()
+		return nil
+	}
+	d.closed = true
+	inst := d.inst
+	d.inst = nil
+	d.mu.Unlock()
+
+	if inst != nil {
+		return inst.Close()
+	}
+	return nil
 }
 
 // Dial opens a TCP connection to address through the WireGuard tunnel.

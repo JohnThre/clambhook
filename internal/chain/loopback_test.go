@@ -56,6 +56,13 @@ type recorder struct {
 	// closedUnderlying records whether a DialThrough that returned an error
 	// closed its underlying stream (via Close() being called).
 	closedUnderlying map[string]bool
+
+	// factoryByHop counts protocol factory calls per hop. Cached chain
+	// dialers should keep this at 1 for a reused hop.
+	factoryByHop map[string]int
+
+	// dialerCloseByHop counts reusable dialer Close calls per hop.
+	dialerCloseByHop map[string]int
 }
 
 func newRecorder() *recorder {
@@ -63,6 +70,8 @@ func newRecorder() *recorder {
 		targetByHop:      map[string]string{},
 		underlyingByHop:  map[string]bool{},
 		closedUnderlying: map[string]bool{},
+		factoryByHop:     map[string]int{},
+		dialerCloseByHop: map[string]int{},
 	}
 }
 
@@ -82,6 +91,18 @@ func (r *recorder) recordClose(name string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.closedUnderlying[name] = true
+}
+
+func (r *recorder) recordFactory(name string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.factoryByHop[name]++
+}
+
+func (r *recorder) recordDialerClose(name string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.dialerCloseByHop[name]++
 }
 
 // loopbackState holds per-chain test state. Registered factories look it up
@@ -140,6 +161,13 @@ type loopbackDialer struct {
 }
 
 func (d *loopbackDialer) Protocol() string { return "loopback" }
+
+func (d *loopbackDialer) Close() error {
+	if r := globalLoopbackState.getChain(d.chain); r != nil {
+		r.recordDialerClose(d.name)
+	}
+	return nil
+}
 
 // loopbackUDPDialer embeds loopbackDialer and adds PacketDialer methods.
 // Chains ending on this type route through the DialPacket path.
@@ -410,10 +438,16 @@ var (
 func init() {
 	protocol.Register("loopback", func(s protocol.Server) (protocol.Dialer, error) {
 		base := buildLoopbackBase(s)
+		if r := globalLoopbackState.getChain(base.chain); r != nil {
+			r.recordFactory(base.name)
+		}
 		return &base, nil
 	})
 	protocol.Register("loopback_udp", func(s protocol.Server) (protocol.Dialer, error) {
 		base := buildLoopbackBase(s)
+		if r := globalLoopbackState.getChain(base.chain); r != nil {
+			r.recordFactory(base.name)
+		}
 		return &loopbackUDPDialer{loopbackDialer: base}, nil
 	})
 }

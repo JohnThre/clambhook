@@ -142,6 +142,84 @@ func TestChain_ThreeHopsTCP(t *testing.T) {
 	}
 }
 
+func TestChain_ReusesDialersAcrossTCPDials(t *testing.T) {
+	chainName := "reuse-tcp"
+	r := newRecorder()
+	globalLoopbackState.setChain(chainName, r)
+
+	c := &Chain{
+		Name: chainName,
+		Nodes: []protocol.Server{
+			loopbackNode("A", "addr.A:1111", 0x01, chainName),
+			loopbackNode("B", "addr.B:2222", 0x02, chainName),
+		},
+	}
+	defer c.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	for i := 0; i < 2; i++ {
+		conn, err := c.Dial(ctx, "tcp", "final.target:443")
+		if err != nil {
+			t.Fatalf("Dial %d: %v", i, err)
+		}
+		if err := conn.Close(); err != nil {
+			t.Fatalf("Close %d: %v", i, err)
+		}
+	}
+
+	for _, hop := range []string{"A", "B"} {
+		if got := r.factoryByHop[hop]; got != 1 {
+			t.Errorf("factory count for %s = %d, want 1", hop, got)
+		}
+	}
+}
+
+func TestChain_CloseClosesCachedDialersOnceAndRejectsFutureDials(t *testing.T) {
+	chainName := "close-cached"
+	r := newRecorder()
+	globalLoopbackState.setChain(chainName, r)
+
+	c := &Chain{
+		Name: chainName,
+		Nodes: []protocol.Server{
+			loopbackNode("A", "addr.A:1111", 0x01, chainName),
+			loopbackNode("B", "addr.B:2222", 0x02, chainName),
+		},
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	conn, err := c.Dial(ctx, "tcp", "final.target:443")
+	if err != nil {
+		t.Fatalf("Dial: %v", err)
+	}
+	if err := conn.Close(); err != nil {
+		t.Fatalf("conn Close: %v", err)
+	}
+
+	if err := c.Close(); err != nil {
+		t.Fatalf("chain Close: %v", err)
+	}
+	if err := c.Close(); err != nil {
+		t.Fatalf("second chain Close: %v", err)
+	}
+
+	for _, hop := range []string{"A", "B"} {
+		if got := r.dialerCloseByHop[hop]; got != 1 {
+			t.Errorf("dialer close count for %s = %d, want 1", hop, got)
+		}
+	}
+
+	_, err = c.Dial(ctx, "tcp", "final.target:443")
+	if err == nil {
+		t.Fatal("expected error after chain Close, got nil")
+	}
+	if !strings.Contains(err.Error(), "closed") {
+		t.Errorf("error %q missing closed", err)
+	}
+}
+
 // TestChain_ThreeHopsTCP_ErrorAtMiddleHop: middle hop rejects DialThrough.
 // Verifies (a) error message wraps hop index and (b) the previous hop's
 // connection was closed (by convention — the protocol implementation is
@@ -292,6 +370,67 @@ func TestChain_SingleHopUDP(t *testing.T) {
 	}
 	if !bytes.Equal(buf[:n], payload) {
 		t.Errorf("udp echo mismatch: got %x want %x", buf[:n], payload)
+	}
+}
+
+func TestChain_ReusesDialerAcrossUDPDials(t *testing.T) {
+	chainName := "reuse-udp"
+	r := newRecorder()
+	globalLoopbackState.setChain(chainName, r)
+
+	c := &Chain{
+		Name: chainName,
+		Nodes: []protocol.Server{
+			loopbackUDPNode("A", "unused:0", 0x10, chainName),
+		},
+	}
+	defer c.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	for i := 0; i < 2; i++ {
+		pc, err := c.DialPacket(ctx, "dns.target:53")
+		if err != nil {
+			t.Fatalf("DialPacket %d: %v", i, err)
+		}
+		if err := pc.Close(); err != nil {
+			t.Fatalf("PacketConn Close %d: %v", i, err)
+		}
+	}
+
+	if got := r.factoryByHop["A"]; got != 1 {
+		t.Errorf("factory count for A = %d, want 1", got)
+	}
+}
+
+func TestChain_CheckPacketSupportReusesCachedLastHop(t *testing.T) {
+	chainName := "check-packet-cache"
+	r := newRecorder()
+	globalLoopbackState.setChain(chainName, r)
+
+	c := &Chain{
+		Name: chainName,
+		Nodes: []protocol.Server{
+			loopbackUDPNode("A", "unused:0", 0x10, chainName),
+		},
+	}
+	defer c.Close()
+
+	if err := c.CheckPacketSupport(); err != nil {
+		t.Fatalf("CheckPacketSupport: %v", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	pc, err := c.DialPacket(ctx, "dns.target:53")
+	if err != nil {
+		t.Fatalf("DialPacket: %v", err)
+	}
+	if err := pc.Close(); err != nil {
+		t.Fatalf("PacketConn Close: %v", err)
+	}
+
+	if got := r.factoryByHop["A"]; got != 1 {
+		t.Errorf("factory count for A = %d, want 1", got)
 	}
 }
 

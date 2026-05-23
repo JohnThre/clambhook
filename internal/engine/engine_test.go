@@ -2,11 +2,102 @@ package engine
 
 import (
 	"context"
+	"io"
 	"net"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/JohnThre/clambhook/internal/config"
+	"github.com/JohnThre/clambhook/internal/protocol"
 )
+
+var engineLifecycleState = newEngineLifecycleState()
+
+type engineLifecycleStateStore struct {
+	mu        sync.Mutex
+	factories map[string]int
+	closes    map[string]int
+}
+
+func newEngineLifecycleState() *engineLifecycleStateStore {
+	return &engineLifecycleStateStore{
+		factories: map[string]int{},
+		closes:    map[string]int{},
+	}
+}
+
+func (s *engineLifecycleStateStore) reset(id string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.factories, id)
+	delete(s.closes, id)
+}
+
+func (s *engineLifecycleStateStore) recordFactory(id string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.factories[id]++
+}
+
+func (s *engineLifecycleStateStore) recordClose(id string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.closes[id]++
+}
+
+func (s *engineLifecycleStateStore) closeCount(id string) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.closes[id]
+}
+
+func (s *engineLifecycleStateStore) factoryCount(id string) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.factories[id]
+}
+
+type engineLifecycleDialer struct {
+	id string
+}
+
+func (d *engineLifecycleDialer) Protocol() string { return "engine_lifecycle" }
+
+func (d *engineLifecycleDialer) Dial(_ context.Context, _ string, _ string) (protocol.Conn, error) {
+	client, server := net.Pipe()
+	go func() {
+		_, _ = io.Copy(io.Discard, server)
+		_ = server.Close()
+	}()
+	return &engineLifecycleConn{Conn: client}, nil
+}
+
+func (d *engineLifecycleDialer) DialThrough(_ context.Context, underlying io.ReadWriteCloser, _ string) (protocol.Conn, error) {
+	if underlying != nil {
+		_ = underlying.Close()
+	}
+	return nil, io.ErrClosedPipe
+}
+
+func (d *engineLifecycleDialer) Close() error {
+	engineLifecycleState.recordClose(d.id)
+	return nil
+}
+
+type engineLifecycleConn struct {
+	net.Conn
+}
+
+func (c *engineLifecycleConn) Protocol() string { return "engine_lifecycle" }
+
+func init() {
+	protocol.Register("engine_lifecycle", func(s protocol.Server) (protocol.Dialer, error) {
+		id, _ := s.Settings["id"].(string)
+		engineLifecycleState.recordFactory(id)
+		return &engineLifecycleDialer{id: id}, nil
+	})
+}
 
 // fixedPortProfile returns a minimal profile with one chain and the given
 // SOCKS5 listen address. The chain's protocol is never dialed (no client
@@ -118,5 +209,167 @@ func TestEngineReloadIdle(t *testing.T) {
 	}
 	if e.Config().Active != "B" {
 		t.Error("reload did not replace config")
+	}
+}
+
+func lifecycleProfile(name, socksAddr, id string) config.Profile {
+	return config.Profile{
+		Name:   name,
+		Listen: config.ListenConfig{SOCKS5: socksAddr},
+		Chains: []config.ChainConfig{{
+			Name: "default",
+			Servers: []config.ServerConfig{{
+				Name:     "dummy",
+				Address:  "127.0.0.1:1",
+				Protocol: "engine_lifecycle",
+				Settings: map[string]any{"id": id},
+			}},
+		}},
+	}
+}
+
+func dialFirstEngineChain(t *testing.T, e *Engine) {
+	t.Helper()
+	if len(e.chains) != 1 {
+		t.Fatalf("len(e.chains) = %d, want 1", len(e.chains))
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), testDialTimeout)
+	defer cancel()
+	conn, err := e.chains[0].Dial(ctx, "tcp", "target.example:443")
+	if err != nil {
+		t.Fatalf("chain Dial: %v", err)
+	}
+	if err := conn.Close(); err != nil {
+		t.Fatalf("conn Close: %v", err)
+	}
+}
+
+const testDialTimeout = 2 * time.Second
+
+func TestEngineStopClosesCachedChainDialers(t *testing.T) {
+	id := t.Name()
+	engineLifecycleState.reset(id)
+
+	cfg := &config.Config{
+		Active:   "A",
+		Profiles: []config.Profile{lifecycleProfile("A", freePort(t), id)},
+	}
+	e := New(cfg, nil)
+	t.Cleanup(func() { _ = e.Stop() })
+
+	if err := e.Start(context.Background()); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	dialFirstEngineChain(t, e)
+	if got := engineLifecycleState.factoryCount(id); got != 1 {
+		t.Fatalf("factory count = %d, want 1", got)
+	}
+
+	if err := e.Stop(); err != nil {
+		t.Fatalf("stop: %v", err)
+	}
+	if got := engineLifecycleState.closeCount(id); got != 1 {
+		t.Fatalf("close count = %d, want 1", got)
+	}
+	if err := e.Stop(); err != nil {
+		t.Fatalf("second stop: %v", err)
+	}
+	if got := engineLifecycleState.closeCount(id); got != 1 {
+		t.Fatalf("close count after second stop = %d, want 1", got)
+	}
+}
+
+func TestEngineReloadClosesOldCachedChainDialers(t *testing.T) {
+	oldID := t.Name() + "/old"
+	newID := t.Name() + "/new"
+	engineLifecycleState.reset(oldID)
+	engineLifecycleState.reset(newID)
+
+	cfg := &config.Config{
+		Active:   "A",
+		Profiles: []config.Profile{lifecycleProfile("A", freePort(t), oldID)},
+	}
+	e := New(cfg, nil)
+	t.Cleanup(func() { _ = e.Stop() })
+
+	if err := e.Start(context.Background()); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	dialFirstEngineChain(t, e)
+
+	next := &config.Config{
+		Active:   "B",
+		Profiles: []config.Profile{lifecycleProfile("B", freePort(t), newID)},
+	}
+	if err := e.Reload(next); err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	if got := engineLifecycleState.closeCount(oldID); got != 1 {
+		t.Fatalf("old close count = %d, want 1", got)
+	}
+
+	dialFirstEngineChain(t, e)
+	if got := engineLifecycleState.factoryCount(newID); got != 1 {
+		t.Fatalf("new factory count = %d, want 1", got)
+	}
+	if err := e.Stop(); err != nil {
+		t.Fatalf("stop: %v", err)
+	}
+	if got := engineLifecycleState.closeCount(newID); got != 1 {
+		t.Fatalf("new close count = %d, want 1", got)
+	}
+}
+
+func TestEngineSetActiveProfileClosesOldCachedChainDialers(t *testing.T) {
+	oldID := t.Name() + "/old"
+	newID := t.Name() + "/new"
+	engineLifecycleState.reset(oldID)
+	engineLifecycleState.reset(newID)
+
+	cfg := &config.Config{
+		Active: "A",
+		Profiles: []config.Profile{
+			lifecycleProfile("A", freePort(t), oldID),
+			lifecycleProfile("B", freePort(t), newID),
+		},
+	}
+	e := New(cfg, nil)
+	t.Cleanup(func() { _ = e.Stop() })
+
+	if err := e.Start(context.Background()); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	dialFirstEngineChain(t, e)
+
+	if err := e.SetActiveProfile("B"); err != nil {
+		t.Fatalf("switch: %v", err)
+	}
+	if got := engineLifecycleState.closeCount(oldID); got != 1 {
+		t.Fatalf("old close count = %d, want 1", got)
+	}
+
+	dialFirstEngineChain(t, e)
+	if err := e.Stop(); err != nil {
+		t.Fatalf("stop: %v", err)
+	}
+	if got := engineLifecycleState.closeCount(newID); got != 1 {
+		t.Fatalf("new close count = %d, want 1", got)
+	}
+}
+
+func TestBuildListenersSharesRuntimeChainAcrossListeners(t *testing.T) {
+	profile := lifecycleProfile(t.Name(), freePort(t), t.Name()+"/chain")
+	profile.Listen.HTTP = freePort(t)
+
+	listeners, chains, err := buildListeners(&profile, nil)
+	if err != nil {
+		t.Fatalf("buildListeners: %v", err)
+	}
+	t.Cleanup(func() { _ = closeChains(chains) })
+	if len(listeners) != 2 {
+		t.Fatalf("len(listeners) = %d, want 2", len(listeners))
+	}
+	if len(chains) != 1 {
+		t.Fatalf("len(chains) = %d, want 1", len(chains))
 	}
 }

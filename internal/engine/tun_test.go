@@ -27,9 +27,12 @@ func TestBuildListenersIncludesEnabledTUN(t *testing.T) {
 		}},
 	}
 
-	listeners, err := buildListeners(&profile, nil)
+	listeners, chains, err := buildListeners(&profile, nil)
 	if err != nil {
 		t.Fatalf("buildListeners: %v", err)
+	}
+	if len(chains) != 1 {
+		t.Fatalf("len(chains) = %d, want 1", len(chains))
 	}
 	if len(listeners) != 1 {
 		t.Fatalf("len(listeners) = %d, want 1", len(listeners))
