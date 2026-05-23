@@ -1,0 +1,198 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  go:
+    name: Go
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential \
+            libsodium-dev \
+            pkg-config
+
+      - name: Build C library
+        run: make build-clib
+
+      - name: Run Go tests
+        run: make test
+
+      - name: Run Go vet
+        run: make lint
+
+      - name: Build Go binaries
+        run: make build
+
+  linux-ui:
+    name: Linux UI
+    runs-on: ubuntu-24.04
+    needs: go
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential \
+            libadwaita-1-dev \
+            libgee-0.8-dev \
+            libglib2.0-dev \
+            libgtk-4-dev \
+            libjson-glib-dev \
+            libsodium-dev \
+            libsecret-1-dev \
+            libsoup-3.0-dev \
+            meson \
+            ninja-build \
+            pkg-config \
+            valac
+
+      - name: Run Linux UI tests
+        run: make test-linux
+
+      - name: Build Linux UI
+        run: make build-linux
+
+  apple:
+    name: Apple
+    runs-on: macos-15
+    needs: go
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install system dependencies
+        run: brew install libsodium pkg-config xcodegen
+
+      - name: Run Apple package tests
+        run: make test-apple
+
+      - name: Build Apple apps
+        run: make build-apple
+
+  windows:
+    name: Windows
+    runs-on: windows-2025
+    needs: go
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Build Windows daemon
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force bin/windows/win-x64 | Out-Null
+          $env:CGO_ENABLED = "0"
+          $env:GOOS = "windows"
+          $env:GOARCH = "amd64"
+          go build -o bin/windows/win-x64/clambhook.exe ./cmd/clambhook
+
+      - name: Run Windows tests
+        run: dotnet test ui/windows/Clambhook.Windows.sln
+
+      - name: Build Windows app
+        shell: pwsh
+        run: |
+          $daemon = (Resolve-Path "bin/windows/win-x64/clambhook.exe").Path
+          dotnet build ui/windows/src/Clambhook.Windows/Clambhook.Windows.csproj `
+            -c Debug `
+            -r win-x64 `
+            -p:ClambhookDaemonPath="$daemon"
+
+  android:
+    name: Android
+    runs-on: ubuntu-24.04
+    needs: go
+    env:
+      ANDROID_NDK_VERSION: 28.2.13676358
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Install Android SDK components
+        run: |
+          set +o pipefail
+          yes | sdkmanager --licenses >/dev/null
+          set -o pipefail
+          sdkmanager --install \
+            "platforms;android-36" \
+            "build-tools;36.0.0" \
+            "ndk;${ANDROID_NDK_VERSION}"
+          echo "ANDROID_NDK_HOME=${ANDROID_HOME}/ndk/${ANDROID_NDK_VERSION}" >> "$GITHUB_ENV"
+
+      - name: Install gomobile
+        run: |
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+          go install golang.org/x/mobile/cmd/gobind@latest
+          go install golang.org/x/mobile/cmd/gomobile@latest
+          gomobile init
+
+      - name: Build Android mobile AAR
+        run: make build-android-mobile-aar
+
+      - name: Run Android tests
+        run: make test-android
+
+      - name: Build Android app
+        run: make build-android
