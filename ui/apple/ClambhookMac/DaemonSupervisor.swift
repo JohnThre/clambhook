@@ -1,44 +1,101 @@
 import ClambhookShared
 import Foundation
 
+enum DaemonState: Equatable {
+    case stopped
+    case starting
+    case running
+    case stopping
+    case failed(String)
+
+    var isBusy: Bool {
+        self == .starting || self == .stopping
+    }
+
+    var label: String {
+        switch self {
+        case .stopped:
+            return "Daemon stopped"
+        case .starting:
+            return "Daemon starting"
+        case .running:
+            return "Daemon running"
+        case .stopping:
+            return "Daemon stopping"
+        case .failed:
+            return "Daemon failed"
+        }
+    }
+}
+
 @MainActor
 final class DaemonSupervisor: ObservableObject {
-    @Published private(set) var isRunning = false
+    @Published private(set) var state: DaemonState = .stopped
     private var process: Process?
+    private var securityScopedURLs: [URL] = []
+
+    var isRunning: Bool {
+        process?.isRunning == true
+    }
 
     func launch(settings: AppSettings, token: String) throws {
         if process?.isRunning == true {
-            isRunning = true
+            state = .running
             return
         }
-        let executable = try daemonExecutable(settings: settings)
-        let process = Process()
-        process.executableURL = executable
-        process.arguments = daemonArguments(settings: settings, token: token)
-        process.terminationHandler = { [weak self] _ in
-            Task { @MainActor in
-                self?.isRunning = false
-                self?.process = nil
+        cleanupSecurityScopes()
+        state = .starting
+        do {
+            let normalized = settings.normalized()
+            let executable = try daemonExecutable(settings: normalized)
+            beginSecurityScope(for: executable, bookmark: normalized.daemonBinaryBookmark)
+            let configURL = daemonConfigURL(settings: normalized)
+            if let configURL {
+                beginSecurityScope(for: configURL, bookmark: normalized.daemonConfigBookmark)
             }
+            let process = Process()
+            process.executableURL = executable
+            process.arguments = daemonArguments(settings: normalized, token: token, configURL: configURL)
+            process.terminationHandler = { [weak self] _ in
+                Task { @MainActor in
+                    guard let self else { return }
+                    self.process = nil
+                    self.cleanupSecurityScopes()
+                    if case .failed = self.state {
+                        return
+                    }
+                    self.state = .stopped
+                }
+            }
+            try process.run()
+            self.process = process
+            state = .running
+        } catch {
+            cleanupSecurityScopes()
+            state = .failed(error.localizedDescription)
+            throw error
         }
-        try process.run()
-        self.process = process
-        isRunning = true
     }
 
     func stop() {
         guard let process else {
-            isRunning = false
+            state = .stopped
+            cleanupSecurityScopes()
             return
         }
+        state = .stopping
         if process.isRunning {
             process.terminate()
         }
         self.process = nil
-        isRunning = false
+        cleanupSecurityScopes()
+        state = .stopped
     }
 
     private func daemonExecutable(settings: AppSettings) throws -> URL {
+        if let bookmarked = bookmarkedURL(settings.daemonBinaryBookmark) {
+            return bookmarked
+        }
         if !settings.daemonBinaryPath.isEmpty {
             return URL(fileURLWithPath: settings.daemonBinaryPath)
         }
@@ -51,15 +108,54 @@ final class DaemonSupervisor: ObservableObject {
         throw DaemonSupervisorError.missingBinary
     }
 
-    private func daemonArguments(settings: AppSettings, token: String) -> [String] {
+    private func daemonConfigURL(settings: AppSettings) -> URL? {
+        if let bookmarked = bookmarkedURL(settings.daemonConfigBookmark) {
+            return bookmarked
+        }
+        if !settings.daemonConfigPath.isEmpty {
+            return URL(fileURLWithPath: settings.daemonConfigPath)
+        }
+        return nil
+    }
+
+    private func daemonArguments(settings: AppSettings, token: String, configURL: URL?) -> [String] {
         var args: [String] = ["-api", settings.apiEndpoint.hostPort]
         if !token.isEmpty {
             args += ["-api-token", token]
         }
-        if !settings.daemonConfigPath.isEmpty {
-            args += ["-config", settings.daemonConfigPath]
+        if let configURL {
+            args += ["-config", configURL.path]
         }
         return args
+    }
+
+    private func bookmarkedURL(_ data: Data?) -> URL? {
+        guard let data else {
+            return nil
+        }
+        var stale = false
+        return try? URL(
+            resolvingBookmarkData: data,
+            options: [.withSecurityScope],
+            relativeTo: nil,
+            bookmarkDataIsStale: &stale
+        )
+    }
+
+    private func beginSecurityScope(for url: URL, bookmark: Data?) {
+        guard bookmark != nil else {
+            return
+        }
+        if url.startAccessingSecurityScopedResource() {
+            securityScopedURLs.append(url)
+        }
+    }
+
+    private func cleanupSecurityScopes() {
+        for url in securityScopedURLs {
+            url.stopAccessingSecurityScopedResource()
+        }
+        securityScopedURLs.removeAll()
     }
 }
 

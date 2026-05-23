@@ -13,6 +13,8 @@ final class AppleAppModel: ObservableObject {
     private let credentialStore: CredentialStoring
     private var apiClient: ClambhookAPIClient
     private var snapshotStore: FileSnapshotStore
+    private var pollingTask: Task<Void, Never>?
+    private var started = false
 
     #if os(macOS)
     let daemonSupervisor = DaemonSupervisor()
@@ -34,10 +36,26 @@ final class AppleAppModel: ObservableObject {
         let initialToken = (try? credentialStore.readToken(account: settingsStore.settings.apiEndpoint.absoluteString)) ?? ""
         self.apiToken = initialToken
         self.apiClient = ClambhookAPIClient(baseURL: settingsStore.settings.apiEndpoint, tokenProvider: { initialToken })
-        self.dashboard = DashboardStore(api: apiClient, snapshotStore: snapshotStore)
+        self.dashboard = DashboardStore(
+            api: apiClient,
+            snapshotStore: snapshotStore,
+            logRetention: settingsStore.settings.logRetention
+        )
+        #if os(macOS)
+        if platform == .macOS {
+            Task { @MainActor [weak self] in
+                self?.start()
+            }
+        }
+        #endif
     }
 
     func start() {
+        guard !started else {
+            refresh()
+            return
+        }
+        started = true
         reloadClient()
         #if os(macOS)
         if settingsStore.settings.launchDaemonOnStart {
@@ -45,23 +63,31 @@ final class AppleAppModel: ObservableObject {
         }
         #endif
         dashboard.startEventStream(from: apiClient)
+        startPolling()
         Task { await dashboard.refreshDashboard() }
     }
 
     func stop() {
+        pollingTask?.cancel()
+        pollingTask = nil
         dashboard.stopEventStream()
         #if os(macOS)
         if settingsStore.settings.stopDaemonOnQuit {
             daemonSupervisor.stop()
         }
         #endif
+        started = false
     }
 
     func applySettings() {
+        settingsStore.settings = settingsStore.settings.normalized()
         try? credentialStore.saveToken(apiToken, account: settingsStore.settings.apiEndpoint.absoluteString)
         settingsStore.save()
         reloadClient()
-        dashboard.startEventStream(from: apiClient)
+        if started {
+            dashboard.startEventStream(from: apiClient)
+            startPolling()
+        }
         Task { await dashboard.refreshDashboard() }
     }
 
@@ -85,11 +111,15 @@ final class AppleAppModel: ObservableObject {
 
     #if os(macOS)
     func launchDaemon() {
-        do {
-            try daemonSupervisor.launch(settings: settingsStore.settings, token: apiToken)
-            daemonMessage = "daemon launched"
-        } catch {
-            daemonMessage = error.localizedDescription
+        Task {
+            do {
+                daemonMessage = "daemon starting"
+                try daemonSupervisor.launch(settings: settingsStore.settings, token: apiToken)
+                let ready = await waitForAPIReady()
+                daemonMessage = ready ? "daemon launched" : "daemon launched; waiting for API"
+            } catch {
+                daemonMessage = error.localizedDescription
+            }
         }
     }
 
@@ -100,13 +130,43 @@ final class AppleAppModel: ObservableObject {
     #endif
 
     private func reloadClient() {
-        let endpoint = settingsStore.settings.apiEndpoint
+        let settings = settingsStore.settings.normalized()
+        let endpoint = settings.apiEndpoint
         let token = apiToken
-        snapshotStore = FileSnapshotStore.appGroupStore(groupIdentifier: settingsStore.settings.appGroupIdentifier)
+        snapshotStore = FileSnapshotStore.appGroupStore(groupIdentifier: settings.appGroupIdentifier)
         apiClient = ClambhookAPIClient(baseURL: endpoint, tokenProvider: { token.isEmpty ? nil : token })
         dashboard.stopEventStream()
-        dashboard = DashboardStore(api: apiClient, snapshotStore: snapshotStore)
+        dashboard = DashboardStore(api: apiClient, snapshotStore: snapshotStore, logRetention: settings.logRetention)
     }
+
+    private func startPolling() {
+        pollingTask?.cancel()
+        let interval = settingsStore.settings.normalized().refreshIntervalSeconds
+        let nanoseconds = UInt64(interval * 1_000_000_000)
+        pollingTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: nanoseconds)
+                if Task.isCancelled {
+                    break
+                }
+                await self?.dashboard.refreshStatus()
+            }
+        }
+    }
+
+    #if os(macOS)
+    private func waitForAPIReady(timeout: TimeInterval = 3) async -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            await dashboard.refreshStatus()
+            if dashboard.apiOnline {
+                return true
+            }
+            try? await Task.sleep(nanoseconds: 250_000_000)
+        }
+        return false
+    }
+    #endif
 }
 
 enum AppPlatform {
