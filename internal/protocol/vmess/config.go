@@ -16,13 +16,20 @@ const (
 )
 
 type config struct {
-	uuid       uuid.UUID
-	security   byte
-	useTLS     bool
-	sni        string
-	alpn       []string
-	skipVerify bool
+	uuid           uuid.UUID
+	security       byte
+	useTLS         bool
+	sni            string
+	alpn           []string
+	skipVerify     bool
+	packetEncoding string
 }
+
+const (
+	packetEncodingAuto   = "auto"
+	packetEncodingLegacy = "legacy"
+	packetEncodingXUDP   = "xudp"
+)
 
 // parseConfig extracts VMess-specific settings from the shared Server struct.
 // Defaults: security=aes-128-gcm, tls=true. Rejects legacy (alter_id > 0) and
@@ -93,6 +100,18 @@ func parseConfig(s protocol.Server) (config, error) {
 
 	if v, ok := s.Settings["skip_cert_verify"].(bool); ok {
 		c.skipVerify = v
+	}
+
+	c.packetEncoding = packetEncodingAuto
+	if v, ok := s.Settings["packet_encoding"].(string); ok && v != "" {
+		switch v {
+		case packetEncodingAuto, packetEncodingLegacy, packetEncodingXUDP:
+			c.packetEncoding = v
+		case "none":
+			c.packetEncoding = packetEncodingLegacy
+		default:
+			return c, fmt.Errorf("vmess: unknown packet_encoding %q (supported: auto, legacy, xudp)", v)
+		}
 	}
 
 	return c, nil

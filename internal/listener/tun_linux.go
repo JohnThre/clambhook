@@ -64,6 +64,8 @@ func NewTUN(opts TUNOptions, ch *chain.Chain) Listener {
 	return &TUN{opts: opts, ch: ch}
 }
 
+func TUNSupported() bool { return true }
+
 func (t *TUN) Protocol() string { return "tun" }
 
 func (t *TUN) Addr() string {

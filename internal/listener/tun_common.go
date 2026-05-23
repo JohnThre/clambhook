@@ -1,13 +1,19 @@
 package listener
 
 import (
+	"errors"
+
 	"github.com/JohnThre/clambhook/internal/events"
 )
 
 const (
 	defaultTUNName = "clambhook0"
 	defaultTUNMTU  = 1500
+
+	unsupportedTUNError = "tun: device-wide TUN mode is only supported on Linux"
 )
+
+func TUNUnsupportedError() error { return errors.New(unsupportedTUNError) }
 
 // TUNOptions tunes the device-wide TUN listener. The Linux implementation
 // owns the interface and route changes for the lifetime of the listener.

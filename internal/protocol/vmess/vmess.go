@@ -14,9 +14,10 @@
 // Scope for v1:
 //   - Transport: raw TCP (tls=false) or TCP+TLS (default).
 //   - Data ciphers: aes-128-gcm, chacha20-poly1305.
-//   - UDP: single-target session, cmd=0x02, body chunks carry raw datagrams.
-//   - Out of scope: GlobalPadding, AuthenticatedLength, Mux/XUDP, dynamic
-//     port, response cmd handling, WebSocket/gRPC/mKCP transports.
+//   - UDP: legacy single-target cmd=0x02, plus XUDP per-datagram routing
+//     over cmd=0x03 (Mux) when packet_encoding="xudp" or auto-select needs it.
+//   - Out of scope: GlobalPadding, AuthenticatedLength, dynamic port,
+//     response cmd handling, WebSocket/gRPC/mKCP transports.
 package vmess
 
 import (
@@ -64,27 +65,52 @@ func (d *dialer) DialPacket(ctx context.Context, address string) (protocol.Packe
 	if err != nil {
 		return nil, fmt.Errorf("vmess: dial %s: %w", d.server.Address, err)
 	}
-	inner, err := d.handshake(ctx, raw, cmdUDP, address, true)
-	if err != nil {
-		return nil, err
-	}
-	c := inner.(*conn)
-	return &packetConn{inner: c, target: address}, nil
+	return d.handshakePacket(ctx, raw, address)
 }
 
 func (d *dialer) DialPacketThrough(ctx context.Context, underlying io.ReadWriteCloser, address string) (protocol.PacketConn, error) {
-	inner, err := d.handshake(ctx, &netConnAdapter{rwc: underlying}, cmdUDP, address, true)
+	return d.handshakePacket(ctx, &netConnAdapter{rwc: underlying}, address)
+}
+
+func (d *dialer) handshakePacket(ctx context.Context, raw net.Conn, address string) (protocol.PacketConn, error) {
+	cmd, xudp, err := d.packetCommand(address)
+	if err != nil {
+		raw.Close()
+		return nil, err
+	}
+	headerTarget := address
+	if xudp {
+		headerTarget = ""
+	}
+	inner, err := d.handshake(ctx, raw, cmd, headerTarget, true)
 	if err != nil {
 		return nil, err
 	}
 	c := inner.(*conn)
-	return &packetConn{inner: c, target: address}, nil
+	return &packetConn{inner: c, target: address, xudp: xudp}, nil
+}
+
+func (d *dialer) packetCommand(address string) (cmd byte, xudp bool, err error) {
+	switch d.cfg.packetEncoding {
+	case packetEncodingXUDP:
+		return cmdMux, true, nil
+	case packetEncodingLegacy:
+		if address == "" {
+			return 0, false, fmt.Errorf("vmess: legacy UDP requires a per-session target; set packet_encoding=%q for per-datagram routing", packetEncodingXUDP)
+		}
+		return cmdUDP, false, nil
+	default:
+		if address == "" {
+			return cmdMux, true, nil
+		}
+		return cmdUDP, false, nil
+	}
 }
 
 // handshake wraps `raw` in TLS if configured, writes the AEAD-sealed request
-// header, and returns a conn ready for body I/O. For UDP (asPacket=true) the
-// caller post-processes into a packetConn; the underlying wire shape is
-// identical — VMess UDP is just TCP with cmd=0x02.
+// header, and returns a conn ready for body I/O. For packet sessions
+// (asPacket=true), the caller post-processes into either legacy UDP or XUDP
+// framing depending on the command selected above.
 func (d *dialer) handshake(ctx context.Context, raw net.Conn, cmd byte, address string, asPacket bool) (protocol.Conn, error) {
 	var transport net.Conn = raw
 	if d.cfg.useTLS {
@@ -116,7 +142,7 @@ func (d *dialer) handshake(ctx context.Context, raw net.Conn, cmd byte, address 
 		transport.Close()
 		return nil, err
 	}
-	_ = asPacket // currently no branching — flag reserved for future XUDP work
+	_ = asPacket
 	return c, nil
 }
 

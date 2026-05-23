@@ -45,9 +45,7 @@ func newConn(rwc io.ReadWriteCloser, state requestState, security byte) (*conn, 
 
 func (c *conn) Protocol() string { return "vmess" }
 
-// Read returns decrypted body bytes. The response header is parsed on the
-// first call so writes can go out before the server has responded.
-func (c *conn) Read(p []byte) (int, error) {
+func (c *conn) ensureReadCodec() error {
 	c.readOnce.Do(func() {
 		if _, err := readResponse(c.rwc, c.state); err != nil {
 			c.readErr = err
@@ -65,8 +63,14 @@ func (c *conn) Read(p []byte) (int, error) {
 		copy(iv[:], respIV[:16])
 		c.readCodec = newChunkCodec(aead, iv)
 	})
-	if c.readErr != nil {
-		return 0, c.readErr
+	return c.readErr
+}
+
+// Read returns decrypted body bytes. The response header is parsed on the
+// first call so writes can go out before the server has responded.
+func (c *conn) Read(p []byte) (int, error) {
+	if err := c.ensureReadCodec(); err != nil {
+		return 0, err
 	}
 
 	c.readMu.Lock()
@@ -82,6 +86,15 @@ func (c *conn) Read(p []byte) (int, error) {
 	n := copy(p, c.pending)
 	c.pending = c.pending[n:]
 	return n, nil
+}
+
+func (c *conn) readChunk() ([]byte, error) {
+	if err := c.ensureReadCodec(); err != nil {
+		return nil, err
+	}
+	c.readMu.Lock()
+	defer c.readMu.Unlock()
+	return c.readCodec.open(c.rwc)
 }
 
 // Write splits p across chunks if it exceeds maxChunkPlaintext.
@@ -103,6 +116,13 @@ func (c *conn) Write(p []byte) (int, error) {
 		p = p[n:]
 	}
 	return total, nil
+}
+
+func (c *conn) writeChunk(p []byte) error {
+	c.writeMu.Lock()
+	defer c.writeMu.Unlock()
+	_, err := c.writeCodec.seal(c.rwc, p)
+	return err
 }
 
 func (c *conn) Close() error { return c.rwc.Close() }

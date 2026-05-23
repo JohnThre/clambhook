@@ -4,7 +4,6 @@ package listener
 
 import (
 	"context"
-	"errors"
 	"sync/atomic"
 
 	"github.com/JohnThre/clambhook/internal/chain"
@@ -16,13 +15,15 @@ func NewTUN(opts TUNOptions, _ *chain.Chain) Listener {
 	return &unsupportedTUN{name: opts.name()}
 }
 
+func TUNSupported() bool { return false }
+
 type unsupportedTUN struct {
 	name   string
 	active atomic.Int64
 }
 
 func (t *unsupportedTUN) Start(context.Context) error {
-	return errors.New("tun: device-wide TUN mode is only supported on Linux")
+	return TUNUnsupportedError()
 }
 
 func (t *unsupportedTUN) Stop() error        { return nil }

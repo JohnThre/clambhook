@@ -84,7 +84,7 @@ test:
 	go test ./...
 
 lint:
-	go vet ./...
+	./scripts/lint.sh
 
 clean:
 	rm -rf bin/

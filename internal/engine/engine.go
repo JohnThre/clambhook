@@ -367,6 +367,9 @@ func buildListeners(profile *config.Profile, bus *events.Bus) (listeners []liste
 	}
 
 	if tunCfg := profile.Listen.TUN; tunCfg != nil && tunCfg.Enabled {
+		if !listener.TUNSupported() {
+			return nil, nil, listener.TUNUnsupportedError()
+		}
 		ch, err := resolver.resolve(tunCfg.Chain)
 		if err != nil {
 			return nil, nil, fmt.Errorf("tun: %w", err)
