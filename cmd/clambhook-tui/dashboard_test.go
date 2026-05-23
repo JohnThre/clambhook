@@ -10,6 +10,7 @@ import (
 
 	"github.com/JohnThre/clambhook/internal/events"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 func TestEventsURLSubscribesToConnectionAndLogEvents(t *testing.T) {
@@ -184,7 +185,7 @@ func TestLogModeScrollKeysDoNotMoveProfileSelection(t *testing.T) {
 func TestWindowSizeLimitsRenderedLogLines(t *testing.T) {
 	m := newModel("127.0.0.1:9090")
 	m.viewMode = viewModeLogs
-	m.height = 6
+	m.height = 7
 	for i := 0; i < 10; i++ {
 		m.appendLogLine(fmt.Sprintf("entry-%02d", i))
 	}
@@ -197,6 +198,97 @@ func TestWindowSizeLimitsRenderedLogLines(t *testing.T) {
 	}
 	if strings.Contains(view, "entry-07") {
 		t.Fatalf("log view rendered too many rows:\n%s", view)
+	}
+}
+
+func TestBandwidthGraphUsesRequestedWidth(t *testing.T) {
+	var series bandwidthSeries
+	for i := 1; i <= 5; i++ {
+		series.add(bandwidthSample{RxBps: float64(i), TxBps: float64(i * 2)})
+	}
+
+	if got := series.graph(true, 8); lipgloss.Width(got) != 8 {
+		t.Fatalf("graph width = %d, want 8 (%q)", lipgloss.Width(got), got)
+	}
+	if got := series.graph(false, 3); lipgloss.Width(got) != 3 {
+		t.Fatalf("small graph width = %d, want 3 (%q)", lipgloss.Width(got), got)
+	}
+}
+
+func TestDashboardClipsTrafficPreviewAtSmallHeight(t *testing.T) {
+	m := newModel("127.0.0.1:9090")
+	m.height = 20
+	m.traffic.Summary.ActiveConnections = 5
+	for i := 0; i < 5; i++ {
+		m.traffic.Connections = append(m.traffic.Connections, trafficConnectionPayload{
+			State:      "open",
+			Target:     fmt.Sprintf("target-%02d.example:443", i),
+			RxTotal:    uint64(1024 * (i + 1)),
+			TxTotal:    uint64(512 * (i + 1)),
+			DurationNs: int64((i + 1)) * int64(time.Second),
+		})
+	}
+
+	view := m.View()
+	for _, want := range []string{"target-00.example:443", "target-01.example:443", "+3 more (press t)"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("dashboard traffic preview missing %q:\n%s", want, view)
+		}
+	}
+	if strings.Contains(view, "target-02.example:443") {
+		t.Fatalf("dashboard rendered more traffic rows than expected:\n%s", view)
+	}
+}
+
+func TestNarrowDashboardLinesFitWidth(t *testing.T) {
+	m := newModel("127.0.0.1:9090")
+	m.width = 44
+	m.apiOnline = true
+	m.status = statusPayload{
+		Running: true,
+		Profile: "very-long-profile-name-for-terminal",
+		Listeners: []listenerStatusPayload{{
+			Protocol:    "socks5",
+			Addr:        "127.0.0.1:1080",
+			ActiveConns: 2,
+		}},
+	}
+	m.profiles = profilesPayload{
+		Profiles: []string{"very-long-profile-name-for-terminal", "🇺🇸 backup-profile-with-long-name"},
+		Active:   "very-long-profile-name-for-terminal",
+	}
+	m.servers = serversPayload{
+		Chains: []chainPayload{{
+			Name: "very-long-chain-name",
+			Servers: []serverPayload{{
+				Name:     "long-london-server-name",
+				Address:  "very-long-hostname.example.test:443",
+				Protocol: "trojan",
+				Geo: locationPayload{
+					Country:     "United Kingdom",
+					CountryCode: "GB",
+					City:        "London",
+				},
+			}},
+		}},
+	}
+	m.bandwidth.add(bandwidthSample{RxBps: 2048, TxBps: 1024})
+
+	view := m.View()
+	for _, line := range strings.Split(view, "\n") {
+		if got := lipgloss.Width(line); got > m.width {
+			t.Fatalf("line width = %d, want <= %d:\n%s\nfull view:\n%s", got, m.width, line, view)
+		}
+	}
+}
+
+func TestTrafficModeRefreshKeyReturnsCommand(t *testing.T) {
+	m := newModel("127.0.0.1:9090")
+	m.viewMode = viewModeTraffic
+
+	_, cmd := m.Update(keyMsg("r"))
+	if cmd == nil {
+		t.Fatal("traffic view r key returned nil command")
 	}
 }
 

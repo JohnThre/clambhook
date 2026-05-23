@@ -24,7 +24,7 @@ func main() {
 		apiAddr = flag.Arg(0)
 	}
 
-	p := tea.NewProgram(newModel(apiAddr))
+	p := tea.NewProgram(newModel(apiAddr), tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)

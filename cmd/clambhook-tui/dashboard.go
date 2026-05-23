@@ -10,16 +10,34 @@ import (
 
 	"github.com/JohnThre/clambhook/internal/events"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/coder/websocket"
 )
 
 const (
 	bandwidthSampleLimit = 60
-	graphWidth           = 30
+	defaultGraphWidth    = 30
+	defaultViewWidth     = 100
+	minViewWidth         = 32
 	maxLogLines          = 200
 	defaultLogViewHeight = 24
 	refreshInterval      = 2 * time.Second
 	reconnectInterval    = 2 * time.Second
+)
+
+var (
+	headerStyle       = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("230")).Background(lipgloss.Color("24"))
+	sectionStyle      = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("81"))
+	tableHeaderStyle  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("244"))
+	subtleStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("244"))
+	errorStyle        = lipgloss.NewStyle().Foreground(lipgloss.Color("203"))
+	footerStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("244"))
+	activeLineStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("42"))
+	selectedLineStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("229"))
+	runningBadgeStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("22")).Background(lipgloss.Color("42")).Padding(0, 1)
+	stoppedBadgeStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("236")).Background(lipgloss.Color("250")).Padding(0, 1)
+	onlineBadgeStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("42"))
+	offlineBadgeStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("203"))
 )
 
 type viewMode int
@@ -147,6 +165,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		if m.viewMode == viewModeTraffic {
+			if msg.String() == "r" {
+				return m, m.loadDashboardCmd()
+			}
 			return m, nil
 		}
 		if m.viewMode == viewModeLogs {
@@ -249,163 +270,320 @@ func (m model) View() string {
 		return m.trafficView()
 	}
 
-	var b strings.Builder
-
-	apiState := "offline"
-	if m.apiOnline {
-		apiState = "online"
+	width := m.contentWidth()
+	sections := []string{
+		m.renderHeader("Dashboard"),
+		m.renderStatusSummary(width),
 	}
-	runState := "STOPPED"
-	if m.status.Running {
-		runState = "RUNNING"
-	}
-
-	fmt.Fprintf(&b, "clambhook %s  API %s (%s)\n", version, m.apiAddr, apiState)
-	fmt.Fprintf(&b, "Status: %s  Profile: %s\n", runState, emptyDash(m.status.Profile))
 	if m.errText != "" {
-		fmt.Fprintf(&b, "Error: %s\n", m.errText)
+		sections = append(sections, m.renderError(width))
 	}
-
-	b.WriteString("\nProfiles\n")
-	if len(m.profiles.Profiles) == 0 {
-		b.WriteString("  -- no profiles\n")
-	} else {
-		active := m.activeProfile()
-		for i, profile := range m.profiles.Profiles {
-			marker := " "
-			switch {
-			case profile == active:
-				marker = "●"
-			case i == m.selectedProfile:
-				marker = "›"
-			}
-			fmt.Fprintf(&b, "%s %s\n", marker, profile)
-		}
-	}
-
-	b.WriteString("\nListeners\n")
-	if len(m.status.Listeners) == 0 {
-		b.WriteString("  -- none active\n")
-	} else {
-		for _, l := range m.status.Listeners {
-			fmt.Fprintf(&b, "  %-7s %-21s %d active\n", l.Protocol, l.Addr, l.ActiveConns)
-		}
-	}
-
-	b.WriteString("\nServers\n")
-	if len(m.servers.Chains) == 0 {
-		b.WriteString("  -- no servers in active profile\n")
-	} else {
-		for _, ch := range m.servers.Chains {
-			for _, server := range ch.Servers {
-				fmt.Fprintf(&b, "  %s %-16s %-11s %-22s %-18s %s\n",
-					countryFlag(server.Geo.CountryCode),
-					truncate(server.Name, 16),
-					server.Protocol,
-					truncate(server.Address, 22),
-					truncate(serverLocation(server), 18),
-					ch.Name,
-				)
-			}
-		}
-	}
-
-	current := m.bandwidth.current()
-	b.WriteString("\nBandwidth\n")
-	fmt.Fprintf(&b, "  Rx %-10s %s\n", formatRate(current.RxBps), m.bandwidth.graph(true))
-	fmt.Fprintf(&b, "  Tx %-10s %s\n", formatRate(current.TxBps), m.bandwidth.graph(false))
-
-	b.WriteString("\nTraffic\n")
-	if len(m.traffic.Connections) == 0 {
-		b.WriteString("  -- no traffic history\n")
-	} else {
-		for _, conn := range firstTrafficRows(m.traffic.Connections, 6) {
-			fmt.Fprintf(&b, "  %-7s %-5s %-24s down %-9s up %-9s %s\n",
-				conn.State,
-				emptyDash(conn.Application),
-				truncate(emptyDash(conn.Target), 24),
-				formatBytes(conn.RxTotal),
-				formatBytes(conn.TxTotal),
-				formatDurationNs(conn.DurationNs),
-			)
-		}
-	}
-
-	b.WriteString("\nKeys: c connect  d disconnect  [ prev profile  ] next profile  t traffic  l logs  r refresh  q quit\n")
-	return b.String()
+	sections = append(sections,
+		m.renderProfileListenerSections(width),
+		m.renderServersSection(width),
+		m.renderBandwidthSection(width),
+		m.renderTrafficPreviewSection(width),
+		m.renderFooter(
+			"Keys: c connect  d disconnect  [ prev profile  ] next profile  enter switch  t traffic  l logs  r refresh  q quit",
+			"Keys: c/d  [/] profile  enter  t traffic  l logs  r refresh  q quit",
+		),
+	)
+	return joinSections(sections)
 }
 
 func (m model) logView() string {
-	var b strings.Builder
-
-	apiState := "offline"
-	if m.apiOnline {
-		apiState = "online"
-	}
-
-	fmt.Fprintf(&b, "clambhook %s  API %s (%s)\n", version, m.apiAddr, apiState)
-	b.WriteString("Logs\n")
+	width := m.contentWidth()
+	sections := []string{m.renderHeader("Logs")}
 	if m.errText != "" {
-		fmt.Fprintf(&b, "Error: %s\n", m.errText)
+		sections = append(sections, m.renderError(width))
 	}
 
+	lines := make([]string, 0, m.logVisibleRows()+1)
 	if len(m.logs) == 0 {
-		b.WriteString("  -- no logs yet\n")
+		lines = append(lines, subtleStyle.Render("  -- no logs yet"))
 	} else {
+		if m.logScroll > 0 {
+			lines = append(lines, subtleStyle.Render(fmt.Sprintf("  showing %d lines above tail", m.logScroll)))
+		}
 		for _, line := range m.visibleLogLines() {
-			fmt.Fprintf(&b, "  %s\n", line)
+			lines = append(lines, "  "+truncate(line, width-2))
 		}
 	}
 
-	b.WriteString("\nKeys: l dashboard  up/k scroll  down/j scroll  end tail  q quit\n")
-	return b.String()
+	sections = append(sections,
+		renderSection("Logs", lines),
+		m.renderFooter(
+			"Keys: l dashboard  up/k scroll  down/j scroll  end tail  q quit",
+			"Keys: l dashboard  up/down  end tail  q quit",
+		),
+	)
+	return joinSections(sections)
 }
 
 func (m model) trafficView() string {
-	var b strings.Builder
-
-	apiState := "offline"
-	if m.apiOnline {
-		apiState = "online"
-	}
-	fmt.Fprintf(&b, "clambhook %s  API %s (%s)\n", version, m.apiAddr, apiState)
-	b.WriteString("Traffic\n")
+	width := m.contentWidth()
+	sections := []string{m.renderHeader("Traffic")}
 	if m.errText != "" {
-		fmt.Fprintf(&b, "Error: %s\n", m.errText)
+		sections = append(sections, m.renderError(width))
+	}
+	sections = append(sections,
+		m.renderTrafficDetailSection(width),
+		m.renderFooter(
+			"Keys: t dashboard  l logs  r refresh  q quit",
+			"Keys: t dashboard  l logs  r refresh  q quit",
+		),
+	)
+	return joinSections(sections)
+}
+
+func (m model) renderHeader(title string) string {
+	width := m.contentWidth()
+	left := fmt.Sprintf("clambhook %s · %s", version, title)
+	right := "API " + m.apiAddr
+	return headerStyle.Width(width).Render(fitLine(left, right, width))
+}
+
+func (m model) renderStatusSummary(width int) string {
+	line := strings.Join([]string{
+		m.runningBadge(),
+		m.apiBadge(),
+		"Profile " + truncate(emptyDash(m.activeProfile()), maxInt(8, width/3)),
+		fmt.Sprintf("%d active connections", m.activeConnections()),
+	}, "  ")
+	if lipgloss.Width(line) <= width {
+		return line
+	}
+	return strings.Join([]string{
+		strings.Join([]string{m.runningBadge(), m.apiBadge()}, "  "),
+		"Profile " + truncate(emptyDash(m.activeProfile()), width-8),
+		fmt.Sprintf("%d active connections", m.activeConnections()),
+	}, "\n")
+}
+
+func (m model) runningBadge() string {
+	if m.status.Running {
+		return runningBadgeStyle.Render("RUNNING")
+	}
+	return stoppedBadgeStyle.Render("STOPPED")
+}
+
+func (m model) apiBadge() string {
+	if m.apiOnline {
+		return onlineBadgeStyle.Render("API online")
+	}
+	return offlineBadgeStyle.Render("API offline")
+}
+
+func (m model) renderError(width int) string {
+	return errorStyle.Render(truncate("Error: "+m.errText, width))
+}
+
+func (m model) renderProfileListenerSections(width int) string {
+	if width >= 84 {
+		profileWidth := clampInt(width/3, 24, 36)
+		listenerWidth := width - profileWidth - 2
+		profiles := lipgloss.NewStyle().Width(profileWidth).Render(renderSection("Profiles", m.profileLines(profileWidth)))
+		listeners := lipgloss.NewStyle().Width(listenerWidth).Render(renderSection("Listeners", m.listenerLines(listenerWidth)))
+		return lipgloss.JoinHorizontal(lipgloss.Top, profiles, "  ", listeners)
+	}
+	return renderSection("Profiles", m.profileLines(width)) + "\n\n" + renderSection("Listeners", m.listenerLines(width))
+}
+
+func (m model) profileLines(width int) []string {
+	if len(m.profiles.Profiles) == 0 {
+		return []string{subtleStyle.Render("  -- no profiles")}
+	}
+	active := m.activeProfile()
+	lines := make([]string, 0, len(m.profiles.Profiles))
+	for i, profile := range m.profiles.Profiles {
+		marker := " "
+		style := lipgloss.NewStyle()
+		styled := false
+		switch {
+		case profile == active:
+			marker = "●"
+			style = activeLineStyle
+			styled = true
+		case i == m.selectedProfile:
+			marker = "›"
+			style = selectedLineStyle
+			styled = true
+		}
+		line := fmt.Sprintf("%s %s", marker, truncate(profile, width-2))
+		if styled {
+			line = style.Render(line)
+		}
+		lines = append(lines, line)
+	}
+	return lines
+}
+
+func (m model) listenerLines(width int) []string {
+	if len(m.status.Listeners) == 0 {
+		return []string{subtleStyle.Render("  -- none active")}
+	}
+	lines := make([]string, 0, len(m.status.Listeners))
+	for _, l := range m.status.Listeners {
+		if width < 54 {
+			line := fmt.Sprintf("  %s %s (%d)", l.Protocol, l.Addr, l.ActiveConns)
+			lines = append(lines, truncate(line, width))
+			continue
+		}
+		addrWidth := maxInt(12, width-24)
+		line := fmt.Sprintf("  %s %s %s",
+			cell(l.Protocol, 7),
+			cell(l.Addr, addrWidth),
+			cell(fmt.Sprintf("%d active", l.ActiveConns), 10),
+		)
+		lines = append(lines, truncate(line, width))
+	}
+	return lines
+}
+
+func (m model) renderServersSection(width int) string {
+	return renderSection("Servers", m.serverLines(width))
+}
+
+func (m model) serverLines(width int) []string {
+	if len(m.servers.Chains) == 0 {
+		return []string{subtleStyle.Render("  -- no servers in active profile")}
+	}
+	lines := make([]string, 0)
+	if width >= 92 {
+		widths := serverColumnWidths(width)
+		lines = append(lines, tableHeaderStyle.Render(tableRow([]string{"", "Name", "Protocol", "Address", "Location", "Chain"}, widths)))
+		for _, ch := range m.servers.Chains {
+			for _, server := range ch.Servers {
+				lines = append(lines, tableRow([]string{
+					countryFlag(server.Geo.CountryCode),
+					server.Name,
+					server.Protocol,
+					server.Address,
+					serverLocation(server),
+					ch.Name,
+				}, widths))
+			}
+		}
+		return lines
 	}
 
+	for _, ch := range m.servers.Chains {
+		for _, server := range ch.Servers {
+			first := fmt.Sprintf("  %s %s · %s · %s",
+				countryFlag(server.Geo.CountryCode),
+				server.Name,
+				server.Protocol,
+				server.Address,
+			)
+			second := fmt.Sprintf("     %s · %s", serverLocation(server), ch.Name)
+			lines = append(lines, truncate(first, width), subtleStyle.Render(truncate(second, width)))
+		}
+	}
+	return lines
+}
+
+func (m model) renderBandwidthSection(width int) string {
+	current := m.bandwidth.current()
+	graphWidth := graphWidthFor(width)
+	lines := []string{
+		fmt.Sprintf("  Rx %-10s %s", formatRate(current.RxBps), m.bandwidth.graph(true, graphWidth)),
+		fmt.Sprintf("  Tx %-10s %s", formatRate(current.TxBps), m.bandwidth.graph(false, graphWidth)),
+	}
+	return renderSection("Bandwidth", lines)
+}
+
+func (m model) renderTrafficPreviewSection(width int) string {
+	lines := []string{m.trafficSummaryLine(width)}
+	if len(m.traffic.Connections) == 0 {
+		lines = append(lines, subtleStyle.Render("  -- no traffic history"))
+		return renderSection("Traffic", lines)
+	}
+
+	limit := m.dashboardTrafficRows()
+	lines = append(lines, m.trafficRows(width, limit, false)...)
+	if len(m.traffic.Connections) > limit {
+		lines = append(lines, subtleStyle.Render(fmt.Sprintf("  +%d more (press t)", len(m.traffic.Connections)-limit)))
+	}
+	return renderSection("Traffic", lines)
+}
+
+func (m model) renderTrafficDetailSection(width int) string {
+	lines := []string{m.trafficSummaryLine(width)}
+	if m.traffic.Summary.PersistError != "" {
+		lines = append(lines, errorStyle.Render(truncate("  History: "+m.traffic.Summary.PersistError, width)))
+	}
+	if len(m.traffic.Connections) == 0 {
+		lines = append(lines, "", subtleStyle.Render("  -- no traffic history"))
+	} else {
+		limit := m.trafficVisibleRows()
+		lines = append(lines, "", tableHeaderStyle.Render(trafficHeaderRow(width)))
+		lines = append(lines, m.trafficRows(width, limit, true)...)
+		if len(m.traffic.Connections) > limit {
+			lines = append(lines, subtleStyle.Render(fmt.Sprintf("  +%d more rows hidden by terminal height", len(m.traffic.Connections)-limit)))
+		}
+	}
+	return renderSection("Traffic", lines)
+}
+
+func (m model) trafficSummaryLine(width int) string {
 	sum := m.traffic.Summary
-	fmt.Fprintf(&b, "Active %d  Down %s  Up %s  Total down %s  Total up %s\n",
+	return truncate(fmt.Sprintf("  Active %d  Down %s  Up %s  Total down %s  Total up %s",
 		sum.ActiveConnections,
 		formatRate(sum.RxBps),
 		formatRate(sum.TxBps),
 		formatBytes(sum.RxTotal),
 		formatBytes(sum.TxTotal),
-	)
-	if sum.PersistError != "" {
-		fmt.Fprintf(&b, "History: %s\n", sum.PersistError)
-	}
+	), width)
+}
 
-	if len(m.traffic.Connections) == 0 {
-		b.WriteString("\n  -- no traffic history\n")
-	} else {
-		b.WriteString("\n  State   App       Target                    Listener          Down       Up         Duration  Path\n")
-		for _, conn := range firstTrafficRows(m.traffic.Connections, m.trafficVisibleRows()) {
-			fmt.Fprintf(&b, "  %-7s %-9s %-25s %-17s %-10s %-10s %-9s %s\n",
-				truncate(conn.State, 7),
-				truncate(emptyDash(conn.Application), 9),
-				truncate(emptyDash(conn.Target), 25),
-				truncate(conn.Listener.Protocol+" "+conn.Listener.Addr, 17),
+func (m model) trafficRows(width, limit int, full bool) []string {
+	rows := firstTrafficRows(m.traffic.Connections, limit)
+	out := make([]string, 0, len(rows))
+	wide := width >= 92
+	widths := trafficColumnWidths(width)
+	for _, conn := range rows {
+		if wide && full {
+			out = append(out, tableRow([]string{
+				conn.State,
+				emptyDash(conn.Application),
+				emptyDash(conn.Target),
+				conn.Listener.Protocol + " " + conn.Listener.Addr,
 				formatBytes(conn.RxTotal),
 				formatBytes(conn.TxTotal),
 				formatDurationNs(conn.DurationNs),
-				truncate(trafficPath(conn), 22),
-			)
+				trafficPath(conn),
+			}, widths))
+			continue
 		}
+		if wide {
+			out = append(out, truncate(fmt.Sprintf("  %-7s %-7s %-28s down %-10s up %-10s %s",
+				truncate(conn.State, 7),
+				truncate(emptyDash(conn.Application), 7),
+				truncate(emptyDash(conn.Target), 28),
+				formatBytes(conn.RxTotal),
+				formatBytes(conn.TxTotal),
+				formatDurationNs(conn.DurationNs),
+			), width))
+			continue
+		}
+		out = append(out, truncate(fmt.Sprintf("  %s %s  %s down / %s up  %s",
+			conn.State,
+			emptyDash(conn.Target),
+			formatBytes(conn.RxTotal),
+			formatBytes(conn.TxTotal),
+			formatDurationNs(conn.DurationNs),
+		), width))
 	}
+	return out
+}
 
-	b.WriteString("\nKeys: t dashboard  l logs  r refresh  q quit\n")
-	return b.String()
+func (m model) renderFooter(full, compact string) string {
+	width := m.contentWidth()
+	text := full
+	if lipgloss.Width(text) > width {
+		text = compact
+	}
+	return footerStyle.Render(truncate(text, width))
 }
 
 func (m model) loadDashboardCmd() tea.Cmd {
@@ -703,7 +881,7 @@ func (m model) logVisibleRows() int {
 	if height <= 0 {
 		height = defaultLogViewHeight
 	}
-	rows := height - 4
+	rows := height - 5
 	if m.errText != "" {
 		rows--
 	}
@@ -788,13 +966,16 @@ func (s bandwidthSeries) current() bandwidthSample {
 	return s.Samples[len(s.Samples)-1]
 }
 
-func (s bandwidthSeries) graph(rx bool) string {
+func (s bandwidthSeries) graph(rx bool, width int) string {
+	if width <= 0 {
+		width = defaultGraphWidth
+	}
 	if len(s.Samples) == 0 {
-		return strings.Repeat(" ", graphWidth)
+		return strings.Repeat(" ", width)
 	}
 	start := 0
-	if len(s.Samples) > graphWidth {
-		start = len(s.Samples) - graphWidth
+	if len(s.Samples) > width {
+		start = len(s.Samples) - width
 	}
 	values := make([]float64, 0, len(s.Samples)-start)
 	var maxValue float64
@@ -809,21 +990,22 @@ func (s bandwidthSeries) graph(rx bool) string {
 		}
 	}
 	if maxValue <= 0 {
-		return strings.Repeat("▁", len(values))
+		return padLeft(strings.Repeat("▁", len(values)), width)
 	}
 	const bars = "▁▂▃▄▅▆▇█"
+	barRunes := []rune(bars)
 	var b strings.Builder
 	for _, v := range values {
-		idx := int(math.Ceil((v/maxValue)*float64(len([]rune(bars)))) - 1)
+		idx := int(math.Ceil((v/maxValue)*float64(len(barRunes))) - 1)
 		if idx < 0 {
 			idx = 0
 		}
-		if idx >= len([]rune(bars)) {
-			idx = len([]rune(bars)) - 1
+		if idx >= len(barRunes) {
+			idx = len(barRunes) - 1
 		}
-		b.WriteRune([]rune(bars)[idx])
+		b.WriteRune(barRunes[idx])
 	}
-	return b.String()
+	return padLeft(b.String(), width)
 }
 
 func countryFlag(code string) string {
@@ -886,7 +1068,7 @@ func (m model) trafficVisibleRows() int {
 	if height <= 0 {
 		height = defaultLogViewHeight
 	}
-	rows := height - 8
+	rows := height - 10
 	if m.errText != "" {
 		rows--
 	}
@@ -935,12 +1117,192 @@ func emptyDash(s string) string {
 }
 
 func truncate(s string, max int) string {
-	if len([]rune(s)) <= max {
+	if max <= 0 {
+		return ""
+	}
+	if lipgloss.Width(s) <= max {
 		return s
 	}
-	r := []rune(s)
 	if max <= 1 {
-		return string(r[:max])
+		return "…"
 	}
-	return string(r[:max-1]) + "…"
+	var b strings.Builder
+	for _, r := range s {
+		next := b.String() + string(r)
+		if lipgloss.Width(next) > max-1 {
+			break
+		}
+		b.WriteRune(r)
+	}
+	return b.String() + "…"
+}
+
+func (m model) contentWidth() int {
+	if m.width <= 0 {
+		return defaultViewWidth
+	}
+	if m.width < minViewWidth {
+		return minViewWidth
+	}
+	return m.width
+}
+
+func (m model) activeConnections() int64 {
+	var total int64
+	for _, listener := range m.status.Listeners {
+		total += listener.ActiveConns
+	}
+	if total == 0 && m.traffic.Summary.ActiveConnections > 0 {
+		return int64(m.traffic.Summary.ActiveConnections)
+	}
+	return total
+}
+
+func (m model) dashboardTrafficRows() int {
+	limit := 6
+	if m.height <= 0 {
+		return limit
+	}
+	rows := m.height - 24
+	if rows < 2 {
+		rows = 2
+	}
+	if rows > limit {
+		return limit
+	}
+	return rows
+}
+
+func renderSection(title string, lines []string) string {
+	if len(lines) == 0 {
+		lines = []string{subtleStyle.Render("  --")}
+	}
+	return sectionStyle.Render(title) + "\n" + strings.Join(lines, "\n")
+}
+
+func joinSections(sections []string) string {
+	out := make([]string, 0, len(sections))
+	for _, section := range sections {
+		if strings.TrimSpace(section) != "" {
+			out = append(out, section)
+		}
+	}
+	if len(out) == 0 {
+		return ""
+	}
+	return strings.Join(out, "\n\n") + "\n"
+}
+
+func fitLine(left, right string, width int) string {
+	if width <= 0 {
+		return left
+	}
+	right = truncate(right, maxInt(0, width/2))
+	left = truncate(left, width)
+	spaces := width - lipgloss.Width(left) - lipgloss.Width(right)
+	if spaces < 1 {
+		return truncate(left+" "+right, width)
+	}
+	return left + strings.Repeat(" ", spaces) + right
+}
+
+func graphWidthFor(width int) int {
+	graphWidth := width - 18
+	if graphWidth <= 0 {
+		return 8
+	}
+	return clampInt(graphWidth, 8, 60)
+}
+
+func serverColumnWidths(width int) []int {
+	available := width - 2 - 5
+	flagWidth := 4
+	protocolWidth := 11
+	addressWidth := 22
+	locationWidth := 18
+	chainWidth := 14
+	nameWidth := available - flagWidth - protocolWidth - addressWidth - locationWidth - chainWidth
+	if nameWidth < 12 {
+		nameWidth = 12
+	}
+	return []int{flagWidth, nameWidth, protocolWidth, addressWidth, locationWidth, chainWidth}
+}
+
+func trafficHeaderRow(width int) string {
+	if width < 92 {
+		return truncate("  State Target  Down / Up  Duration", width)
+	}
+	return tableRow([]string{"State", "App", "Target", "Listener", "Down", "Up", "Duration", "Path"}, trafficColumnWidths(width))
+}
+
+func trafficColumnWidths(width int) []int {
+	available := width - 2 - 7
+	stateWidth := 7
+	appWidth := 8
+	downWidth := 10
+	upWidth := 10
+	durationWidth := 8
+	remaining := available - stateWidth - appWidth - downWidth - upWidth - durationWidth
+	if remaining < 36 {
+		remaining = 36
+	}
+	targetWidth := remaining * 40 / 100
+	listenerWidth := remaining * 30 / 100
+	pathWidth := remaining - targetWidth - listenerWidth
+	return []int{stateWidth, appWidth, targetWidth, listenerWidth, downWidth, upWidth, durationWidth, pathWidth}
+}
+
+func tableRow(cells []string, widths []int) string {
+	parts := make([]string, 0, len(widths))
+	for i, width := range widths {
+		cellValue := ""
+		if i < len(cells) {
+			cellValue = cells[i]
+		}
+		parts = append(parts, cell(cellValue, width))
+	}
+	return "  " + strings.Join(parts, " ")
+}
+
+func cell(s string, width int) string {
+	return padRight(truncate(s, width), width)
+}
+
+func padRight(s string, width int) string {
+	if width <= 0 {
+		return ""
+	}
+	padding := width - lipgloss.Width(s)
+	if padding <= 0 {
+		return s
+	}
+	return s + strings.Repeat(" ", padding)
+}
+
+func padLeft(s string, width int) string {
+	if width <= 0 {
+		return ""
+	}
+	padding := width - lipgloss.Width(s)
+	if padding <= 0 {
+		return s
+	}
+	return strings.Repeat(" ", padding) + s
+}
+
+func clampInt(n, min, max int) int {
+	if n < min {
+		return min
+	}
+	if n > max {
+		return max
+	}
+	return n
+}
+
+func maxInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }
