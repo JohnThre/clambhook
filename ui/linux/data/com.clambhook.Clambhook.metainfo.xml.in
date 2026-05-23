@@ -2,11 +2,28 @@
 <component type="desktop-application">
   <id>@app_id@</id>
   <name>clambhook</name>
-  <summary>Desktop controller for the clambhook daemon</summary>
+  <summary>Control clambhook proxy profiles, listeners, and traffic</summary>
   <metadata_license>CC0-1.0</metadata_license>
-  <project_license>GPL-3.0-or-later</project_license>
+  <project_license>GPL-3.0-only</project_license>
+  <developer_name>clambhook contributors</developer_name>
   <description>
-    <p>clambhook for Linux manages daemon connectivity, profiles, listeners, and recent event activity from a GTK desktop window.</p>
+    <p>clambhook for Linux manages daemon connectivity, proxy profiles, listener state, recent traffic, and log activity from a GTK desktop window.</p>
+    <p>The app can connect to an existing daemon or launch a packaged daemon helper when one is available.</p>
   </description>
   <launchable type="desktop-id">@app_id@.desktop</launchable>
+  <url type="homepage">https://github.com/JohnThre/clambhook</url>
+  <categories>
+    <category>Network</category>
+    <category>Utility</category>
+  </categories>
+  <keywords>
+    <keyword>proxy</keyword>
+    <keyword>vpn</keyword>
+    <keyword>tunnel</keyword>
+    <keyword>network</keyword>
+  </keywords>
+  <content_rating type="oars-1.1" />
+  <releases>
+    <release version="0.1.0" date="2026-05-23" />
+  </releases>
 </component>

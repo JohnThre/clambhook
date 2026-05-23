@@ -6,7 +6,17 @@ Build-Depends:
  debhelper-compat (= 13),
  dh-golang,
  golang-any,
+ libadwaita-1-dev,
+ libgee-0.8-dev,
+ libglib2.0-dev,
+ libgtk-4-dev,
+ libjson-glib-dev,
+ libsecret-1-dev,
+ libsoup-3.0-dev,
  libsodium-dev,
+ meson,
+ ninja-build,
+ valac,
  pkgconf
 Standards-Version: 4.7.0
 Homepage: https://github.com/JohnThre/clambhook
@@ -20,6 +30,6 @@ Architecture: any
 Depends:
  ${misc:Depends},
  ${shlibs:Depends}
-Description: local network client daemon and terminal dashboard
+Description: local network client daemon, desktop controller, and terminal dashboard
  clambhook provides a local network client daemon, HTTP control API, and
- terminal dashboard.
+ native GTK desktop controller plus terminal dashboard.

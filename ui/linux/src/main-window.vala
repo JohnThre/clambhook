@@ -5,11 +5,15 @@ namespace Clambhook {
         private FileSettingsStore settings_store;
         private TokenVault token_vault;
         private DaemonSupervisor daemon;
+        private EventStreamClient event_stream;
         private AppSettings settings;
 
         private Label status_label;
+        private Label daemon_label;
         private Label profile_label;
         private Label api_label;
+        private Label error_label;
+        private Label daemon_message_label;
         private Label connections_label;
         private Label bandwidth_label;
         private Label traffic_label;
@@ -22,6 +26,9 @@ namespace Clambhook {
         private ListBox traffic_list;
         private ListBox logs_list;
         private uint refresh_source = 0;
+        private uint event_reconnect_source = 0;
+        private bool closing = false;
+        private bool event_stream_active = false;
 
         public string api_token { get; private set; default = ""; }
 
@@ -39,10 +46,22 @@ namespace Clambhook {
             this.settings_store = settings_store;
             this.token_vault = token_vault;
             this.daemon = daemon;
+            this.event_stream = new EventStreamClient();
             this.settings = settings_store.load().normalized();
 
             set_child(build_content());
             store.changed.connect(render);
+            daemon.changed.connect(render);
+            event_stream.event_received.connect((event) => store.apply_event(event));
+            event_stream.stream_failed.connect((message) => {
+                store.set_error("events: %s".printf(message));
+                schedule_event_reconnect();
+            });
+            event_stream.closed.connect(() => {
+                if (event_stream_active && !closing) {
+                    schedule_event_reconnect();
+                }
+            });
             close_request.connect(on_close_request);
 
             token_vault.read_token.begin((obj, res) => {
@@ -54,6 +73,7 @@ namespace Clambhook {
                 maybe_launch_daemon();
                 refresh_now();
                 schedule_refresh();
+                start_event_stream();
             });
         }
 
@@ -118,24 +138,35 @@ namespace Clambhook {
             grid.margin_end = 16;
 
             status_label = value_label("Stopped");
+            daemon_label = value_label("Daemon stopped");
             profile_label = value_label("No profile");
             api_label = value_label("API offline");
+            error_label = value_label("");
+            error_label.add_css_class("error");
+            error_label.visible = false;
+            daemon_message_label = value_label("");
+            daemon_message_label.add_css_class("dim-label");
+            daemon_message_label.visible = false;
             connections_label = value_label("0 active connections");
             bandwidth_label = value_label("0 B/s down / 0 B/s up");
             traffic_label = value_label("0 active · 0 B down / 0 B up");
 
             grid.attach(caption_label("Status"), 0, 0, 1, 1);
             grid.attach(status_label, 1, 0, 1, 1);
-            grid.attach(caption_label("Profile"), 0, 1, 1, 1);
-            grid.attach(profile_label, 1, 1, 1, 1);
-            grid.attach(caption_label("API"), 0, 2, 1, 1);
-            grid.attach(api_label, 1, 2, 1, 1);
-            grid.attach(caption_label("Connections"), 0, 3, 1, 1);
-            grid.attach(connections_label, 1, 3, 1, 1);
-            grid.attach(caption_label("Bandwidth"), 0, 4, 1, 1);
-            grid.attach(bandwidth_label, 1, 4, 1, 1);
-            grid.attach(caption_label("Traffic"), 0, 5, 1, 1);
-            grid.attach(traffic_label, 1, 5, 1, 1);
+            grid.attach(caption_label("Daemon"), 0, 1, 1, 1);
+            grid.attach(daemon_label, 1, 1, 1, 1);
+            grid.attach(caption_label("Profile"), 0, 2, 1, 1);
+            grid.attach(profile_label, 1, 2, 1, 1);
+            grid.attach(caption_label("API"), 0, 3, 1, 1);
+            grid.attach(api_label, 1, 3, 1, 1);
+            grid.attach(caption_label("Connections"), 0, 4, 1, 1);
+            grid.attach(connections_label, 1, 4, 1, 1);
+            grid.attach(caption_label("Bandwidth"), 0, 5, 1, 1);
+            grid.attach(bandwidth_label, 1, 5, 1, 1);
+            grid.attach(caption_label("Traffic"), 0, 6, 1, 1);
+            grid.attach(traffic_label, 1, 6, 1, 1);
+            grid.attach(error_label, 0, 7, 3, 1);
+            grid.attach(daemon_message_label, 0, 8, 3, 1);
 
             profile_combo = new ComboBoxText();
             profile_combo.changed.connect(() => {
@@ -201,8 +232,13 @@ namespace Clambhook {
 
         private void render() {
             status_label.label = store.status.running ? "Running" : "Stopped";
+            daemon_label.label = daemon.state_label();
             profile_label.label = store.active_profile() == "" ? "No profile" : store.active_profile();
             api_label.label = store.api_online ? "API online" : "API offline";
+            error_label.label = store.error_text;
+            error_label.visible = store.error_text != "";
+            daemon_message_label.label = daemon.message;
+            daemon_message_label.visible = daemon.message != "";
             connections_label.label = "%d active connections".printf(store.active_connections());
             var bandwidth = store.current_bandwidth();
             bandwidth_label.label = "%s down / %s up".printf(
@@ -216,9 +252,10 @@ namespace Clambhook {
                 Formatters.format_bytes(store.traffic.summary.rx_total),
                 Formatters.format_bytes(store.traffic.summary.tx_total)
             );
-            connect_button.sensitive = !store.status.running;
+            connect_button.sensitive = store.api_online && !store.status.running;
             disconnect_button.sensitive = store.status.running;
             daemon_button.label = daemon.is_running ? "Stop daemon" : "Start daemon";
+            daemon_button.sensitive = !daemon.state_is_busy();
 
             render_profiles();
             render_listeners();
@@ -246,23 +283,31 @@ namespace Clambhook {
         private void render_listeners() {
             clear_list(listeners_list);
             if (store.status.listeners.size == 0) {
-                listeners_list.append(row("No listeners"));
+                listeners_list.append(empty_row("No listeners"));
                 return;
             }
             foreach (var listener in store.status.listeners) {
-                listeners_list.append(row("%s  %s  %d active".printf(listener.protocol, listener.addr, listener.active_conns)));
+                listeners_list.append(detail_row(
+                    listener.protocol.up(),
+                    "%s / %d active".printf(listener.addr, listener.active_conns),
+                    "network-wired-symbolic"
+                ));
             }
         }
 
         private void render_servers() {
             clear_list(servers_list);
             if (store.servers.chains.size == 0) {
-                servers_list.append(row("No servers in active profile"));
+                servers_list.append(empty_row("No servers in active profile"));
                 return;
             }
             foreach (var chain in store.servers.chains) {
                 foreach (var server in chain.servers) {
-                    servers_list.append(row("%s  %s  %s".printf(server.name, server.protocol, Formatters.server_location(server))));
+                    servers_list.append(detail_row(
+                        server.name,
+                        "%s / %s / %s".printf(chain.name, server.protocol, Formatters.server_location(server)),
+                        "network-server-symbolic"
+                    ));
                 }
             }
         }
@@ -270,33 +315,36 @@ namespace Clambhook {
         private void render_logs() {
             clear_list(logs_list);
             if (store.logs.size == 0) {
-                logs_list.append(row("No log events"));
+                logs_list.append(empty_row("No log events"));
                 return;
             }
             var start = store.logs.size > 12 ? store.logs.size - 12 : 0;
             for (int i = start; i < store.logs.size; i++) {
-                logs_list.append(row(store.logs[i]));
+                logs_list.append(detail_row(store.logs[i], "", "text-x-generic-symbolic"));
             }
         }
 
         private void render_traffic() {
             clear_list(traffic_list);
             if (store.traffic.connections.size == 0) {
-                traffic_list.append(row("No traffic history"));
+                traffic_list.append(empty_row("No traffic history"));
                 return;
             }
             var count = store.traffic.connections.size > 12 ? 12 : store.traffic.connections.size;
             for (int i = 0; i < count; i++) {
                 var connection = store.traffic.connections[i];
                 var label = traffic_label_for(connection);
-                traffic_list.append(row("%s  %s  %s  %s down / %s up  %s".printf(
-                    connection.state,
+                traffic_list.append(detail_row(
                     empty_dash(connection.target),
-                    label,
-                    Formatters.format_bytes(connection.rx_total),
-                    Formatters.format_bytes(connection.tx_total),
-                    Formatters.format_duration_ns(connection.duration_ns)
-                )));
+                    "%s / %s / %s down / %s up / %s".printf(
+                        connection.state,
+                        label,
+                        Formatters.format_bytes(connection.rx_total),
+                        Formatters.format_bytes(connection.tx_total),
+                        Formatters.format_duration_ns(connection.duration_ns)
+                    ),
+                    "view-list-symbolic"
+                ));
             }
         }
 
@@ -317,16 +365,50 @@ namespace Clambhook {
             return value.strip() == "" ? "--" : value;
         }
 
-        private static ListBoxRow row(string text) {
+        private static ListBoxRow empty_row(string text) {
             var label = new Label(text);
             label.xalign = 0;
             label.wrap = true;
+            label.add_css_class("dim-label");
             label.margin_top = 8;
             label.margin_bottom = 8;
             label.margin_start = 10;
             label.margin_end = 10;
             var row = new ListBoxRow();
             row.set_child(label);
+            return row;
+        }
+
+        private static ListBoxRow detail_row(string primary, string secondary, string icon_name) {
+            var outer = new Box(Orientation.HORIZONTAL, 10);
+            outer.margin_top = 8;
+            outer.margin_bottom = 8;
+            outer.margin_start = 10;
+            outer.margin_end = 10;
+
+            var icon = new Image.from_icon_name(icon_name);
+            icon.pixel_size = 18;
+            icon.add_css_class("dim-label");
+            outer.append(icon);
+
+            var text = new Box(Orientation.VERTICAL, 2);
+            text.hexpand = true;
+            var primary_label = new Label(primary);
+            primary_label.xalign = 0;
+            primary_label.wrap = true;
+            primary_label.selectable = true;
+            text.append(primary_label);
+            if (secondary != "") {
+                var secondary_label = new Label(secondary);
+                secondary_label.xalign = 0;
+                secondary_label.wrap = true;
+                secondary_label.add_css_class("dim-label");
+                text.append(secondary_label);
+            }
+            outer.append(text);
+
+            var row = new ListBoxRow();
+            row.set_child(outer);
             return row;
         }
 
@@ -355,12 +437,12 @@ namespace Clambhook {
         }
 
         private void start_daemon() {
-            daemon.start.begin(settings, api_token, Environment.get_current_dir(), (obj, res) => {
+            daemon.start.begin(settings, api_token, DaemonSupervisor.default_app_base_dir(), (obj, res) => {
                 try {
                     daemon.start.end(res);
                     store.refresh_dashboard.begin();
                 } catch (Error err) {
-                    api_label.label = err.message;
+                    store.set_error(err.message);
                 }
                 render();
             });
@@ -372,6 +454,7 @@ namespace Clambhook {
                 try {
                     settings_store.save(next_settings);
                     settings = next_settings.normalized();
+                    store.set_log_retention(settings.log_retention);
                 } catch (Error err) {
                     return;
                 }
@@ -381,6 +464,7 @@ namespace Clambhook {
                         api_token = next_token.strip();
                         client.configure_base_url(settings.api_endpoint);
                         schedule_refresh();
+                        start_event_stream();
                         refresh_now();
                     } catch (Error err) {
                     }
@@ -389,7 +473,40 @@ namespace Clambhook {
             dialog.present();
         }
 
+        private void start_event_stream() {
+            stop_event_stream();
+            if (!settings.event_stream_enabled) {
+                return;
+            }
+            event_stream_active = true;
+            event_stream.start(client.events_uri(), client.authorization_header());
+        }
+
+        private void stop_event_stream(bool cancel_connection = true) {
+            event_stream_active = false;
+            if (event_reconnect_source != 0) {
+                Source.remove(event_reconnect_source);
+                event_reconnect_source = 0;
+            }
+            if (cancel_connection) {
+                event_stream.stop();
+            }
+        }
+
+        private void schedule_event_reconnect() {
+            if (closing || !settings.event_stream_enabled || event_reconnect_source != 0) {
+                return;
+            }
+            event_reconnect_source = Timeout.add_seconds(3, () => {
+                event_reconnect_source = 0;
+                start_event_stream();
+                return Source.REMOVE;
+            });
+        }
+
         private bool on_close_request() {
+            closing = true;
+            stop_event_stream();
             if (refresh_source != 0) {
                 Source.remove(refresh_source);
                 refresh_source = 0;

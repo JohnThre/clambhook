@@ -15,7 +15,7 @@ Options:
 
 Environment:
   PACKAGE_SMOKE_TARGETS          Space-separated targets to run.
-                                 Default: paths install homebrew debian rpm guix fdroid
+                                 Default: paths install linux-gui homebrew debian rpm guix fdroid
   PACKAGE_SMOKE_VERSION          Version string used for staged install checks.
                                  Default: package-smoke
   PACKAGE_SMOKE_REQUIRE_TOOLS    If 1, missing optional packaging tools fail.
@@ -25,7 +25,7 @@ USAGE
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 HOST_OS="$(uname -s 2>/dev/null || echo unknown)"
-TARGETS="${PACKAGE_SMOKE_TARGETS:-paths install homebrew debian rpm guix fdroid}"
+TARGETS="${PACKAGE_SMOKE_TARGETS:-paths install linux-gui homebrew debian rpm guix fdroid}"
 SMOKE_VERSION="${PACKAGE_SMOKE_VERSION:-package-smoke}"
 REQUIRE_TOOLS="${PACKAGE_SMOKE_REQUIRE_TOOLS:-0}"
 HOMEBREW_INSTALL="${PACKAGE_SMOKE_HOMEBREW_INSTALL:-0}"
@@ -133,7 +133,7 @@ assert_version_output() {
 
 smoke_installed_root() {
     local root="$1"
-    local prefix="${2:-/usr}"
+    local prefix="${2-/usr}"
     local bindir
 
     if [ -n "$prefix" ]; then
@@ -146,6 +146,24 @@ smoke_installed_root() {
     assert_executable "$bindir/clambhook-tui"
     assert_version_output "$bindir/clambhook"
     assert_version_output "$bindir/clambhook-tui"
+}
+
+smoke_installed_linux_gui() {
+    local root="$1"
+    local prefix="${2-/usr}"
+    local base
+
+    if [ -n "$prefix" ]; then
+        base="$root$prefix"
+    else
+        base="$root"
+    fi
+
+    assert_executable "$base/bin/clambhook-linux"
+    assert_executable "$base/libexec/clambhook"
+    assert_file "$base/share/applications/com.clambhook.Clambhook.desktop"
+    assert_file "$base/share/metainfo/com.clambhook.Clambhook.metainfo.xml"
+    assert_file "$base/share/icons/hicolor/1024x1024/apps/com.clambhook.Clambhook.png"
 }
 
 prepare_source_tree() {
@@ -194,6 +212,11 @@ smoke_paths() {
     assert_file "$ROOT/packaging/rpm/clambhook.spec"
     assert_file "$ROOT/packaging/guix/clambhook.scm"
     assert_file "$ROOT/packaging/fdroid/README.md"
+    assert_file "$ROOT/ui/linux/com.clambhook.Clambhook.yml"
+    assert_file "$ROOT/ui/linux/meson_options.txt"
+    assert_file "$ROOT/ui/linux/data/com.clambhook.Clambhook.desktop.in"
+    assert_file "$ROOT/ui/linux/data/com.clambhook.Clambhook.metainfo.xml.in"
+    assert_file "$ROOT/clambhook-icon-1024.png"
     assert_file "$ROOT/debian/control"
     assert_file "$ROOT/debian/copyright"
     assert_file "$ROOT/debian/rules"
@@ -201,6 +224,24 @@ smoke_paths() {
     assert_file "$ROOT/debian/changelog"
     assert_file "$ROOT/ui/android/app/build.gradle.kts"
     assert_file "$ROOT/ui/android/app/src/main/AndroidManifest.xml"
+}
+
+smoke_linux_gui_install() {
+    want linux-gui || return 0
+    log "staging Linux GUI install under temporary DESTDIR"
+
+    require_linux_target "Linux GUI install" || return 0
+    need_tools go meson valac pkg-config || return 0
+    if ! pkg-config --exists gtk4 libadwaita-1 gee-0.8 json-glib-1.0 libsoup-3.0 libsecret-1; then
+        skip_or_fail "missing GTK/libadwaita development pkg-config dependencies"
+        return 0
+    fi
+
+    local root="$WORKDIR/linux-gui-root"
+    mkdir -p "$root"
+    (cd "$ROOT" && make install-linux DESTDIR="$root" PREFIX=/usr VERSION="$SMOKE_VERSION")
+    smoke_installed_linux_gui "$root" /usr
+    assert_version_output "$root/usr/libexec/clambhook"
 }
 
 smoke_make_install() {
@@ -253,6 +294,7 @@ smoke_debian() {
     fi
     dpkg-deb -x "$deb" "$root"
     smoke_installed_root "$root" /usr
+    smoke_installed_linux_gui "$root" /usr
 }
 
 smoke_rpm() {
@@ -288,6 +330,7 @@ smoke_rpm() {
     fi
     (cd "$root" && rpm2cpio "$rpm" | cpio -idm --quiet)
     smoke_installed_root "$root" /usr
+    smoke_installed_linux_gui "$root" /usr
 }
 
 smoke_guix() {
@@ -306,6 +349,18 @@ smoke_guix() {
         exit 1
     fi
     smoke_installed_root "$store_path" ""
+    smoke_installed_linux_gui "$store_path" ""
+}
+
+smoke_flatpak() {
+    want flatpak || return 0
+    log "building Linux Flatpak bundle"
+
+    require_linux_target Flatpak || return 0
+    need_tools flatpak flatpak-builder || return 0
+
+    (cd "$ROOT" && make test-linux-flatpak)
+    assert_file "$ROOT/dist/linux/com.clambhook.Clambhook.flatpak"
 }
 
 smoke_fdroid() {
@@ -337,10 +392,12 @@ smoke_fdroid() {
 
 smoke_paths
 smoke_make_install
+smoke_linux_gui_install
 smoke_homebrew
 smoke_debian
 smoke_rpm
 smoke_guix
+smoke_flatpak
 smoke_fdroid
 
 log "completed"

@@ -14,9 +14,9 @@ namespace Clambhook {
         protected override void activate() {
             var window = active_window as MainWindow;
             if (window == null) {
-                var settings = settings_store.load();
-                var client = new ClambhookApiClient(settings.normalized().api_endpoint, () => window_token(window));
-                var store = new DashboardStore(client);
+                var settings = settings_store.load().normalized();
+                var client = new ClambhookApiClient(settings.api_endpoint, () => window_token(window));
+                var store = new DashboardStore(client, settings.log_retention);
                 window = new MainWindow(this, store, client, settings_store, token_vault, daemon);
             }
             window.present();
