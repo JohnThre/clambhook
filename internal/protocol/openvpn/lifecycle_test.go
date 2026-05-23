@@ -20,8 +20,9 @@ import (
 )
 
 const (
-	openVPNLifecycleTargetIP   = "10.65.0.1"
-	openVPNLifecycleTargetPort = 9000
+	openVPNLifecycleTargetIP      = "10.65.0.1"
+	openVPNLifecycleTargetPort    = 9000
+	openVPNLifecycleUDPTargetPort = 9001
 )
 
 func TestOpenVPNDialerCloseBeforeFirstDialRejectsFutureDials(t *testing.T) {
@@ -88,6 +89,39 @@ func TestOpenVPNInstanceReusedAndClosedOnEngineReload(t *testing.T) {
 	}
 }
 
+func TestOpenVPNDialPacketUsesNetstack(t *testing.T) {
+	installOpenVPNLifecycleFactory(t)
+	d := &dialer{cfg: &config{remote: "127.0.0.1:1194", tunMTU: 1500}}
+	defer d.Close()
+
+	pc, err := d.DialPacket(context.Background(), "")
+	if err != nil {
+		t.Fatalf("DialPacket: %v", err)
+	}
+	defer pc.Close()
+	_ = pc.SetDeadline(time.Now().Add(2 * time.Second))
+
+	target, err := net.ResolveUDPAddr("udp", net.JoinHostPort(openVPNLifecycleTargetIP, "9001"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload := []byte("openvpn udp")
+	if _, err := pc.WriteTo(payload, target); err != nil {
+		t.Fatalf("WriteTo: %v", err)
+	}
+	buf := make([]byte, 1024)
+	n, from, err := pc.ReadFrom(buf)
+	if err != nil {
+		t.Fatalf("ReadFrom: %v", err)
+	}
+	if !bytes.Equal(buf[:n], payload) {
+		t.Fatalf("udp echo = %q, want %q", buf[:n], payload)
+	}
+	if from.String() != target.String() {
+		t.Fatalf("from = %s, want %s", from, target)
+	}
+}
+
 type openVPNLifecycleFactory struct {
 	mu      sync.Mutex
 	creates map[string]int
@@ -117,7 +151,14 @@ func (f *openVPNLifecycleFactory) newInstance(_ context.Context, cfg *config) (*
 		_ = tunDev.Close()
 		return nil, err
 	}
+	udp, err := tnet.ListenUDPAddrPort(netip.AddrPortFrom(targetIP, openVPNLifecycleUDPTargetPort))
+	if err != nil {
+		_ = ln.Close()
+		_ = tunDev.Close()
+		return nil, err
+	}
 	go serveOpenVPNLifecycleEcho(ln)
+	go serveOpenVPNLifecycleUDPEcho(udp)
 
 	f.mu.Lock()
 	f.creates[cfg.remote]++
@@ -125,20 +166,21 @@ func (f *openVPNLifecycleFactory) newInstance(_ context.Context, cfg *config) (*
 
 	bgCtx, cancel := context.WithCancel(context.Background())
 	return &instance{
-		cfg:    cfg,
-		tunDev: &openVPNLifecycleTun{Device: tunDev, closeFunc: f.closeFunc(cfg.remote, ln, tunDev)},
-		tnet:   tnet,
-		ctx:    bgCtx,
-		cancel: cancel,
+		cfg:       cfg,
+		tunDev:    &openVPNLifecycleTun{Device: tunDev, closeFunc: f.closeFunc(cfg.remote, ln, udp, tunDev)},
+		tnet:      tnet,
+		addresses: []netip.Addr{targetIP},
+		ctx:       bgCtx,
+		cancel:    cancel,
 	}, nil
 }
 
-func (f *openVPNLifecycleFactory) closeFunc(remote string, ln openVPNLifecycleCloser, tunDev tun.Device) func() error {
+func (f *openVPNLifecycleFactory) closeFunc(remote string, ln, udp openVPNLifecycleCloser, tunDev tun.Device) func() error {
 	return func() error {
 		f.mu.Lock()
 		f.closes[remote]++
 		f.mu.Unlock()
-		return errors.Join(ln.Close(), tunDev.Close())
+		return errors.Join(ln.Close(), udp.Close(), tunDev.Close())
 	}
 }
 
@@ -181,6 +223,17 @@ func serveOpenVPNLifecycleEcho(ln openVPNLifecycleListener) {
 			defer c.Close()
 			_, _ = io.Copy(c, c)
 		}()
+	}
+}
+
+func serveOpenVPNLifecycleUDPEcho(pc net.PacketConn) {
+	buf := make([]byte, 2048)
+	for {
+		n, addr, err := pc.ReadFrom(buf)
+		if err != nil {
+			return
+		}
+		_, _ = pc.WriteTo(buf[:n], addr)
 	}
 }
 

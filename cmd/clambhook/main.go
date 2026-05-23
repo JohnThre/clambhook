@@ -88,6 +88,10 @@ func main() {
 	defer trafficCancel()
 	trafficStore.Start(trafficCtx, bus)
 
+	if err := eng.Start(context.Background()); err != nil {
+		log.Fatalf("start engine: %v", err)
+	}
+
 	srv := api.NewWithOptions(eng, bus, api.Options{AuthToken: *apiToken, TrafficStore: trafficStore})
 	if err := srv.Start(*apiAddr); err != nil {
 		log.Fatalf("start api: %v", err)
