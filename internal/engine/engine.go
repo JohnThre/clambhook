@@ -336,6 +336,23 @@ func buildListeners(profile *config.Profile, bus *events.Bus) ([]listener.Listen
 		out = append(out, listener.NewHTTP(addr, auth, ch, opts))
 	}
 
+	if tunCfg := profile.Listen.TUN; tunCfg != nil && tunCfg.Enabled {
+		ch, err := resolveChain(profile, tunCfg.Chain)
+		if err != nil {
+			return nil, fmt.Errorf("tun: %w", err)
+		}
+		opts := listener.TUNOptions{
+			Name:         tunCfg.Name,
+			MTU:          tunCfg.MTU,
+			Addresses:    tunCfg.Addresses,
+			Routes:       tunCfg.Routes,
+			ExcludeCIDRs: tunCfg.ExcludeCIDRs,
+			ChainName:    ch.Name,
+			EventBus:     bus,
+		}
+		out = append(out, listener.NewTUN(opts, ch))
+	}
+
 	return out, nil
 }
 

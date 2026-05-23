@@ -60,6 +60,19 @@ type ListenConfig struct {
 	HTTPAuth               *HTTPAuth   `toml:"http_auth,omitempty"`
 	HTTPMaxConns           int         `toml:"http_max_connections"`
 	HTTPHandshakeTimeout   Duration    `toml:"http_handshake_timeout"`
+	TUN                    *TUNConfig  `toml:"tun,omitempty"`
+}
+
+// TUNConfig defines the Linux device-wide TUN listener. It is opt-in because
+// it changes host routing and requires root or CAP_NET_ADMIN on Linux.
+type TUNConfig struct {
+	Enabled      bool     `toml:"enabled"`
+	Name         string   `toml:"name"`
+	Chain        string   `toml:"chain"`
+	MTU          int      `toml:"mtu"`
+	Addresses    []string `toml:"addresses"`
+	Routes       []string `toml:"routes"`
+	ExcludeCIDRs []string `toml:"exclude_cidrs"`
 }
 
 // Duration is a time.Duration that parses from a TOML string like "30s" or

@@ -84,14 +84,21 @@ func (c *connEvents) emitOpened() {
 // hops describes every node in the chain so subscribers see the full shape
 // even if a mid-hop fails.
 func (c *connEvents) emitDialing(target string, hops []events.HopInfo) {
+	c.emitDialingNetwork("", target, hops)
+}
+
+// emitDialingNetwork is the network-aware form used by TUN flows, where the
+// ingress can distinguish TCP from UDP before handing the flow to the chain.
+func (c *connEvents) emitDialingNetwork(network, target string, hops []events.HopInfo) {
 	if c == nil {
 		return
 	}
 	c.dialStart = time.Now()
 	c.emitter.Emit(events.TypeConnectionDialing, events.ConnectionDialingData{
-		ConnID: c.connID,
-		Target: target,
-		Hops:   hops,
+		ConnID:  c.connID,
+		Target:  target,
+		Network: network,
+		Hops:    hops,
 	})
 }
 
