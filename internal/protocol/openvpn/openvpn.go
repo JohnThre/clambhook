@@ -54,9 +54,11 @@ type dialer struct {
 	server protocol.Server
 	cfg    *config
 
+	mu      sync.Mutex
 	once    sync.Once
 	inst    *instance
 	onceErr error
+	closed  bool
 }
 
 // instance lazily brings up the VPN. It's guarded by sync.Once so the
@@ -66,17 +68,58 @@ type dialer struct {
 // would mask problems.
 func (d *dialer) instance(ctx context.Context) (*instance, error) {
 	d.once.Do(func() {
+		d.mu.Lock()
+		closed := d.closed
+		d.mu.Unlock()
+		if closed {
+			return
+		}
+
 		inst, err := newInstance(ctx, d.cfg)
+		d.mu.Lock()
+		if d.closed {
+			d.mu.Unlock()
+			if inst != nil {
+				_ = inst.Close()
+			}
+			return
+		}
 		if err != nil {
 			d.onceErr = err
+			d.mu.Unlock()
 			return
 		}
 		d.inst = inst
+		d.mu.Unlock()
 	})
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.closed {
+		return nil, errors.New("openvpn: dialer closed")
+	}
 	return d.inst, d.onceErr
 }
 
 func (d *dialer) Protocol() string { return "openvpn" }
+
+// Close tears down the reusable OpenVPN session owned by this dialer.
+// It is safe to call before the first Dial; future dials fail clearly.
+func (d *dialer) Close() error {
+	d.mu.Lock()
+	if d.closed {
+		d.mu.Unlock()
+		return nil
+	}
+	d.closed = true
+	inst := d.inst
+	d.inst = nil
+	d.mu.Unlock()
+
+	if inst != nil {
+		return inst.Close()
+	}
+	return nil
+}
 
 // Dial opens a TCP connection to address across the VPN tunnel. The
 // first call drives the OpenVPN handshake; subsequent calls reuse the

@@ -2,7 +2,9 @@ package chain
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/JohnThre/clambhook/internal/events"
@@ -13,6 +15,65 @@ import (
 type Chain struct {
 	Name  string
 	Nodes []protocol.Server
+
+	mu      sync.Mutex
+	dialers []protocol.Dialer
+	closed  bool
+}
+
+type dialerCloser interface {
+	Close() error
+}
+
+func (c *Chain) dialerAt(idx int) (protocol.Dialer, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.closed {
+		return nil, fmt.Errorf("chain %q: closed", c.Name)
+	}
+	if idx < 0 || idx >= len(c.Nodes) {
+		return nil, fmt.Errorf("chain %q: node %d out of range", c.Name, idx)
+	}
+	if c.dialers == nil {
+		c.dialers = make([]protocol.Dialer, len(c.Nodes))
+	}
+	if c.dialers[idx] != nil {
+		return c.dialers[idx], nil
+	}
+
+	dialer, err := protocol.NewDialer(c.Nodes[idx])
+	if err != nil {
+		return nil, err
+	}
+	c.dialers[idx] = dialer
+	return dialer, nil
+}
+
+// Close releases reusable protocol dialers owned by this runtime chain.
+// It is idempotent; after Close, future Dial/DialPacket calls fail.
+func (c *Chain) Close() error {
+	c.mu.Lock()
+	if c.closed {
+		c.mu.Unlock()
+		return nil
+	}
+	c.closed = true
+	dialers := c.dialers
+	c.dialers = nil
+	c.mu.Unlock()
+
+	var errs []error
+	for i, dialer := range dialers {
+		closer, ok := dialer.(dialerCloser)
+		if !ok || closer == nil {
+			continue
+		}
+		if err := closer.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("node %d %s: %w", i, dialer.Protocol(), err))
+		}
+	}
+	return errors.Join(errs...)
 }
 
 // emitHopDialing publishes hop.dialing if an emitter is attached to the
@@ -93,7 +154,7 @@ func (c *Chain) DialPacket(ctx context.Context, address string) (protocol.Packet
 	}
 
 	// Multi-hop: stream-tunnel through all prior hops, then layer UDP on top.
-	first, err := protocol.NewDialer(c.Nodes[0])
+	first, err := c.dialerAt(0)
 	if err != nil {
 		return nil, fmt.Errorf("chain %q node 0: %w", c.Name, err)
 	}
@@ -107,7 +168,7 @@ func (c *Chain) DialPacket(ctx context.Context, address string) (protocol.Packet
 	emitHopConnected(ctx, 0, firstStart)
 
 	for i := 1; i < len(c.Nodes)-1; i++ {
-		dialer, err := protocol.NewDialer(c.Nodes[i])
+		dialer, err := c.dialerAt(i)
 		if err != nil {
 			conn.Close()
 			return nil, fmt.Errorf("chain %q node %d: %w", c.Name, i, err)
@@ -145,8 +206,9 @@ func (c *Chain) packetDialerForLastHop() (protocol.PacketDialer, error) {
 	if len(c.Nodes) == 0 {
 		return nil, fmt.Errorf("chain %q: no nodes", c.Name)
 	}
-	last := c.Nodes[len(c.Nodes)-1]
-	lastDialer, err := protocol.NewDialer(last)
+	lastIdx := len(c.Nodes) - 1
+	last := c.Nodes[lastIdx]
+	lastDialer, err := c.dialerAt(lastIdx)
 	if err != nil {
 		return nil, fmt.Errorf("chain %q last hop: %w", c.Name, err)
 	}
@@ -164,7 +226,7 @@ func (c *Chain) Dial(ctx context.Context, network, address string) (protocol.Con
 	}
 
 	// First hop: direct dial to entry server.
-	first, err := protocol.NewDialer(c.Nodes[0])
+	first, err := c.dialerAt(0)
 	if err != nil {
 		return nil, fmt.Errorf("chain %q node 0: %w", c.Name, err)
 	}
@@ -185,7 +247,7 @@ func (c *Chain) Dial(ctx context.Context, network, address string) (protocol.Con
 
 	// Subsequent hops: DialThrough the previous connection.
 	for i := 1; i < len(c.Nodes); i++ {
-		dialer, err := protocol.NewDialer(c.Nodes[i])
+		dialer, err := c.dialerAt(i)
 		if err != nil {
 			conn.Close()
 			return nil, fmt.Errorf("chain %q node %d: %w", c.Name, i, err)
