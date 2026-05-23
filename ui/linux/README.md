@@ -5,7 +5,9 @@ libadwaita, libsoup 3, json-glib, libsecret, and Meson.
 
 ## Development
 
-Install the GTK toolchain for your distribution, then run:
+Install the GTK toolchain for your distribution, including `valac`, `meson`,
+GTK4, libadwaita, gee, json-glib, libsoup 3, and libsecret development
+packages, then run:
 
 ```sh
 meson setup builddir --reconfigure
