@@ -49,29 +49,6 @@ func newTestHTTPListenerWithOpts(t *testing.T, dial dialFunc, opts Options) (*HT
 	return s, s.Addr()
 }
 
-// readStatusLine reads one HTTP status line "<proto> <code> <reason>\r\n".
-// Tests use it to assert error-path responses without pulling in a full
-// response parser.
-func readStatusLine(t *testing.T, r io.Reader) (proto string, code int, reason string) {
-	t.Helper()
-	br := bufio.NewReader(r)
-	line, err := br.ReadString('\n')
-	if err != nil {
-		t.Fatalf("read status line: %v", err)
-	}
-	line = strings.TrimRight(line, "\r\n")
-	parts := strings.SplitN(line, " ", 3)
-	if len(parts) < 3 {
-		t.Fatalf("malformed status line: %q", line)
-	}
-	proto = parts[0]
-	if _, err := fmt.Sscanf(parts[1], "%d", &code); err != nil {
-		t.Fatalf("parse code: %v", err)
-	}
-	reason = parts[2]
-	return
-}
-
 // --- CONNECT tests -------------------------------------------------------
 
 func TestHTTPConnectRoundTrip(t *testing.T) {

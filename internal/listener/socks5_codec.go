@@ -181,14 +181,6 @@ type udpHeader struct {
 	port uint16
 }
 
-// target returns addr:port suitable for downstream dialing.
-func (h udpHeader) target() string {
-	if ip := net.ParseIP(h.addr); ip != nil && ip.To4() == nil {
-		return "[" + h.addr + "]:" + strconv.Itoa(int(h.port))
-	}
-	return net.JoinHostPort(h.addr, strconv.Itoa(int(h.port)))
-}
-
 // parseUDPDatagram parses a SOCKS5-wrapped UDP datagram and returns the
 // target address plus the payload (the payload slice aliases buf). It
 // rejects fragmentation (FRAG != 0) — almost nothing uses it and

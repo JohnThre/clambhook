@@ -30,11 +30,11 @@ const (
 	aeadPacketIDLen   = 4
 	aeadImplicitIVLen = 8
 
+	peerIDLen = 3
+
 	// P_DATA_V2 prepends a 3-byte peer-id to everything; the first byte of
 	// the datagram is op+keyid, so the opcode+peer-id form a 4-byte prefix.
-	dataV2PrefixLen = 4
-
-	peerIDLen = 3
+	dataV2PrefixLen = 1 + peerIDLen
 )
 
 // sessionID is a random 8-byte identifier OpenVPN embeds in every reliable

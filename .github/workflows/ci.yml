@@ -36,7 +36,12 @@ jobs:
       - name: Run Go tests
         run: make test
 
-      - name: Run Go vet
+      - name: Install Staticcheck
+        run: |
+          go install honnef.co/go/tools/cmd/staticcheck@2025.1.1
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: Run Go lint
         run: make lint
 
       - name: Build Go binaries
