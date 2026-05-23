@@ -49,6 +49,22 @@ name = "🇺🇸 US Fast"
   # username = "alice"
   # password = "hunter2"
 
+  # Optional Linux-only device-wide TUN mode. This changes host routes and
+  # requires running the daemon as root or with CAP_NET_ADMIN. It captures
+  # routed device TCP/UDP traffic, sends it through the selected chain, and
+  # reports metadata + byte counts only; packet payloads are not stored.
+  #
+  # The chain used by TUN must support UDP, otherwise startup fails clearly.
+  #
+  # [profile.listen.tun]
+  # enabled = false
+  # name = "clambhook0"
+  # chain = "default"
+  # mtu = 1500
+  # addresses = ["198.18.0.1/30", "fd7a:636c:616d::1/64"]
+  # routes = ["0.0.0.0/1", "128.0.0.0/1"] # optional; defaults to split IPv4 plus IPv6 when available
+  # exclude_cidrs = ["192.168.0.0/16", "10.0.0.0/8"]
+
   [profile.api]
   listen = "127.0.0.1:9090"
 

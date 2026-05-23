@@ -74,13 +74,9 @@ func (c *Chain) DialPacket(ctx context.Context, address string) (protocol.Packet
 
 	last := c.Nodes[len(c.Nodes)-1]
 	lastIdx := len(c.Nodes) - 1
-	lastDialer, err := protocol.NewDialer(last)
+	pd, err := c.packetDialerForLastHop()
 	if err != nil {
-		return nil, fmt.Errorf("chain %q last hop: %w", c.Name, err)
-	}
-	pd, ok := lastDialer.(protocol.PacketDialer)
-	if !ok {
-		return nil, fmt.Errorf("chain %q: protocol %q does not support UDP", c.Name, last.Protocol)
+		return nil, err
 	}
 
 	// Single-hop: dial directly as UDP.
@@ -135,6 +131,30 @@ func (c *Chain) DialPacket(ctx context.Context, address string) (protocol.Packet
 	}
 	emitHopConnected(ctx, lastIdx, lastStart)
 	return pc, nil
+}
+
+// CheckPacketSupport validates that the chain can carry UDP without opening
+// any network sockets. Device-wide TUN mode requires this so UDP flows don't
+// silently disappear after the host route has already been redirected.
+func (c *Chain) CheckPacketSupport() error {
+	_, err := c.packetDialerForLastHop()
+	return err
+}
+
+func (c *Chain) packetDialerForLastHop() (protocol.PacketDialer, error) {
+	if len(c.Nodes) == 0 {
+		return nil, fmt.Errorf("chain %q: no nodes", c.Name)
+	}
+	last := c.Nodes[len(c.Nodes)-1]
+	lastDialer, err := protocol.NewDialer(last)
+	if err != nil {
+		return nil, fmt.Errorf("chain %q last hop: %w", c.Name, err)
+	}
+	pd, ok := lastDialer.(protocol.PacketDialer)
+	if !ok {
+		return nil, fmt.Errorf("chain %q: protocol %q does not support UDP", c.Name, last.Protocol)
+	}
+	return pd, nil
 }
 
 // Dial connects through the entire chain to reach the final address.
