@@ -1,0 +1,172 @@
+package config
+
+import (
+	"errors"
+	"fmt"
+	"net"
+	"net/netip"
+	"strconv"
+	"strings"
+)
+
+// Validate checks structural configuration errors that can be detected
+// without protocol-specific parsers or opening network resources.
+func (c *Config) Validate() error {
+	if c == nil {
+		return errors.New("config is nil")
+	}
+	var errs []error
+	if len(c.Profiles) == 0 {
+		errs = append(errs, errors.New("at least one profile is required"))
+	}
+
+	profileNames := make(map[string]struct{}, len(c.Profiles))
+	for i := range c.Profiles {
+		p := &c.Profiles[i]
+		name := strings.TrimSpace(p.Name)
+		if name == "" {
+			errs = append(errs, fmt.Errorf("profile %d: name is required", i))
+		} else if name != p.Name {
+			errs = append(errs, fmt.Errorf("profile %q must not have surrounding whitespace", p.Name))
+		} else if _, exists := profileNames[name]; exists {
+			errs = append(errs, fmt.Errorf("profile %q: duplicate profile name", name))
+		} else {
+			profileNames[name] = struct{}{}
+		}
+		errs = append(errs, validateProfile(p)...)
+	}
+
+	if active := strings.TrimSpace(c.Active); active != "" {
+		if active != c.Active {
+			errs = append(errs, fmt.Errorf("active profile %q must not have surrounding whitespace", c.Active))
+		}
+		if _, ok := profileNames[active]; !ok {
+			errs = append(errs, fmt.Errorf("active profile %q not found", c.Active))
+		}
+	}
+	return errors.Join(errs...)
+}
+
+func validateProfile(p *Profile) []error {
+	var errs []error
+	profileName := profileLabel(p.Name)
+
+	chainNames := make(map[string]struct{}, len(p.Chains))
+	for i := range p.Chains {
+		ch := &p.Chains[i]
+		name := strings.TrimSpace(ch.Name)
+		if name == "" {
+			errs = append(errs, fmt.Errorf("%s chain %d: name is required", profileName, i))
+		} else if name != ch.Name {
+			errs = append(errs, fmt.Errorf("%s chain %q must not have surrounding whitespace", profileName, ch.Name))
+		} else if _, exists := chainNames[name]; exists {
+			errs = append(errs, fmt.Errorf("%s chain %q: duplicate chain name", profileName, name))
+		} else {
+			chainNames[name] = struct{}{}
+		}
+		if len(ch.Servers) == 0 {
+			errs = append(errs, fmt.Errorf("%s chain %q: at least one server is required", profileName, ch.Name))
+		}
+		for j := range ch.Servers {
+			if strings.TrimSpace(ch.Servers[j].Protocol) == "" {
+				errs = append(errs, fmt.Errorf("%s chain %q server %d: protocol is required", profileName, ch.Name, j))
+			}
+		}
+	}
+
+	listen := p.Listen
+	if listen.SOCKS5 != "" {
+		errs = append(errs, validateListenAddr(profileName, "listen.socks5", listen.SOCKS5))
+		errs = append(errs, validateChainRef(profileName, "listen.socks5_chain", listen.SOCKS5Chain, chainNames, len(p.Chains)))
+	}
+	if listen.SOCKS5MaxConns < 0 {
+		errs = append(errs, fmt.Errorf("%s listen.socks5_max_connections must be >= 0", profileName))
+	}
+	if listen.SOCKS5HandshakeTimeout < 0 {
+		errs = append(errs, fmt.Errorf("%s listen.socks5_handshake_timeout must be >= 0", profileName))
+	}
+
+	if listen.HTTP != "" {
+		errs = append(errs, validateListenAddr(profileName, "listen.http", listen.HTTP))
+		errs = append(errs, validateChainRef(profileName, "listen.http_chain", listen.HTTPChain, chainNames, len(p.Chains)))
+	}
+	if listen.HTTPMaxConns < 0 {
+		errs = append(errs, fmt.Errorf("%s listen.http_max_connections must be >= 0", profileName))
+	}
+	if listen.HTTPHandshakeTimeout < 0 {
+		errs = append(errs, fmt.Errorf("%s listen.http_handshake_timeout must be >= 0", profileName))
+	}
+
+	if tun := listen.TUN; tun != nil && tun.Enabled {
+		if tun.MTU < 0 {
+			errs = append(errs, fmt.Errorf("%s listen.tun.mtu must be >= 0", profileName))
+		}
+		errs = append(errs, validateChainRef(profileName, "listen.tun.chain", tun.Chain, chainNames, len(p.Chains)))
+		for i, raw := range tun.Addresses {
+			if _, err := netip.ParsePrefix(raw); err != nil {
+				errs = append(errs, fmt.Errorf("%s listen.tun.addresses[%d] %q: %w", profileName, i, raw, err))
+			}
+		}
+		for i, raw := range tun.Routes {
+			if _, err := netip.ParsePrefix(raw); err != nil {
+				errs = append(errs, fmt.Errorf("%s listen.tun.routes[%d] %q: %w", profileName, i, raw, err))
+			}
+		}
+		for i, raw := range tun.ExcludeCIDRs {
+			if _, err := netip.ParsePrefix(raw); err != nil {
+				errs = append(errs, fmt.Errorf("%s listen.tun.exclude_cidrs[%d] %q: %w", profileName, i, raw, err))
+			}
+		}
+	}
+
+	if p.API.Listen != "" {
+		errs = append(errs, validateListenAddr(profileName, "api.listen", p.API.Listen))
+	}
+	return errs
+}
+
+func profileLabel(name string) string {
+	trimmed := strings.TrimSpace(name)
+	if trimmed == "" {
+		return "profile"
+	}
+	return fmt.Sprintf("profile %q", trimmed)
+}
+
+func validateChainRef(profileName, field, ref string, chainNames map[string]struct{}, chainCount int) error {
+	trimmed := strings.TrimSpace(ref)
+	if trimmed == "" {
+		if chainCount == 0 {
+			return fmt.Errorf("%s %s requires at least one chain", profileName, field)
+		}
+		return nil
+	}
+	if trimmed != ref {
+		return fmt.Errorf("%s %s %q must not have surrounding whitespace", profileName, field, ref)
+	}
+	if _, ok := chainNames[trimmed]; !ok {
+		return fmt.Errorf("%s %s references unknown chain %q", profileName, field, ref)
+	}
+	return nil
+}
+
+func validateListenAddr(profileName, field, addr string) error {
+	if strings.TrimSpace(addr) != addr {
+		return fmt.Errorf("%s %s %q must not have surrounding whitespace", profileName, field, addr)
+	}
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return fmt.Errorf("%s %s %q must be host:port: %w", profileName, field, addr, err)
+	}
+	if strings.ContainsAny(host, " \t\r\n") {
+		return fmt.Errorf("%s %s %q has invalid host whitespace", profileName, field, addr)
+	}
+	n, err := strconv.Atoi(port)
+	if err != nil {
+		return fmt.Errorf("%s %s %q has non-numeric port %q", profileName, field, addr, port)
+	}
+	if n < 0 || n > 65535 {
+		return fmt.Errorf("%s %s %q has port out of range", profileName, field, addr)
+	}
+	return nil
+}

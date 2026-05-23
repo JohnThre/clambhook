@@ -38,10 +38,12 @@ var (
 )
 
 type runtime struct {
-	eng *engine.Engine
-	bus *events.Bus
-	srv *api.Server
-	trf *traffic.Store
+	eng             *engine.Engine
+	bus             *events.Bus
+	srv             *api.Server
+	trf             *traffic.Manager
+	apiAddr         string
+	apiAddrExplicit bool
 }
 
 // Start launches the embedded API server. The actual proxy listeners are still
@@ -54,11 +56,14 @@ func Start(configPath, apiAddr, apiToken string) error {
 		return nil
 	}
 
-	apiAddr = normalizeAPIAddr(apiAddr)
+	rawAPIAddr := strings.TrimSpace(apiAddr)
+	apiAddrExplicit := rawAPIAddr != ""
+	apiAddr = normalizeAPIAddr(rawAPIAddr)
 	cfg, err := loadConfig(configPath, apiAddr)
 	if err != nil {
 		return err
 	}
+	apiAddr = resolveAPIListen(cfg, apiAddr, apiAddrExplicit)
 	if err := api.ValidateAuthConfig(apiAddr, apiToken); err != nil {
 		return fmt.Errorf("api auth: %w", err)
 	}
@@ -66,7 +71,7 @@ func Start(configPath, apiAddr, apiToken string) error {
 	bus := events.NewBus(events.DefaultConfig())
 	log.SetOutput(io.MultiWriter(os.Stderr, logstream.NewWriter(bus)))
 	eng := engine.New(cfg, bus)
-	trafficStore, err := traffic.NewStore(cfg.Traffic, func(address string) (*geo.Location, error) {
+	trafficMgr, err := traffic.NewManager(cfg.Traffic, func(address string) (*geo.Location, error) {
 		return eng.GeoReader().Lookup(address)
 	})
 	if err != nil {
@@ -77,12 +82,13 @@ func Start(configPath, apiAddr, apiToken string) error {
 		bus.Close()
 		return fmt.Errorf("traffic: %w", err)
 	}
-	trafficStore.Start(context.Background(), bus)
+	trafficMgr.Start(context.Background(), bus)
 	srv := api.NewWithOptions(eng, bus, api.Options{
 		AuthToken:    strings.TrimSpace(apiToken),
-		TrafficStore: trafficStore,
+		TrafficStore: trafficMgr.Store(),
 	})
 	if err := srv.Start(apiAddr); err != nil {
+		trafficMgr.Stop()
 		eng.Stop()
 		if closeErr := eng.CloseGeo(); closeErr != nil {
 			log.Printf("close geo after API start failure: %v", closeErr)
@@ -91,7 +97,14 @@ func Start(configPath, apiAddr, apiToken string) error {
 		return fmt.Errorf("start api: %w", err)
 	}
 
-	active = &runtime{eng: eng, bus: bus, srv: srv, trf: trafficStore}
+	active = &runtime{
+		eng:             eng,
+		bus:             bus,
+		srv:             srv,
+		trf:             trafficMgr,
+		apiAddr:         apiAddr,
+		apiAddrExplicit: apiAddrExplicit,
+	}
 	log.Printf("clambhook mobile runtime started")
 	return nil
 }
@@ -112,6 +125,7 @@ func Stop() error {
 	if err := rt.eng.Stop(); err != nil {
 		firstErr = err
 	}
+	rt.trf.Stop()
 	if err := rt.eng.CloseGeo(); err != nil && firstErr == nil {
 		firstErr = err
 	}
@@ -135,16 +149,23 @@ func Reload(configPath string) error {
 	if active == nil {
 		return fmt.Errorf("clambhook mobile runtime is not running")
 	}
-	cfg, err := loadConfig(configPath, defaultAPIAddr)
+	cfg, err := loadConfig(configPath, active.apiAddr)
 	if err != nil {
 		return err
 	}
-	if active.trf != nil {
-		if err := active.trf.Reconfigure(cfg.Traffic); err != nil {
-			log.Printf("traffic reload: %v", err)
-		}
+	if err := active.eng.Reload(cfg); err != nil {
+		return err
 	}
-	return active.eng.Reload(cfg)
+	nextAPIAddr := resolveAPIListen(cfg, active.apiAddr, active.apiAddrExplicit)
+	if nextAPIAddr != active.apiAddr {
+		log.Printf("api listen changed from %s to %s in config; restart required to rebind API",
+			active.apiAddr, nextAPIAddr)
+	}
+	if err := active.trf.Reconfigure(cfg.Traffic); err != nil {
+		log.Printf("traffic reload: %v", err)
+	}
+	active.srv.SetTrafficStore(active.trf.Store())
+	return nil
 }
 
 // IsRunning reports whether the embedded runtime has been started.
@@ -178,6 +199,24 @@ func normalizeAPIAddr(apiAddr string) string {
 		return defaultAPIAddr
 	}
 	return strings.TrimPrefix(strings.TrimPrefix(apiAddr, "http://"), "https://")
+}
+
+func resolveAPIListen(cfg *config.Config, fallback string, explicit bool) string {
+	fallback = strings.TrimSpace(fallback)
+	if explicit {
+		return fallback
+	}
+	if cfg != nil {
+		if profile, err := cfg.ActiveProfile(); err == nil {
+			if listen := strings.TrimSpace(profile.API.Listen); listen != "" {
+				return listen
+			}
+		}
+	}
+	if fallback != "" {
+		return fallback
+	}
+	return defaultAPIAddr
 }
 
 func defaultConfig(apiAddr string) *config.Config {

@@ -8,7 +8,9 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
+	"time"
 
 	"github.com/JohnThre/clambhook/internal/api"
 	"github.com/JohnThre/clambhook/internal/config"
@@ -32,6 +34,8 @@ import (
 
 var version = "dev"
 
+const apiShutdownTimeout = 5 * time.Second
+
 func main() {
 	configPath := flag.String("config", "", "path to config file")
 	apiAddr := flag.String("api", "127.0.0.1:9090", "API listen address")
@@ -39,6 +43,12 @@ func main() {
 	noWatch := flag.Bool("no-watch", false, "disable config file hot-reload")
 	showVersion := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
+	apiAddrExplicit := false
+	flag.Visit(func(f *flag.Flag) {
+		if f.Name == "api" {
+			apiAddrExplicit = true
+		}
+	})
 
 	if *showVersion {
 		fmt.Printf("clambhook %s\n", version)
@@ -69,31 +79,31 @@ func main() {
 			Traffic: config.DefaultTrafficConfig(),
 		}
 	}
+	resolvedAPIAddr := resolveAPIListen(cfg, *apiAddr, apiAddrExplicit)
 
 	bus := events.NewBus(events.DefaultConfig())
 	log.SetOutput(io.MultiWriter(os.Stderr, logstream.NewWriter(bus)))
 	eng := engine.New(cfg, bus)
-	trafficStore, err := traffic.NewStore(cfg.Traffic, func(address string) (*geo.Location, error) {
+	trafficMgr, err := traffic.NewManager(cfg.Traffic, func(address string) (*geo.Location, error) {
 		return eng.GeoReader().Lookup(address)
 	})
 	if err != nil {
 		log.Fatalf("traffic: %v", err)
 	}
 
-	if err := api.ValidateAuthConfig(*apiAddr, *apiToken); err != nil {
+	if err := api.ValidateAuthConfig(resolvedAPIAddr, *apiToken); err != nil {
 		log.Fatalf("api auth: %v", err)
 	}
 
-	trafficCtx, trafficCancel := context.WithCancel(context.Background())
-	defer trafficCancel()
-	trafficStore.Start(trafficCtx, bus)
+	trafficMgr.Start(context.Background(), bus)
+	defer trafficMgr.Stop()
 
 	if err := eng.Start(context.Background()); err != nil {
 		log.Fatalf("start engine: %v", err)
 	}
 
-	srv := api.NewWithOptions(eng, bus, api.Options{AuthToken: *apiToken, TrafficStore: trafficStore})
-	if err := srv.Start(*apiAddr); err != nil {
+	srv := api.NewWithOptions(eng, bus, api.Options{AuthToken: *apiToken, TrafficStore: trafficMgr.Store()})
+	if err := srv.Start(resolvedAPIAddr); err != nil {
 		log.Fatalf("start api: %v", err)
 	}
 
@@ -107,12 +117,19 @@ func main() {
 	if *configPath != "" && !*noWatch {
 		var err error
 		cfgWatcher, err = watcher.New(*configPath, func(next *config.Config) error {
-			if trafficStore != nil {
-				if err := trafficStore.Reconfigure(next.Traffic); err != nil {
-					log.Printf("traffic reload: %v", err)
-				}
+			if err := eng.Reload(next); err != nil {
+				return err
 			}
-			return eng.Reload(next)
+			nextAPIAddr := resolveAPIListen(next, *apiAddr, apiAddrExplicit)
+			if nextAPIAddr != resolvedAPIAddr {
+				log.Printf("api listen changed from %s to %s in config; restart required to rebind API",
+					resolvedAPIAddr, nextAPIAddr)
+			}
+			if err := trafficMgr.Reconfigure(next.Traffic); err != nil {
+				log.Printf("traffic reload: %v", err)
+			}
+			srv.SetTrafficStore(trafficMgr.Store())
+			return nil
 		}, bus)
 		if err != nil {
 			log.Fatalf("init config watcher: %v", err)
@@ -134,9 +151,32 @@ func main() {
 		}
 	}
 	eng.Stop()
+	trafficMgr.Stop()
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), apiShutdownTimeout)
+	defer shutdownCancel()
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		log.Printf("shutdown api: %v", err)
+	}
 	if err := eng.CloseGeo(); err != nil {
 		log.Printf("close geo: %v", err)
 	}
 	bus.Close()
-	srv.Shutdown(context.Background())
+}
+
+func resolveAPIListen(cfg *config.Config, fallback string, explicit bool) string {
+	fallback = strings.TrimSpace(fallback)
+	if explicit {
+		return fallback
+	}
+	if cfg != nil {
+		if profile, err := cfg.ActiveProfile(); err == nil {
+			if listen := strings.TrimSpace(profile.API.Listen); listen != "" {
+				return listen
+			}
+		}
+	}
+	if fallback != "" {
+		return fallback
+	}
+	return "127.0.0.1:9090"
 }

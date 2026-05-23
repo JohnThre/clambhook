@@ -145,6 +145,9 @@ func Load(path string) (*Config, error) {
 	if err := toml.Unmarshal(data, &cfg); err != nil {
 		return nil, fmt.Errorf("parse config: %w", err)
 	}
+	if err := cfg.Validate(); err != nil {
+		return nil, fmt.Errorf("validate config: %w", err)
+	}
 
 	// Resolve a relative geo.database path against the config file's
 	// directory — matches how users intuitively think about TOML paths.
