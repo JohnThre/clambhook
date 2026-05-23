@@ -1,7 +1,9 @@
-.PHONY: all build build-clib build-daemon build-tui install prepare-apple-runtime generate-apple build-apple release-macos release-check package-smoke test-apple test-android build-android-mobile-aar test-android build-android build-android-release check-windows-host test-windows build-windows-daemon build-windows publish-windows check-linux-ui-deps test-linux build-linux test e2e e2e-release lint clean
+.PHONY: all build build-clib build-daemon build-tui install install-linux prepare-apple-runtime generate-apple build-apple release-macos release-check package-smoke test-apple test-android build-android-mobile-aar test-android build-android build-android-release check-windows-host test-windows build-windows-daemon build-windows publish-windows check-linux-ui-deps check-linux-flatpak-deps test-linux build-linux build-linux-flatpak test-linux-flatpak test e2e e2e-release lint clean
 
 export CGO_ENABLED=1
 PREFIX ?= /usr/local
+LINUX_MESON_PREFIX = $(if $(PREFIX),$(PREFIX),/)
+LINUX_MESON_LIBEXECDIR = $(if $(PREFIX),$(PREFIX)/libexec,/libexec)
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 GO_LDFLAGS ?= -X main.version=$(VERSION)
 ANDROID_HOME ?= $(HOME)/Library/Android/sdk
@@ -11,6 +13,10 @@ WINDOWS_GOARCH_win-x64 := amd64
 WINDOWS_GOARCH_win-arm64 := arm64
 WINDOWS_GOARCH := $(WINDOWS_GOARCH_$(WINDOWS_RID))
 WINDOWS_DAEMON := bin/windows/$(WINDOWS_RID)/clambhook.exe
+LINUX_FLATPAK_MANIFEST := ui/linux/com.clambhook.Clambhook.yml
+LINUX_FLATPAK_BUILD_DIR := dist/linux/build
+LINUX_FLATPAK_REPO := dist/linux/repo
+LINUX_FLATPAK_BUNDLE := dist/linux/com.clambhook.Clambhook.flatpak
 
 require-command = @command -v $(1) >/dev/null 2>&1 || { echo "$(1) is required for $(2)." >&2; echo "$(3)" >&2; exit 2; }
 require-windows-host = @if [ "$(OS)" != "Windows_NT" ]; then echo "test-windows must run on Windows; current host is $$(uname -s 2>/dev/null || echo unknown)." >&2; echo "The Windows tests target net10.0-windows and WinUI. Use a Windows host or CI runner." >&2; exit 2; fi
@@ -23,6 +29,10 @@ check-windows-host:
 check-linux-ui-deps:
 	$(call require-command,meson,Linux UI targets,Install Meson and the GTK development toolchain for your distribution.)
 	$(call require-command,valac,Linux UI targets,Install Vala plus GTK4/libadwaita/gee/json-glib/libsoup 3/libsecret development packages.)
+
+check-linux-flatpak-deps:
+	$(call require-command,flatpak-builder,Linux Flatpak targets,Install flatpak-builder and configure the Flathub remote.)
+	$(call require-command,flatpak,Linux Flatpak targets,Install flatpak and configure the Flathub remote.)
 
 build-clib:
 	$(MAKE) -C clib
@@ -41,6 +51,10 @@ install: build
 	install -d "$(DESTDIR)$(PREFIX)/bin"
 	install -m 0755 bin/clambhook "$(DESTDIR)$(PREFIX)/bin/clambhook"
 	install -m 0755 bin/clambhook-tui "$(DESTDIR)$(PREFIX)/bin/clambhook-tui"
+
+install-linux: check-linux-ui-deps build-daemon
+	cd ui/linux && meson setup builddir --prefix="$(LINUX_MESON_PREFIX)" --libexecdir="$(LINUX_MESON_LIBEXECDIR)" --reconfigure -Dclambhook_daemon="$(abspath bin/clambhook)"
+	cd ui/linux && meson install -C builddir $(if $(DESTDIR),--destdir "$(abspath $(DESTDIR))",)
 
 prepare-apple-runtime: build-daemon
 	./scripts/prepare-macos-runtime.sh
@@ -93,7 +107,21 @@ test-linux: check-linux-ui-deps
 	cd ui/linux && meson setup builddir --reconfigure && meson test -C builddir
 
 build-linux: check-linux-ui-deps build-daemon
-	cd ui/linux && meson setup builddir --reconfigure && meson compile -C builddir
+	cd ui/linux && meson setup builddir --reconfigure -Dclambhook_daemon="$(abspath bin/clambhook)" && meson compile -C builddir
+
+build-linux-flatpak: check-linux-flatpak-deps
+	mkdir -p dist/linux
+	flatpak-builder --force-clean --install-deps-from=flathub --repo=$(LINUX_FLATPAK_REPO) $(LINUX_FLATPAK_BUILD_DIR) $(LINUX_FLATPAK_MANIFEST)
+	flatpak build-bundle $(LINUX_FLATPAK_REPO) $(LINUX_FLATPAK_BUNDLE) com.clambhook.Clambhook
+	@echo "Created $(LINUX_FLATPAK_BUNDLE)"
+
+test-linux-flatpak: build-linux-flatpak
+	test -x $(LINUX_FLATPAK_BUILD_DIR)/files/bin/clambhook-linux
+	test -x $(LINUX_FLATPAK_BUILD_DIR)/files/libexec/clambhook
+	test -f $(LINUX_FLATPAK_BUILD_DIR)/files/share/applications/com.clambhook.Clambhook.desktop
+	test -f $(LINUX_FLATPAK_BUILD_DIR)/files/share/metainfo/com.clambhook.Clambhook.metainfo.xml
+	test -f $(LINUX_FLATPAK_BUILD_DIR)/files/share/icons/hicolor/1024x1024/apps/com.clambhook.Clambhook.png
+	flatpak build $(LINUX_FLATPAK_BUILD_DIR) /app/libexec/clambhook -version
 
 test:
 	go test ./...

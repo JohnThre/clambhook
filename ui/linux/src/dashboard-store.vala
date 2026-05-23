@@ -13,11 +13,13 @@ namespace Clambhook {
         public string error_text { get; private set; default = ""; }
 
         private ClambhookApiProviding api;
+        private int log_retention;
 
         public signal void changed();
 
-        public DashboardStore(ClambhookApiProviding api) {
+        public DashboardStore(ClambhookApiProviding api, int log_retention = MAX_LOG_LINES) {
             this.api = api;
+            this.log_retention = clamp_log_retention(log_retention);
         }
 
         public string active_profile() {
@@ -117,6 +119,20 @@ namespace Clambhook {
             changed();
         }
 
+        public void set_log_retention(int value) {
+            log_retention = clamp_log_retention(value);
+            trim_logs();
+            changed();
+        }
+
+        public void set_error(string message) {
+            if (message.strip() == "") {
+                return;
+            }
+            error_text = message;
+            changed();
+        }
+
         private void apply_connection_bytes(DaemonEvent event) {
             var interval_ns = event.double_data("interval_ns");
             if (interval_ns <= 0) {
@@ -132,6 +148,7 @@ namespace Clambhook {
             while (bandwidth_samples.size > BANDWIDTH_SAMPLE_LIMIT) {
                 bandwidth_samples.remove_at(0);
             }
+            apply_traffic_bytes(event, seconds);
         }
 
         private void apply_log_line(DaemonEvent event) {
@@ -140,9 +157,50 @@ namespace Clambhook {
                 return;
             }
             logs.add(line);
-            while (logs.size > MAX_LOG_LINES) {
+            trim_logs();
+        }
+
+        private void apply_traffic_bytes(DaemonEvent event, double seconds) {
+            var conn_id = event.string_data("conn_id");
+            if (conn_id == "" || seconds <= 0) {
+                return;
+            }
+            var rx_delta = event.double_data("rx_delta");
+            var tx_delta = event.double_data("tx_delta");
+            var rx_bps = rx_delta / seconds;
+            var tx_bps = tx_delta / seconds;
+            foreach (var connection in traffic.connections) {
+                if (connection.conn_id != conn_id) {
+                    continue;
+                }
+                var old_rx_bps = connection.rx_bps;
+                var old_tx_bps = connection.tx_bps;
+                connection.rx_bps = rx_bps;
+                connection.tx_bps = tx_bps;
+                connection.rx_total += (uint64) rx_delta;
+                connection.tx_total += (uint64) tx_delta;
+                traffic.summary.rx_bps += rx_bps - old_rx_bps;
+                traffic.summary.tx_bps += tx_bps - old_tx_bps;
+                traffic.summary.rx_total += (uint64) rx_delta;
+                traffic.summary.tx_total += (uint64) tx_delta;
+                return;
+            }
+        }
+
+        private void trim_logs() {
+            while (logs.size > log_retention) {
                 logs.remove_at(0);
             }
+        }
+
+        private static int clamp_log_retention(int value) {
+            if (value < MIN_LOG_RETENTION) {
+                return MIN_LOG_RETENTION;
+            }
+            if (value > MAX_LOG_RETENTION) {
+                return MAX_LOG_RETENTION;
+            }
+            return value;
         }
     }
 

@@ -8,7 +8,12 @@
   #:use-module (guix build-system gnu)
   #:use-module (guix download)
   #:use-module (guix packages)
+  #:use-module (gnu packages glib)
   #:use-module (gnu packages golang)
+  #:use-module (gnu packages gnome)
+  #:use-module (gnu packages gtk)
+  #:use-module (gnu packages meson)
+  #:use-module (gnu packages ninja)
   #:use-module (gnu packages pkg-config)
   #:use-module (gnu packages sodium))
 
@@ -38,6 +43,8 @@
                                      (if parallel-build?
                                          (number->string (parallel-job-count))
                                          "1"))
+                      (string-append "VERSION=" #$version))
+              (invoke "make" "build-linux"
                       (string-append "VERSION=" #$version))))
           (replace 'check
             (lambda _
@@ -46,16 +53,19 @@
             (lambda _
               (invoke "make" "install"
                       (string-append "DESTDIR=" #$output)
+                      "PREFIX=")
+              (invoke "make" "install-linux"
+                      (string-append "DESTDIR=" #$output)
                       "PREFIX="))))))
     (native-inputs
-     (list go pkg-config))
+     (list go meson ninja pkg-config vala))
     (inputs
-     (list libsodium))
+     (list gtk libadwaita libgee glib json-glib libsecret libsodium libsoup))
     (home-page "https://github.com/JohnThre/clambhook")
-    (synopsis "Local network client daemon and terminal dashboard")
+    (synopsis "Local network client daemon, desktop controller, and terminal dashboard")
     (description
      "clambhook provides a local network client daemon, HTTP control API, and
-terminal dashboard.")
+native GTK desktop controller plus terminal dashboard.")
     (license license:gpl3)))
 
 clambhook

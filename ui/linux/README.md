@@ -17,10 +17,39 @@ meson compile -C builddir
 
 From the repository root, `make test-linux` runs the Meson test suite and
 `make build-linux` builds the daemon before compiling the Linux app.
+`make install-linux DESTDIR=/tmp/stage PREFIX=/usr` stages the desktop app,
+desktop file, AppStream metadata, icon, and a private daemon helper under
+`libexec`.
 
 Settings are stored in `$XDG_CONFIG_HOME/clambhook/linux-settings.json`, falling
 back to `~/.config/clambhook/linux-settings.json` through GLib. The API bearer
 token is stored through Secret Service via libsecret.
+
+## Packaging
+
+The Linux desktop app installs as `com.clambhook.Clambhook` and includes:
+
+- `clambhook-linux`, the GTK/libadwaita controller
+- `clambhook`, installed as a private helper under `libexec`
+- a desktop launcher, AppStream metadata, and the hicolor app icon
+
+`make build-linux-flatpak` builds a standalone Flatpak bundle at
+`dist/linux/com.clambhook.Clambhook.flatpak` when `flatpak-builder` and
+`flatpak` are installed. Debian, RPM, and Guix package definitions also build
+and install the GTK app.
+
+## Daemon startup
+
+When the app launches a daemon, it resolves the executable in this order:
+
+1. the configured daemon path
+2. the Flatpak helper at `/app/libexec/clambhook`
+3. `clambhook` found on `PATH`
+4. a `clambhook` executable adjacent to the app binary
+
+The API endpoint setting remains a URL for the controller. Before launching the
+daemon, the app converts it to the daemon's listen address form, for example
+`http://127.0.0.1:9090` becomes `127.0.0.1:9090`.
 
 ## Device-wide TUN mode
 

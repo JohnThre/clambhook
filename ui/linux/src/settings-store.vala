@@ -1,4 +1,7 @@
 namespace Clambhook {
+    public const int MIN_LOG_RETENTION = 50;
+    public const int MAX_LOG_RETENTION = 500;
+
     public class AppSettings : Object {
         public string api_endpoint { get; set; default = "http://127.0.0.1:9090"; }
         public string daemon_path { get; set; default = ""; }
@@ -7,17 +10,25 @@ namespace Clambhook {
         public bool stop_daemon_on_exit { get; set; default = true; }
         public bool event_stream_enabled { get; set; default = true; }
         public int refresh_interval_seconds { get; set; default = 5; }
+        public int log_retention { get; set; default = 200; }
 
         public AppSettings normalized() {
             var next = new AppSettings();
-            next.api_endpoint = normalize_endpoint(api_endpoint);
+            next.api_endpoint = is_supported_api_endpoint(api_endpoint) ? normalize_endpoint(api_endpoint) : "http://127.0.0.1:9090";
             next.daemon_path = daemon_path.strip();
             next.config_path = config_path.strip();
             next.launch_daemon_on_start = launch_daemon_on_start;
             next.stop_daemon_on_exit = stop_daemon_on_exit;
             next.event_stream_enabled = event_stream_enabled;
             next.refresh_interval_seconds = clamp_int(refresh_interval_seconds, 2, 60);
+            next.log_retention = clamp_int(log_retention, MIN_LOG_RETENTION, MAX_LOG_RETENTION);
             return next;
+        }
+
+        public static bool is_supported_api_endpoint(string value) {
+            var normalized = normalize_endpoint(value);
+            return (normalized.has_prefix("http://") || normalized.has_prefix("https://"))
+                && DaemonSupervisor.api_listen_address(normalized) != normalized;
         }
 
         private static string normalize_endpoint(string value) {
@@ -87,6 +98,9 @@ namespace Clambhook {
             settings.refresh_interval_seconds = object.has_member("refreshIntervalSeconds")
                 ? JsonReader.int_member(object, "refreshIntervalSeconds")
                 : 5;
+            settings.log_retention = object.has_member("logRetention")
+                ? JsonReader.int_member(object, "logRetention")
+                : 200;
             return settings;
         }
 
@@ -107,6 +121,8 @@ namespace Clambhook {
             builder.add_boolean_value(settings.event_stream_enabled);
             builder.set_member_name("refreshIntervalSeconds");
             builder.add_int_value(settings.refresh_interval_seconds);
+            builder.set_member_name("logRetention");
+            builder.add_int_value(settings.log_retention);
             builder.end_object();
 
             var generator = new Json.Generator();

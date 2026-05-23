@@ -73,6 +73,18 @@ namespace Clambhook.Tests {
             assert_cmpint(store.bandwidth_samples.size, CompareOperator.EQ, BANDWIDTH_SAMPLE_LIMIT);
             assert_cmpfloat(store.current_bandwidth().rx_bps, CompareOperator.EQ, 65 * 1024);
 
+            var connection = new TrafficConnectionPayload();
+            connection.conn_id = "c1";
+            store.traffic.connections.add(connection);
+            store.apply_event(new DaemonEvent.from_values("connection.bytes")
+                .with_string("conn_id", "c1")
+                .with_number("rx_delta", 2048)
+                .with_number("tx_delta", 1024)
+                .with_number("interval_ns", 1000000000));
+            assert_cmpfloat(store.traffic.connections[0].rx_bps, CompareOperator.EQ, 2048);
+            assert_cmpstr(store.traffic.connections[0].rx_total.to_string(), CompareOperator.EQ, "2048");
+            assert_cmpstr(store.traffic.summary.rx_total.to_string(), CompareOperator.EQ, "2048");
+
             for (int i = 0; i < 205; i++) {
                 store.apply_event(new DaemonEvent.from_values("log.line").with_string("line", "line-%d".printf(i)));
             }
@@ -80,6 +92,10 @@ namespace Clambhook.Tests {
             assert_cmpint(store.logs.size, CompareOperator.EQ, MAX_LOG_LINES);
             assert_cmpstr(store.logs[0], CompareOperator.EQ, "line-5");
             assert_cmpstr(store.logs[199], CompareOperator.EQ, "line-204");
+
+            store.set_log_retention(50);
+            assert_cmpint(store.logs.size, CompareOperator.EQ, 50);
+            assert_cmpstr(store.logs[0], CompareOperator.EQ, "line-155");
         });
 
         Test.add_func("/linux/dashboard-store/actions-refresh-after-change", () => {

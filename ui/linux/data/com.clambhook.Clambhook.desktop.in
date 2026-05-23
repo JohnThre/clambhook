@@ -1,9 +1,11 @@
 [Desktop Entry]
 Name=clambhook
-Comment=Desktop controller for the clambhook daemon
+GenericName=Network Client
+Comment=Control clambhook proxy profiles, listeners, and traffic
 Exec=clambhook-linux
 Icon=@app_id@
 Terminal=false
 Type=Application
-Categories=Network;GTK;
+Categories=Network;GTK;Utility;
+Keywords=proxy;vpn;tunnel;network;traffic;
 StartupNotify=true

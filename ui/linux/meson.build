@@ -23,6 +23,7 @@ core_sources = files(
   'src/api-models.vala',
   'src/daemon-supervisor.vala',
   'src/dashboard-store.vala',
+  'src/event-stream-client.vala',
   'src/formatters.vala',
   'src/settings-store.vala',
   'src/token-vault.vala',
@@ -56,6 +57,22 @@ executable(
   core_sources + ui_sources + resources + files('src/main.vala'),
   dependencies: deps,
   install: true,
+)
+
+daemon_path = get_option('clambhook_daemon')
+if daemon_path != ''
+  install_data(
+    daemon_path,
+    install_dir: get_option('libexecdir'),
+    install_mode: 'rwxr-xr-x',
+    rename: 'clambhook',
+  )
+endif
+
+install_data(
+  '../../clambhook-icon-1024.png',
+  install_dir: get_option('datadir') / 'icons' / 'hicolor' / '1024x1024' / 'apps',
+  rename: '@0@.png'.format(app_id),
 )
 
 test_exe = executable(
