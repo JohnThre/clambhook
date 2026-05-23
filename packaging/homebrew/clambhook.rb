@@ -17,5 +17,6 @@ class Clambhook < Formula
 
   test do
     assert_match version.to_s, shell_output("#{bin}/clambhook -version")
+    assert_match version.to_s, shell_output("#{bin}/clambhook-tui -version")
   end
 end

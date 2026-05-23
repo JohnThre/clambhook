@@ -1,4 +1,4 @@
-.PHONY: all build build-clib build-daemon build-tui install prepare-apple-runtime generate-apple build-apple release-macos release-check test-apple test-android build-android-mobile-aar test-android build-android build-android-release check-windows-host test-windows build-windows-daemon build-windows publish-windows check-linux-ui-deps test-linux build-linux test e2e e2e-release lint clean
+.PHONY: all build build-clib build-daemon build-tui install prepare-apple-runtime generate-apple build-apple release-macos release-check package-smoke test-apple test-android build-android-mobile-aar test-android build-android build-android-release check-windows-host test-windows build-windows-daemon build-windows publish-windows check-linux-ui-deps test-linux build-linux test e2e e2e-release lint clean
 
 export CGO_ENABLED=1
 PREFIX ?= /usr/local
@@ -55,7 +55,10 @@ build-apple: prepare-apple-runtime generate-apple
 release-macos:
 	./scripts/release-macos.sh
 
-release-check: test lint e2e-release
+release-check: test lint package-smoke e2e-release
+
+package-smoke:
+	./scripts/package-smoke.sh
 
 test-apple:
 	swift test --package-path ui/apple
