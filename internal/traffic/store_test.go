@@ -1,6 +1,7 @@
 package traffic
 
 import (
+	"context"
 	"path/filepath"
 	"testing"
 	"time"
@@ -119,4 +120,84 @@ func TestStoreReconfigureDisabledStopsRecording(t *testing.T) {
 	if got := len(store.Snapshot("all", 0).Connections); got != 0 {
 		t.Fatalf("connections after disabled recording = %d, want 0", got)
 	}
+}
+
+func TestManagerEnablesAndDisablesStoreOnReconfigure(t *testing.T) {
+	mgr, err := NewManager(config.TrafficConfig{Enabled: false}, nil)
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+	if mgr.Store() != nil {
+		t.Fatal("Store is non-nil for disabled initial config")
+	}
+
+	bus := events.NewBus(events.Config{MeterInterval: time.Hour})
+	defer bus.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	mgr.Start(ctx, bus)
+	defer mgr.Stop()
+
+	if err := mgr.Reconfigure(config.TrafficConfig{
+		Enabled:       true,
+		HistoryLimit:  10,
+		HistoryMaxAge: config.Duration(time.Hour),
+		HistoryPath:   filepath.Join(t.TempDir(), "traffic-history.json"),
+	}); err != nil {
+		t.Fatalf("enable Reconfigure: %v", err)
+	}
+	if mgr.Store() == nil {
+		t.Fatal("Store is nil after enabling traffic")
+	}
+
+	shard := bus.NewShard()
+	bus.NewEmitter(shard).Emit(events.TypeConnectionOpened, events.ConnectionOpenedData{ConnID: "c1"})
+	waitForConnections(t, mgr.Store(), 1)
+
+	if err := mgr.Reconfigure(config.TrafficConfig{Enabled: false}); err != nil {
+		t.Fatalf("disable Reconfigure: %v", err)
+	}
+	if mgr.Store() != nil {
+		t.Fatal("Store is non-nil after disabling traffic")
+	}
+}
+
+func TestManagerReconfigureUpdatesExistingStore(t *testing.T) {
+	pathA := filepath.Join(t.TempDir(), "a.json")
+	pathB := filepath.Join(t.TempDir(), "b.json")
+	mgr, err := NewManager(config.TrafficConfig{
+		Enabled:       true,
+		HistoryLimit:  10,
+		HistoryMaxAge: config.Duration(time.Hour),
+		HistoryPath:   pathA,
+	}, nil)
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+
+	if err := mgr.Reconfigure(config.TrafficConfig{
+		Enabled:       true,
+		HistoryLimit:  20,
+		HistoryMaxAge: config.Duration(2 * time.Hour),
+		HistoryPath:   pathB,
+	}); err != nil {
+		t.Fatalf("Reconfigure: %v", err)
+	}
+
+	snapshot := mgr.Store().Snapshot("all", 0)
+	if snapshot.Summary.HistoryLimit != 20 || snapshot.Summary.HistoryPath != pathB {
+		t.Fatalf("summary = %+v, want limit/path update", snapshot.Summary)
+	}
+}
+
+func waitForConnections(t *testing.T, store *Store, want int) {
+	t.Helper()
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if got := len(store.Snapshot("all", 0).Connections); got == want {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("connections = %d, want %d", len(store.Snapshot("all", 0).Connections), want)
 }

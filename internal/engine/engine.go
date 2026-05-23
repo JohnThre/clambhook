@@ -23,6 +23,10 @@ const defaultSOCKS5MaxConns = 512
 // defaultHTTPMaxConns mirrors defaultSOCKS5MaxConns for the HTTP listener.
 const defaultHTTPMaxConns = 512
 
+type protocolDialerCloser interface {
+	Close() error
+}
+
 // Status represents the engine's current state.
 type Status struct {
 	Running   bool             `json:"running"`
@@ -84,6 +88,9 @@ func (e *Engine) Start(ctx context.Context) error {
 	if e.running {
 		return fmt.Errorf("engine already running")
 	}
+	if err := validateRuntimeConfig(e.cfg); err != nil {
+		return fmt.Errorf("start engine: validate: %w", err)
+	}
 	return e.startLocked()
 }
 
@@ -108,24 +115,35 @@ func (e *Engine) Reload(cfg *config.Config) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
-	oldGeoPath := e.cfg.Geo.Database
-	e.cfg = cfg
-	if cfg.Geo.Database != oldGeoPath {
-		e.swapGeoLocked()
+	if err := validateRuntimeConfig(cfg); err != nil {
+		return fmt.Errorf("reload: validate: %w", err)
 	}
+
+	oldCfg := e.cfg
+	oldGeoPath := e.cfg.Geo.Database
 	if !e.running {
+		e.cfg = cfg
+		if cfg.Geo.Database != oldGeoPath {
+			e.swapGeoLocked()
+		}
 		log.Printf("engine configuration reloaded (idle)")
 		return nil
 	}
 
-	// Restart listeners against the new profile. If startup fails we leave
-	// the engine stopped — the caller can inspect Status and retry with a
-	// corrected config.
 	if err := e.stopLocked(); err != nil {
 		log.Printf("reload: stop listeners: %v", err)
 	}
+	e.cfg = cfg
 	if err := e.startLocked(); err != nil {
-		return fmt.Errorf("reload: restart: %w", err)
+		startErr := err
+		e.cfg = oldCfg
+		if rollbackErr := e.startLocked(); rollbackErr != nil {
+			return fmt.Errorf("reload: restart: %w; rollback failed: %v", startErr, rollbackErr)
+		}
+		return fmt.Errorf("reload: restart: %w; rolled back to previous config", startErr)
+	}
+	if cfg.Geo.Database != oldGeoPath {
+		e.swapGeoLocked()
 	}
 	log.Printf("engine reloaded live — listeners rebuilt")
 	return nil
@@ -140,6 +158,12 @@ func (e *Engine) SetActiveProfile(name string) error {
 	if _, ok := e.cfg.ProfileByName(name); !ok {
 		return fmt.Errorf("profile %q not found", name)
 	}
+	next := *e.cfg
+	next.Active = name
+	if err := validateRuntimeConfig(&next); err != nil {
+		return fmt.Errorf("profile switch: validate: %w", err)
+	}
+	oldActive := e.cfg.Active
 	e.cfg.Active = name
 	if !e.running {
 		return nil
@@ -148,7 +172,12 @@ func (e *Engine) SetActiveProfile(name string) error {
 		log.Printf("profile switch: stop listeners: %v", err)
 	}
 	if err := e.startLocked(); err != nil {
-		return fmt.Errorf("profile switch: restart: %w", err)
+		startErr := err
+		e.cfg.Active = oldActive
+		if rollbackErr := e.startLocked(); rollbackErr != nil {
+			return fmt.Errorf("profile switch: restart: %w; rollback failed: %v", startErr, rollbackErr)
+		}
+		return fmt.Errorf("profile switch: restart: %w; rolled back to profile %q", startErr, oldActive)
 	}
 	log.Printf("engine switched to profile %q — listeners rebuilt", name)
 	return nil
@@ -226,6 +255,42 @@ func closeChains(chains []*chain.Chain) error {
 		}
 		if err := ch.Close(); err != nil {
 			errs = append(errs, fmt.Errorf("chain %q: %w", ch.Name, err))
+		}
+	}
+	return errors.Join(errs...)
+}
+
+func validateRuntimeConfig(cfg *config.Config) error {
+	if err := cfg.Validate(); err != nil {
+		return err
+	}
+	profile, err := cfg.ActiveProfile()
+	if err != nil {
+		return err
+	}
+
+	var errs []error
+	for chainIdx, ch := range profile.Chains {
+		for serverIdx, server := range ch.Servers {
+			dialer, err := protocol.NewDialer(protocol.Server{
+				Name:     server.Name,
+				Address:  server.Address,
+				Protocol: server.Protocol,
+				Settings: server.Settings,
+			})
+			if err != nil {
+				errs = append(errs, fmt.Errorf("profile %q chain %q server %d protocol %q: %w",
+					profile.Name, ch.Name, serverIdx, server.Protocol, err))
+				continue
+			}
+			closer, ok := dialer.(protocolDialerCloser)
+			if !ok || closer == nil {
+				continue
+			}
+			if err := closer.Close(); err != nil {
+				errs = append(errs, fmt.Errorf("profile %q chain %d server %d close preflight dialer: %w",
+					profile.Name, chainIdx, serverIdx, err))
+			}
 		}
 	}
 	return errors.Join(errs...)

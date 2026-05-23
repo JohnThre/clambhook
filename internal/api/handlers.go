@@ -9,6 +9,8 @@ import (
 	"github.com/JohnThre/clambhook/internal/traffic"
 )
 
+const maxJSONRequestBytes = 1 << 20
+
 func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/status", s.handleStatus)
 	mux.HandleFunc("GET /api/v1/profiles", s.handleProfiles)
@@ -33,6 +35,7 @@ func (s *Server) handleProfiles(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleSetActiveProfile(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxJSONRequestBytes)
 	var req struct {
 		Name string `json:"name"`
 	}
@@ -80,12 +83,13 @@ func (s *Server) handleTraffic(w http.ResponseWriter, r *http.Request) {
 		}
 		limit = n
 	}
-	if s.traffic == nil {
+	store := s.trafficStore()
+	if store == nil {
 		var empty *traffic.Store
 		writeJSON(w, empty.Snapshot(state, limit))
 		return
 	}
-	writeJSON(w, s.traffic.Snapshot(state, limit))
+	writeJSON(w, store.Snapshot(state, limit))
 }
 
 func writeJSON(w http.ResponseWriter, v any) {

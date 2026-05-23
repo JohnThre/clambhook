@@ -6,6 +6,7 @@ import (
 
 	"github.com/JohnThre/clambhook/internal/config"
 	"github.com/JohnThre/clambhook/internal/listener"
+	_ "github.com/JohnThre/clambhook/internal/protocol/trojan"
 )
 
 func TestBuildListenersIncludesEnabledTUN(t *testing.T) {

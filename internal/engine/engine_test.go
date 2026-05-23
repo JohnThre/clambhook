@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"net"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -100,8 +101,7 @@ func init() {
 }
 
 // fixedPortProfile returns a minimal profile with one chain and the given
-// SOCKS5 listen address. The chain's protocol is never dialed (no client
-// connects in these tests) so its validity doesn't matter.
+// SOCKS5 listen address.
 func fixedPortProfile(name, socksAddr string) config.Profile {
 	return config.Profile{
 		Name:   name,
@@ -111,8 +111,8 @@ func fixedPortProfile(name, socksAddr string) config.Profile {
 			Servers: []config.ServerConfig{{
 				Name:     "dummy",
 				Address:  "127.0.0.1:1",
-				Protocol: "trojan",
-				Settings: map[string]any{"password": "x"},
+				Protocol: "engine_lifecycle",
+				Settings: map[string]any{"id": name + "/fixed"},
 			}},
 		}},
 	}
@@ -261,21 +261,21 @@ func TestEngineStopClosesCachedChainDialers(t *testing.T) {
 		t.Fatalf("start: %v", err)
 	}
 	dialFirstEngineChain(t, e)
-	if got := engineLifecycleState.factoryCount(id); got != 1 {
-		t.Fatalf("factory count = %d, want 1", got)
+	if got := engineLifecycleState.factoryCount(id); got != 2 {
+		t.Fatalf("factory count = %d, want 2 (preflight + runtime)", got)
 	}
 
 	if err := e.Stop(); err != nil {
 		t.Fatalf("stop: %v", err)
 	}
-	if got := engineLifecycleState.closeCount(id); got != 1 {
-		t.Fatalf("close count = %d, want 1", got)
+	if got := engineLifecycleState.closeCount(id); got != 2 {
+		t.Fatalf("close count = %d, want 2 (preflight + runtime)", got)
 	}
 	if err := e.Stop(); err != nil {
 		t.Fatalf("second stop: %v", err)
 	}
-	if got := engineLifecycleState.closeCount(id); got != 1 {
-		t.Fatalf("close count after second stop = %d, want 1", got)
+	if got := engineLifecycleState.closeCount(id); got != 2 {
+		t.Fatalf("close count after second stop = %d, want 2", got)
 	}
 }
 
@@ -304,19 +304,19 @@ func TestEngineReloadClosesOldCachedChainDialers(t *testing.T) {
 	if err := e.Reload(next); err != nil {
 		t.Fatalf("reload: %v", err)
 	}
-	if got := engineLifecycleState.closeCount(oldID); got != 1 {
-		t.Fatalf("old close count = %d, want 1", got)
+	if got := engineLifecycleState.closeCount(oldID); got != 2 {
+		t.Fatalf("old close count = %d, want 2 (preflight + runtime)", got)
 	}
 
 	dialFirstEngineChain(t, e)
-	if got := engineLifecycleState.factoryCount(newID); got != 1 {
-		t.Fatalf("new factory count = %d, want 1", got)
+	if got := engineLifecycleState.factoryCount(newID); got != 2 {
+		t.Fatalf("new factory count = %d, want 2 (preflight + runtime)", got)
 	}
 	if err := e.Stop(); err != nil {
 		t.Fatalf("stop: %v", err)
 	}
-	if got := engineLifecycleState.closeCount(newID); got != 1 {
-		t.Fatalf("new close count = %d, want 1", got)
+	if got := engineLifecycleState.closeCount(newID); got != 2 {
+		t.Fatalf("new close count = %d, want 2", got)
 	}
 }
 
@@ -344,16 +344,114 @@ func TestEngineSetActiveProfileClosesOldCachedChainDialers(t *testing.T) {
 	if err := e.SetActiveProfile("B"); err != nil {
 		t.Fatalf("switch: %v", err)
 	}
-	if got := engineLifecycleState.closeCount(oldID); got != 1 {
-		t.Fatalf("old close count = %d, want 1", got)
+	if got := engineLifecycleState.closeCount(oldID); got != 2 {
+		t.Fatalf("old close count = %d, want 2 (preflight + runtime)", got)
 	}
 
 	dialFirstEngineChain(t, e)
 	if err := e.Stop(); err != nil {
 		t.Fatalf("stop: %v", err)
 	}
-	if got := engineLifecycleState.closeCount(newID); got != 1 {
-		t.Fatalf("new close count = %d, want 1", got)
+	if got := engineLifecycleState.closeCount(newID); got != 2 {
+		t.Fatalf("new close count = %d, want 2", got)
+	}
+}
+
+func TestEngineReloadValidationFailureKeepsOldListenerRunning(t *testing.T) {
+	addrA := freePort(t)
+	addrB := freePort(t)
+	cfg := &config.Config{
+		Active:   "A",
+		Profiles: []config.Profile{fixedPortProfile("A", addrA)},
+	}
+	e := New(cfg, nil)
+	t.Cleanup(func() { _ = e.Stop() })
+
+	if err := e.Start(context.Background()); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+
+	nextProfile := fixedPortProfile("B", addrB)
+	nextProfile.Chains[0].Servers[0].Protocol = "missing_protocol"
+	err := e.Reload(&config.Config{Active: "B", Profiles: []config.Profile{nextProfile}})
+	if err == nil {
+		t.Fatal("Reload returned nil, want validation error")
+	}
+
+	if _, err := net.Listen("tcp", addrA); err == nil {
+		t.Fatalf("expected old listener %s to remain bound after failed reload", addrA)
+	}
+	if status := e.Status(); status.Profile != "A" || !status.Running {
+		t.Fatalf("status after failed reload = %+v, want running profile A", status)
+	}
+}
+
+func TestEngineReloadStartFailureRollsBackOldListener(t *testing.T) {
+	addrA := freePort(t)
+	held, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("hold port: %v", err)
+	}
+	defer held.Close()
+
+	cfg := &config.Config{
+		Active:   "A",
+		Profiles: []config.Profile{fixedPortProfile("A", addrA)},
+	}
+	e := New(cfg, nil)
+	t.Cleanup(func() { _ = e.Stop() })
+
+	if err := e.Start(context.Background()); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+
+	next := &config.Config{
+		Active:   "B",
+		Profiles: []config.Profile{fixedPortProfile("B", held.Addr().String())},
+	}
+	err = e.Reload(next)
+	if err == nil || !strings.Contains(err.Error(), "rolled back to previous config") {
+		t.Fatalf("Reload error = %v, want rollback message", err)
+	}
+	if _, err := net.Listen("tcp", addrA); err == nil {
+		t.Fatalf("expected old listener %s to be rebound after rollback", addrA)
+	}
+	if status := e.Status(); status.Profile != "A" || !status.Running {
+		t.Fatalf("status after rollback = %+v, want running profile A", status)
+	}
+}
+
+func TestEngineSetActiveProfileStartFailureRollsBackOldProfile(t *testing.T) {
+	addrA := freePort(t)
+	held, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("hold port: %v", err)
+	}
+	defer held.Close()
+
+	cfg := &config.Config{
+		Active: "A",
+		Profiles: []config.Profile{
+			fixedPortProfile("A", addrA),
+			fixedPortProfile("B", held.Addr().String()),
+		},
+	}
+	e := New(cfg, nil)
+	t.Cleanup(func() { _ = e.Stop() })
+
+	if err := e.Start(context.Background()); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+
+	err = e.SetActiveProfile("B")
+	if err == nil || !strings.Contains(err.Error(), `rolled back to profile "A"`) {
+		t.Fatalf("SetActiveProfile error = %v, want rollback message", err)
+	}
+	if _, err := net.Listen("tcp", addrA); err == nil {
+		t.Fatalf("expected old listener %s to be rebound after rollback", addrA)
+	}
+	if status := e.Status(); status.Profile != "A" || !status.Running {
+		t.Fatalf("status after rollback = %+v, want running profile A", status)
 	}
 }
 

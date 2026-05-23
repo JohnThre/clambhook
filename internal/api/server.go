@@ -2,10 +2,13 @@ package api
 
 import (
 	"context"
+	"errors"
 	"log"
 	"net"
 	"net/http"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/JohnThre/clambhook/internal/engine"
 	"github.com/JohnThre/clambhook/internal/events"
@@ -19,6 +22,8 @@ type Server struct {
 	traffic   *traffic.Store
 	authToken string
 	server    *http.Server
+	mu        sync.RWMutex
+	addr      string
 }
 
 // New creates a new API server. bus may be nil to disable the
@@ -37,7 +42,12 @@ func NewWithOptions(eng *engine.Engine, bus *events.Bus, opts Options) *Server {
 	}
 	mux := http.NewServeMux()
 	s.registerRoutes(mux)
-	s.server = &http.Server{Handler: s.authMiddleware(mux)}
+	s.server = &http.Server{
+		Handler:           s.authMiddleware(mux),
+		ReadHeaderTimeout: 5 * time.Second,
+		IdleTimeout:       2 * time.Minute,
+		MaxHeaderBytes:    1 << 20,
+	}
 	return s
 }
 
@@ -47,12 +57,43 @@ func (s *Server) Start(addr string) error {
 	if err != nil {
 		return err
 	}
-	log.Printf("api server listening on %s", addr)
-	go s.server.Serve(ln)
+	s.mu.Lock()
+	s.addr = ln.Addr().String()
+	s.mu.Unlock()
+	log.Printf("api server listening on %s", ln.Addr())
+	go func() {
+		if err := s.server.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Printf("api server stopped unexpectedly: %v", err)
+		}
+	}()
 	return nil
+}
+
+// Addr returns the bound API address, or an empty string before Start.
+func (s *Server) Addr() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.addr
+}
+
+// SetTrafficStore swaps the store backing /api/v1/traffic. Passing nil keeps
+// the endpoint enabled but returns the same empty snapshot shape as before.
+func (s *Server) SetTrafficStore(store *traffic.Store) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.traffic = store
+}
+
+func (s *Server) trafficStore() *traffic.Store {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.traffic
 }
 
 // Shutdown gracefully shuts down the API server.
 func (s *Server) Shutdown(ctx context.Context) error {
+	if s == nil || s.server == nil {
+		return nil
+	}
 	return s.server.Shutdown(ctx)
 }

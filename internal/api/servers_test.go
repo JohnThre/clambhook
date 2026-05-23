@@ -10,6 +10,7 @@ import (
 
 	"github.com/JohnThre/clambhook/internal/config"
 	"github.com/JohnThre/clambhook/internal/engine"
+	_ "github.com/JohnThre/clambhook/internal/protocol/trojan"
 )
 
 type serversResponse struct {
@@ -135,6 +136,7 @@ func testServersConfig(active string) *config.Config {
 						Name:     "london",
 						Address:  "81.2.69.142:443",
 						Protocol: "trojan",
+						Settings: map[string]any{"password": "secret"},
 					}},
 				}},
 			},
