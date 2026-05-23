@@ -6,6 +6,7 @@ namespace Clambhook {
         public StatusPayload status { get; private set; default = new StatusPayload(); }
         public ProfilesPayload profiles { get; private set; default = new ProfilesPayload(); }
         public ServersPayload servers { get; private set; default = new ServersPayload(); }
+        public TrafficSnapshotPayload traffic { get; private set; default = new TrafficSnapshotPayload(); }
         public Gee.ArrayList<BandwidthSample> bandwidth_samples { get; private set; default = new Gee.ArrayList<BandwidthSample>(); }
         public Gee.ArrayList<string> logs { get; private set; default = new Gee.ArrayList<string>(); }
         public bool api_online { get; private set; default = false; }
@@ -43,6 +44,7 @@ namespace Clambhook {
                 status = yield api.status();
                 profiles = yield api.profiles();
                 servers = yield api.servers();
+                traffic = yield api.traffic();
                 api_online = true;
                 error_text = "";
             } catch (Error err) {
@@ -55,6 +57,7 @@ namespace Clambhook {
         public async void refresh_status() {
             try {
                 status = yield api.status();
+                traffic = yield api.traffic();
                 api_online = true;
                 error_text = "";
             } catch (Error err) {

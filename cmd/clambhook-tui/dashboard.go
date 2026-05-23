@@ -27,6 +27,7 @@ type viewMode int
 const (
 	viewModeDashboard viewMode = iota
 	viewModeLogs
+	viewModeTraffic
 )
 
 type model struct {
@@ -36,6 +37,7 @@ type model struct {
 	status   statusPayload
 	profiles profilesPayload
 	servers  serversPayload
+	traffic  trafficSnapshotPayload
 
 	selectedProfile int
 	viewMode        viewMode
@@ -67,12 +69,14 @@ type dashboardLoadedMsg struct {
 	Status   statusPayload
 	Profiles profilesPayload
 	Servers  serversPayload
+	Traffic  trafficSnapshotPayload
 	Err      error
 }
 
 type statusLoadedMsg struct {
-	Status statusPayload
-	Err    error
+	Status  statusPayload
+	Traffic trafficSnapshotPayload
+	Err     error
 }
 
 type actionDoneMsg struct {
@@ -134,6 +138,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.logScroll = 0
 			}
 			return m, nil
+		case "t":
+			if m.viewMode == viewModeTraffic {
+				m.viewMode = viewModeDashboard
+			} else {
+				m.viewMode = viewModeTraffic
+			}
+			return m, nil
+		}
+		if m.viewMode == viewModeTraffic {
+			return m, nil
 		}
 		if m.viewMode == viewModeLogs {
 			switch msg.String() {
@@ -186,6 +200,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.status = msg.Status
 		m.profiles = msg.Profiles
 		m.servers = msg.Servers
+		m.traffic = msg.Traffic
 		m.syncSelectedProfile()
 		return m, nil
 	case statusLoadedMsg:
@@ -197,6 +212,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.apiOnline = true
 		m.errText = ""
 		m.status = msg.Status
+		m.traffic = msg.Traffic
 		m.syncSelectedProfile()
 		return m, nil
 	case actionDoneMsg:
@@ -228,6 +244,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m model) View() string {
 	if m.viewMode == viewModeLogs {
 		return m.logView()
+	}
+	if m.viewMode == viewModeTraffic {
+		return m.trafficView()
 	}
 
 	var b strings.Builder
@@ -296,7 +315,23 @@ func (m model) View() string {
 	fmt.Fprintf(&b, "  Rx %-10s %s\n", formatRate(current.RxBps), m.bandwidth.graph(true))
 	fmt.Fprintf(&b, "  Tx %-10s %s\n", formatRate(current.TxBps), m.bandwidth.graph(false))
 
-	b.WriteString("\nKeys: c connect  d disconnect  [ prev profile  ] next profile  l logs  r refresh  q quit\n")
+	b.WriteString("\nTraffic\n")
+	if len(m.traffic.Connections) == 0 {
+		b.WriteString("  -- no traffic history\n")
+	} else {
+		for _, conn := range firstTrafficRows(m.traffic.Connections, 6) {
+			fmt.Fprintf(&b, "  %-7s %-5s %-24s down %-9s up %-9s %s\n",
+				conn.State,
+				emptyDash(conn.Application),
+				truncate(emptyDash(conn.Target), 24),
+				formatBytes(conn.RxTotal),
+				formatBytes(conn.TxTotal),
+				formatDurationNs(conn.DurationNs),
+			)
+		}
+	}
+
+	b.WriteString("\nKeys: c connect  d disconnect  [ prev profile  ] next profile  t traffic  l logs  r refresh  q quit\n")
 	return b.String()
 }
 
@@ -326,6 +361,53 @@ func (m model) logView() string {
 	return b.String()
 }
 
+func (m model) trafficView() string {
+	var b strings.Builder
+
+	apiState := "offline"
+	if m.apiOnline {
+		apiState = "online"
+	}
+	fmt.Fprintf(&b, "clambhook %s  API %s (%s)\n", version, m.apiAddr, apiState)
+	b.WriteString("Traffic\n")
+	if m.errText != "" {
+		fmt.Fprintf(&b, "Error: %s\n", m.errText)
+	}
+
+	sum := m.traffic.Summary
+	fmt.Fprintf(&b, "Active %d  Down %s  Up %s  Total down %s  Total up %s\n",
+		sum.ActiveConnections,
+		formatRate(sum.RxBps),
+		formatRate(sum.TxBps),
+		formatBytes(sum.RxTotal),
+		formatBytes(sum.TxTotal),
+	)
+	if sum.PersistError != "" {
+		fmt.Fprintf(&b, "History: %s\n", sum.PersistError)
+	}
+
+	if len(m.traffic.Connections) == 0 {
+		b.WriteString("\n  -- no traffic history\n")
+	} else {
+		b.WriteString("\n  State   App       Target                    Listener          Down       Up         Duration  Path\n")
+		for _, conn := range firstTrafficRows(m.traffic.Connections, m.trafficVisibleRows()) {
+			fmt.Fprintf(&b, "  %-7s %-9s %-25s %-17s %-10s %-10s %-9s %s\n",
+				truncate(conn.State, 7),
+				truncate(emptyDash(conn.Application), 9),
+				truncate(emptyDash(conn.Target), 25),
+				truncate(conn.Listener.Protocol+" "+conn.Listener.Addr, 17),
+				formatBytes(conn.RxTotal),
+				formatBytes(conn.TxTotal),
+				formatDurationNs(conn.DurationNs),
+				truncate(trafficPath(conn), 22),
+			)
+		}
+	}
+
+	b.WriteString("\nKeys: t dashboard  l logs  r refresh  q quit\n")
+	return b.String()
+}
+
 func (m model) loadDashboardCmd() tea.Cmd {
 	client := m.client
 	return func() tea.Msg {
@@ -341,7 +423,11 @@ func (m model) loadDashboardCmd() tea.Cmd {
 		if err != nil {
 			return dashboardLoadedMsg{Err: err}
 		}
-		return dashboardLoadedMsg{Status: status, Profiles: profiles, Servers: servers}
+		traffic, err := client.traffic()
+		if err != nil {
+			return dashboardLoadedMsg{Err: err}
+		}
+		return dashboardLoadedMsg{Status: status, Profiles: profiles, Servers: servers, Traffic: traffic}
 	}
 }
 
@@ -349,7 +435,11 @@ func (m model) loadStatusCmd() tea.Cmd {
 	client := m.client
 	return func() tea.Msg {
 		status, err := client.status()
-		return statusLoadedMsg{Status: status, Err: err}
+		if err != nil {
+			return statusLoadedMsg{Err: err}
+		}
+		traffic, err := client.traffic()
+		return statusLoadedMsg{Status: status, Traffic: traffic, Err: err}
 	}
 }
 
@@ -527,6 +617,28 @@ func (m *model) applyEvent(ev events.Event) {
 		RxBps: rxDelta / seconds,
 		TxBps: txDelta / seconds,
 	})
+	if connID, ok := eventString(ev.Data, "conn_id"); ok {
+		m.applyTrafficBytes(connID, rxDelta/seconds, txDelta/seconds, rxDelta, txDelta)
+	}
+}
+
+func (m *model) applyTrafficBytes(connID string, rxBps, txBps, rxDelta, txDelta float64) {
+	for i := range m.traffic.Connections {
+		if m.traffic.Connections[i].ConnID != connID {
+			continue
+		}
+		oldRxBps := m.traffic.Connections[i].RxBps
+		oldTxBps := m.traffic.Connections[i].TxBps
+		m.traffic.Connections[i].RxBps = rxBps
+		m.traffic.Connections[i].TxBps = txBps
+		m.traffic.Connections[i].RxTotal += uint64(rxDelta)
+		m.traffic.Connections[i].TxTotal += uint64(txDelta)
+		m.traffic.Summary.RxBps += rxBps - oldRxBps
+		m.traffic.Summary.TxBps += txBps - oldTxBps
+		m.traffic.Summary.RxTotal += uint64(rxDelta)
+		m.traffic.Summary.TxTotal += uint64(txDelta)
+		return
+	}
 }
 
 func (m *model) appendLogLine(line string) {
@@ -647,6 +759,19 @@ func eventNumber(data any, key string) (float64, bool) {
 	return 0, false
 }
 
+func eventString(data any, key string) (string, bool) {
+	switch d := data.(type) {
+	case map[string]any:
+		v, ok := d[key].(string)
+		return v, ok
+	case events.ConnectionBytesData:
+		if key == "conn_id" {
+			return d.ConnID, true
+		}
+	}
+	return "", false
+}
+
 func (s *bandwidthSeries) add(sample bandwidthSample) {
 	if len(s.Samples) >= bandwidthSampleLimit {
 		copy(s.Samples, s.Samples[1:])
@@ -720,6 +845,73 @@ func formatRate(bytesPerSecond float64) string {
 		return fmt.Sprintf("%.1f KB/s", bytesPerSecond/1024)
 	}
 	return fmt.Sprintf("%.1f MB/s", bytesPerSecond/(1024*1024))
+}
+
+func formatBytes(n uint64) string {
+	if n < 1024 {
+		return fmt.Sprintf("%d B", n)
+	}
+	if n < 1024*1024 {
+		return fmt.Sprintf("%.1f KB", float64(n)/1024)
+	}
+	if n < 1024*1024*1024 {
+		return fmt.Sprintf("%.1f MB", float64(n)/(1024*1024))
+	}
+	return fmt.Sprintf("%.1f GB", float64(n)/(1024*1024*1024))
+}
+
+func formatDurationNs(ns int64) string {
+	if ns <= 0 {
+		return "--"
+	}
+	d := time.Duration(ns)
+	if d < time.Second {
+		return d.Truncate(time.Millisecond).String()
+	}
+	if d < time.Minute {
+		return d.Truncate(time.Second).String()
+	}
+	return d.Truncate(time.Minute).String()
+}
+
+func firstTrafficRows(rows []trafficConnectionPayload, max int) []trafficConnectionPayload {
+	if max <= 0 || len(rows) <= max {
+		return rows
+	}
+	return rows[:max]
+}
+
+func (m model) trafficVisibleRows() int {
+	height := m.height
+	if height <= 0 {
+		height = defaultLogViewHeight
+	}
+	rows := height - 8
+	if m.errText != "" {
+		rows--
+	}
+	if rows < 1 {
+		return 1
+	}
+	return rows
+}
+
+func trafficPath(conn trafficConnectionPayload) string {
+	if len(conn.Hops) == 0 {
+		return emptyDash(conn.ChainName)
+	}
+	parts := make([]string, 0, len(conn.Hops))
+	for _, hop := range conn.Hops {
+		name := hop.Name
+		if name == "" {
+			name = hop.Protocol
+		}
+		if hop.State != "" {
+			name += ":" + hop.State
+		}
+		parts = append(parts, name)
+	}
+	return strings.Join(parts, " > ")
 }
 
 func serverLocation(server serverPayload) string {

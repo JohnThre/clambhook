@@ -11,6 +11,7 @@ public interface IClambhookApi
     Task<StatusPayload> GetStatusAsync(CancellationToken cancellationToken = default);
     Task<ProfilesPayload> GetProfilesAsync(CancellationToken cancellationToken = default);
     Task<ServersPayload> GetServersAsync(CancellationToken cancellationToken = default);
+    Task<TrafficSnapshotPayload> GetTrafficAsync(CancellationToken cancellationToken = default);
     Task ConnectAsync(CancellationToken cancellationToken = default);
     Task DisconnectAsync(CancellationToken cancellationToken = default);
     Task SetActiveProfileAsync(string name, CancellationToken cancellationToken = default);
@@ -73,6 +74,9 @@ public sealed class ClambhookApiClient : IClambhookApi
 
     public Task<ServersPayload> GetServersAsync(CancellationToken cancellationToken = default) =>
         GetJsonAsync<ServersPayload>("/api/v1/servers", cancellationToken);
+
+    public Task<TrafficSnapshotPayload> GetTrafficAsync(CancellationToken cancellationToken = default) =>
+        GetJsonAsync<TrafficSnapshotPayload>("/api/v1/traffic?limit=200", cancellationToken);
 
     public async Task ConnectAsync(CancellationToken cancellationToken = default)
     {

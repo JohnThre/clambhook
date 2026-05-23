@@ -218,6 +218,230 @@ public struct BandwidthSample: Codable, Equatable, Sendable {
     }
 }
 
+public struct TrafficSnapshotPayload: Codable, Equatable, Sendable {
+    public var updatedTsNs: Int64
+    public var summary: TrafficSummaryPayload
+    public var connections: [TrafficConnectionPayload]
+
+    enum CodingKeys: String, CodingKey {
+        case updatedTsNs = "updated_ts_ns"
+        case summary
+        case connections
+    }
+
+    public init(updatedTsNs: Int64 = 0, summary: TrafficSummaryPayload = TrafficSummaryPayload(), connections: [TrafficConnectionPayload] = []) {
+        self.updatedTsNs = updatedTsNs
+        self.summary = summary
+        self.connections = connections
+    }
+}
+
+public struct TrafficSummaryPayload: Codable, Equatable, Sendable {
+    public var activeConnections: Int
+    public var rxBps: Double
+    public var txBps: Double
+    public var rxTotal: UInt64
+    public var txTotal: UInt64
+    public var historyLimit: Int
+    public var historyPath: String
+    public var historyPersisted: Bool
+    public var persistError: String
+
+    enum CodingKeys: String, CodingKey {
+        case activeConnections = "active_connections"
+        case rxBps = "rx_bps"
+        case txBps = "tx_bps"
+        case rxTotal = "rx_total"
+        case txTotal = "tx_total"
+        case historyLimit = "history_limit"
+        case historyPath = "history_path"
+        case historyPersisted = "history_persisted"
+        case persistError = "persist_error"
+    }
+
+    public init(activeConnections: Int = 0, rxBps: Double = 0, txBps: Double = 0, rxTotal: UInt64 = 0, txTotal: UInt64 = 0, historyLimit: Int = 0, historyPath: String = "", historyPersisted: Bool = false, persistError: String = "") {
+        self.activeConnections = activeConnections
+        self.rxBps = rxBps
+        self.txBps = txBps
+        self.rxTotal = rxTotal
+        self.txTotal = txTotal
+        self.historyLimit = historyLimit
+        self.historyPath = historyPath
+        self.historyPersisted = historyPersisted
+        self.persistError = persistError
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.activeConnections = try container.decodeIfPresent(Int.self, forKey: .activeConnections) ?? 0
+        self.rxBps = try container.decodeIfPresent(Double.self, forKey: .rxBps) ?? 0
+        self.txBps = try container.decodeIfPresent(Double.self, forKey: .txBps) ?? 0
+        self.rxTotal = try container.decodeIfPresent(UInt64.self, forKey: .rxTotal) ?? 0
+        self.txTotal = try container.decodeIfPresent(UInt64.self, forKey: .txTotal) ?? 0
+        self.historyLimit = try container.decodeIfPresent(Int.self, forKey: .historyLimit) ?? 0
+        self.historyPath = try container.decodeIfPresent(String.self, forKey: .historyPath) ?? ""
+        self.historyPersisted = try container.decodeIfPresent(Bool.self, forKey: .historyPersisted) ?? false
+        self.persistError = try container.decodeIfPresent(String.self, forKey: .persistError) ?? ""
+    }
+}
+
+public struct TrafficConnectionPayload: Codable, Equatable, Identifiable, Sendable {
+    public var id: String { connID }
+    public var connID: String
+    public var state: String
+    public var startTsNs: Int64
+    public var updatedTsNs: Int64
+    public var endTsNs: Int64
+    public var listener: TrafficListenerPayload
+    public var clientAddr: String
+    public var chainName: String
+    public var target: String
+    public var targetHost: String
+    public var targetPort: String
+    public var network: String
+    public var application: String
+    public var hops: [TrafficHopPayload]
+    public var geo: LocationPayload
+    public var geoError: String
+    public var totalDialNs: Int64
+    public var rxBps: Double
+    public var txBps: Double
+    public var rxTotal: UInt64
+    public var txTotal: UInt64
+    public var durationNs: Int64
+    public var closeReason: String
+
+    enum CodingKeys: String, CodingKey {
+        case connID = "conn_id"
+        case state
+        case startTsNs = "start_ts_ns"
+        case updatedTsNs = "updated_ts_ns"
+        case endTsNs = "end_ts_ns"
+        case listener
+        case clientAddr = "client_addr"
+        case chainName = "chain_name"
+        case target
+        case targetHost = "target_host"
+        case targetPort = "target_port"
+        case network
+        case application
+        case hops
+        case geo
+        case geoError = "geo_error"
+        case totalDialNs = "total_dial_ns"
+        case rxBps = "rx_bps"
+        case txBps = "tx_bps"
+        case rxTotal = "rx_total"
+        case txTotal = "tx_total"
+        case durationNs = "duration_ns"
+        case closeReason = "close_reason"
+    }
+
+    public init(connID: String = "", state: String = "", startTsNs: Int64 = 0, updatedTsNs: Int64 = 0, endTsNs: Int64 = 0, listener: TrafficListenerPayload = TrafficListenerPayload(), clientAddr: String = "", chainName: String = "", target: String = "", targetHost: String = "", targetPort: String = "", network: String = "", application: String = "", hops: [TrafficHopPayload] = [], geo: LocationPayload = LocationPayload(), geoError: String = "", totalDialNs: Int64 = 0, rxBps: Double = 0, txBps: Double = 0, rxTotal: UInt64 = 0, txTotal: UInt64 = 0, durationNs: Int64 = 0, closeReason: String = "") {
+        self.connID = connID
+        self.state = state
+        self.startTsNs = startTsNs
+        self.updatedTsNs = updatedTsNs
+        self.endTsNs = endTsNs
+        self.listener = listener
+        self.clientAddr = clientAddr
+        self.chainName = chainName
+        self.target = target
+        self.targetHost = targetHost
+        self.targetPort = targetPort
+        self.network = network
+        self.application = application
+        self.hops = hops
+        self.geo = geo
+        self.geoError = geoError
+        self.totalDialNs = totalDialNs
+        self.rxBps = rxBps
+        self.txBps = txBps
+        self.rxTotal = rxTotal
+        self.txTotal = txTotal
+        self.durationNs = durationNs
+        self.closeReason = closeReason
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.connID = try container.decodeIfPresent(String.self, forKey: .connID) ?? ""
+        self.state = try container.decodeIfPresent(String.self, forKey: .state) ?? ""
+        self.startTsNs = try container.decodeIfPresent(Int64.self, forKey: .startTsNs) ?? 0
+        self.updatedTsNs = try container.decodeIfPresent(Int64.self, forKey: .updatedTsNs) ?? 0
+        self.endTsNs = try container.decodeIfPresent(Int64.self, forKey: .endTsNs) ?? 0
+        self.listener = try container.decodeIfPresent(TrafficListenerPayload.self, forKey: .listener) ?? TrafficListenerPayload()
+        self.clientAddr = try container.decodeIfPresent(String.self, forKey: .clientAddr) ?? ""
+        self.chainName = try container.decodeIfPresent(String.self, forKey: .chainName) ?? ""
+        self.target = try container.decodeIfPresent(String.self, forKey: .target) ?? ""
+        self.targetHost = try container.decodeIfPresent(String.self, forKey: .targetHost) ?? ""
+        self.targetPort = try container.decodeIfPresent(String.self, forKey: .targetPort) ?? ""
+        self.network = try container.decodeIfPresent(String.self, forKey: .network) ?? ""
+        self.application = try container.decodeIfPresent(String.self, forKey: .application) ?? ""
+        self.hops = try container.decodeIfPresent([TrafficHopPayload].self, forKey: .hops) ?? []
+        self.geo = try container.decodeIfPresent(LocationPayload.self, forKey: .geo) ?? LocationPayload()
+        self.geoError = try container.decodeIfPresent(String.self, forKey: .geoError) ?? ""
+        self.totalDialNs = try container.decodeIfPresent(Int64.self, forKey: .totalDialNs) ?? 0
+        self.rxBps = try container.decodeIfPresent(Double.self, forKey: .rxBps) ?? 0
+        self.txBps = try container.decodeIfPresent(Double.self, forKey: .txBps) ?? 0
+        self.rxTotal = try container.decodeIfPresent(UInt64.self, forKey: .rxTotal) ?? 0
+        self.txTotal = try container.decodeIfPresent(UInt64.self, forKey: .txTotal) ?? 0
+        self.durationNs = try container.decodeIfPresent(Int64.self, forKey: .durationNs) ?? 0
+        self.closeReason = try container.decodeIfPresent(String.self, forKey: .closeReason) ?? ""
+    }
+}
+
+public struct TrafficListenerPayload: Codable, Equatable, Sendable {
+    public var `protocol`: String
+    public var addr: String
+
+    public init(protocol: String = "", addr: String = "") {
+        self.protocol = `protocol`
+        self.addr = addr
+    }
+}
+
+public struct TrafficHopPayload: Codable, Equatable, Sendable {
+    public var index: Int
+    public var name: String
+    public var `protocol`: String
+    public var address: String
+    public var state: String
+    public var elapsedNs: Int64
+    public var error: String
+
+    enum CodingKeys: String, CodingKey {
+        case index
+        case name
+        case `protocol`
+        case address
+        case state
+        case elapsedNs = "elapsed_ns"
+        case error
+    }
+
+    public init(index: Int = 0, name: String = "", protocol: String = "", address: String = "", state: String = "", elapsedNs: Int64 = 0, error: String = "") {
+        self.index = index
+        self.name = name
+        self.protocol = `protocol`
+        self.address = address
+        self.state = state
+        self.elapsedNs = elapsedNs
+        self.error = error
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.index = try container.decodeIfPresent(Int.self, forKey: .index) ?? 0
+        self.name = try container.decodeIfPresent(String.self, forKey: .name) ?? ""
+        self.protocol = try container.decodeIfPresent(String.self, forKey: .protocol) ?? ""
+        self.address = try container.decodeIfPresent(String.self, forKey: .address) ?? ""
+        self.state = try container.decodeIfPresent(String.self, forKey: .state) ?? ""
+        self.elapsedNs = try container.decodeIfPresent(Int64.self, forKey: .elapsedNs) ?? 0
+        self.error = try container.decodeIfPresent(String.self, forKey: .error) ?? ""
+    }
+}
+
 public struct DashboardSnapshot: Codable, Equatable, Sendable {
     public var updatedAt: Date
     public var apiOnline: Bool

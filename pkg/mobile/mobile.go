@@ -15,7 +15,9 @@ import (
 	"github.com/JohnThre/clambhook/internal/config"
 	"github.com/JohnThre/clambhook/internal/engine"
 	"github.com/JohnThre/clambhook/internal/events"
+	"github.com/JohnThre/clambhook/internal/geo"
 	"github.com/JohnThre/clambhook/internal/logstream"
+	"github.com/JohnThre/clambhook/internal/traffic"
 
 	// Register all protocols for embedded Android builds.
 	_ "github.com/JohnThre/clambhook/internal/protocol/openvpn"
@@ -39,6 +41,7 @@ type runtime struct {
 	eng *engine.Engine
 	bus *events.Bus
 	srv *api.Server
+	trf *traffic.Store
 }
 
 // Start launches the embedded API server. The actual proxy listeners are still
@@ -63,7 +66,22 @@ func Start(configPath, apiAddr, apiToken string) error {
 	bus := events.NewBus(events.DefaultConfig())
 	log.SetOutput(io.MultiWriter(os.Stderr, logstream.NewWriter(bus)))
 	eng := engine.New(cfg, bus)
-	srv := api.NewWithOptions(eng, bus, api.Options{AuthToken: strings.TrimSpace(apiToken)})
+	trafficStore, err := traffic.NewStore(cfg.Traffic, func(address string) (*geo.Location, error) {
+		return eng.GeoReader().Lookup(address)
+	})
+	if err != nil {
+		eng.Stop()
+		if closeErr := eng.CloseGeo(); closeErr != nil {
+			log.Printf("close geo after traffic start failure: %v", closeErr)
+		}
+		bus.Close()
+		return fmt.Errorf("traffic: %w", err)
+	}
+	trafficStore.Start(context.Background(), bus)
+	srv := api.NewWithOptions(eng, bus, api.Options{
+		AuthToken:    strings.TrimSpace(apiToken),
+		TrafficStore: trafficStore,
+	})
 	if err := srv.Start(apiAddr); err != nil {
 		eng.Stop()
 		if closeErr := eng.CloseGeo(); closeErr != nil {
@@ -73,7 +91,7 @@ func Start(configPath, apiAddr, apiToken string) error {
 		return fmt.Errorf("start api: %w", err)
 	}
 
-	active = &runtime{eng: eng, bus: bus, srv: srv}
+	active = &runtime{eng: eng, bus: bus, srv: srv, trf: trafficStore}
 	log.Printf("clambhook mobile runtime started")
 	return nil
 }
@@ -120,6 +138,11 @@ func Reload(configPath string) error {
 	cfg, err := loadConfig(configPath, defaultAPIAddr)
 	if err != nil {
 		return err
+	}
+	if active.trf != nil {
+		if err := active.trf.Reconfigure(cfg.Traffic); err != nil {
+			log.Printf("traffic reload: %v", err)
+		}
 	}
 	return active.eng.Reload(cfg)
 }
@@ -172,5 +195,6 @@ func defaultConfig(apiAddr string) *config.Config {
 				},
 			},
 		},
+		Traffic: config.DefaultTrafficConfig(),
 	}
 }

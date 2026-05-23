@@ -10,6 +10,7 @@ namespace Clambhook {
         public abstract async StatusPayload status() throws Error;
         public abstract async ProfilesPayload profiles() throws Error;
         public abstract async ServersPayload servers() throws Error;
+        public abstract async TrafficSnapshotPayload traffic() throws Error;
         public abstract async void connect() throws Error;
         public abstract async void disconnect() throws Error;
         public abstract async void set_active_profile(string name) throws Error;
@@ -40,6 +41,10 @@ namespace Clambhook {
 
         public async ServersPayload servers() throws Error {
             return ServersPayload.from_json(yield send("GET", "/api/v1/servers"));
+        }
+
+        public async TrafficSnapshotPayload traffic() throws Error {
+            return TrafficSnapshotPayload.from_json(yield send("GET", "/api/v1/traffic?limit=200"));
         }
 
         public async void connect() throws Error {

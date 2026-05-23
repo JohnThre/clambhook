@@ -6,6 +6,8 @@ import (
 	"net"
 	"net/http"
 	"strings"
+
+	"github.com/JohnThre/clambhook/internal/traffic"
 )
 
 // Options controls optional API server behavior.
@@ -14,6 +16,9 @@ type Options struct {
 	// non-empty. The token is intentionally opaque; callers own generation and
 	// storage.
 	AuthToken string
+
+	// TrafficStore enables the /api/v1/traffic snapshot endpoint when non-nil.
+	TrafficStore *traffic.Store
 }
 
 // ValidateAuthConfig rejects exposing an unauthenticated control API on

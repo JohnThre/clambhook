@@ -10,6 +10,16 @@ active = "🇺🇸 US Fast"
 # [geo]
 # database = "GeoLite2-City.mmdb"
 
+# Optional: local metadata-only traffic history for the native apps and TUI.
+# clambhook stores recent connection targets, rates, totals, timings, listener
+# and chain metadata, and hop status. Packet payloads are never stored.
+# Omit `history_path` to use the OS user cache directory.
+# [traffic]
+# enabled = true
+# history_limit = 500
+# history_max_age = "168h"
+# history_path = "traffic-history.json"
+
 [[profile]]
 name = "🇺🇸 US Fast"
 

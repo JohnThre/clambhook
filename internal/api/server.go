@@ -9,12 +9,14 @@ import (
 
 	"github.com/JohnThre/clambhook/internal/engine"
 	"github.com/JohnThre/clambhook/internal/events"
+	"github.com/JohnThre/clambhook/internal/traffic"
 )
 
 // Server is the HTTP API server for frontend communication.
 type Server struct {
 	engine    *engine.Engine
 	bus       *events.Bus
+	traffic   *traffic.Store
 	authToken string
 	server    *http.Server
 }
@@ -27,7 +29,12 @@ func New(eng *engine.Engine, bus *events.Bus) *Server {
 
 // NewWithOptions creates a new API server with optional route protection.
 func NewWithOptions(eng *engine.Engine, bus *events.Bus, opts Options) *Server {
-	s := &Server{engine: eng, bus: bus, authToken: strings.TrimSpace(opts.AuthToken)}
+	s := &Server{
+		engine:    eng,
+		bus:       bus,
+		traffic:   opts.TrafficStore,
+		authToken: strings.TrimSpace(opts.AuthToken),
+	}
 	mux := http.NewServeMux()
 	s.registerRoutes(mux)
 	s.server = &http.Server{Handler: s.authMiddleware(mux)}

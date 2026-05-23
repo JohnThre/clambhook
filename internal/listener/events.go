@@ -2,6 +2,9 @@ package listener
 
 import (
 	"context"
+	"net"
+	"strconv"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -94,11 +97,15 @@ func (c *connEvents) emitDialingNetwork(network, target string, hops []events.Ho
 		return
 	}
 	c.dialStart = time.Now()
+	host, port := splitTrafficTarget(target)
 	c.emitter.Emit(events.TypeConnectionDialing, events.ConnectionDialingData{
-		ConnID:  c.connID,
-		Target:  target,
-		Network: network,
-		Hops:    hops,
+		ConnID:      c.connID,
+		Target:      target,
+		TargetHost:  host,
+		TargetPort:  port,
+		Network:     network,
+		Application: inferTrafficApplication(network, host, port),
+		Hops:        hops,
 	})
 }
 
@@ -166,4 +173,53 @@ func classifyClose(ctx context.Context, relayErr error) string {
 		return events.ReasonError
 	}
 	return events.ReasonClientEOF
+}
+
+func splitTrafficTarget(target string) (host, port string) {
+	target = strings.TrimSpace(target)
+	if target == "" {
+		return "", ""
+	}
+	if h, p, err := net.SplitHostPort(target); err == nil {
+		return strings.Trim(h, "[]"), p
+	}
+	if i := strings.LastIndexByte(target, ':'); i > 0 && i < len(target)-1 {
+		candidate := target[i+1:]
+		if _, err := strconv.Atoi(candidate); err == nil {
+			return strings.Trim(target[:i], "[]"), candidate
+		}
+	}
+	return strings.Trim(target, "[]"), ""
+}
+
+func inferTrafficApplication(network, host, port string) string {
+	switch port {
+	case "20", "21":
+		return "FTP"
+	case "22":
+		return "SSH"
+	case "25", "465", "587":
+		return "SMTP"
+	case "53":
+		return "DNS"
+	case "80", "8080":
+		return "HTTP"
+	case "110", "995":
+		return "POP3"
+	case "123":
+		return "NTP"
+	case "143", "993":
+		return "IMAP"
+	case "443", "8443":
+		return "HTTPS"
+	case "853":
+		return "DNS over TLS"
+	}
+	if strings.HasPrefix(strings.ToLower(host), "www.") && port == "" {
+		return "Web"
+	}
+	if network != "" {
+		return strings.ToUpper(network)
+	}
+	return ""
 }

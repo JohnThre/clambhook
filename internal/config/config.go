@@ -11,9 +11,10 @@ import (
 
 // Config is the top-level configuration.
 type Config struct {
-	Active   string    `toml:"active"`
-	Profiles []Profile `toml:"profile"`
-	Geo      GeoConfig `toml:"geo"`
+	Active   string        `toml:"active"`
+	Profiles []Profile     `toml:"profile"`
+	Geo      GeoConfig     `toml:"geo"`
+	Traffic  TrafficConfig `toml:"traffic"`
 }
 
 // GeoConfig points at an MMDB file for IP → country/city lookups. Geo is a
@@ -24,6 +25,26 @@ type GeoConfig struct {
 	// schema-compatible vendor). Relative paths are resolved against the
 	// config file's directory by Load. Empty = geo disabled.
 	Database string `toml:"database"`
+}
+
+// TrafficConfig controls the local traffic-detail recorder. The recorder is
+// metadata-only: it stores connection targets, timings, byte counts, and hop
+// state, never payload bytes.
+type TrafficConfig struct {
+	Enabled       bool     `toml:"enabled"`
+	HistoryLimit  int      `toml:"history_limit"`
+	HistoryMaxAge Duration `toml:"history_max_age"`
+	HistoryPath   string   `toml:"history_path"`
+}
+
+// DefaultTrafficConfig returns conservative defaults for end-user traffic
+// details. Persistence is enabled but capped and local-only.
+func DefaultTrafficConfig() TrafficConfig {
+	return TrafficConfig{
+		Enabled:       true,
+		HistoryLimit:  500,
+		HistoryMaxAge: Duration(168 * time.Hour),
+	}
 }
 
 // Profile represents a named configuration profile.
@@ -120,7 +141,7 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("read config: %w", err)
 	}
 
-	var cfg Config
+	cfg := Config{Traffic: DefaultTrafficConfig()}
 	if err := toml.Unmarshal(data, &cfg); err != nil {
 		return nil, fmt.Errorf("parse config: %w", err)
 	}
@@ -129,6 +150,9 @@ func Load(path string) (*Config, error) {
 	// directory — matches how users intuitively think about TOML paths.
 	if cfg.Geo.Database != "" && !filepath.IsAbs(cfg.Geo.Database) {
 		cfg.Geo.Database = filepath.Join(filepath.Dir(path), cfg.Geo.Database)
+	}
+	if cfg.Traffic.HistoryPath != "" && !filepath.IsAbs(cfg.Traffic.HistoryPath) {
+		cfg.Traffic.HistoryPath = filepath.Join(filepath.Dir(path), cfg.Traffic.HistoryPath)
 	}
 
 	return &cfg, nil

@@ -44,6 +44,10 @@
 
                         <TextBlock Text="Listeners" FontSize="18" FontWeight="SemiBold" Margin="0,12,0,0" />
                         <ListView x:Name="ListenersList" MinHeight="96" />
+
+                        <TextBlock Text="Traffic" FontSize="18" FontWeight="SemiBold" Margin="0,12,0,0" />
+                        <TextBlock x:Name="TrafficSummaryText" TextWrapping="Wrap" />
+                        <ListView x:Name="TrafficList" MinHeight="180" />
                     </StackPanel>
 
                     <StackPanel Grid.Column="1" Spacing="8">

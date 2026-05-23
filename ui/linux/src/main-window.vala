@@ -12,12 +12,14 @@ namespace Clambhook {
         private Label api_label;
         private Label connections_label;
         private Label bandwidth_label;
+        private Label traffic_label;
         private ComboBoxText profile_combo;
         private Button connect_button;
         private Button disconnect_button;
         private Button daemon_button;
         private ListBox listeners_list;
         private ListBox servers_list;
+        private ListBox traffic_list;
         private ListBox logs_list;
         private uint refresh_source = 0;
 
@@ -102,6 +104,7 @@ namespace Clambhook {
             content.append(lists);
 
             content.append(wrap_list("Recent logs", out logs_list));
+            content.append(wrap_list("Traffic", out traffic_list));
             return content;
         }
 
@@ -119,6 +122,7 @@ namespace Clambhook {
             api_label = value_label("API offline");
             connections_label = value_label("0 active connections");
             bandwidth_label = value_label("0 B/s down / 0 B/s up");
+            traffic_label = value_label("0 active · 0 B down / 0 B up");
 
             grid.attach(caption_label("Status"), 0, 0, 1, 1);
             grid.attach(status_label, 1, 0, 1, 1);
@@ -130,6 +134,8 @@ namespace Clambhook {
             grid.attach(connections_label, 1, 3, 1, 1);
             grid.attach(caption_label("Bandwidth"), 0, 4, 1, 1);
             grid.attach(bandwidth_label, 1, 4, 1, 1);
+            grid.attach(caption_label("Traffic"), 0, 5, 1, 1);
+            grid.attach(traffic_label, 1, 5, 1, 1);
 
             profile_combo = new ComboBoxText();
             profile_combo.changed.connect(() => {
@@ -203,6 +209,13 @@ namespace Clambhook {
                 Formatters.format_rate(bandwidth.rx_bps),
                 Formatters.format_rate(bandwidth.tx_bps)
             );
+            traffic_label.label = "%d active · %s down / %s up · %s down total / %s up total".printf(
+                store.traffic.summary.active_connections,
+                Formatters.format_rate(store.traffic.summary.rx_bps),
+                Formatters.format_rate(store.traffic.summary.tx_bps),
+                Formatters.format_bytes(store.traffic.summary.rx_total),
+                Formatters.format_bytes(store.traffic.summary.tx_total)
+            );
             connect_button.sensitive = !store.status.running;
             disconnect_button.sensitive = store.status.running;
             daemon_button.label = daemon.is_running ? "Stop daemon" : "Start daemon";
@@ -210,6 +223,7 @@ namespace Clambhook {
             render_profiles();
             render_listeners();
             render_servers();
+            render_traffic();
             render_logs();
         }
 
@@ -263,6 +277,44 @@ namespace Clambhook {
             for (int i = start; i < store.logs.size; i++) {
                 logs_list.append(row(store.logs[i]));
             }
+        }
+
+        private void render_traffic() {
+            clear_list(traffic_list);
+            if (store.traffic.connections.size == 0) {
+                traffic_list.append(row("No traffic history"));
+                return;
+            }
+            var count = store.traffic.connections.size > 12 ? 12 : store.traffic.connections.size;
+            for (int i = 0; i < count; i++) {
+                var connection = store.traffic.connections[i];
+                var label = traffic_label_for(connection);
+                traffic_list.append(row("%s  %s  %s  %s down / %s up  %s".printf(
+                    connection.state,
+                    empty_dash(connection.target),
+                    label,
+                    Formatters.format_bytes(connection.rx_total),
+                    Formatters.format_bytes(connection.tx_total),
+                    Formatters.format_duration_ns(connection.duration_ns)
+                )));
+            }
+        }
+
+        private static string traffic_label_for(TrafficConnectionPayload connection) {
+            if (connection.application != "") {
+                return connection.application;
+            }
+            if (connection.network != "") {
+                return connection.network;
+            }
+            if (connection.chain_name != "") {
+                return connection.chain_name;
+            }
+            return connection.listener.protocol;
+        }
+
+        private static string empty_dash(string value) {
+            return value.strip() == "" ? "--" : value;
         }
 
         private static ListBoxRow row(string text) {

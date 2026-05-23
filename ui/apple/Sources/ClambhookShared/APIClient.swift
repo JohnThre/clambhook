@@ -4,6 +4,7 @@ public protocol ClambhookAPIProviding: AnyObject {
     func status() async throws -> StatusPayload
     func profiles() async throws -> ProfilesPayload
     func servers() async throws -> ServersPayload
+    func traffic() async throws -> TrafficSnapshotPayload
     func connect() async throws
     func disconnect() async throws
     func setActiveProfile(_ name: String) async throws
@@ -56,6 +57,10 @@ public final class ClambhookAPIClient: ClambhookAPIProviding {
 
     public func servers() async throws -> ServersPayload {
         try await getJSON("/api/v1/servers")
+    }
+
+    public func traffic() async throws -> TrafficSnapshotPayload {
+        try await getJSON("/api/v1/traffic?limit=200")
     }
 
     public func connect() async throws {

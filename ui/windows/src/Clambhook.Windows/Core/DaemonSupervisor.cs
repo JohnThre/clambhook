@@ -98,6 +98,36 @@ public static class Formatters
         return unit == 0 ? $"{(int)value} {units[unit]}" : $"{value:0.0} {units[unit]}";
     }
 
+    public static string FormatBytes(ulong bytes)
+    {
+        var units = new[] { "B", "KB", "MB", "GB" };
+        var value = (double)bytes;
+        var unit = 0;
+        while (value >= 1024 && unit < units.Length - 1)
+        {
+            value /= 1024;
+            unit++;
+        }
+
+        return unit == 0 ? $"{(ulong)value} {units[unit]}" : $"{value:0.0} {units[unit]}";
+    }
+
+    public static string FormatDurationNs(long ns)
+    {
+        if (ns <= 0)
+        {
+            return "--";
+        }
+
+        var seconds = ns / 1_000_000_000;
+        if (seconds < 1)
+        {
+            return $"{ns / 1_000_000} ms";
+        }
+
+        return seconds < 60 ? $"{seconds} s" : $"{seconds / 60} min";
+    }
+
     public static string ServerLocation(ServerPayload server)
     {
         var parts = new[] { server.Geo.City, server.Geo.Country }.Where(part => !string.IsNullOrWhiteSpace(part));

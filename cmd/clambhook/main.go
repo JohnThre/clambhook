@@ -14,7 +14,9 @@ import (
 	"github.com/JohnThre/clambhook/internal/config"
 	"github.com/JohnThre/clambhook/internal/engine"
 	"github.com/JohnThre/clambhook/internal/events"
+	"github.com/JohnThre/clambhook/internal/geo"
 	"github.com/JohnThre/clambhook/internal/logstream"
+	"github.com/JohnThre/clambhook/internal/traffic"
 	"github.com/JohnThre/clambhook/internal/watcher"
 
 	// Register all protocols.
@@ -64,18 +66,29 @@ func main() {
 					},
 				},
 			},
+			Traffic: config.DefaultTrafficConfig(),
 		}
 	}
 
 	bus := events.NewBus(events.DefaultConfig())
 	log.SetOutput(io.MultiWriter(os.Stderr, logstream.NewWriter(bus)))
 	eng := engine.New(cfg, bus)
+	trafficStore, err := traffic.NewStore(cfg.Traffic, func(address string) (*geo.Location, error) {
+		return eng.GeoReader().Lookup(address)
+	})
+	if err != nil {
+		log.Fatalf("traffic: %v", err)
+	}
 
 	if err := api.ValidateAuthConfig(*apiAddr, *apiToken); err != nil {
 		log.Fatalf("api auth: %v", err)
 	}
 
-	srv := api.NewWithOptions(eng, bus, api.Options{AuthToken: *apiToken})
+	trafficCtx, trafficCancel := context.WithCancel(context.Background())
+	defer trafficCancel()
+	trafficStore.Start(trafficCtx, bus)
+
+	srv := api.NewWithOptions(eng, bus, api.Options{AuthToken: *apiToken, TrafficStore: trafficStore})
 	if err := srv.Start(*apiAddr); err != nil {
 		log.Fatalf("start api: %v", err)
 	}
@@ -89,7 +102,14 @@ func main() {
 	var cfgWatcher *watcher.Watcher
 	if *configPath != "" && !*noWatch {
 		var err error
-		cfgWatcher, err = watcher.New(*configPath, eng.Reload, bus)
+		cfgWatcher, err = watcher.New(*configPath, func(next *config.Config) error {
+			if trafficStore != nil {
+				if err := trafficStore.Reconfigure(next.Traffic); err != nil {
+					log.Printf("traffic reload: %v", err)
+				}
+			}
+			return eng.Reload(next)
+		}, bus)
 		if err != nil {
 			log.Fatalf("init config watcher: %v", err)
 		}

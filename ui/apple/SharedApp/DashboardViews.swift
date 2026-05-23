@@ -58,6 +58,10 @@ struct DashboardContentView: View {
                 LabeledContent("Rx", value: formatRate(sample.rxBps))
                 LabeledContent("Tx", value: formatRate(sample.txBps))
             }
+            Section("Traffic") {
+                TrafficSummaryView(traffic: model.dashboard.traffic)
+                TrafficListView(connections: model.dashboard.traffic.connections)
+            }
             Section("Logs") {
                 if model.dashboard.logs.isEmpty {
                     Text("No logs yet")
@@ -74,6 +78,62 @@ struct DashboardContentView: View {
         .task {
             model.refresh()
         }
+    }
+}
+
+struct TrafficSummaryView: View {
+    var traffic: TrafficSnapshotPayload
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            LabeledContent("Active", value: "\(traffic.summary.activeConnections)")
+            LabeledContent("Down", value: formatRate(traffic.summary.rxBps))
+            LabeledContent("Up", value: formatRate(traffic.summary.txBps))
+            LabeledContent("Total", value: "\(formatBytes(traffic.summary.rxTotal)) down / \(formatBytes(traffic.summary.txTotal)) up")
+            if !traffic.summary.persistError.isEmpty {
+                Text(traffic.summary.persistError)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+            }
+        }
+    }
+}
+
+struct TrafficListView: View {
+    var connections: [TrafficConnectionPayload]
+
+    var body: some View {
+        if connections.isEmpty {
+            Text("No traffic history")
+                .foregroundStyle(.secondary)
+        } else {
+            ForEach(connections.prefix(12)) { connection in
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text(emptyDash(connection.target))
+                            .fontWeight(.medium)
+                        Spacer()
+                        Text(connection.state)
+                            .foregroundStyle(.secondary)
+                    }
+                    Text(trafficSubtitle(connection))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Text("\(formatBytes(connection.rxTotal)) down · \(formatBytes(connection.txTotal)) up · \(formatDurationNs(connection.durationNs))")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+
+    private func trafficSubtitle(_ connection: TrafficConnectionPayload) -> String {
+        let parts = [connection.application, connection.network, connection.chainName]
+            .filter { !$0.isEmpty }
+        if !parts.isEmpty {
+            return parts.joined(separator: " · ")
+        }
+        return connection.listener.protocol
     }
 }
 
