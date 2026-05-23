@@ -41,6 +41,9 @@ fun DashboardScreen(
             StatusCard(state, onRefresh, onConnect, onDisconnect)
         }
         item {
+            TrafficCard(state.traffic)
+        }
+        item {
             ProfilesCard(state, onProfileSelected)
         }
         item {
@@ -51,6 +54,54 @@ fun DashboardScreen(
         }
         item {
             LogsCard(state.logs)
+        }
+    }
+}
+
+@Composable
+private fun TrafficCard(traffic: TrafficSnapshotPayload) {
+    Card {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Column {
+                    Text("Traffic", style = MaterialTheme.typography.titleMedium)
+                    Text("${traffic.summary.activeConnections} active", style = MaterialTheme.typography.bodySmall)
+                }
+                Column {
+                    Text("${formatRate(traffic.summary.rxBps)} down", fontWeight = FontWeight.SemiBold)
+                    Text("${formatRate(traffic.summary.txBps)} up", style = MaterialTheme.typography.bodySmall)
+                }
+            }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text("Total down ${formatBytes(traffic.summary.rxTotal)}", style = MaterialTheme.typography.bodySmall)
+                Text("Total up ${formatBytes(traffic.summary.txTotal)}", style = MaterialTheme.typography.bodySmall)
+            }
+            if (traffic.summary.persistError.isNotBlank()) {
+                Text(traffic.summary.persistError, color = MaterialTheme.colorScheme.error)
+            }
+            if (traffic.connections.isEmpty()) {
+                Text("No traffic history")
+            } else {
+                traffic.connections.take(8).forEach { connection ->
+                    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text(connection.target.ifBlank { "--" }, fontWeight = FontWeight.SemiBold)
+                            Text(connection.state)
+                        }
+                        Text(
+                            listOf(connection.application, connection.network, connection.chainName)
+                                .filter { it.isNotBlank() }
+                                .joinToString(" · ")
+                                .ifBlank { connection.listener.protocol },
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                        Text(
+                            "${formatBytes(connection.rxTotal)} down · ${formatBytes(connection.txTotal)} up · ${formatDurationNs(connection.durationNs)}",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                }
+            }
         }
     }
 }

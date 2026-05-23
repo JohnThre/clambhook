@@ -12,7 +12,12 @@ public sealed class DashboardStoreTests
         {
             Status = new StatusPayload(true, "A", [new ListenerStatusPayload("socks5", "127.0.0.1:1080", 3)]),
             Profiles = new ProfilesPayload(["A", "B"], "A"),
-            Servers = new ServersPayload("A", [new ChainPayload("default", [new ServerPayload("london", "uk.example:443", "vless")])])
+            Servers = new ServersPayload("A", [new ChainPayload("default", [new ServerPayload("london", "uk.example:443", "vless")])]),
+            Traffic = new TrafficSnapshotPayload
+            {
+                Summary = new TrafficSummaryPayload { ActiveConnections = 1, RxBps = 2048 },
+                Connections = [new TrafficConnectionPayload { ConnId = "c1", State = "active", Target = "example.com:443" }]
+            }
         };
         var store = new DashboardStore(api);
 
@@ -23,6 +28,7 @@ public sealed class DashboardStoreTests
         Assert.Equal("A", store.State.ActiveProfile);
         Assert.Equal(3, store.State.ActiveConnections);
         Assert.Equal("london", store.State.Servers.Chains.Single().Servers.Single().Name);
+        Assert.Equal("example.com:443", store.State.Traffic.Connections.Single().Target);
     }
 
     [Fact]
@@ -50,6 +56,7 @@ public sealed class DashboardStoreTests
         Assert.Equal(3, api.StatusCalls);
         Assert.Equal(3, api.ProfileCalls);
         Assert.Equal(3, api.ServerCalls);
+        Assert.Equal(3, api.TrafficCalls);
     }
 
     [Fact]
@@ -91,11 +98,13 @@ internal sealed class FakeApi : IClambhookApi
     public StatusPayload Status { get; set; } = new();
     public ProfilesPayload Profiles { get; set; } = new(["A", "B"], "A");
     public ServersPayload Servers { get; set; } = new("A", []);
+    public TrafficSnapshotPayload Traffic { get; set; } = new();
     public Exception? Error { get; set; }
     public List<string> Actions { get; } = [];
     public int StatusCalls { get; private set; }
     public int ProfileCalls { get; private set; }
     public int ServerCalls { get; private set; }
+    public int TrafficCalls { get; private set; }
 
     public Task<StatusPayload> GetStatusAsync(CancellationToken cancellationToken = default)
     {
@@ -116,6 +125,13 @@ internal sealed class FakeApi : IClambhookApi
         ServerCalls++;
         if (Error is not null) throw Error;
         return Task.FromResult(Servers);
+    }
+
+    public Task<TrafficSnapshotPayload> GetTrafficAsync(CancellationToken cancellationToken = default)
+    {
+        TrafficCalls++;
+        if (Error is not null) throw Error;
+        return Task.FromResult(Traffic);
     }
 
     public Task ConnectAsync(CancellationToken cancellationToken = default)

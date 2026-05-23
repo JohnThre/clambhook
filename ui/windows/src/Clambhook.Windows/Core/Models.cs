@@ -152,6 +152,127 @@ public sealed class DaemonEvent
 
 public sealed record BandwidthSample(double RxBps = 0, double TxBps = 0);
 
+public sealed class TrafficSnapshotPayload
+{
+    [JsonPropertyName("updated_ts_ns")]
+    public long UpdatedTsNs { get; init; }
+
+    public TrafficSummaryPayload Summary { get; init; } = new();
+    public IReadOnlyList<TrafficConnectionPayload> Connections { get; init; } = [];
+}
+
+public sealed class TrafficSummaryPayload
+{
+    [JsonPropertyName("active_connections")]
+    public int ActiveConnections { get; init; }
+
+    [JsonPropertyName("rx_bps")]
+    public double RxBps { get; init; }
+
+    [JsonPropertyName("tx_bps")]
+    public double TxBps { get; init; }
+
+    [JsonPropertyName("rx_total")]
+    public ulong RxTotal { get; init; }
+
+    [JsonPropertyName("tx_total")]
+    public ulong TxTotal { get; init; }
+
+    [JsonPropertyName("history_limit")]
+    public int HistoryLimit { get; init; }
+
+    [JsonPropertyName("history_path")]
+    public string HistoryPath { get; init; } = "";
+
+    [JsonPropertyName("history_persisted")]
+    public bool HistoryPersisted { get; init; }
+
+    [JsonPropertyName("persist_error")]
+    public string PersistError { get; init; } = "";
+}
+
+public sealed class TrafficConnectionPayload
+{
+    [JsonPropertyName("conn_id")]
+    public string ConnId { get; init; } = "";
+
+    public string State { get; init; } = "";
+
+    [JsonPropertyName("start_ts_ns")]
+    public long StartTsNs { get; init; }
+
+    [JsonPropertyName("updated_ts_ns")]
+    public long UpdatedTsNs { get; init; }
+
+    [JsonPropertyName("end_ts_ns")]
+    public long EndTsNs { get; init; }
+
+    public TrafficListenerPayload Listener { get; init; } = new();
+
+    [JsonPropertyName("client_addr")]
+    public string ClientAddr { get; init; } = "";
+
+    [JsonPropertyName("chain_name")]
+    public string ChainName { get; init; } = "";
+
+    public string Target { get; init; } = "";
+
+    [JsonPropertyName("target_host")]
+    public string TargetHost { get; init; } = "";
+
+    [JsonPropertyName("target_port")]
+    public string TargetPort { get; init; } = "";
+
+    public string Network { get; init; } = "";
+    public string Application { get; init; } = "";
+    public IReadOnlyList<TrafficHopPayload> Hops { get; init; } = [];
+    public LocationPayload Geo { get; init; } = new();
+
+    [JsonPropertyName("geo_error")]
+    public string GeoError { get; init; } = "";
+
+    [JsonPropertyName("total_dial_ns")]
+    public long TotalDialNs { get; init; }
+
+    [JsonPropertyName("rx_bps")]
+    public double RxBps { get; init; }
+
+    [JsonPropertyName("tx_bps")]
+    public double TxBps { get; init; }
+
+    [JsonPropertyName("rx_total")]
+    public ulong RxTotal { get; init; }
+
+    [JsonPropertyName("tx_total")]
+    public ulong TxTotal { get; init; }
+
+    [JsonPropertyName("duration_ns")]
+    public long DurationNs { get; init; }
+
+    [JsonPropertyName("close_reason")]
+    public string CloseReason { get; init; } = "";
+}
+
+public sealed class TrafficListenerPayload
+{
+    public string Protocol { get; init; } = "";
+    public string Addr { get; init; } = "";
+}
+
+public sealed class TrafficHopPayload
+{
+    public int Index { get; init; }
+    public string Name { get; init; } = "";
+    public string Protocol { get; init; } = "";
+    public string Address { get; init; } = "";
+    public string State { get; init; } = "";
+
+    [JsonPropertyName("elapsed_ns")]
+    public long ElapsedNs { get; init; }
+
+    public string Error { get; init; } = "";
+}
+
 public static class JsonElementExtensions
 {
     public static double? DoubleValueOrNull(this JsonElement element)

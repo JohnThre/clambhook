@@ -72,10 +72,13 @@ type ConnectionOpenedData struct {
 
 // ConnectionDialingData is emitted before the chain dial begins.
 type ConnectionDialingData struct {
-	ConnID  string    `json:"conn_id"`
-	Target  string    `json:"target"`
-	Network string    `json:"network,omitempty"`
-	Hops    []HopInfo `json:"hops"`
+	ConnID      string    `json:"conn_id"`
+	Target      string    `json:"target"`
+	TargetHost  string    `json:"target_host,omitempty"`
+	TargetPort  string    `json:"target_port,omitempty"`
+	Network     string    `json:"network,omitempty"`
+	Application string    `json:"application,omitempty"`
+	Hops        []HopInfo `json:"hops"`
 }
 
 // HopDialingData is emitted per hop as the chain dial progresses.

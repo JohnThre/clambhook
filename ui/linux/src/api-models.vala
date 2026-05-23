@@ -238,6 +238,155 @@ namespace Clambhook {
         }
     }
 
+    public class TrafficSummaryPayload : Object {
+        public int active_connections { get; set; default = 0; }
+        public double rx_bps { get; set; default = 0; }
+        public double tx_bps { get; set; default = 0; }
+        public uint64 rx_total { get; set; default = 0; }
+        public uint64 tx_total { get; set; default = 0; }
+        public int history_limit { get; set; default = 0; }
+        public string history_path { get; set; default = ""; }
+        public bool history_persisted { get; set; default = false; }
+        public string persist_error { get; set; default = ""; }
+    }
+
+    public class TrafficListenerPayload : Object {
+        public string protocol { get; set; default = ""; }
+        public string addr { get; set; default = ""; }
+    }
+
+    public class TrafficHopPayload : Object {
+        public int index { get; set; default = 0; }
+        public string name { get; set; default = ""; }
+        public string protocol { get; set; default = ""; }
+        public string address { get; set; default = ""; }
+        public string state { get; set; default = ""; }
+        public int64 elapsed_ns { get; set; default = 0; }
+        public string error { get; set; default = ""; }
+    }
+
+    public class TrafficConnectionPayload : Object {
+        public string conn_id { get; set; default = ""; }
+        public string state { get; set; default = ""; }
+        public int64 start_ts_ns { get; set; default = 0; }
+        public int64 updated_ts_ns { get; set; default = 0; }
+        public int64 end_ts_ns { get; set; default = 0; }
+        public TrafficListenerPayload listener { get; set; default = new TrafficListenerPayload(); }
+        public string client_addr { get; set; default = ""; }
+        public string chain_name { get; set; default = ""; }
+        public string target { get; set; default = ""; }
+        public string target_host { get; set; default = ""; }
+        public string target_port { get; set; default = ""; }
+        public string network { get; set; default = ""; }
+        public string application { get; set; default = ""; }
+        public Gee.ArrayList<TrafficHopPayload> hops { get; private set; default = new Gee.ArrayList<TrafficHopPayload>(); }
+        public LocationPayload geo { get; set; default = new LocationPayload(); }
+        public string geo_error { get; set; default = ""; }
+        public int64 total_dial_ns { get; set; default = 0; }
+        public double rx_bps { get; set; default = 0; }
+        public double tx_bps { get; set; default = 0; }
+        public uint64 rx_total { get; set; default = 0; }
+        public uint64 tx_total { get; set; default = 0; }
+        public int64 duration_ns { get; set; default = 0; }
+        public string close_reason { get; set; default = ""; }
+    }
+
+    public class TrafficSnapshotPayload : Object {
+        public int64 updated_ts_ns { get; set; default = 0; }
+        public TrafficSummaryPayload summary { get; set; default = new TrafficSummaryPayload(); }
+        public Gee.ArrayList<TrafficConnectionPayload> connections { get; private set; default = new Gee.ArrayList<TrafficConnectionPayload>(); }
+
+        public static TrafficSnapshotPayload from_json(string json) {
+            try {
+                return from_object(JsonReader.root_object(json));
+            } catch (Error err) {
+                return new TrafficSnapshotPayload();
+            }
+        }
+
+        public static TrafficSnapshotPayload from_object(Json.Object object) {
+            var payload = new TrafficSnapshotPayload();
+            payload.updated_ts_ns = JsonReader.int64_member(object, "updated_ts_ns");
+            if (JsonReader.has_object(object, "summary")) {
+                payload.summary = summary_from_object(object.get_object_member("summary"));
+            }
+            if (JsonReader.has_array(object, "connections")) {
+                var connections = object.get_array_member("connections");
+                for (uint i = 0; i < connections.get_length(); i++) {
+                    payload.connections.add(connection_from_object(connections.get_object_element(i)));
+                }
+            }
+            return payload;
+        }
+
+        private static TrafficSummaryPayload summary_from_object(Json.Object object) {
+            var summary = new TrafficSummaryPayload();
+            summary.active_connections = JsonReader.int_member(object, "active_connections");
+            summary.rx_bps = JsonReader.double_member(object, "rx_bps");
+            summary.tx_bps = JsonReader.double_member(object, "tx_bps");
+            summary.rx_total = (uint64) JsonReader.int64_member(object, "rx_total");
+            summary.tx_total = (uint64) JsonReader.int64_member(object, "tx_total");
+            summary.history_limit = JsonReader.int_member(object, "history_limit");
+            summary.history_path = JsonReader.string_member(object, "history_path");
+            summary.history_persisted = JsonReader.bool_member(object, "history_persisted");
+            summary.persist_error = JsonReader.string_member(object, "persist_error");
+            return summary;
+        }
+
+        private static TrafficConnectionPayload connection_from_object(Json.Object object) {
+            var connection = new TrafficConnectionPayload();
+            connection.conn_id = JsonReader.string_member(object, "conn_id");
+            connection.state = JsonReader.string_member(object, "state");
+            connection.start_ts_ns = JsonReader.int64_member(object, "start_ts_ns");
+            connection.updated_ts_ns = JsonReader.int64_member(object, "updated_ts_ns");
+            connection.end_ts_ns = JsonReader.int64_member(object, "end_ts_ns");
+            if (JsonReader.has_object(object, "listener")) {
+                var listener = object.get_object_member("listener");
+                connection.listener.protocol = JsonReader.string_member(listener, "protocol");
+                connection.listener.addr = JsonReader.string_member(listener, "addr");
+            }
+            connection.client_addr = JsonReader.string_member(object, "client_addr");
+            connection.chain_name = JsonReader.string_member(object, "chain_name");
+            connection.target = JsonReader.string_member(object, "target");
+            connection.target_host = JsonReader.string_member(object, "target_host");
+            connection.target_port = JsonReader.string_member(object, "target_port");
+            connection.network = JsonReader.string_member(object, "network");
+            connection.application = JsonReader.string_member(object, "application");
+            if (JsonReader.has_array(object, "hops")) {
+                var hops = object.get_array_member("hops");
+                for (uint i = 0; i < hops.get_length(); i++) {
+                    var hop_object = hops.get_object_element(i);
+                    var hop = new TrafficHopPayload();
+                    hop.index = JsonReader.int_member(hop_object, "index");
+                    hop.name = JsonReader.string_member(hop_object, "name");
+                    hop.protocol = JsonReader.string_member(hop_object, "protocol");
+                    hop.address = JsonReader.string_member(hop_object, "address");
+                    hop.state = JsonReader.string_member(hop_object, "state");
+                    hop.elapsed_ns = JsonReader.int64_member(hop_object, "elapsed_ns");
+                    hop.error = JsonReader.string_member(hop_object, "error");
+                    connection.hops.add(hop);
+                }
+            }
+            if (JsonReader.has_object(object, "geo")) {
+                var geo_object = object.get_object_member("geo");
+                connection.geo.country = JsonReader.string_member(geo_object, "country");
+                connection.geo.country_code = JsonReader.string_member(geo_object, "country_code");
+                connection.geo.city = JsonReader.string_member(geo_object, "city");
+                connection.geo.latitude = JsonReader.double_member(geo_object, "latitude");
+                connection.geo.longitude = JsonReader.double_member(geo_object, "longitude");
+            }
+            connection.geo_error = JsonReader.string_member(object, "geo_error");
+            connection.total_dial_ns = JsonReader.int64_member(object, "total_dial_ns");
+            connection.rx_bps = JsonReader.double_member(object, "rx_bps");
+            connection.tx_bps = JsonReader.double_member(object, "tx_bps");
+            connection.rx_total = (uint64) JsonReader.int64_member(object, "rx_total");
+            connection.tx_total = (uint64) JsonReader.int64_member(object, "tx_total");
+            connection.duration_ns = JsonReader.int64_member(object, "duration_ns");
+            connection.close_reason = JsonReader.string_member(object, "close_reason");
+            return connection;
+        }
+    }
+
     public class BandwidthSample : Object {
         public double rx_bps { get; set; default = 0; }
         public double tx_bps { get; set; default = 0; }

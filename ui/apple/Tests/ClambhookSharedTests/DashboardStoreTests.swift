@@ -13,6 +13,10 @@ final class DashboardStoreTests: XCTestCase {
             listeners: [ListenerStatusPayload(protocol: "socks5", addr: "127.0.0.1:1080", activeConns: 3)]
         )
         api.profilesResult = ProfilesPayload(profiles: ["A", "B"], active: "A")
+        api.trafficResult = TrafficSnapshotPayload(
+            summary: TrafficSummaryPayload(activeConnections: 1, rxBps: 2048, txBps: 1024),
+            connections: [TrafficConnectionPayload(connID: "c1", state: "active", target: "example.com:443")]
+        )
         api.serversResult = ServersPayload(
             profile: "A",
             chains: [ChainPayload(name: "default", servers: [
@@ -32,6 +36,7 @@ final class DashboardStoreTests: XCTestCase {
         XCTAssertTrue(store.status.running)
         XCTAssertEqual(store.profiles.profiles, ["A", "B"])
         XCTAssertEqual(store.servers.chains.first?.servers.first?.name, "london")
+        XCTAssertEqual(store.traffic.connections.first?.target, "example.com:443")
         let snapshot = try await snapshotStore.load()
         XCTAssertTrue(snapshot.apiOnline)
         XCTAssertTrue(snapshot.running)
@@ -103,6 +108,7 @@ private final class FakeAPIClient: ClambhookAPIProviding {
     var statusResult = StatusPayload(running: false, profile: "", listeners: [])
     var profilesResult = ProfilesPayload(profiles: [], active: "")
     var serversResult = ServersPayload(profile: "", chains: [])
+    var trafficResult = TrafficSnapshotPayload()
     private(set) var connectCalls = 0
     private(set) var disconnectCalls = 0
     private(set) var selectedProfiles: [String] = []
@@ -117,6 +123,10 @@ private final class FakeAPIClient: ClambhookAPIProviding {
 
     func servers() async throws -> ServersPayload {
         serversResult
+    }
+
+    func traffic() async throws -> TrafficSnapshotPayload {
+        trafficResult
     }
 
     func connect() async throws {

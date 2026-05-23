@@ -25,6 +25,10 @@ class DashboardRepositoryTest {
                         servers = listOf(ServerPayload(name = "london", address = "uk.example:443", protocol = "vless"))
                     )
                 )
+            ),
+            traffic = TrafficSnapshotPayload(
+                summary = TrafficSummaryPayload(activeConnections = 1, rxBps = 1024.0),
+                connections = listOf(TrafficConnectionPayload(connId = "c1", state = "active", target = "example.com:443"))
             )
         )
         val repository = DashboardRepository(api)
@@ -37,6 +41,7 @@ class DashboardRepositoryTest {
         assertEquals("A", state.activeProfile)
         assertEquals(3, state.activeConnections)
         assertEquals("london", state.servers.chains.single().servers.single().name)
+        assertEquals("example.com:443", state.traffic.connections.single().target)
     }
 
     @Test
@@ -63,6 +68,7 @@ class DashboardRepositoryTest {
         assertEquals(3, api.statusCalls)
         assertEquals(3, api.profileCalls)
         assertEquals(3, api.serverCalls)
+        assertEquals(3, api.trafficCalls)
     }
 
     @Test
@@ -106,12 +112,14 @@ private class FakeApi(
     private val status: StatusPayload = StatusPayload(),
     private val profiles: ProfilesPayload = ProfilesPayload(profiles = listOf("A", "B"), active = "A"),
     private val servers: ServersPayload = ServersPayload(profile = "A"),
+    private val traffic: TrafficSnapshotPayload = TrafficSnapshotPayload(),
     private val error: Throwable? = null
 ) : ClambhookApi {
     val actions = mutableListOf<String>()
     var statusCalls = 0
     var profileCalls = 0
     var serverCalls = 0
+    var trafficCalls = 0
 
     override suspend fun status(): StatusPayload {
         statusCalls += 1
@@ -129,6 +137,12 @@ private class FakeApi(
         serverCalls += 1
         error?.let { throw it }
         return servers
+    }
+
+    override suspend fun traffic(): TrafficSnapshotPayload {
+        trafficCalls += 1
+        error?.let { throw it }
+        return traffic
     }
 
     override suspend fun connect() {

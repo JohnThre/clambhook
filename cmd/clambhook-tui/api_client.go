@@ -59,6 +59,65 @@ type locationPayload struct {
 	Longitude   float64 `json:"longitude,omitempty"`
 }
 
+type trafficSnapshotPayload struct {
+	UpdatedTsNs int64                      `json:"updated_ts_ns"`
+	Summary     trafficSummaryPayload      `json:"summary"`
+	Connections []trafficConnectionPayload `json:"connections"`
+}
+
+type trafficSummaryPayload struct {
+	ActiveConnections int     `json:"active_connections"`
+	RxBps             float64 `json:"rx_bps"`
+	TxBps             float64 `json:"tx_bps"`
+	RxTotal           uint64  `json:"rx_total"`
+	TxTotal           uint64  `json:"tx_total"`
+	HistoryLimit      int     `json:"history_limit"`
+	HistoryPath       string  `json:"history_path,omitempty"`
+	HistoryPersisted  bool    `json:"history_persisted"`
+	PersistError      string  `json:"persist_error,omitempty"`
+}
+
+type trafficConnectionPayload struct {
+	ConnID      string          `json:"conn_id"`
+	State       string          `json:"state"`
+	StartTsNs   int64           `json:"start_ts_ns"`
+	UpdatedTsNs int64           `json:"updated_ts_ns"`
+	EndTsNs     int64           `json:"end_ts_ns,omitempty"`
+	Listener    listenerInfo    `json:"listener"`
+	ClientAddr  string          `json:"client_addr,omitempty"`
+	ChainName   string          `json:"chain_name,omitempty"`
+	Target      string          `json:"target,omitempty"`
+	TargetHost  string          `json:"target_host,omitempty"`
+	TargetPort  string          `json:"target_port,omitempty"`
+	Network     string          `json:"network,omitempty"`
+	Application string          `json:"application,omitempty"`
+	Hops        []trafficHop    `json:"hops,omitempty"`
+	Geo         locationPayload `json:"geo"`
+	GeoError    string          `json:"geo_error,omitempty"`
+	TotalDialNs int64           `json:"total_dial_ns,omitempty"`
+	RxBps       float64         `json:"rx_bps"`
+	TxBps       float64         `json:"tx_bps"`
+	RxTotal     uint64          `json:"rx_total"`
+	TxTotal     uint64          `json:"tx_total"`
+	DurationNs  int64           `json:"duration_ns,omitempty"`
+	CloseReason string          `json:"close_reason,omitempty"`
+}
+
+type listenerInfo struct {
+	Protocol string `json:"protocol"`
+	Addr     string `json:"addr"`
+}
+
+type trafficHop struct {
+	Index     int    `json:"index"`
+	Name      string `json:"name,omitempty"`
+	Protocol  string `json:"protocol,omitempty"`
+	Address   string `json:"address,omitempty"`
+	State     string `json:"state,omitempty"`
+	ElapsedNs int64  `json:"elapsed_ns,omitempty"`
+	Error     string `json:"error,omitempty"`
+}
+
 func newAPIClient(apiAddr string) apiClient {
 	if strings.HasPrefix(apiAddr, "http://") || strings.HasPrefix(apiAddr, "https://") {
 		return newAPIClientFromBaseURL(apiAddr)
@@ -98,6 +157,12 @@ func (c apiClient) profiles() (profilesPayload, error) {
 func (c apiClient) servers() (serversPayload, error) {
 	var out serversPayload
 	err := c.getJSON("/api/v1/servers", &out)
+	return out, err
+}
+
+func (c apiClient) traffic() (trafficSnapshotPayload, error) {
+	var out trafficSnapshotPayload
+	err := c.getJSON("/api/v1/traffic?limit=200", &out)
 	return out, err
 }
 

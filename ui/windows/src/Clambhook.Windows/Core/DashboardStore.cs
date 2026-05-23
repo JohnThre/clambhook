@@ -8,6 +8,7 @@ public sealed record DashboardState
     public StatusPayload Status { get; init; } = new();
     public ProfilesPayload Profiles { get; init; } = new();
     public ServersPayload Servers { get; init; } = new();
+    public TrafficSnapshotPayload Traffic { get; init; } = new();
     public IReadOnlyList<BandwidthSample> BandwidthSamples { get; init; } = [];
     public IReadOnlyList<string> Logs { get; init; } = [];
     public bool ApiOnline { get; init; }
@@ -48,11 +49,13 @@ public sealed class DashboardStore : INotifyPropertyChanged
             var status = await _api.GetStatusAsync(cancellationToken);
             var profiles = await _api.GetProfilesAsync(cancellationToken);
             var servers = await _api.GetServersAsync(cancellationToken);
+            var traffic = await _api.GetTrafficAsync(cancellationToken);
             State = State with
             {
                 Status = status,
                 Profiles = profiles,
                 Servers = servers,
+                Traffic = traffic,
                 ApiOnline = true,
                 ErrorText = ""
             };
@@ -68,7 +71,8 @@ public sealed class DashboardStore : INotifyPropertyChanged
         try
         {
             var status = await _api.GetStatusAsync(cancellationToken);
-            State = State with { Status = status, ApiOnline = true, ErrorText = "" };
+            var traffic = await _api.GetTrafficAsync(cancellationToken);
+            State = State with { Status = status, Traffic = traffic, ApiOnline = true, ErrorText = "" };
         }
         catch (Exception error)
         {

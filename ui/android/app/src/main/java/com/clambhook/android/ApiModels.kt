@@ -78,6 +78,97 @@ data class DaemonEvent(
     val data: Map<String, JsonElement> = emptyMap()
 )
 
+@Serializable
+data class TrafficSnapshotPayload(
+    @SerialName("updated_ts_ns")
+    val updatedTsNs: Long = 0,
+    val summary: TrafficSummaryPayload = TrafficSummaryPayload(),
+    val connections: List<TrafficConnectionPayload> = emptyList()
+)
+
+@Serializable
+data class TrafficSummaryPayload(
+    @SerialName("active_connections")
+    val activeConnections: Int = 0,
+    @SerialName("rx_bps")
+    val rxBps: Double = 0.0,
+    @SerialName("tx_bps")
+    val txBps: Double = 0.0,
+    @SerialName("rx_total")
+    val rxTotal: Long = 0,
+    @SerialName("tx_total")
+    val txTotal: Long = 0,
+    @SerialName("history_limit")
+    val historyLimit: Int = 0,
+    @SerialName("history_path")
+    val historyPath: String = "",
+    @SerialName("history_persisted")
+    val historyPersisted: Boolean = false,
+    @SerialName("persist_error")
+    val persistError: String = ""
+)
+
+@Serializable
+data class TrafficConnectionPayload(
+    @SerialName("conn_id")
+    val connId: String = "",
+    val state: String = "",
+    @SerialName("start_ts_ns")
+    val startTsNs: Long = 0,
+    @SerialName("updated_ts_ns")
+    val updatedTsNs: Long = 0,
+    @SerialName("end_ts_ns")
+    val endTsNs: Long = 0,
+    val listener: ListenerInfoPayload = ListenerInfoPayload(),
+    @SerialName("client_addr")
+    val clientAddr: String = "",
+    @SerialName("chain_name")
+    val chainName: String = "",
+    val target: String = "",
+    @SerialName("target_host")
+    val targetHost: String = "",
+    @SerialName("target_port")
+    val targetPort: String = "",
+    val network: String = "",
+    val application: String = "",
+    val hops: List<TrafficHopPayload> = emptyList(),
+    val geo: LocationPayload = LocationPayload(),
+    @SerialName("geo_error")
+    val geoError: String = "",
+    @SerialName("total_dial_ns")
+    val totalDialNs: Long = 0,
+    @SerialName("rx_bps")
+    val rxBps: Double = 0.0,
+    @SerialName("tx_bps")
+    val txBps: Double = 0.0,
+    @SerialName("rx_total")
+    val rxTotal: Long = 0,
+    @SerialName("tx_total")
+    val txTotal: Long = 0,
+    @SerialName("duration_ns")
+    val durationNs: Long = 0,
+    @SerialName("close_reason")
+    val closeReason: String = ""
+)
+
+@Serializable
+data class ListenerInfoPayload(
+    val protocol: String = "",
+    val addr: String = ""
+)
+
+@Serializable
+data class TrafficHopPayload(
+    val index: Int = 0,
+    val name: String = "",
+    val protocol: String = "",
+    val address: String = "",
+    val state: String = "",
+    @SerialName("elapsed_ns")
+    val elapsedNs: Long = 0,
+    val error: String = ""
+)
+
 data class BandwidthSample(
     val rxBps: Double = 0.0,
     val txBps: Double = 0.0

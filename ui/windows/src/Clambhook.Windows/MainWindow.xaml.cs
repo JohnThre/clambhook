@@ -51,6 +51,12 @@ public sealed partial class MainWindow : Window
         ErrorText.Text = state.ErrorText;
         BandwidthText.Text = $"RX {Formatters.FormatRate(state.CurrentBandwidth.RxBps)}  TX {Formatters.FormatRate(state.CurrentBandwidth.TxBps)}";
         ConnectionsText.Text = $"Active connections {state.ActiveConnections}";
+        TrafficSummaryText.Text =
+            $"{state.Traffic.Summary.ActiveConnections} active · " +
+            $"{Formatters.FormatRate(state.Traffic.Summary.RxBps)} down · " +
+            $"{Formatters.FormatRate(state.Traffic.Summary.TxBps)} up · " +
+            $"{Formatters.FormatBytes(state.Traffic.Summary.RxTotal)} down total · " +
+            $"{Formatters.FormatBytes(state.Traffic.Summary.TxTotal)} up total";
         DaemonText.Text = _model.DaemonMessage;
 
         _updatingProfiles = true;
@@ -64,6 +70,23 @@ public sealed partial class MainWindow : Window
         ServersList.ItemsSource = state.Servers.Chains
             .SelectMany(chain => chain.Servers.Select(server => $"{chain.Name}: {server.Name} · {server.Protocol} · {Formatters.ServerLocation(server)}"))
             .DefaultIfEmpty("No servers in active profile")
+            .ToList();
+        TrafficList.ItemsSource = state.Traffic.Connections
+            .Take(12)
+            .Select(connection =>
+            {
+                var label = string.Join(" · ", new[] { connection.Application, connection.Network, connection.ChainName }
+                    .Where(part => !string.IsNullOrWhiteSpace(part)));
+                if (string.IsNullOrWhiteSpace(label))
+                {
+                    label = connection.Listener.Protocol;
+                }
+
+                return $"{connection.State}  {EmptyDash(connection.Target)}  {label}  " +
+                    $"{Formatters.FormatBytes(connection.RxTotal)} down / {Formatters.FormatBytes(connection.TxTotal)} up  " +
+                    $"{Formatters.FormatDurationNs(connection.DurationNs)}";
+            })
+            .DefaultIfEmpty("No traffic history")
             .ToList();
         LogsList.ItemsSource = state.Logs.TakeLast(50).Reverse().ToList();
         _trayIcon.Update(state, _model.Daemon.IsRunning);
@@ -139,6 +162,8 @@ public sealed partial class MainWindow : Window
     {
         DispatcherQueue.TryEnqueue(Activate);
     }
+
+    private static string EmptyDash(string value) => string.IsNullOrWhiteSpace(value) ? "--" : value;
 
     private async Task ConnectOrDisconnectAsync()
     {

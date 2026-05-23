@@ -12,6 +12,7 @@ data class DashboardState(
     val status: StatusPayload = StatusPayload(),
     val profiles: ProfilesPayload = ProfilesPayload(),
     val servers: ServersPayload = ServersPayload(),
+    val traffic: TrafficSnapshotPayload = TrafficSnapshotPayload(),
     val bandwidthSamples: List<BandwidthSample> = emptyList(),
     val logs: List<String> = emptyList(),
     val apiOnline: Boolean = false,
@@ -38,11 +39,13 @@ class DashboardRepository(
             val status = api.status()
             val profiles = api.profiles()
             val servers = api.servers()
+            val traffic = api.traffic()
             _state.update {
                 it.copy(
                     status = status,
                     profiles = profiles,
                     servers = servers,
+                    traffic = traffic,
                     apiOnline = true,
                     errorText = ""
                 )
@@ -55,7 +58,8 @@ class DashboardRepository(
     suspend fun refreshStatus() {
         try {
             val status = api.status()
-            _state.update { it.copy(status = status, apiOnline = true, errorText = "") }
+            val traffic = api.traffic()
+            _state.update { it.copy(status = status, traffic = traffic, apiOnline = true, errorText = "") }
         } catch (error: Throwable) {
             markOffline(error)
         }
@@ -104,7 +108,10 @@ class DashboardRepository(
         val sample = BandwidthSample(rxBps = rxDelta / seconds, txBps = txDelta / seconds)
         _state.update {
             val samples = (it.bandwidthSamples + sample).takeLast(bandwidthSampleLimit)
-            it.copy(bandwidthSamples = samples)
+            it.copy(
+                bandwidthSamples = samples,
+                traffic = updateTrafficBytes(it.traffic, event, sample, rxDelta, txDelta)
+            )
         }
     }
 
@@ -114,4 +121,44 @@ class DashboardRepository(
             it.copy(logs = (it.logs + line).takeLast(maxLogLines))
         }
     }
+}
+
+private fun updateTrafficBytes(
+    traffic: TrafficSnapshotPayload,
+    event: DaemonEvent,
+    sample: BandwidthSample,
+    rxDelta: Double,
+    txDelta: Double
+): TrafficSnapshotPayload {
+    val connId = event.data["conn_id"]?.stringValueOrNull() ?: return traffic
+    var oldRxBps = 0.0
+    var oldTxBps = 0.0
+    var found = false
+    val connections = traffic.connections.map { connection ->
+        if (connection.connId != connId) {
+            connection
+        } else {
+            found = true
+            oldRxBps = connection.rxBps
+            oldTxBps = connection.txBps
+            connection.copy(
+                rxBps = sample.rxBps,
+                txBps = sample.txBps,
+                rxTotal = connection.rxTotal + rxDelta.toLong(),
+                txTotal = connection.txTotal + txDelta.toLong()
+            )
+        }
+    }
+    if (!found) {
+        return traffic
+    }
+    return traffic.copy(
+        summary = traffic.summary.copy(
+            rxBps = traffic.summary.rxBps + sample.rxBps - oldRxBps,
+            txBps = traffic.summary.txBps + sample.txBps - oldTxBps,
+            rxTotal = traffic.summary.rxTotal + rxDelta.toLong(),
+            txTotal = traffic.summary.txTotal + txDelta.toLong()
+        ),
+        connections = connections
+    )
 }

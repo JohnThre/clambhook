@@ -3,7 +3,10 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"strings"
+
+	"github.com/JohnThre/clambhook/internal/traffic"
 )
 
 func (s *Server) registerRoutes(mux *http.ServeMux) {
@@ -14,6 +17,7 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/connect", s.handleConnect)
 	mux.HandleFunc("POST /api/v1/disconnect", s.handleDisconnect)
 	mux.HandleFunc("GET /api/v1/events", s.handleEvents)
+	mux.HandleFunc("GET /api/v1/traffic", s.handleTraffic)
 }
 
 func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
@@ -63,6 +67,25 @@ func (s *Server) handleDisconnect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, s.engine.Status())
+}
+
+func (s *Server) handleTraffic(w http.ResponseWriter, r *http.Request) {
+	state := r.URL.Query().Get("state")
+	limit := 200
+	if raw := r.URL.Query().Get("limit"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 0 {
+			http.Error(w, "invalid limit", http.StatusBadRequest)
+			return
+		}
+		limit = n
+	}
+	if s.traffic == nil {
+		var empty *traffic.Store
+		writeJSON(w, empty.Snapshot(state, limit))
+		return
+	}
+	writeJSON(w, s.traffic.Snapshot(state, limit))
 }
 
 func writeJSON(w http.ResponseWriter, v any) {

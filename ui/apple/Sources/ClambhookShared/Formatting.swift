@@ -23,6 +23,33 @@ public func formatRate(_ bytesPerSecond: Double) -> String {
     return String(format: "%.1f MB/s", bytesPerSecond / (1024 * 1024))
 }
 
+public func formatBytes(_ bytes: UInt64) -> String {
+    if bytes < 1024 {
+        return "\(bytes) B"
+    }
+    if bytes < 1024 * 1024 {
+        return String(format: "%.1f KB", Double(bytes) / 1024)
+    }
+    if bytes < 1024 * 1024 * 1024 {
+        return String(format: "%.1f MB", Double(bytes) / (1024 * 1024))
+    }
+    return String(format: "%.1f GB", Double(bytes) / (1024 * 1024 * 1024))
+}
+
+public func formatDurationNs(_ ns: Int64) -> String {
+    if ns <= 0 {
+        return "--"
+    }
+    let seconds = ns / 1_000_000_000
+    if seconds < 1 {
+        return "\(ns / 1_000_000) ms"
+    }
+    if seconds < 60 {
+        return "\(seconds) s"
+    }
+    return "\(seconds / 60) min"
+}
+
 public func serverLocation(_ server: ServerPayload) -> String {
     if server.geoError?.isEmpty == false {
         return "geo error"

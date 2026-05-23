@@ -8,6 +8,7 @@ public final class DashboardStore: ObservableObject {
     @Published public private(set) var status = StatusPayload()
     @Published public private(set) var profiles = ProfilesPayload()
     @Published public private(set) var servers = ServersPayload()
+    @Published public private(set) var traffic = TrafficSnapshotPayload()
     @Published public private(set) var bandwidthSamples: [BandwidthSample] = []
     @Published public private(set) var logs: [String] = []
     @Published public private(set) var apiOnline = false
@@ -39,9 +40,11 @@ public final class DashboardStore: ObservableObject {
             let status = try await api.status()
             let profiles = try await api.profiles()
             let servers = try await api.servers()
+            let traffic = try await api.traffic()
             self.status = status
             self.profiles = profiles
             self.servers = servers
+            self.traffic = traffic
             self.apiOnline = true
             self.errorText = ""
             await persistSnapshot()
@@ -55,6 +58,7 @@ public final class DashboardStore: ObservableObject {
     public func refreshStatus() async {
         do {
             status = try await api.status()
+            traffic = try await api.traffic()
             apiOnline = true
             errorText = ""
             await persistSnapshot()
@@ -134,10 +138,29 @@ public final class DashboardStore: ObservableObject {
             return
         }
         let seconds = intervalNs / 1_000_000_000
-        bandwidthSamples.append(BandwidthSample(rxBps: rxDelta / seconds, txBps: txDelta / seconds))
+        let sample = BandwidthSample(rxBps: rxDelta / seconds, txBps: txDelta / seconds)
+        bandwidthSamples.append(sample)
         if bandwidthSamples.count > bandwidthSampleLimit {
             bandwidthSamples.removeFirst(bandwidthSamples.count - bandwidthSampleLimit)
         }
+        applyTrafficBytes(event, sample: sample, rxDelta: rxDelta, txDelta: txDelta)
+    }
+
+    private func applyTrafficBytes(_ event: DaemonEvent, sample: BandwidthSample, rxDelta: Double, txDelta: Double) {
+        guard let connID = event.data["conn_id"]?.stringValue,
+              let index = traffic.connections.firstIndex(where: { $0.connID == connID }) else {
+            return
+        }
+        let oldRxBps = traffic.connections[index].rxBps
+        let oldTxBps = traffic.connections[index].txBps
+        traffic.connections[index].rxBps = sample.rxBps
+        traffic.connections[index].txBps = sample.txBps
+        traffic.connections[index].rxTotal += UInt64(rxDelta)
+        traffic.connections[index].txTotal += UInt64(txDelta)
+        traffic.summary.rxBps += sample.rxBps - oldRxBps
+        traffic.summary.txBps += sample.txBps - oldTxBps
+        traffic.summary.rxTotal += UInt64(rxDelta)
+        traffic.summary.txTotal += UInt64(txDelta)
     }
 
     private func applyLogLine(_ event: DaemonEvent) {
