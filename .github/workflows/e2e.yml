@@ -1,0 +1,75 @@
+name: E2E
+
+on:
+  schedule:
+    - cron: "23 4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    name: E2E
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      CLAMBHOOK_E2E_BACKEND: docker
+      # Set this repository variable to 1 once Tor/OpenVPN backends are provisioned.
+      CLAMBHOOK_E2E_REQUIRE: ${{ vars.CLAMBHOOK_E2E_REQUIRE }}
+      CLAMBHOOK_E2E_OPENVPN_REMOTE: ${{ vars.CLAMBHOOK_E2E_OPENVPN_REMOTE }}
+      CLAMBHOOK_E2E_OPENVPN_TCP_TARGET: ${{ vars.CLAMBHOOK_E2E_OPENVPN_TCP_TARGET }}
+      CLAMBHOOK_E2E_OPENVPN_UDP_TARGET: ${{ vars.CLAMBHOOK_E2E_OPENVPN_UDP_TARGET }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential \
+            libsodium-dev \
+            pkg-config \
+            tor
+
+      - name: Prepare OpenVPN e2e credentials
+        env:
+          OPENVPN_CA_PEM: ${{ secrets.CLAMBHOOK_E2E_OPENVPN_CA }}
+          OPENVPN_CLIENT_CERT_PEM: ${{ secrets.CLAMBHOOK_E2E_OPENVPN_CLIENT_CERT }}
+          OPENVPN_CLIENT_KEY_PEM: ${{ secrets.CLAMBHOOK_E2E_OPENVPN_CLIENT_KEY }}
+        run: |
+          if [ -z "${OPENVPN_CA_PEM}${OPENVPN_CLIENT_CERT_PEM}${OPENVPN_CLIENT_KEY_PEM}" ]; then
+            echo "OpenVPN e2e credentials are not configured; OpenVPN coverage may skip."
+            exit 0
+          fi
+          if [ -z "$OPENVPN_CA_PEM" ] || [ -z "$OPENVPN_CLIENT_CERT_PEM" ] || [ -z "$OPENVPN_CLIENT_KEY_PEM" ]; then
+            echo "::error::Configure all OpenVPN e2e certificate/key secrets or leave all of them unset."
+            exit 1
+          fi
+
+          openvpn_dir="$RUNNER_TEMP/clambhook-openvpn"
+          install -d -m 700 "$openvpn_dir"
+          printf '%s\n' "$OPENVPN_CA_PEM" > "$openvpn_dir/ca.pem"
+          printf '%s\n' "$OPENVPN_CLIENT_CERT_PEM" > "$openvpn_dir/client.pem"
+          printf '%s\n' "$OPENVPN_CLIENT_KEY_PEM" > "$openvpn_dir/client.key"
+          chmod 600 "$openvpn_dir"/*
+
+          {
+            echo "CLAMBHOOK_E2E_OPENVPN_CA=$openvpn_dir/ca.pem"
+            echo "CLAMBHOOK_E2E_OPENVPN_CLIENT_CERT=$openvpn_dir/client.pem"
+            echo "CLAMBHOOK_E2E_OPENVPN_CLIENT_KEY=$openvpn_dir/client.key"
+          } >> "$GITHUB_ENV"
+
+      - name: Check Docker
+        run: docker version
+
+      - name: Run e2e tests
+        run: make e2e

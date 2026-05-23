@@ -9,6 +9,11 @@ Run the default real-server suite:
 make e2e
 ```
 
+The `.github/workflows/e2e.yml` workflow runs this suite on a schedule and via
+manual dispatch. It uses the Docker sing-box backend by default, installs Tor on
+the runner, and leaves OpenVPN coverage optional until the external backend is
+configured.
+
 Useful environment variables:
 
 - `CLAMBHOOK_E2E=1`: required when running `go test -tags e2e` directly.
@@ -17,6 +22,13 @@ Useful environment variables:
 - `CLAMBHOOK_E2E_REQUIRE=1`: fail instead of skipping when a backend is missing.
 - `CLAMBHOOK_BIN=/path/to/clambhook`: daemon binary used by black-box SOCKS
   tests. `make e2e` sets this automatically.
+
+For GitHub Actions OpenVPN coverage, configure repository variables
+`CLAMBHOOK_E2E_OPENVPN_REMOTE`, `CLAMBHOOK_E2E_OPENVPN_TCP_TARGET`, and
+`CLAMBHOOK_E2E_OPENVPN_UDP_TARGET`, plus secrets `CLAMBHOOK_E2E_OPENVPN_CA`,
+`CLAMBHOOK_E2E_OPENVPN_CLIENT_CERT`, and `CLAMBHOOK_E2E_OPENVPN_CLIENT_KEY`
+containing the PEM material. Set repository variable `CLAMBHOOK_E2E_REQUIRE=1`
+once all required backends are provisioned.
 
 OpenVPN real-server coverage is environment-driven because a local OpenVPN
 server usually needs a TUN device and elevated privileges. Point the test at a
