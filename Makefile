@@ -1,4 +1,4 @@
-.PHONY: all build build-clib build-daemon build-tui install prepare-apple-runtime generate-apple build-apple release-macos test-apple test-android build-android-mobile-aar test-android build-android build-android-release test-windows build-windows-daemon build-windows publish-windows test-linux build-linux test lint clean
+.PHONY: all build build-clib build-daemon build-tui install prepare-apple-runtime generate-apple build-apple release-macos test-apple test-android build-android-mobile-aar test-android build-android build-android-release test-windows build-windows-daemon build-windows publish-windows test-linux build-linux test e2e lint clean
 
 export CGO_ENABLED=1
 PREFIX ?= /usr/local
@@ -82,6 +82,9 @@ build-linux: build-daemon
 
 test:
 	go test ./...
+
+e2e: build-daemon
+	CLAMBHOOK_E2E=1 CLAMBHOOK_BIN="$(abspath bin/clambhook)" go test -tags e2e -count=1 -v ./test/e2e
 
 lint:
 	./scripts/lint.sh
