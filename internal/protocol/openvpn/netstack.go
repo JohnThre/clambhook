@@ -1,5 +1,7 @@
 package openvpn
 
+import "errors"
+
 // The muxer goroutines that glue the netstack TUN to the data channel.
 //
 // Flow (client → Internet):
@@ -68,8 +70,14 @@ func (i *instance) tunToUDP() {
 			pkt := bufs[j][:sizes[j]]
 			ct, err := i.data.seal(pkt)
 			if err != nil {
-				// Overflow of packet-id counter is the only realistic
-				// cause this side; drop and keep going.
+				if errors.Is(err, errDataChannelRekeyRequired) {
+					// Without OpenVPN soft-reset renegotiation, continuing
+					// would only burn CPU and drop every future packet. Tear
+					// this session down; the dialer can create a fresh one
+					// for subsequent dials.
+					_ = i.close(false)
+					return
+				}
 				continue
 			}
 			if _, err := i.udp.Write(ct); err != nil {

@@ -32,8 +32,10 @@ const tlsEKMLabel = "EXPORTER-OpenVPN-datakeys"
 
 // keyMaterial holds the per-direction symmetric state for one data-channel
 // generation. AEAD ciphers take the cipher key directly; the implicit IV
-// is XORed (conceptually — actually concatenated) with the packet ID to
-// form the 12-byte nonce on every packet.
+// is combined with the packet ID to form the 12-byte nonce on every
+// packet. OpenVPN represents this as a 12-byte implicit IV whose first
+// four bytes are zero and whose last eight bytes come from the HMAC slot;
+// XORing that with packet_id||zeroes is equivalent to packet_id||iv8.
 type keyMaterial struct {
 	clientCipherKey  []byte
 	clientImplicitIV []byte // 8 bytes

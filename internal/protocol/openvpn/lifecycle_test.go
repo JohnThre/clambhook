@@ -89,6 +89,32 @@ func TestOpenVPNInstanceReusedAndClosedOnEngineReload(t *testing.T) {
 	}
 }
 
+func TestOpenVPNDialerRecreatesClosedInstance(t *testing.T) {
+	factory := installOpenVPNLifecycleFactory(t)
+	remote := "127.0.0.1:1194"
+	d := &dialer{cfg: &config{remote: remote, tunMTU: 1500}}
+	defer d.Close()
+
+	first, err := d.instance(context.Background())
+	if err != nil {
+		t.Fatalf("first instance: %v", err)
+	}
+	if err := first.Close(); err != nil {
+		t.Fatalf("close first instance: %v", err)
+	}
+
+	second, err := d.instance(context.Background())
+	if err != nil {
+		t.Fatalf("second instance: %v", err)
+	}
+	if first == second {
+		t.Fatal("dialer reused a closed instance")
+	}
+	if got := factory.createCount(remote); got != 2 {
+		t.Fatalf("creates = %d, want 2", got)
+	}
+}
+
 func TestOpenVPNDialPacketUsesNetstack(t *testing.T) {
 	installOpenVPNLifecycleFactory(t)
 	d := &dialer{cfg: &config{remote: "127.0.0.1:1194", tunMTU: 1500}}
