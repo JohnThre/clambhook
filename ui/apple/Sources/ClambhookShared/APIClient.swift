@@ -87,7 +87,11 @@ public final class ClambhookAPIClient: ClambhookAPIProviding {
     public func eventStream() -> AsyncThrowingStream<DaemonEvent, Error> {
         AsyncThrowingStream { continuation in
             let task = Task {
-                let socket = session.webSocketTask(with: eventsURL())
+                var request = URLRequest(url: eventsURL())
+                if let token = tokenProvider(), !token.isEmpty {
+                    request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+                }
+                let socket = session.webSocketTask(with: request)
                 socket.resume()
                 do {
                     while !Task.isCancelled {

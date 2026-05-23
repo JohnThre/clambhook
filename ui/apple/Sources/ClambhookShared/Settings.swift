@@ -2,11 +2,17 @@ import Foundation
 
 public let defaultAPIEndpoint = URL(string: "http://127.0.0.1:9090")!
 public let defaultAppGroupIdentifier = "group.com.clambhook.shared"
+public let minRefreshIntervalSeconds: Double = 1
+public let maxRefreshIntervalSeconds: Double = 30
+public let minLogRetention = 50
+public let maxLogRetention = 500
 
 public struct AppSettings: Codable, Equatable, Sendable {
     public var apiEndpoint: URL
     public var daemonBinaryPath: String
     public var daemonConfigPath: String
+    public var daemonBinaryBookmark: Data?
+    public var daemonConfigBookmark: Data?
     public var launchDaemonOnStart: Bool
     public var stopDaemonOnQuit: Bool
     public var refreshIntervalSeconds: Double
@@ -17,6 +23,8 @@ public struct AppSettings: Codable, Equatable, Sendable {
         apiEndpoint: URL = defaultAPIEndpoint,
         daemonBinaryPath: String = "",
         daemonConfigPath: String = "",
+        daemonBinaryBookmark: Data? = nil,
+        daemonConfigBookmark: Data? = nil,
         launchDaemonOnStart: Bool = true,
         stopDaemonOnQuit: Bool = true,
         refreshIntervalSeconds: Double = 2,
@@ -26,11 +34,38 @@ public struct AppSettings: Codable, Equatable, Sendable {
         self.apiEndpoint = apiEndpoint
         self.daemonBinaryPath = daemonBinaryPath
         self.daemonConfigPath = daemonConfigPath
+        self.daemonBinaryBookmark = daemonBinaryBookmark
+        self.daemonConfigBookmark = daemonConfigBookmark
         self.launchDaemonOnStart = launchDaemonOnStart
         self.stopDaemonOnQuit = stopDaemonOnQuit
         self.refreshIntervalSeconds = refreshIntervalSeconds
         self.logRetention = logRetention
         self.appGroupIdentifier = appGroupIdentifier
+    }
+
+    public func normalized() -> AppSettings {
+        var copy = self
+        if !Self.isSupportedAPIEndpoint(copy.apiEndpoint) {
+            copy.apiEndpoint = defaultAPIEndpoint
+        }
+        copy.daemonBinaryPath = copy.daemonBinaryPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        copy.daemonConfigPath = copy.daemonConfigPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        copy.refreshIntervalSeconds = min(max(copy.refreshIntervalSeconds, minRefreshIntervalSeconds), maxRefreshIntervalSeconds)
+        copy.logRetention = min(max(copy.logRetention, minLogRetention), maxLogRetention)
+        if copy.appGroupIdentifier.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            copy.appGroupIdentifier = defaultAppGroupIdentifier
+        }
+        return copy
+    }
+
+    public static func isSupportedAPIEndpoint(_ url: URL) -> Bool {
+        guard let scheme = url.scheme?.lowercased(),
+              scheme == "http" || scheme == "https",
+              url.host?.isEmpty == false
+        else {
+            return false
+        }
+        return true
     }
 }
 
@@ -48,7 +83,7 @@ public final class AppSettingsStore: ObservableObject {
         self.key = key
         if let data = defaults.data(forKey: key),
            let decoded = try? JSONDecoder().decode(AppSettings.self, from: data) {
-            settings = decoded
+            settings = decoded.normalized()
         } else {
             settings = AppSettings()
         }

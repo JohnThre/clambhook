@@ -89,6 +89,42 @@ final class DashboardStoreTests: XCTestCase {
         XCTAssertEqual(store.logs.last, "line-204")
     }
 
+    func testApplyLogLineUsesConfiguredRetention() async {
+        let store = DashboardStore(api: FakeAPIClient(), snapshotStore: .inMemory, logRetention: 50)
+
+        for index in 0..<55 {
+            await store.apply(event: DaemonEvent(
+                shardID: 0,
+                lamport: UInt64(index + 1),
+                tsNs: 0,
+                type: "log.line",
+                data: ["line": "line-\(index)"]
+            ))
+        }
+
+        XCTAssertEqual(store.logs.count, 50)
+        XCTAssertEqual(store.logs.first, "line-5")
+        XCTAssertEqual(store.logs.last, "line-54")
+    }
+
+    func testSettingsNormalizationClampsValuesAndRejectsUnsupportedEndpoints() {
+        let settings = AppSettings(
+            apiEndpoint: URL(string: "ftp://example.test")!,
+            daemonBinaryPath: " /tmp/clambhook \n",
+            daemonConfigPath: "\t/tmp/config.toml ",
+            refreshIntervalSeconds: 99,
+            logRetention: 5,
+            appGroupIdentifier: " "
+        ).normalized()
+
+        XCTAssertEqual(settings.apiEndpoint, defaultAPIEndpoint)
+        XCTAssertEqual(settings.daemonBinaryPath, "/tmp/clambhook")
+        XCTAssertEqual(settings.daemonConfigPath, "/tmp/config.toml")
+        XCTAssertEqual(settings.refreshIntervalSeconds, maxRefreshIntervalSeconds)
+        XCTAssertEqual(settings.logRetention, minLogRetention)
+        XCTAssertEqual(settings.appGroupIdentifier, defaultAppGroupIdentifier)
+    }
+
     func testCountryFlagAndRateFormatting() {
         XCTAssertEqual(countryFlag("GB"), "🇬🇧")
         XCTAssertEqual(countryFlag(""), "--")

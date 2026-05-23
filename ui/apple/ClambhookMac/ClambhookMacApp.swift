@@ -9,7 +9,6 @@ struct ClambhookMacApp: App {
         MenuBarExtra("clambhook", systemImage: model.dashboard.status.running ? "network" : "network.slash") {
             MacMenuBarView(model: model)
                 .frame(width: 420, height: 640)
-                .onAppear { model.start() }
                 .onDisappear { model.refresh() }
         }
         .menuBarExtraStyle(.window)

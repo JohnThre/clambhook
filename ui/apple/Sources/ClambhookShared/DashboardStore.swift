@@ -17,10 +17,12 @@ public final class DashboardStore: ObservableObject {
     private let api: ClambhookAPIProviding
     private let snapshotStore: FileSnapshotStore
     private var eventTask: Task<Void, Never>?
+    private var logRetention: Int
 
-    public init(api: ClambhookAPIProviding, snapshotStore: FileSnapshotStore) {
+    public init(api: ClambhookAPIProviding, snapshotStore: FileSnapshotStore, logRetention: Int = maxLogLines) {
         self.api = api
         self.snapshotStore = snapshotStore
+        self.logRetention = min(max(logRetention, minLogRetention), maxLogRetention)
     }
 
     deinit {
@@ -105,6 +107,11 @@ public final class DashboardStore: ObservableObject {
         eventTask = nil
     }
 
+    public func updateLogRetention(_ value: Int) {
+        logRetention = min(max(value, minLogRetention), maxLogRetention)
+        trimLogs()
+    }
+
     public func apply(event: DaemonEvent) async {
         switch event.type {
         case "connection.bytes":
@@ -168,8 +175,12 @@ public final class DashboardStore: ObservableObject {
             return
         }
         logs.append(line)
-        if logs.count > maxLogLines {
-            logs.removeFirst(logs.count - maxLogLines)
+        trimLogs()
+    }
+
+    private func trimLogs() {
+        if logs.count > logRetention {
+            logs.removeFirst(logs.count - logRetention)
         }
     }
 
