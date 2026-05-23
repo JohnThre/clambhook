@@ -56,50 +56,68 @@ type dialer struct {
 	server protocol.Server
 	cfg    *config
 
-	mu      sync.Mutex
-	once    sync.Once
-	inst    *instance
-	onceErr error
-	closed  bool
+	mu         sync.Mutex
+	inst       *instance
+	createDone chan struct{}
+	closed     bool
 }
 
-// instance lazily brings up the VPN. It's guarded by sync.Once so the
-// first Dial pays the handshake cost and every subsequent Dial reuses
-// the same tunnel. If bring-up fails, the error is latched — the user
-// needs to fix their config and restart the daemon; silently retrying
-// would mask problems.
+// instance lazily brings up the VPN. The first Dial pays the handshake
+// cost and later Dials reuse the same live tunnel. If the instance has
+// closed itself after a fatal data-channel condition, a later Dial creates
+// a fresh session.
 func (d *dialer) instance(ctx context.Context) (*instance, error) {
-	d.once.Do(func() {
-		d.mu.Lock()
-		closed := d.closed
-		d.mu.Unlock()
-		if closed {
-			return
-		}
-
-		inst, err := newOpenVPNInstance(ctx, d.cfg)
+	for {
 		d.mu.Lock()
 		if d.closed {
 			d.mu.Unlock()
+			return nil, errors.New("openvpn: dialer closed")
+		}
+		if d.inst != nil && !d.inst.isClosed() {
+			inst := d.inst
+			d.mu.Unlock()
+			return inst, nil
+		}
+		if d.inst != nil {
+			d.inst = nil
+		}
+		if d.createDone != nil {
+			done := d.createDone
+			d.mu.Unlock()
+			select {
+			case <-done:
+				continue
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+		}
+
+		done := make(chan struct{})
+		d.createDone = done
+		d.mu.Unlock()
+
+		inst, err := newOpenVPNInstance(ctx, d.cfg)
+
+		d.mu.Lock()
+		d.createDone = nil
+		if d.closed {
+			d.mu.Unlock()
+			close(done)
 			if inst != nil {
 				_ = inst.Close()
 			}
-			return
+			return nil, errors.New("openvpn: dialer closed")
 		}
-		if err != nil {
-			d.onceErr = err
-			d.mu.Unlock()
-			return
+		if err == nil {
+			d.inst = inst
 		}
-		d.inst = inst
 		d.mu.Unlock()
-	})
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	if d.closed {
-		return nil, errors.New("openvpn: dialer closed")
+		close(done)
+		if err != nil {
+			return nil, err
+		}
+		return inst, nil
 	}
-	return d.inst, d.onceErr
 }
 
 func (d *dialer) Protocol() string { return "openvpn" }

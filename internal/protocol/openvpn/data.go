@@ -9,6 +9,14 @@ import (
 	"github.com/JohnThre/clambhook/pkg/cnet"
 )
 
+// OpenVPN starts TLS/data-channel renegotiation once a send-side packet
+// counter reaches this threshold, well before uint32 wrap. This client does
+// not implement soft-reset renegotiation yet, so reaching the threshold is a
+// fatal data-channel condition.
+const dataPacketIDRekeyThreshold uint32 = 0xFF000000
+
+var errDataChannelRekeyRequired = errors.New("openvpn: data-channel packet ID reached rekey threshold")
+
 // dataChannel seals and opens P_DATA_V2 packets for one direction-pair.
 // It holds the per-direction keys and implicit IVs from keyMaterial, a
 // monotonic send-side packet ID counter, and a replay window for the
@@ -62,53 +70,65 @@ func (d *dataChannel) setPeerID(peerID uint32) {
 //
 // Wire layout:
 //
-//	[opcode+keyid (1)] [peer_id (3)] [packet_id (4)] [ciphertext (N)] [tag (16)]
+//	[opcode+keyid (1)] [peer_id (3)] [packet_id (4)] [tag (16)] [ciphertext (N)]
 //
 // AEAD binding:
 //
 //	nonce (12) = packet_id (4, BE) || implicit_iv (8)
-//	aad  (8)   = packet_id (4) || opcode+peer_id (4)      [the datagram's own header]
+//	aad  (8)   = opcode+peer_id (4) || packet_id (4)
 //
 // Tying the AAD to the on-wire header prevents an attacker from swapping
 // the opcode/peer-id of a valid ciphertext to misroute it.
 func (d *dataChannel) seal(plaintext []byte) ([]byte, error) {
-	d.sendMu.Lock()
-	pid := d.nextPacketID
-	d.nextPacketID++
-	d.sendMu.Unlock()
-
-	if pid == 0 {
-		// 32-bit wraparound — a well-defined soft limit in OpenVPN (after
-		// ~4 billion packets). Reference clients trigger renegotiation
-		// before wrap; we just refuse to send, forcing the daemon to
-		// treat this as a fatal data-channel error.
-		return nil, errors.New("openvpn: data-channel packet ID wrapped (reneg not implemented)")
+	if len(plaintext) == 0 {
+		return nil, errors.New("openvpn: empty data-channel payload")
+	}
+	pid, err := d.nextSendPacketID()
+	if err != nil {
+		return nil, err
 	}
 
 	prefix := dataV2Prefix(d.keyID, d.peerID)
 
-	// nonce = pid (BE) || implicitIV
+	var pidBytes [aeadPacketIDLen]byte
+	binary.BigEndian.PutUint32(pidBytes[:], pid)
+
+	// nonce = pid (BE) || implicitIV. This is equivalent to OpenVPN's
+	// zero-prefixed implicit-IV XOR when the first four implicit-IV bytes
+	// are zero and the next eight come from the AEAD HMAC-key slot.
 	nonce := make([]byte, aeadNonceLen)
-	binary.BigEndian.PutUint32(nonce[0:4], pid)
+	copy(nonce[0:4], pidBytes[:])
 	copy(nonce[4:], d.sendImplicitIV)
 
-	// aad = pid (BE) || prefix
+	// aad = prefix || pid (the authenticated on-wire header)
 	aad := make([]byte, 8)
-	binary.BigEndian.PutUint32(aad[0:4], pid)
-	copy(aad[4:], prefix[:])
+	copy(aad[0:4], prefix[:])
+	copy(aad[4:], pidBytes[:])
 
 	ct, tag, err := aeadSeal(d.cipher, d.sendKey, nonce, plaintext, aad)
 	if err != nil {
 		return nil, err
 	}
 
-	// Assemble: prefix(4) || pid(4) || ct || tag
+	// Assemble: prefix(4) || pid(4) || tag || ct
 	out := make([]byte, 0, dataV2PrefixLen+4+len(ct)+len(tag))
 	out = append(out, prefix[:]...)
-	out = append(out, aad[0:4]...) // packet_id
-	out = append(out, ct...)
+	out = append(out, pidBytes[:]...)
 	out = append(out, tag...)
+	out = append(out, ct...)
 	return out, nil
+}
+
+func (d *dataChannel) nextSendPacketID() (uint32, error) {
+	d.sendMu.Lock()
+	defer d.sendMu.Unlock()
+
+	if d.nextPacketID == 0 || d.nextPacketID >= dataPacketIDRekeyThreshold {
+		return 0, errDataChannelRekeyRequired
+	}
+	pid := d.nextPacketID
+	d.nextPacketID++
+	return pid, nil
 }
 
 // open is the inverse of seal: validates, decrypts, returns the raw IP
@@ -129,8 +149,11 @@ func (d *dataChannel) open(packet []byte) ([]byte, error) {
 	if len(body) < 16 {
 		return nil, errors.New("openvpn: P_DATA_V2 missing AEAD tag")
 	}
-	ct := body[:len(body)-16]
-	tag := body[len(body)-16:]
+	if len(body) == 16 {
+		return nil, errors.New("openvpn: P_DATA_V2 missing AEAD payload")
+	}
+	tag := body[:16]
+	ct := body[16:]
 
 	if !d.checkReplay(pid) {
 		return nil, fmt.Errorf("openvpn: replay detected (packet id %d)", pid)
@@ -141,8 +164,8 @@ func (d *dataChannel) open(packet []byte) ([]byte, error) {
 	copy(nonce[4:], d.recvImplicitIV)
 
 	aad := make([]byte, 8)
-	binary.BigEndian.PutUint32(aad[0:4], pid)
-	copy(aad[4:], prefix)
+	copy(aad[0:4], prefix)
+	copy(aad[4:], packet[dataV2PrefixLen:dataV2PrefixLen+4])
 
 	pt, err := aeadOpen(d.cipher, d.recvKey, nonce, ct, aad, tag)
 	if err != nil {

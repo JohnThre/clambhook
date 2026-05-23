@@ -57,6 +57,7 @@ type instance struct {
 	cancel    context.CancelFunc
 	wg        sync.WaitGroup
 	closeOnce sync.Once
+	closeErr  error
 }
 
 // newInstance runs the full bring-up sequence:
@@ -147,9 +148,15 @@ func (i *instance) startNetstack() error {
 // Close stops all background goroutines, closes the UDP socket, and
 // releases the netstack. Idempotent.
 func (i *instance) Close() error {
+	return i.close(true)
+}
+
+func (i *instance) close(wait bool) error {
 	var firstErr error
 	i.closeOnce.Do(func() {
-		i.cancel()
+		if i.cancel != nil {
+			i.cancel()
+		}
 		if i.tunDev != nil {
 			if err := i.tunDev.Close(); err != nil && firstErr == nil {
 				firstErr = err
@@ -163,9 +170,24 @@ func (i *instance) Close() error {
 				firstErr = err
 			}
 		}
-		i.wg.Wait()
+		i.closeErr = firstErr
 	})
-	return firstErr
+	if wait {
+		i.wg.Wait()
+	}
+	return i.closeErr
+}
+
+func (i *instance) isClosed() bool {
+	if i.ctx == nil {
+		return false
+	}
+	select {
+	case <-i.ctx.Done():
+		return true
+	default:
+		return false
+	}
 }
 
 // udpReadLoop is the single UDP reader: every datagram the kernel

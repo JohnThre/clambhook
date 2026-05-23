@@ -2,6 +2,8 @@ package openvpn
 
 import (
 	"bytes"
+	"encoding/binary"
+	"errors"
 	"testing"
 
 	"github.com/JohnThre/clambhook/pkg/cnet"
@@ -73,6 +75,70 @@ func TestDataChannelSealOpenChaCha(t *testing.T) {
 	}
 	if !bytes.Equal(got, plaintext) {
 		t.Fatalf("plaintext mismatch")
+	}
+}
+
+func TestDataChannelSealUsesOpenVPNAEADWireLayout(t *testing.T) {
+	km := makeKeys()
+	sender := newDataChannel("CHACHA20-POLY1305", 0, km)
+	sender.setPeerID(0x010203)
+
+	plaintext := []byte("layout must match OpenVPN data crypto")
+	packet, err := sender.seal(plaintext)
+	if err != nil {
+		t.Fatalf("seal: %v", err)
+	}
+	if len(packet) < dataV2PrefixLen+aeadPacketIDLen+16 {
+		t.Fatalf("packet too short: %d", len(packet))
+	}
+
+	prefix := dataV2Prefix(0, 0x010203)
+	if !bytes.Equal(packet[:dataV2PrefixLen], prefix[:]) {
+		t.Fatalf("prefix = %x, want %x", packet[:dataV2PrefixLen], prefix)
+	}
+	pidBytes := packet[dataV2PrefixLen : dataV2PrefixLen+aeadPacketIDLen]
+	if pid := binary.BigEndian.Uint32(pidBytes); pid != 1 {
+		t.Fatalf("packet id = %d, want 1", pid)
+	}
+
+	nonce := make([]byte, aeadNonceLen)
+	copy(nonce[:aeadPacketIDLen], pidBytes)
+	copy(nonce[aeadPacketIDLen:], km.clientImplicitIV)
+	aad := append(append([]byte(nil), prefix[:]...), pidBytes...)
+	wantCT, wantTag, err := aeadSeal("CHACHA20-POLY1305", km.clientCipherKey, nonce, plaintext, aad)
+	if err != nil {
+		t.Fatalf("reference seal: %v", err)
+	}
+
+	tagStart := dataV2PrefixLen + aeadPacketIDLen
+	tagEnd := tagStart + 16
+	if !bytes.Equal(packet[tagStart:tagEnd], wantTag) {
+		t.Fatalf("tag = %x, want %x", packet[tagStart:tagEnd], wantTag)
+	}
+	if !bytes.Equal(packet[tagEnd:], wantCT) {
+		t.Fatalf("ciphertext = %x, want %x", packet[tagEnd:], wantCT)
+	}
+}
+
+func TestDataChannelSealStopsAtOpenVPNRekeyThreshold(t *testing.T) {
+	km := makeKeys()
+	sender := newDataChannel("CHACHA20-POLY1305", 0, km)
+	sender.nextPacketID = dataPacketIDRekeyThreshold - 1
+
+	packet, err := sender.seal([]byte("last allowed packet"))
+	if err != nil {
+		t.Fatalf("seal below threshold: %v", err)
+	}
+	got := binary.BigEndian.Uint32(packet[dataV2PrefixLen : dataV2PrefixLen+aeadPacketIDLen])
+	if got != dataPacketIDRekeyThreshold-1 {
+		t.Fatalf("packet id = %#x, want %#x", got, dataPacketIDRekeyThreshold-1)
+	}
+
+	if _, err := sender.seal([]byte("must rekey")); !errors.Is(err, errDataChannelRekeyRequired) {
+		t.Fatalf("seal at threshold err = %v, want rekey required", err)
+	}
+	if sender.nextPacketID != dataPacketIDRekeyThreshold {
+		t.Fatalf("nextPacketID advanced after failed seal: %#x", sender.nextPacketID)
 	}
 }
 

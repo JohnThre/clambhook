@@ -15,7 +15,8 @@ jobs:
     timeout-minutes: 45
     env:
       CLAMBHOOK_E2E_BACKEND: docker
-      # Set this repository variable to 1 once Tor/OpenVPN backends are provisioned.
+      # Set this repository variable to 1 for release-readiness runs so
+      # missing Tor/OpenVPN coverage fails instead of skipping.
       CLAMBHOOK_E2E_REQUIRE: ${{ vars.CLAMBHOOK_E2E_REQUIRE }}
       CLAMBHOOK_E2E_OPENVPN_REMOTE: ${{ vars.CLAMBHOOK_E2E_OPENVPN_REMOTE }}
       CLAMBHOOK_E2E_OPENVPN_TCP_TARGET: ${{ vars.CLAMBHOOK_E2E_OPENVPN_TCP_TARGET }}
