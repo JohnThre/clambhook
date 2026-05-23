@@ -13,9 +13,10 @@ import (
 // Owned by a dialer for the daemon's lifetime; one instance per WG
 // server entry in the TOML config.
 type wgInstance struct {
-	dev  *device.Device
-	tnet *netstack.Net
-	name string // log prefix for diagnostics
+	dev       *device.Device
+	tnet      *netstack.Net
+	name      string // log prefix for diagnostics
+	closeHook func() error
 }
 
 // newInstance brings up a fresh netstack-backed WireGuard device from cfg.
@@ -51,11 +52,16 @@ func newInstance(cfg *config, serverName string) (*wgInstance, error) {
 // goroutines are released. wireguard-go's device.Close() returns no
 // error — we keep an error return for symmetry with io.Closer.
 func (i *wgInstance) Close() error {
+	var err error
+	if i.closeHook != nil {
+		err = i.closeHook()
+		i.closeHook = nil
+	}
 	if i.dev != nil {
 		i.dev.Close()
 		i.dev = nil
 	}
-	return nil
+	return err
 }
 
 // buildUAPIConfig serializes cfg into the newline-separated key=value

@@ -41,6 +41,8 @@ func init() {
 	})
 }
 
+var newWireGuardInstance = newInstance
+
 type peerConfig struct {
 	publicKeyHex    string
 	presharedKeyHex string // empty if absent
@@ -223,10 +225,6 @@ func parsePeer(pm map[string]any) (peerConfig, error) {
 // instance. The instance is created on first Dial via sync.Once because
 // many TOML entries may declare WG servers that are never actually used —
 // no point burning a netstack and a handshake on cold configs.
-//
-// TODO(reload): when the engine grows config-reload support, this dialer
-// will need a Close() method called from the reload path so the underlying
-// device + netstack are torn down.
 type dialer struct {
 	server protocol.Server
 	cfg    config
@@ -252,7 +250,7 @@ func (d *dialer) instance() (*wgInstance, error) {
 			return
 		}
 
-		inst, err := newInstance(&d.cfg, d.server.Name)
+		inst, err := newWireGuardInstance(&d.cfg, d.server.Name)
 
 		d.mu.Lock()
 		if d.closed {

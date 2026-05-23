@@ -50,6 +50,8 @@ func init() {
 	})
 }
 
+var newOpenVPNInstance = newInstance
+
 type dialer struct {
 	server protocol.Server
 	cfg    *config
@@ -75,7 +77,7 @@ func (d *dialer) instance(ctx context.Context) (*instance, error) {
 			return
 		}
 
-		inst, err := newInstance(ctx, d.cfg)
+		inst, err := newOpenVPNInstance(ctx, d.cfg)
 		d.mu.Lock()
 		if d.closed {
 			d.mu.Unlock()
