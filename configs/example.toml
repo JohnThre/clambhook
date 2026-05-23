@@ -207,6 +207,7 @@ name = "📮 VMess"
       [profile.chain.server.settings]
       uuid     = "REPLACE-WITH-USER-UUID-0000-000000000000"
       security = "aes-128-gcm"       # or "chacha20-poly1305"
+      # packet_encoding = "xudp"      # enables per-datagram UDP destinations
       sni      = "vmess.example.com"
       # tls = true
       # alpn = ["h2", "http/1.1"]

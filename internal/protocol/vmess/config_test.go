@@ -30,6 +30,9 @@ func TestParseConfigDefaultSecurity(t *testing.T) {
 	if !cfg.useTLS {
 		t.Error("expected useTLS=true by default")
 	}
+	if cfg.packetEncoding != packetEncodingAuto {
+		t.Fatalf("default packetEncoding = %q, want auto", cfg.packetEncoding)
+	}
 }
 
 func TestParseConfigChaCha20(t *testing.T) {
@@ -87,5 +90,34 @@ func TestParseConfigRejectsAlterID(t *testing.T) {
 	})
 	if err == nil || !strings.Contains(err.Error(), "alter_id") {
 		t.Fatalf("expected alter_id error, got %v", err)
+	}
+}
+
+func TestParseConfigPacketEncodingXUDP(t *testing.T) {
+	cfg, err := parseConfig(protocol.Server{
+		Address: "example.com:443",
+		Settings: map[string]any{
+			"uuid":            testUUID,
+			"packet_encoding": "xudp",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.packetEncoding != packetEncodingXUDP {
+		t.Fatalf("packetEncoding = %q, want xudp", cfg.packetEncoding)
+	}
+}
+
+func TestParseConfigRejectsUnknownPacketEncoding(t *testing.T) {
+	_, err := parseConfig(protocol.Server{
+		Address: "example.com:443",
+		Settings: map[string]any{
+			"uuid":            testUUID,
+			"packet_encoding": "packetaddr",
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "packet_encoding") {
+		t.Fatalf("expected packet_encoding error, got %v", err)
 	}
 }

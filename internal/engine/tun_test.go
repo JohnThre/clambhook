@@ -1,9 +1,11 @@
 package engine
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/JohnThre/clambhook/internal/config"
+	"github.com/JohnThre/clambhook/internal/listener"
 )
 
 func TestBuildListenersIncludesEnabledTUN(t *testing.T) {
@@ -28,6 +30,15 @@ func TestBuildListenersIncludesEnabledTUN(t *testing.T) {
 	}
 
 	listeners, chains, err := buildListeners(&profile, nil)
+	if !listener.TUNSupported() {
+		if err == nil {
+			t.Fatal("buildListeners returned nil error for unsupported TUN platform")
+		}
+		if !strings.Contains(err.Error(), "only supported on Linux") {
+			t.Fatalf("buildListeners error = %q", err)
+		}
+		return
+	}
 	if err != nil {
 		t.Fatalf("buildListeners: %v", err)
 	}

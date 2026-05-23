@@ -23,6 +23,7 @@ const (
 	versionByte byte = 0x01
 	cmdTCP      byte = 0x01
 	cmdUDP      byte = 0x02
+	cmdMux      byte = 0x03
 
 	// Option bits. S is always set (chunked stream); M enables per-chunk
 	// length masking via Shake128 keyed by reqIV. G (GlobalPadding, 0x08)
@@ -77,14 +78,17 @@ func encodeRequestWith(cfg config, cmd byte, address string, rnd io.Reader, now 
 	// Padding length (0..15). Random but non-crypto is fine.
 	padLen := byte(mathrand.IntN(16))
 
-	// Address triple in V2Ray byte order. VMess, like VLESS, puts PORT
-	// before ATYP||ADDR. EncodeAddr gives us ATYP||ADDR||PORT — so split.
-	triple, err := v2ray.EncodeAddr(address)
-	if err != nil {
-		return nil, st, err
+	var portBytes, atypAddr []byte
+	if cmd != cmdMux {
+		// Address triple in V2Ray byte order. VMess, like VLESS, puts PORT
+		// before ATYP||ADDR. EncodeAddr gives us ATYP||ADDR||PORT — so split.
+		triple, err := v2ray.EncodeAddr(address)
+		if err != nil {
+			return nil, st, err
+		}
+		portBytes = triple[len(triple)-2:]
+		atypAddr = triple[:len(triple)-2]
 	}
-	portBytes := triple[len(triple)-2:]
-	atypAddr := triple[:len(triple)-2]
 
 	// Plaintext header (before FNV checksum + padding random fill).
 	var hdr bytes.Buffer
