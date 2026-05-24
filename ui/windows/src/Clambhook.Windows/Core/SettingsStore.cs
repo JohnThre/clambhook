@@ -4,7 +4,9 @@ namespace Clambhook.Windows.Core;
 
 public sealed class AppSettings
 {
-    public string ApiEndpoint { get; set; } = "http://127.0.0.1:9090";
+    public const string DefaultApiEndpoint = "http://127.0.0.1:9090";
+
+    public string ApiEndpoint { get; set; } = DefaultApiEndpoint;
     public string DaemonPath { get; set; } = "";
     public string ConfigPath { get; set; } = "";
     public bool LaunchDaemonOnStart { get; set; } = true;
@@ -15,9 +17,10 @@ public sealed class AppSettings
 
     public AppSettings Normalized()
     {
+        var endpoint = NormalizeEndpoint(ApiEndpoint);
         return new AppSettings
         {
-            ApiEndpoint = NormalizeEndpoint(ApiEndpoint),
+            ApiEndpoint = IsSupportedApiEndpoint(endpoint) ? endpoint : DefaultApiEndpoint,
             DaemonPath = DaemonPath.Trim(),
             ConfigPath = ConfigPath.Trim(),
             LaunchDaemonOnStart = LaunchDaemonOnStart,
@@ -28,10 +31,18 @@ public sealed class AppSettings
         };
     }
 
-    private static string NormalizeEndpoint(string value)
+    public static bool IsSupportedApiEndpoint(string value)
+    {
+        var normalized = NormalizeEndpoint(value);
+        return Uri.TryCreate(normalized, UriKind.Absolute, out var uri) &&
+            (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps) &&
+            !string.IsNullOrWhiteSpace(uri.Host);
+    }
+
+    public static string NormalizeEndpoint(string value)
     {
         var trimmed = value.Trim().TrimEnd('/');
-        return string.IsNullOrWhiteSpace(trimmed) ? "http://127.0.0.1:9090" : trimmed;
+        return string.IsNullOrWhiteSpace(trimmed) ? DefaultApiEndpoint : trimmed;
     }
 }
 

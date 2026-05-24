@@ -91,6 +91,36 @@ public sealed class DashboardStoreTests
         Assert.Equal(DashboardStore.MaxLogLines, store.State.Logs.Count);
         Assert.Equal("line-5", store.State.Logs.First());
     }
+
+    [Fact]
+    public void DashboardViewStateBuildsRowsAndActions()
+    {
+        var state = new DashboardState
+        {
+            ApiOnline = true,
+            Status = new StatusPayload(true, "A", [new ListenerStatusPayload("socks5", "127.0.0.1:1080", 2)]),
+            Profiles = new ProfilesPayload(["A", "B"], "A"),
+            Servers = new ServersPayload("A", [new ChainPayload("default", [new ServerPayload("london", "uk.example:443", "vless")])]),
+            Traffic = new TrafficSnapshotPayload
+            {
+                Summary = new TrafficSummaryPayload { ActiveConnections = 1, RxBps = 2048, TxBps = 1024 },
+                Connections = [new TrafficConnectionPayload { State = "active", Target = "example.com:443", Network = "tcp", RxTotal = 2048, TxTotal = 1024 }]
+            },
+            Logs = ["started"]
+        };
+
+        var view = DashboardViewState.From(state, new DaemonSupervisor(), false, "");
+
+        Assert.Equal("Running", view.StatusText);
+        Assert.Equal("Disconnect", view.ConnectionActionText);
+        Assert.True(view.CanToggleConnection);
+        Assert.True(view.HasListeners);
+        Assert.True(view.HasServers);
+        Assert.True(view.HasTraffic);
+        Assert.True(view.HasLogs);
+        Assert.Equal("SOCKS5", view.Listeners.Single().Primary);
+        Assert.Equal("example.com:443", view.Traffic.Single().Primary);
+    }
 }
 
 internal sealed class FakeApi : IClambhookApi

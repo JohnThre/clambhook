@@ -29,6 +29,18 @@ public sealed class SettingsAndDaemonTests
     }
 
     [Fact]
+    public void SettingsValidatesAndFallsBackUnsupportedApiEndpoint()
+    {
+        Assert.True(AppSettings.IsSupportedApiEndpoint("https://proxy.example.test:9443/"));
+        Assert.True(AppSettings.IsSupportedApiEndpoint("http://[::1]:9091/"));
+        Assert.False(AppSettings.IsSupportedApiEndpoint("ftp://proxy.example.test"));
+
+        var settings = new AppSettings { ApiEndpoint = "ftp://proxy.example.test" }.Normalized();
+
+        Assert.Equal(AppSettings.DefaultApiEndpoint, settings.ApiEndpoint);
+    }
+
+    [Fact]
     public async Task InMemoryTokenVaultTrimsToken()
     {
         var vault = new InMemoryTokenVault();
@@ -55,8 +67,16 @@ public sealed class SettingsAndDaemonTests
 
         var args = DaemonSupervisor.BuildArguments(settings, "secret-token");
 
-        var expected = "-api \"http://127.0.0.1:9090\" -api-token \"secret-token\" -config \"C:\\config\\example.toml\"";
+        var expected = "-api \"127.0.0.1:9090\" -api-token \"secret-token\" -config \"C:\\config\\example.toml\"";
         Assert.Equal(expected, args);
+    }
+
+    [Fact]
+    public void DaemonSupervisorConvertsApiEndpointToListenAddress()
+    {
+        Assert.Equal("127.0.0.1:9090", DaemonSupervisor.ApiListenAddress("http://127.0.0.1:9090"));
+        Assert.Equal("[::1]:9091", DaemonSupervisor.ApiListenAddress("http://[::1]:9091/"));
+        Assert.Equal("proxy.example.test", DaemonSupervisor.ApiListenAddress("https://proxy.example.test"));
     }
 
     [Fact]
@@ -82,8 +102,10 @@ public sealed class SettingsAndDaemonTests
 
         Assert.Equal("true", ProjectProperty(project, "WindowsAppSDKSelfContained"));
         Assert.Equal("true", ProjectProperty(project, "PublishSelfContained"));
+        Assert.Equal(@"Assets\clambhook.ico", ProjectProperty(project, "ApplicationIcon"));
         Assert.Contains("win-x64", ProjectProperty(project, "RuntimeIdentifiers").Split(';'));
         Assert.Contains("win-arm64", ProjectProperty(project, "RuntimeIdentifiers").Split(';'));
+        Assert.Contains(project.Descendants("Content"), content => content.Attribute("Include")?.Value == @"Assets\clambhook.ico");
 
         var targetNames = project.Descendants("Target")
             .Select(target => target.Attribute("Name")?.Value)

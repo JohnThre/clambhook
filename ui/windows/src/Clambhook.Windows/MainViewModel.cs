@@ -10,6 +10,7 @@ public sealed class MainViewModel
     private CancellationTokenSource? _eventsCts;
     private string _appBaseDirectory = AppContext.BaseDirectory;
     private ClambhookApiClient _apiClient;
+    private int _busyDepth;
 
     public MainViewModel(ISettingsStore settingsStore, ITokenVault tokenVault, DaemonSupervisor daemon)
     {
@@ -19,6 +20,8 @@ public sealed class MainViewModel
         Settings = new AppSettings();
         _apiClient = NewClient();
         Store = new DashboardStore(_apiClient);
+        Store.PropertyChanged += Store_PropertyChanged;
+        Daemon.StateChanged += NotifyChanged;
     }
 
     public event Action? StateChanged;
@@ -28,6 +31,8 @@ public sealed class MainViewModel
     public DashboardStore Store { get; private set; }
     public DaemonSupervisor Daemon { get; }
     public string DaemonMessage { get; private set; } = "";
+    public bool IsBusy => _busyDepth > 0;
+    public string BusyMessage { get; private set; } = "";
 
     public async Task InitializeAsync(string appBaseDirectory)
     {
@@ -47,42 +52,54 @@ public sealed class MainViewModel
 
     public async Task SaveSettingsAsync(AppSettings settings, string token)
     {
-        Settings = settings.Normalized();
-        ApiToken = token.Trim();
-        await _settingsStore.SaveAsync(Settings);
-        await _tokenVault.SaveTokenAsync(ApiToken);
-        ReloadClient();
-        StartBackgroundWork();
-        await Store.RefreshDashboardAsync();
-        NotifyChanged();
+        await RunUserActionAsync("Saving settings", async () =>
+        {
+            Settings = settings.Normalized();
+            ApiToken = token.Trim();
+            await _settingsStore.SaveAsync(Settings);
+            await _tokenVault.SaveTokenAsync(ApiToken);
+            ReloadClient();
+            StartBackgroundWork();
+            await Store.RefreshDashboardAsync();
+        });
     }
 
     public async Task RefreshDashboardAsync()
     {
-        await Store.RefreshDashboardAsync();
-        NotifyChanged();
+        await RunUserActionAsync("Refreshing", () => Store.RefreshDashboardAsync());
+    }
+
+    public async Task ConnectAsync()
+    {
+        await RunUserActionAsync("Connecting", () => Store.ConnectAsync());
+    }
+
+    public async Task DisconnectAsync()
+    {
+        await RunUserActionAsync("Disconnecting", () => Store.DisconnectAsync());
+    }
+
+    public async Task SetActiveProfileAsync(string profile)
+    {
+        await RunUserActionAsync("Switching profile", () => Store.SetActiveProfileAsync(profile));
     }
 
     public async Task StartDaemonAsync()
     {
-        try
+        await RunUserActionAsync("Starting daemon", async () =>
         {
             await Daemon.StartAsync(Settings, ApiToken, _appBaseDirectory);
-            DaemonMessage = "daemon launched";
-        }
-        catch (Exception error)
-        {
-            DaemonMessage = error.Message;
-        }
-
-        NotifyChanged();
+            DaemonMessage = Daemon.Message;
+        });
     }
 
     public async Task StopDaemonAsync()
     {
-        await Daemon.StopAsync();
-        DaemonMessage = "daemon stopped";
-        NotifyChanged();
+        await RunUserActionAsync("Stopping daemon", async () =>
+        {
+            await Daemon.StopAsync();
+            DaemonMessage = Daemon.Message;
+        });
     }
 
     public async Task ShutdownAsync()
@@ -136,11 +153,41 @@ public sealed class MainViewModel
 
     private async Task RunPollingAsync(CancellationToken cancellationToken)
     {
-        while (!cancellationToken.IsCancellationRequested)
+        try
         {
-            await Store.RefreshStatusAsync(cancellationToken);
+            while (!cancellationToken.IsCancellationRequested)
+            {
+                await Store.RefreshStatusAsync(cancellationToken);
+                NotifyChanged();
+                await Task.Delay(TimeSpan.FromSeconds(Settings.Normalized().RefreshIntervalSeconds), cancellationToken);
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
+    }
+
+    private async Task RunUserActionAsync(string busyMessage, Func<Task> action)
+    {
+        _busyDepth++;
+        BusyMessage = busyMessage;
+        NotifyChanged();
+        try
+        {
+            await action();
+        }
+        catch (Exception error)
+        {
+            DaemonMessage = error.Message;
+        }
+        finally
+        {
+            _busyDepth = Math.Max(0, _busyDepth - 1);
+            if (_busyDepth == 0)
+            {
+                BusyMessage = "";
+            }
             NotifyChanged();
-            await Task.Delay(TimeSpan.FromSeconds(Settings.Normalized().RefreshIntervalSeconds), cancellationToken);
         }
     }
 
