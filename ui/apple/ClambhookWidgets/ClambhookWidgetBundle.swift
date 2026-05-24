@@ -48,46 +48,141 @@ struct StatusWidgetView: View {
     @Environment(\.widgetFamily) private var family
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Label(entry.snapshot.running ? "Running" : "Stopped", systemImage: entry.snapshot.running ? "checkmark.circle.fill" : "pause.circle")
-                    .font(.caption)
-                    .foregroundStyle(entry.snapshot.running ? .green : .secondary)
-                Spacer()
-                Circle()
-                    .fill(entry.snapshot.apiOnline ? .green : .red)
-                    .frame(width: 8, height: 8)
-            }
+        VStack(alignment: .leading, spacing: family == .systemSmall ? 7 : 9) {
+            header
+            profile
+            metrics
+            Spacer(minLength: 0)
+            actions
+        }
+        .containerBackground(.background, for: .widget)
+    }
+
+    private var header: some View {
+        HStack(spacing: 8) {
+            WidgetStatusBadge(
+                text: entry.snapshot.running ? "Running" : "Stopped",
+                systemImage: entry.snapshot.running ? "checkmark.circle.fill" : "pause.circle",
+                tint: entry.snapshot.running ? .green : .secondary
+            )
+            Spacer(minLength: 0)
+            Circle()
+                .fill(entry.snapshot.apiOnline ? .green : .red)
+                .frame(width: 8, height: 8)
+                .accessibilityLabel(entry.snapshot.apiOnline ? "API online" : "API offline")
+        }
+    }
+
+    private var profile: some View {
+        VStack(alignment: .leading, spacing: 2) {
             Text(emptyDash(entry.snapshot.profile))
                 .font(.headline)
                 .lineLimit(1)
-            HStack {
-                VStack(alignment: .leading) {
-                    Text("Rx \(formatRate(entry.snapshot.rxBps))")
-                    Text("Tx \(formatRate(entry.snapshot.txBps))")
-                }
-                .font(.caption2)
-                Spacer()
+                .minimumScaleFactor(0.8)
+            if family == .systemMedium {
+                Text("Updated \(entry.snapshot.updatedAt, style: .time)")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
             }
-            HStack {
-                if entry.snapshot.running {
-                    Button(intent: DisconnectIntent()) {
-                        Label("Stop", systemImage: "stop.fill")
-                    }
-                } else {
-                    Button(intent: ConnectIntent()) {
-                        Label("Start", systemImage: "play.fill")
-                    }
-                }
-                if family == .systemMedium {
-                    Button(intent: NextProfileIntent()) {
-                        Label("Next", systemImage: "arrow.right.circle")
-                    }
-                }
-            }
-            .font(.caption)
         }
-        .containerBackground(.background, for: .widget)
+    }
+
+    @ViewBuilder
+    private var metrics: some View {
+        if family == .systemMedium {
+            HStack(spacing: 8) {
+                WidgetMetricTile(title: "Down", value: formatRate(entry.snapshot.rxBps), systemImage: "arrow.down")
+                WidgetMetricTile(title: "Up", value: formatRate(entry.snapshot.txBps), systemImage: "arrow.up")
+                WidgetMetricTile(title: "Active", value: "\(entry.snapshot.activeConnections)", systemImage: "bolt.horizontal.circle")
+            }
+        } else {
+            VStack(alignment: .leading, spacing: 2) {
+                WidgetMetricLine(title: "Down", value: formatRate(entry.snapshot.rxBps))
+                WidgetMetricLine(title: "Up", value: formatRate(entry.snapshot.txBps))
+                WidgetMetricLine(title: "Active", value: "\(entry.snapshot.activeConnections)")
+            }
+        }
+    }
+
+    private var actions: some View {
+        HStack(spacing: 6) {
+            if entry.snapshot.running {
+                Button(intent: DisconnectIntent()) {
+                    Label("Stop", systemImage: "stop.fill")
+                }
+            } else {
+                Button(intent: ConnectIntent()) {
+                    Label("Start", systemImage: "play.fill")
+                }
+            }
+            if family == .systemMedium {
+                Button(intent: NextProfileIntent()) {
+                    Label("Next", systemImage: "arrow.right.circle")
+                }
+            }
+        }
+        .font(.caption.weight(.medium))
+        .buttonStyle(.bordered)
+    }
+}
+
+private struct WidgetStatusBadge: View {
+    var text: String
+    var systemImage: String
+    var tint: Color
+
+    var body: some View {
+        Label(text, systemImage: systemImage)
+            .font(.caption.weight(.medium))
+            .lineLimit(1)
+            .foregroundStyle(tint)
+    }
+}
+
+private struct WidgetMetricTile: View {
+    var title: String
+    var value: String
+    var systemImage: String
+
+    var body: some View {
+        HStack(spacing: 5) {
+            Image(systemName: systemImage)
+                .foregroundStyle(.secondary)
+                .frame(width: 14)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                Text(value)
+                    .font(.caption.weight(.semibold))
+                    .monospacedDigit()
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 7)
+        .padding(.vertical, 6)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+    }
+}
+
+private struct WidgetMetricLine: View {
+    var title: String
+    var value: String
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Text(title)
+                .foregroundStyle(.secondary)
+            Text(value)
+                .monospacedDigit()
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+        }
+        .font(.caption2)
     }
 }
 
