@@ -1,7 +1,7 @@
 Name:           clambhook
 Version:        0.1.0
 Release:        1%{?dist}
-Summary:        Local network client daemon, desktop controller, and terminal dashboard
+Summary:        Local connectivity utility with desktop and terminal interfaces
 
 License:        GPL-3.0-only
 URL:            https://github.com/JohnThre/clambhook
@@ -25,8 +25,8 @@ BuildRequires:  pkgconfig(libsodium)
 BuildRequires:  pkgconfig(libsoup-3.0)
 
 %description
-clambhook provides a local network client daemon, HTTP control API, native GTK
-desktop controller, and terminal dashboard.
+clambhook provides a local connectivity utility with native GTK desktop and
+terminal interfaces.
 
 %prep
 %autosetup -n %{name}-%{version}

@@ -62,10 +62,10 @@
     (inputs
      (list gtk libadwaita libgee glib json-glib libsecret libsodium libsoup))
     (home-page "https://github.com/JohnThre/clambhook")
-    (synopsis "Local network client daemon, desktop controller, and terminal dashboard")
+    (synopsis "Local connectivity utility with desktop and terminal interfaces")
     (description
-     "clambhook provides a local network client daemon, HTTP control API, and
-native GTK desktop controller plus terminal dashboard.")
+     "clambhook provides a local connectivity utility with native GTK desktop
+and terminal interfaces.")
     (license license:gpl3)))
 
 clambhook
