@@ -4,6 +4,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -42,6 +43,8 @@ class DashboardRepositoryTest {
         assertEquals(3, state.activeConnections)
         assertEquals("london", state.servers.chains.single().servers.single().name)
         assertEquals("example.com:443", state.traffic.connections.single().target)
+        assertTrue(state.lastUpdatedEpochMillis > 0)
+        assertFalse(state.isRefreshing)
     }
 
     @Test
@@ -69,6 +72,8 @@ class DashboardRepositoryTest {
         assertEquals(3, api.profileCalls)
         assertEquals(3, api.serverCalls)
         assertEquals(3, api.trafficCalls)
+        assertNull(repository.state.value.actionInProgress)
+        assertEquals("", repository.state.value.pendingProfile)
     }
 
     @Test

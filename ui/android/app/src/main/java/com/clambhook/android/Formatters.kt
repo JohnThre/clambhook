@@ -1,5 +1,9 @@
 package com.clambhook.android
 
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+
 fun formatRate(bytesPerSecond: Double): String {
     val units = listOf("B/s", "KB/s", "MB/s", "GB/s")
     var value = bytesPerSecond
@@ -38,6 +42,12 @@ fun formatDurationNs(ns: Long): String {
         seconds < 60 -> "$seconds s"
         else -> "${seconds / 60} min"
     }
+}
+
+fun formatUpdatedAt(epochMillis: Long): String {
+    if (epochMillis <= 0) return "Never"
+    val time = Instant.ofEpochMilli(epochMillis).atZone(ZoneId.systemDefault())
+    return DateTimeFormatter.ofPattern("HH:mm:ss").format(time)
 }
 
 fun serverLocation(server: ServerPayload): String {
