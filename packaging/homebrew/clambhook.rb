@@ -1,5 +1,5 @@
 class Clambhook < Formula
-  desc "Local network client daemon and terminal dashboard"
+  desc "Local connectivity utility with terminal interface"
   homepage "https://github.com/JohnThre/clambhook"
   url "https://github.com/JohnThre/clambhook.git",
       tag:      "v0.1.0"
