@@ -95,6 +95,10 @@ final class AppleAppModel: ObservableObject {
         Task { await dashboard.refreshDashboard() }
     }
 
+    func refreshNow() async {
+        await dashboard.refreshDashboard()
+    }
+
     func connectOrDisconnect() {
         Task {
             if dashboard.status.running {
