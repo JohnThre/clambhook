@@ -3,6 +3,7 @@ options:
   deploymentTarget:
     macOS: "14.0"
     iOS: "17.0"
+    visionOS: "1.0"
   createIntermediateGroups: true
 packages:
   ClambhookShared:
@@ -55,6 +56,21 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.clambhook.ios
         INFOPLIST_FILE: ClambhookiOS/Info.plist
         CODE_SIGN_ENTITLEMENTS: ClambhookiOS/ClambhookiOS.entitlements
+  ClambhookVision:
+    type: application
+    platform: visionOS
+    sources:
+      - path: SharedApp
+      - path: ClambhookVision
+    dependencies:
+      - package: ClambhookShared
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.clambhook.vision
+        INFOPLIST_FILE: ClambhookVision/Info.plist
+        CODE_SIGN_ENTITLEMENTS: ClambhookVision/ClambhookVision.entitlements
+        SUPPORTED_PLATFORMS: xros xrsimulator
+        SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD: NO
   ClambhookMacWidgetExtension:
     type: app-extension
     platform: macOS
