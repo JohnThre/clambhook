@@ -91,6 +91,28 @@ name = "🇺🇸 US Fast"
       sni      = "example.com"
 
 [[profile]]
+name = "Clambback"
+
+  [profile.listen]
+  socks5 = "127.0.0.1:1080"
+
+  [profile.api]
+  listen = "127.0.0.1:9090"
+
+  [[profile.chain]]
+  name = "clambback"
+
+    [[profile.chain.server]]
+    name     = "clambback-server"
+    address  = "clambback.example.com:443"
+    protocol = "clambback"
+
+      [profile.chain.server.settings]
+      password = "your-password-here"
+      sni = "clambback.example.com"
+      # skip_cert_verify = true # only for private/self-signed test servers
+
+[[profile]]
 name = "🔒 Double Hop"
 
   [profile.listen]

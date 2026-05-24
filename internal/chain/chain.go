@@ -122,7 +122,7 @@ func emitHopError(ctx context.Context, idx int, err error) {
 //
 // Intermediate hops must be streaming protocols — they just forward the TLS
 // bytes of the UDP-carrying final hop. The final hop MUST implement
-// protocol.PacketDialer (trojan does; most others don't yet).
+// protocol.PacketDialer (trojan and clambback do; most others don't yet).
 //
 // This is the "type-assertion" approach: we don't force every protocol to
 // implement a no-op DialPacket. If the final hop doesn't support UDP, we

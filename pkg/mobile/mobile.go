@@ -20,6 +20,7 @@ import (
 	"github.com/JohnThre/clambhook/internal/traffic"
 
 	// Register all protocols for embedded Android builds.
+	_ "github.com/JohnThre/clambhook/internal/protocol/clambback"
 	_ "github.com/JohnThre/clambhook/internal/protocol/openvpn"
 	_ "github.com/JohnThre/clambhook/internal/protocol/reality"
 	_ "github.com/JohnThre/clambhook/internal/protocol/shadowsocks"

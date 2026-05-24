@@ -51,7 +51,7 @@ type Dialer interface {
 //	return nil, fmt.Errorf("%s: UDP not supported", dialer.Protocol())
 type PacketDialer interface {
 	// DialPacket opens a new UDP-carrying session. address is advisory —
-	// some protocols (e.g. trojan) place an address in the opening frame
+	// some protocols (e.g. trojan/clambback) place an address in the opening frame
 	// for compatibility but don't use it for routing; per-datagram
 	// destinations come from WriteTo.
 	DialPacket(ctx context.Context, address string) (PacketConn, error)
