@@ -8,6 +8,13 @@ import kotlinx.coroutines.flow.update
 const val bandwidthSampleLimit = 60
 const val maxLogLines = 200
 
+enum class DashboardAction {
+    Refresh,
+    Connect,
+    Disconnect,
+    SwitchProfile
+}
+
 data class DashboardState(
     val status: StatusPayload = StatusPayload(),
     val profiles: ProfilesPayload = ProfilesPayload(),
@@ -16,7 +23,13 @@ data class DashboardState(
     val bandwidthSamples: List<BandwidthSample> = emptyList(),
     val logs: List<String> = emptyList(),
     val apiOnline: Boolean = false,
-    val errorText: String = ""
+    val errorText: String = "",
+    val isRefreshing: Boolean = false,
+    val actionInProgress: DashboardAction? = null,
+    val pendingProfile: String = "",
+    val lastUpdatedEpochMillis: Long = 0,
+    val eventStreamStatus: String = "Events paused",
+    val eventStreamError: String = ""
 ) {
     val activeProfile: String
         get() = profiles.active.ifBlank { status.profile }
@@ -26,6 +39,9 @@ data class DashboardState(
 
     val activeConnections: Int
         get() = status.listeners.sumOf { it.activeConns }
+
+    val isBusy: Boolean
+        get() = isRefreshing || actionInProgress != null
 }
 
 class DashboardRepository(
@@ -34,7 +50,16 @@ class DashboardRepository(
     private val _state = MutableStateFlow(DashboardState())
     val state: StateFlow<DashboardState> = _state.asStateFlow()
 
-    suspend fun refreshDashboard() {
+    suspend fun refreshDashboard(showProgress: Boolean = false) {
+        if (showProgress) {
+            _state.update {
+                it.copy(
+                    isRefreshing = true,
+                    actionInProgress = DashboardAction.Refresh,
+                    errorText = ""
+                )
+            }
+        }
         try {
             val status = api.status()
             val profiles = api.profiles()
@@ -47,11 +72,16 @@ class DashboardRepository(
                     servers = servers,
                     traffic = traffic,
                     apiOnline = true,
-                    errorText = ""
+                    errorText = "",
+                    lastUpdatedEpochMillis = System.currentTimeMillis()
                 )
             }
         } catch (error: Throwable) {
             markOffline(error)
+        } finally {
+            if (showProgress) {
+                _state.update { it.copy(isRefreshing = false, actionInProgress = null) }
+            }
         }
     }
 
@@ -59,22 +89,30 @@ class DashboardRepository(
         try {
             val status = api.status()
             val traffic = api.traffic()
-            _state.update { it.copy(status = status, traffic = traffic, apiOnline = true, errorText = "") }
+            _state.update {
+                it.copy(
+                    status = status,
+                    traffic = traffic,
+                    apiOnline = true,
+                    errorText = "",
+                    lastUpdatedEpochMillis = System.currentTimeMillis()
+                )
+            }
         } catch (error: Throwable) {
             markOffline(error)
         }
     }
 
     suspend fun connect() {
-        performAction { api.connect() }
+        performAction(DashboardAction.Connect) { api.connect() }
     }
 
     suspend fun disconnect() {
-        performAction { api.disconnect() }
+        performAction(DashboardAction.Disconnect) { api.disconnect() }
     }
 
     suspend fun setActiveProfile(name: String) {
-        performAction { api.setActiveProfile(name) }
+        performAction(DashboardAction.SwitchProfile, pendingProfile = name) { api.setActiveProfile(name) }
     }
 
     fun applyEvent(event: DaemonEvent) {
@@ -84,12 +122,34 @@ class DashboardRepository(
         }
     }
 
-    private suspend fun performAction(action: suspend () -> Unit) {
+    fun setEventStreamState(status: String, error: String = "") {
+        _state.update { it.copy(eventStreamStatus = status, eventStreamError = error) }
+    }
+
+    private suspend fun performAction(
+        actionType: DashboardAction,
+        pendingProfile: String = "",
+        action: suspend () -> Unit
+    ) {
+        _state.update {
+            it.copy(
+                actionInProgress = actionType,
+                pendingProfile = pendingProfile,
+                errorText = ""
+            )
+        }
         try {
             action()
             refreshDashboard()
         } catch (error: Throwable) {
             markOffline(error)
+        } finally {
+            _state.update {
+                it.copy(
+                    actionInProgress = null,
+                    pendingProfile = ""
+                )
+            }
         }
     }
 

@@ -25,7 +25,7 @@ class DashboardViewModel(
     private var webSocket: WebSocket? = null
 
     fun refresh() {
-        viewModelScope.launch { repository.refreshDashboard() }
+        viewModelScope.launch { repository.refreshDashboard(showProgress = true) }
     }
 
     fun connect() {
@@ -55,11 +55,18 @@ class DashboardViewModel(
         webSocket?.close(1000, null)
         webSocket = null
         if (!enabled) {
+            repository.setEventStreamState("Events paused")
             return
         }
+        repository.setEventStreamState("Events listening")
         webSocket = apiClient.openEventStream(
-            onEvent = { event -> repository.applyEvent(event) },
+            onEvent = { event ->
+                repository.setEventStreamState("Events listening")
+                repository.applyEvent(event)
+            },
             onFailure = { error ->
+                val message = error.message ?: error.toString()
+                repository.setEventStreamState("Events disconnected", message)
                 viewModelScope.launch {
                     repository.applyEvent(
                         DaemonEvent(
@@ -67,7 +74,7 @@ class DashboardViewModel(
                             lamport = 0u,
                             tsNs = 0,
                             type = "log.line",
-                            data = mapOf("line" to kotlinx.serialization.json.JsonPrimitive("events: ${error.message ?: error}"))
+                            data = mapOf("line" to kotlinx.serialization.json.JsonPrimitive("events: $message"))
                         )
                     )
                 }

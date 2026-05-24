@@ -18,6 +18,7 @@ class MainActivity : ComponentActivity() {
         val settingsStore = DataStoreSettingsStore(this)
         val tokenStore = EncryptedTokenStore(this)
         val configStore = AndroidConfigStore(this)
+        val configValidator = AndroidConfigValidator(this)
 
         setContent {
             val settings by settingsStore.settings.collectAsState(initial = AppSettings())
@@ -77,7 +78,8 @@ class MainActivity : ComponentActivity() {
                     } else {
                         LocalDaemonService.stop(this@MainActivity)
                     }
-                }
+                },
+                onValidateConfig = configValidator::validate
             )
         }
     }

@@ -7,6 +7,7 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.graphics.drawable.Icon
 import android.os.Build
 import android.os.IBinder
 import android.util.Log
@@ -33,7 +34,7 @@ class LocalDaemonService : Service() {
             }
 
             ACTION_RESTART -> {
-                startForeground(notificationId, notification())
+                startForeground(notificationId, notification(getString(R.string.daemon_notification_starting)))
                 scope.launch {
                     stopRuntime()
                     startRuntime()
@@ -42,13 +43,13 @@ class LocalDaemonService : Service() {
             }
 
             ACTION_RELOAD -> {
-                startForeground(notificationId, notification())
+                startForeground(notificationId, notification(getString(R.string.daemon_notification_reloading)))
                 scope.launch { reloadRuntime() }
                 return START_STICKY
             }
 
             else -> {
-                startForeground(notificationId, notification())
+                startForeground(notificationId, notification(getString(R.string.daemon_notification_starting)))
                 scope.launch { startRuntime() }
                 return START_STICKY
             }
@@ -66,8 +67,10 @@ class LocalDaemonService : Service() {
             val configPath = AndroidConfigStore(this).ensureConfig()
             val token = EncryptedTokenStore(this).currentToken()
             GomobileClambhookRuntime.start(configPath, defaultAndroidApiListenAddress, token)
+            updateNotification(getString(R.string.daemon_notification_text, defaultAndroidApiBaseUrl))
         }.onFailure { error ->
             Log.e(logTag, "failed to start embedded clambhook runtime", error)
+            updateNotification(getString(R.string.daemon_notification_error, notificationError(error)))
         }
     }
 
@@ -76,11 +79,13 @@ class LocalDaemonService : Service() {
             val configPath = AndroidConfigStore(this).ensureConfig()
             if (GomobileClambhookRuntime.isRunning()) {
                 GomobileClambhookRuntime.reload(configPath)
+                updateNotification(getString(R.string.daemon_notification_text, defaultAndroidApiBaseUrl))
             } else {
                 startRuntime()
             }
         }.onFailure { error ->
             Log.e(logTag, "failed to reload embedded clambhook runtime", error)
+            updateNotification(getString(R.string.daemon_notification_error, notificationError(error)))
         }
     }
 
@@ -89,7 +94,7 @@ class LocalDaemonService : Service() {
             .onFailure { error -> Log.e(logTag, "failed to stop embedded clambhook runtime", error) }
     }
 
-    private fun notification(): Notification {
+    private fun notification(contentText: String): Notification {
         ensureNotificationChannel()
         val contentIntent = PendingIntent.getActivity(
             this,
@@ -105,18 +110,27 @@ class LocalDaemonService : Service() {
         )
         return Notification.Builder(this, notificationChannelId)
             .setContentTitle(getString(R.string.daemon_notification_title))
-            .setContentText(getString(R.string.daemon_notification_text))
+            .setContentText(contentText)
             .setSmallIcon(R.drawable.ic_stat_clambhook)
             .setContentIntent(contentIntent)
             .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .setShowWhen(false)
+            .setLocalOnly(true)
+            .setCategory(Notification.CATEGORY_SERVICE)
             .addAction(
                 Notification.Action.Builder(
-                    R.drawable.ic_stat_clambhook,
+                    Icon.createWithResource(this, R.drawable.ic_stat_clambhook),
                     getString(R.string.daemon_notification_stop),
                     stopIntent
                 ).build()
             )
             .build()
+    }
+
+    private fun updateNotification(contentText: String) {
+        getSystemService(NotificationManager::class.java)
+            .notify(notificationId, notification(contentText))
     }
 
     private fun ensureNotificationChannel() {
@@ -169,5 +183,9 @@ class LocalDaemonService : Service() {
         fun stop(context: Context) {
             context.startService(Intent(context, LocalDaemonService::class.java).setAction(ACTION_STOP))
         }
+    }
+
+    private fun notificationError(error: Throwable): String {
+        return (error.message ?: error.toString()).lineSequence().firstOrNull().orEmpty().take(96)
     }
 }

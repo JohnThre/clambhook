@@ -6,6 +6,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SettingsStoreTest {
@@ -53,6 +54,36 @@ class SettingsStoreTest {
         assertFalse(token.contains("+"))
         assertFalse(token.contains("/"))
         assertFalse(token.contains("="))
+    }
+
+    @Test
+    fun settingsValidationRejectsInvalidRemoteInput() {
+        val errors = validateSettingsInput(
+            apiBaseUrl = "ftp://example.com",
+            apiToken = " ",
+            refreshSeconds = "1",
+            embeddedDaemonEnabled = false,
+            configToml = " "
+        )
+
+        assertEquals("Use http:// or https://", errors.apiBaseUrl)
+        assertEquals("Enter a bearer token", errors.apiToken)
+        assertEquals("Refresh must be 2-60 seconds", errors.refreshSeconds)
+        assertEquals("Config TOML is required", errors.configToml)
+        assertFalse(errors.isValid)
+    }
+
+    @Test
+    fun settingsValidationSkipsBaseUrlForEmbeddedDaemon() {
+        val errors = validateSettingsInput(
+            apiBaseUrl = "",
+            apiToken = "secret",
+            refreshSeconds = "5",
+            embeddedDaemonEnabled = true,
+            configToml = defaultAndroidConfigToml
+        )
+
+        assertTrue(errors.isValid)
     }
 }
 

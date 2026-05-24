@@ -2,6 +2,9 @@
     <string name="app_name">clambhook</string>
     <string name="daemon_notification_channel">clambhook daemon</string>
     <string name="daemon_notification_title">clambhook is running</string>
-    <string name="daemon_notification_text">Local proxy service is active</string>
+    <string name="daemon_notification_starting">Starting local daemon</string>
+    <string name="daemon_notification_reloading">Reloading local daemon</string>
+    <string name="daemon_notification_text">Local daemon API active at %1$s</string>
+    <string name="daemon_notification_error">Daemon error: %1$s</string>
     <string name="daemon_notification_stop">Stop</string>
 </resources>
