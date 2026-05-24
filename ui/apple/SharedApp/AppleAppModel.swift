@@ -1,4 +1,5 @@
 import ClambhookShared
+import Combine
 import Foundation
 import SwiftUI
 
@@ -14,6 +15,8 @@ final class AppleAppModel: ObservableObject {
     private var apiClient: ClambhookAPIClient
     private var snapshotStore: FileSnapshotStore
     private var pollingTask: Task<Void, Never>?
+    private var dashboardChangeCancellable: AnyCancellable?
+    private var settingsChangeCancellable: AnyCancellable?
     private var started = false
 
     #if os(macOS)
@@ -41,6 +44,7 @@ final class AppleAppModel: ObservableObject {
             snapshotStore: snapshotStore,
             logRetention: settingsStore.settings.logRetention
         )
+        bindChildStores()
         #if os(macOS)
         if platform == .macOS {
             Task { @MainActor [weak self] in
@@ -141,6 +145,24 @@ final class AppleAppModel: ObservableObject {
         apiClient = ClambhookAPIClient(baseURL: endpoint, tokenProvider: { token.isEmpty ? nil : token })
         dashboard.stopEventStream()
         dashboard = DashboardStore(api: apiClient, snapshotStore: snapshotStore, logRetention: settings.logRetention)
+        bindDashboardStore()
+    }
+
+    private func bindChildStores() {
+        bindDashboardStore()
+        settingsChangeCancellable = settingsStore.objectWillChange.sink { [weak self] _ in
+            Task { @MainActor in
+                self?.objectWillChange.send()
+            }
+        }
+    }
+
+    private func bindDashboardStore() {
+        dashboardChangeCancellable = dashboard.objectWillChange.sink { [weak self] _ in
+            Task { @MainActor in
+                self?.objectWillChange.send()
+            }
+        }
     }
 
     private func startPolling() {
@@ -176,6 +198,7 @@ final class AppleAppModel: ObservableObject {
 enum AppPlatform {
     case macOS
     case iOS
+    case visionOS
 }
 
 private func defaultCredentialStore() -> CredentialStoring {
