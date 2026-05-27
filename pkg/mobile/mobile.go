@@ -22,12 +22,9 @@ import (
 	// Register all protocols for embedded Android builds.
 	_ "github.com/JohnThre/clambhook/internal/protocol/clambback"
 	_ "github.com/JohnThre/clambhook/internal/protocol/openvpn"
-	_ "github.com/JohnThre/clambhook/internal/protocol/reality"
 	_ "github.com/JohnThre/clambhook/internal/protocol/shadowsocks"
 	_ "github.com/JohnThre/clambhook/internal/protocol/tor"
 	_ "github.com/JohnThre/clambhook/internal/protocol/trojan"
-	_ "github.com/JohnThre/clambhook/internal/protocol/vless"
-	_ "github.com/JohnThre/clambhook/internal/protocol/vmess"
 	_ "github.com/JohnThre/clambhook/internal/protocol/wireguard"
 )
 

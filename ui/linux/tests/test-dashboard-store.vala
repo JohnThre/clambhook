@@ -40,7 +40,7 @@ namespace Clambhook.Tests {
             var api = new FakeApi();
             api.status_payload = StatusPayload.from_json("""{"running":true,"profile":"A","listeners":[{"protocol":"socks5","addr":"127.0.0.1:1080","active_conns":3}]}""");
             api.profiles_payload = ProfilesPayload.from_json("""{"profiles":["A","B"],"active":"A"}""");
-            api.servers_payload = ServersPayload.from_json("""{"profile":"A","chains":[{"name":"default","servers":[{"name":"london","address":"uk.example:443","protocol":"vless"}]}]}""");
+            api.servers_payload = ServersPayload.from_json("""{"profile":"A","chains":[{"name":"default","servers":[{"name":"london","address":"uk.example:443","protocol":"clambback"}]}]}""");
             api.traffic_payload = TrafficSnapshotPayload.from_json("""{"summary":{"active_connections":1,"rx_bps":2048},"connections":[{"conn_id":"c1","state":"active","target":"example.com:443"}]}""");
 
             var store = new DashboardStore(api);

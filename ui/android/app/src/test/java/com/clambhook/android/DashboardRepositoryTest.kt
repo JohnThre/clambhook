@@ -23,7 +23,7 @@ class DashboardRepositoryTest {
                 chains = listOf(
                     ChainPayload(
                         name = "default",
-                        servers = listOf(ServerPayload(name = "london", address = "uk.example:443", protocol = "vless"))
+                        servers = listOf(ServerPayload(name = "london", address = "uk.example:443", protocol = "clambback"))
                     )
                 )
             ),

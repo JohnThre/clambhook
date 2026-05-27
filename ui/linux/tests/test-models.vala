@@ -29,7 +29,7 @@ namespace Clambhook.Tests {
                         {
                           "name": "london",
                           "address": "uk.example:443",
-                          "protocol": "vless",
+                          "protocol": "clambback",
                           "geo": {
                             "country": "United Kingdom",
                             "country_code": "GB",

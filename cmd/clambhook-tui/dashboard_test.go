@@ -295,14 +295,14 @@ func TestTrafficModeRefreshKeyReturnsCommand(t *testing.T) {
 func TestProfileListRendersEmojiNamesAndActiveMarker(t *testing.T) {
 	m := newModel("127.0.0.1:9090")
 	m.profiles = profilesPayload{
-		Profiles: []string{"🇺🇸 US Fast", "🔒 Double Hop", "🎭 Reality"},
+		Profiles: []string{"🇺🇸 US Fast", "🔒 Double Hop", "🔐 ClambBack"},
 		Active:   "🔒 Double Hop",
 	}
 	m.status = statusPayload{Profile: "🔒 Double Hop"}
 	m.syncSelectedProfile()
 
 	view := m.View()
-	for _, want := range []string{"Profiles", "  🇺🇸 US Fast", "● 🔒 Double Hop", "  🎭 Reality"} {
+	for _, want := range []string{"Profiles", "  🇺🇸 US Fast", "● 🔒 Double Hop", "  🔐 ClambBack"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("view missing %q:\n%s", want, view)
 		}
