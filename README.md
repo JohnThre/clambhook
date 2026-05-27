@@ -13,3 +13,13 @@
 <a href="https://nowpayments.io/donation?api_key=5792a927-dd7d-4b0c-982b-584a7499ffc9" target="_blank" rel="noreferrer noopener">
     <img src="https://nowpayments.io/images/embeds/donation-button-black.svg" alt="Crypto donation button by NOWPayments">
 </a>
+
+## Mobile pricing
+
+The App Store and Google Play mobile builds are distributed as paid apps at
+99 USD one-time. That purchase includes one year of feature updates for the
+current paid release line; later major release lines may be sold separately.
+
+Optional mobile support purchases use StoreKit on iOS, iPadOS, and visionOS,
+and Google Play Billing in the Google Play Android flavor. F-Droid builds do
+not include billing code or in-app support purchases.

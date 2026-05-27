@@ -3,6 +3,7 @@ package com.clambhook.android
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -21,10 +22,16 @@ class MainActivity : ComponentActivity() {
         val configValidator = AndroidConfigValidator(this)
 
         setContent {
+            val supportPurchaseManager = remember { SupportPurchaseManager(this@MainActivity) }
+            val supportPurchaseState by supportPurchaseManager.state.collectAsState()
             val settings by settingsStore.settings.collectAsState(initial = AppSettings())
             val token by tokenStore.token.collectAsState(initial = tokenStore.currentToken())
             var configToml by remember { mutableStateOf(defaultAndroidConfigToml) }
 
+            DisposableEffect(supportPurchaseManager) {
+                supportPurchaseManager.start()
+                onDispose { supportPurchaseManager.close() }
+            }
             LaunchedEffect(Unit) {
                 configToml = configStore.readConfig()
             }
@@ -63,6 +70,7 @@ class MainActivity : ComponentActivity() {
                 settings = effectiveSettings,
                 token = token,
                 configToml = configToml,
+                supportPurchaseState = supportPurchaseState,
                 onSaveSettings = { nextSettings, nextToken, nextConfigToml ->
                     val normalizedSettings = if (nextSettings.embeddedDaemonEnabled) {
                         nextSettings.copy(apiBaseUrl = defaultAndroidApiBaseUrl)
@@ -79,7 +87,11 @@ class MainActivity : ComponentActivity() {
                         LocalDaemonService.stop(this@MainActivity)
                     }
                 },
-                onValidateConfig = configValidator::validate
+                onValidateConfig = configValidator::validate,
+                onPurchaseSupport = { productId ->
+                    supportPurchaseManager.purchase(this@MainActivity, productId)
+                },
+                onClearSupportPurchaseMessage = supportPurchaseManager::clearMessage
             )
         }
     }
