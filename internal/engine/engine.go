@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net"
 	"sync"
 
 	"github.com/JohnThre/clambhook/internal/chain"
@@ -13,6 +14,7 @@ import (
 	"github.com/JohnThre/clambhook/internal/geo"
 	"github.com/JohnThre/clambhook/internal/listener"
 	"github.com/JohnThre/clambhook/internal/protocol"
+	"github.com/JohnThre/clambhook/internal/rules"
 )
 
 // defaultSOCKS5MaxConns is the default concurrent-handler ceiling when the
@@ -381,9 +383,12 @@ func buildListeners(profile *config.Profile, bus *events.Bus) (listeners []liste
 	}()
 
 	if addr := profile.Listen.SOCKS5; addr != "" {
-		ch, err := resolver.resolve(profile.Listen.SOCKS5Chain)
-		if err != nil {
+		if _, err := resolver.resolve(profile.Listen.SOCKS5Chain); err != nil {
 			return nil, nil, fmt.Errorf("socks5: %w", err)
+		}
+		planner, err := resolver.routePlanner(profile.Listen.SOCKS5Chain)
+		if err != nil {
+			return nil, nil, fmt.Errorf("socks5 rules: %w", err)
 		}
 		var auth *listener.AuthCreds
 		if profile.Listen.SOCKS5Auth != nil {
@@ -404,13 +409,16 @@ func buildListeners(profile *config.Profile, bus *events.Bus) (listeners []liste
 			HandshakeTimeout: profile.Listen.SOCKS5HandshakeTimeout.Std(),
 			EventBus:         bus,
 		}
-		out = append(out, listener.NewSOCKSv5(addr, auth, ch, opts))
+		out = append(out, listener.NewSOCKSv5WithPlanner(addr, auth, planner, opts))
 	}
 
 	if addr := profile.Listen.HTTP; addr != "" {
-		ch, err := resolver.resolve(profile.Listen.HTTPChain)
-		if err != nil {
+		if _, err := resolver.resolve(profile.Listen.HTTPChain); err != nil {
 			return nil, nil, fmt.Errorf("http: %w", err)
+		}
+		planner, err := resolver.routePlanner(profile.Listen.HTTPChain)
+		if err != nil {
+			return nil, nil, fmt.Errorf("http rules: %w", err)
 		}
 		var auth *listener.AuthCreds
 		if profile.Listen.HTTPAuth != nil {
@@ -428,7 +436,7 @@ func buildListeners(profile *config.Profile, bus *events.Bus) (listeners []liste
 			HandshakeTimeout: profile.Listen.HTTPHandshakeTimeout.Std(),
 			EventBus:         bus,
 		}
-		out = append(out, listener.NewHTTP(addr, auth, ch, opts))
+		out = append(out, listener.NewHTTPWithPlanner(addr, auth, planner, opts))
 	}
 
 	if tunCfg := profile.Listen.TUN; tunCfg != nil && tunCfg.Enabled {
@@ -439,6 +447,10 @@ func buildListeners(profile *config.Profile, bus *events.Bus) (listeners []liste
 		if err != nil {
 			return nil, nil, fmt.Errorf("tun: %w", err)
 		}
+		planner, err := resolver.routePlanner(tunCfg.Chain)
+		if err != nil {
+			return nil, nil, fmt.Errorf("tun rules: %w", err)
+		}
 		opts := listener.TUNOptions{
 			Name:         tunCfg.Name,
 			MTU:          tunCfg.MTU,
@@ -448,7 +460,7 @@ func buildListeners(profile *config.Profile, bus *events.Bus) (listeners []liste
 			ChainName:    ch.Name,
 			EventBus:     bus,
 		}
-		out = append(out, listener.NewTUN(opts, ch))
+		out = append(out, listener.NewTUNWithPlanner(opts, ch, planner))
 	}
 
 	return out, resolver.chains, nil
@@ -497,6 +509,124 @@ func (r *chainResolver) ensureBuilt() error {
 		}
 	}
 	return nil
+}
+
+func (r *chainResolver) routePlanner(defaultChainName string) (*routePlanner, error) {
+	if err := r.ensureBuilt(); err != nil {
+		return nil, err
+	}
+	if defaultChainName == "" {
+		defaultChainName = r.chains[0].Name
+	}
+	known := make(map[string]struct{}, len(r.byName))
+	for name := range r.byName {
+		known[name] = struct{}{}
+	}
+	ruleSet := make([]rules.Rule, 0, len(r.profile.Rules))
+	for _, rule := range r.profile.Rules {
+		ruleSet = append(ruleSet, rules.Rule{
+			Name:           rule.Name,
+			Action:         rule.Action,
+			Domains:        rule.Domains,
+			DomainSuffixes: rule.DomainSuffixes,
+			DomainKeywords: rule.DomainKeywords,
+			CIDRs:          rule.CIDRs,
+			Ports:          rule.Ports,
+			Networks:       rule.Networks,
+		})
+	}
+	engine, err := rules.Compile(ruleSet, defaultChainName, known)
+	if err != nil {
+		return nil, err
+	}
+	return &routePlanner{rules: engine, chains: r.byName, defaultChainName: defaultChainName}, nil
+}
+
+type routePlanner struct {
+	rules            *rules.Engine
+	chains           map[string]*chain.Chain
+	defaultChainName string
+	dialer           net.Dialer
+}
+
+func (p *routePlanner) DefaultChainName() string {
+	if p == nil {
+		return ""
+	}
+	return p.defaultChainName
+}
+
+func (p *routePlanner) Plan(ctx context.Context, network, target string) (listener.RoutePlan, error) {
+	if p == nil || p.rules == nil {
+		return listener.RoutePlan{}, errors.New("nil route planner")
+	}
+	decision := p.rules.Decide(network, target)
+	plan := listener.RoutePlan{
+		RuleName:  decision.RuleName,
+		Action:    decision.Action,
+		ChainName: decision.ChainName,
+		Target:    decision.Target,
+		Host:      decision.Host,
+		Port:      decision.Port,
+		Network:   decision.Network,
+		ElapsedNs: decision.ElapsedNs,
+	}
+	switch decision.Action {
+	case rules.ActionChain:
+		ch := p.chains[decision.ChainName]
+		if ch == nil {
+			return plan, fmt.Errorf("chain %q not found", decision.ChainName)
+		}
+		plan.Hops = ch.HopInfo()
+		plan.Dial = func(ctx context.Context, network, address string) (net.Conn, error) {
+			return ch.Dial(ctx, network, address)
+		}
+		plan.DialPacket = func(ctx context.Context, address string) (net.PacketConn, error) {
+			return ch.DialPacket(ctx, address)
+		}
+	case rules.ActionDirect:
+		plan.Dial = func(ctx context.Context, network, address string) (net.Conn, error) {
+			return p.dialer.DialContext(ctx, network, address)
+		}
+		plan.DialPacket = func(ctx context.Context, address string) (net.PacketConn, error) {
+			return newDirectPacketConn(ctx, address)
+		}
+	case rules.ActionBlock:
+	case rules.ActionReject:
+	default:
+		return plan, fmt.Errorf("unknown route action %q", decision.Action)
+	}
+	return plan, nil
+}
+
+type directPacketConn struct {
+	*net.UDPConn
+}
+
+func newDirectPacketConn(ctx context.Context, _ string) (net.PacketConn, error) {
+	var lc net.ListenConfig
+	conn, err := lc.ListenPacket(ctx, "udp", "0.0.0.0:0")
+	if err != nil {
+		return nil, err
+	}
+	udp, ok := conn.(*net.UDPConn)
+	if !ok {
+		_ = conn.Close()
+		return nil, errors.New("direct UDP dial did not return UDPConn")
+	}
+	return &directPacketConn{UDPConn: udp}, nil
+}
+
+func (c *directPacketConn) WriteTo(b []byte, addr net.Addr) (int, error) {
+	udpAddr, ok := addr.(*net.UDPAddr)
+	if !ok {
+		var err error
+		udpAddr, err = net.ResolveUDPAddr("udp", addr.String())
+		if err != nil {
+			return 0, err
+		}
+	}
+	return c.UDPConn.WriteToUDP(b, udpAddr)
 }
 
 // chainFromConfig converts a TOML-parsed chain stanza into the protocol-layer

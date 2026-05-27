@@ -38,6 +38,7 @@ type HTTP struct {
 	addr      string
 	auth      *AuthCreds
 	dial      dialFunc
+	planner   RoutePlanner
 	ch        *chain.Chain
 	chainName string
 	opts      Options
@@ -47,6 +48,24 @@ type HTTP struct {
 	ln        net.Listener
 	cancel    context.CancelFunc
 	wg        sync.WaitGroup
+}
+
+// NewHTTPWithPlanner constructs an HTTP proxy whose target routing is decided
+// per request.
+func NewHTTPWithPlanner(addr string, auth *AuthCreds, planner RoutePlanner, opts Options) *HTTP {
+	s := &HTTP{
+		addr:    addr,
+		auth:    auth,
+		planner: planner,
+		opts:    opts,
+	}
+	if planner != nil {
+		s.chainName = planner.DefaultChainName()
+	}
+	if opts.MaxConnections > 0 {
+		s.sem = make(chan struct{}, opts.MaxConnections)
+	}
+	return s
 }
 
 // NewHTTP constructs an HTTP listener. ch must be non-nil; addr must be a
@@ -107,7 +126,7 @@ func (s *HTTP) Start(ctx context.Context) error {
 	if s.ln != nil {
 		return errors.New("http: already started")
 	}
-	if s.dial == nil {
+	if s.dial == nil && s.planner == nil {
 		return errors.New("http: nil dialer")
 	}
 
@@ -273,13 +292,20 @@ func (s *HTTP) handleConnect(ctx context.Context, client net.Conn, br *bufio.Rea
 	defer cancel()
 
 	dialCtx = ce.attach(dialCtx)
-	var hops []events.HopInfo
-	if s.ch != nil {
-		hops = s.ch.HopInfo()
+	plan, err := s.plan(dialCtx, "tcp", req.Host)
+	if err != nil {
+		log.Printf("http: route plan %s failed: %v", req.Host, err)
+		writeSimpleStatus(client, req.Proto, http.StatusBadGateway, "Bad Gateway")
+		return err
 	}
-	ce.emitDialing(req.Host, hops)
+	ce.emitRuleDecision(plan)
+	ce.emitDialingPlan(plan)
+	if plan.Action == RouteActionBlock || plan.Action == RouteActionReject {
+		writeSimpleStatus(client, req.Proto, http.StatusForbidden, "Forbidden")
+		return ErrRouteBlocked
+	}
 
-	remote, err := s.dial(dialCtx, "tcp", req.Host)
+	remote, err := plan.Dial(dialCtx, "tcp", req.Host)
 	if err != nil {
 		log.Printf("http: CONNECT chain dial %s failed: %v", req.Host, err)
 		code, reason := httpStatusForDialErr(err)
@@ -336,13 +362,22 @@ func (s *HTTP) handleForward(ctx context.Context, client net.Conn, req *http.Req
 
 	dialCtx, dialCancel := context.WithTimeout(ctx, dialTimeout)
 	dialCtx = ce.attach(dialCtx)
-	var hops []events.HopInfo
-	if s.ch != nil {
-		hops = s.ch.HopInfo()
+	plan, err := s.plan(dialCtx, "tcp", target)
+	if err != nil {
+		dialCancel()
+		log.Printf("http: route plan %s failed: %v", target, err)
+		writeSimpleStatus(client, req.Proto, http.StatusBadGateway, "Bad Gateway")
+		return err
 	}
-	ce.emitDialing(target, hops)
+	ce.emitRuleDecision(plan)
+	ce.emitDialingPlan(plan)
+	if plan.Action == RouteActionBlock || plan.Action == RouteActionReject {
+		dialCancel()
+		writeSimpleStatus(client, req.Proto, http.StatusForbidden, "Forbidden")
+		return ErrRouteBlocked
+	}
 
-	remote, err := s.dial(dialCtx, "tcp", target)
+	remote, err := plan.Dial(dialCtx, "tcp", target)
 	dialCancel()
 	if err != nil {
 		log.Printf("http: forward chain dial %s failed: %v", target, err)
@@ -411,6 +446,26 @@ func (s *HTTP) handleForward(ctx context.Context, client net.Conn, req *http.Req
 		return err
 	}
 	return nil
+}
+
+func (s *HTTP) plan(ctx context.Context, network, target string) (RoutePlan, error) {
+	if s.planner != nil {
+		return s.planner.Plan(ctx, network, target)
+	}
+	plan := RoutePlan{
+		Action:    RouteActionChain,
+		ChainName: s.chainName,
+		Target:    target,
+		Network:   network,
+		Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
+			return s.dial(ctx, network, address)
+		},
+	}
+	plan.Host, plan.Port = splitTrafficTarget(target)
+	if s.ch != nil {
+		plan.Hops = s.ch.HopInfo()
+	}
+	return plan, nil
 }
 
 // meteredConn wraps a net.Conn to count bytes in both directions. Used on
@@ -507,6 +562,9 @@ func writeSimpleStatus(w io.Writer, proto string, code int, reason string) {
 func httpStatusForDialErr(err error) (int, string) {
 	if err == nil {
 		return http.StatusOK, "OK"
+	}
+	if errors.Is(err, ErrRouteBlocked) || errors.Is(err, ErrRouteRejected) {
+		return http.StatusForbidden, "Forbidden"
 	}
 	if errors.Is(err, context.DeadlineExceeded) {
 		return http.StatusGatewayTimeout, "Gateway Timeout"

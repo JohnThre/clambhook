@@ -20,6 +20,9 @@ func replyCodeForDialErr(err error) byte {
 	if err == nil {
 		return repSuccess
 	}
+	if errors.Is(err, ErrRouteBlocked) || errors.Is(err, ErrRouteRejected) {
+		return repConnNotAllowed
+	}
 
 	// Timeout / cancellation: most commonly surfaces as a TTL expired from
 	// the client's perspective — the connection took too long end-to-end.

@@ -39,7 +39,7 @@ import (
 //   - The chain.DialPacket returns a single session that multiplexes many
 //     target peers in its frames, which matches our needs — we don't need
 //     a per-target session.
-func (s *SOCKSv5) handleUDPAssociate(ctx context.Context, control net.Conn) {
+func (s *SOCKSv5) handleUDPAssociate(ctx context.Context, control net.Conn, ce *connEvents) {
 	// Local UDP relay socket — bind to any available port on a wildcard
 	// address so either IPv4 or IPv6 clients can reach it.
 	relay, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv4zero, Port: 0})
@@ -64,17 +64,6 @@ func (s *SOCKSv5) handleUDPAssociate(ctx context.Context, control net.Conn) {
 		return
 	}
 
-	// Open the chain-side packet session.
-	chainPC, err := s.dialPacket(ctx, "")
-	if err != nil {
-		log.Printf("socks5 udp: chain dial: %v", err)
-		// The control conn already got a success reply before we tried to
-		// dial; the client will notice the association is dead when the
-		// control conn closes below.
-		return
-	}
-	defer chainPC.Close()
-
 	// Clear handshake deadline on the control conn; the association is now
 	// long-lived, bounded only by the client staying connected.
 	_ = control.SetDeadline(time.Time{})
@@ -82,13 +71,102 @@ func (s *SOCKSv5) handleUDPAssociate(ctx context.Context, control net.Conn) {
 	// Shared state: the SOCKS client's UDP source address, learned on first
 	// datagram. Protected by its own mutex because two goroutines read it.
 	var (
-		clientMu   sync.RWMutex
-		clientAddr *net.UDPAddr
+		clientMu    sync.RWMutex
+		clientAddr  *net.UDPAddr
+		sessionMu   sync.Mutex
+		sessions    = make(map[string]net.PacketConn)
+		reported    bool
+		established bool
 	)
 
 	// Signalling: close this to tear down both goroutines.
 	udpCtx, udpCancel := context.WithCancel(ctx)
 	defer udpCancel()
+	defer func() {
+		sessionMu.Lock()
+		defer sessionMu.Unlock()
+		for _, pc := range sessions {
+			_ = pc.Close()
+		}
+	}()
+
+	startSessionReader := func(chainPC net.PacketConn) {
+		go func() {
+			defer udpCancel()
+			buf := make([]byte, 65535)
+			for {
+				if err := chainPC.SetReadDeadline(time.Now().Add(30 * time.Second)); err != nil {
+					return
+				}
+				n, from, err := chainPC.ReadFrom(buf)
+				if err != nil {
+					if udpCtx.Err() != nil {
+						return
+					}
+					if ne, ok := err.(net.Error); ok && ne.Timeout() {
+						continue
+					}
+					log.Printf("socks5 udp: chain read: %v", err)
+					return
+				}
+
+				clientMu.RLock()
+				dst := clientAddr
+				clientMu.RUnlock()
+				if dst == nil {
+					continue
+				}
+
+				host, portStr, err := net.SplitHostPort(from.String())
+				if err != nil {
+					log.Printf("socks5 udp: parse source addr %q: %v", from, err)
+					continue
+				}
+				port, _ := strconv.Atoi(portStr)
+				framed, err := encodeUDPDatagram(host, uint16(port), buf[:n])
+				if err != nil {
+					log.Printf("socks5 udp: encode reply: %v", err)
+					continue
+				}
+				if rxCounter := ce.rxCounter(); rxCounter != nil {
+					rxCounter.Add(uint64(n))
+				}
+				if _, err := relay.WriteToUDP(framed, dst); err != nil {
+					log.Printf("socks5 udp: relay write: %v", err)
+					return
+				}
+			}
+		}()
+	}
+
+	getSession := func(plan RoutePlan, target string) (net.PacketConn, error) {
+		if plan.DialPacket == nil {
+			return nil, errors.New("route does not support UDP")
+		}
+		key := plan.Action + "|" + plan.ChainName
+		sessionMu.Lock()
+		if pc := sessions[key]; pc != nil {
+			sessionMu.Unlock()
+			return pc, nil
+		}
+		sessionMu.Unlock()
+
+		pc, err := plan.DialPacket(udpCtx, target)
+		if err != nil {
+			return nil, err
+		}
+
+		sessionMu.Lock()
+		if existing := sessions[key]; existing != nil {
+			sessionMu.Unlock()
+			_ = pc.Close()
+			return existing, nil
+		}
+		sessions[key] = pc
+		sessionMu.Unlock()
+		startSessionReader(pc)
+		return pc, nil
+	}
 
 	// Goroutine 1: SOCKS client (UDP) → chain.
 	go func() {
@@ -132,55 +210,39 @@ func (s *SOCKSv5) handleUDPAssociate(ctx context.Context, control net.Conn) {
 				log.Printf("socks5 udp: parse datagram: %v", err)
 				continue
 			}
+			targetAddr := net.JoinHostPort(hdr.addr, strconv.Itoa(int(hdr.port)))
+			plan, err := s.plan(udpCtx, "udp", targetAddr)
+			if err != nil {
+				log.Printf("socks5 udp: route plan %s failed: %v", targetAddr, err)
+				continue
+			}
+			ce.emitRuleDecision(plan)
+			sessionMu.Lock()
+			if !reported {
+				ce.emitDialingPlan(plan)
+				reported = true
+			}
+			sessionMu.Unlock()
+			if plan.Action == RouteActionBlock || plan.Action == RouteActionReject {
+				continue
+			}
+			chainPC, err := getSession(plan, targetAddr)
+			if err != nil {
+				log.Printf("socks5 udp: chain dial/write setup %s failed: %v", targetAddr, err)
+				return
+			}
+			sessionMu.Lock()
+			if !established {
+				ce.emitEstablished()
+				established = true
+			}
+			sessionMu.Unlock()
+			if txCounter := ce.txCounter(); txCounter != nil {
+				txCounter.Add(uint64(len(payload)))
+			}
 			target := &addrForWrite{host: hdr.addr, port: int(hdr.port)}
 			if _, err := chainPC.WriteTo(payload, target); err != nil {
 				log.Printf("socks5 udp: chain write: %v", err)
-				return
-			}
-		}
-	}()
-
-	// Goroutine 2: chain → SOCKS client (UDP).
-	go func() {
-		defer udpCancel()
-		buf := make([]byte, 65535)
-		for {
-			if err := chainPC.SetReadDeadline(time.Now().Add(30 * time.Second)); err != nil {
-				return
-			}
-			n, from, err := chainPC.ReadFrom(buf)
-			if err != nil {
-				if udpCtx.Err() != nil {
-					return
-				}
-				if ne, ok := err.(net.Error); ok && ne.Timeout() {
-					continue
-				}
-				log.Printf("socks5 udp: chain read: %v", err)
-				return
-			}
-
-			clientMu.RLock()
-			dst := clientAddr
-			clientMu.RUnlock()
-			if dst == nil {
-				// We received a reply before the client sent anything — drop.
-				continue
-			}
-
-			host, portStr, err := net.SplitHostPort(from.String())
-			if err != nil {
-				log.Printf("socks5 udp: parse source addr %q: %v", from, err)
-				continue
-			}
-			port, _ := strconv.Atoi(portStr)
-			framed, err := encodeUDPDatagram(host, uint16(port), buf[:n])
-			if err != nil {
-				log.Printf("socks5 udp: encode reply: %v", err)
-				continue
-			}
-			if _, err := relay.WriteToUDP(framed, dst); err != nil {
-				log.Printf("socks5 udp: relay write: %v", err)
 				return
 			}
 		}

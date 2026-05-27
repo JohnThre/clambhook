@@ -4,6 +4,7 @@ public protocol ClambhookAPIProviding: AnyObject {
     func status() async throws -> StatusPayload
     func profiles() async throws -> ProfilesPayload
     func servers() async throws -> ServersPayload
+    func rules() async throws -> RulesPayload
     func traffic() async throws -> TrafficSnapshotPayload
     func connect() async throws
     func disconnect() async throws
@@ -59,6 +60,10 @@ public final class ClambhookAPIClient: ClambhookAPIProviding {
         try await getJSON("/api/v1/servers")
     }
 
+    public func rules() async throws -> RulesPayload {
+        try await getJSON("/api/v1/rules")
+    }
+
     public func traffic() async throws -> TrafficSnapshotPayload {
         try await getJSON("/api/v1/traffic?limit=200")
     }
@@ -81,7 +86,7 @@ public final class ClambhookAPIClient: ClambhookAPIProviding {
         components.scheme = components.scheme == "https" ? "wss" : "ws"
         components.path = "/api/v1/events"
         let prefix = components.string ?? "ws://127.0.0.1:9090/api/v1/events"
-        return URL(string: prefix + "?types=connection.*,log.*")!
+        return URL(string: prefix + "?types=connection.*,rule.*,log.*")!
     }
 
     public func eventStream() -> AsyncThrowingStream<DaemonEvent, Error> {

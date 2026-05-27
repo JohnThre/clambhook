@@ -76,6 +76,9 @@ type Connection struct {
 	Listener    Listener     `json:"listener"`
 	ClientAddr  string       `json:"client_addr,omitempty"`
 	ChainName   string       `json:"chain_name,omitempty"`
+	RuleName    string       `json:"rule_name,omitempty"`
+	RuleAction  string       `json:"rule_action,omitempty"`
+	DecisionNs  int64        `json:"decision_ns,omitempty"`
 	Target      string       `json:"target,omitempty"`
 	TargetHost  string       `json:"target_host,omitempty"`
 	TargetPort  string       `json:"target_port,omitempty"`
@@ -210,7 +213,7 @@ func (s *Store) Start(ctx context.Context, bus *events.Bus) {
 	if s == nil || bus == nil {
 		return
 	}
-	sub := bus.Subscribe(events.Filter{Types: []string{"connection.*", "hop.*"}})
+	sub := bus.Subscribe(events.Filter{Types: []string{"connection.*", "hop.*", "rule.*"}})
 	go func() {
 		defer sub.Unsubscribe()
 		for {
@@ -266,6 +269,8 @@ func (s *Store) ApplyEvent(ev events.Event) {
 			save = cloneConnections(s.closed)
 			path = s.historyPath
 		}
+	case events.TypeRuleMatched, events.TypeRuleDirect, events.TypeRuleBlocked:
+		s.applyRuleDecisionLocked(ev)
 	}
 	s.mu.Unlock()
 
@@ -373,6 +378,12 @@ func (s *Store) applyDialingLocked(ev events.Event) {
 	c.TargetHost = data.TargetHost
 	c.TargetPort = data.TargetPort
 	c.Application = data.Application
+	c.RuleName = data.RuleName
+	c.RuleAction = data.RuleAction
+	c.DecisionNs = data.DecisionNs
+	if data.ChainName != "" {
+		c.ChainName = data.ChainName
+	}
 	if c.TargetHost == "" || c.TargetPort == "" {
 		host, port := splitTarget(data.Target)
 		if c.TargetHost == "" {
@@ -404,6 +415,33 @@ func (s *Store) applyDialingLocked(ev events.Event) {
 			c.Geo = *loc
 			c.GeoError = ""
 		}
+	}
+	c.UpdatedTsNs = ev.TsNs
+}
+
+func (s *Store) applyRuleDecisionLocked(ev events.Event) {
+	data, ok := ev.Data.(events.RuleDecisionData)
+	if !ok {
+		return
+	}
+	c := s.ensureConnLocked(data.ConnID, ev.TsNs)
+	c.RuleName = data.RuleName
+	c.RuleAction = data.Action
+	c.DecisionNs = data.ElapsedNs
+	if data.ChainName != "" {
+		c.ChainName = data.ChainName
+	}
+	if c.Target == "" {
+		c.Target = data.Target
+	}
+	if c.TargetHost == "" {
+		c.TargetHost = data.TargetHost
+	}
+	if c.TargetPort == "" {
+		c.TargetPort = data.TargetPort
+	}
+	if c.Network == "" {
+		c.Network = data.Network
 	}
 	c.UpdatedTsNs = ev.TsNs
 }
