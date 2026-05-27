@@ -1,9 +1,9 @@
 // Package socks holds wire-format helpers shared across protocols that use
 // SOCKS5-style address encoding: ATYP || ADDR || PORT.
 //
-// Several proxy protocols (Trojan, Shadowsocks, VLESS, VMess, …) embed this
-// triple in their request headers and per-datagram frames. The encoding is
-// byte-identical across them, so this package centralizes the codec and the
+// Several proxy protocols (Trojan, ClambBack, Shadowsocks, and others) embed
+// this triple in their request headers and per-datagram frames. The encoding
+// is byte-identical across them, so this package centralizes the codec and the
 // rules that go with it (notably: prefer ATYPDomain for hostnames to avoid
 // client-side DNS resolution, which would leak the destination to the local
 // resolver and defeat the point of running a proxy).

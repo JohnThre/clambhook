@@ -12,7 +12,7 @@ public sealed class DashboardStoreTests
         {
             Status = new StatusPayload(true, "A", [new ListenerStatusPayload("socks5", "127.0.0.1:1080", 3)]),
             Profiles = new ProfilesPayload(["A", "B"], "A"),
-            Servers = new ServersPayload("A", [new ChainPayload("default", [new ServerPayload("london", "uk.example:443", "vless")])]),
+            Servers = new ServersPayload("A", [new ChainPayload("default", [new ServerPayload("london", "uk.example:443", "clambback")])]),
             Traffic = new TrafficSnapshotPayload
             {
                 Summary = new TrafficSummaryPayload { ActiveConnections = 1, RxBps = 2048 },
@@ -100,7 +100,7 @@ public sealed class DashboardStoreTests
             ApiOnline = true,
             Status = new StatusPayload(true, "A", [new ListenerStatusPayload("socks5", "127.0.0.1:1080", 2)]),
             Profiles = new ProfilesPayload(["A", "B"], "A"),
-            Servers = new ServersPayload("A", [new ChainPayload("default", [new ServerPayload("london", "uk.example:443", "vless")])]),
+            Servers = new ServersPayload("A", [new ChainPayload("default", [new ServerPayload("london", "uk.example:443", "clambback")])]),
             Traffic = new TrafficSnapshotPayload
             {
                 Summary = new TrafficSummaryPayload { ActiveConnections = 1, RxBps = 2048, TxBps = 1024 },

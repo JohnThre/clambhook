@@ -2,8 +2,8 @@
 // (https://shadowsocks.org/doc/aead.html). It supports three cipher methods:
 // aes-128-gcm, aes-256-gcm, and chacha20-ietf-poly1305.
 //
-// Shadowsocks-2022 (xchacha20-2022, aes-2022-*, PSKs) and pluggable obfuscators
-// (simple-obfs, v2ray-plugin) are out of scope for this package.
+// Shadowsocks-2022 (xchacha20-2022, aes-2022-*, PSKs) and pluggable
+// obfuscators are out of scope for this package.
 //
 // Wire format (per connection, each direction independently):
 //

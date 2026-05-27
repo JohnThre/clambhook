@@ -4,10 +4,8 @@ package e2e
 
 import (
 	"context"
-	"crypto/tls"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net"
 	"os"
 	"os/exec"
@@ -20,30 +18,20 @@ import (
 	"github.com/JohnThre/clambhook/internal/chain"
 	"github.com/JohnThre/clambhook/internal/protocol"
 
-	_ "github.com/JohnThre/clambhook/internal/protocol/reality"
 	_ "github.com/JohnThre/clambhook/internal/protocol/shadowsocks"
 	_ "github.com/JohnThre/clambhook/internal/protocol/trojan"
-	_ "github.com/JohnThre/clambhook/internal/protocol/vless"
-	_ "github.com/JohnThre/clambhook/internal/protocol/vmess"
 )
 
 const (
 	singBoxImage         = "ghcr.io/sagernet/sing-box:v1.13.12"
-	testUUID             = "b831381d-6324-4d53-ad4f-8cda48b30811"
 	ssPassword           = "clambhook-e2e-shadowsocks"
 	trojanPassword       = "clambhook-e2e-trojan"
-	realityPrivateKey    = "GL-gJN9rHYSgOQJmtuUrWxIsRcqxfzSyxff6ZOIua10"
-	realityPublicKey     = "_dQMsVgLpU0bJUGfgTfCOgn5BA_sJkJf5hBDZM0h0GI"
-	realityShortID       = "0123456789abcdef"
 	singBoxContainerWork = "/work"
 )
 
 type singBoxFixture struct {
-	ssAddr      string
-	trojanAddr  string
-	vlessAddr   string
-	realityAddr string
-	vmessAddr   string
+	ssAddr     string
+	trojanAddr string
 }
 
 type singBoxRunner struct {
@@ -85,58 +73,6 @@ func TestSingBoxProtocolCompatibility(t *testing.T) {
 			udpDatagram:  udpEcho.addr,
 			udpSupported: true,
 		},
-		{
-			name: "vless_tls",
-			server: node("vless", fx.vlessAddr, "vless", map[string]any{
-				"uuid":             testUUID,
-				"sni":              "localhost",
-				"skip_cert_verify": true,
-			}),
-			udpSession:   udpEcho.addr,
-			udpDatagram:  udpEcho.addr,
-			udpSupported: true,
-		},
-		{
-			name: "vless_reality",
-			server: node("reality", fx.realityAddr, "vless", map[string]any{
-				"uuid":     testUUID,
-				"security": "reality",
-				"reality": map[string]any{
-					"public_key":  realityPublicKey,
-					"short_id":    realityShortID,
-					"server_name": "localhost",
-					"fingerprint": "chrome",
-				},
-			}),
-			udpSession:   udpEcho.addr,
-			udpDatagram:  udpEcho.addr,
-			udpSupported: true,
-		},
-		{
-			name: "vmess_legacy_udp",
-			server: node("vmess", fx.vmessAddr, "vmess", map[string]any{
-				"uuid":             testUUID,
-				"security":         "aes-128-gcm",
-				"sni":              "localhost",
-				"skip_cert_verify": true,
-				"packet_encoding":  "legacy",
-			}),
-			udpSession:   udpEcho.addr,
-			udpDatagram:  udpEcho.addr,
-			udpSupported: true,
-		},
-		{
-			name: "vmess_xudp",
-			server: node("vmess-xudp", fx.vmessAddr, "vmess", map[string]any{
-				"uuid":             testUUID,
-				"security":         "aes-128-gcm",
-				"sni":              "localhost",
-				"skip_cert_verify": true,
-				"packet_encoding":  "xudp",
-			}),
-			udpDatagram:  udpEcho.addr,
-			udpSupported: true,
-		},
 	}
 
 	for _, tc := range cases {
@@ -167,23 +103,6 @@ func TestSingBoxChainCompatibility(t *testing.T) {
 		"sni":              "localhost",
 		"skip_cert_verify": true,
 	})
-	vmessXUDP := node("vmess-xudp-final", fx.vmessAddr, "vmess", map[string]any{
-		"uuid":             testUUID,
-		"security":         "aes-128-gcm",
-		"sni":              "localhost",
-		"skip_cert_verify": true,
-		"packet_encoding":  "xudp",
-	})
-	reality := node("reality-entry", fx.realityAddr, "vless", map[string]any{
-		"uuid":     testUUID,
-		"security": "reality",
-		"reality": map[string]any{
-			"public_key":  realityPublicKey,
-			"short_id":    realityShortID,
-			"server_name": "localhost",
-			"fingerprint": "chrome",
-		},
-	})
 
 	t.Run("tcp_shadowsocks_to_trojan", func(t *testing.T) {
 		ch := &chain.Chain{Name: "ss-to-trojan", Nodes: []protocol.Server{ss, trojan}}
@@ -191,20 +110,8 @@ func TestSingBoxChainCompatibility(t *testing.T) {
 		assertTCPRoundTrip(t, ch, tcpEcho.addr)
 	})
 
-	t.Run("tcp_reality_to_vmess", func(t *testing.T) {
-		ch := &chain.Chain{Name: "reality-to-vmess", Nodes: []protocol.Server{reality, vmessXUDP}}
-		defer ch.Close()
-		assertTCPRoundTrip(t, ch, tcpEcho.addr)
-	})
-
 	t.Run("udp_shadowsocks_to_trojan", func(t *testing.T) {
 		ch := &chain.Chain{Name: "ss-to-trojan-udp", Nodes: []protocol.Server{ss, trojan}}
-		defer ch.Close()
-		assertUDPRoundTrip(t, ch, "", udpEcho.addr)
-	})
-
-	t.Run("udp_trojan_to_vmess_xudp", func(t *testing.T) {
-		ch := &chain.Chain{Name: "trojan-to-vmess-xudp", Nodes: []protocol.Server{trojan, vmessXUDP}}
 		defer ch.Close()
 		assertUDPRoundTrip(t, ch, "", udpEcho.addr)
 	})
@@ -225,12 +132,8 @@ func startSingBoxFixture(t *testing.T) singBoxFixture {
 	runner := newSingBoxRunner(t, dir)
 
 	ports := map[string]int{
-		"ss":      mustFreePort(t),
-		"trojan":  mustFreePort(t),
-		"vless":   mustFreePort(t),
-		"reality": mustFreePort(t),
-		"vmess":   mustFreePort(t),
-		"decoy":   mustFreePort(t),
+		"ss":     mustFreePort(t),
+		"trojan": mustFreePort(t),
 	}
 	for _, p := range ports {
 		runner.ports = append(runner.ports, p)
@@ -238,14 +141,11 @@ func startSingBoxFixture(t *testing.T) singBoxFixture {
 
 	certPath, keyPath := writeSelfSignedCert(t, dir)
 	listenHost := "127.0.0.1"
-	decoyHost := "localhost"
 	if runner.backend == "docker" {
 		listenHost = "0.0.0.0"
-		decoyHost = "host.docker.internal"
 		certPath = filepath.Join(singBoxContainerWork, filepath.Base(certPath))
 		keyPath = filepath.Join(singBoxContainerWork, filepath.Base(keyPath))
 	}
-	startTLSDecoy(t, ports["decoy"], certPathForLocal(t, dir, "server-cert.pem"), certPathForLocal(t, dir, "server-key.pem"))
 
 	cfg := map[string]any{
 		"log": map[string]any{"level": "warn", "timestamp": true},
@@ -274,64 +174,6 @@ func startSingBoxFixture(t *testing.T) singBoxFixture {
 					"key_path":         keyPath,
 				},
 			},
-			map[string]any{
-				"type":        "vless",
-				"tag":         "vless-in",
-				"listen":      listenHost,
-				"listen_port": ports["vless"],
-				"users": []any{map[string]any{
-					"name": "clambhook",
-					"uuid": testUUID,
-					"flow": "",
-				}},
-				"tls": map[string]any{
-					"enabled":          true,
-					"server_name":      "localhost",
-					"certificate_path": certPath,
-					"key_path":         keyPath,
-				},
-			},
-			map[string]any{
-				"type":        "vless",
-				"tag":         "reality-in",
-				"listen":      listenHost,
-				"listen_port": ports["reality"],
-				"users": []any{map[string]any{
-					"name": "clambhook",
-					"uuid": testUUID,
-					"flow": "",
-				}},
-				"tls": map[string]any{
-					"enabled":     true,
-					"server_name": "localhost",
-					"reality": map[string]any{
-						"enabled": true,
-						"handshake": map[string]any{
-							"server":      decoyHost,
-							"server_port": ports["decoy"],
-						},
-						"private_key": realityPrivateKey,
-						"short_id":    []string{realityShortID},
-					},
-				},
-			},
-			map[string]any{
-				"type":        "vmess",
-				"tag":         "vmess-in",
-				"listen":      listenHost,
-				"listen_port": ports["vmess"],
-				"users": []any{map[string]any{
-					"name":    "clambhook",
-					"uuid":    testUUID,
-					"alterId": 0,
-				}},
-				"tls": map[string]any{
-					"enabled":          true,
-					"server_name":      "localhost",
-					"certificate_path": certPath,
-					"key_path":         keyPath,
-				},
-			},
 		},
 		"outbounds": []any{map[string]any{"type": "direct", "tag": "direct"}},
 		"route":     map[string]any{"final": "direct"},
@@ -348,18 +190,15 @@ func startSingBoxFixture(t *testing.T) singBoxFixture {
 	runner.check(t, configPath)
 	runner.start(t, configPath)
 
-	for _, p := range []int{ports["ss"], ports["trojan"], ports["vless"], ports["reality"], ports["vmess"]} {
+	for _, p := range []int{ports["ss"], ports["trojan"]} {
 		if err := waitTCP(net.JoinHostPort("127.0.0.1", strconv.Itoa(p)), 5*time.Second); err != nil {
 			t.Fatal(err)
 		}
 	}
 
 	return singBoxFixture{
-		ssAddr:      net.JoinHostPort("127.0.0.1", strconv.Itoa(ports["ss"])),
-		trojanAddr:  net.JoinHostPort("127.0.0.1", strconv.Itoa(ports["trojan"])),
-		vlessAddr:   net.JoinHostPort("127.0.0.1", strconv.Itoa(ports["vless"])),
-		realityAddr: net.JoinHostPort("127.0.0.1", strconv.Itoa(ports["reality"])),
-		vmessAddr:   net.JoinHostPort("127.0.0.1", strconv.Itoa(ports["vmess"])),
+		ssAddr:     net.JoinHostPort("127.0.0.1", strconv.Itoa(ports["ss"])),
+		trojanAddr: net.JoinHostPort("127.0.0.1", strconv.Itoa(ports["trojan"])),
 	}
 }
 
@@ -428,51 +267,4 @@ func (r *singBoxRunner) start(t *testing.T, configPath string) {
 	}
 	args = append(args, singBoxImage, "run", "-c", filepath.Base(configPath))
 	startCommand(t, "docker", args...)
-}
-
-func startTLSDecoy(t *testing.T, port int, certPath, keyPath string) {
-	t.Helper()
-	cert, err := tls.LoadX509KeyPair(certPath, keyPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	ln, err := tls.Listen("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)), &tls.Config{
-		Certificates: []tls.Certificate{cert},
-		MinVersion:   tls.VersionTLS12,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		for {
-			c, err := ln.Accept()
-			if err != nil {
-				return
-			}
-			go func() {
-				defer c.Close()
-				_, _ = ioCopyDiscard(c)
-			}()
-		}
-	}()
-	t.Cleanup(func() {
-		_ = ln.Close()
-		<-done
-	})
-}
-
-func ioCopyDiscard(c net.Conn) (int64, error) {
-	_ = c.SetDeadline(time.Now().Add(5 * time.Second))
-	return io.Copy(io.Discard, c)
-}
-
-func certPathForLocal(t *testing.T, dir, name string) string {
-	t.Helper()
-	path := filepath.Join(dir, name)
-	if _, err := os.Stat(path); err != nil {
-		t.Fatal(err)
-	}
-	return path
 }
