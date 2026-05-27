@@ -1,4 +1,4 @@
-.PHONY: all build build-clib build-daemon build-tui install install-linux prepare-apple-runtime generate-apple build-apple release-macos release-check package-smoke test-apple test-android build-android-mobile-aar test-android build-android build-android-release check-windows-host test-windows build-windows-daemon build-windows publish-windows check-linux-ui-deps check-linux-flatpak-deps test-linux build-linux build-linux-flatpak test-linux-flatpak test e2e e2e-release lint clean
+.PHONY: all build build-clib build-daemon build-tui install install-linux prepare-apple-runtime generate-apple build-apple release-macos release-check package-smoke test-apple test-android build-android-mobile-aar test-android build-android build-android-release build-android-play-release build-android-fdroid-release check-windows-host test-windows build-windows-daemon build-windows publish-windows check-linux-ui-deps check-linux-flatpak-deps test-linux build-linux build-linux-flatpak test-linux-flatpak test e2e e2e-release lint clean
 
 export CGO_ENABLED=1
 PREFIX ?= /usr/local
@@ -79,16 +79,22 @@ test-apple:
 	swift test --package-path ui/apple
 
 test-android:
-	cd ui/android && ANDROID_HOME="$(ANDROID_HOME)" ./gradlew :app:testDebugUnitTest
+	cd ui/android && ANDROID_HOME="$(ANDROID_HOME)" ./gradlew :app:testPlayDebugUnitTest :app:testFdroidDebugUnitTest
 
 build-android-mobile-aar:
 	./scripts/build-android-mobile-aar.sh
 
 build-android:
-	cd ui/android && ANDROID_HOME="$(ANDROID_HOME)" ./gradlew :app:assembleDebug
+	cd ui/android && ANDROID_HOME="$(ANDROID_HOME)" ./gradlew :app:assemblePlayDebug :app:assembleFdroidDebug
 
 build-android-release:
-	cd ui/android && ANDROID_HOME="$(ANDROID_HOME)" ./gradlew :app:assembleRelease
+	cd ui/android && ANDROID_HOME="$(ANDROID_HOME)" ./gradlew :app:assemblePlayRelease :app:assembleFdroidRelease
+
+build-android-play-release:
+	cd ui/android && ANDROID_HOME="$(ANDROID_HOME)" ./gradlew :app:assemblePlayRelease
+
+build-android-fdroid-release:
+	cd ui/android && ANDROID_HOME="$(ANDROID_HOME)" ./gradlew :app:assembleFdroidRelease
 
 test-windows: check-windows-host
 	$(DOTNET) test ui/windows/Clambhook.Windows.sln

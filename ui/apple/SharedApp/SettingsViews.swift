@@ -66,6 +66,9 @@ struct AppSettingsView: View {
                     step: 50
                 )
             }
+            #if os(iOS) || os(visionOS)
+            SupportPurchasesSection()
+            #endif
             Section {
                 Button("Apply") {
                     apply()

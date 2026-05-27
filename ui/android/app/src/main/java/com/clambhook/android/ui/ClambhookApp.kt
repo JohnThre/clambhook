@@ -53,8 +53,11 @@ fun ClambhookApp(
     settings: AppSettings,
     token: String,
     configToml: String,
+    supportPurchaseState: SupportPurchaseState,
     onSaveSettings: suspend (AppSettings, String, String) -> Unit,
-    onValidateConfig: suspend (String) -> Unit
+    onValidateConfig: suspend (String) -> Unit,
+    onPurchaseSupport: (String) -> Unit,
+    onClearSupportPurchaseMessage: () -> Unit
 ) {
     val context = LocalContext.current
     val colorScheme = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -84,6 +87,13 @@ fun ClambhookApp(
             context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
         ) {
             notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
+
+    androidx.compose.runtime.LaunchedEffect(supportPurchaseState.statusMessage) {
+        supportPurchaseState.statusMessage?.let { message ->
+            showMessage(message)
+            onClearSupportPurchaseMessage()
         }
     }
 
@@ -146,8 +156,10 @@ fun ClambhookApp(
                         settings = settings,
                         token = token,
                         configToml = configToml,
+                        supportPurchaseState = supportPurchaseState,
                         onSave = onSaveSettings,
                         onValidateConfig = onValidateConfig,
+                        onPurchaseSupport = onPurchaseSupport,
                         onShowMessage = showMessage,
                         modifier = Modifier.padding(padding)
                     )
