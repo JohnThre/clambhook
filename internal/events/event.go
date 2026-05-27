@@ -36,6 +36,9 @@ const (
 	TypeConnectionEstablished = "connection.established"
 	TypeConnectionBytes       = "connection.bytes"
 	TypeConnectionClosed      = "connection.closed"
+	TypeRuleMatched           = "rule.matched"
+	TypeRuleDirect            = "rule.direct"
+	TypeRuleBlocked           = "rule.blocked"
 
 	// Engine/daemon-level events. Emitted on shard 0 via Bus.PublishListener.
 	TypeConfigReloaded     = "config.reloaded"
@@ -78,7 +81,24 @@ type ConnectionDialingData struct {
 	TargetPort  string    `json:"target_port,omitempty"`
 	Network     string    `json:"network,omitempty"`
 	Application string    `json:"application,omitempty"`
+	RuleName    string    `json:"rule_name,omitempty"`
+	RuleAction  string    `json:"rule_action,omitempty"`
+	ChainName   string    `json:"chain_name,omitempty"`
+	DecisionNs  int64     `json:"decision_ns,omitempty"`
 	Hops        []HopInfo `json:"hops"`
+}
+
+// RuleDecisionData records the routing decision made for a connection.
+type RuleDecisionData struct {
+	ConnID     string `json:"conn_id"`
+	RuleName   string `json:"rule_name,omitempty"`
+	Action     string `json:"action"`
+	ChainName  string `json:"chain_name,omitempty"`
+	Target     string `json:"target"`
+	TargetHost string `json:"target_host,omitempty"`
+	TargetPort string `json:"target_port,omitempty"`
+	Network    string `json:"network,omitempty"`
+	ElapsedNs  int64  `json:"elapsed_ns,omitempty"`
 }
 
 // HopDialingData is emitted per hop as the chain dial progresses.
@@ -265,6 +285,8 @@ func extractConnID(data any) string {
 	case ConnectionBytesData:
 		return d.ConnID
 	case ConnectionClosedData:
+		return d.ConnID
+	case RuleDecisionData:
 		return d.ConnID
 	}
 	return ""

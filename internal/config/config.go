@@ -53,6 +53,7 @@ type Profile struct {
 	Listen ListenConfig  `toml:"listen"`
 	API    APIConfig     `toml:"api"`
 	Chains []ChainConfig `toml:"chain"`
+	Rules  []RuleConfig  `toml:"rule"`
 }
 
 // ChainConfig defines a proxy chain.
@@ -67,6 +68,19 @@ type ServerConfig struct {
 	Address  string         `toml:"address"`
 	Protocol string         `toml:"protocol"`
 	Settings map[string]any `toml:"settings"`
+}
+
+// RuleConfig defines one ordered traffic-routing rule. Empty matcher lists
+// are wildcards. Action is one of direct, block, reject, or chain:<name>.
+type RuleConfig struct {
+	Name           string   `toml:"name" json:"name"`
+	Action         string   `toml:"action" json:"action"`
+	Domains        []string `toml:"domains" json:"domains,omitempty"`
+	DomainSuffixes []string `toml:"domain_suffixes" json:"domain_suffixes,omitempty"`
+	DomainKeywords []string `toml:"domain_keywords" json:"domain_keywords,omitempty"`
+	CIDRs          []string `toml:"cidrs" json:"cidrs,omitempty"`
+	Ports          []int    `toml:"ports" json:"ports,omitempty"`
+	Networks       []string `toml:"networks" json:"networks,omitempty"`
 }
 
 // ListenConfig defines local proxy listener addresses.

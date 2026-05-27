@@ -53,6 +53,9 @@ struct DashboardContentView: View {
             Section("Servers") {
                 ServerListView(servers: model.dashboard.servers)
             }
+            Section("Rules") {
+                RuleListView(rules: model.dashboard.rules)
+            }
             Section("Bandwidth") {
                 let sample = model.dashboard.currentBandwidth
                 LabeledContent("Rx", value: formatRate(sample.rxBps))
@@ -128,12 +131,59 @@ struct TrafficListView: View {
     }
 
     private func trafficSubtitle(_ connection: TrafficConnectionPayload) -> String {
-        let parts = [connection.application, connection.network, connection.chainName]
+        let decision = [connection.ruleName, connection.ruleAction].filter { !$0.isEmpty }.joined(separator: " -> ")
+        let parts = [connection.application, connection.network, connection.chainName, decision]
             .filter { !$0.isEmpty }
         if !parts.isEmpty {
             return parts.joined(separator: " · ")
         }
         return connection.listener.protocol
+    }
+}
+
+struct RuleListView: View {
+    var rules: RulesPayload
+
+    var body: some View {
+        if rules.rules.isEmpty {
+            Text("No routing rules")
+                .foregroundStyle(.secondary)
+        } else {
+            ForEach(rules.rules) { rule in
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text(rule.name)
+                            .fontWeight(.medium)
+                        Spacer()
+                        Text(rule.action)
+                            .foregroundStyle(.secondary)
+                    }
+                    Text(ruleSummary(rule))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+
+    private func ruleSummary(_ rule: RulePayload) -> String {
+        var parts: [String] = []
+        if !rule.domains.isEmpty {
+            parts.append(rule.domains.joined(separator: ", "))
+        }
+        if !rule.domainSuffixes.isEmpty {
+            parts.append(rule.domainSuffixes.map { "*.\($0)" }.joined(separator: ", "))
+        }
+        if !rule.cidrs.isEmpty {
+            parts.append(rule.cidrs.joined(separator: ", "))
+        }
+        if !rule.ports.isEmpty {
+            parts.append(rule.ports.map(String.init).joined(separator: ", "))
+        }
+        if !rule.networks.isEmpty {
+            parts.append(rule.networks.joined(separator: ", "))
+        }
+        return parts.isEmpty ? "all traffic" : parts.joined(separator: " · ")
     }
 }
 

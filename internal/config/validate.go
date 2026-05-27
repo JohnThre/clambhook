@@ -73,6 +73,9 @@ func validateProfile(p *Profile) []error {
 			}
 		}
 	}
+	for i := range p.Rules {
+		errs = append(errs, validateRule(profileName, i, &p.Rules[i], chainNames)...)
+	}
 
 	listen := p.Listen
 	if listen.SOCKS5 != "" {
@@ -121,6 +124,75 @@ func validateProfile(p *Profile) []error {
 
 	if p.API.Listen != "" {
 		errs = append(errs, validateListenAddr(profileName, "api.listen", p.API.Listen))
+	}
+	return errs
+}
+
+func validateRule(profileName string, idx int, rule *RuleConfig, chainNames map[string]struct{}) []error {
+	var errs []error
+	label := fmt.Sprintf("%s rule %d", profileName, idx)
+	if strings.TrimSpace(rule.Name) == "" {
+		errs = append(errs, fmt.Errorf("%s: name is required", label))
+	} else if strings.TrimSpace(rule.Name) != rule.Name {
+		errs = append(errs, fmt.Errorf("%s name %q must not have surrounding whitespace", label, rule.Name))
+	}
+	action := strings.TrimSpace(rule.Action)
+	if action == "" {
+		errs = append(errs, fmt.Errorf("%s: action is required", label))
+	} else if action != rule.Action {
+		errs = append(errs, fmt.Errorf("%s action %q must not have surrounding whitespace", label, rule.Action))
+	} else {
+		lower := strings.ToLower(action)
+		switch {
+		case lower == "direct" || lower == "block" || lower == "reject":
+		case strings.HasPrefix(lower, "chain:"):
+			name := strings.TrimSpace(action[len("chain:"):])
+			if name == "" {
+				errs = append(errs, fmt.Errorf("%s action requires chain:<name>", label))
+			} else if _, ok := chainNames[name]; !ok {
+				errs = append(errs, fmt.Errorf("%s action references unknown chain %q", label, name))
+			}
+		default:
+			errs = append(errs, fmt.Errorf("%s action %q must be direct, block, reject, or chain:<name>", label, action))
+		}
+	}
+	for _, field := range []struct {
+		name string
+		vals []string
+	}{
+		{name: "domains", vals: rule.Domains},
+		{name: "domain_suffixes", vals: rule.DomainSuffixes},
+		{name: "domain_keywords", vals: rule.DomainKeywords},
+		{name: "networks", vals: rule.Networks},
+	} {
+		for j, raw := range field.vals {
+			if strings.TrimSpace(raw) == "" {
+				errs = append(errs, fmt.Errorf("%s %s[%d] must not be empty", label, field.name, j))
+			} else if strings.TrimSpace(raw) != raw {
+				errs = append(errs, fmt.Errorf("%s %s[%d] %q must not have surrounding whitespace", label, field.name, j, raw))
+			}
+		}
+	}
+	for j, raw := range rule.Networks {
+		switch strings.ToLower(raw) {
+		case "tcp", "udp":
+		default:
+			errs = append(errs, fmt.Errorf("%s networks[%d] %q must be tcp or udp", label, j, raw))
+		}
+	}
+	for j, raw := range rule.CIDRs {
+		if strings.TrimSpace(raw) != raw {
+			errs = append(errs, fmt.Errorf("%s cidrs[%d] %q must not have surrounding whitespace", label, j, raw))
+			continue
+		}
+		if _, err := netip.ParsePrefix(raw); err != nil {
+			errs = append(errs, fmt.Errorf("%s cidrs[%d] %q: %w", label, j, raw, err))
+		}
+	}
+	for j, port := range rule.Ports {
+		if port < 0 || port > 65535 {
+			errs = append(errs, fmt.Errorf("%s ports[%d] has port out of range", label, j))
+		}
 	}
 	return errs
 }

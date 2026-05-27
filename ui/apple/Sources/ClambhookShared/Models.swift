@@ -51,6 +51,62 @@ public struct ServersPayload: Codable, Equatable, Sendable {
     }
 }
 
+public struct RulesPayload: Codable, Equatable, Sendable {
+    public var profile: String
+    public var rules: [RulePayload]
+
+    public init(profile: String = "", rules: [RulePayload] = []) {
+        self.profile = profile
+        self.rules = rules
+    }
+}
+
+public struct RulePayload: Codable, Equatable, Identifiable, Sendable {
+    public var id: String { name }
+    public var name: String
+    public var action: String
+    public var domains: [String]
+    public var domainSuffixes: [String]
+    public var domainKeywords: [String]
+    public var cidrs: [String]
+    public var ports: [Int]
+    public var networks: [String]
+
+    enum CodingKeys: String, CodingKey {
+        case name
+        case action
+        case domains
+        case domainSuffixes = "domain_suffixes"
+        case domainKeywords = "domain_keywords"
+        case cidrs
+        case ports
+        case networks
+    }
+
+    public init(name: String = "", action: String = "", domains: [String] = [], domainSuffixes: [String] = [], domainKeywords: [String] = [], cidrs: [String] = [], ports: [Int] = [], networks: [String] = []) {
+        self.name = name
+        self.action = action
+        self.domains = domains
+        self.domainSuffixes = domainSuffixes
+        self.domainKeywords = domainKeywords
+        self.cidrs = cidrs
+        self.ports = ports
+        self.networks = networks
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.name = try container.decodeIfPresent(String.self, forKey: .name) ?? ""
+        self.action = try container.decodeIfPresent(String.self, forKey: .action) ?? ""
+        self.domains = try container.decodeIfPresent([String].self, forKey: .domains) ?? []
+        self.domainSuffixes = try container.decodeIfPresent([String].self, forKey: .domainSuffixes) ?? []
+        self.domainKeywords = try container.decodeIfPresent([String].self, forKey: .domainKeywords) ?? []
+        self.cidrs = try container.decodeIfPresent([String].self, forKey: .cidrs) ?? []
+        self.ports = try container.decodeIfPresent([Int].self, forKey: .ports) ?? []
+        self.networks = try container.decodeIfPresent([String].self, forKey: .networks) ?? []
+    }
+}
+
 public struct ChainPayload: Codable, Equatable, Identifiable, Sendable {
     public var id: String { name }
     public var name: String
@@ -295,6 +351,9 @@ public struct TrafficConnectionPayload: Codable, Equatable, Identifiable, Sendab
     public var listener: TrafficListenerPayload
     public var clientAddr: String
     public var chainName: String
+    public var ruleName: String
+    public var ruleAction: String
+    public var decisionNs: Int64
     public var target: String
     public var targetHost: String
     public var targetPort: String
@@ -320,6 +379,9 @@ public struct TrafficConnectionPayload: Codable, Equatable, Identifiable, Sendab
         case listener
         case clientAddr = "client_addr"
         case chainName = "chain_name"
+        case ruleName = "rule_name"
+        case ruleAction = "rule_action"
+        case decisionNs = "decision_ns"
         case target
         case targetHost = "target_host"
         case targetPort = "target_port"
@@ -337,7 +399,7 @@ public struct TrafficConnectionPayload: Codable, Equatable, Identifiable, Sendab
         case closeReason = "close_reason"
     }
 
-    public init(connID: String = "", state: String = "", startTsNs: Int64 = 0, updatedTsNs: Int64 = 0, endTsNs: Int64 = 0, listener: TrafficListenerPayload = TrafficListenerPayload(), clientAddr: String = "", chainName: String = "", target: String = "", targetHost: String = "", targetPort: String = "", network: String = "", application: String = "", hops: [TrafficHopPayload] = [], geo: LocationPayload = LocationPayload(), geoError: String = "", totalDialNs: Int64 = 0, rxBps: Double = 0, txBps: Double = 0, rxTotal: UInt64 = 0, txTotal: UInt64 = 0, durationNs: Int64 = 0, closeReason: String = "") {
+    public init(connID: String = "", state: String = "", startTsNs: Int64 = 0, updatedTsNs: Int64 = 0, endTsNs: Int64 = 0, listener: TrafficListenerPayload = TrafficListenerPayload(), clientAddr: String = "", chainName: String = "", ruleName: String = "", ruleAction: String = "", decisionNs: Int64 = 0, target: String = "", targetHost: String = "", targetPort: String = "", network: String = "", application: String = "", hops: [TrafficHopPayload] = [], geo: LocationPayload = LocationPayload(), geoError: String = "", totalDialNs: Int64 = 0, rxBps: Double = 0, txBps: Double = 0, rxTotal: UInt64 = 0, txTotal: UInt64 = 0, durationNs: Int64 = 0, closeReason: String = "") {
         self.connID = connID
         self.state = state
         self.startTsNs = startTsNs
@@ -346,6 +408,9 @@ public struct TrafficConnectionPayload: Codable, Equatable, Identifiable, Sendab
         self.listener = listener
         self.clientAddr = clientAddr
         self.chainName = chainName
+        self.ruleName = ruleName
+        self.ruleAction = ruleAction
+        self.decisionNs = decisionNs
         self.target = target
         self.targetHost = targetHost
         self.targetPort = targetPort
@@ -373,6 +438,9 @@ public struct TrafficConnectionPayload: Codable, Equatable, Identifiable, Sendab
         self.listener = try container.decodeIfPresent(TrafficListenerPayload.self, forKey: .listener) ?? TrafficListenerPayload()
         self.clientAddr = try container.decodeIfPresent(String.self, forKey: .clientAddr) ?? ""
         self.chainName = try container.decodeIfPresent(String.self, forKey: .chainName) ?? ""
+        self.ruleName = try container.decodeIfPresent(String.self, forKey: .ruleName) ?? ""
+        self.ruleAction = try container.decodeIfPresent(String.self, forKey: .ruleAction) ?? ""
+        self.decisionNs = try container.decodeIfPresent(Int64.self, forKey: .decisionNs) ?? 0
         self.target = try container.decodeIfPresent(String.self, forKey: .target) ?? ""
         self.targetHost = try container.decodeIfPresent(String.self, forKey: .targetHost) ?? ""
         self.targetPort = try container.decodeIfPresent(String.self, forKey: .targetPort) ?? ""

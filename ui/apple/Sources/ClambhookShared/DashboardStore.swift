@@ -8,6 +8,7 @@ public final class DashboardStore: ObservableObject {
     @Published public private(set) var status = StatusPayload()
     @Published public private(set) var profiles = ProfilesPayload()
     @Published public private(set) var servers = ServersPayload()
+    @Published public private(set) var rules = RulesPayload()
     @Published public private(set) var traffic = TrafficSnapshotPayload()
     @Published public private(set) var bandwidthSamples: [BandwidthSample] = []
     @Published public private(set) var logs: [String] = []
@@ -42,10 +43,12 @@ public final class DashboardStore: ObservableObject {
             let status = try await api.status()
             let profiles = try await api.profiles()
             let servers = try await api.servers()
+            let rules = try await api.rules()
             let traffic = try await api.traffic()
             self.status = status
             self.profiles = profiles
             self.servers = servers
+            self.rules = rules
             self.traffic = traffic
             self.apiOnline = true
             self.errorText = ""

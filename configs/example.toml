@@ -26,3 +26,14 @@ name = "local"
 
       [profile.chain.server.settings]
       token = "replace-with-private-value"
+
+  [[profile.rule]]
+  name = "example-blocklist"
+  action = "block"
+  domain_suffixes = ["tracker.example.invalid"]
+  networks = ["tcp"]
+
+  [[profile.rule]]
+  name = "example-direct-lan"
+  action = "direct"
+  cidrs = ["192.168.0.0/16", "10.0.0.0/8"]

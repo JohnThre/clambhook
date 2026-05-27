@@ -15,6 +15,10 @@ func NewTUN(opts TUNOptions, _ *chain.Chain) Listener {
 	return &unsupportedTUN{name: opts.name()}
 }
 
+func NewTUNWithPlanner(opts TUNOptions, _ *chain.Chain, _ RoutePlanner) Listener {
+	return &unsupportedTUN{name: opts.name()}
+}
+
 func TUNSupported() bool { return false }
 
 type unsupportedTUN struct {

@@ -15,11 +15,57 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/status", s.handleStatus)
 	mux.HandleFunc("GET /api/v1/profiles", s.handleProfiles)
 	mux.HandleFunc("GET /api/v1/servers", s.handleServers)
+	mux.HandleFunc("GET /api/v1/rules", s.handleRules)
+	mux.HandleFunc("GET /api/v1/decisions", s.handleDecisions)
 	mux.HandleFunc("PUT /api/v1/profiles/active", s.handleSetActiveProfile)
 	mux.HandleFunc("POST /api/v1/connect", s.handleConnect)
 	mux.HandleFunc("POST /api/v1/disconnect", s.handleDisconnect)
 	mux.HandleFunc("GET /api/v1/events", s.handleEvents)
 	mux.HandleFunc("GET /api/v1/traffic", s.handleTraffic)
+}
+
+func (s *Server) handleRules(w http.ResponseWriter, r *http.Request) {
+	cfg := s.engine.Config()
+	profile, err := cfg.ActiveProfile()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, map[string]any{
+		"profile": profile.Name,
+		"rules":   profile.Rules,
+	})
+}
+
+func (s *Server) handleDecisions(w http.ResponseWriter, r *http.Request) {
+	limit := 200
+	if raw := r.URL.Query().Get("limit"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 0 {
+			http.Error(w, "invalid limit", http.StatusBadRequest)
+			return
+		}
+		limit = n
+	}
+	store := s.trafficStore()
+	if store == nil {
+		writeJSON(w, map[string]any{
+			"updated_ts_ns": 0,
+			"decisions":     []any{},
+		})
+		return
+	}
+	snapshot := store.Snapshot("all", limit)
+	decisions := make([]traffic.Connection, 0, len(snapshot.Connections))
+	for _, conn := range snapshot.Connections {
+		if conn.RuleAction != "" {
+			decisions = append(decisions, conn)
+		}
+	}
+	writeJSON(w, map[string]any{
+		"updated_ts_ns": snapshot.UpdatedTsNs,
+		"decisions":     decisions,
+	})
 }
 
 func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {

@@ -87,25 +87,64 @@ func (c *connEvents) emitOpened() {
 // hops describes every node in the chain so subscribers see the full shape
 // even if a mid-hop fails.
 func (c *connEvents) emitDialing(target string, hops []events.HopInfo) {
-	c.emitDialingNetwork("", target, hops)
+	c.emitDialingPlan(RoutePlan{Target: target, Hops: hops})
 }
 
 // emitDialingNetwork is the network-aware form used by TUN flows, where the
 // ingress can distinguish TCP from UDP before handing the flow to the chain.
 func (c *connEvents) emitDialingNetwork(network, target string, hops []events.HopInfo) {
+	c.emitDialingPlan(RoutePlan{Network: network, Target: target, Hops: hops})
+}
+
+func (c *connEvents) emitDialingPlan(plan RoutePlan) {
 	if c == nil {
 		return
 	}
 	c.dialStart = time.Now()
-	host, port := splitTrafficTarget(target)
+	host, port := plan.Host, plan.Port
+	if host == "" && port == "" {
+		host, port = splitTrafficTarget(plan.Target)
+	}
 	c.emitter.Emit(events.TypeConnectionDialing, events.ConnectionDialingData{
 		ConnID:      c.connID,
-		Target:      target,
+		Target:      plan.Target,
 		TargetHost:  host,
 		TargetPort:  port,
-		Network:     network,
-		Application: inferTrafficApplication(network, host, port),
-		Hops:        hops,
+		Network:     plan.Network,
+		Application: inferTrafficApplication(plan.Network, host, port),
+		RuleName:    plan.RuleName,
+		RuleAction:  plan.Action,
+		ChainName:   plan.ChainName,
+		DecisionNs:  plan.ElapsedNs,
+		Hops:        plan.Hops,
+	})
+}
+
+func (c *connEvents) emitRuleDecision(plan RoutePlan) {
+	if c == nil {
+		return
+	}
+	eventType := events.TypeRuleMatched
+	switch plan.Action {
+	case RouteActionDirect:
+		eventType = events.TypeRuleDirect
+	case RouteActionBlock, RouteActionReject:
+		eventType = events.TypeRuleBlocked
+	}
+	host, port := plan.Host, plan.Port
+	if host == "" && port == "" {
+		host, port = splitTrafficTarget(plan.Target)
+	}
+	c.emitter.Emit(eventType, events.RuleDecisionData{
+		ConnID:     c.connID,
+		RuleName:   plan.RuleName,
+		Action:     plan.Action,
+		ChainName:  plan.ChainName,
+		Target:     plan.Target,
+		TargetHost: host,
+		TargetPort: port,
+		Network:    plan.Network,
+		ElapsedNs:  plan.ElapsedNs,
 	})
 }
 

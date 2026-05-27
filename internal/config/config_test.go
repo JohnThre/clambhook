@@ -103,6 +103,64 @@ func TestValidateRejectsBadListenerChainReference(t *testing.T) {
 	}
 }
 
+func TestLoadRules(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+	data := []byte(`
+active = "default"
+
+[[profile]]
+name = "default"
+
+  [[profile.chain]]
+  name = "default"
+
+    [[profile.chain.server]]
+    name = "exit"
+    address = "203.0.113.10:443"
+    protocol = "trojan"
+
+      [profile.chain.server.settings]
+      password = "secret"
+
+  [[profile.rule]]
+  name = "ads"
+  action = "block"
+  domain_suffixes = ["ads.example.com"]
+  ports = [80, 443]
+  networks = ["tcp"]
+`)
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	profile, err := cfg.ActiveProfile()
+	if err != nil {
+		t.Fatalf("ActiveProfile: %v", err)
+	}
+	if len(profile.Rules) != 1 {
+		t.Fatalf("rules = %d, want 1", len(profile.Rules))
+	}
+	rule := profile.Rules[0]
+	if rule.Name != "ads" || rule.Action != "block" || rule.DomainSuffixes[0] != "ads.example.com" {
+		t.Fatalf("rule = %+v", rule)
+	}
+}
+
+func TestValidateRejectsBadRuleChainReference(t *testing.T) {
+	cfg := validConfig()
+	cfg.Profiles[0].Rules = []RuleConfig{{Name: "missing", Action: "chain:missing"}}
+
+	err := cfg.Validate()
+	if err == nil || !strings.Contains(err.Error(), `action references unknown chain "missing"`) {
+		t.Fatalf("Validate error = %v, want unknown rule chain reference", err)
+	}
+}
+
 func TestValidateRejectsBadListenAddress(t *testing.T) {
 	cfg := validConfig()
 	cfg.Profiles[0].Listen.SOCKS5 = "127.0.0.1"

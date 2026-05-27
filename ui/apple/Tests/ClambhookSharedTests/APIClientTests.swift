@@ -48,13 +48,13 @@ final class APIClientTests: XCTestCase {
         let httpClient = ClambhookAPIClient(baseURL: URL(string: "http://127.0.0.1:9090")!)
         XCTAssertEqual(
             httpClient.eventsURL().absoluteString,
-            "ws://127.0.0.1:9090/api/v1/events?types=connection.*,log.*"
+            "ws://127.0.0.1:9090/api/v1/events?types=connection.*,rule.*,log.*"
         )
 
         let httpsClient = ClambhookAPIClient(baseURL: URL(string: "https://proxy.example.test")!)
         XCTAssertEqual(
             httpsClient.eventsURL().absoluteString,
-            "wss://proxy.example.test/api/v1/events?types=connection.*,log.*"
+            "wss://proxy.example.test/api/v1/events?types=connection.*,rule.*,log.*"
         )
     }
 

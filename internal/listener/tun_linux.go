@@ -45,8 +45,9 @@ const (
 // TUN is a Linux device-wide ingress listener backed by a kernel TUN device
 // and a userspace gVisor TCP/IP stack.
 type TUN struct {
-	opts TUNOptions
-	ch   *chain.Chain
+	opts    TUNOptions
+	ch      *chain.Chain
+	planner RoutePlanner
 
 	active atomic.Int64
 
@@ -63,6 +64,10 @@ type TUN struct {
 // NewTUN constructs a Linux TUN listener. Start owns privileged setup.
 func NewTUN(opts TUNOptions, ch *chain.Chain) Listener {
 	return &TUN{opts: opts, ch: ch}
+}
+
+func NewTUNWithPlanner(opts TUNOptions, ch *chain.Chain, planner RoutePlanner) Listener {
+	return &TUN{opts: opts, ch: ch, planner: planner}
 }
 
 func TUNSupported() bool { return true }
@@ -96,11 +101,15 @@ func (t *TUN) Start(parent context.Context) error {
 	if t.dev != nil {
 		return errors.New("tun: already started")
 	}
-	if t.ch == nil {
-		return errors.New("tun: nil chain")
+	if t.ch == nil && t.planner == nil {
+		return errors.New("tun: nil router")
 	}
-	if err := t.ch.CheckPacketSupport(); err != nil {
-		return fmt.Errorf("tun: %w", err)
+	if t.ch != nil {
+		if err := t.ch.CheckPacketSupport(); err != nil {
+			return fmt.Errorf("tun: %w", err)
+		}
+	} else if t.planner != nil {
+		t.opts.ChainName = t.planner.DefaultChainName()
 	}
 
 	mtu := t.opts.mtu()
@@ -391,13 +400,20 @@ func (t *TUN) handleTCPFlow(ctx context.Context, local *gonet.TCPConn, id stack.
 	defer cancel()
 	dialCtx = ce.attach(dialCtx)
 
-	var hops []events.HopInfo
-	if t.ch != nil {
-		hops = t.ch.HopInfo()
+	plan, err := t.plan(dialCtx, "tcp", target)
+	if err != nil {
+		log.Printf("tun tcp: route plan %s failed: %v", target, err)
+		ce.emitClosed(events.ReasonError)
+		return
 	}
-	ce.emitDialingNetwork("tcp", target, hops)
+	ce.emitRuleDecision(plan)
+	ce.emitDialingPlan(plan)
+	if plan.Action == RouteActionBlock || plan.Action == RouteActionReject {
+		ce.emitClosed(events.ReasonClientEOF)
+		return
+	}
 
-	remote, err := t.ch.Dial(dialCtx, "tcp", target)
+	remote, err := plan.Dial(dialCtx, "tcp", target)
 	if err != nil {
 		log.Printf("tun tcp: chain dial %s failed: %v", target, err)
 		ce.emitClosed(events.ReasonError)
@@ -464,13 +480,25 @@ func (t *TUN) handleUDPFlow(ctx context.Context, local *gonet.UDPConn, id stack.
 	defer cancel()
 	dialCtx = ce.attach(dialCtx)
 
-	var hops []events.HopInfo
-	if t.ch != nil {
-		hops = t.ch.HopInfo()
+	plan, err := t.plan(dialCtx, "udp", target)
+	if err != nil {
+		log.Printf("tun udp: route plan %s failed: %v", target, err)
+		ce.emitClosed(events.ReasonError)
+		return
 	}
-	ce.emitDialingNetwork("udp", target, hops)
+	ce.emitRuleDecision(plan)
+	ce.emitDialingPlan(plan)
+	if plan.Action == RouteActionBlock || plan.Action == RouteActionReject {
+		ce.emitClosed(events.ReasonClientEOF)
+		return
+	}
+	if plan.DialPacket == nil {
+		log.Printf("tun udp: route %s does not support UDP", target)
+		ce.emitClosed(events.ReasonError)
+		return
+	}
 
-	chainPC, err := t.ch.DialPacket(dialCtx, target)
+	chainPC, err := plan.DialPacket(dialCtx, target)
 	if err != nil {
 		log.Printf("tun udp: chain dial %s failed: %v", target, err)
 		ce.emitClosed(events.ReasonError)
@@ -481,6 +509,29 @@ func (t *TUN) handleUDPFlow(ctx context.Context, local *gonet.UDPConn, id stack.
 	ce.emitEstablished()
 	relayErr := relayUDP(ctx, local, chainPC, target, ce.rxCounter(), ce.txCounter())
 	ce.emitClosed(classifyClose(ctx, relayErr))
+}
+
+func (t *TUN) plan(ctx context.Context, network, target string) (RoutePlan, error) {
+	if t.planner != nil {
+		return t.planner.Plan(ctx, network, target)
+	}
+	plan := RoutePlan{
+		Action:    RouteActionChain,
+		ChainName: t.opts.ChainName,
+		Target:    target,
+		Network:   network,
+		Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
+			return t.ch.Dial(ctx, network, address)
+		},
+		DialPacket: func(ctx context.Context, address string) (net.PacketConn, error) {
+			return t.ch.DialPacket(ctx, address)
+		},
+	}
+	plan.Host, plan.Port = splitTrafficTarget(target)
+	if t.ch != nil {
+		plan.Hops = t.ch.HopInfo()
+	}
+	return plan, nil
 }
 
 func relayUDP(ctx context.Context, local *gonet.UDPConn, chainPC net.PacketConn, target string, rxCounter, txCounter *atomic.Uint64) error {

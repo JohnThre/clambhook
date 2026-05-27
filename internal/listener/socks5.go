@@ -72,8 +72,9 @@ type SOCKSv5 struct {
 	auth       *AuthCreds
 	dial       dialFunc
 	dialPacket packetDialFunc // optional — nil means UDP ASSOCIATE is rejected
-	ch         *chain.Chain   // kept for HopInfo emission; nil disables hop events
-	chainName  string         // for logging
+	planner    RoutePlanner
+	ch         *chain.Chain // kept for HopInfo emission; nil disables hop events
+	chainName  string       // for logging
 	opts       Options
 
 	// sem, if non-nil, is a buffered channel acting as a concurrency
@@ -88,6 +89,25 @@ type SOCKSv5 struct {
 	ln     net.Listener
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
+}
+
+// NewSOCKSv5WithPlanner constructs a listener whose target routing is decided
+// per connection instead of being fixed to one chain.
+func NewSOCKSv5WithPlanner(addr string, auth *AuthCreds, planner RoutePlanner, opts Options) *SOCKSv5 {
+	s := &SOCKSv5{
+		addr:      addr,
+		auth:      auth,
+		planner:   planner,
+		chainName: "",
+		opts:      opts,
+	}
+	if planner != nil {
+		s.chainName = planner.DefaultChainName()
+	}
+	if opts.MaxConnections > 0 {
+		s.sem = make(chan struct{}, opts.MaxConnections)
+	}
+	return s
 }
 
 // ActiveConns implements Listener.
@@ -161,7 +181,7 @@ func (s *SOCKSv5) Start(ctx context.Context) error {
 	if s.ln != nil {
 		return errors.New("socks5: already started")
 	}
-	if s.dial == nil {
+	if s.dial == nil && s.planner == nil {
 		return errors.New("socks5: nil dialer")
 	}
 
@@ -296,7 +316,7 @@ func (s *SOCKSv5) handleConn(ctx context.Context, client net.Conn, ce *connEvent
 			_ = writeReply(client, repCmdNotSupported, "")
 			return nil
 		}
-		s.handleUDPAssociate(ctx, client)
+		s.handleUDPAssociate(ctx, client, ce)
 		return nil
 	case cmdBind:
 		_ = writeReply(client, repCmdNotSupported, "")
@@ -352,13 +372,20 @@ func (s *SOCKSv5) handleConnect(ctx context.Context, client net.Conn, req reques
 	dialCtx = ce.attach(dialCtx)
 
 	target := req.target()
-	var hops []events.HopInfo
-	if s.ch != nil {
-		hops = s.ch.HopInfo()
+	plan, err := s.plan(dialCtx, "tcp", target)
+	if err != nil {
+		log.Printf("socks5: route plan %s failed: %v", target, err)
+		_ = writeReply(client, repGeneralFailure, "")
+		return err
 	}
-	ce.emitDialing(target, hops)
+	ce.emitRuleDecision(plan)
+	ce.emitDialingPlan(plan)
+	if plan.Action == RouteActionBlock || plan.Action == RouteActionReject {
+		_ = writeReply(client, repConnNotAllowed, "")
+		return ErrRouteBlocked
+	}
 
-	remote, err := s.dial(dialCtx, "tcp", target)
+	remote, err := plan.Dial(dialCtx, "tcp", target)
 	if err != nil {
 		log.Printf("socks5: chain dial %s failed: %v", target, err)
 		_ = writeReply(client, replyCodeForDialErr(err), "")
@@ -376,6 +403,31 @@ func (s *SOCKSv5) handleConnect(ctx context.Context, client net.Conn, req reques
 	ce.emitEstablished()
 
 	return relay(client, remote, ce.rxCounter(), ce.txCounter())
+}
+
+func (s *SOCKSv5) plan(ctx context.Context, network, target string) (RoutePlan, error) {
+	if s.planner != nil {
+		return s.planner.Plan(ctx, network, target)
+	}
+	plan := RoutePlan{
+		Action:    RouteActionChain,
+		ChainName: s.chainName,
+		Target:    target,
+		Network:   network,
+		Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
+			return s.dial(ctx, network, address)
+		},
+	}
+	plan.Host, plan.Port = splitTrafficTarget(target)
+	if s.ch != nil {
+		plan.Hops = s.ch.HopInfo()
+	}
+	if s.dialPacket != nil {
+		plan.DialPacket = func(ctx context.Context, address string) (net.PacketConn, error) {
+			return s.dialPacket(ctx, address)
+		}
+	}
+	return plan, nil
 }
 
 // relay shuttles bytes between the SOCKS client `a` and the proxy-chain
