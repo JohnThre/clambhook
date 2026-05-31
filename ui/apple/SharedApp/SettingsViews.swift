@@ -12,15 +12,27 @@ struct AppSettingsView: View {
     @State private var daemonConfigPath = ""
     @State private var daemonBinaryBookmark: Data?
     @State private var daemonConfigBookmark: Data?
+    @State private var tunnelConfigText = ""
+    @State private var tunnelConfigMessage = ""
 
     var body: some View {
         Form {
+            #if os(iOS)
+            Section("Tunnel Configuration") {
+                TextEditor(text: $tunnelConfigText)
+                    .font(.system(.footnote, design: .monospaced))
+                    .frame(minHeight: 220)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                if !tunnelConfigMessage.isEmpty {
+                    Text(tunnelConfigMessage)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            #else
             Section("API") {
                 TextField("Endpoint", text: $endpointText)
-                    #if os(iOS)
-                    .textInputAutocapitalization(.never)
-                    .keyboardType(.URL)
-                    #endif
                 if let error = endpointValidationMessage(endpointText) {
                     Text(error)
                         .font(.caption)
@@ -34,6 +46,7 @@ struct AppSettingsView: View {
                     step: 1
                 )
             }
+            #endif
             #if os(macOS)
             Section("Daemon") {
                 HStack {
@@ -82,10 +95,17 @@ struct AppSettingsView: View {
                 Button("Apply") {
                     apply()
                 }
-                .disabled(endpointValidationMessage(endpointText) != nil)
+                .disabled(applyDisabled)
+                #if os(iOS)
+                Button("Reset Tunnel Config") {
+                    tunnelConfigText = defaultIOSTunnelConfig
+                    tunnelConfigMessage = ""
+                }
+                #else
                 Button("Reset Endpoint") {
                     endpointText = defaultAPIEndpoint.absoluteString
                 }
+                #endif
             }
         }
         .formStyle(.grouped)
@@ -96,10 +116,23 @@ struct AppSettingsView: View {
             daemonConfigPath = model.settingsStore.settings.daemonConfigPath
             daemonBinaryBookmark = model.settingsStore.settings.daemonBinaryBookmark
             daemonConfigBookmark = model.settingsStore.settings.daemonConfigBookmark
+            #if os(iOS)
+            tunnelConfigText = (try? TunnelConfigStore.loadOrCreateConfig(groupIdentifier: model.settingsStore.settings.appGroupIdentifier)) ?? defaultIOSTunnelConfig
+            #endif
         }
     }
 
     private func apply() {
+        #if os(iOS)
+        do {
+            try TunnelConfigStore.save(tunnelConfigText, groupIdentifier: model.settingsStore.settings.appGroupIdentifier)
+            tunnelConfigMessage = "Saved tunnel configuration."
+            model.applySettings()
+            model.reloadTunnelConfiguration()
+        } catch {
+            tunnelConfigMessage = error.localizedDescription
+        }
+        #else
         guard endpointValidationMessage(endpointText) == nil,
               let endpoint = URL(string: endpointText.trimmingCharacters(in: .whitespacesAndNewlines)) else {
             return
@@ -111,6 +144,15 @@ struct AppSettingsView: View {
         model.settingsStore.settings.daemonBinaryBookmark = matchingBookmark(daemonBinaryBookmark, path: daemonBinaryPath)
         model.settingsStore.settings.daemonConfigBookmark = matchingBookmark(daemonConfigBookmark, path: daemonConfigPath)
         model.applySettings()
+        #endif
+    }
+
+    private var applyDisabled: Bool {
+        #if os(iOS)
+        return tunnelConfigText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        #else
+        return endpointValidationMessage(endpointText) != nil
+        #endif
     }
 
     private func endpointValidationMessage(_ value: String) -> String? {

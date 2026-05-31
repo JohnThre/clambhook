@@ -1,4 +1,4 @@
-.PHONY: all build build-clib build-daemon build-tui install install-linux prepare-apple-runtime generate-apple build-apple release-macos release-check package-smoke test-apple test-android build-android-mobile-aar test-android build-android build-android-release build-android-play-release build-android-fdroid-release check-windows-host test-windows build-windows-daemon build-windows publish-windows check-linux-ui-deps check-linux-flatpak-deps test-linux build-linux build-linux-flatpak test-linux-flatpak test e2e e2e-release lint clean
+.PHONY: all build build-clib build-daemon build-tui install install-linux prepare-apple-runtime generate-apple build-apple release-macos release-check package-smoke test-apple test-android build-android-mobile-aar build-ios-mobile-xcframework test-android build-android build-android-release build-android-play-release build-android-fdroid-release check-windows-host test-windows build-windows-daemon build-windows publish-windows check-linux-ui-deps check-linux-flatpak-deps test-linux build-linux build-linux-flatpak test-linux-flatpak test e2e e2e-release lint clean
 
 export CGO_ENABLED=1
 PREFIX ?= /usr/local
@@ -84,6 +84,9 @@ test-android:
 build-android-mobile-aar:
 	./scripts/build-android-mobile-aar.sh
 
+build-ios-mobile-xcframework:
+	./scripts/build-ios-mobile-xcframework.sh
+
 build-android:
 	cd ui/android && ANDROID_HOME="$(ANDROID_HOME)" ./gradlew :app:assemblePlayDebug :app:assembleFdroidDebug
 
@@ -144,6 +147,7 @@ lint:
 
 clean:
 	rm -rf bin/
+	rm -rf ui/apple/Frameworks/*.xcframework
 	rm -rf ui/android/build/ ui/android/app/build/ ui/android/app/libs/
 	rm -rf ui/linux/builddir/
 	find ui/windows -type d \( -name bin -o -name obj \) -prune -exec rm -rf {} +

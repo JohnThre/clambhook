@@ -6,40 +6,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"log"
-	"net"
-	"net/netip"
 	"os"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/JohnThre/clambhook/internal/chain"
-	"github.com/JohnThre/clambhook/internal/events"
 	"golang.zx2c4.com/wireguard/tun"
-	"gvisor.dev/gvisor/pkg/buffer"
-	"gvisor.dev/gvisor/pkg/tcpip"
-	"gvisor.dev/gvisor/pkg/tcpip/adapters/gonet"
-	"gvisor.dev/gvisor/pkg/tcpip/header"
-	"gvisor.dev/gvisor/pkg/tcpip/link/channel"
-	"gvisor.dev/gvisor/pkg/tcpip/network/ipv4"
-	"gvisor.dev/gvisor/pkg/tcpip/network/ipv6"
-	"gvisor.dev/gvisor/pkg/tcpip/stack"
-	"gvisor.dev/gvisor/pkg/tcpip/transport/icmp"
-	gtcp "gvisor.dev/gvisor/pkg/tcpip/transport/tcp"
-	gudp "gvisor.dev/gvisor/pkg/tcpip/transport/udp"
-	"gvisor.dev/gvisor/pkg/waiter"
-)
-
-const (
-	tunNICID           tcpip.NICID = 1
-	tunQueueSize                   = 1024
-	tunMaxTCPInFlight              = 1024
-	tunDialTimeout                 = 30 * time.Second
-	tunUDPIdleTimeout              = 2 * time.Minute
-	tunUDPPollInterval             = 30 * time.Second
-	defaultTUNMTU                  = 1500
 )
 
 // TUN is a Linux device-wide ingress listener backed by a kernel TUN device
@@ -49,14 +22,11 @@ type TUN struct {
 	ch      *chain.Chain
 	planner RoutePlanner
 
-	active atomic.Int64
-
 	mu       sync.Mutex
 	ctx      context.Context
 	cancel   context.CancelFunc
 	dev      tun.Device
-	linkEP   *channel.Endpoint
-	stack    *stack.Stack
+	stack    *PacketStack
 	routeMgr *linuxRouteManager
 	wg       sync.WaitGroup
 }
@@ -74,13 +44,6 @@ func TUNSupported() bool { return true }
 
 func (t *TUN) Protocol() string { return "tun" }
 
-func (o TUNOptions) mtu() int {
-	if o.MTU > 0 {
-		return o.MTU
-	}
-	return defaultTUNMTU
-}
-
 func (t *TUN) Addr() string {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -92,7 +55,14 @@ func (t *TUN) Addr() string {
 	return t.opts.name()
 }
 
-func (t *TUN) ActiveConns() int64 { return t.active.Load() }
+func (t *TUN) ActiveConns() int64 {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.stack == nil {
+		return 0
+	}
+	return t.stack.ActiveConns()
+}
 
 func (t *TUN) Start(parent context.Context) error {
 	t.mu.Lock()
@@ -100,16 +70,6 @@ func (t *TUN) Start(parent context.Context) error {
 
 	if t.dev != nil {
 		return errors.New("tun: already started")
-	}
-	if t.ch == nil && t.planner == nil {
-		return errors.New("tun: nil router")
-	}
-	if t.ch != nil {
-		if err := t.ch.CheckPacketSupport(); err != nil {
-			return fmt.Errorf("tun: %w", err)
-		}
-	} else if t.planner != nil {
-		t.opts.ChainName = t.planner.DefaultChainName()
 	}
 
 	mtu := t.opts.mtu()
@@ -130,24 +90,23 @@ func (t *TUN) Start(parent context.Context) error {
 		return fmt.Errorf("tun route setup: %w", err)
 	}
 
-	stk, linkEP, err := t.newStack(mtu, tunAddresses(t.opts))
-	if err != nil {
+	ctx, cancel := context.WithCancel(parent)
+	stack := NewPacketStack(t.opts, t.ch, t.planner, tunPacketWriter{dev: dev})
+	if err := stack.Start(ctx); err != nil {
+		cancel()
 		_ = routeMgr.Cleanup(context.Background())
 		_ = dev.Close()
 		return err
 	}
 
-	ctx, cancel := context.WithCancel(parent)
 	t.ctx = ctx
 	t.cancel = cancel
 	t.dev = dev
-	t.linkEP = linkEP
-	t.stack = stk
+	t.stack = stack
 	t.routeMgr = routeMgr
 
-	t.wg.Add(2)
-	go t.tunToStackLoop(ctx, dev, linkEP, mtu)
-	go t.stackToTunLoop(ctx, dev, linkEP)
+	t.wg.Add(1)
+	go t.tunToStackLoop(ctx, dev, stack, mtu)
 
 	log.Printf("tun listener started on %s (mtu=%d chain=%q)", name, mtu, t.opts.ChainName)
 	return nil
@@ -161,13 +120,11 @@ func (t *TUN) Stop() error {
 	}
 	cancel := t.cancel
 	dev := t.dev
-	linkEP := t.linkEP
-	stk := t.stack
+	stack := t.stack
 	routeMgr := t.routeMgr
 	t.ctx = nil
 	t.cancel = nil
 	t.dev = nil
-	t.linkEP = nil
 	t.stack = nil
 	t.routeMgr = nil
 	t.mu.Unlock()
@@ -182,11 +139,10 @@ func (t *TUN) Stop() error {
 			errs = append(errs, err)
 		}
 	}
-	if stk != nil {
-		stk.Close()
-	}
-	if linkEP != nil {
-		linkEP.Close()
+	if stack != nil {
+		if err := stack.Stop(); err != nil {
+			errs = append(errs, err)
+		}
 	}
 	if dev != nil {
 		if err := dev.Close(); err != nil && !errors.Is(err, os.ErrClosed) {
@@ -205,79 +161,7 @@ func (t *TUN) Stop() error {
 	return errors.Join(errs...)
 }
 
-func (t *TUN) currentContext() context.Context {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	return t.ctx
-}
-
-func (t *TUN) newStack(mtu int, addresses []string) (*stack.Stack, *channel.Endpoint, error) {
-	stk := stack.New(stack.Options{
-		NetworkProtocols: []stack.NetworkProtocolFactory{
-			ipv4.NewProtocol,
-			ipv6.NewProtocol,
-		},
-		TransportProtocols: []stack.TransportProtocolFactory{
-			gtcp.NewProtocol,
-			gudp.NewProtocol,
-			icmp.NewProtocol4,
-			icmp.NewProtocol6,
-		},
-		HandleLocal: true,
-	})
-
-	sackEnabled := tcpip.TCPSACKEnabled(true)
-	if err := stk.SetTransportProtocolOption(gtcp.ProtocolNumber, &sackEnabled); err != nil {
-		return nil, nil, fmt.Errorf("tun: enable TCP SACK: %s", err)
-	}
-
-	linkEP := channel.New(tunQueueSize, uint32(mtu), "")
-	if err := stk.CreateNIC(tunNICID, linkEP); err != nil {
-		return nil, nil, fmt.Errorf("tun: create gvisor NIC: %s", err)
-	}
-	if err := stk.SetPromiscuousMode(tunNICID, true); err != nil {
-		return nil, nil, fmt.Errorf("tun: enable promiscuous mode: %s", err)
-	}
-	if err := stk.SetSpoofing(tunNICID, true); err != nil {
-		return nil, nil, fmt.Errorf("tun: enable spoofing: %s", err)
-	}
-
-	for _, raw := range addresses {
-		prefix, err := netip.ParsePrefix(raw)
-		if err != nil {
-			return nil, nil, fmt.Errorf("tun: invalid address %q: %w", raw, err)
-		}
-		var proto tcpip.NetworkProtocolNumber
-		if prefix.Addr().Is4() {
-			proto = ipv4.ProtocolNumber
-		} else {
-			proto = ipv6.ProtocolNumber
-		}
-		tcpipErr := stk.AddProtocolAddress(tunNICID, tcpip.ProtocolAddress{
-			Protocol: proto,
-			AddressWithPrefix: tcpip.AddressWithPrefix{
-				Address:   tcpip.AddrFromSlice(prefix.Addr().AsSlice()),
-				PrefixLen: prefix.Bits(),
-			},
-		}, stack.AddressProperties{})
-		if tcpipErr != nil {
-			return nil, nil, fmt.Errorf("tun: add stack address %q: %s", raw, tcpipErr)
-		}
-	}
-
-	stk.AddRoute(tcpip.Route{Destination: header.IPv4EmptySubnet, NIC: tunNICID})
-	stk.AddRoute(tcpip.Route{Destination: header.IPv6EmptySubnet, NIC: tunNICID})
-
-	tcpForwarder := gtcp.NewForwarder(stk, 0, tunMaxTCPInFlight, t.handleTCPForward)
-	stk.SetTransportProtocolHandler(gtcp.ProtocolNumber, tcpForwarder.HandlePacket)
-
-	udpForwarder := gudp.NewForwarder(stk, t.handleUDPForward)
-	stk.SetTransportProtocolHandler(gudp.ProtocolNumber, udpForwarder.HandlePacket)
-
-	return stk, linkEP, nil
-}
-
-func (t *TUN) tunToStackLoop(ctx context.Context, dev tun.Device, linkEP *channel.Endpoint, mtu int) {
+func (t *TUN) tunToStackLoop(ctx context.Context, dev tun.Device, stack *PacketStack, mtu int) {
 	defer t.wg.Done()
 
 	batchSize := dev.BatchSize()
@@ -306,367 +190,24 @@ func (t *TUN) tunToStackLoop(ctx context.Context, dev tun.Device, linkEP *channe
 			return
 		}
 		for i := 0; i < n; i++ {
-			t.injectPacket(linkEP, bufs[i][:sizes[i]])
-		}
-	}
-}
-
-func (t *TUN) injectPacket(linkEP *channel.Endpoint, pkt []byte) {
-	if len(pkt) == 0 {
-		return
-	}
-	var proto tcpip.NetworkProtocolNumber
-	switch pkt[0] >> 4 {
-	case 4:
-		proto = header.IPv4ProtocolNumber
-	case 6:
-		proto = header.IPv6ProtocolNumber
-	default:
-		return
-	}
-	linkEP.InjectInbound(proto, stack.NewPacketBuffer(stack.PacketBufferOptions{
-		Payload: buffer.MakeWithData(pkt),
-	}))
-}
-
-func (t *TUN) stackToTunLoop(ctx context.Context, dev tun.Device, linkEP *channel.Endpoint) {
-	defer t.wg.Done()
-
-	for {
-		pkt := linkEP.ReadContext(ctx)
-		if pkt == nil {
-			return
-		}
-		view := pkt.ToView()
-		pkt.DecRef()
-		if view.Size() == 0 {
-			view.Release()
-			continue
-		}
-		_, err := dev.Write([][]byte{view.AsSlice()}, 0)
-		view.Release()
-		if err != nil {
-			if ctx.Err() != nil || errors.Is(err, os.ErrClosed) {
+			if err := stack.InjectPacket(bufs[i][:sizes[i]]); err != nil {
+				if ctx.Err() != nil {
+					return
+				}
+				log.Printf("tun: inject: %v", err)
 				return
 			}
-			log.Printf("tun: write: %v", err)
-			return
 		}
 	}
 }
 
-func (t *TUN) handleTCPForward(req *gtcp.ForwarderRequest) {
-	id := req.ID()
-	target, err := idTarget(id)
-	if err != nil {
-		req.Complete(true)
-		return
-	}
-
-	ctx := t.currentContext()
-	if ctx == nil || ctx.Err() != nil {
-		req.Complete(true)
-		return
-	}
-
-	var wq waiter.Queue
-	ep, tcpErr := req.CreateEndpoint(&wq)
-	if tcpErr != nil {
-		req.Complete(true)
-		return
-	}
-	req.Complete(false)
-
-	local := gonet.NewTCPConn(&wq, ep)
-	t.wg.Add(1)
-	go func() {
-		defer t.wg.Done()
-		t.handleTCPFlow(ctx, local, id, target)
-	}()
+type tunPacketWriter struct {
+	dev tun.Device
 }
 
-func (t *TUN) handleTCPFlow(ctx context.Context, local *gonet.TCPConn, id stack.TransportEndpointID, target string) {
-	defer local.Close()
-	t.active.Add(1)
-	defer t.active.Add(-1)
-
-	ce := newConnEvents(t.opts.EventBus, events.ListenerInfo{
-		Protocol: t.Protocol(),
-		Addr:     t.Addr(),
-	}, idClientAddr(id), t.opts.ChainName)
-	ce.emitOpened()
-
-	dialCtx, cancel := context.WithTimeout(ctx, tunDialTimeout)
-	defer cancel()
-	dialCtx = ce.attach(dialCtx)
-
-	plan, err := t.plan(dialCtx, "tcp", target)
-	if err != nil {
-		log.Printf("tun tcp: route plan %s failed: %v", target, err)
-		ce.emitClosed(events.ReasonError)
-		return
-	}
-	ce.emitRuleDecision(plan)
-	ce.emitDialingPlan(plan)
-	if plan.Action == RouteActionBlock || plan.Action == RouteActionReject {
-		ce.emitClosed(events.ReasonClientEOF)
-		return
-	}
-
-	remote, err := plan.Dial(dialCtx, "tcp", target)
-	if err != nil {
-		log.Printf("tun tcp: chain dial %s failed: %v", target, err)
-		ce.emitClosed(events.ReasonError)
-		return
-	}
-	defer remote.Close()
-
-	ce.emitEstablished()
-
-	stopCh := make(chan struct{})
-	defer close(stopCh)
-	go func() {
-		select {
-		case <-ctx.Done():
-			_ = local.Close()
-			_ = remote.Close()
-		case <-stopCh:
-		}
-	}()
-
-	relayErr := relay(local, remote, ce.rxCounter(), ce.txCounter())
-	ce.emitClosed(classifyClose(ctx, relayErr))
-}
-
-func (t *TUN) handleUDPForward(req *gudp.ForwarderRequest) {
-	id := req.ID()
-	target, err := idTarget(id)
-	if err != nil {
-		return
-	}
-
-	ctx := t.currentContext()
-	if ctx == nil || ctx.Err() != nil {
-		return
-	}
-
-	var wq waiter.Queue
-	ep, tcpErr := req.CreateEndpoint(&wq)
-	if tcpErr != nil {
-		log.Printf("tun udp: create endpoint for %s: %s", target, tcpErr)
-		return
-	}
-
-	local := gonet.NewUDPConn(&wq, ep)
-	t.wg.Add(1)
-	go func() {
-		defer t.wg.Done()
-		t.handleUDPFlow(ctx, local, id, target)
-	}()
-}
-
-func (t *TUN) handleUDPFlow(ctx context.Context, local *gonet.UDPConn, id stack.TransportEndpointID, target string) {
-	defer local.Close()
-	t.active.Add(1)
-	defer t.active.Add(-1)
-
-	ce := newConnEvents(t.opts.EventBus, events.ListenerInfo{
-		Protocol: t.Protocol(),
-		Addr:     t.Addr(),
-	}, idClientAddr(id), t.opts.ChainName)
-	ce.emitOpened()
-
-	dialCtx, cancel := context.WithTimeout(ctx, tunDialTimeout)
-	defer cancel()
-	dialCtx = ce.attach(dialCtx)
-
-	plan, err := t.plan(dialCtx, "udp", target)
-	if err != nil {
-		log.Printf("tun udp: route plan %s failed: %v", target, err)
-		ce.emitClosed(events.ReasonError)
-		return
-	}
-	ce.emitRuleDecision(plan)
-	ce.emitDialingPlan(plan)
-	if plan.Action == RouteActionBlock || plan.Action == RouteActionReject {
-		ce.emitClosed(events.ReasonClientEOF)
-		return
-	}
-	if plan.DialPacket == nil {
-		log.Printf("tun udp: route %s does not support UDP", target)
-		ce.emitClosed(events.ReasonError)
-		return
-	}
-
-	chainPC, err := plan.DialPacket(dialCtx, target)
-	if err != nil {
-		log.Printf("tun udp: chain dial %s failed: %v", target, err)
-		ce.emitClosed(events.ReasonError)
-		return
-	}
-	defer chainPC.Close()
-
-	ce.emitEstablished()
-	relayErr := relayUDP(ctx, local, chainPC, target, ce.rxCounter(), ce.txCounter())
-	ce.emitClosed(classifyClose(ctx, relayErr))
-}
-
-func (t *TUN) plan(ctx context.Context, network, target string) (RoutePlan, error) {
-	if t.planner != nil {
-		return t.planner.Plan(ctx, network, target)
-	}
-	plan := RoutePlan{
-		Action:    RouteActionChain,
-		ChainName: t.opts.ChainName,
-		Target:    target,
-		Network:   network,
-		Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
-			return t.ch.Dial(ctx, network, address)
-		},
-		DialPacket: func(ctx context.Context, address string) (net.PacketConn, error) {
-			return t.ch.DialPacket(ctx, address)
-		},
-	}
-	plan.Host, plan.Port = splitTrafficTarget(target)
-	if t.ch != nil {
-		plan.Hops = t.ch.HopInfo()
-	}
-	return plan, nil
-}
-
-func relayUDP(ctx context.Context, local *gonet.UDPConn, chainPC net.PacketConn, target string, rxCounter, txCounter *atomic.Uint64) error {
-	flowCtx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
-	var lastActivity atomic.Int64
-	lastActivity.Store(time.Now().UnixNano())
-	bump := func() { lastActivity.Store(time.Now().UnixNano()) }
-	idle := func() bool {
-		return time.Since(time.Unix(0, lastActivity.Load())) > tunUDPIdleTimeout
-	}
-
-	errCh := make(chan error, 2)
-	go func() {
-		buf := make([]byte, 65535)
-		for {
-			_ = local.SetReadDeadline(time.Now().Add(tunUDPPollInterval))
-			n, _, err := local.ReadFrom(buf)
-			if err != nil {
-				if flowCtx.Err() != nil {
-					errCh <- nil
-					return
-				}
-				if isTimeout(err) {
-					if idle() {
-						errCh <- nil
-						return
-					}
-					continue
-				}
-				errCh <- normalizeRelayErr(err)
-				return
-			}
-			if n > 0 {
-				if txCounter != nil {
-					txCounter.Add(uint64(n))
-				}
-				bump()
-				if _, err := chainPC.WriteTo(buf[:n], stringAddr{network: "udp", address: target}); err != nil {
-					errCh <- normalizeRelayErr(err)
-					return
-				}
-			}
-		}
-	}()
-
-	go func() {
-		buf := make([]byte, 65535)
-		for {
-			_ = chainPC.SetReadDeadline(time.Now().Add(tunUDPPollInterval))
-			n, _, err := chainPC.ReadFrom(buf)
-			if err != nil {
-				if flowCtx.Err() != nil {
-					errCh <- nil
-					return
-				}
-				if isTimeout(err) {
-					if idle() {
-						errCh <- nil
-						return
-					}
-					continue
-				}
-				errCh <- normalizeRelayErr(err)
-				return
-			}
-			if n > 0 {
-				if rxCounter != nil {
-					rxCounter.Add(uint64(n))
-				}
-				bump()
-				if _, err := local.Write(buf[:n]); err != nil {
-					errCh <- normalizeRelayErr(err)
-					return
-				}
-			}
-		}
-	}()
-
-	err := <-errCh
-	cancel()
-	_ = local.Close()
-	_ = chainPC.Close()
-	if err == nil {
-		err = <-errCh
-	}
-	if errors.Is(err, io.EOF) || errors.Is(err, net.ErrClosed) {
-		return nil
-	}
+func (w tunPacketWriter) WritePacket(pkt []byte) error {
+	_, err := w.dev.Write([][]byte{pkt}, 0)
 	return err
-}
-
-func isTimeout(err error) bool {
-	var ne net.Error
-	return errors.As(err, &ne) && ne.Timeout()
-}
-
-type stringAddr struct {
-	network string
-	address string
-}
-
-func (a stringAddr) Network() string { return a.network }
-func (a stringAddr) String() string  { return a.address }
-
-func idTarget(id stack.TransportEndpointID) (string, error) {
-	return endpointAddress(id.LocalAddress, id.LocalPort)
-}
-
-func idClientAddr(id stack.TransportEndpointID) string {
-	addr, err := endpointAddress(id.RemoteAddress, id.RemotePort)
-	if err != nil {
-		return ""
-	}
-	return addr
-}
-
-func endpointAddress(addr tcpip.Address, port uint16) (string, error) {
-	a := addr
-	ip, ok := netip.AddrFromSlice(a.AsSlice())
-	if !ok {
-		return "", fmt.Errorf("bad address %q", addr)
-	}
-	return netip.AddrPortFrom(ip, port).String(), nil
-}
-
-func tunAddresses(opts TUNOptions) []string {
-	if len(opts.Addresses) > 0 {
-		return opts.Addresses
-	}
-	return []string{
-		"198.18.0.1/30",
-		"fd7a:636c:616d::1/64",
-	}
 }
 
 var _ Listener = (*TUN)(nil)

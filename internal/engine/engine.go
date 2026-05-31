@@ -298,6 +298,13 @@ func validateRuntimeConfig(cfg *config.Config) error {
 	return errors.Join(errs...)
 }
 
+// ValidateConfig applies the same runtime validation used before starting the
+// daemon. Mobile embeddings use it before starting a packet tunnel without
+// constructing daemon listeners.
+func ValidateConfig(cfg *config.Config) error {
+	return validateRuntimeConfig(cfg)
+}
+
 // Status returns the engine's current status.
 func (e *Engine) Status() Status {
 	e.mu.RLock()
@@ -464,6 +471,37 @@ func buildListeners(profile *config.Profile, bus *events.Bus) (listeners []liste
 	}
 
 	return out, resolver.chains, nil
+}
+
+// BuildPacketStack constructs a platform-neutral packet stack for the active
+// profile's TUN configuration. The caller owns Start/Stop and chain cleanup.
+func BuildPacketStack(profile *config.Profile, bus *events.Bus, writer listener.PacketWriter) (*listener.PacketStack, []*chain.Chain, error) {
+	if profile == nil {
+		return nil, nil, errors.New("nil profile")
+	}
+	tunCfg := profile.Listen.TUN
+	if tunCfg == nil || !tunCfg.Enabled {
+		return nil, nil, errors.New("tun: packet tunnel is not enabled in active profile")
+	}
+	resolver := newChainResolver(profile)
+	ch, err := resolver.resolve(tunCfg.Chain)
+	if err != nil {
+		return nil, nil, fmt.Errorf("tun: %w", err)
+	}
+	planner, err := resolver.routePlanner(tunCfg.Chain)
+	if err != nil {
+		return nil, nil, fmt.Errorf("tun rules: %w", err)
+	}
+	opts := listener.TUNOptions{
+		Name:         tunCfg.Name,
+		MTU:          tunCfg.MTU,
+		Addresses:    tunCfg.Addresses,
+		Routes:       tunCfg.Routes,
+		ExcludeCIDRs: tunCfg.ExcludeCIDRs,
+		ChainName:    ch.Name,
+		EventBus:     bus,
+	}
+	return listener.NewPacketStack(opts, ch, planner, writer), resolver.chains, nil
 }
 
 type chainResolver struct {

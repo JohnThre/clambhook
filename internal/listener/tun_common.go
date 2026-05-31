@@ -8,6 +8,7 @@ import (
 
 const (
 	defaultTUNName = "clambhook0"
+	defaultTUNMTU  = 1500
 
 	unsupportedTUNError = "tun: device-wide TUN mode is only supported on Linux"
 )
@@ -31,4 +32,11 @@ func (o TUNOptions) name() string {
 		return o.Name
 	}
 	return defaultTUNName
+}
+
+func (o TUNOptions) mtu() int {
+	if o.MTU > 0 {
+		return o.MTU
+	}
+	return defaultTUNMTU
 }

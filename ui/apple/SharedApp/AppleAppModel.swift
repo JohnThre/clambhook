@@ -12,12 +12,17 @@ final class AppleAppModel: ObservableObject {
 
     let platform: AppPlatform
     private let credentialStore: CredentialStoring
-    private var apiClient: ClambhookAPIClient
+    private var apiClient: ClambhookAPIClient?
+    private var dashboardAPI: ClambhookAPIProviding
     private var snapshotStore: FileSnapshotStore
     private var pollingTask: Task<Void, Never>?
     private var dashboardChangeCancellable: AnyCancellable?
     private var settingsChangeCancellable: AnyCancellable?
     private var started = false
+
+    #if os(iOS)
+    let tunnelController = IOSTunnelController()
+    #endif
 
     #if os(macOS)
     let daemonSupervisor = DaemonSupervisor()
@@ -38,9 +43,17 @@ final class AppleAppModel: ObservableObject {
         self.snapshotStore = FileSnapshotStore.appGroupStore(groupIdentifier: settingsStore.settings.appGroupIdentifier)
         let initialToken = (try? credentialStore.readToken(account: settingsStore.settings.apiEndpoint.absoluteString)) ?? ""
         self.apiToken = initialToken
-        self.apiClient = ClambhookAPIClient(baseURL: settingsStore.settings.apiEndpoint, tokenProvider: { initialToken })
+        #if os(iOS)
+        let initialDashboardAPI = TunnelDashboardClient(controller: tunnelController)
+        self.apiClient = nil
+        self.dashboardAPI = initialDashboardAPI
+        #else
+        let initialAPIClient = ClambhookAPIClient(baseURL: settingsStore.settings.apiEndpoint, tokenProvider: { initialToken })
+        self.apiClient = initialAPIClient
+        self.dashboardAPI = initialAPIClient
+        #endif
         self.dashboard = DashboardStore(
-            api: apiClient,
+            api: dashboardAPI,
             snapshotStore: snapshotStore,
             logRetention: settingsStore.settings.logRetention
         )
@@ -66,7 +79,9 @@ final class AppleAppModel: ObservableObject {
             launchDaemon()
         }
         #endif
-        dashboard.startEventStream(from: apiClient)
+        if let apiClient {
+            dashboard.startEventStream(from: apiClient)
+        }
         startPolling()
         Task { await dashboard.refreshDashboard() }
     }
@@ -89,7 +104,9 @@ final class AppleAppModel: ObservableObject {
         settingsStore.save()
         reloadClient()
         if started {
-            dashboard.startEventStream(from: apiClient)
+            if let apiClient {
+                dashboard.startEventStream(from: apiClient)
+            }
             startPolling()
         }
         Task { await dashboard.refreshDashboard() }
@@ -117,6 +134,20 @@ final class AppleAppModel: ObservableObject {
         Task { await dashboard.setActiveProfile(profile) }
     }
 
+    #if os(iOS)
+    func reloadTunnelConfiguration() {
+        Task {
+            do {
+                try await (dashboardAPI as? TunnelDashboardClient)?.reloadConfiguration()
+                await dashboard.refreshDashboard()
+            } catch {
+                dashboard.stopEventStream()
+                await dashboard.refreshDashboard()
+            }
+        }
+    }
+    #endif
+
     #if os(macOS)
     func launchDaemon() {
         Task {
@@ -142,9 +173,16 @@ final class AppleAppModel: ObservableObject {
         let endpoint = settings.apiEndpoint
         let token = apiToken
         snapshotStore = FileSnapshotStore.appGroupStore(groupIdentifier: settings.appGroupIdentifier)
-        apiClient = ClambhookAPIClient(baseURL: endpoint, tokenProvider: { token.isEmpty ? nil : token })
+        #if os(iOS)
+        apiClient = nil
+        dashboardAPI = TunnelDashboardClient(controller: tunnelController)
+        #else
+        let nextAPIClient = ClambhookAPIClient(baseURL: endpoint, tokenProvider: { token.isEmpty ? nil : token })
+        apiClient = nextAPIClient
+        dashboardAPI = nextAPIClient
+        #endif
         dashboard.stopEventStream()
-        dashboard = DashboardStore(api: apiClient, snapshotStore: snapshotStore, logRetention: settings.logRetention)
+        dashboard = DashboardStore(api: dashboardAPI, snapshotStore: snapshotStore, logRetention: settings.logRetention)
         bindDashboardStore()
     }
 

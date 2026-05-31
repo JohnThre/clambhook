@@ -216,7 +216,7 @@ private struct IOSStatusPanel: View {
 
                 VStack(alignment: .trailing, spacing: 6) {
                     IOSStatusBadge(
-                        text: model.dashboard.apiOnline ? "API online" : "API offline",
+                        text: model.dashboard.apiOnline ? "Tunnel ready" : "Tunnel unavailable",
                         systemImage: "network",
                         tint: model.dashboard.apiOnline ? .green : .red
                     )

@@ -58,6 +58,7 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: org.jpfchang.clambhook
         INFOPLIST_FILE: ClambhookiOS/Info.plist
         CODE_SIGN_ENTITLEMENTS: ClambhookiOS/ClambhookiOS.entitlements
+        FRAMEWORK_SEARCH_PATHS: "$(PROJECT_DIR)/Frameworks $(PROJECT_DIR)/Frameworks/**"
         TARGETED_DEVICE_FAMILY: 1
   ClambhookVision:
     type: application
@@ -79,12 +80,15 @@ targets:
     platform: iOS
     sources:
       - path: ClambhookPacketTunnel
+    dependencies:
+      - package: ClambhookShared
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: org.jpfchang.clambhook.tunnel
         INFOPLIST_FILE: ClambhookPacketTunnel/Info.plist
         CODE_SIGN_ENTITLEMENTS: ClambhookPacketTunnel/ClambhookPacketTunnel.entitlements
         APPLICATION_EXTENSION_API_ONLY: YES
+        FRAMEWORK_SEARCH_PATHS: "$(PROJECT_DIR)/Frameworks $(PROJECT_DIR)/Frameworks/**"
         TARGETED_DEVICE_FAMILY: 1
         SKIP_INSTALL: YES
   ClambhookMacWidgetExtension:
