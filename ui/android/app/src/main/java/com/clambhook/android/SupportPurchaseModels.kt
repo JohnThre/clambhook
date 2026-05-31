@@ -1,8 +1,8 @@
 package com.clambhook.android
 
-const val supportProductSmall = "support.small"
-const val supportProductMedium = "support.medium"
-const val supportProductLarge = "support.large"
+const val supportProductSmall = "org.jpfchang.clambhook.support.small"
+const val supportProductMedium = "org.jpfchang.clambhook.support.medium"
+const val supportProductLarge = "org.jpfchang.clambhook.support.large"
 
 val supportProductIds = listOf(
     supportProductSmall,

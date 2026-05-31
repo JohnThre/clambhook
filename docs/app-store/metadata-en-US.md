@@ -4,10 +4,11 @@
 
 - Paid app base price: USD 99.99.
 - Paid Apps Agreement, tax, and banking must be complete in App Store Connect before review.
+- No subscription, annual upgrade purchase, major-release paywall, or post-purchase feature gate.
 
 ## In-App Purchases
 
-Create these as consumable support purchases before submitting the build. Do not create any placeholder products because App Store Connect product IDs cannot be reused after assignment.
+Create only these optional support purchases before submitting the build. They do not unlock app features, expire access, or gate future updates. Do not create any placeholder products because App Store Connect product IDs cannot be reused after assignment.
 
 | Display name | Product ID | US base price |
 | --- | --- | --- |
@@ -36,7 +37,7 @@ VPN,proxy,WireGuard,OpenVPN,Shadowsocks,Tor,Trojan,network,privacy,tunnel
 - Demo profile name: App Review Demo.
 - Demo endpoint: `review-vpn.jpfchang.org:443`.
 - Demo credentials: paste only in the App Review Notes field in App Store Connect; do not commit them.
-- Notes: ClambHook creates a local VPN configuration through Network Extension and routes traffic according to user-managed profiles and rules.
+- Notes: ClambHook creates a local VPN configuration through Network Extension and routes traffic according to user-managed profiles and rules. Support purchases are optional and do not gate app functionality.
 
 ## Screenshots
 
