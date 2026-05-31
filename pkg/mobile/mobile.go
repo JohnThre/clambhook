@@ -1,4 +1,4 @@
-// Package mobile exposes clambhook's core runtime to Android via gomobile.
+// Package mobile exposes clambhook's core runtime to mobile apps via gomobile.
 package mobile
 
 import (
@@ -19,7 +19,7 @@ import (
 	"github.com/JohnThre/clambhook/internal/logstream"
 	"github.com/JohnThre/clambhook/internal/traffic"
 
-	// Register all protocols for embedded Android builds.
+	// Register all protocols for embedded mobile builds.
 	_ "github.com/JohnThre/clambhook/internal/protocol/clambback"
 	_ "github.com/JohnThre/clambhook/internal/protocol/openvpn"
 	_ "github.com/JohnThre/clambhook/internal/protocol/shadowsocks"

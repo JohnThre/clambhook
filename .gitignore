@@ -8,6 +8,7 @@ dist/
 ui/apple/.build/
 ui/apple/.swiftpm/
 ui/apple/**/xcuserdata/
+ui/apple/Frameworks/*.xcframework/
 ui/android/.gradle/
 ui/android/build/
 ui/android/app/build/

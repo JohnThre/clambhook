@@ -98,8 +98,8 @@ type ListenConfig struct {
 	TUN                    *TUNConfig  `toml:"tun,omitempty"`
 }
 
-// TUNConfig defines the Linux device-wide TUN listener. It is opt-in because
-// it changes host routing and requires root or CAP_NET_ADMIN on Linux.
+// TUNConfig defines device-wide packet routing. It is opt-in because the
+// Linux daemon listener changes host routing and requires root or CAP_NET_ADMIN.
 type TUNConfig struct {
 	Enabled      bool     `toml:"enabled"`
 	Name         string   `toml:"name"`

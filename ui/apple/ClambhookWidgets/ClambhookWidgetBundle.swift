@@ -190,9 +190,13 @@ struct ConnectIntent: AppIntent {
     static var title: LocalizedStringResource = "Connect clambhook"
 
     func perform() async throws -> some IntentResult {
+        #if os(iOS)
+        return .result()
+        #else
         try await WidgetEnvironment.client().connect()
         WidgetCenter.shared.reloadAllTimelines()
         return .result()
+        #endif
     }
 }
 
@@ -200,9 +204,13 @@ struct DisconnectIntent: AppIntent {
     static var title: LocalizedStringResource = "Disconnect clambhook"
 
     func perform() async throws -> some IntentResult {
+        #if os(iOS)
+        return .result()
+        #else
         try await WidgetEnvironment.client().disconnect()
         WidgetCenter.shared.reloadAllTimelines()
         return .result()
+        #endif
     }
 }
 
@@ -210,6 +218,9 @@ struct NextProfileIntent: AppIntent {
     static var title: LocalizedStringResource = "Switch to next clambhook profile"
 
     func perform() async throws -> some IntentResult {
+        #if os(iOS)
+        return .result()
+        #else
         let client = WidgetEnvironment.client()
         let payload = try await client.profiles()
         guard !payload.profiles.isEmpty else {
@@ -221,6 +232,7 @@ struct NextProfileIntent: AppIntent {
         try await client.setActiveProfile(next)
         WidgetCenter.shared.reloadAllTimelines()
         return .result()
+        #endif
     }
 }
 

@@ -22,7 +22,9 @@
 		3D5A142E8942DA836F15A989 /* ClambhookMacWidgetExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 9A9A34557D90A7B2D48D34A7 /* ClambhookMacWidgetExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		3F66FD26F33A8017C4D60A10 /* AppleAppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F26A7314DC7A26F275AB285 /* AppleAppModel.swift */; };
 		45A80E689F43632BAAA799B0 /* SupportPurchasesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8D0525C10EE904F2F5523DA /* SupportPurchasesView.swift */; };
+		47C24BD8355FAEB8A5F4BA81 /* IOSTunnelController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C796A563F604DA4F32123737 /* IOSTunnelController.swift */; };
 		49F0380E1F53437DFA6C040B /* IOSRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFEDFA8D75241DDF56ABCB3F /* IOSRootView.swift */; };
+		518777F562CBD72CCE4A4BF7 /* IOSTunnelController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C796A563F604DA4F32123737 /* IOSTunnelController.swift */; };
 		55EB0B85AE3ECF0FD4819B8B /* ClambhookShared in Frameworks */ = {isa = PBXBuildFile; productRef = B64D35EC77B9F6E4644D12DE /* ClambhookShared */; };
 		591061674835E9B22E696123 /* MacMenuBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B7ECD0E4E9DE7440023C997 /* MacMenuBarView.swift */; };
 		594278005EF074FEF1E35DB7 /* ClambhookShared in Frameworks */ = {isa = PBXBuildFile; productRef = C7B7C984BC02B851D35ED2B8 /* ClambhookShared */; };
@@ -38,8 +40,10 @@
 		CD678728E23EB80BCC915957 /* ClambhookWidgetBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E7E93A4404814358F6C95DB /* ClambhookWidgetBundle.swift */; };
 		CFCCC4198754EEF5353DF9EA /* SettingsViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11D3A8B6CD3A6119053C8908 /* SettingsViews.swift */; };
 		E20BEBC7404594F87E09BDF7 /* SettingsViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11D3A8B6CD3A6119053C8908 /* SettingsViews.swift */; };
+		F661F1DFCEA4AEC664607E3A /* ClambhookShared in Frameworks */ = {isa = PBXBuildFile; productRef = 486535E4136EE4440DE8CBCE /* ClambhookShared */; };
 		F87E277DD4DAAE72743F3DA6 /* ClambhookShared in Frameworks */ = {isa = PBXBuildFile; productRef = 17ABE50C62B10E6EB5160225 /* ClambhookShared */; };
 		FBFCE712E8587F9F09400640 /* ClambhookPacketTunnel.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 381D40C9B488F22288A2D561 /* ClambhookPacketTunnel.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		FC394BF11B1952AAD881101F /* IOSTunnelController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C796A563F604DA4F32123737 /* IOSTunnelController.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -141,6 +145,7 @@
 		B79D4C19242D8E6E95224A77 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		C34298B9F0C4CFA97FFDC543 /* VisionNetworkMapScene.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisionNetworkMapScene.swift; sourceTree = "<group>"; };
 		C41B5BD68DC94459F86ACC58 /* ClambhookiOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = ClambhookiOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		C796A563F604DA4F32123737 /* IOSTunnelController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IOSTunnelController.swift; sourceTree = "<group>"; };
 		C8D0525C10EE904F2F5523DA /* SupportPurchasesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SupportPurchasesView.swift; sourceTree = "<group>"; };
 		DDDB54D167062A1D34DD23E1 /* ClambhookVisionApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClambhookVisionApp.swift; sourceTree = "<group>"; };
 		DFEDFA8D75241DDF56ABCB3F /* IOSRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IOSRootView.swift; sourceTree = "<group>"; };
@@ -180,6 +185,14 @@
 			buildActionMask = 2147483647;
 			files = (
 				594278005EF074FEF1E35DB7 /* ClambhookShared in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		C7C8B2B3634541D0568113BD /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				F661F1DFCEA4AEC664607E3A /* ClambhookShared in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -310,6 +323,7 @@
 			children = (
 				0F26A7314DC7A26F275AB285 /* AppleAppModel.swift */,
 				E5D820AE96C5A0080AA5CF1F /* DashboardViews.swift */,
+				C796A563F604DA4F32123737 /* IOSTunnelController.swift */,
 				11D3A8B6CD3A6119053C8908 /* SettingsViews.swift */,
 				C8D0525C10EE904F2F5523DA /* SupportPurchasesView.swift */,
 			);
@@ -385,6 +399,7 @@
 			buildConfigurationList = 95F09F7F4294B048A0CCA06B /* Build configuration list for PBXNativeTarget "ClambhookPacketTunnel" */;
 			buildPhases = (
 				E4D076F7460555F1BB4A42EA /* Sources */,
+				C7C8B2B3634541D0568113BD /* Frameworks */,
 			);
 			buildRules = (
 			);
@@ -392,6 +407,7 @@
 			);
 			name = ClambhookPacketTunnel;
 			packageProductDependencies = (
+				486535E4136EE4440DE8CBCE /* ClambhookShared */,
 			);
 			productName = ClambhookPacketTunnel;
 			productReference = 381D40C9B488F22288A2D561 /* ClambhookPacketTunnel.appex */;
@@ -509,6 +525,7 @@
 				095D479A2F5A1084BFB762D0 /* ClambhookMacApp.swift in Sources */,
 				21058FE949E1058BD40B24BC /* DaemonSupervisor.swift in Sources */,
 				3B1AEF48F2085F24D45275D2 /* DashboardViews.swift in Sources */,
+				518777F562CBD72CCE4A4BF7 /* IOSTunnelController.swift in Sources */,
 				591061674835E9B22E696123 /* MacMenuBarView.swift in Sources */,
 				E20BEBC7404594F87E09BDF7 /* SettingsViews.swift in Sources */,
 				CC0CF0A287AC0E53A37374A7 /* SupportPurchasesView.swift in Sources */,
@@ -523,6 +540,7 @@
 				843EC58434DD9B6257CF4882 /* ClambhookIOSApp.swift in Sources */,
 				75A5F3A42D0B3DD6CDDC363C /* DashboardViews.swift in Sources */,
 				49F0380E1F53437DFA6C040B /* IOSRootView.swift in Sources */,
+				FC394BF11B1952AAD881101F /* IOSTunnelController.swift in Sources */,
 				CFCCC4198754EEF5353DF9EA /* SettingsViews.swift in Sources */,
 				45A80E689F43632BAAA799B0 /* SupportPurchasesView.swift in Sources */,
 			);
@@ -559,6 +577,7 @@
 				C785B03E1F90EEE06E88309D /* AppleAppModel.swift in Sources */,
 				751082522AE94AEC0132939B /* ClambhookVisionApp.swift in Sources */,
 				08E41EA0CC54ADA8C6AA6715 /* DashboardViews.swift in Sources */,
+				47C24BD8355FAEB8A5F4BA81 /* IOSTunnelController.swift in Sources */,
 				3C6BECDDFC169FDC9752E7E8 /* SettingsViews.swift in Sources */,
 				22E5858EF2C129AAA285716D /* SupportPurchasesView.swift in Sources */,
 				796E1CFB4C4751AEF5C1F502 /* VisionNetworkMapScene.swift in Sources */,
@@ -592,6 +611,7 @@
 			buildSettings = {
 				APPLICATION_EXTENSION_API_ONLY = YES;
 				CODE_SIGN_ENTITLEMENTS = ClambhookPacketTunnel/ClambhookPacketTunnel.entitlements;
+				FRAMEWORK_SEARCH_PATHS = "$(PROJECT_DIR)/Frameworks $(PROJECT_DIR)/Frameworks/**";
 				INFOPLIST_FILE = ClambhookPacketTunnel/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -811,6 +831,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = ClambhookiOS/ClambhookiOS.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
+				FRAMEWORK_SEARCH_PATHS = "$(PROJECT_DIR)/Frameworks $(PROJECT_DIR)/Frameworks/**";
 				INFOPLIST_FILE = ClambhookiOS/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -845,6 +866,7 @@
 			buildSettings = {
 				APPLICATION_EXTENSION_API_ONLY = YES;
 				CODE_SIGN_ENTITLEMENTS = ClambhookPacketTunnel/ClambhookPacketTunnel.entitlements;
+				FRAMEWORK_SEARCH_PATHS = "$(PROJECT_DIR)/Frameworks $(PROJECT_DIR)/Frameworks/**";
 				INFOPLIST_FILE = ClambhookPacketTunnel/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -864,6 +886,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = ClambhookiOS/ClambhookiOS.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
+				FRAMEWORK_SEARCH_PATHS = "$(PROJECT_DIR)/Frameworks $(PROJECT_DIR)/Frameworks/**";
 				INFOPLIST_FILE = ClambhookiOS/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -1004,6 +1027,10 @@
 
 /* Begin XCSwiftPackageProductDependency section */
 		17ABE50C62B10E6EB5160225 /* ClambhookShared */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = ClambhookShared;
+		};
+		486535E4136EE4440DE8CBCE /* ClambhookShared */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = ClambhookShared;
 		};
