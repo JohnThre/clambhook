@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		032EB9CFFF8103097D695F50 /* VisionRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB084852D105E104FA1A2C08 /* VisionRootView.swift */; };
+		03C961B215EC8EF6A66E6DD7 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 71619AA1E2C9424F8D0CAE82 /* Assets.xcassets */; };
 		069007F5D0A7675880D40F9B /* libsodium.26.dylib in CopyFiles */ = {isa = PBXBuildFile; fileRef = 0A1CC5DD0620471B3CCA85A1 /* libsodium.26.dylib */; };
 		08E41EA0CC54ADA8C6AA6715 /* DashboardViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5D820AE96C5A0080AA5CF1F /* DashboardViews.swift */; };
 		095D479A2F5A1084BFB762D0 /* ClambhookMacApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02A8B8AC40D9FACBCFC83187 /* ClambhookMacApp.swift */; };
@@ -75,9 +76,9 @@
 			isa = PBXCopyFilesBuildPhase;
 			buildActionMask = 2147483647;
 			dstPath = "";
-			dstSubfolderSpec = 10;
+			dstSubfolderSpec = 6;
 			files = (
-				069007F5D0A7675880D40F9B /* libsodium.26.dylib in CopyFiles */,
+				3792B993B246938C4220AC8D /* clambhook in CopyFiles */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -97,9 +98,9 @@
 			isa = PBXCopyFilesBuildPhase;
 			buildActionMask = 2147483647;
 			dstPath = "";
-			dstSubfolderSpec = 6;
+			dstSubfolderSpec = 10;
 			files = (
-				3792B993B246938C4220AC8D /* clambhook in CopyFiles */,
+				069007F5D0A7675880D40F9B /* libsodium.26.dylib in CopyFiles */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -133,6 +134,7 @@
 		3B3B18FAD354E883C6E95B0D /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		44BB52914FF567D1A4EA9446 /* ClambhookiOSWidgetExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = ClambhookiOSWidgetExtension.entitlements; sourceTree = "<group>"; };
 		60CD6FD2940A90C4362F5B00 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		71619AA1E2C9424F8D0CAE82 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		752B77E9507F4674BBA0E4D8 /* DaemonSupervisor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DaemonSupervisor.swift; sourceTree = "<group>"; };
 		8B7ECD0E4E9DE7440023C997 /* MacMenuBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacMenuBarView.swift; sourceTree = "<group>"; };
 		8C0F701E4D02A594C2F5744B /* ClambhookPacketTunnel.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = ClambhookPacketTunnel.entitlements; sourceTree = "<group>"; };
@@ -295,6 +297,7 @@
 		E99574CBEE7F120459AD262C = {
 			isa = PBXGroup;
 			children = (
+				71619AA1E2C9424F8D0CAE82 /* Assets.xcassets */,
 				89770E96EAB9F6FBEC965742 /* clambhook */,
 				F670A4FD48B43D5BE64B217F /* ClambhookiOS */,
 				02DBE71539B0AF31E3C21C10 /* ClambhookMac */,
@@ -418,6 +421,7 @@
 			buildConfigurationList = 5A1082AFD5ED07F4C73A1DD4 /* Build configuration list for PBXNativeTarget "ClambhookiOS" */;
 			buildPhases = (
 				2BA4BC53CF13F8B98BE075BB /* Sources */,
+				E2862156BD3581B9798A72AE /* Resources */,
 				9849F354B7C4E0112343E6E9 /* Frameworks */,
 				7B6E1AAB818CEE6AE73AF1B4 /* Embed Foundation Extensions */,
 			);
@@ -515,6 +519,17 @@
 			);
 		};
 /* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		E2862156BD3581B9798A72AE /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				03C961B215EC8EF6A66E6DD7 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		25C91D328A1B73FF14F96FB9 /* Sources */ = {

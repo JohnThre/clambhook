@@ -45,6 +45,7 @@ targets:
     type: application
     platform: iOS
     sources:
+      - path: Assets.xcassets
       - path: SharedApp
       - path: ClambhookiOS
     dependencies:

@@ -12,9 +12,9 @@ public struct MobileSupportProduct: Identifiable, Equatable {
 
 public enum MobileSupportCatalog {
     public static let products: [MobileSupportProduct] = [
-        MobileSupportProduct(id: "support.small", displayName: "Small Support"),
-        MobileSupportProduct(id: "support.medium", displayName: "Medium Support"),
-        MobileSupportProduct(id: "support.large", displayName: "Large Support"),
+        MobileSupportProduct(id: "org.jpfchang.clambhook.support.small", displayName: "Small Support"),
+        MobileSupportProduct(id: "org.jpfchang.clambhook.support.medium", displayName: "Medium Support"),
+        MobileSupportProduct(id: "org.jpfchang.clambhook.support.large", displayName: "Large Support"),
     ]
 
     public static let productIDs = products.map(\.id)
