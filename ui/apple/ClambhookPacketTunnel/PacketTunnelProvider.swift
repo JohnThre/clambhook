@@ -4,6 +4,9 @@ import Foundation
 import NetworkExtension
 import os.log
 
+#if os(iOS) && !DEBUG && !canImport(Mobile)
+#error("Mobile must be importable for iOS Release/App Store builds. Run make build-ios-mobile-xcframework before building the release app.")
+#endif
 #if canImport(Mobile)
 import Mobile
 #endif
