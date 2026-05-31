@@ -7,12 +7,26 @@ class SupportPurchaseModelsTest {
     @Test
     fun supportProductIdsAreStableAndOrdered() {
         assertEquals(
-            listOf("support.small", "support.medium", "support.large"),
+            listOf(
+                "org.jpfchang.clambhook.support.small",
+                "org.jpfchang.clambhook.support.medium",
+                "org.jpfchang.clambhook.support.large"
+            ),
             supportProductIds
         )
         assertEquals(
-            listOf("support.small", "support.large", "other"),
-            orderedSupportProductIds(listOf("support.large", "other", "support.small"))
+            listOf(
+                "org.jpfchang.clambhook.support.small",
+                "org.jpfchang.clambhook.support.large",
+                "other"
+            ),
+            orderedSupportProductIds(
+                listOf(
+                    "org.jpfchang.clambhook.support.large",
+                    "other",
+                    "org.jpfchang.clambhook.support.small"
+                )
+            )
         )
     }
 }

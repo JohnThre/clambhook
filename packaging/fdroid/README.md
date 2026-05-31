@@ -5,8 +5,8 @@ The Android application ID for F-Droid is `org.jpfchang.clambhook`.
 F-Droid must build the `fdroid` flavor. This flavor intentionally omits the
 Google Play Billing dependency and hides in-app support purchases.
 
-Use signed annotated Git tags for update discovery. Do not create GitHub
-Releases for F-Droid publication; F-Droid should build from the tagged source.
+Use signed annotated Git tags for update discovery. F-Droid should build from
+the tagged source.
 
 Suggested fdroiddata metadata:
 

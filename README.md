@@ -4,31 +4,8 @@
 
 <h1 align="center">Clambhook</h1>
 
-<p align="center">
-  Go and C network client with command-line, terminal, and Apple interfaces.
-</p>
-
-## v1 protocol support
-
-Clambhook v1 supports these protocol identifiers in user profiles:
-
-- `clambback`
-- `openvpn`
-- `shadowsocks`
-- `tor`
-- `trojan`
-- `wireguard`
-
 ## Donate
 
 <a href="https://nowpayments.io/donation?api_key=5792a927-dd7d-4b0c-982b-584a7499ffc9" target="_blank" rel="noreferrer noopener">
     <img src="https://nowpayments.io/images/embeds/donation-button-black.svg" alt="Crypto donation button by NOWPayments">
-</a>
-
-## iPhone distribution and pricing
-
-The iPhone build is distributed only through the Apple App Store as a paid app
-at USD 99.99 one-time. That purchase includes one year of feature updates for the
-current paid release line; later major release lines may be sold separately.
-
-Optional iPhone support purchases use StoreKit.
+</a> 
