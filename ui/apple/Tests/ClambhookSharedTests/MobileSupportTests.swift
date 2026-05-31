@@ -4,13 +4,21 @@ import XCTest
 final class MobileSupportTests: XCTestCase {
     func testSupportProductIDsAreStableAndOrdered() {
         XCTAssertEqual(MobileSupportCatalog.productIDs, [
-            "support.small",
-            "support.medium",
-            "support.large",
+            "org.jpfchang.clambhook.support.small",
+            "org.jpfchang.clambhook.support.medium",
+            "org.jpfchang.clambhook.support.large",
         ])
         XCTAssertEqual(
-            MobileSupportCatalog.orderedIDs(["support.large", "other", "support.small"]),
-            ["support.small", "support.large", "other"]
+            MobileSupportCatalog.orderedIDs([
+                "org.jpfchang.clambhook.support.large",
+                "other",
+                "org.jpfchang.clambhook.support.small",
+            ]),
+            [
+                "org.jpfchang.clambhook.support.small",
+                "org.jpfchang.clambhook.support.large",
+                "other",
+            ]
         )
     }
 }

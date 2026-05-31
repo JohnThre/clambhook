@@ -28,7 +28,7 @@ Clambhook v1 supports these protocol identifiers in user profiles:
 ## iPhone distribution and pricing
 
 The iPhone build is distributed only through the Apple App Store as a paid app
-at 99 USD one-time. That purchase includes one year of feature updates for the
+at USD 99.99 one-time. That purchase includes one year of feature updates for the
 current paid release line; later major release lines may be sold separately.
 
 Optional iPhone support purchases use StoreKit.
