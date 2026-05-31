@@ -1,6 +1,8 @@
 # App Review Notes
 
-ClambHook is an iPhone VPN/network client. It uses Network Extension with a packet tunnel provider to route device network traffic according to user-managed profiles and rules.
+ClambHook is an iPhone VPN/network client distributed only through the Apple App Store. It uses Network Extension with a packet tunnel provider to route device network traffic according to user-managed profiles and rules.
+
+Supported v1 profile protocol identifiers: `clambback`, `openvpn`, `shadowsocks`, `tor`, `trojan`, and `wireguard`.
 
 Privacy posture:
 
