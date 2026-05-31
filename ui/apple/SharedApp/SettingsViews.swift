@@ -66,6 +66,15 @@ struct AppSettingsView: View {
                     step: 50
                 )
             }
+            #if os(iOS)
+            Section("Privacy") {
+                Text(vpnDataUseDisclosure)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                Link("Privacy Policy", destination: defaultPrivacyPolicyURL)
+                Link("Support", destination: defaultSupportURL)
+            }
+            #endif
             #if os(iOS) || os(visionOS)
             SupportPurchasesSection()
             #endif

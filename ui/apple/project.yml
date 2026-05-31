@@ -48,14 +48,17 @@ targets:
       - path: SharedApp
       - path: ClambhookiOS
     dependencies:
+      - target: ClambhookPacketTunnel
+        embed: true
       - package: ClambhookShared
       - target: ClambhookiOSWidgetExtension
         embed: true
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.clambhook.ios
+        PRODUCT_BUNDLE_IDENTIFIER: org.jpfchang.clambhook
         INFOPLIST_FILE: ClambhookiOS/Info.plist
         CODE_SIGN_ENTITLEMENTS: ClambhookiOS/ClambhookiOS.entitlements
+        TARGETED_DEVICE_FAMILY: 1
   ClambhookVision:
     type: application
     platform: visionOS
@@ -71,6 +74,19 @@ targets:
         CODE_SIGN_ENTITLEMENTS: ClambhookVision/ClambhookVision.entitlements
         SUPPORTED_PLATFORMS: xros xrsimulator
         SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD: NO
+  ClambhookPacketTunnel:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: ClambhookPacketTunnel
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: org.jpfchang.clambhook.tunnel
+        INFOPLIST_FILE: ClambhookPacketTunnel/Info.plist
+        CODE_SIGN_ENTITLEMENTS: ClambhookPacketTunnel/ClambhookPacketTunnel.entitlements
+        APPLICATION_EXTENSION_API_ONLY: YES
+        TARGETED_DEVICE_FAMILY: 1
+        SKIP_INSTALL: YES
   ClambhookMacWidgetExtension:
     type: app-extension
     platform: macOS
@@ -94,7 +110,8 @@ targets:
       - package: ClambhookShared
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.clambhook.ios.widgets
+        PRODUCT_BUNDLE_IDENTIFIER: org.jpfchang.clambhook.widgets
         INFOPLIST_FILE: ClambhookWidgets/Info.plist
         CODE_SIGN_ENTITLEMENTS: ClambhookWidgets/ClambhookiOSWidgetExtension.entitlements
+        TARGETED_DEVICE_FAMILY: 1
         SKIP_INSTALL: YES
