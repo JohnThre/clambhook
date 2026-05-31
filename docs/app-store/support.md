@@ -1,0 +1,5 @@
+# ClambHook Support
+
+For App Store support, contact clambhook@jpfchang.org.
+
+Include the app version, iOS version, device model, active profile name, and a short description of the connection issue. Do not send proxy passwords, private keys, UUIDs, Reality keys, WireGuard keys, or full configuration files unless explicitly requested.

@@ -123,6 +123,9 @@ final class DashboardStoreTests: XCTestCase {
         XCTAssertEqual(settings.refreshIntervalSeconds, maxRefreshIntervalSeconds)
         XCTAssertEqual(settings.logRetention, minLogRetention)
         XCTAssertEqual(settings.appGroupIdentifier, defaultAppGroupIdentifier)
+        XCTAssertEqual(defaultAppGroupIdentifier, "group.org.jpfchang.clambhook")
+        XCTAssertEqual(defaultPrivacyPolicyURL.absoluteString, "https://jpfchang.org/clambhook/privacy")
+        XCTAssertEqual(defaultSupportURL.absoluteString, "https://jpfchang.org/clambhook/support")
     }
 
     func testCountryFlagAndRateFormatting() {

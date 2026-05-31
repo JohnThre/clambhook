@@ -1,11 +1,16 @@
 import Foundation
 
 public let defaultAPIEndpoint = URL(string: "http://127.0.0.1:9090")!
-public let defaultAppGroupIdentifier = "group.com.clambhook.shared"
+public let defaultAppGroupIdentifier = "group.org.jpfchang.clambhook"
+public let defaultPrivacyPolicyURL = URL(string: "https://jpfchang.org/clambhook/privacy")!
+public let defaultSupportURL = URL(string: "https://jpfchang.org/clambhook/support")!
 public let minRefreshIntervalSeconds: Double = 1
 public let maxRefreshIntervalSeconds: Double = 30
 public let minLogRetention = 50
 public let maxLogRetention = 500
+public let vpnDataUseDisclosure = """
+ClambHook creates a local VPN configuration to route device network traffic according to your profiles and rules. Profile data, connection metadata, logs, and diagnostics stay on this device unless you export them. ClambHook does not sell, use, or disclose VPN traffic data to third parties. Apple diagnostics may include crash and performance data if enabled.
+"""
 
 public struct AppSettings: Codable, Equatable, Sendable {
     public var apiEndpoint: URL
@@ -121,7 +126,7 @@ import Security
 public final class KeychainCredentialStore: CredentialStoring {
     private let service: String
 
-    public init(service: String = "com.clambhook.apple.api-token") {
+    public init(service: String = "org.jpfchang.clambhook.api-token") {
         self.service = service
     }
 

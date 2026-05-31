@@ -188,6 +188,8 @@ private struct IOSOverviewView: View {
 
 private struct IOSStatusPanel: View {
     @ObservedObject var model: AppleAppModel
+    @AppStorage("org.jpfchang.clambhook.vpnDisclosureAccepted") private var vpnDisclosureAccepted = false
+    @State private var showingVPNDisclosure = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -243,12 +245,18 @@ private struct IOSStatusPanel: View {
             }
         }
         .padding(.vertical, 2)
+        .sheet(isPresented: $showingVPNDisclosure) {
+            IOSVPNDisclosureSheet {
+                vpnDisclosureAccepted = true
+                model.connectOrDisconnect()
+            }
+        }
     }
 
     private var actionButtons: some View {
         Group {
             Button {
-                model.connectOrDisconnect()
+                handleConnectAction()
             } label: {
                 Label(
                     model.dashboard.status.running ? "Disconnect" : "Connect",
@@ -272,6 +280,61 @@ private struct IOSStatusPanel: View {
 
     private var connectionTint: Color {
         model.dashboard.status.running ? .green : .secondary
+    }
+
+    private func handleConnectAction() {
+        if model.dashboard.status.running || vpnDisclosureAccepted {
+            model.connectOrDisconnect()
+            return
+        }
+        showingVPNDisclosure = true
+    }
+}
+
+private struct IOSVPNDisclosureSheet: View {
+    var onAccept: () -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    Image(systemName: "network.badge.shield.half.filled")
+                        .font(.system(size: 44))
+                        .foregroundStyle(.tint)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                    Text("VPN Data Use")
+                        .font(.title2.weight(.semibold))
+
+                    Text(vpnDataUseDisclosure)
+                        .font(.body)
+                        .foregroundStyle(.primary)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    Link("Privacy Policy", destination: defaultPrivacyPolicyURL)
+                        .font(.body.weight(.medium))
+                }
+                .padding(20)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .navigationTitle("Before You Connect")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Cancel") {
+                        dismiss()
+                    }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Continue") {
+                        dismiss()
+                        onAccept()
+                    }
+                    .fontWeight(.semibold)
+                }
+            }
+        }
     }
 }
 

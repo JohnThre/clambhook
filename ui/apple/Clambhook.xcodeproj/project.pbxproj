@@ -31,6 +31,7 @@
 		796E1CFB4C4751AEF5C1F502 /* VisionNetworkMapScene.swift in Sources */ = {isa = PBXBuildFile; fileRef = C34298B9F0C4CFA97FFDC543 /* VisionNetworkMapScene.swift */; };
 		7FE42D8980A90B0A5D2D86B0 /* ClambhookiOSWidgetExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = F7B47D7978184FBFC7AD27D2 /* ClambhookiOSWidgetExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		843EC58434DD9B6257CF4882 /* ClambhookIOSApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27D701BE1DB83578C6553267 /* ClambhookIOSApp.swift */; };
+		9F6E0B313438BD3A6FCC94EB /* PacketTunnelProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2786E765739825A20569D217 /* PacketTunnelProvider.swift */; };
 		B6415B0956578D75A1C9E598 /* ClambhookWidgetBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E7E93A4404814358F6C95DB /* ClambhookWidgetBundle.swift */; };
 		C785B03E1F90EEE06E88309D /* AppleAppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F26A7314DC7A26F275AB285 /* AppleAppModel.swift */; };
 		CC0CF0A287AC0E53A37374A7 /* SupportPurchasesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8D0525C10EE904F2F5523DA /* SupportPurchasesView.swift */; };
@@ -38,6 +39,7 @@
 		CFCCC4198754EEF5353DF9EA /* SettingsViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11D3A8B6CD3A6119053C8908 /* SettingsViews.swift */; };
 		E20BEBC7404594F87E09BDF7 /* SettingsViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11D3A8B6CD3A6119053C8908 /* SettingsViews.swift */; };
 		F87E277DD4DAAE72743F3DA6 /* ClambhookShared in Frameworks */ = {isa = PBXBuildFile; productRef = 17ABE50C62B10E6EB5160225 /* ClambhookShared */; };
+		FBFCE712E8587F9F09400640 /* ClambhookPacketTunnel.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 381D40C9B488F22288A2D561 /* ClambhookPacketTunnel.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -47,6 +49,13 @@
 			proxyType = 1;
 			remoteGlobalIDString = 41A94BC1E503BFF6BD544A2A;
 			remoteInfo = ClambhookMacWidgetExtension;
+		};
+		F45531A4FA683AF3D3227937 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 9BB94ED3BD88502A45DEF4D7 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = BB39F70D287EE0E378D5291A;
+			remoteInfo = ClambhookPacketTunnel;
 		};
 		FE773B0EC200394FE3F1AEFE /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -74,6 +83,7 @@
 			dstPath = "";
 			dstSubfolderSpec = 13;
 			files = (
+				FBFCE712E8587F9F09400640 /* ClambhookPacketTunnel.appex in Embed Foundation Extensions */,
 				7FE42D8980A90B0A5D2D86B0 /* ClambhookiOSWidgetExtension.appex in Embed Foundation Extensions */,
 			);
 			name = "Embed Foundation Extensions";
@@ -113,11 +123,15 @@
 		22F84BCEFC14A14041740CB6 /* ClambhookVision.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = ClambhookVision.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		24D15BDA328B4ED0B2A65291 /* ClambhookMac.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ClambhookMac.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		25BA7CB2A27B7FD25CFC4221 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		2786E765739825A20569D217 /* PacketTunnelProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PacketTunnelProvider.swift; sourceTree = "<group>"; };
 		27D701BE1DB83578C6553267 /* ClambhookIOSApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClambhookIOSApp.swift; sourceTree = "<group>"; };
+		381D40C9B488F22288A2D561 /* ClambhookPacketTunnel.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = ClambhookPacketTunnel.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		3B3B18FAD354E883C6E95B0D /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		44BB52914FF567D1A4EA9446 /* ClambhookiOSWidgetExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = ClambhookiOSWidgetExtension.entitlements; sourceTree = "<group>"; };
 		60CD6FD2940A90C4362F5B00 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		752B77E9507F4674BBA0E4D8 /* DaemonSupervisor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DaemonSupervisor.swift; sourceTree = "<group>"; };
 		8B7ECD0E4E9DE7440023C997 /* MacMenuBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacMenuBarView.swift; sourceTree = "<group>"; };
+		8C0F701E4D02A594C2F5744B /* ClambhookPacketTunnel.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = ClambhookPacketTunnel.entitlements; sourceTree = "<group>"; };
 		8E7E93A4404814358F6C95DB /* ClambhookWidgetBundle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClambhookWidgetBundle.swift; sourceTree = "<group>"; };
 		903292C941E24F9681AB680C /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		962836E5FF857FC15720D328 /* ClambhookVision.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = ClambhookVision.entitlements; sourceTree = "<group>"; };
@@ -205,6 +219,16 @@
 			path = ClambhookVision;
 			sourceTree = "<group>";
 		};
+		59ABEB4A771C084251258632 /* ClambhookPacketTunnel */ = {
+			isa = PBXGroup;
+			children = (
+				8C0F701E4D02A594C2F5744B /* ClambhookPacketTunnel.entitlements */,
+				3B3B18FAD354E883C6E95B0D /* Info.plist */,
+				2786E765739825A20569D217 /* PacketTunnelProvider.swift */,
+			);
+			path = ClambhookPacketTunnel;
+			sourceTree = "<group>";
+		};
 		5C1DC0CFBC1B62A3EC95563E /* ClambhookWidgets */ = {
 			isa = PBXGroup;
 			children = (
@@ -231,6 +255,7 @@
 				F7B47D7978184FBFC7AD27D2 /* ClambhookiOSWidgetExtension.appex */,
 				24D15BDA328B4ED0B2A65291 /* ClambhookMac.app */,
 				9A9A34557D90A7B2D48D34A7 /* ClambhookMacWidgetExtension.appex */,
+				381D40C9B488F22288A2D561 /* ClambhookPacketTunnel.appex */,
 				22F84BCEFC14A14041740CB6 /* ClambhookVision.app */,
 			);
 			name = Products;
@@ -260,6 +285,7 @@
 				89770E96EAB9F6FBEC965742 /* clambhook */,
 				F670A4FD48B43D5BE64B217F /* ClambhookiOS */,
 				02DBE71539B0AF31E3C21C10 /* ClambhookMac */,
+				59ABEB4A771C084251258632 /* ClambhookPacketTunnel */,
 				53510433E44BD790460FB276 /* ClambhookVision */,
 				5C1DC0CFBC1B62A3EC95563E /* ClambhookWidgets */,
 				700E42F47FDF5AB645B28B09 /* Packages */,
@@ -354,6 +380,23 @@
 			productReference = 9A9A34557D90A7B2D48D34A7 /* ClambhookMacWidgetExtension.appex */;
 			productType = "com.apple.product-type.app-extension";
 		};
+		BB39F70D287EE0E378D5291A /* ClambhookPacketTunnel */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 95F09F7F4294B048A0CCA06B /* Build configuration list for PBXNativeTarget "ClambhookPacketTunnel" */;
+			buildPhases = (
+				E4D076F7460555F1BB4A42EA /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = ClambhookPacketTunnel;
+			packageProductDependencies = (
+			);
+			productName = ClambhookPacketTunnel;
+			productReference = 381D40C9B488F22288A2D561 /* ClambhookPacketTunnel.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 		C517E1157221601C0B043420 /* ClambhookiOS */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = 5A1082AFD5ED07F4C73A1DD4 /* Build configuration list for PBXNativeTarget "ClambhookiOS" */;
@@ -365,6 +408,7 @@
 			buildRules = (
 			);
 			dependencies = (
+				B4E3E54C4CCEE7C7C769CFA4 /* PBXTargetDependency */,
 				EAC41656EA4306337E68902E /* PBXTargetDependency */,
 			);
 			name = ClambhookiOS;
@@ -415,6 +459,10 @@
 						DevelopmentTeam = "";
 						ProvisioningStyle = Automatic;
 					};
+					BB39F70D287EE0E378D5291A = {
+						DevelopmentTeam = "";
+						ProvisioningStyle = Automatic;
+					};
 					C517E1157221601C0B043420 = {
 						DevelopmentTeam = "";
 						ProvisioningStyle = Automatic;
@@ -444,6 +492,7 @@
 			targets = (
 				04F6C6CEBBA59499FBD06EEF /* ClambhookMac */,
 				41A94BC1E503BFF6BD544A2A /* ClambhookMacWidgetExtension */,
+				BB39F70D287EE0E378D5291A /* ClambhookPacketTunnel */,
 				088461658E40F91573E4319B /* ClambhookVision */,
 				C517E1157221601C0B043420 /* ClambhookiOS */,
 				EE8B395E60C508805D5185A7 /* ClambhookiOSWidgetExtension */,
@@ -495,6 +544,14 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		E4D076F7460555F1BB4A42EA /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				9F6E0B313438BD3A6FCC94EB /* PacketTunnelProvider.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		F72AFC7DA7CA88ACF4DB399E /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -517,6 +574,11 @@
 			target = 41A94BC1E503BFF6BD544A2A /* ClambhookMacWidgetExtension */;
 			targetProxy = 123F7F3584D4E270C91146BB /* PBXContainerItemProxy */;
 		};
+		B4E3E54C4CCEE7C7C769CFA4 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = BB39F70D287EE0E378D5291A /* ClambhookPacketTunnel */;
+			targetProxy = F45531A4FA683AF3D3227937 /* PBXContainerItemProxy */;
+		};
 		EAC41656EA4306337E68902E /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = EE8B395E60C508805D5185A7 /* ClambhookiOSWidgetExtension */;
@@ -525,6 +587,24 @@
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
+		05A9009FF7757AD11BD2F3A2 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = ClambhookPacketTunnel/ClambhookPacketTunnel.entitlements;
+				INFOPLIST_FILE = ClambhookPacketTunnel/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = org.jpfchang.clambhook.tunnel;
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
 		1A13FFFD287AC0FDF33CAD16 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -718,10 +798,10 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.clambhook.ios.widgets;
+				PRODUCT_BUNDLE_IDENTIFIER = org.jpfchang.clambhook.widgets;
 				SDKROOT = iphoneos;
 				SKIP_INSTALL = YES;
-				TARGETED_DEVICE_FAMILY = "1,2";
+				TARGETED_DEVICE_FAMILY = 1;
 			};
 			name = Release;
 		};
@@ -736,9 +816,9 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.clambhook.ios;
+				PRODUCT_BUNDLE_IDENTIFIER = org.jpfchang.clambhook;
 				SDKROOT = iphoneos;
-				TARGETED_DEVICE_FAMILY = "1,2";
+				TARGETED_DEVICE_FAMILY = 1;
 			};
 			name = Release;
 		};
@@ -760,6 +840,24 @@
 			};
 			name = Release;
 		};
+		9BE636EFFBFC307331194AA2 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = ClambhookPacketTunnel/ClambhookPacketTunnel.entitlements;
+				INFOPLIST_FILE = ClambhookPacketTunnel/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = org.jpfchang.clambhook.tunnel;
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
 		ADBDF25F4D3260D4D04FC418 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -771,9 +869,9 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.clambhook.ios;
+				PRODUCT_BUNDLE_IDENTIFIER = org.jpfchang.clambhook;
 				SDKROOT = iphoneos;
-				TARGETED_DEVICE_FAMILY = "1,2";
+				TARGETED_DEVICE_FAMILY = 1;
 			};
 			name = Debug;
 		};
@@ -787,10 +885,10 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.clambhook.ios.widgets;
+				PRODUCT_BUNDLE_IDENTIFIER = org.jpfchang.clambhook.widgets;
 				SDKROOT = iphoneos;
 				SKIP_INSTALL = YES;
-				TARGETED_DEVICE_FAMILY = "1,2";
+				TARGETED_DEVICE_FAMILY = 1;
 			};
 			name = Debug;
 		};
@@ -855,6 +953,15 @@
 			buildConfigurations = (
 				ADBDF25F4D3260D4D04FC418 /* Debug */,
 				8E348CDAFC55B5B28A35D6A2 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		95F09F7F4294B048A0CCA06B /* Build configuration list for PBXNativeTarget "ClambhookPacketTunnel" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				05A9009FF7757AD11BD2F3A2 /* Debug */,
+				9BE636EFFBFC307331194AA2 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;
