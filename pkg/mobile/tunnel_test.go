@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/JohnThre/clambhook/internal/config"
 )
 
 func TestTunnelNetworkSettingsJSONAppliesMobileDefaults(t *testing.T) {
@@ -55,4 +57,101 @@ name = "default"
 	if len(payload.IncludedRoutes) != 2 || payload.IncludedRoutes[0] != "0.0.0.0/0" || payload.IncludedRoutes[1] != "::/0" {
 		t.Fatalf("unexpected included routes: %#v", payload.IncludedRoutes)
 	}
+}
+
+func TestTunnelConfigDashboardAndRuleReplacement(t *testing.T) {
+	path := writeTunnelTestConfig(t)
+
+	if err := ValidateTunnelConfig(path); err != nil {
+		t.Fatalf("ValidateTunnelConfig: %v", err)
+	}
+
+	rules := []config.RuleConfig{{
+		Name:           "ads",
+		Action:         "block",
+		DomainSuffixes: []string{"ads.example.com"},
+		Networks:       []string{"tcp"},
+	}}
+	rawRules, err := json.Marshal(rules)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ReplaceTunnelRulesJSON(path, "default", string(rawRules)); err != nil {
+		t.Fatalf("ReplaceTunnelRulesJSON: %v", err)
+	}
+
+	rawDashboard, err := TunnelConfigDashboardJSON(path)
+	if err != nil {
+		t.Fatalf("TunnelConfigDashboardJSON: %v", err)
+	}
+	var payload dashboardPayload
+	if err := json.Unmarshal([]byte(rawDashboard), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if got := payload.Rules.Rules; len(got) != 1 || got[0].Name != "ads" || got[0].Action != "block" {
+		t.Fatalf("rules = %#v", got)
+	}
+	if payload.Status.Running {
+		t.Fatalf("dashboard status running = true, want false")
+	}
+}
+
+func TestCreateTunnelProfileConfigJSON(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "clambhook.toml")
+	req := map[string]any{
+		"profile_name":   "phone",
+		"chain_name":     "proxy",
+		"server_name":    "exit",
+		"server_address": "example.invalid:443",
+		"protocol":       "shadowsocks",
+		"settings_toml":  "method = \"chacha20-ietf-poly1305\"\npassword = \"secret\"\n",
+		"replace":        true,
+	}
+	rawReq, err := json.Marshal(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := CreateTunnelProfileConfigJSON(path, string(rawReq)); err != nil {
+		t.Fatalf("CreateTunnelProfileConfigJSON: %v", err)
+	}
+	rawDashboard, err := TunnelConfigDashboardJSON(path)
+	if err != nil {
+		t.Fatalf("TunnelConfigDashboardJSON: %v", err)
+	}
+	var payload dashboardPayload
+	if err := json.Unmarshal([]byte(rawDashboard), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Profiles.Active != "phone" || len(payload.Profiles.Profiles) != 1 {
+		t.Fatalf("profiles = %+v", payload.Profiles)
+	}
+	if got := payload.Servers.Chains[0].Servers[0]; got.Name != "exit" || got.Protocol != "shadowsocks" {
+		t.Fatalf("server = %+v", got)
+	}
+}
+
+func writeTunnelTestConfig(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "clambhook.toml")
+	if err := os.WriteFile(path, []byte(`
+active = "default"
+
+[[profile]]
+name = "default"
+
+  [[profile.chain]]
+  name = "proxy"
+
+    [[profile.chain.server]]
+    name = "example"
+    address = "example.invalid:443"
+    protocol = "shadowsocks"
+
+      [profile.chain.server.settings]
+      method = "chacha20-ietf-poly1305"
+      password = "secret"
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
 }

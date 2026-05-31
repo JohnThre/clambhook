@@ -360,6 +360,8 @@ public struct TrafficConnectionPayload: Codable, Equatable, Identifiable, Sendab
     public var network: String
     public var application: String
     public var hops: [TrafficHopPayload]
+    public var timeline: [TrafficTimelinePayload]
+    public var visibility: TrafficVisibilityPayload?
     public var geo: LocationPayload
     public var geoError: String
     public var totalDialNs: Int64
@@ -388,6 +390,8 @@ public struct TrafficConnectionPayload: Codable, Equatable, Identifiable, Sendab
         case network
         case application
         case hops
+        case timeline
+        case visibility
         case geo
         case geoError = "geo_error"
         case totalDialNs = "total_dial_ns"
@@ -399,7 +403,7 @@ public struct TrafficConnectionPayload: Codable, Equatable, Identifiable, Sendab
         case closeReason = "close_reason"
     }
 
-    public init(connID: String = "", state: String = "", startTsNs: Int64 = 0, updatedTsNs: Int64 = 0, endTsNs: Int64 = 0, listener: TrafficListenerPayload = TrafficListenerPayload(), clientAddr: String = "", chainName: String = "", ruleName: String = "", ruleAction: String = "", decisionNs: Int64 = 0, target: String = "", targetHost: String = "", targetPort: String = "", network: String = "", application: String = "", hops: [TrafficHopPayload] = [], geo: LocationPayload = LocationPayload(), geoError: String = "", totalDialNs: Int64 = 0, rxBps: Double = 0, txBps: Double = 0, rxTotal: UInt64 = 0, txTotal: UInt64 = 0, durationNs: Int64 = 0, closeReason: String = "") {
+    public init(connID: String = "", state: String = "", startTsNs: Int64 = 0, updatedTsNs: Int64 = 0, endTsNs: Int64 = 0, listener: TrafficListenerPayload = TrafficListenerPayload(), clientAddr: String = "", chainName: String = "", ruleName: String = "", ruleAction: String = "", decisionNs: Int64 = 0, target: String = "", targetHost: String = "", targetPort: String = "", network: String = "", application: String = "", hops: [TrafficHopPayload] = [], timeline: [TrafficTimelinePayload] = [], visibility: TrafficVisibilityPayload? = nil, geo: LocationPayload = LocationPayload(), geoError: String = "", totalDialNs: Int64 = 0, rxBps: Double = 0, txBps: Double = 0, rxTotal: UInt64 = 0, txTotal: UInt64 = 0, durationNs: Int64 = 0, closeReason: String = "") {
         self.connID = connID
         self.state = state
         self.startTsNs = startTsNs
@@ -417,6 +421,8 @@ public struct TrafficConnectionPayload: Codable, Equatable, Identifiable, Sendab
         self.network = network
         self.application = application
         self.hops = hops
+        self.timeline = timeline
+        self.visibility = visibility
         self.geo = geo
         self.geoError = geoError
         self.totalDialNs = totalDialNs
@@ -447,6 +453,8 @@ public struct TrafficConnectionPayload: Codable, Equatable, Identifiable, Sendab
         self.network = try container.decodeIfPresent(String.self, forKey: .network) ?? ""
         self.application = try container.decodeIfPresent(String.self, forKey: .application) ?? ""
         self.hops = try container.decodeIfPresent([TrafficHopPayload].self, forKey: .hops) ?? []
+        self.timeline = try container.decodeIfPresent([TrafficTimelinePayload].self, forKey: .timeline) ?? []
+        self.visibility = try container.decodeIfPresent(TrafficVisibilityPayload.self, forKey: .visibility)
         self.geo = try container.decodeIfPresent(LocationPayload.self, forKey: .geo) ?? LocationPayload()
         self.geoError = try container.decodeIfPresent(String.self, forKey: .geoError) ?? ""
         self.totalDialNs = try container.decodeIfPresent(Int64.self, forKey: .totalDialNs) ?? 0
@@ -507,6 +515,77 @@ public struct TrafficHopPayload: Codable, Equatable, Sendable {
         self.state = try container.decodeIfPresent(String.self, forKey: .state) ?? ""
         self.elapsedNs = try container.decodeIfPresent(Int64.self, forKey: .elapsedNs) ?? 0
         self.error = try container.decodeIfPresent(String.self, forKey: .error) ?? ""
+    }
+}
+
+public struct TrafficTimelinePayload: Codable, Equatable, Identifiable, Sendable {
+    public var id: String { "\(tsNs)-\(type)-\(title)-\(detail)" }
+    public var tsNs: Int64
+    public var type: String
+    public var title: String
+    public var detail: String
+
+    enum CodingKeys: String, CodingKey {
+        case tsNs = "ts_ns"
+        case type
+        case title
+        case detail
+    }
+
+    public init(tsNs: Int64 = 0, type: String = "", title: String = "", detail: String = "") {
+        self.tsNs = tsNs
+        self.type = type
+        self.title = title
+        self.detail = detail
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.tsNs = try container.decodeIfPresent(Int64.self, forKey: .tsNs) ?? 0
+        self.type = try container.decodeIfPresent(String.self, forKey: .type) ?? ""
+        self.title = try container.decodeIfPresent(String.self, forKey: .title) ?? ""
+        self.detail = try container.decodeIfPresent(String.self, forKey: .detail) ?? ""
+    }
+}
+
+public struct TrafficVisibilityPayload: Codable, Equatable, Sendable {
+    public var kind: String
+    public var method: String
+    public var scheme: String
+    public var host: String
+    public var port: String
+    public var path: String
+    public var queryType: String
+
+    enum CodingKeys: String, CodingKey {
+        case kind
+        case method
+        case scheme
+        case host
+        case port
+        case path
+        case queryType = "query_type"
+    }
+
+    public init(kind: String = "", method: String = "", scheme: String = "", host: String = "", port: String = "", path: String = "", queryType: String = "") {
+        self.kind = kind
+        self.method = method
+        self.scheme = scheme
+        self.host = host
+        self.port = port
+        self.path = path
+        self.queryType = queryType
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.kind = try container.decodeIfPresent(String.self, forKey: .kind) ?? ""
+        self.method = try container.decodeIfPresent(String.self, forKey: .method) ?? ""
+        self.scheme = try container.decodeIfPresent(String.self, forKey: .scheme) ?? ""
+        self.host = try container.decodeIfPresent(String.self, forKey: .host) ?? ""
+        self.port = try container.decodeIfPresent(String.self, forKey: .port) ?? ""
+        self.path = try container.decodeIfPresent(String.self, forKey: .path) ?? ""
+        self.queryType = try container.decodeIfPresent(String.self, forKey: .queryType) ?? ""
     }
 }
 

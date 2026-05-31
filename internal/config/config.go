@@ -124,6 +124,11 @@ func (d *Duration) UnmarshalText(text []byte) error {
 	return nil
 }
 
+// MarshalText writes durations back in Go-duration form for generated TOML.
+func (d Duration) MarshalText() ([]byte, error) {
+	return []byte(time.Duration(d).String()), nil
+}
+
 // Std returns the value as a standard library time.Duration.
 func (d Duration) Std() time.Duration { return time.Duration(d) }
 

@@ -298,6 +298,7 @@ func (s *HTTP) handleConnect(ctx context.Context, client net.Conn, br *bufio.Rea
 		writeSimpleStatus(client, req.Proto, http.StatusBadGateway, "Bad Gateway")
 		return err
 	}
+	plan.Visibility = httpConnectVisibility(req.Host)
 	ce.emitRuleDecision(plan)
 	ce.emitDialingPlan(plan)
 	if plan.Action == RouteActionBlock || plan.Action == RouteActionReject {
@@ -369,6 +370,7 @@ func (s *HTTP) handleForward(ctx context.Context, client net.Conn, req *http.Req
 		writeSimpleStatus(client, req.Proto, http.StatusBadGateway, "Bad Gateway")
 		return err
 	}
+	plan.Visibility = httpForwardVisibility(req)
 	ce.emitRuleDecision(plan)
 	ce.emitDialingPlan(plan)
 	if plan.Action == RouteActionBlock || plan.Action == RouteActionReject {
@@ -466,6 +468,32 @@ func (s *HTTP) plan(ctx context.Context, network, target string) (RoutePlan, err
 		plan.Hops = s.ch.HopInfo()
 	}
 	return plan, nil
+}
+
+func httpConnectVisibility(target string) events.VisibilityInfo {
+	host, port := splitTrafficTarget(target)
+	return events.VisibilityInfo{
+		Kind:   "http_connect",
+		Method: http.MethodConnect,
+		Scheme: "https",
+		Host:   host,
+		Port:   port,
+	}
+}
+
+func httpForwardVisibility(req *http.Request) events.VisibilityInfo {
+	path := req.URL.EscapedPath()
+	if path == "" {
+		path = "/"
+	}
+	return events.VisibilityInfo{
+		Kind:   "http",
+		Method: req.Method,
+		Scheme: req.URL.Scheme,
+		Host:   req.URL.Hostname(),
+		Port:   req.URL.Port(),
+		Path:   path,
+	}
 }
 
 // meteredConn wraps a net.Conn to count bytes in both directions. Used on

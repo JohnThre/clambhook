@@ -36,6 +36,13 @@ func TestStoreAggregatesAndPersistsClosedHistory(t *testing.T) {
 		Target:     "example.com:443",
 		TargetHost: "example.com",
 		TargetPort: "443",
+		Visibility: events.VisibilityInfo{
+			Kind:   "http_connect",
+			Method: "CONNECT",
+			Scheme: "https",
+			Host:   "example.com",
+			Port:   "443",
+		},
 		Hops: []events.HopInfo{{
 			Index:    0,
 			Name:     "exit",
@@ -71,6 +78,12 @@ func TestStoreAggregatesAndPersistsClosedHistory(t *testing.T) {
 	}
 	if conn.Geo.CountryCode != "US" {
 		t.Fatalf("geo = %+v", conn.Geo)
+	}
+	if conn.Visibility == nil || conn.Visibility.Kind != "http_connect" || conn.Visibility.Host != "example.com" {
+		t.Fatalf("visibility = %+v", conn.Visibility)
+	}
+	if len(conn.Timeline) < 4 {
+		t.Fatalf("timeline = %#v, want lifecycle events", conn.Timeline)
 	}
 
 	store.ApplyEvent(events.Event{TsNs: time.Now().UnixNano(), Type: events.TypeConnectionClosed, Data: events.ConnectionClosedData{

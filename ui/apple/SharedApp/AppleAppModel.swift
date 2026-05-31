@@ -2,6 +2,9 @@ import ClambhookShared
 import Combine
 import Foundation
 import SwiftUI
+#if os(iOS) && canImport(Mobile)
+import Mobile
+#endif
 
 @MainActor
 final class AppleAppModel: ObservableObject {
@@ -135,6 +138,52 @@ final class AppleAppModel: ObservableObject {
     }
 
     #if os(iOS)
+    func importTunnelConfigText(_ rawText: String) throws {
+        let text = try TunnelImportDecoder.decode(rawText)
+        try validateAndSaveTunnelConfig(text)
+        applySettings()
+        reloadTunnelConfiguration()
+    }
+
+    func createTunnelProfile(_ request: TunnelProfileCreateRequest) throws {
+        #if canImport(Mobile)
+        let data = try JSONEncoder().encode(request)
+        guard let raw = String(data: data, encoding: .utf8) else {
+            throw AppleAppModelError.invalidProfileRequest
+        }
+        try MobileCreateTunnelProfileConfigJSON(TunnelConfigStore.configURL(groupIdentifier: settingsStore.settings.appGroupIdentifier).path, raw)
+        applySettings()
+        reloadTunnelConfiguration()
+        #else
+        throw AppleAppModelError.mobileConfigEditorUnavailable
+        #endif
+    }
+
+    func replaceActiveProfileRules(_ rules: [RulePayload]) throws {
+        #if canImport(Mobile)
+        let data = try JSONEncoder().encode(rules)
+        guard let raw = String(data: data, encoding: .utf8) else {
+            throw AppleAppModelError.invalidRules
+        }
+        try MobileReplaceTunnelRulesJSON(
+            TunnelConfigStore.configURL(groupIdentifier: settingsStore.settings.appGroupIdentifier).path,
+            dashboard.activeProfile,
+            raw
+        )
+        applySettings()
+        reloadTunnelConfiguration()
+        #else
+        throw AppleAppModelError.mobileConfigEditorUnavailable
+        #endif
+    }
+
+    func shouldShowOnboarding() -> Bool {
+        guard let text = try? TunnelConfigStore.loadOrCreateConfig(groupIdentifier: settingsStore.settings.appGroupIdentifier) else {
+            return true
+        }
+        return TunnelConfigStore.isPlaceholderConfigText(text) || dashboard.profiles.profiles.isEmpty
+    }
+
     func reloadTunnelConfiguration() {
         Task {
             do {
@@ -145,6 +194,22 @@ final class AppleAppModel: ObservableObject {
                 await dashboard.refreshDashboard()
             }
         }
+    }
+
+    private func validateAndSaveTunnelConfig(_ text: String) throws {
+        #if canImport(Mobile)
+        let tempURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("toml")
+        try text.write(to: tempURL, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: tempURL) }
+        try MobileValidateTunnelConfig(tempURL.path)
+        #else
+        guard TunnelImportDecoder.looksLikeTOML(text) else {
+            throw TunnelImportError.unsupported
+        }
+        #endif
+        try TunnelConfigStore.save(text, groupIdentifier: settingsStore.settings.appGroupIdentifier)
     }
     #endif
 
@@ -237,6 +302,23 @@ enum AppPlatform {
     case macOS
     case iOS
     case visionOS
+}
+
+enum AppleAppModelError: Error, LocalizedError {
+    case mobileConfigEditorUnavailable
+    case invalidProfileRequest
+    case invalidRules
+
+    var errorDescription: String? {
+        switch self {
+        case .mobileConfigEditorUnavailable:
+            return "The embedded mobile config editor is unavailable in this build."
+        case .invalidProfileRequest:
+            return "The profile request could not be encoded."
+        case .invalidRules:
+            return "The rule changes could not be encoded."
+        }
+    }
 }
 
 private func defaultCredentialStore() -> CredentialStoring {
