@@ -30,6 +30,7 @@ type Event struct {
 const (
 	TypeConnectionOpened      = "connection.opened"
 	TypeConnectionDialing     = "connection.dialing"
+	TypeConnectionVisibility  = "connection.visibility"
 	TypeHopDialing            = "hop.dialing"
 	TypeHopConnected          = "hop.connected"
 	TypeHopError              = "hop.error"
@@ -75,17 +76,39 @@ type ConnectionOpenedData struct {
 
 // ConnectionDialingData is emitted before the chain dial begins.
 type ConnectionDialingData struct {
-	ConnID      string    `json:"conn_id"`
-	Target      string    `json:"target"`
-	TargetHost  string    `json:"target_host,omitempty"`
-	TargetPort  string    `json:"target_port,omitempty"`
-	Network     string    `json:"network,omitempty"`
-	Application string    `json:"application,omitempty"`
-	RuleName    string    `json:"rule_name,omitempty"`
-	RuleAction  string    `json:"rule_action,omitempty"`
-	ChainName   string    `json:"chain_name,omitempty"`
-	DecisionNs  int64     `json:"decision_ns,omitempty"`
-	Hops        []HopInfo `json:"hops"`
+	ConnID      string         `json:"conn_id"`
+	Target      string         `json:"target"`
+	TargetHost  string         `json:"target_host,omitempty"`
+	TargetPort  string         `json:"target_port,omitempty"`
+	Network     string         `json:"network,omitempty"`
+	Application string         `json:"application,omitempty"`
+	RuleName    string         `json:"rule_name,omitempty"`
+	RuleAction  string         `json:"rule_action,omitempty"`
+	ChainName   string         `json:"chain_name,omitempty"`
+	DecisionNs  int64          `json:"decision_ns,omitempty"`
+	Hops        []HopInfo      `json:"hops"`
+	Visibility  VisibilityInfo `json:"visibility,omitempty"`
+}
+
+// VisibilityInfo carries metadata-only DNS/HTTP visibility for UI inspection.
+// It deliberately excludes request bodies, response bodies, headers, and
+// query strings.
+type VisibilityInfo struct {
+	Kind      string `json:"kind,omitempty"`
+	Method    string `json:"method,omitempty"`
+	Scheme    string `json:"scheme,omitempty"`
+	Host      string `json:"host,omitempty"`
+	Port      string `json:"port,omitempty"`
+	Path      string `json:"path,omitempty"`
+	QueryType string `json:"query_type,omitempty"`
+}
+
+// ConnectionVisibilityData updates visibility once metadata becomes available
+// after the initial routing decision, for example after reading the first DNS
+// datagram in a UDP/53 flow.
+type ConnectionVisibilityData struct {
+	ConnID     string         `json:"conn_id"`
+	Visibility VisibilityInfo `json:"visibility"`
 }
 
 // RuleDecisionData records the routing decision made for a connection.
@@ -273,6 +296,8 @@ func extractConnID(data any) string {
 	case ConnectionOpenedData:
 		return d.ConnID
 	case ConnectionDialingData:
+		return d.ConnID
+	case ConnectionVisibilityData:
 		return d.ConnID
 	case HopDialingData:
 		return d.ConnID

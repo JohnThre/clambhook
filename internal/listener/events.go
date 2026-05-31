@@ -117,6 +117,20 @@ func (c *connEvents) emitDialingPlan(plan RoutePlan) {
 		ChainName:   plan.ChainName,
 		DecisionNs:  plan.ElapsedNs,
 		Hops:        plan.Hops,
+		Visibility:  plan.Visibility,
+	})
+}
+
+func (c *connEvents) emitVisibility(info events.VisibilityInfo) {
+	if c == nil {
+		return
+	}
+	if info.Kind == "" && info.Method == "" && info.Scheme == "" && info.Host == "" && info.Port == "" && info.Path == "" && info.QueryType == "" {
+		return
+	}
+	c.emitter.Emit(events.TypeConnectionVisibility, events.ConnectionVisibilityData{
+		ConnID:     c.connID,
+		Visibility: info,
 	})
 }
 

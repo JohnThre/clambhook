@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/netip"
 	"os"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -410,6 +411,9 @@ func (s *PacketStack) handleUDPFlow(ctx context.Context, local *gonet.UDPConn, i
 		ce.emitClosed(events.ReasonError)
 		return
 	}
+	if plan.Port == "53" {
+		plan.Visibility = events.VisibilityInfo{Kind: "dns", Host: plan.Host, Port: plan.Port}
+	}
 	ce.emitRuleDecision(plan)
 	ce.emitDialingPlan(plan)
 	if plan.Action == RouteActionBlock || plan.Action == RouteActionReject {
@@ -431,7 +435,16 @@ func (s *PacketStack) handleUDPFlow(ctx context.Context, local *gonet.UDPConn, i
 	defer chainPC.Close()
 
 	ce.emitEstablished()
-	relayErr := relayUDP(ctx, local, chainPC, target, ce.rxCounter(), ce.txCounter())
+	var dnsObserved bool
+	relayErr := relayUDP(ctx, local, chainPC, target, ce.rxCounter(), ce.txCounter(), func(payload []byte) {
+		if dnsObserved || plan.Port != "53" {
+			return
+		}
+		if info, ok := dnsVisibilityFromPacket(payload); ok {
+			dnsObserved = true
+			ce.emitVisibility(info)
+		}
+	})
 	ce.emitClosed(classifyClose(ctx, relayErr))
 }
 
@@ -458,7 +471,7 @@ func (s *PacketStack) plan(ctx context.Context, network, target string) (RoutePl
 	return plan, nil
 }
 
-func relayUDP(ctx context.Context, local *gonet.UDPConn, chainPC net.PacketConn, target string, rxCounter, txCounter *atomic.Uint64) error {
+func relayUDP(ctx context.Context, local *gonet.UDPConn, chainPC net.PacketConn, target string, rxCounter, txCounter *atomic.Uint64, observePayload func([]byte)) error {
 	flowCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -493,6 +506,9 @@ func relayUDP(ctx context.Context, local *gonet.UDPConn, chainPC net.PacketConn,
 			if n > 0 {
 				if txCounter != nil {
 					txCounter.Add(uint64(n))
+				}
+				if observePayload != nil {
+					observePayload(buf[:n])
 				}
 				bump()
 				if _, err := chainPC.WriteTo(buf[:n], stringAddr{network: "udp", address: target}); err != nil {
@@ -547,6 +563,68 @@ func relayUDP(ctx context.Context, local *gonet.UDPConn, chainPC net.PacketConn,
 		return nil
 	}
 	return err
+}
+
+func dnsVisibilityFromPacket(payload []byte) (events.VisibilityInfo, bool) {
+	if len(payload) < 12 {
+		return events.VisibilityInfo{}, false
+	}
+	qdCount := int(payload[4])<<8 | int(payload[5])
+	if qdCount < 1 {
+		return events.VisibilityInfo{}, false
+	}
+	offset := 12
+	labels := make([]string, 0, 4)
+	for {
+		if offset >= len(payload) {
+			return events.VisibilityInfo{}, false
+		}
+		n := int(payload[offset])
+		offset++
+		if n == 0 {
+			break
+		}
+		// Compression pointers are not expected in the question name. Avoid
+		// following them here so malformed packets cannot create loops.
+		if n&0xc0 != 0 || n > 63 || offset+n > len(payload) {
+			return events.VisibilityInfo{}, false
+		}
+		labels = append(labels, string(payload[offset:offset+n]))
+		offset += n
+	}
+	if len(labels) == 0 || offset+4 > len(payload) {
+		return events.VisibilityInfo{}, false
+	}
+	qtype := uint16(payload[offset])<<8 | uint16(payload[offset+1])
+	return events.VisibilityInfo{
+		Kind:      "dns",
+		Host:      strings.ToLower(strings.Join(labels, ".")),
+		Port:      "53",
+		QueryType: dnsQueryTypeName(qtype),
+	}, true
+}
+
+func dnsQueryTypeName(qtype uint16) string {
+	switch qtype {
+	case 1:
+		return "A"
+	case 2:
+		return "NS"
+	case 5:
+		return "CNAME"
+	case 15:
+		return "MX"
+	case 16:
+		return "TXT"
+	case 28:
+		return "AAAA"
+	case 33:
+		return "SRV"
+	case 65:
+		return "HTTPS"
+	default:
+		return fmt.Sprintf("TYPE%d", qtype)
+	}
 }
 
 func isTimeout(err error) bool {

@@ -65,28 +65,50 @@ type Hop struct {
 	Error     string `json:"error,omitempty"`
 }
 
+// TimelineEvent is a compact connection lifecycle event for UI timelines.
+type TimelineEvent struct {
+	TsNs   int64  `json:"ts_ns"`
+	Type   string `json:"type"`
+	Title  string `json:"title"`
+	Detail string `json:"detail,omitempty"`
+}
+
+// Visibility describes metadata-only protocol visibility. It intentionally
+// excludes payload bytes, headers, query strings, and response data.
+type Visibility struct {
+	Kind      string `json:"kind,omitempty"`
+	Method    string `json:"method,omitempty"`
+	Scheme    string `json:"scheme,omitempty"`
+	Host      string `json:"host,omitempty"`
+	Port      string `json:"port,omitempty"`
+	Path      string `json:"path,omitempty"`
+	QueryType string `json:"query_type,omitempty"`
+}
+
 // Connection is the API model exposed to end-user UIs. It intentionally
 // contains connection metadata and counters only; payload bytes are not stored.
 type Connection struct {
-	ConnID      string       `json:"conn_id"`
-	State       string       `json:"state"`
-	StartTsNs   int64        `json:"start_ts_ns"`
-	UpdatedTsNs int64        `json:"updated_ts_ns"`
-	EndTsNs     int64        `json:"end_ts_ns,omitempty"`
-	Listener    Listener     `json:"listener"`
-	ClientAddr  string       `json:"client_addr,omitempty"`
-	ChainName   string       `json:"chain_name,omitempty"`
-	RuleName    string       `json:"rule_name,omitempty"`
-	RuleAction  string       `json:"rule_action,omitempty"`
-	DecisionNs  int64        `json:"decision_ns,omitempty"`
-	Target      string       `json:"target,omitempty"`
-	TargetHost  string       `json:"target_host,omitempty"`
-	TargetPort  string       `json:"target_port,omitempty"`
-	Network     string       `json:"network,omitempty"`
-	Application string       `json:"application,omitempty"`
-	Hops        []Hop        `json:"hops,omitempty"`
-	Geo         geo.Location `json:"geo"`
-	GeoError    string       `json:"geo_error,omitempty"`
+	ConnID      string          `json:"conn_id"`
+	State       string          `json:"state"`
+	StartTsNs   int64           `json:"start_ts_ns"`
+	UpdatedTsNs int64           `json:"updated_ts_ns"`
+	EndTsNs     int64           `json:"end_ts_ns,omitempty"`
+	Listener    Listener        `json:"listener"`
+	ClientAddr  string          `json:"client_addr,omitempty"`
+	ChainName   string          `json:"chain_name,omitempty"`
+	RuleName    string          `json:"rule_name,omitempty"`
+	RuleAction  string          `json:"rule_action,omitempty"`
+	DecisionNs  int64           `json:"decision_ns,omitempty"`
+	Target      string          `json:"target,omitempty"`
+	TargetHost  string          `json:"target_host,omitempty"`
+	TargetPort  string          `json:"target_port,omitempty"`
+	Network     string          `json:"network,omitempty"`
+	Application string          `json:"application,omitempty"`
+	Hops        []Hop           `json:"hops,omitempty"`
+	Timeline    []TimelineEvent `json:"timeline,omitempty"`
+	Visibility  *Visibility     `json:"visibility,omitempty"`
+	Geo         geo.Location    `json:"geo"`
+	GeoError    string          `json:"geo_error,omitempty"`
 
 	TotalDialNs int64   `json:"total_dial_ns,omitempty"`
 	RxBps       float64 `json:"rx_bps"`
@@ -253,6 +275,8 @@ func (s *Store) ApplyEvent(ev events.Event) {
 		s.applyOpenedLocked(ev)
 	case events.TypeConnectionDialing:
 		s.applyDialingLocked(ev)
+	case events.TypeConnectionVisibility:
+		s.applyVisibilityLocked(ev)
 	case events.TypeHopDialing:
 		s.applyHopDialingLocked(ev)
 	case events.TypeHopConnected:
@@ -364,6 +388,8 @@ func (s *Store) applyOpenedLocked(ev events.Event) {
 		ClientAddr: data.ClientAddr,
 		ChainName:  data.ChainName,
 	}
+	c := s.active[data.ConnID]
+	addTimeline(c, ev, "Opened", strings.TrimSpace(data.Listener.Protocol+" "+data.ClientAddr))
 }
 
 func (s *Store) applyDialingLocked(ev events.Event) {
@@ -381,6 +407,7 @@ func (s *Store) applyDialingLocked(ev events.Event) {
 	c.RuleName = data.RuleName
 	c.RuleAction = data.RuleAction
 	c.DecisionNs = data.DecisionNs
+	applyVisibility(c, data.Visibility)
 	if data.ChainName != "" {
 		c.ChainName = data.ChainName
 	}
@@ -417,6 +444,7 @@ func (s *Store) applyDialingLocked(ev events.Event) {
 		}
 	}
 	c.UpdatedTsNs = ev.TsNs
+	addTimeline(c, ev, "Dialing", c.Target)
 }
 
 func (s *Store) applyRuleDecisionLocked(ev events.Event) {
@@ -444,6 +472,7 @@ func (s *Store) applyRuleDecisionLocked(ev events.Event) {
 		c.Network = data.Network
 	}
 	c.UpdatedTsNs = ev.TsNs
+	addTimeline(c, ev, "Decision", decisionDetail(c.RuleName, c.RuleAction, c.ChainName))
 }
 
 func (s *Store) applyHopDialingLocked(ev events.Event) {
@@ -459,6 +488,7 @@ func (s *Store) applyHopDialingLocked(ev events.Event) {
 	h.State = "dialing"
 	h.Error = ""
 	c.UpdatedTsNs = ev.TsNs
+	addTimeline(c, ev, "Hop Dialing", hopDetail(h))
 }
 
 func (s *Store) applyHopConnectedLocked(ev events.Event) {
@@ -472,6 +502,7 @@ func (s *Store) applyHopConnectedLocked(ev events.Event) {
 	h.ElapsedNs = data.ElapsedNs
 	h.Error = ""
 	c.UpdatedTsNs = ev.TsNs
+	addTimeline(c, ev, "Hop Connected", hopDetail(h))
 }
 
 func (s *Store) applyHopErrorLocked(ev events.Event) {
@@ -484,6 +515,7 @@ func (s *Store) applyHopErrorLocked(ev events.Event) {
 	h.State = "error"
 	h.Error = data.Error
 	c.UpdatedTsNs = ev.TsNs
+	addTimeline(c, ev, "Hop Error", hopDetail(h))
 }
 
 func (s *Store) applyEstablishedLocked(ev events.Event) {
@@ -495,6 +527,7 @@ func (s *Store) applyEstablishedLocked(ev events.Event) {
 	c.State = StateActive
 	c.TotalDialNs = data.TotalDialNs
 	c.UpdatedTsNs = ev.TsNs
+	addTimeline(c, ev, "Connected", formatNs(data.TotalDialNs))
 }
 
 func (s *Store) applyBytesLocked(ev events.Event) {
@@ -533,8 +566,20 @@ func (s *Store) applyClosedLocked(ev events.Event) bool {
 	c.CloseReason = data.Reason
 
 	delete(s.active, data.ConnID)
+	addTimeline(c, ev, "Closed", data.Reason)
 	s.closed = append([]Connection{cloneConnection(*c)}, s.closed...)
 	return true
+}
+
+func (s *Store) applyVisibilityLocked(ev events.Event) {
+	data, ok := ev.Data.(events.ConnectionVisibilityData)
+	if !ok {
+		return
+	}
+	c := s.ensureConnLocked(data.ConnID, ev.TsNs)
+	applyVisibility(c, data.Visibility)
+	c.UpdatedTsNs = ev.TsNs
+	addTimeline(c, ev, "Visibility", visibilityDetail(c.Visibility))
 }
 
 func (s *Store) ensureConnLocked(connID string, tsNs int64) *Connection {
@@ -663,7 +708,116 @@ func cloneConnection(in Connection) Connection {
 	if len(in.Hops) > 0 {
 		in.Hops = append([]Hop(nil), in.Hops...)
 	}
+	if len(in.Timeline) > 0 {
+		in.Timeline = append([]TimelineEvent(nil), in.Timeline...)
+	}
+	if in.Visibility != nil {
+		visibility := *in.Visibility
+		in.Visibility = &visibility
+	}
 	return in
+}
+
+func addTimeline(c *Connection, ev events.Event, title, detail string) {
+	if c == nil {
+		return
+	}
+	c.Timeline = append(c.Timeline, TimelineEvent{
+		TsNs:   ev.TsNs,
+		Type:   ev.Type,
+		Title:  title,
+		Detail: detail,
+	})
+}
+
+func applyVisibility(c *Connection, info events.VisibilityInfo) {
+	if c == nil || (info.Kind == "" && info.Method == "" && info.Scheme == "" && info.Host == "" && info.Port == "" && info.Path == "" && info.QueryType == "") {
+		return
+	}
+	visibility := &Visibility{
+		Kind:      info.Kind,
+		Method:    info.Method,
+		Scheme:    info.Scheme,
+		Host:      info.Host,
+		Port:      info.Port,
+		Path:      info.Path,
+		QueryType: info.QueryType,
+	}
+	c.Visibility = visibility
+	if c.Application == "" {
+		switch visibility.Kind {
+		case "dns":
+			c.Application = "DNS"
+		case "http":
+			c.Application = "HTTP"
+		case "http_connect":
+			c.Application = "HTTPS"
+		}
+	}
+}
+
+func decisionDetail(ruleName, action, chainName string) string {
+	parts := []string{}
+	if action != "" {
+		parts = append(parts, action)
+	}
+	if ruleName != "" {
+		parts = append(parts, ruleName)
+	}
+	if chainName != "" {
+		parts = append(parts, chainName)
+	}
+	return strings.Join(parts, " / ")
+}
+
+func hopDetail(h *Hop) string {
+	if h == nil {
+		return ""
+	}
+	parts := []string{h.Name, h.Protocol, h.Address}
+	if h.ElapsedNs > 0 {
+		parts = append(parts, formatNs(h.ElapsedNs))
+	}
+	if h.Error != "" {
+		parts = append(parts, h.Error)
+	}
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if strings.TrimSpace(part) != "" {
+			out = append(out, part)
+		}
+	}
+	return strings.Join(out, " / ")
+}
+
+func visibilityDetail(v *Visibility) string {
+	if v == nil {
+		return ""
+	}
+	parts := []string{v.Kind, v.Method, v.Host}
+	if v.Path != "" {
+		parts = append(parts, v.Path)
+	}
+	if v.QueryType != "" {
+		parts = append(parts, v.QueryType)
+	}
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if strings.TrimSpace(part) != "" {
+			out = append(out, part)
+		}
+	}
+	return strings.Join(out, " / ")
+}
+
+func formatNs(ns int64) string {
+	if ns <= 0 {
+		return ""
+	}
+	if ns < int64(time.Second) {
+		return fmt.Sprintf("%dms", ns/int64(time.Millisecond))
+	}
+	return (time.Duration(ns)).String()
 }
 
 func splitTarget(target string) (host, port string) {
