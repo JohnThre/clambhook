@@ -14,7 +14,9 @@ rm -rf "$OUT"
 mkdir -p "$(dirname "$OUT")"
 cd "$ROOT_DIR"
 
-CGO_ENABLED=0 gomobile bind \
+# gomobile probes golang.org/x/mobile/bind directly, which does not resolve
+# from this repo's automatic vendor mode even when the package is vendored.
+GOFLAGS="${GOFLAGS:+$GOFLAGS }-mod=mod" CGO_ENABLED=0 gomobile bind \
     -target=ios \
     -o "$OUT" \
     ./pkg/mobile
