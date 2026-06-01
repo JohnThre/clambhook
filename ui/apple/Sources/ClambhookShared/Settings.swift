@@ -23,6 +23,8 @@ public struct AppSettings: Codable, Equatable, Sendable {
     public var refreshIntervalSeconds: Double
     public var logRetention: Int
     public var appGroupIdentifier: String
+    public var inspectionLockEnabled: Bool
+    public var pinnedConnectionIDs: [String]
 
     public init(
         apiEndpoint: URL = defaultAPIEndpoint,
@@ -34,7 +36,9 @@ public struct AppSettings: Codable, Equatable, Sendable {
         stopDaemonOnQuit: Bool = true,
         refreshIntervalSeconds: Double = 2,
         logRetention: Int = maxLogLines,
-        appGroupIdentifier: String = defaultAppGroupIdentifier
+        appGroupIdentifier: String = defaultAppGroupIdentifier,
+        inspectionLockEnabled: Bool = false,
+        pinnedConnectionIDs: [String] = []
     ) {
         self.apiEndpoint = apiEndpoint
         self.daemonBinaryPath = daemonBinaryPath
@@ -46,6 +50,39 @@ public struct AppSettings: Codable, Equatable, Sendable {
         self.refreshIntervalSeconds = refreshIntervalSeconds
         self.logRetention = logRetention
         self.appGroupIdentifier = appGroupIdentifier
+        self.inspectionLockEnabled = inspectionLockEnabled
+        self.pinnedConnectionIDs = pinnedConnectionIDs
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case apiEndpoint
+        case daemonBinaryPath
+        case daemonConfigPath
+        case daemonBinaryBookmark
+        case daemonConfigBookmark
+        case launchDaemonOnStart
+        case stopDaemonOnQuit
+        case refreshIntervalSeconds
+        case logRetention
+        case appGroupIdentifier
+        case inspectionLockEnabled
+        case pinnedConnectionIDs
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.apiEndpoint = try container.decodeIfPresent(URL.self, forKey: .apiEndpoint) ?? defaultAPIEndpoint
+        self.daemonBinaryPath = try container.decodeIfPresent(String.self, forKey: .daemonBinaryPath) ?? ""
+        self.daemonConfigPath = try container.decodeIfPresent(String.self, forKey: .daemonConfigPath) ?? ""
+        self.daemonBinaryBookmark = try container.decodeIfPresent(Data.self, forKey: .daemonBinaryBookmark)
+        self.daemonConfigBookmark = try container.decodeIfPresent(Data.self, forKey: .daemonConfigBookmark)
+        self.launchDaemonOnStart = try container.decodeIfPresent(Bool.self, forKey: .launchDaemonOnStart) ?? true
+        self.stopDaemonOnQuit = try container.decodeIfPresent(Bool.self, forKey: .stopDaemonOnQuit) ?? true
+        self.refreshIntervalSeconds = try container.decodeIfPresent(Double.self, forKey: .refreshIntervalSeconds) ?? 2
+        self.logRetention = try container.decodeIfPresent(Int.self, forKey: .logRetention) ?? maxLogLines
+        self.appGroupIdentifier = try container.decodeIfPresent(String.self, forKey: .appGroupIdentifier) ?? defaultAppGroupIdentifier
+        self.inspectionLockEnabled = try container.decodeIfPresent(Bool.self, forKey: .inspectionLockEnabled) ?? false
+        self.pinnedConnectionIDs = try container.decodeIfPresent([String].self, forKey: .pinnedConnectionIDs) ?? []
     }
 
     public func normalized() -> AppSettings {
@@ -60,6 +97,11 @@ public struct AppSettings: Codable, Equatable, Sendable {
         if copy.appGroupIdentifier.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             copy.appGroupIdentifier = defaultAppGroupIdentifier
         }
+        copy.pinnedConnectionIDs = Array(Set(copy.pinnedConnectionIDs.map {
+            $0.trimmingCharacters(in: .whitespacesAndNewlines)
+        }.filter {
+            !$0.isEmpty
+        })).sorted()
         return copy
     }
 

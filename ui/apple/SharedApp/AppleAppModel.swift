@@ -176,6 +176,41 @@ final class AppleAppModel: ObservableObject {
         }
     }
 
+    var pinnedConnectionIDs: Set<String> {
+        Set(settingsStore.settings.pinnedConnectionIDs)
+    }
+
+    func isConnectionPinned(_ connection: TrafficConnectionPayload) -> Bool {
+        pinnedConnectionIDs.contains(connection.connID)
+    }
+
+    func togglePinned(_ connection: TrafficConnectionPayload) {
+        setConnection(connection, pinned: !isConnectionPinned(connection))
+    }
+
+    func setConnection(_ connection: TrafficConnectionPayload, pinned: Bool) {
+        var ids = pinnedConnectionIDs
+        if pinned {
+            ids.insert(connection.connID)
+        } else {
+            ids.remove(connection.connID)
+        }
+        settingsStore.settings.pinnedConnectionIDs = ids.sorted()
+    }
+
+    func inspectionExportString(
+        scope: String,
+        connections: [TrafficConnectionPayload],
+        logs: [String] = []
+    ) -> String {
+        InspectionExportBuilder.jsonString(
+            scope: scope,
+            traffic: dashboard.traffic,
+            connections: connections,
+            logs: logs
+        )
+    }
+
     #if os(iOS)
     func importTunnelConfigText(_ rawText: String) throws {
         let text = try TunnelImportDecoder.decode(rawText)

@@ -20,6 +20,8 @@
 	<string>1</string>
 	<key>NSCameraUsageDescription</key>
 	<string>clambhook uses the camera to scan configuration QR codes.</string>
+	<key>NSFaceIDUsageDescription</key>
+	<string>clambhook uses Face ID to protect local inspection details.</string>
 	<key>UILaunchScreen</key>
 	<dict/>
 	<key>UISupportedInterfaceOrientations</key>
