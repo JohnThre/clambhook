@@ -1653,92 +1653,63 @@ private struct IOSPortsField: View {
     }
 }
 
+private enum IOSOnboardingStep {
+    case disclosure
+    case setupChoice
+    case importConfig
+    case scanQR
+    case createProfile
+    case ready
+
+    var navigationTitle: String {
+        switch self {
+        case .disclosure:
+            return "Welcome"
+        case .setupChoice:
+            return "Setup"
+        case .importConfig:
+            return "Import"
+        case .scanQR:
+            return "Scan QR"
+        case .createProfile:
+            return "Create Profile"
+        case .ready:
+            return "Ready"
+        }
+    }
+
+    var showsBackButton: Bool {
+        switch self {
+        case .disclosure, .ready:
+            return false
+        case .setupChoice, .importConfig, .scanQR, .createProfile:
+            return true
+        }
+    }
+}
+
 private struct IOSOnboardingView: View {
     @ObservedObject var model: AppleAppModel
     var onComplete: () -> Void
+    @AppStorage("org.jpfchang.clambhook.vpnDisclosureAccepted") private var vpnDisclosureAccepted = false
+    @State private var step: IOSOnboardingStep = .disclosure
     @State private var showingFileImporter = false
-    @State private var showingScanner = false
     @State private var message = ""
     @State private var canContinue = false
     @State private var profileRequest = TunnelProfileCreateRequest()
 
     var body: some View {
         NavigationStack {
-            List {
-                Section {
-                    VStack(alignment: .leading, spacing: 12) {
-                        Image(systemName: "network.badge.shield.half.filled")
-                            .font(.system(size: 42))
-                            .foregroundStyle(.tint)
-                        Text("Set Up clambhook")
-                            .font(.title2.weight(.semibold))
-                        Text(vpnDataUseDisclosure)
-                            .font(.body)
-                            .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    .padding(.vertical, 6)
-                }
-
-                Section("Import Config") {
-                    Button {
-                        showingFileImporter = true
-                    } label: {
-                        Label("Import From Files", systemImage: "folder")
-                    }
-
-                    Button {
-                        importFromClipboard()
-                    } label: {
-                        Label("Import From Clipboard", systemImage: "doc.on.clipboard")
-                    }
-
-                    Button {
-                        showingScanner = true
-                    } label: {
-                        Label("Scan QR", systemImage: "qrcode.viewfinder")
-                    }
-                }
-
-                Section("Create First Profile") {
-                    TextField("Profile name", text: $profileRequest.profileName)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                    TextField("Server name", text: $profileRequest.serverName)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                    TextField("Server address", text: $profileRequest.serverAddress)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                    TextField("Protocol", text: $profileRequest.protocol)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                    TextEditor(text: $profileRequest.settingsTOML)
-                        .font(.system(.footnote, design: .monospaced))
-                        .frame(minHeight: 110)
-                    Button {
-                        createProfile()
-                    } label: {
-                        Label("Create Profile", systemImage: "plus.circle")
-                    }
-                }
-
-                if !message.isEmpty {
-                    Section("Status") {
-                        Text(message)
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-            }
-            .navigationTitle("Welcome")
+            stepContent
+            .navigationTitle(step.navigationTitle)
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("Continue") {
-                        continueIfReady()
+                if step.showsBackButton {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Button("Back") {
+                            goBack()
+                        }
                     }
-                    .fontWeight(.semibold)
-                    .disabled(!canContinue)
                 }
             }
             .fileImporter(
@@ -1748,14 +1719,251 @@ private struct IOSOnboardingView: View {
             ) { result in
                 importFromFile(result)
             }
-            .sheet(isPresented: $showingScanner) {
-                IOSQRCodeScannerView { value in
-                    showingScanner = false
-                    importText(value)
+            .task {
+                refreshReadinessSilently()
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var stepContent: some View {
+        switch step {
+        case .disclosure:
+            disclosureStep
+        case .setupChoice:
+            setupChoiceStep
+        case .importConfig:
+            importStep
+        case .scanQR:
+            scanStep
+        case .createProfile:
+            createProfileStep
+        case .ready:
+            readyStep
+        }
+    }
+
+    private var disclosureStep: some View {
+        IOSOnboardingScrollStep(
+            title: "Set Up clambhook",
+            subtitle: "Review VPN data use before adding your first tunnel profile.",
+            systemImage: "network.badge.shield.half.filled",
+            message: ""
+        ) {
+            VStack(alignment: .leading, spacing: 14) {
+                Text(vpnDataUseDisclosure)
+                    .font(.body)
+                    .foregroundStyle(.primary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Link("Privacy Policy", destination: defaultPrivacyPolicyURL)
+                    .font(.body.weight(.medium))
+            }
+        }
+        .safeAreaInset(edge: .bottom) {
+            IOSOnboardingFooter {
+                Button {
+                    acceptDisclosure()
+                } label: {
+                    Text("Continue")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+            }
+        }
+    }
+
+    private var setupChoiceStep: some View {
+        IOSOnboardingScrollStep(
+            title: "Choose Setup Method",
+            subtitle: "Add one tunnel profile now. More profiles can be managed later.",
+            systemImage: "checklist.unchecked",
+            message: message
+        ) {
+            VStack(spacing: 10) {
+                IOSOnboardingActionRow(
+                    title: "Import",
+                    detail: "Open a config file or paste config text.",
+                    systemImage: "folder",
+                    tint: .blue
+                ) {
+                    showStep(.importConfig)
+                }
+
+                IOSOnboardingActionRow(
+                    title: "Scan QR",
+                    detail: "Use the camera to read a profile code.",
+                    systemImage: "qrcode.viewfinder",
+                    tint: .green
+                ) {
+                    showStep(.scanQR)
+                }
+
+                IOSOnboardingActionRow(
+                    title: "Create Profile",
+                    detail: "Enter server details manually.",
+                    systemImage: "plus.circle",
+                    tint: .orange
+                ) {
+                    showStep(.createProfile)
                 }
             }
-            .task {
-                refreshReadiness()
+        }
+    }
+
+    private var importStep: some View {
+        IOSOnboardingScrollStep(
+            title: "Import Config",
+            subtitle: "Bring in an existing TOML config or compatible profile text.",
+            systemImage: "folder",
+            message: message
+        ) {
+            VStack(spacing: 10) {
+                IOSOnboardingActionRow(
+                    title: "Import From Files",
+                    detail: "Select a saved config from Files.",
+                    systemImage: "doc.badge.plus",
+                    tint: .blue
+                ) {
+                    showingFileImporter = true
+                }
+
+                IOSOnboardingActionRow(
+                    title: "Import From Clipboard",
+                    detail: "Paste copied config text.",
+                    systemImage: "doc.on.clipboard",
+                    tint: .purple
+                ) {
+                    importFromClipboard()
+                }
+            }
+        }
+        .safeAreaInset(edge: .bottom) {
+            IOSOnboardingFooter {
+                Button {
+                    showStep(.setupChoice)
+                } label: {
+                    Text("Choose Another Method")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.large)
+            }
+        }
+    }
+
+    private var scanStep: some View {
+        VStack(spacing: 0) {
+            IOSOnboardingHeader(
+                title: "Scan QR",
+                subtitle: "Point the camera at a clambhook config QR code.",
+                systemImage: "qrcode.viewfinder"
+            )
+            .padding(.horizontal, 24)
+            .padding(.top, 28)
+            .padding(.bottom, 18)
+
+            IOSQRCodeScannerView { value in
+                importText(value, successMessage: "Imported QR code.")
+                return canContinue
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 360)
+            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .padding(.horizontal, 20)
+
+            if !message.isEmpty {
+                IOSOnboardingStatus(message: message)
+                    .padding(.horizontal, 24)
+                    .padding(.top, 16)
+            }
+
+            Spacer(minLength: 0)
+        }
+        .background(Color(.systemGroupedBackground))
+        .safeAreaInset(edge: .bottom) {
+            IOSOnboardingFooter {
+                Button {
+                    showStep(.setupChoice)
+                } label: {
+                    Text("Choose Another Method")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.large)
+            }
+        }
+    }
+
+    private var createProfileStep: some View {
+        Form {
+            Section("Profile") {
+                TextField("Profile name", text: $profileRequest.profileName)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+            }
+
+            Section("Server") {
+                TextField("Server name", text: $profileRequest.serverName)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                TextField("Server address", text: $profileRequest.serverAddress)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                TextField("Protocol", text: $profileRequest.protocol)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+            }
+
+            Section("Settings") {
+                TextEditor(text: $profileRequest.settingsTOML)
+                    .font(.system(.footnote, design: .monospaced))
+                    .frame(minHeight: 130)
+            }
+
+            if !message.isEmpty {
+                Section("Status") {
+                    Text(message)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .safeAreaInset(edge: .bottom) {
+            IOSOnboardingFooter {
+                Button {
+                    createProfile()
+                } label: {
+                    Text("Create Profile")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+            }
+        }
+    }
+
+    private var readyStep: some View {
+        IOSOnboardingScrollStep(
+            title: "Profile Ready",
+            subtitle: "Your first tunnel profile is in place.",
+            systemImage: "checkmark.circle.fill",
+            message: message
+        ) {
+            IOSOnboardingStatus(message: "Configuration validated.")
+        }
+        .safeAreaInset(edge: .bottom) {
+            IOSOnboardingFooter {
+                Button {
+                    continueIfReady()
+                } label: {
+                    Text("Start Using clambhook")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .disabled(!canContinue)
             }
         }
     }
@@ -1782,13 +1990,17 @@ private struct IOSOnboardingView: View {
             importText(try String(contentsOf: url, encoding: .utf8))
         } catch {
             message = error.localizedDescription
+            canContinue = false
         }
     }
 
-    private func importText(_ raw: String) {
+    private func importText(_ raw: String, successMessage: String = "Imported tunnel configuration.") {
         do {
             try model.importTunnelConfigText(raw)
-            refreshReadiness(successMessage: "Imported tunnel configuration.")
+            refreshReadiness(successMessage: successMessage)
+            if canContinue {
+                step = .ready
+            }
         } catch {
             message = error.localizedDescription
             canContinue = false
@@ -1799,6 +2011,9 @@ private struct IOSOnboardingView: View {
         do {
             try model.createTunnelProfile(profileRequest)
             refreshReadiness(successMessage: "Created profile.")
+            if canContinue {
+                step = .ready
+            }
         } catch {
             message = error.localizedDescription
             canContinue = false
@@ -1811,6 +2026,32 @@ private struct IOSOnboardingView: View {
             return
         }
         onComplete()
+    }
+
+    private func acceptDisclosure() {
+        vpnDisclosureAccepted = true
+        refreshReadinessSilently()
+        step = canContinue ? .ready : .setupChoice
+    }
+
+    private func showStep(_ nextStep: IOSOnboardingStep) {
+        message = ""
+        step = nextStep
+    }
+
+    private func goBack() {
+        switch step {
+        case .setupChoice:
+            showStep(.disclosure)
+        case .importConfig, .scanQR, .createProfile:
+            showStep(.setupChoice)
+        case .disclosure, .ready:
+            break
+        }
+    }
+
+    private func refreshReadinessSilently() {
+        canContinue = model.tunnelOnboardingReadinessMessage() == nil
     }
 
     private func refreshReadiness(successMessage: String? = nil) {
@@ -1829,8 +2070,160 @@ private struct IOSOnboardingView: View {
     }
 }
 
+private struct IOSOnboardingScrollStep<Content: View>: View {
+    var title: String
+    var subtitle: String
+    var systemImage: String
+    var message: String
+    private let content: Content
+
+    init(
+        title: String,
+        subtitle: String,
+        systemImage: String,
+        message: String,
+        @ViewBuilder content: () -> Content
+    ) {
+        self.title = title
+        self.subtitle = subtitle
+        self.systemImage = systemImage
+        self.message = message
+        self.content = content()
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 22) {
+                IOSOnboardingHeader(title: title, subtitle: subtitle, systemImage: systemImage)
+                content
+                if !message.isEmpty {
+                    IOSOnboardingStatus(message: message)
+                }
+            }
+            .padding(.horizontal, 24)
+            .padding(.top, 32)
+            .padding(.bottom, 110)
+            .frame(maxWidth: 560, alignment: .leading)
+            .frame(maxWidth: .infinity)
+        }
+        .background(Color(.systemGroupedBackground))
+    }
+}
+
+private struct IOSOnboardingHeader: View {
+    var title: String
+    var subtitle: String
+    var systemImage: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(Color.accentColor.opacity(0.12))
+                Image(systemName: systemImage)
+                    .font(.title2.weight(.semibold))
+                    .foregroundStyle(.tint)
+            }
+            .frame(width: 52, height: 52)
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text(title)
+                    .font(.title2.weight(.semibold))
+                Text(subtitle)
+                    .font(.body)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+}
+
+private struct IOSOnboardingActionRow: View {
+    var title: String
+    var detail: String
+    var systemImage: String
+    var tint: Color
+    var action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 14) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(tint.opacity(0.14))
+                    Image(systemName: systemImage)
+                        .font(.headline)
+                        .foregroundStyle(tint)
+                }
+                .frame(width: 42, height: 42)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(title)
+                        .font(.body.weight(.medium))
+                        .foregroundStyle(.primary)
+                    Text(detail)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Spacer(minLength: 12)
+
+                Image(systemName: "chevron.right")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(Color(.separator).opacity(0.35), lineWidth: 1)
+            }
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+private struct IOSOnboardingStatus: View {
+    var message: String
+
+    var body: some View {
+        Label {
+            Text(message)
+                .font(.footnote)
+                .fixedSize(horizontal: false, vertical: true)
+        } icon: {
+            Image(systemName: "info.circle")
+        }
+        .foregroundStyle(.secondary)
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+    }
+}
+
+private struct IOSOnboardingFooter<Content: View>: View {
+    private let content: Content
+
+    init(@ViewBuilder content: () -> Content) {
+        self.content = content()
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Divider()
+            content
+                .padding(.horizontal, 24)
+                .padding(.top, 12)
+                .padding(.bottom, 12)
+        }
+        .background(.bar)
+    }
+}
+
 private struct IOSQRCodeScannerView: UIViewControllerRepresentable {
-    var onCode: (String) -> Void
+    var onCode: (String) -> Bool
 
     func makeUIViewController(context: Context) -> IOSQRCodeScannerController {
         let controller = IOSQRCodeScannerController()
@@ -1842,13 +2235,23 @@ private struct IOSQRCodeScannerView: UIViewControllerRepresentable {
 }
 
 private final class IOSQRCodeScannerController: UIViewController, AVCaptureMetadataOutputObjectsDelegate {
-    var onCode: ((String) -> Void)?
+    var onCode: ((String) -> Bool)?
     private let session = AVCaptureSession()
+    private var lastValue: String?
 
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .systemBackground
         configure()
+    }
+
+    override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+        Task.detached { [session] in
+            if session.isRunning {
+                session.stopRunning()
+            }
+        }
     }
 
     private func configure() {
@@ -1891,8 +2294,15 @@ private final class IOSQRCodeScannerController: UIViewController, AVCaptureMetad
         guard let value = metadataObjects.compactMap({ ($0 as? AVMetadataMachineReadableCodeObject)?.stringValue }).first else {
             return
         }
-        session.stopRunning()
-        onCode?(value)
+        guard value != lastValue else {
+            return
+        }
+        lastValue = value
+        if onCode?(value) == true {
+            Task.detached { [session] in
+                session.stopRunning()
+            }
+        }
     }
 
     private func showUnavailable() {
