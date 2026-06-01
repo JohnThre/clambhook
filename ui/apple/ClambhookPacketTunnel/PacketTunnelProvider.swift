@@ -4,11 +4,30 @@ import Foundation
 import NetworkExtension
 import os.log
 
-#if os(iOS) && !DEBUG && !canImport(Mobile)
+#if os(iOS) && !DEBUG && !canImport(ClambhookMobile)
 #error("Mobile must be importable for iOS Release/App Store builds. Run make build-ios-mobile-xcframework before building the release app.")
 #endif
-#if canImport(Mobile)
-import Mobile
+#if canImport(ClambhookMobile)
+import ClambhookMobile
+#endif
+
+#if canImport(ClambhookMobile)
+private func mobileRuntimeError(_ description: String, code: Int = 1) -> NSError {
+    NSError(
+        domain: "org.jpfchang.clambhook.tunnel",
+        code: code,
+        userInfo: [NSLocalizedDescriptionKey: description]
+    )
+}
+
+private func mobileString(_ operation: (NSErrorPointer) -> String) throws -> String {
+    var error: NSError?
+    let value = operation(&error)
+    if let error {
+        throw error
+    }
+    return value
+}
 #endif
 
 final class PacketTunnelProvider: NEPacketTunnelProvider {
@@ -17,7 +36,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
     private let encoder = JSONEncoder()
     private var readTask: Task<Void, Never>?
 
-    #if canImport(Mobile)
+    #if canImport(ClambhookMobile)
     private var runtime: MobileTunnelRuntime?
     #endif
 
@@ -26,15 +45,17 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         let configPath = tunnelConfigPath(options: options)
         _ = try TunnelConfigStore.loadOrCreateConfig()
 
-        #if canImport(Mobile)
-        let settingsJSON = try MobileTunnelNetworkSettingsJSON(configPath)
+        #if canImport(ClambhookMobile)
+        let settingsJSON = try mobileString { MobileTunnelNetworkSettingsJSON(configPath, $0) }
         let settingsPayload = try decoder.decode(
             TunnelNetworkSettingsPayload.self,
             from: Data(settingsJSON.utf8)
         )
         try await applyTunnelSettings(settingsPayload)
 
-        let runtime = MobileNewTunnelRuntime(self)
+        guard let runtime = MobileNewTunnelRuntime(self) else {
+            throw mobileRuntimeError("Embedded clambhook runtime could not be created")
+        }
         try runtime.start(configPath)
         self.runtime = runtime
         startPacketReadLoop(runtime: runtime)
@@ -53,7 +74,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         logger.info("Packet tunnel stopped: \(reason.rawValue, privacy: .public)")
         readTask?.cancel()
         readTask = nil
-        #if canImport(Mobile)
+        #if canImport(ClambhookMobile)
         if let runtime {
             try? runtime.stop()
         }
@@ -65,7 +86,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         guard let command = try? decoder.decode(TunnelCommand.self, from: messageData) else {
             return nil
         }
-        #if canImport(Mobile)
+        #if canImport(ClambhookMobile)
         guard let runtime else {
             return encoded(TunnelDashboardPayload(status: StatusPayload(running: false)))
         }
@@ -73,25 +94,25 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             let json: String
             switch command.action {
             case .dashboard:
-                json = try runtime.dashboardJSON()
+                json = try mobileString { runtime.dashboardJSON($0) }
             case .status:
-                json = try runtime.statusJSON()
+                json = try mobileString { runtime.statusJSON($0) }
             case .profiles:
-                json = try runtime.profilesJSON()
+                json = try mobileString { runtime.profilesJSON($0) }
             case .servers:
-                json = try runtime.serversJSON()
+                json = try mobileString { runtime.serversJSON($0) }
             case .rules:
-                json = try runtime.rulesJSON()
+                json = try mobileString { runtime.rulesJSON($0) }
             case .traffic:
-                json = try runtime.trafficJSON()
+                json = try mobileString { runtime.trafficJSON($0) }
             case .reload:
                 try runtime.reload(tunnelConfigPath(options: nil))
-                json = try runtime.dashboardJSON()
+                json = try mobileString { runtime.dashboardJSON($0) }
             case .setActiveProfile:
                 if let profile = command.profile {
                     try runtime.setActiveProfile(profile)
                 }
-                json = try runtime.dashboardJSON()
+                json = try mobileString { runtime.dashboardJSON($0) }
             }
             return Data(json.utf8)
         } catch {
@@ -119,7 +140,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         try? encoder.encode(value)
     }
 
-    #if canImport(Mobile)
+    #if canImport(ClambhookMobile)
     private func startPacketReadLoop(runtime: MobileTunnelRuntime) {
         readTask?.cancel()
         readTask = Task { [weak self] in
@@ -206,7 +227,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
     }
 }
 
-#if canImport(Mobile)
+#if canImport(ClambhookMobile)
 extension PacketTunnelProvider: MobilePacketWriterProtocol {
     func writePacket(_ packet: Data?) throws {
         guard let packet else { return }
@@ -219,7 +240,10 @@ extension PacketTunnelProvider: MobilePacketWriterProtocol {
         default:
             return
         }
-        packetFlow.writePackets([packet], withProtocols: [protocolFamily])
+        let written = packetFlow.writePackets([packet], withProtocols: [protocolFamily])
+        if !written {
+            throw mobileRuntimeError("NetworkExtension rejected packet write", code: 2)
+        }
     }
 }
 #endif

@@ -17,6 +17,7 @@ cd "$ROOT_DIR"
 # gomobile probes golang.org/x/mobile/bind directly, which does not resolve
 # from this repo's automatic vendor mode even when the package is vendored.
 GOFLAGS="${GOFLAGS:+$GOFLAGS }-mod=mod" CGO_ENABLED=0 gomobile bind \
+    -tags=purego \
     -target=ios \
     -o "$OUT" \
     ./pkg/mobile

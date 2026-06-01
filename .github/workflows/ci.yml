@@ -104,6 +104,14 @@ jobs:
       - name: Install system dependencies
         run: brew install libsodium pkg-config xcodegen
 
+      - name: Install gomobile
+        run: |
+          GOPATH_BIN="$(go env GOPATH)/bin"
+          echo "$GOPATH_BIN" >> "$GITHUB_PATH"
+          go install golang.org/x/mobile/cmd/gobind@latest
+          go install golang.org/x/mobile/cmd/gomobile@latest
+          "$GOPATH_BIN/gomobile" init
+
       - name: Run Apple package tests
         run: make test-apple
 
