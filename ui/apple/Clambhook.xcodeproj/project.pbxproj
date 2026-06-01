@@ -36,8 +36,8 @@
 		A20000000000000000000004 /* IOSTrafficMonitorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000003 /* IOSTrafficMonitorView.swift */; };
 		A20000000000000000000005 /* IOSServersView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000004 /* IOSServersView.swift */; };
 		A20000000000000000000006 /* IOSRulesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000005 /* IOSRulesView.swift */; };
-		A20000000000000000000007 /* IOSLogsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000006 /* IOSLogsView.swift */; };
 		A20000000000000000000008 /* IOSQRCodeScannerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000007 /* IOSQRCodeScannerView.swift */; };
+		A20000000000000000000009 /* IOSProfilesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000009 /* IOSProfilesView.swift */; };
 		751082522AE94AEC0132939B /* ClambhookVisionApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = DDDB54D167062A1D34DD23E1 /* ClambhookVisionApp.swift */; };
 		75A5F3A42D0B3DD6CDDC363C /* DashboardViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5D820AE96C5A0080AA5CF1F /* DashboardViews.swift */; };
 		796E1CFB4C4751AEF5C1F502 /* VisionNetworkMapScene.swift in Sources */ = {isa = PBXBuildFile; fileRef = C34298B9F0C4CFA97FFDC543 /* VisionNetworkMapScene.swift */; };
@@ -160,9 +160,9 @@
 		A10000000000000000000003 /* IOSTrafficMonitorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IOSTrafficMonitorView.swift; sourceTree = "<group>"; };
 		A10000000000000000000004 /* IOSServersView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IOSServersView.swift; sourceTree = "<group>"; };
 		A10000000000000000000005 /* IOSRulesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IOSRulesView.swift; sourceTree = "<group>"; };
-		A10000000000000000000006 /* IOSLogsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IOSLogsView.swift; sourceTree = "<group>"; };
 		A10000000000000000000007 /* IOSQRCodeScannerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IOSQRCodeScannerView.swift; sourceTree = "<group>"; };
 		A10000000000000000000008 /* IOSDashboardComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IOSDashboardComponents.swift; sourceTree = "<group>"; };
+		A10000000000000000000009 /* IOSProfilesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IOSProfilesView.swift; sourceTree = "<group>"; };
 		B1CF51F1CEED770CC79EBC8C /* ClambhookMac.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = ClambhookMac.entitlements; sourceTree = "<group>"; };
 		B79D4C19242D8E6E95224A77 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		C34298B9F0C4CFA97FFDC543 /* VisionNetworkMapScene.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisionNetworkMapScene.swift; sourceTree = "<group>"; };
@@ -352,10 +352,10 @@
 				A10000000000000000000008 /* IOSDashboardComponents.swift */,
 				A10000000000000000000001 /* IOSOnboardingView.swift */,
 				A10000000000000000000002 /* IOSOverviewView.swift */,
+				A10000000000000000000009 /* IOSProfilesView.swift */,
 				A10000000000000000000003 /* IOSTrafficMonitorView.swift */,
 				A10000000000000000000004 /* IOSServersView.swift */,
 				A10000000000000000000005 /* IOSRulesView.swift */,
-				A10000000000000000000006 /* IOSLogsView.swift */,
 				A10000000000000000000007 /* IOSQRCodeScannerView.swift */,
 			);
 			path = ClambhookiOS;
@@ -597,10 +597,10 @@
 				A20000000000000000000001 /* IOSDashboardComponents.swift in Sources */,
 				A20000000000000000000002 /* IOSOnboardingView.swift in Sources */,
 				A20000000000000000000003 /* IOSOverviewView.swift in Sources */,
+				A20000000000000000000009 /* IOSProfilesView.swift in Sources */,
 				A20000000000000000000004 /* IOSTrafficMonitorView.swift in Sources */,
 				A20000000000000000000005 /* IOSServersView.swift in Sources */,
 				A20000000000000000000006 /* IOSRulesView.swift in Sources */,
-				A20000000000000000000007 /* IOSLogsView.swift in Sources */,
 				A20000000000000000000008 /* IOSQRCodeScannerView.swift in Sources */,
 				FC394BF11B1952AAD881101F /* IOSTunnelController.swift in Sources */,
 				CFCCC4198754EEF5353DF9EA /* SettingsViews.swift in Sources */,

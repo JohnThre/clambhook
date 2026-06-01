@@ -1,67 +1,6 @@
 import ClambhookShared
 import SwiftUI
 
-struct IOSOperationsServersView: View {
-    @ObservedObject var model: AppleAppModel
-    @State private var searchText = ""
-
-    var body: some View {
-        List {
-            if filteredChains.isEmpty {
-                Section {
-                    ContentUnavailableView(
-                        searchText.isEmpty ? "No servers" : "No matching servers",
-                        systemImage: "server.rack",
-                        description: Text("Servers from the active profile appear here with passive health from recent traffic.")
-                    )
-                }
-            } else {
-                ForEach(filteredChains) { chain in
-                    Section(chain.name) {
-                        ForEach(chain.rows) { row in
-                            IOSServerHealthRow(row: row)
-                        }
-                    }
-                }
-            }
-        }
-        .listStyle(.insetGrouped)
-        .searchable(text: $searchText, prompt: "Search servers")
-        .refreshable {
-            await model.refreshNow()
-        }
-    }
-
-    private var filteredChains: [IOSServerHealthChain] {
-        let health = model.dashboard.passiveServerHealth
-        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        return model.dashboard.servers.chains.compactMap { chain in
-            let rows = chain.servers
-                .map { IOSServerHealthRowData(chainName: chain.name, server: $0, health: health[$0.id]) }
-                .filter { row in
-                    guard !query.isEmpty else { return true }
-                    return [
-                        row.chainName,
-                        row.server.name,
-                        row.server.address,
-                        row.server.protocol,
-                        row.server.geo.city,
-                        row.server.geo.country,
-                        row.health?.state ?? "",
-                    ]
-                    .contains { $0.lowercased().contains(query) }
-                }
-            return rows.isEmpty ? nil : IOSServerHealthChain(name: chain.name, rows: rows)
-        }
-    }
-}
-
-private struct IOSServerHealthChain: Identifiable {
-    var id: String { name }
-    var name: String
-    var rows: [IOSServerHealthRowData]
-}
-
 struct IOSServerHealthRowData: Identifiable {
     var id: String { "\(chainName)-\(server.id)" }
     var chainName: String
