@@ -1,3 +1,5 @@
+//go:build unix
+
 package main
 
 import (
@@ -5,6 +7,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"net/netip"
+	"sort"
 	"strings"
 	"time"
 
@@ -59,6 +63,11 @@ type model struct {
 
 	selectedProfile int
 	viewMode        viewMode
+	trafficFilter   string
+	searchText      string
+	searchEditing   bool
+	selectedTraffic int
+	pendingRule     *rulePayload
 	width           int
 	height          int
 
@@ -165,8 +174,87 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		if m.viewMode == viewModeTraffic {
-			if msg.String() == "r" {
+			if m.searchEditing {
+				switch msg.String() {
+				case "esc", "enter":
+					m.searchEditing = false
+				case "backspace", "ctrl+h":
+					if len(m.searchText) > 0 {
+						m.searchText = m.searchText[:len(m.searchText)-1]
+					}
+				default:
+					if len(msg.Runes) > 0 {
+						m.searchText += string(msg.Runes)
+					}
+				}
+				m.clampTrafficSelection()
+				return m, nil
+			}
+			if m.pendingRule != nil {
+				switch msg.String() {
+				case "esc":
+					m.pendingRule = nil
+					return m, nil
+				case "y":
+					rule := *m.pendingRule
+					m.pendingRule = nil
+					return m, m.actionCmd(func() error {
+						return m.client.createRule(rule)
+					})
+				case "b":
+					m.pendingRule.Action = "block"
+					return m, nil
+				case "d":
+					m.pendingRule.Action = "direct"
+					return m, nil
+				case "p":
+					if conn, ok := m.selectedConnection(); ok && conn.ChainName != "" {
+						m.pendingRule.Action = "chain:" + conn.ChainName
+					}
+					return m, nil
+				}
+			}
+			switch msg.String() {
+			case "r":
 				return m, m.loadDashboardCmd()
+			case "/":
+				m.searchEditing = true
+				return m, nil
+			case "esc":
+				m.searchText = ""
+				m.trafficFilter = ""
+				m.clampTrafficSelection()
+				return m, nil
+			case "a":
+				m.trafficFilter = ""
+				m.clampTrafficSelection()
+				return m, nil
+			case "b":
+				m.trafficFilter = "block"
+				m.clampTrafficSelection()
+				return m, nil
+			case "d":
+				m.trafficFilter = "direct"
+				m.clampTrafficSelection()
+				return m, nil
+			case "p":
+				m.trafficFilter = "proxy"
+				m.clampTrafficSelection()
+				return m, nil
+			case "up", "k":
+				m.moveTrafficSelection(-1)
+				return m, nil
+			case "down", "j":
+				m.moveTrafficSelection(1)
+				return m, nil
+			case "n":
+				rule, ok := m.ruleDraftFromSelected()
+				if !ok {
+					m.errText = "select a connection with a host before creating a rule"
+					return m, nil
+				}
+				m.pendingRule = &rule
+				return m, nil
 			}
 			return m, nil
 		}
@@ -223,6 +311,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.servers = msg.Servers
 		m.traffic = msg.Traffic
 		m.syncSelectedProfile()
+		m.clampTrafficSelection()
 		return m, nil
 	case statusLoadedMsg:
 		if msg.Err != nil {
@@ -235,6 +324,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.status = msg.Status
 		m.traffic = msg.Traffic
 		m.syncSelectedProfile()
+		m.clampTrafficSelection()
 		return m, nil
 	case actionDoneMsg:
 		if msg.Err != nil {
@@ -244,7 +334,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, m.loadDashboardCmd()
 	case eventMsg:
-		m.applyEvent(msg.Event)
+		needsRefresh := m.applyEvent(msg.Event)
+		if needsRefresh {
+			return m, tea.Batch(waitEventCmd(m.eventsCh, m.eventErrCh), m.loadStatusCmd())
+		}
 		return m, waitEventCmd(m.eventsCh, m.eventErrCh)
 	case eventErrMsg:
 		if msg.Err != nil && m.eventCtx.Err() == nil {
@@ -322,15 +415,15 @@ func (m model) logView() string {
 
 func (m model) trafficView() string {
 	width := m.contentWidth()
-	sections := []string{m.renderHeader("Traffic")}
+	sections := []string{m.renderHeader("Monitor")}
 	if m.errText != "" {
 		sections = append(sections, m.renderError(width))
 	}
 	sections = append(sections,
 		m.renderTrafficDetailSection(width),
 		m.renderFooter(
-			"Keys: t dashboard  l logs  r refresh  q quit",
-			"Keys: t dashboard  l logs  r refresh  q quit",
+			"Keys: a all  b block  d direct  p proxy  / search  up/down select  n new rule  r refresh  t dashboard  q quit",
+			"Keys: a/b/d/p  / search  up/down  n rule  r refresh  t dash  q",
 		),
 	)
 	return joinSections(sections)
@@ -512,17 +605,25 @@ func (m model) renderTrafficDetailSection(width int) string {
 	if m.traffic.Summary.PersistError != "" {
 		lines = append(lines, errorStyle.Render(truncate("  History: "+m.traffic.Summary.PersistError, width)))
 	}
-	if len(m.traffic.Connections) == 0 {
+	lines = append(lines, m.monitorFilterLine(width))
+	lines = append(lines, m.ruleHitLines(width)...)
+	if m.pendingRule != nil {
+		lines = append(lines, m.pendingRuleLine(width))
+	}
+	rows := m.filteredTrafficConnections()
+	if len(rows) == 0 {
 		lines = append(lines, "", subtleStyle.Render("  -- no traffic history"))
 	} else {
 		limit := m.trafficVisibleRows()
 		lines = append(lines, "", tableHeaderStyle.Render(trafficHeaderRow(width)))
-		lines = append(lines, m.trafficRows(width, limit, true)...)
-		if len(m.traffic.Connections) > limit {
-			lines = append(lines, subtleStyle.Render(fmt.Sprintf("  +%d more rows hidden by terminal height", len(m.traffic.Connections)-limit)))
+		lines = append(lines, m.trafficRowsFor(rows, width, limit, true)...)
+		if len(rows) > limit {
+			lines = append(lines, subtleStyle.Render(fmt.Sprintf("  +%d more rows hidden by terminal height", len(rows)-limit)))
 		}
+		lines = append(lines, "")
+		lines = append(lines, m.selectedConnectionDetailLines(width)...)
 	}
-	return renderSection("Traffic", lines)
+	return renderSection("Monitor", lines)
 }
 
 func (m model) trafficSummaryLine(width int) string {
@@ -536,15 +637,76 @@ func (m model) trafficSummaryLine(width int) string {
 	), width)
 }
 
+func (m model) monitorFilterLine(width int) string {
+	counts := m.actionCounts()
+	filter := m.trafficFilter
+	if filter == "" {
+		filter = "all"
+	}
+	search := m.searchText
+	if search == "" {
+		search = "--"
+	}
+	prompt := "search"
+	if m.searchEditing {
+		prompt = "typing"
+	}
+	return truncate(fmt.Sprintf("  [%s] all %d  proxy %d  direct %d  block %d  %s %q",
+		filter,
+		len(m.traffic.Connections),
+		counts["proxy"],
+		counts["direct"],
+		counts["block"],
+		prompt,
+		search,
+	), width)
+}
+
+func (m model) ruleHitLines(width int) []string {
+	hits := m.ruleHits()
+	if len(hits) == 0 {
+		return nil
+	}
+	limit := 4
+	if len(hits) < limit {
+		limit = len(hits)
+	}
+	parts := make([]string, 0, limit)
+	for _, hit := range hits[:limit] {
+		parts = append(parts, fmt.Sprintf("%s/%s %d", emptyDash(hit.Name), hit.Action, hit.Count))
+	}
+	return []string{truncate("  Rule hits  "+strings.Join(parts, "  "), width)}
+}
+
+func (m model) pendingRuleLine(width int) string {
+	rule := m.pendingRule
+	if rule == nil {
+		return ""
+	}
+	match := strings.Join(rule.Domains, ",")
+	if match == "" {
+		match = strings.Join(rule.CIDRs, ",")
+	}
+	return selectedLineStyle.Render(truncate(fmt.Sprintf("  New rule: %s  %s  %s  (y save, b/d/p action, esc cancel)", rule.Name, rule.Action, match), width))
+}
+
 func (m model) trafficRows(width, limit int, full bool) []string {
-	rows := firstTrafficRows(m.traffic.Connections, limit)
+	return m.trafficRowsFor(m.traffic.Connections, width, limit, full)
+}
+
+func (m model) trafficRowsFor(connections []trafficConnectionPayload, width, limit int, full bool) []string {
+	rows := firstTrafficRows(connections, limit)
 	out := make([]string, 0, len(rows))
 	wide := width >= 92
 	widths := trafficColumnWidths(width)
-	for _, conn := range rows {
+	for i, conn := range rows {
+		prefix := " "
+		if full && i == m.selectedTraffic {
+			prefix = "›"
+		}
 		if wide && full {
-			out = append(out, tableRow([]string{
-				conn.State,
+			out = append(out, prefix+tableRowNoIndent([]string{
+				actionChip(conn),
 				emptyDash(conn.Application),
 				emptyDash(conn.Target),
 				conn.Listener.Protocol + " " + conn.Listener.Addr,
@@ -556,8 +718,9 @@ func (m model) trafficRows(width, limit int, full bool) []string {
 			continue
 		}
 		if wide {
-			out = append(out, truncate(fmt.Sprintf("  %-7s %-7s %-28s down %-10s up %-10s %s",
-				truncate(conn.State, 7),
+			out = append(out, truncate(fmt.Sprintf("%s %-7s %-7s %-28s down %-10s up %-10s %s",
+				prefix,
+				truncate(actionChip(conn), 7),
 				truncate(emptyDash(conn.Application), 7),
 				truncate(emptyDash(conn.Target), 28),
 				formatBytes(conn.RxTotal),
@@ -566,8 +729,9 @@ func (m model) trafficRows(width, limit int, full bool) []string {
 			), width))
 			continue
 		}
-		out = append(out, truncate(fmt.Sprintf("  %s %s  %s down / %s up  %s",
-			conn.State,
+		out = append(out, truncate(fmt.Sprintf("%s %s %s  %s down / %s up  %s",
+			prefix,
+			actionChip(conn),
 			emptyDash(conn.Target),
 			formatBytes(conn.RxTotal),
 			formatBytes(conn.TxTotal),
@@ -575,6 +739,264 @@ func (m model) trafficRows(width, limit int, full bool) []string {
 		), width))
 	}
 	return out
+}
+
+func (m model) filteredTrafficConnections() []trafficConnectionPayload {
+	query := strings.ToLower(strings.TrimSpace(m.searchText))
+	out := make([]trafficConnectionPayload, 0, len(m.traffic.Connections))
+	for _, conn := range m.traffic.Connections {
+		if m.trafficFilter != "" && actionFamily(conn) != m.trafficFilter {
+			continue
+		}
+		if query != "" && !connectionMatchesSearch(conn, query) {
+			continue
+		}
+		out = append(out, conn)
+	}
+	return out
+}
+
+func (m model) selectedConnection() (trafficConnectionPayload, bool) {
+	rows := m.filteredTrafficConnections()
+	if len(rows) == 0 {
+		return trafficConnectionPayload{}, false
+	}
+	idx := m.selectedTraffic
+	if idx < 0 {
+		idx = 0
+	}
+	if idx >= len(rows) {
+		idx = len(rows) - 1
+	}
+	return rows[idx], true
+}
+
+func (m *model) moveTrafficSelection(delta int) {
+	rows := m.filteredTrafficConnections()
+	if len(rows) == 0 {
+		m.selectedTraffic = 0
+		return
+	}
+	m.selectedTraffic = (m.selectedTraffic + delta + len(rows)) % len(rows)
+}
+
+func (m *model) clampTrafficSelection() {
+	rows := m.filteredTrafficConnections()
+	if len(rows) == 0 {
+		m.selectedTraffic = 0
+		return
+	}
+	if m.selectedTraffic < 0 {
+		m.selectedTraffic = 0
+	}
+	if m.selectedTraffic >= len(rows) {
+		m.selectedTraffic = len(rows) - 1
+	}
+}
+
+func (m model) selectedConnectionDetailLines(width int) []string {
+	conn, ok := m.selectedConnection()
+	if !ok {
+		return nil
+	}
+	host := connectionHost(conn)
+	lines := []string{
+		tableHeaderStyle.Render(truncate("  Host Detail", width)),
+		truncate(fmt.Sprintf("  Host %s  Action %s  Rule %s  Chain %s", emptyDash(host), actionChip(conn), emptyDash(conn.RuleName), emptyDash(conn.ChainName)), width),
+		truncate(fmt.Sprintf("  Target %s  Network %s  App %s  Listener %s %s", emptyDash(conn.Target), emptyDash(conn.Network), emptyDash(conn.Application), conn.Listener.Protocol, conn.Listener.Addr), width),
+		truncate(fmt.Sprintf("  Bytes %s down / %s up  Duration %s  Decision %s", formatBytes(conn.RxTotal), formatBytes(conn.TxTotal), formatDurationNs(conn.DurationNs), formatDurationNs(conn.DecisionNs)), width),
+	}
+	if conn.Visibility != nil {
+		lines = append(lines, truncate(fmt.Sprintf("  Visibility %s %s %s %s", conn.Visibility.Kind, conn.Visibility.Method, conn.Visibility.Host, conn.Visibility.Path), width))
+	}
+	if len(conn.Timeline) > 0 {
+		last := conn.Timeline[len(conn.Timeline)-1]
+		lines = append(lines, truncate(fmt.Sprintf("  Last %s %s", emptyDash(last.Title), last.Detail), width))
+	}
+	return lines
+}
+
+type ruleHit struct {
+	Name   string
+	Action string
+	Count  int
+}
+
+func (m model) ruleHits() []ruleHit {
+	index := map[string]*ruleHit{}
+	for _, conn := range m.traffic.Connections {
+		if conn.RuleName == "" && conn.RuleAction == "" {
+			continue
+		}
+		name := conn.RuleName
+		if name == "" {
+			name = "default"
+		}
+		action := actionFamily(conn)
+		key := name + "\x00" + action
+		hit := index[key]
+		if hit == nil {
+			hit = &ruleHit{Name: name, Action: action}
+			index[key] = hit
+		}
+		hit.Count++
+	}
+	out := make([]ruleHit, 0, len(index))
+	for _, hit := range index {
+		out = append(out, *hit)
+	}
+	sortRuleHits(out)
+	return out
+}
+
+func (m model) actionCounts() map[string]int {
+	counts := map[string]int{"proxy": 0, "direct": 0, "block": 0}
+	for _, conn := range m.traffic.Connections {
+		counts[actionFamily(conn)]++
+	}
+	return counts
+}
+
+func connectionMatchesSearch(conn trafficConnectionPayload, query string) bool {
+	fields := []string{
+		conn.Target,
+		conn.TargetHost,
+		conn.TargetPort,
+		conn.RuleName,
+		conn.RuleAction,
+		conn.ChainName,
+		conn.Application,
+		conn.Network,
+		conn.Listener.Protocol,
+		conn.Listener.Addr,
+		conn.ClientAddr,
+	}
+	if conn.Visibility != nil {
+		fields = append(fields, conn.Visibility.Kind, conn.Visibility.Method, conn.Visibility.Host, conn.Visibility.Path, conn.Visibility.QueryType)
+	}
+	for _, field := range fields {
+		if strings.Contains(strings.ToLower(field), query) {
+			return true
+		}
+	}
+	return false
+}
+
+func actionChip(conn trafficConnectionPayload) string {
+	switch actionFamily(conn) {
+	case "direct":
+		return "DIRECT"
+	case "block":
+		return "BLOCK"
+	default:
+		return "PROXY"
+	}
+}
+
+func actionFamily(conn trafficConnectionPayload) string {
+	action := strings.ToLower(strings.TrimSpace(conn.RuleAction))
+	switch action {
+	case "direct":
+		return "direct"
+	case "block", "reject":
+		return "block"
+	default:
+		return "proxy"
+	}
+}
+
+func sortRuleHits(hits []ruleHit) {
+	sort.Slice(hits, func(i, j int) bool {
+		if hits[i].Count == hits[j].Count {
+			if hits[i].Name == hits[j].Name {
+				return hits[i].Action < hits[j].Action
+			}
+			return hits[i].Name < hits[j].Name
+		}
+		return hits[i].Count > hits[j].Count
+	})
+}
+
+func (m model) ruleDraftFromSelected() (rulePayload, bool) {
+	conn, ok := m.selectedConnection()
+	if !ok {
+		return rulePayload{}, false
+	}
+	host := connectionHost(conn)
+	if host == "" {
+		return rulePayload{}, false
+	}
+	rule := rulePayload{
+		Name:   ruleNameForHost(host, actionFamily(conn)),
+		Action: ruleActionForConnection(conn),
+	}
+	if addr, err := netip.ParseAddr(strings.Trim(host, "[]")); err == nil {
+		if addr.Is6() {
+			rule.CIDRs = []string{addr.String() + "/128"}
+		} else {
+			rule.CIDRs = []string{addr.String() + "/32"}
+		}
+	} else {
+		rule.Domains = []string{host}
+	}
+	return rule, true
+}
+
+func connectionHost(conn trafficConnectionPayload) string {
+	if conn.TargetHost != "" {
+		return normalizeRuleHost(conn.TargetHost)
+	}
+	if conn.Visibility != nil && conn.Visibility.Host != "" {
+		return normalizeRuleHost(conn.Visibility.Host)
+	}
+	host, _ := splitHostPortLoose(conn.Target)
+	return normalizeRuleHost(host)
+}
+
+func ruleActionForConnection(conn trafficConnectionPayload) string {
+	action := strings.ToLower(strings.TrimSpace(conn.RuleAction))
+	switch action {
+	case "direct", "block", "reject":
+		return action
+	case "chain":
+		if conn.ChainName != "" {
+			return "chain:" + conn.ChainName
+		}
+	}
+	if conn.ChainName != "" {
+		return "chain:" + conn.ChainName
+	}
+	return "direct"
+}
+
+func ruleNameForHost(host, action string) string {
+	name := strings.ToLower(strings.TrimSpace(host))
+	name = strings.Trim(name, "[]")
+	replacer := strings.NewReplacer(".", "-", ":", "-", "_", "-", " ", "-")
+	name = replacer.Replace(name)
+	name = strings.Trim(name, "-")
+	if name == "" {
+		name = "connection"
+	}
+	return action + "-" + name
+}
+
+func normalizeRuleHost(host string) string {
+	host = strings.TrimSpace(host)
+	host = strings.Trim(host, "[]")
+	host = strings.TrimSuffix(host, ".")
+	return strings.ToLower(host)
+}
+
+func splitHostPortLoose(target string) (string, string) {
+	target = strings.TrimSpace(target)
+	if target == "" {
+		return "", ""
+	}
+	if i := strings.LastIndex(target, ":"); i > 0 && i < len(target)-1 {
+		return target[:i], target[i+1:]
+	}
+	return target, ""
 }
 
 func (m model) renderFooter(full, compact string) string {
@@ -774,21 +1196,21 @@ func tickCmd() tea.Cmd {
 	})
 }
 
-func (m *model) applyEvent(ev events.Event) {
+func (m *model) applyEvent(ev events.Event) bool {
 	if ev.Type == events.TypeLogLine {
 		if line, ok := eventLogLine(ev.Data); ok {
 			m.appendLogLine(line)
 		}
-		return
+		return false
 	}
 	if ev.Type != events.TypeConnectionBytes {
-		return
+		return strings.HasPrefix(ev.Type, "connection.") || strings.HasPrefix(ev.Type, "rule.") || strings.HasPrefix(ev.Type, "hop.")
 	}
 	rxDelta, okRx := eventNumber(ev.Data, "rx_delta")
 	txDelta, okTx := eventNumber(ev.Data, "tx_delta")
 	intervalNs, okInterval := eventNumber(ev.Data, "interval_ns")
 	if !okRx || !okTx || !okInterval || intervalNs <= 0 {
-		return
+		return false
 	}
 	seconds := intervalNs / float64(time.Second)
 	m.bandwidth.add(bandwidthSample{
@@ -798,6 +1220,7 @@ func (m *model) applyEvent(ev events.Event) {
 	if connID, ok := eventString(ev.Data, "conn_id"); ok {
 		m.applyTrafficBytes(connID, rxDelta/seconds, txDelta/seconds, rxDelta, txDelta)
 	}
+	return false
 }
 
 func (m *model) applyTrafficBytes(connID string, rxBps, txBps, rxDelta, txDelta float64) {
@@ -1230,9 +1653,9 @@ func serverColumnWidths(width int) []int {
 
 func trafficHeaderRow(width int) string {
 	if width < 92 {
-		return truncate("  State Target  Down / Up  Duration", width)
+		return truncate("  Action Target  Down / Up  Duration", width)
 	}
-	return tableRow([]string{"State", "App", "Target", "Listener", "Down", "Up", "Duration", "Path"}, trafficColumnWidths(width))
+	return tableRow([]string{"Action", "App", "Target", "Listener", "Down", "Up", "Duration", "Path"}, trafficColumnWidths(width))
 }
 
 func trafficColumnWidths(width int) []int {
@@ -1253,6 +1676,10 @@ func trafficColumnWidths(width int) []int {
 }
 
 func tableRow(cells []string, widths []int) string {
+	return "  " + tableRowNoIndent(cells, widths)
+}
+
+func tableRowNoIndent(cells []string, widths []int) string {
 	parts := make([]string, 0, len(widths))
 	for i, width := range widths {
 		cellValue := ""
@@ -1261,7 +1688,7 @@ func tableRow(cells []string, widths []int) string {
 		}
 		parts = append(parts, cell(cellValue, width))
 	}
-	return "  " + strings.Join(parts, " ")
+	return strings.Join(parts, " ")
 }
 
 func cell(s string, width int) string {

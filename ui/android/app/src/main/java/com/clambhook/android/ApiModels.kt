@@ -42,6 +42,32 @@ data class ServersPayload(
 )
 
 @Serializable
+data class RulesPayload(
+    val profile: String = "",
+    val rules: List<RulePayload> = emptyList()
+)
+
+@Serializable
+data class RulePayload(
+    val name: String = "",
+    val action: String = "",
+    val domains: List<String> = emptyList(),
+    @SerialName("domain_suffixes")
+    val domainSuffixes: List<String> = emptyList(),
+    @SerialName("domain_keywords")
+    val domainKeywords: List<String> = emptyList(),
+    val cidrs: List<String> = emptyList(),
+    val ports: List<Int> = emptyList(),
+    val networks: List<String> = emptyList()
+)
+
+@Serializable
+data class CreateRuleRequest(
+    val rule: RulePayload,
+    val position: String = "append"
+)
+
+@Serializable
 data class ChainPayload(
     val name: String,
     val servers: List<ServerPayload>
@@ -124,6 +150,12 @@ data class TrafficConnectionPayload(
     val clientAddr: String = "",
     @SerialName("chain_name")
     val chainName: String = "",
+    @SerialName("rule_name")
+    val ruleName: String = "",
+    @SerialName("rule_action")
+    val ruleAction: String = "",
+    @SerialName("decision_ns")
+    val decisionNs: Long = 0,
     val target: String = "",
     @SerialName("target_host")
     val targetHost: String = "",
@@ -132,6 +164,8 @@ data class TrafficConnectionPayload(
     val network: String = "",
     val application: String = "",
     val hops: List<TrafficHopPayload> = emptyList(),
+    val timeline: List<TrafficTimelinePayload> = emptyList(),
+    val visibility: TrafficVisibilityPayload? = null,
     val geo: LocationPayload = LocationPayload(),
     @SerialName("geo_error")
     val geoError: String = "",
@@ -149,6 +183,27 @@ data class TrafficConnectionPayload(
     val durationNs: Long = 0,
     @SerialName("close_reason")
     val closeReason: String = ""
+)
+
+@Serializable
+data class TrafficTimelinePayload(
+    @SerialName("ts_ns")
+    val tsNs: Long = 0,
+    val type: String = "",
+    val title: String = "",
+    val detail: String = ""
+)
+
+@Serializable
+data class TrafficVisibilityPayload(
+    val kind: String = "",
+    val method: String = "",
+    val scheme: String = "",
+    val host: String = "",
+    val port: String = "",
+    val path: String = "",
+    @SerialName("query_type")
+    val queryType: String = ""
 )
 
 @Serializable

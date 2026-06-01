@@ -1,4 +1,4 @@
-.PHONY: all build build-clib build-daemon build-tui install install-linux prepare-apple-runtime generate-apple build-apple archive-iphone build-iphone release-macos release-check package-smoke test-apple test-android build-android-mobile-aar build-ios-mobile-xcframework test-android build-android build-android-release build-android-play-release build-android-fdroid-release check-windows-host test-windows build-windows-daemon build-windows publish-windows check-linux-ui-deps check-linux-flatpak-deps test-linux build-linux build-linux-flatpak test-linux-flatpak test e2e e2e-release lint clean
+.PHONY: all build build-clib build-daemon build-tui install install-linux prepare-apple-runtime generate-apple build-apple archive-iphone build-iphone release-macos release-check package-smoke test-apple test-android build-android-mobile-aar build-ios-mobile-xcframework build-android build-android-release build-android-play-release build-android-fdroid-release check-linux-ui-deps check-linux-flatpak-deps test-linux build-linux build-linux-flatpak test-linux-flatpak test e2e e2e-release lint clean
 
 export CGO_ENABLED=1
 PREFIX ?= /usr/local
@@ -7,24 +7,14 @@ LINUX_MESON_LIBEXECDIR = $(if $(PREFIX),$(PREFIX)/libexec,/libexec)
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 GO_LDFLAGS ?= -X main.version=$(VERSION)
 ANDROID_HOME ?= $(HOME)/Library/Android/sdk
-DOTNET ?= dotnet
-WINDOWS_RID ?= win-x64
-WINDOWS_GOARCH_win-x64 := amd64
-WINDOWS_GOARCH_win-arm64 := arm64
-WINDOWS_GOARCH := $(WINDOWS_GOARCH_$(WINDOWS_RID))
-WINDOWS_DAEMON := bin/windows/$(WINDOWS_RID)/clambhook.exe
 LINUX_FLATPAK_MANIFEST := ui/linux/com.clambhook.Clambhook.yml
 LINUX_FLATPAK_BUILD_DIR := dist/linux/build
 LINUX_FLATPAK_REPO := dist/linux/repo
 LINUX_FLATPAK_BUNDLE := dist/linux/com.clambhook.Clambhook.flatpak
 
 require-command = @command -v $(1) >/dev/null 2>&1 || { echo "$(1) is required for $(2)." >&2; echo "$(3)" >&2; exit 2; }
-require-windows-host = @if [ "$(OS)" != "Windows_NT" ]; then echo "test-windows must run on Windows; current host is $$(uname -s 2>/dev/null || echo unknown)." >&2; echo "The Windows tests target net10.0-windows and WinUI. Use a Windows host or CI runner." >&2; exit 2; fi
 
 all: build
-
-check-windows-host:
-	$(require-windows-host)
 
 check-linux-ui-deps:
 	$(call require-command,meson,Linux UI targets,Install Meson and the GTK development toolchain for your distribution.)
@@ -105,20 +95,6 @@ build-android-play-release:
 build-android-fdroid-release:
 	cd ui/android && ANDROID_HOME="$(ANDROID_HOME)" ./gradlew :app:assembleFdroidRelease
 
-test-windows: check-windows-host
-	$(DOTNET) test ui/windows/Clambhook.Windows.sln
-
-build-windows-daemon:
-	@if [ -z "$(WINDOWS_GOARCH)" ]; then echo "unsupported WINDOWS_RID=$(WINDOWS_RID) (expected win-x64 or win-arm64)" >&2; exit 2; fi
-	mkdir -p bin/windows/$(WINDOWS_RID)
-	CGO_ENABLED=0 GOOS=windows GOARCH=$(WINDOWS_GOARCH) go build -o $(WINDOWS_DAEMON) ./cmd/clambhook
-
-build-windows: build-windows-daemon
-	$(DOTNET) build ui/windows/src/Clambhook.Windows/Clambhook.Windows.csproj -c Debug -r $(WINDOWS_RID) -p:ClambhookDaemonPath="$(abspath $(WINDOWS_DAEMON))"
-
-publish-windows: build-windows-daemon
-	$(DOTNET) publish ui/windows/src/Clambhook.Windows/Clambhook.Windows.csproj -c Release -r $(WINDOWS_RID) --self-contained true -p:ClambhookDaemonPath="$(abspath $(WINDOWS_DAEMON))"
-
 test-linux: check-linux-ui-deps
 	cd ui/linux && meson setup builddir --reconfigure && meson test -C builddir
 
@@ -156,5 +132,4 @@ clean:
 	rm -rf ui/apple/Frameworks/*.xcframework
 	rm -rf ui/android/build/ ui/android/app/build/ ui/android/app/libs/
 	rm -rf ui/linux/builddir/
-	find ui/windows -type d \( -name bin -o -name obj \) -prune -exec rm -rf {} +
 	$(MAKE) -C clib clean

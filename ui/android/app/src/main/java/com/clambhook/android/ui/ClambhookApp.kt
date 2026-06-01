@@ -149,6 +149,7 @@ fun ClambhookApp(
                         onDisconnect = viewModel::disconnect,
                         onProfileSelected = viewModel::setActiveProfile,
                         onOpenSettings = { selectedTab = AppTab.Settings },
+                        onCreateRule = viewModel::createRule,
                         modifier = Modifier.padding(padding)
                     )
 

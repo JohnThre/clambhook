@@ -83,19 +83,6 @@ func (c *connEvents) emitOpened() {
 	})
 }
 
-// emitDialing fires connection.dialing just before the chain dial begins.
-// hops describes every node in the chain so subscribers see the full shape
-// even if a mid-hop fails.
-func (c *connEvents) emitDialing(target string, hops []events.HopInfo) {
-	c.emitDialingPlan(RoutePlan{Target: target, Hops: hops})
-}
-
-// emitDialingNetwork is the network-aware form used by TUN flows, where the
-// ingress can distinguish TCP from UDP before handing the flow to the chain.
-func (c *connEvents) emitDialingNetwork(network, target string, hops []events.HopInfo) {
-	c.emitDialingPlan(RoutePlan{Network: network, Target: target, Hops: hops})
-}
-
 func (c *connEvents) emitDialingPlan(plan RoutePlan) {
 	if c == nil {
 		return

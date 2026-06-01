@@ -1,3 +1,5 @@
+//go:build unix
+
 package main
 
 import (
@@ -100,7 +102,11 @@ func main() {
 		log.Fatalf("start engine: %v", err)
 	}
 
-	srv := api.NewWithOptions(eng, bus, api.Options{AuthToken: *apiToken, TrafficStore: trafficMgr.Store()})
+	srv := api.NewWithOptions(eng, bus, api.Options{
+		AuthToken:    *apiToken,
+		TrafficStore: trafficMgr.Store(),
+		ConfigPath:   *configPath,
+	})
 	if err := srv.Start(resolvedAPIAddr); err != nil {
 		log.Fatalf("start api: %v", err)
 	}

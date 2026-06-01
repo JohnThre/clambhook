@@ -68,6 +68,16 @@ public final class ClambhookAPIClient: ClambhookAPIProviding {
         try await getJSON("/api/v1/traffic?limit=200")
     }
 
+    public func createRule(_ rule: RulePayload) async throws -> RulesPayload {
+        struct CreateRuleRequest: Encodable {
+            var rule: RulePayload
+            var position: String
+        }
+        let body = try encoder.encode(CreateRuleRequest(rule: rule, position: "append"))
+        let data = try await send(method: "POST", path: "/api/v1/rules", body: body)
+        return try decoder.decode(RulesPayload.self, from: data)
+    }
+
     public func connect() async throws {
         _ = try await send(method: "POST", path: "/api/v1/connect")
     }
@@ -86,7 +96,7 @@ public final class ClambhookAPIClient: ClambhookAPIProviding {
         components.scheme = components.scheme == "https" ? "wss" : "ws"
         components.path = "/api/v1/events"
         let prefix = components.string ?? "ws://127.0.0.1:9090/api/v1/events"
-        return URL(string: prefix + "?types=connection.*,rule.*,log.*")!
+        return URL(string: prefix + "?types=connection.*,rule.*,hop.*,log.*")!
     }
 
     public func eventStream() -> AsyncThrowingStream<DaemonEvent, Error> {

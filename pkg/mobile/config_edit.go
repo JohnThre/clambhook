@@ -1,15 +1,12 @@
 package mobile
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
 	"os"
-	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/BurntSushi/toml"
 	"github.com/JohnThre/clambhook/internal/config"
@@ -276,43 +273,8 @@ func selectProfileForEdit(cfg *config.Config, profileName string) *config.Profil
 
 func writeTunnelConfig(configPath string, cfg *config.Config) error {
 	configPath = strings.TrimSpace(configPath)
-	if configPath == "" {
-		return fmt.Errorf("config path is required")
-	}
-	var buf bytes.Buffer
-	if err := toml.NewEncoder(&buf).Encode(cfg); err != nil {
-		return fmt.Errorf("encode config: %w", err)
-	}
-	if err := os.MkdirAll(filepath.Dir(configPath), 0o700); err != nil {
-		return fmt.Errorf("create config dir: %w", err)
-	}
-	if existing, err := os.ReadFile(configPath); err == nil && len(existing) > 0 {
-		backup := fmt.Sprintf("%s.%d.bak", configPath, time.Now().Unix())
-		if err := os.WriteFile(backup, existing, 0o600); err != nil {
-			return fmt.Errorf("write backup: %w", err)
-		}
-	}
-	tmp, err := os.CreateTemp(filepath.Dir(configPath), ".clambhook-*.toml")
-	if err != nil {
-		return fmt.Errorf("create temp config: %w", err)
-	}
-	tmpName := tmp.Name()
-	defer os.Remove(tmpName)
-	if err := tmp.Chmod(0o600); err != nil {
-		_ = tmp.Close()
-		return fmt.Errorf("chmod temp config: %w", err)
-	}
-	if _, err := tmp.Write(buf.Bytes()); err != nil {
-		_ = tmp.Close()
-		return fmt.Errorf("write temp config: %w", err)
-	}
-	if err := tmp.Close(); err != nil {
-		return fmt.Errorf("close temp config: %w", err)
-	}
-	if err := os.Rename(tmpName, configPath); err != nil {
-		return fmt.Errorf("replace config: %w", err)
-	}
-	return nil
+	_, err := config.WriteAtomicWithBackup(configPath, cfg)
+	return err
 }
 
 func isMissingConfigError(err error) bool {

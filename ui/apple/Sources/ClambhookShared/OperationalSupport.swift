@@ -546,11 +546,11 @@ public extension DashboardStore {
 
     var ruleHitSummaries: [RuleHitSummary] {
         let grouped = Dictionary(grouping: traffic.connections.filter { !$0.ruleAction.isEmpty }) {
-            "\($0.ruleName)|\($0.ruleAction)"
+            "\($0.ruleName)|\($0.actionFamily)"
         }
         return grouped.map { _, rows in
             let first = rows[0]
-            return RuleHitSummary(ruleName: first.ruleName, action: first.ruleAction, count: rows.count)
+            return RuleHitSummary(ruleName: first.ruleName, action: first.actionFamily, count: rows.count)
         }
         .sorted {
             if $0.count == $1.count {
@@ -558,6 +558,14 @@ public extension DashboardStore {
             }
             return $0.count > $1.count
         }
+    }
+
+    var monitorActionCounts: [String: Int] {
+        var counts = ["proxy": 0, "direct": 0, "block": 0]
+        for connection in traffic.connections {
+            counts[connection.actionFamily, default: 0] += 1
+        }
+        return counts
     }
 
     var passiveServerHealth: [String: ServerHealth] {
@@ -587,6 +595,17 @@ public extension DashboardStore {
 }
 
 public extension TrafficConnectionPayload {
+    var actionFamily: String {
+        switch ruleAction.lowercased() {
+        case "direct":
+            return "direct"
+        case "block", "reject":
+            return "block"
+        default:
+            return "proxy"
+        }
+    }
+
     var displayDecision: String {
         if ruleAction.isEmpty && ruleName.isEmpty {
             return "proxy"
@@ -595,6 +614,44 @@ public extension TrafficConnectionPayload {
             return ruleAction
         }
         return "\(ruleAction) / \(ruleName)"
+    }
+
+    var monitorHost: String {
+        if !targetHost.isEmpty {
+            return targetHost.normalizedRuleHost
+        }
+        if let visibility, !visibility.host.isEmpty {
+            return visibility.host.normalizedRuleHost
+        }
+        let parts = target.split(separator: ":")
+        if parts.count > 1 {
+            return parts.dropLast().joined(separator: ":").normalizedRuleHost
+        }
+        return target.normalizedRuleHost
+    }
+
+    func ruleDraft(actionOverride: String? = nil) -> RulePayload? {
+        let host = monitorHost
+        guard !host.isEmpty else { return nil }
+        let family = actionOverride ?? actionFamily
+        let action: String
+        switch family {
+        case "direct":
+            action = "direct"
+        case "block":
+            action = ruleAction.lowercased() == "reject" ? "reject" : "block"
+        default:
+            action = chainName.isEmpty ? "direct" : "chain:\(chainName)"
+        }
+        var rule = RulePayload(name: "\(family)-\(host.ruleNameToken)", action: action)
+        if host.looksLikeIPv4 {
+            rule.cidrs = ["\(host)/32"]
+        } else if host.contains(":") {
+            rule.cidrs = ["\(host)/128"]
+        } else {
+            rule.domains = [host]
+        }
+        return rule
     }
 
     var displayVisibility: String {
@@ -626,6 +683,27 @@ private func hopMatchesServer(_ hop: TrafficHopPayload, server: ServerPayload) -
 }
 
 private extension String {
+    var normalizedRuleHost: String {
+        trimmingCharacters(in: CharacterSet(charactersIn: "[] ").union(.whitespacesAndNewlines))
+            .trimmingCharacters(in: CharacterSet(charactersIn: "."))
+            .lowercased()
+    }
+
+    var ruleNameToken: String {
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-"))
+        let value = String(lowercased().unicodeScalars.map { allowed.contains($0) ? Character($0) : "-" })
+            .trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+        return value.isEmpty ? "connection" : value
+    }
+
+    var looksLikeIPv4: Bool {
+        let parts = split(separator: ".")
+        return parts.count == 4 && parts.allSatisfy { part in
+            guard let value = Int(part), value >= 0, value <= 255 else { return false }
+            return true
+        }
+    }
+
     var trimmedForProfileTemplate: String {
         trimmingCharacters(in: .whitespacesAndNewlines)
     }

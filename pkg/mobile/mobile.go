@@ -84,6 +84,7 @@ func Start(configPath, apiAddr, apiToken string) error {
 	srv := api.NewWithOptions(eng, bus, api.Options{
 		AuthToken:    strings.TrimSpace(apiToken),
 		TrafficStore: trafficMgr.Store(),
+		ConfigPath:   strings.TrimSpace(configPath),
 	})
 	if err := srv.Start(apiAddr); err != nil {
 		trafficMgr.Stop()

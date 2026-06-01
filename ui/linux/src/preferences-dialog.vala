@@ -1,3 +1,5 @@
+using Gtk;
+
 namespace Clambhook {
     public class PreferencesDialog : Window {
         private Entry api_entry;
@@ -100,17 +102,19 @@ namespace Clambhook {
         }
 
         private void choose_file(string title, Entry target) {
-            var chooser = new FileChooserNative(title, this, FileChooserAction.OPEN, "Select", "Cancel");
-            chooser.response.connect((response) => {
-                if (response == ResponseType.ACCEPT) {
-                    var file = chooser.get_file();
-                    if (file != null && file.get_path() != null) {
+            var dialog = new FileDialog();
+            dialog.title = title;
+            dialog.accept_label = "Select";
+            dialog.modal = true;
+            dialog.open.begin(this, null, (obj, res) => {
+                try {
+                    var file = dialog.open.end(res);
+                    if (file.get_path() != null) {
                         target.text = file.get_path();
                     }
+                } catch (Error err) {
                 }
-                chooser.destroy();
             });
-            chooser.show();
         }
 
         private void validate() {

@@ -157,6 +157,25 @@ final class AppleAppModel: ObservableObject {
         Task { await dashboard.setActiveProfile(profile) }
     }
 
+    func createRule(_ rule: RulePayload) {
+        Task {
+            do {
+                #if os(iOS)
+                try replaceActiveProfileRules(dashboard.rules.rules + [rule])
+                #else
+                guard let apiClient else {
+                    throw APIClientError.invalidURL("missing API client")
+                }
+                _ = try await apiClient.createRule(rule)
+                #endif
+                await dashboard.refreshDashboard()
+                daemonMessage = "rule created"
+            } catch {
+                daemonMessage = error.localizedDescription
+            }
+        }
+    }
+
     #if os(iOS)
     func importTunnelConfigText(_ rawText: String) throws {
         let text = try TunnelImportDecoder.decode(rawText)

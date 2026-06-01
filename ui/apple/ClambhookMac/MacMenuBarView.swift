@@ -6,6 +6,9 @@ struct MacMenuBarView: View {
     @ObservedObject var model: AppleAppModel
     @ObservedObject private var daemon: DaemonSupervisor
     @Environment(\.openSettings) private var openSettings
+    @State private var trafficFilter = "all"
+    @State private var trafficSearch = ""
+    @State private var draftRule: RulePayload?
 
     init(model: AppleAppModel) {
         self.model = model
@@ -30,6 +33,9 @@ struct MacMenuBarView: View {
             }
             Divider()
             footer
+        }
+        .sheet(item: $draftRule) { rule in
+            MacRuleCreateSheet(model: model, initialRule: rule)
         }
     }
 
@@ -207,29 +213,46 @@ struct MacMenuBarView: View {
     }
 
     private var trafficPanel: some View {
-        MacSection(title: "Traffic") {
+        let rows = filteredTraffic
+        return MacSection(title: "Traffic") {
             VStack(alignment: .leading, spacing: 8) {
                 Text("\(model.dashboard.traffic.summary.activeConnections) active / \(formatBytes(model.dashboard.traffic.summary.rxTotal)) down / \(formatBytes(model.dashboard.traffic.summary.txTotal)) up")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
+                Picker("Action", selection: $trafficFilter) {
+                    Text("All").tag("all")
+                    Text("Proxy \(model.dashboard.monitorActionCounts["proxy", default: 0])").tag("proxy")
+                    Text("Direct \(model.dashboard.monitorActionCounts["direct", default: 0])").tag("direct")
+                    Text("Block \(model.dashboard.monitorActionCounts["block", default: 0])").tag("block")
+                }
+                .labelsHidden()
+                .pickerStyle(.segmented)
+                TextField("Search hosts, rules, chains", text: $trafficSearch)
+                    .textFieldStyle(.roundedBorder)
+                if !model.dashboard.ruleHitSummaries.isEmpty {
+                    Text("Rule hits " + model.dashboard.ruleHitSummaries.prefix(3).map { "\($0.ruleName.isEmpty ? "Default" : $0.ruleName): \($0.count)" }.joined(separator: "  "))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
                 if !model.dashboard.traffic.summary.persistError.isEmpty {
                     Text(model.dashboard.traffic.summary.persistError)
                         .font(.caption)
                         .foregroundStyle(.red)
                         .lineLimit(2)
                 }
-                if model.dashboard.traffic.connections.isEmpty {
+                if rows.isEmpty {
                     MacEmptyRow(text: "No traffic history")
                 } else {
-                    ForEach(model.dashboard.traffic.connections.prefix(5)) { connection in
+                    ForEach(rows.prefix(5)) { connection in
                         VStack(alignment: .leading, spacing: 2) {
                             HStack {
                                 Text(emptyDash(connection.target))
                                     .font(.caption.weight(.semibold))
                                     .lineLimit(1)
                                 Spacer()
-                                Text(connection.state)
+                                Text(connection.actionFamily.uppercased())
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
@@ -237,10 +260,34 @@ struct MacMenuBarView: View {
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                                 .lineLimit(1)
+                            Button {
+                                draftRule = connection.ruleDraft()
+                            } label: {
+                                Label("Create Rule", systemImage: "plus.circle")
+                            }
+                            .buttonStyle(.plain)
+                            .font(.caption)
+                            .disabled(connection.ruleDraft() == nil)
                         }
                     }
                 }
             }
+        }
+    }
+
+    private var filteredTraffic: [TrafficConnectionPayload] {
+        let query = trafficSearch.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return model.dashboard.traffic.connections.filter { connection in
+            (trafficFilter == "all" || connection.actionFamily == trafficFilter)
+            && (query.isEmpty || [
+                connection.target,
+                connection.monitorHost,
+                connection.ruleName,
+                connection.ruleAction,
+                connection.chainName,
+                connection.application,
+                connection.network,
+            ].contains { $0.lowercased().contains(query) })
         }
     }
 
@@ -411,5 +458,47 @@ private struct MacEmptyRow: View {
             .font(.caption)
             .foregroundStyle(.secondary)
             .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private struct MacRuleCreateSheet: View {
+    @ObservedObject var model: AppleAppModel
+    @Environment(\.dismiss) private var dismiss
+    @State private var rule: RulePayload
+
+    init(model: AppleAppModel, initialRule: RulePayload) {
+        self.model = model
+        self._rule = State(initialValue: initialRule)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Create Rule")
+                .font(.headline)
+            TextField("Name", text: $rule.name)
+                .textFieldStyle(.roundedBorder)
+            Picker("Action", selection: $rule.action) {
+                Text("Block").tag("block")
+                Text("Direct").tag("direct")
+                ForEach(model.dashboard.servers.chains, id: \.name) { chain in
+                    Text("Proxy: \(chain.name)").tag("chain:\(chain.name)")
+                }
+            }
+            Text("Match: \(rule.domains.first ?? rule.cidrs.first ?? "--")")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            HStack {
+                Spacer()
+                Button("Cancel") { dismiss() }
+                Button("Save") {
+                    model.createRule(rule)
+                    dismiss()
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(rule.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+        }
+        .padding(20)
+        .frame(width: 360)
     }
 }

@@ -48,14 +48,43 @@ final class APIClientTests: XCTestCase {
         let httpClient = ClambhookAPIClient(baseURL: URL(string: "http://127.0.0.1:9090")!)
         XCTAssertEqual(
             httpClient.eventsURL().absoluteString,
-            "ws://127.0.0.1:9090/api/v1/events?types=connection.*,rule.*,log.*"
+            "ws://127.0.0.1:9090/api/v1/events?types=connection.*,rule.*,hop.*,log.*"
         )
 
         let httpsClient = ClambhookAPIClient(baseURL: URL(string: "https://proxy.example.test")!)
         XCTAssertEqual(
             httpsClient.eventsURL().absoluteString,
-            "wss://proxy.example.test/api/v1/events?types=connection.*,rule.*,log.*"
+            "wss://proxy.example.test/api/v1/events?types=connection.*,rule.*,hop.*,log.*"
         )
+    }
+
+    func testCreateRuleSendsAppendRequest() async throws {
+        MockURLProtocol.responseData = Data("""
+        {"profile":"Work","rules":[{"name":"monitor-example-com","action":"direct","domains":["example.com"]}]}
+        """.utf8)
+        let client = ClambhookAPIClient(
+            baseURL: URL(string: "http://127.0.0.1:9090")!,
+            tokenProvider: { "secret-token" },
+            session: mockSession()
+        )
+
+        let response = try await client.createRule(RulePayload(
+            name: "monitor-example-com",
+            action: "direct",
+            domains: ["example.com"]
+        ))
+
+        XCTAssertEqual(response.profile, "Work")
+        XCTAssertEqual(response.rules.first?.name, "monitor-example-com")
+        XCTAssertEqual(MockURLProtocol.lastRequest?.httpMethod, "POST")
+        XCTAssertEqual(MockURLProtocol.lastRequest?.url?.absoluteString, "http://127.0.0.1:9090/api/v1/rules")
+        XCTAssertEqual(MockURLProtocol.lastRequest?.value(forHTTPHeaderField: "Authorization"), "Bearer secret-token")
+        let body = try XCTUnwrap(MockURLProtocol.lastBody)
+        let decoded = try JSONDecoder().decode(CreateRuleRequestBody.self, from: body)
+        XCTAssertEqual(decoded.position, "append")
+        XCTAssertEqual(decoded.rule.name, "monitor-example-com")
+        XCTAssertEqual(decoded.rule.action, "direct")
+        XCTAssertEqual(decoded.rule.domains, ["example.com"])
     }
 
     func testHTTPErrorIncludesResponseBody() async {
@@ -75,6 +104,11 @@ final class APIClientTests: XCTestCase {
             XCTFail("unexpected error: \(error)")
         }
     }
+}
+
+private struct CreateRuleRequestBody: Decodable {
+    var rule: RulePayload
+    var position: String
 }
 
 private func mockSession() -> URLSession {

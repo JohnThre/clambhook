@@ -179,8 +179,6 @@ prepare_source_tree() {
             --exclude '/ui/android/app/build' \
             --exclude '/ui/android/app/libs' \
             --exclude '/ui/linux/builddir' \
-            --exclude '/ui/windows/**/bin' \
-            --exclude '/ui/windows/**/obj' \
             "$ROOT"/ "$dest"/
         return
     fi
@@ -195,8 +193,6 @@ prepare_source_tree() {
             --exclude './ui/android/app/build' \
             --exclude './ui/android/app/libs' \
             --exclude './ui/linux/builddir' \
-            --exclude './ui/windows/*/bin' \
-            --exclude './ui/windows/*/obj' \
             .
     ) | (
         cd "$dest"

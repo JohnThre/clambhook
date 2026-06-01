@@ -27,11 +27,11 @@ namespace Clambhook {
 
         public async void start(AppSettings settings, string token, string app_base_dir) throws Error {
             if (is_running) {
-                set_state(DaemonState.RUNNING);
+                transition_state(DaemonState.RUNNING);
                 return;
             }
 
-            set_state(DaemonState.STARTING);
+            transition_state(DaemonState.STARTING);
             try {
                 var executable = resolve_executable_path(settings, app_base_dir);
                 if (executable == null) {
@@ -41,22 +41,22 @@ namespace Clambhook {
                 var argv = build_argv(settings, token);
                 argv.insert(0, executable);
                 process = new Subprocess.newv(argv.to_array(), SubprocessFlags.NONE);
-                set_state(DaemonState.RUNNING);
+                transition_state(DaemonState.RUNNING);
                 watch_process.begin(process);
             } catch (Error err) {
                 process = null;
-                set_state(DaemonState.FAILED, err.message);
+                transition_state(DaemonState.FAILED, err.message);
                 throw err;
             }
         }
 
         public void stop() {
             if (process != null && !process.get_if_exited()) {
-                set_state(DaemonState.STOPPING);
+                transition_state(DaemonState.STOPPING);
                 process.force_exit();
             }
             process = null;
-            set_state(DaemonState.STOPPED);
+            transition_state(DaemonState.STOPPED);
         }
 
         public string state_label() {
@@ -118,7 +118,7 @@ namespace Clambhook {
         public static string build_arguments(AppSettings settings, string token) {
             var parts = new Gee.ArrayList<string>();
             foreach (var arg in build_argv(settings, token)) {
-                parts.add(quote(arg));
+                parts.add(arg.has_prefix("-") ? arg : quote(arg));
             }
             return string.joinv(" ", parts.to_array());
         }
@@ -175,12 +175,12 @@ namespace Clambhook {
             if (process == watched) {
                 process = null;
                 if (state != DaemonState.FAILED) {
-                    set_state(DaemonState.STOPPED);
+                    transition_state(DaemonState.STOPPED);
                 }
             }
         }
 
-        private void set_state(DaemonState next, string next_message = "") {
+        private void transition_state(DaemonState next, string next_message = "") {
             state = next;
             message = next_message;
             changed();

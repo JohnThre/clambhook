@@ -48,5 +48,3 @@ modules:
           - ui/android/app/libs
           - ui/linux/builddir
           - ui/linux/flatpak-build
-          - ui/windows/**/bin
-          - ui/windows/**/obj

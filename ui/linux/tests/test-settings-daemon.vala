@@ -1,4 +1,12 @@
 namespace Clambhook.Tests {
+    private string temp_dir(string template) {
+        try {
+            return DirUtils.make_tmp(template);
+        } catch (FileError err) {
+            assert_not_reached();
+        }
+    }
+
     public void add_settings_daemon_tests() {
         Test.add_func("/linux/settings/normalizes-defaults-and-refresh-interval", () => {
             var settings = new AppSettings();
@@ -17,9 +25,7 @@ namespace Clambhook.Tests {
         });
 
         Test.add_func("/linux/settings/persists-json-to-config-path", () => {
-            var temp_template = Path.build_filename(Environment.get_tmp_dir(), "clambhook-linux-settings-test-XXXXXX");
-            var temp_root = DirUtils.mkdtemp(temp_template);
-            assert_true(temp_root != null);
+            var temp_root = temp_dir("clambhook-linux-settings-test-XXXXXX");
             var path = Path.build_filename(temp_root, "settings.json");
             var store = new FileSettingsStore(path);
             var settings = new AppSettings();
@@ -42,9 +48,7 @@ namespace Clambhook.Tests {
         });
 
         Test.add_func("/linux/daemon/resolves-configured-flatpak-path-and-adjacent-paths", () => {
-            var temp_template = Path.build_filename(Environment.get_tmp_dir(), "clambhook-linux-daemon-path-test-XXXXXX");
-            var temp_root = DirUtils.mkdtemp(temp_template);
-            assert_true(temp_root != null);
+            var temp_root = temp_dir("clambhook-linux-daemon-path-test-XXXXXX");
             var configured = Path.build_filename(temp_root, "configured", "clambhook");
             var flatpak = Path.build_filename(temp_root, "flatpak", "clambhook");
             var app_dir = Path.build_filename(temp_root, "app");

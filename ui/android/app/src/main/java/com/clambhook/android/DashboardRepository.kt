@@ -19,6 +19,7 @@ data class DashboardState(
     val status: StatusPayload = StatusPayload(),
     val profiles: ProfilesPayload = ProfilesPayload(),
     val servers: ServersPayload = ServersPayload(),
+    val rules: RulesPayload = RulesPayload(),
     val traffic: TrafficSnapshotPayload = TrafficSnapshotPayload(),
     val bandwidthSamples: List<BandwidthSample> = emptyList(),
     val logs: List<String> = emptyList(),
@@ -64,12 +65,14 @@ class DashboardRepository(
             val status = api.status()
             val profiles = api.profiles()
             val servers = api.servers()
+            val rules = api.rules()
             val traffic = api.traffic()
             _state.update {
                 it.copy(
                     status = status,
                     profiles = profiles,
                     servers = servers,
+                    rules = rules,
                     traffic = traffic,
                     apiOnline = true,
                     errorText = "",
@@ -115,11 +118,23 @@ class DashboardRepository(
         performAction(DashboardAction.SwitchProfile, pendingProfile = name) { api.setActiveProfile(name) }
     }
 
-    fun applyEvent(event: DaemonEvent) {
+    suspend fun createRule(rule: RulePayload) {
+        performAction(DashboardAction.Refresh) { api.createRule(rule) }
+    }
+
+    fun applyEvent(event: DaemonEvent): Boolean {
         when (event.type) {
-            "connection.bytes" -> applyConnectionBytes(event)
-            "log.line" -> applyLogLine(event)
+            "connection.bytes" -> {
+                applyConnectionBytes(event)
+                return false
+            }
+            "log.line" -> {
+                applyLogLine(event)
+                return false
+            }
+            else -> return event.type.startsWith("connection.") || event.type.startsWith("rule.") || event.type.startsWith("hop.")
         }
+        return false
     }
 
     fun setEventStreamState(status: String, error: String = "") {

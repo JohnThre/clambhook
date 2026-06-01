@@ -51,9 +51,22 @@ struct IOSActivityView: View {
                     } else {
                         ForEach(filteredConnections) { connection in
                             NavigationLink {
-                                IOSActivityConnectionDetailView(connection: connection)
+                                IOSActivityConnectionDetailView(model: model, connection: connection)
                             } label: {
                                 IOSActivityConnectionRow(connection: connection)
+                            }
+                        }
+                    }
+                }
+                if !model.dashboard.ruleHitSummaries.isEmpty {
+                    Section("Rule Hits") {
+                        ForEach(model.dashboard.ruleHitSummaries.prefix(8)) { hit in
+                            HStack {
+                                IOSActionChip(action: hit.action)
+                                Text(hit.ruleName.isEmpty ? "Default" : hit.ruleName)
+                                Spacer()
+                                Text("\(hit.count)")
+                                    .foregroundStyle(.secondary)
                             }
                         }
                     }
@@ -199,6 +212,15 @@ private struct IOSTrafficSummaryView: View {
                 IOSMetric(title: "Up", value: formatRate(traffic.summary.txBps), systemImage: "arrow.up"),
                 IOSMetric(title: "Total", value: "\(formatBytes(traffic.summary.rxTotal)) / \(formatBytes(traffic.summary.txTotal))", systemImage: "sum"),
             ])
+            HStack(spacing: 8) {
+                IOSActionChip(action: "proxy")
+                Text("\(traffic.connections.filter { $0.actionFamily == "proxy" }.count)")
+                IOSActionChip(action: "direct")
+                Text("\(traffic.connections.filter { $0.actionFamily == "direct" }.count)")
+                IOSActionChip(action: "block")
+                Text("\(traffic.connections.filter { $0.actionFamily == "block" }.count)")
+            }
+            .font(.caption)
 
             if !traffic.summary.persistError.isEmpty {
                 Label(traffic.summary.persistError, systemImage: "exclamationmark.triangle.fill")
@@ -241,7 +263,9 @@ private struct IOSActivityConnectionRow: View {
 }
 
 private struct IOSActivityConnectionDetailView: View {
+    @ObservedObject var model: AppleAppModel
     var connection: TrafficConnectionPayload
+    @State private var draftRule: RulePayload?
 
     var body: some View {
         List {
@@ -259,6 +283,12 @@ private struct IOSActivityConnectionDetailView: View {
                 LabeledContent("Rule", value: emptyDash(connection.ruleName))
                 LabeledContent("Chain", value: emptyDash(connection.chainName))
                 LabeledContent("Decision time", value: formatDurationNs(connection.decisionNs))
+                Button {
+                    draftRule = connection.ruleDraft()
+                } label: {
+                    Label("Create Rule", systemImage: "plus.circle")
+                }
+                .disabled(connection.ruleDraft() == nil)
             }
 
             if let visibility = connection.visibility {
@@ -310,6 +340,49 @@ private struct IOSActivityConnectionDetailView: View {
         .listStyle(.insetGrouped)
         .navigationTitle(emptyDash(connection.targetHost))
         .navigationBarTitleDisplayMode(.inline)
+        .sheet(item: $draftRule) { rule in
+            IOSRuleCreateSheet(model: model, initialRule: rule)
+        }
+    }
+}
+
+private struct IOSRuleCreateSheet: View {
+    @ObservedObject var model: AppleAppModel
+    @Environment(\.dismiss) private var dismiss
+    @State private var rule: RulePayload
+
+    init(model: AppleAppModel, initialRule: RulePayload) {
+        self.model = model
+        self._rule = State(initialValue: initialRule)
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                TextField("Name", text: $rule.name)
+                Picker("Action", selection: $rule.action) {
+                    Text("Block").tag("block")
+                    Text("Direct").tag("direct")
+                    ForEach(model.dashboard.servers.chains, id: \.name) { chain in
+                        Text("Proxy: \(chain.name)").tag("chain:\(chain.name)")
+                    }
+                }
+                LabeledContent("Match", value: rule.domains.first ?? rule.cidrs.first ?? "--")
+            }
+            .navigationTitle("Create Rule")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        model.createRule(rule)
+                        dismiss()
+                    }
+                    .disabled(rule.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
+        }
     }
 }
 
@@ -408,11 +481,11 @@ private enum IOSTrafficFilter: String, CaseIterable, Identifiable {
         case .active:
             return connection.state.lowercased() == "active"
         case .blocked:
-            return connection.ruleAction.lowercased() == "block" || connection.ruleAction.lowercased() == "reject"
+            return connection.actionFamily == "block"
         case .direct:
-            return connection.ruleAction.lowercased() == "direct"
+            return connection.actionFamily == "direct"
         case .proxy:
-            return connection.ruleAction.isEmpty || connection.ruleAction.lowercased() == "chain"
+            return connection.actionFamily == "proxy"
         }
     }
 }

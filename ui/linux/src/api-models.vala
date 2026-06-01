@@ -134,6 +134,79 @@ namespace Clambhook {
         }
     }
 
+    public class RulePayload : Object {
+        public string name { get; set; default = ""; }
+        public string action { get; set; default = ""; }
+        public Gee.ArrayList<string> domains { get; private set; default = new Gee.ArrayList<string>(); }
+        public Gee.ArrayList<string> cidrs { get; private set; default = new Gee.ArrayList<string>(); }
+
+        public void to_json(Json.Builder builder) {
+            builder.begin_object();
+            builder.set_member_name("name");
+            builder.add_string_value(name);
+            builder.set_member_name("action");
+            builder.add_string_value(action);
+            if (domains.size > 0) {
+                builder.set_member_name("domains");
+                builder.begin_array();
+                foreach (var domain in domains) {
+                    builder.add_string_value(domain);
+                }
+                builder.end_array();
+            }
+            if (cidrs.size > 0) {
+                builder.set_member_name("cidrs");
+                builder.begin_array();
+                foreach (var cidr in cidrs) {
+                    builder.add_string_value(cidr);
+                }
+                builder.end_array();
+            }
+            builder.end_object();
+        }
+    }
+
+    public class RulesPayload : Object {
+        public string profile { get; set; default = ""; }
+        public Gee.ArrayList<RulePayload> rules { get; private set; default = new Gee.ArrayList<RulePayload>(); }
+
+        public static RulesPayload from_json(string json) {
+            try {
+                return from_object(JsonReader.root_object(json));
+            } catch (Error err) {
+                return new RulesPayload();
+            }
+        }
+
+        public static RulesPayload from_object(Json.Object object) {
+            var payload = new RulesPayload();
+            payload.profile = JsonReader.string_member(object, "profile");
+            if (JsonReader.has_array(object, "rules")) {
+                var rules = object.get_array_member("rules");
+                for (uint i = 0; i < rules.get_length(); i++) {
+                    var item = rules.get_object_element(i);
+                    var rule = new RulePayload();
+                    rule.name = JsonReader.string_member(item, "name");
+                    rule.action = JsonReader.string_member(item, "action");
+                    if (JsonReader.has_array(item, "domains")) {
+                        var domains = item.get_array_member("domains");
+                        for (uint j = 0; j < domains.get_length(); j++) {
+                            rule.domains.add(domains.get_string_element(j));
+                        }
+                    }
+                    if (JsonReader.has_array(item, "cidrs")) {
+                        var cidrs = item.get_array_member("cidrs");
+                        for (uint j = 0; j < cidrs.get_length(); j++) {
+                            rule.cidrs.add(cidrs.get_string_element(j));
+                        }
+                    }
+                    payload.rules.add(rule);
+                }
+            }
+            return payload;
+        }
+    }
+
     public class EventValue : Object {
         public string string_value { get; private set; default = ""; }
         public double number_value { get; private set; default = 0; }
@@ -193,11 +266,11 @@ namespace Clambhook {
         public uint64 shard_id { get; set; default = 0; }
         public uint64 lamport { get; set; default = 0; }
         public int64 ts_ns { get; set; default = 0; }
-        public string type { get; set; default = ""; }
+        public string event_type { get; set; default = ""; }
         public Gee.HashMap<string, EventValue> data { get; private set; default = new Gee.HashMap<string, EventValue>(); }
 
-        public DaemonEvent.from_values(string type) {
-            this.type = type;
+        public DaemonEvent.from_values(string event_type) {
+            this.event_type = event_type;
         }
 
         public static DaemonEvent from_json(string json) {
@@ -274,6 +347,9 @@ namespace Clambhook {
         public TrafficListenerPayload listener { get; set; default = new TrafficListenerPayload(); }
         public string client_addr { get; set; default = ""; }
         public string chain_name { get; set; default = ""; }
+        public string rule_name { get; set; default = ""; }
+        public string rule_action { get; set; default = ""; }
+        public int64 decision_ns { get; set; default = 0; }
         public string target { get; set; default = ""; }
         public string target_host { get; set; default = ""; }
         public string target_port { get; set; default = ""; }
@@ -347,6 +423,9 @@ namespace Clambhook {
             }
             connection.client_addr = JsonReader.string_member(object, "client_addr");
             connection.chain_name = JsonReader.string_member(object, "chain_name");
+            connection.rule_name = JsonReader.string_member(object, "rule_name");
+            connection.rule_action = JsonReader.string_member(object, "rule_action");
+            connection.decision_ns = JsonReader.int64_member(object, "decision_ns");
             connection.target = JsonReader.string_member(object, "target");
             connection.target_host = JsonReader.string_member(object, "target_host");
             connection.target_port = JsonReader.string_member(object, "target_port");

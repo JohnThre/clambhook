@@ -71,9 +71,26 @@ class DashboardRepositoryTest {
         assertEquals(3, api.statusCalls)
         assertEquals(3, api.profileCalls)
         assertEquals(3, api.serverCalls)
+        assertEquals(3, api.ruleCalls)
         assertEquals(3, api.trafficCalls)
         assertNull(repository.state.value.actionInProgress)
         assertEquals("", repository.state.value.pendingProfile)
+    }
+
+    @Test
+    fun createRuleRefreshesDashboardAfterSuccess() = runBlocking {
+        val api = FakeApi()
+        val repository = DashboardRepository(api)
+
+        repository.createRule(RulePayload(
+            name = "block-example-com",
+            action = "block",
+            domains = listOf("example.com")
+        ))
+
+        assertEquals(listOf("rule:block-example-com"), api.actions)
+        assertEquals(1, api.ruleCalls)
+        assertEquals("block-example-com", repository.state.value.rules.rules.single().name)
     }
 
     @Test
@@ -117,6 +134,7 @@ private class FakeApi(
     private val status: StatusPayload = StatusPayload(),
     private val profiles: ProfilesPayload = ProfilesPayload(profiles = listOf("A", "B"), active = "A"),
     private val servers: ServersPayload = ServersPayload(profile = "A"),
+    private var rules: RulesPayload = RulesPayload(profile = "A"),
     private val traffic: TrafficSnapshotPayload = TrafficSnapshotPayload(),
     private val error: Throwable? = null
 ) : ClambhookApi {
@@ -124,6 +142,7 @@ private class FakeApi(
     var statusCalls = 0
     var profileCalls = 0
     var serverCalls = 0
+    var ruleCalls = 0
     var trafficCalls = 0
 
     override suspend fun status(): StatusPayload {
@@ -144,6 +163,12 @@ private class FakeApi(
         return servers
     }
 
+    override suspend fun rules(): RulesPayload {
+        ruleCalls += 1
+        error?.let { throw it }
+        return rules
+    }
+
     override suspend fun traffic(): TrafficSnapshotPayload {
         trafficCalls += 1
         error?.let { throw it }
@@ -160,5 +185,11 @@ private class FakeApi(
 
     override suspend fun setActiveProfile(name: String) {
         actions += "profile:$name"
+    }
+
+    override suspend fun createRule(rule: RulePayload): RulesPayload {
+        actions += "rule:${rule.name}"
+        rules = RulesPayload(profile = "A", rules = listOf(rule))
+        return rules
     }
 }

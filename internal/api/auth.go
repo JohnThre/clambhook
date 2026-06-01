@@ -19,6 +19,9 @@ type Options struct {
 
 	// TrafficStore enables the /api/v1/traffic snapshot endpoint when non-nil.
 	TrafficStore *traffic.Store
+
+	// ConfigPath enables API routes that persist changes to the daemon config.
+	ConfigPath string
 }
 
 // ValidateAuthConfig rejects exposing an unauthenticated control API on

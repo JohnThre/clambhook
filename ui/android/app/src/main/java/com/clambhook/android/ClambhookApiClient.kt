@@ -17,10 +17,12 @@ interface ClambhookApi {
     suspend fun status(): StatusPayload
     suspend fun profiles(): ProfilesPayload
     suspend fun servers(): ServersPayload
+    suspend fun rules(): RulesPayload
     suspend fun traffic(): TrafficSnapshotPayload
     suspend fun connect()
     suspend fun disconnect()
     suspend fun setActiveProfile(name: String)
+    suspend fun createRule(rule: RulePayload): RulesPayload
 }
 
 class ApiHttpException(
@@ -45,6 +47,9 @@ class ClambhookApiClient(
     override suspend fun servers(): ServersPayload =
         ApiJson.decodeFromString(send("GET", "/api/v1/servers"))
 
+    override suspend fun rules(): RulesPayload =
+        ApiJson.decodeFromString(send("GET", "/api/v1/rules"))
+
     override suspend fun traffic(): TrafficSnapshotPayload =
         ApiJson.decodeFromString(send("GET", "/api/v1/traffic?limit=200"))
 
@@ -60,6 +65,11 @@ class ClambhookApiClient(
         send("PUT", "/api/v1/profiles/active", ApiJson.encodeToString(mapOf("name" to name)))
     }
 
+    override suspend fun createRule(rule: RulePayload): RulesPayload =
+        ApiJson.decodeFromString(
+            send("POST", "/api/v1/rules", ApiJson.encodeToString(CreateRuleRequest(rule)))
+        )
+
     fun eventsUrl(): String {
         val scheme = when {
             baseUrl.startsWith("https://") -> "wss://"
@@ -70,7 +80,7 @@ class ClambhookApiClient(
             .removePrefix("https://")
             .removePrefix("http://")
             .trimEnd('/')
-        return "$scheme$hostAndPath/api/v1/events?types=connection.*,log.*"
+        return "$scheme$hostAndPath/api/v1/events?types=connection.*,rule.*,hop.*,log.*"
     }
 
     fun eventsRequest(): Request =

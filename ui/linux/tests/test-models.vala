@@ -65,7 +65,7 @@ namespace Clambhook.Tests {
                 }
             """);
 
-            assert_cmpstr(event.type, CompareOperator.EQ, "connection.bytes");
+            assert_cmpstr(event.event_type, CompareOperator.EQ, "connection.bytes");
             assert_cmpfloat(event.double_data("rx_delta"), CompareOperator.EQ, 2048);
             assert_cmpfloat(event.double_data("tx_delta"), CompareOperator.EQ, 1024);
             assert_cmpstr(event.string_data("line"), CompareOperator.EQ, "ready");

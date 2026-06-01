@@ -40,6 +40,10 @@ class DashboardViewModel(
         viewModelScope.launch { repository.setActiveProfile(name) }
     }
 
+    fun createRule(rule: RulePayload) {
+        viewModelScope.launch { repository.createRule(rule) }
+    }
+
     fun startPolling(intervalSeconds: Int) {
         pollingJob?.cancel()
         pollingJob = viewModelScope.launch {
@@ -62,7 +66,9 @@ class DashboardViewModel(
         webSocket = apiClient.openEventStream(
             onEvent = { event ->
                 repository.setEventStreamState("Events listening")
-                repository.applyEvent(event)
+                if (repository.applyEvent(event)) {
+                    viewModelScope.launch { repository.refreshStatus() }
+                }
             },
             onFailure = { error ->
                 val message = error.message ?: error.toString()
