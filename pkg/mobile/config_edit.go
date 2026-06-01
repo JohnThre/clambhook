@@ -110,7 +110,9 @@ type createTunnelProfileRequest struct {
 // sets it active. requestJSON encodes createTunnelProfileRequest.
 func CreateTunnelProfileConfigJSON(configPath, requestJSON string) error {
 	var req createTunnelProfileRequest
-	if err := json.Unmarshal([]byte(requestJSON), &req); err != nil {
+	decoder := json.NewDecoder(strings.NewReader(requestJSON))
+	decoder.UseNumber()
+	if err := decoder.Decode(&req); err != nil {
 		return fmt.Errorf("parse profile request: %w", err)
 	}
 	req = req.normalized()
@@ -121,6 +123,7 @@ func CreateTunnelProfileConfigJSON(configPath, requestJSON string) error {
 		}
 		req.Settings = settings
 	}
+	req.Settings = normalizeJSONSettingsMap(req.Settings)
 
 	cfg, err := loadTunnelConfig(configPath)
 	if err != nil {
@@ -216,6 +219,41 @@ func parseSettingsTOML(raw string) (map[string]any, error) {
 		return nil, fmt.Errorf("parse server settings: %w", err)
 	}
 	return settings, nil
+}
+
+func normalizeJSONSettingsMap(settings map[string]any) map[string]any {
+	if settings == nil {
+		return nil
+	}
+	normalized, _ := normalizeJSONSettings(settings).(map[string]any)
+	return normalized
+}
+
+func normalizeJSONSettings(value any) any {
+	switch v := value.(type) {
+	case map[string]any:
+		out := make(map[string]any, len(v))
+		for key, nested := range v {
+			out[key] = normalizeJSONSettings(nested)
+		}
+		return out
+	case []any:
+		out := make([]any, len(v))
+		for i, nested := range v {
+			out[i] = normalizeJSONSettings(nested)
+		}
+		return out
+	case json.Number:
+		if i, err := v.Int64(); err == nil {
+			return i
+		}
+		if f, err := v.Float64(); err == nil {
+			return f
+		}
+		return string(v)
+	default:
+		return v
+	}
 }
 
 func selectProfileForEdit(cfg *config.Config, profileName string) *config.Profile {
