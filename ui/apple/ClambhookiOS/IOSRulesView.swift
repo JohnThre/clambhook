@@ -3,7 +3,8 @@ import SwiftUI
 
 struct IOSRulesView: View {
     @ObservedObject var model: AppleAppModel
-    @State private var rules: [RulePayload] = []
+    @State private var rows: [RuleEditorRow] = []
+    @State private var validationErrors: [RuleEditorValidationError] = []
     @State private var message = ""
     @State private var loaded = false
 
@@ -24,19 +25,33 @@ struct IOSRulesView: View {
                 }
             }
 
-            Section {
-                if rules.isEmpty {
+            Section("Rules") {
+                if rows.isEmpty {
                     IOSInlineEmptyState(text: "No routing rules.", systemImage: "checklist")
                 } else {
-                    ForEach(rules.indices, id: \.self) { index in
+                    ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
                         NavigationLink {
-                            IOSRuleFormView(rule: $rules[index], chainNames: chainNames)
+                            IOSRuleFormView(
+                                row: binding(for: row.id),
+                                chainNames: chainNames,
+                                rowNumber: index + 1
+                            )
                         } label: {
-                            IOSRuleDraftRow(rule: rules[index])
+                            IOSRuleDraftRow(
+                                row: row,
+                                order: index + 1,
+                                error: firstError(for: index)
+                            )
                         }
                     }
-                    .onDelete { rules.remove(atOffsets: $0) }
-                    .onMove { rules.move(fromOffsets: $0, toOffset: $1) }
+                    .onDelete { offsets in
+                        rows.remove(atOffsets: offsets)
+                        validationErrors = []
+                    }
+                    .onMove { offsets, destination in
+                        rows.move(fromOffsets: offsets, toOffset: destination)
+                        validationErrors = RuleEditor.validate(rows: rows, chainNames: chainNames)
+                    }
                 }
             }
 
@@ -44,7 +59,7 @@ struct IOSRulesView: View {
                 Section("Status") {
                     Text(message)
                         .font(.footnote)
-                        .foregroundStyle(.secondary)
+                        .foregroundColor(validationErrors.isEmpty ? Color.secondary : Color.red)
                 }
             }
         }
@@ -66,19 +81,19 @@ struct IOSRulesView: View {
                 .disabled(model.dashboard.activeProfile.isEmpty)
             }
             ToolbarItem(placement: .topBarTrailing) {
-                if !rules.isEmpty {
+                if !rows.isEmpty {
                     EditButton()
                 }
             }
         }
         .onAppear {
             if !loaded {
-                rules = model.dashboard.rules.rules
+                loadRowsFromDashboard()
                 loaded = true
             }
         }
         .onChange(of: model.dashboard.activeProfile) { _, _ in
-            rules = model.dashboard.rules.rules
+            loadRowsFromDashboard()
             loaded = true
             message = ""
         }
@@ -88,114 +103,201 @@ struct IOSRulesView: View {
         model.dashboard.servers.chains.map(\.name)
     }
 
+    private func binding(for id: RuleEditorRow.ID) -> Binding<RuleEditorRow> {
+        Binding {
+            rows.first(where: { $0.id == id }) ?? RuleEditorRow(name: "", matcherKind: .domainSuffix)
+        } set: { next in
+            if let index = rows.firstIndex(where: { $0.id == id }) {
+                rows[index] = next
+                validationErrors = []
+            }
+        }
+    }
+
+    private func firstError(for index: Int) -> RuleEditorValidationError? {
+        validationErrors.first { $0.rowIndex == index }
+    }
+
+    private func loadRowsFromDashboard() {
+        rows = RuleEditor.rows(from: model.dashboard.rules.rules)
+        validationErrors = []
+    }
+
     private func saveRules() {
         do {
-            try model.replaceActiveProfileRules(rules)
+            let nextRules = try RuleEditor.rules(from: rows, chainNames: chainNames)
+            try model.replaceActiveProfileRules(nextRules)
+            rows = RuleEditor.rows(from: nextRules)
+            validationErrors = []
             message = "Applied rules."
+        } catch let failure as RuleEditorValidationFailure {
+            validationErrors = failure.errors
+            message = failure.localizedDescription
         } catch {
+            validationErrors = []
             message = error.localizedDescription
         }
     }
 
     private func addRule() {
-        rules.append(RulePayload(name: "new-rule", action: "block"))
+        rows.append(
+            RuleEditorRow(
+                name: "new-rule",
+                matcherKind: .domainSuffix,
+                policyKind: .proxy,
+                chainName: chainNames.first ?? ""
+            )
+        )
+        validationErrors = []
     }
 }
 
 private struct IOSRuleDraftRow: View {
-    var rule: RulePayload
+    var row: RuleEditorRow
+    var order: Int
+    var error: RuleEditorValidationError?
 
     var body: some View {
-        HStack(spacing: 12) {
-            IOSActionChip(action: rule.action)
-            VStack(alignment: .leading, spacing: 3) {
-                Text(emptyDash(rule.name))
+        HStack(alignment: .top, spacing: 12) {
+            Text("\(order)")
+                .font(.caption.monospacedDigit().weight(.semibold))
+                .foregroundStyle(.secondary)
+                .frame(width: 24, alignment: .trailing)
+                .padding(.top, 3)
+
+            IOSActionChip(action: row.encodedAction)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(emptyDash(row.name))
                     .font(.body.weight(.medium))
                     .lineLimit(1)
-                Text(ruleSummary)
+                Text(rowSubtitle)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
+                if let error {
+                    Label(error.message, systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                        .lineLimit(2)
+                }
             }
         }
+        .padding(.vertical, 2)
     }
 
-    private var ruleSummary: String {
-        var parts: [String] = []
-        parts.append(rule.action)
-        parts.append(contentsOf: rule.domains.prefix(2))
-        parts.append(contentsOf: rule.domainSuffixes.prefix(2).map { "*.\($0)" })
-        parts.append(contentsOf: rule.cidrs.prefix(2))
-        if !rule.ports.isEmpty {
-            parts.append(rule.ports.map(String.init).joined(separator: ","))
-        }
-        return parts.filter { !$0.isEmpty }.joined(separator: " / ")
+    private var rowSubtitle: String {
+        [row.matcherKind.displayName, row.matcherSummary, row.policySummary]
+            .filter { !$0.isEmpty }
+            .joined(separator: " / ")
     }
 }
 
 private struct IOSRuleFormView: View {
-    @Binding var rule: RulePayload
+    @Binding var row: RuleEditorRow
     var chainNames: [String]
+    var rowNumber: Int
 
     var body: some View {
         Form {
             Section("Rule") {
-                TextField("Name", text: $rule.name)
+                LabeledContent("Order", value: "\(rowNumber)")
+                TextField("Name", text: $row.name)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
-                Picker("Action", selection: $rule.action) {
-                    Text("Block").tag("block")
-                    Text("Reject").tag("reject")
-                    Text("Direct").tag("direct")
-                    ForEach(chainNames, id: \.self) { chain in
-                        Text("Proxy: \(chain)").tag("chain:\(chain)")
+                Picker("Matcher", selection: matcherKindBinding) {
+                    ForEach(RuleMatcherKind.editableCases) { kind in
+                        Text(kind.displayName).tag(kind)
+                    }
+                    if row.matcherKind == .combined {
+                        Text(RuleMatcherKind.combined.displayName).tag(RuleMatcherKind.combined)
                     }
                 }
+                .disabled(row.matcherKind == .combined)
+                matcherValueControl
             }
 
-            Section("Matchers") {
-                IOSCSVField(title: "Domains", values: $rule.domains)
-                IOSCSVField(title: "Suffixes", values: $rule.domainSuffixes)
-                IOSCSVField(title: "Keywords", values: $rule.domainKeywords)
-                IOSCSVField(title: "CIDRs", values: $rule.cidrs)
-                IOSPortsField(ports: $rule.ports)
-                IOSCSVField(title: "Networks", values: $rule.networks)
+            Section("Policy") {
+                Picker("Action", selection: $row.policyKind) {
+                    ForEach(RulePolicyKind.allCases) { policy in
+                        Text(policy.displayName).tag(policy)
+                    }
+                }
+                if row.policyKind == .proxy {
+                    Picker("Chain", selection: $row.chainName) {
+                        if chainNames.isEmpty {
+                            Text("No chains").tag("")
+                        }
+                        ForEach(chainNames, id: \.self) { chain in
+                            Text(chain).tag(chain)
+                        }
+                    }
+                    .disabled(chainNames.isEmpty)
+                }
             }
         }
-        .navigationTitle(rule.name.isEmpty ? "Rule" : rule.name)
+        .navigationTitle(row.name.isEmpty ? "Rule" : row.name)
         .navigationBarTitleDisplayMode(.inline)
-    }
-}
-
-private struct IOSCSVField: View {
-    var title: String
-    @Binding var values: [String]
-
-    var body: some View {
-        TextField(title, text: Binding(
-            get: { values.joined(separator: ", ") },
-            set: { raw in
-                values = raw.split(separator: ",")
-                    .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                    .filter { !$0.isEmpty }
+        .onChange(of: row.matcherKind) { _, next in
+            switch next {
+            case .allTraffic:
+                row.value = ""
+                row.compatibilityRule = nil
+            case .network:
+                if row.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    row.value = "tcp"
+                }
+                row.compatibilityRule = nil
+            case .domain, .domainSuffix, .domainKeyword, .cidr, .port:
+                row.compatibilityRule = nil
+            case .combined:
+                break
             }
-        ))
-        .textInputAutocapitalization(.never)
-        .autocorrectionDisabled()
+        }
     }
-}
 
-private struct IOSPortsField: View {
-    @Binding var ports: [Int]
+    private var matcherKindBinding: Binding<RuleMatcherKind> {
+        Binding {
+            row.matcherKind
+        } set: { next in
+            row.matcherKind = next
+        }
+    }
 
-    var body: some View {
-        TextField("Ports", text: Binding(
-            get: { ports.map(String.init).joined(separator: ", ") },
-            set: { raw in
-                ports = raw.split(separator: ",")
-                    .compactMap { Int($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
+    @ViewBuilder
+    private var matcherValueControl: some View {
+        switch row.matcherKind {
+        case .allTraffic:
+            LabeledContent("Value", value: "All traffic")
+        case .combined:
+            LabeledContent("Value", value: row.matcherSummary)
+        case .network:
+            Picker("Value", selection: networkValueBinding) {
+                Text("TCP").tag("tcp")
+                Text("UDP").tag("udp")
             }
-        ))
-        .keyboardType(.numbersAndPunctuation)
+        case .port:
+            TextField(row.matcherKind.valueLabel, text: $row.value)
+                .keyboardType(.numberPad)
+        case .cidr:
+            TextField(row.matcherKind.valueLabel, text: $row.value, prompt: Text(row.matcherKind.placeholder))
+                .keyboardType(.numbersAndPunctuation)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+        case .domain, .domainSuffix, .domainKeyword:
+            TextField(row.matcherKind.valueLabel, text: $row.value, prompt: Text(row.matcherKind.placeholder))
+                .keyboardType(.URL)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+        }
+    }
+
+    private var networkValueBinding: Binding<String> {
+        Binding {
+            let value = row.value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            return value.isEmpty ? "tcp" : value
+        } set: { next in
+            row.value = next
+        }
     }
 }
