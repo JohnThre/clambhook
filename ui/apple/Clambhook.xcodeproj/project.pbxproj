@@ -42,6 +42,7 @@
 		CD678728E23EB80BCC915957 /* ClambhookWidgetBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E7E93A4404814358F6C95DB /* ClambhookWidgetBundle.swift */; };
 		CFCCC4198754EEF5353DF9EA /* SettingsViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11D3A8B6CD3A6119053C8908 /* SettingsViews.swift */; };
 		E20BEBC7404594F87E09BDF7 /* SettingsViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11D3A8B6CD3A6119053C8908 /* SettingsViews.swift */; };
+		E3AC92B579EB3A66A59300D5 /* ClambhookMobile.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 12F5B3C049819652D51B60F7 /* ClambhookMobile.xcframework */; };
 		F661F1DFCEA4AEC664607E3A /* ClambhookShared in Frameworks */ = {isa = PBXBuildFile; productRef = 486535E4136EE4440DE8CBCE /* ClambhookShared */; };
 		F87E277DD4DAAE72743F3DA6 /* ClambhookShared in Frameworks */ = {isa = PBXBuildFile; productRef = 17ABE50C62B10E6EB5160225 /* ClambhookShared */; };
 		FBFCE712E8587F9F09400640 /* ClambhookPacketTunnel.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 381D40C9B488F22288A2D561 /* ClambhookPacketTunnel.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
@@ -182,6 +183,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				268981E5A647A406B2EC65F8 /* ClambhookShared in Frameworks */,
+				E3AC92B579EB3A66A59300D5 /* ClambhookMobile.xcframework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -844,6 +846,10 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = ClambhookWidgets/ClambhookiOSWidgetExtension.entitlements;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(PROJECT_DIR)/Frameworks $(PROJECT_DIR)/Frameworks/**",
+					"\"Frameworks\"",
+				);
 				INFOPLIST_FILE = ClambhookWidgets/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -943,6 +949,10 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = ClambhookWidgets/ClambhookiOSWidgetExtension.entitlements;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(PROJECT_DIR)/Frameworks $(PROJECT_DIR)/Frameworks/**",
+					"\"Frameworks\"",
+				);
 				INFOPLIST_FILE = ClambhookWidgets/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",

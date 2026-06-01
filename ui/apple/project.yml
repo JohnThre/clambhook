@@ -117,10 +117,13 @@ targets:
       - path: ClambhookWidgets
     dependencies:
       - package: ClambhookShared
+      - framework: Frameworks/ClambhookMobile.xcframework
+        embed: false
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: org.jpfchang.clambhook.widgets
         INFOPLIST_FILE: ClambhookWidgets/Info.plist
         CODE_SIGN_ENTITLEMENTS: ClambhookWidgets/ClambhookiOSWidgetExtension.entitlements
+        FRAMEWORK_SEARCH_PATHS: "$(PROJECT_DIR)/Frameworks $(PROJECT_DIR)/Frameworks/**"
         TARGETED_DEVICE_FAMILY: 1
         SKIP_INSTALL: YES
