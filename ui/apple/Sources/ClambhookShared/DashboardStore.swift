@@ -122,7 +122,10 @@ public final class DashboardStore: ObservableObject {
         case "log.line":
             applyLogLine(event)
         default:
-            break
+            if event.type.hasPrefix("connection.") || event.type.hasPrefix("rule.") || event.type.hasPrefix("hop.") {
+                await refreshStatus()
+                return
+            }
         }
         await persistSnapshot()
     }

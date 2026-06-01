@@ -1,3 +1,5 @@
+//go:build unix
+
 package main
 
 import (
@@ -86,12 +88,17 @@ type trafficConnectionPayload struct {
 	Listener    listenerInfo    `json:"listener"`
 	ClientAddr  string          `json:"client_addr,omitempty"`
 	ChainName   string          `json:"chain_name,omitempty"`
+	RuleName    string          `json:"rule_name,omitempty"`
+	RuleAction  string          `json:"rule_action,omitempty"`
+	DecisionNs  int64           `json:"decision_ns,omitempty"`
 	Target      string          `json:"target,omitempty"`
 	TargetHost  string          `json:"target_host,omitempty"`
 	TargetPort  string          `json:"target_port,omitempty"`
 	Network     string          `json:"network,omitempty"`
 	Application string          `json:"application,omitempty"`
 	Hops        []trafficHop    `json:"hops,omitempty"`
+	Timeline    []timelineEvent `json:"timeline,omitempty"`
+	Visibility  *visibilityInfo `json:"visibility,omitempty"`
 	Geo         locationPayload `json:"geo"`
 	GeoError    string          `json:"geo_error,omitempty"`
 	TotalDialNs int64           `json:"total_dial_ns,omitempty"`
@@ -103,9 +110,43 @@ type trafficConnectionPayload struct {
 	CloseReason string          `json:"close_reason,omitempty"`
 }
 
+type rulePayload struct {
+	Name           string   `json:"name"`
+	Action         string   `json:"action"`
+	Domains        []string `json:"domains,omitempty"`
+	DomainSuffixes []string `json:"domain_suffixes,omitempty"`
+	DomainKeywords []string `json:"domain_keywords,omitempty"`
+	CIDRs          []string `json:"cidrs,omitempty"`
+	Ports          []int    `json:"ports,omitempty"`
+	Networks       []string `json:"networks,omitempty"`
+}
+
+type createRuleRequest struct {
+	Profile  string      `json:"profile,omitempty"`
+	Rule     rulePayload `json:"rule"`
+	Position string      `json:"position,omitempty"`
+}
+
 type listenerInfo struct {
 	Protocol string `json:"protocol"`
 	Addr     string `json:"addr"`
+}
+
+type visibilityInfo struct {
+	Kind      string `json:"kind,omitempty"`
+	Method    string `json:"method,omitempty"`
+	Scheme    string `json:"scheme,omitempty"`
+	Host      string `json:"host,omitempty"`
+	Port      string `json:"port,omitempty"`
+	Path      string `json:"path,omitempty"`
+	QueryType string `json:"query_type,omitempty"`
+}
+
+type timelineEvent struct {
+	TsNs   int64  `json:"ts_ns"`
+	Type   string `json:"type"`
+	Title  string `json:"title"`
+	Detail string `json:"detail,omitempty"`
 }
 
 type trafficHop struct {
@@ -182,8 +223,19 @@ func (c apiClient) setActiveProfile(name string) error {
 	return c.doNoBody(http.MethodPut, "/api/v1/profiles/active", bytes.NewReader(body))
 }
 
+func (c apiClient) createRule(rule rulePayload) error {
+	body, err := json.Marshal(createRuleRequest{
+		Rule:     rule,
+		Position: "append",
+	})
+	if err != nil {
+		return err
+	}
+	return c.doNoBody(http.MethodPost, "/api/v1/rules", bytes.NewReader(body))
+}
+
 func (c apiClient) eventsURL() string {
-	return c.wsBaseURL + "/api/v1/events?types=connection.*,log.*"
+	return c.wsBaseURL + "/api/v1/events?types=connection.*,rule.*,hop.*,log.*"
 }
 
 func (c apiClient) getJSON(path string, out any) error {

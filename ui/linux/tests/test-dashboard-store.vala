@@ -3,6 +3,7 @@ namespace Clambhook.Tests {
         public StatusPayload status_payload = new StatusPayload();
         public ProfilesPayload profiles_payload = new ProfilesPayload();
         public ServersPayload servers_payload = new ServersPayload();
+        public RulesPayload rules_payload = new RulesPayload();
         public TrafficSnapshotPayload traffic_payload = new TrafficSnapshotPayload();
         public Gee.ArrayList<string> actions = new Gee.ArrayList<string>();
 
@@ -18,20 +19,30 @@ namespace Clambhook.Tests {
             return servers_payload;
         }
 
+        public async RulesPayload rules() throws Error {
+            return rules_payload;
+        }
+
         public async TrafficSnapshotPayload traffic() throws Error {
             return traffic_payload;
         }
 
-        public async void connect() throws Error {
+        public new async void connect() throws Error {
             actions.add("connect");
         }
 
-        public async void disconnect() throws Error {
+        public new async void disconnect() throws Error {
             actions.add("disconnect");
         }
 
         public async void set_active_profile(string name) throws Error {
             actions.add("profile:%s".printf(name));
+        }
+
+        public async RulesPayload create_rule(RulePayload rule) throws Error {
+            actions.add("rule:%s".printf(rule.name));
+            rules_payload.rules.add(rule);
+            return rules_payload;
         }
     }
 
@@ -41,21 +52,19 @@ namespace Clambhook.Tests {
             api.status_payload = StatusPayload.from_json("""{"running":true,"profile":"A","listeners":[{"protocol":"socks5","addr":"127.0.0.1:1080","active_conns":3}]}""");
             api.profiles_payload = ProfilesPayload.from_json("""{"profiles":["A","B"],"active":"A"}""");
             api.servers_payload = ServersPayload.from_json("""{"profile":"A","chains":[{"name":"default","servers":[{"name":"london","address":"uk.example:443","protocol":"clambback"}]}]}""");
+            api.rules_payload = RulesPayload.from_json("""{"profile":"A","rules":[{"name":"ads","action":"block","domains":["ads.example.com"]}]}""");
             api.traffic_payload = TrafficSnapshotPayload.from_json("""{"summary":{"active_connections":1,"rx_bps":2048},"connections":[{"conn_id":"c1","state":"active","target":"example.com:443"}]}""");
 
             var store = new DashboardStore(api);
             store.refresh_dashboard.begin((obj, res) => {
-                try {
-                    store.refresh_dashboard.end(res);
-                    assert_true(store.status.running);
-                    assert_cmpint(store.active_connections(), CompareOperator.EQ, 3);
-                    assert_cmpstr(store.profiles.profiles[1], CompareOperator.EQ, "B");
-                    assert_cmpstr(store.servers.chains[0].servers[0].name, CompareOperator.EQ, "london");
-                    assert_cmpstr(store.traffic.connections[0].target, CompareOperator.EQ, "example.com:443");
-                    Test.message("dashboard refresh completed");
-                } catch (Error err) {
-                    assert_not_reached();
-                }
+                store.refresh_dashboard.end(res);
+                assert_true(store.status.running);
+                assert_cmpint(store.active_connections(), CompareOperator.EQ, 3);
+                assert_cmpstr(store.profiles.profiles[1], CompareOperator.EQ, "B");
+                assert_cmpstr(store.servers.chains[0].servers[0].name, CompareOperator.EQ, "london");
+                assert_cmpstr(store.rules.rules[0].name, CompareOperator.EQ, "ads");
+                assert_cmpstr(store.traffic.connections[0].target, CompareOperator.EQ, "example.com:443");
+                Test.message("dashboard refresh completed");
             });
             MainContext.default().iteration(true);
         });
@@ -103,31 +112,38 @@ namespace Clambhook.Tests {
             var store = new DashboardStore(api);
 
             store.connect.begin((obj, res) => {
-                try {
-                    store.connect.end(res);
-                    store.disconnect.begin((obj2, res2) => {
-                        try {
-                            store.disconnect.end(res2);
-                            store.set_active_profile.begin("B", (obj3, res3) => {
-                                try {
-                                    store.set_active_profile.end(res3);
-                                    assert_cmpstr(api.actions[0], CompareOperator.EQ, "connect");
-                                    assert_cmpstr(api.actions[1], CompareOperator.EQ, "disconnect");
-                                    assert_cmpstr(api.actions[2], CompareOperator.EQ, "profile:B");
-                                } catch (Error err) {
-                                    assert_not_reached();
-                                }
-                            });
-                        } catch (Error err) {
-                            assert_not_reached();
-                        }
+                store.connect.end(res);
+                store.disconnect.begin((obj2, res2) => {
+                    store.disconnect.end(res2);
+                    store.set_active_profile.begin("B", (obj3, res3) => {
+                        store.set_active_profile.end(res3);
+                        assert_cmpstr(api.actions[0], CompareOperator.EQ, "connect");
+                        assert_cmpstr(api.actions[1], CompareOperator.EQ, "disconnect");
+                        assert_cmpstr(api.actions[2], CompareOperator.EQ, "profile:B");
                     });
-                } catch (Error err) {
-                    assert_not_reached();
-                }
+                });
             });
 
             for (int i = 0; i < 6; i++) {
+                MainContext.default().iteration(true);
+            }
+        });
+
+        Test.add_func("/linux/dashboard-store/create-rule-refreshes-dashboard", () => {
+            var api = new FakeApi();
+            var store = new DashboardStore(api);
+            var rule = new RulePayload();
+            rule.name = "block-example-com";
+            rule.action = "block";
+            rule.domains.add("example.com");
+
+            store.create_rule.begin(rule, (obj, res) => {
+                store.create_rule.end(res);
+                assert_cmpstr(api.actions[0], CompareOperator.EQ, "rule:block-example-com");
+                assert_cmpstr(store.rules.rules[0].name, CompareOperator.EQ, "block-example-com");
+            });
+
+            for (int i = 0; i < 4; i++) {
                 MainContext.default().iteration(true);
             }
         });

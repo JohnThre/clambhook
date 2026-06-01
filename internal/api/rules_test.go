@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -11,6 +12,7 @@ import (
 	"github.com/JohnThre/clambhook/internal/config"
 	"github.com/JohnThre/clambhook/internal/engine"
 	"github.com/JohnThre/clambhook/internal/events"
+	_ "github.com/JohnThre/clambhook/internal/protocol/tor"
 	"github.com/JohnThre/clambhook/internal/traffic"
 )
 
@@ -80,5 +82,103 @@ func TestDecisionsEndpointReturnsRuleDecisions(t *testing.T) {
 	}
 	if len(resp.Decisions) != 1 || resp.Decisions[0].RuleName != "ads" || resp.Decisions[0].RuleAction != "block" {
 		t.Fatalf("decisions response = %+v", resp.Decisions)
+	}
+}
+
+func TestCreateRulePersistsConfigWithBackupAndReloads(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "clambhook.toml")
+	cfg := testRuleCreateConfig()
+	if _, err := config.WriteAtomicWithBackup(path, cfg); err != nil {
+		t.Fatalf("write initial config: %v", err)
+	}
+	srv := NewWithOptions(engine.New(cfg, nil), nil, Options{ConfigPath: path})
+	body := []byte(`{"rule":{"name":"ads","action":"block","domains":["ads.example.com"]}}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/rules", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+
+	srv.server.Handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%q, want 200", rec.Code, rec.Body.String())
+	}
+	var resp struct {
+		Profile    string              `json:"profile"`
+		Rules      []config.RuleConfig `json:"rules"`
+		BackupPath string              `json:"backup_path"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp.Profile != "A" || len(resp.Rules) != 1 || resp.Rules[0].Name != "ads" {
+		t.Fatalf("response = %+v", resp)
+	}
+	if resp.BackupPath == "" {
+		t.Fatalf("backup_path empty in response %+v", resp)
+	}
+	if _, err := config.Load(resp.BackupPath); err != nil {
+		t.Fatalf("backup config not readable: %v", err)
+	}
+	reloaded, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("load persisted config: %v", err)
+	}
+	profile, err := reloaded.ActiveProfile()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(profile.Rules) != 1 || profile.Rules[0].Domains[0] != "ads.example.com" {
+		t.Fatalf("persisted rules = %+v", profile.Rules)
+	}
+	if got := srv.engine.Config().Profiles[0].Rules; len(got) != 1 || got[0].Name != "ads" {
+		t.Fatalf("engine rules after reload = %+v", got)
+	}
+}
+
+func TestCreateRuleRequiresConfigPath(t *testing.T) {
+	srv := NewWithOptions(engine.New(testRuleCreateConfig(), nil), nil, Options{})
+	body := []byte(`{"rule":{"name":"ads","action":"block","domains":["ads.example.com"]}}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/rules", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+
+	srv.server.Handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d body=%q, want 409", rec.Code, rec.Body.String())
+	}
+}
+
+func TestCreateRuleRejectsInvalidRule(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "clambhook.toml")
+	cfg := testRuleCreateConfig()
+	if _, err := config.WriteAtomicWithBackup(path, cfg); err != nil {
+		t.Fatalf("write initial config: %v", err)
+	}
+	srv := NewWithOptions(engine.New(cfg, nil), nil, Options{ConfigPath: path})
+	body := []byte(`{"rule":{"name":"bad","action":"chain:missing","domains":["example.com"]}}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/rules", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+
+	srv.server.Handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d body=%q, want 400", rec.Code, rec.Body.String())
+	}
+}
+
+func testRuleCreateConfig() *config.Config {
+	return &config.Config{
+		Active: "A",
+		Profiles: []config.Profile{{
+			Name: "A",
+			Chains: []config.ChainConfig{{
+				Name: "proxy",
+				Servers: []config.ServerConfig{{
+					Name:     "tor",
+					Address:  "127.0.0.1:9050",
+					Protocol: "tor",
+				}},
+			}},
+		}},
+		Traffic: config.DefaultTrafficConfig(),
 	}
 }

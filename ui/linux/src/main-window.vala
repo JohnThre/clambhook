@@ -1,3 +1,5 @@
+using Gtk;
+
 namespace Clambhook {
     public class MainWindow : Adw.ApplicationWindow {
         private DashboardStore store;
@@ -17,7 +19,9 @@ namespace Clambhook {
         private Label connections_label;
         private Label bandwidth_label;
         private Label traffic_label;
-        private ComboBoxText profile_combo;
+        private DropDown profile_combo;
+        private StringList profile_model;
+        private bool updating_profiles = false;
         private Button connect_button;
         private Button disconnect_button;
         private Button daemon_button;
@@ -25,6 +29,8 @@ namespace Clambhook {
         private ListBox servers_list;
         private ListBox traffic_list;
         private ListBox logs_list;
+        private SearchEntry traffic_search;
+        private DropDown traffic_filter;
         private uint refresh_source = 0;
         private uint event_reconnect_source = 0;
         private bool closing = false;
@@ -124,8 +130,35 @@ namespace Clambhook {
             content.append(lists);
 
             content.append(wrap_list("Recent logs", out logs_list));
-            content.append(wrap_list("Traffic", out traffic_list));
+            content.append(build_traffic_monitor());
             return content;
+        }
+
+        private Widget build_traffic_monitor() {
+            var box = new Box(Orientation.VERTICAL, 8);
+            var heading = new Label("Traffic Monitor");
+            heading.xalign = 0;
+            heading.add_css_class("heading");
+
+            var controls = new Box(Orientation.HORIZONTAL, 8);
+            traffic_filter = new DropDown(traffic_filter_model(), null);
+            traffic_filter.selected = 0;
+            traffic_filter.notify["selected"].connect(render_traffic);
+            traffic_search = new SearchEntry();
+            traffic_search.placeholder_text = "Search hosts, rules, chains";
+            traffic_search.hexpand = true;
+            traffic_search.search_changed.connect(render_traffic);
+            controls.append(traffic_filter);
+            controls.append(traffic_search);
+
+            traffic_list = new ListBox();
+            traffic_list.selection_mode = SelectionMode.NONE;
+            var frame = new Frame(null);
+            frame.set_child(traffic_list);
+            box.append(heading);
+            box.append(controls);
+            box.append(frame);
+            return box;
         }
 
         private Widget build_status_panel() {
@@ -168,9 +201,13 @@ namespace Clambhook {
             grid.attach(error_label, 0, 7, 3, 1);
             grid.attach(daemon_message_label, 0, 8, 3, 1);
 
-            profile_combo = new ComboBoxText();
-            profile_combo.changed.connect(() => {
-                var profile = profile_combo.get_active_text();
+            profile_model = new StringList(null);
+            profile_combo = new DropDown(profile_model, null);
+            profile_combo.notify["selected"].connect(() => {
+                if (updating_profiles || profile_combo.selected == Gtk.INVALID_LIST_POSITION) {
+                    return;
+                }
+                var profile = profile_model.get_string(profile_combo.selected);
                 if (profile != null && profile != "") {
                     store.set_active_profile.begin(profile);
                 }
@@ -265,19 +302,22 @@ namespace Clambhook {
         }
 
         private void render_profiles() {
-            profile_combo.remove_all();
+            updating_profiles = true;
+            profile_model = new StringList(null);
             var active = store.active_profile();
-            var active_index = 0;
+            uint active_index = 0;
             for (int i = 0; i < store.profiles.profiles.size; i++) {
                 var profile = store.profiles.profiles[i];
-                profile_combo.append_text(profile);
+                profile_model.append(profile);
                 if (profile == active) {
-                    active_index = i;
+                    active_index = (uint) i;
                 }
             }
+            profile_combo.set_model(profile_model);
             if (store.profiles.profiles.size > 0) {
-                profile_combo.set_active(active_index);
+                profile_combo.set_selected(active_index);
             }
+            updating_profiles = false;
         }
 
         private void render_listeners() {
@@ -330,22 +370,75 @@ namespace Clambhook {
                 traffic_list.append(empty_row("No traffic history"));
                 return;
             }
-            var count = store.traffic.connections.size > 12 ? 12 : store.traffic.connections.size;
-            for (int i = 0; i < count; i++) {
-                var connection = store.traffic.connections[i];
-                var label = traffic_label_for(connection);
-                traffic_list.append(detail_row(
-                    empty_dash(connection.target),
-                    "%s / %s / %s down / %s up / %s".printf(
-                        connection.state,
-                        label,
-                        Formatters.format_bytes(connection.rx_total),
-                        Formatters.format_bytes(connection.tx_total),
-                        Formatters.format_duration_ns(connection.duration_ns)
-                    ),
-                    "view-list-symbolic"
-                ));
+            var filter = active_traffic_filter();
+            var query = traffic_search.text.strip().down();
+            var rendered = 0;
+            foreach (var connection in store.traffic.connections) {
+                if (!traffic_matches(connection, filter, query)) {
+                    continue;
+                }
+                traffic_list.append(traffic_row(connection));
+                rendered++;
+                if (rendered >= 12) {
+                    break;
+                }
             }
+            if (rendered == 0) {
+                traffic_list.append(empty_row("No matching traffic"));
+            }
+        }
+
+        private bool traffic_matches(TrafficConnectionPayload connection, string filter, string query) {
+            if (filter != "all" && action_family(connection) != filter) {
+                return false;
+            }
+            if (query == "") {
+                return true;
+            }
+            return connection.target.down().contains(query)
+                || connection.target_host.down().contains(query)
+                || connection.rule_name.down().contains(query)
+                || connection.rule_action.down().contains(query)
+                || connection.chain_name.down().contains(query)
+                || connection.application.down().contains(query)
+                || connection.network.down().contains(query);
+        }
+
+        private ListBoxRow traffic_row(TrafficConnectionPayload connection) {
+            var outer = new Box(Orientation.HORIZONTAL, 10);
+            outer.margin_top = 8;
+            outer.margin_bottom = 8;
+            outer.margin_start = 10;
+            outer.margin_end = 10;
+
+            var text = new Box(Orientation.VERTICAL, 2);
+            text.hexpand = true;
+            var title = new Label("%s  %s".printf(action_family(connection).up(), empty_dash(connection.target)));
+            title.xalign = 0;
+            title.wrap = true;
+            title.selectable = true;
+            text.append(title);
+            var secondary = new Label("%s / %s / %s down / %s up / %s".printf(
+                traffic_label_for(connection),
+                empty_dash(connection.rule_name),
+                Formatters.format_bytes(connection.rx_total),
+                Formatters.format_bytes(connection.tx_total),
+                Formatters.format_duration_ns(connection.duration_ns)
+            ));
+            secondary.xalign = 0;
+            secondary.wrap = true;
+            secondary.add_css_class("dim-label");
+            text.append(secondary);
+            outer.append(text);
+
+            var button = new Button.with_label("Rule");
+            button.sensitive = rule_draft_from_connection(connection) != null;
+            button.clicked.connect(() => show_rule_dialog(connection));
+            outer.append(button);
+
+            var row = new ListBoxRow();
+            row.set_child(outer);
+            return row;
         }
 
         private static string traffic_label_for(TrafficConnectionPayload connection) {
@@ -359,6 +452,182 @@ namespace Clambhook {
                 return connection.chain_name;
             }
             return connection.listener.protocol;
+        }
+
+        private static string action_family(TrafficConnectionPayload connection) {
+            var action = connection.rule_action.down();
+            if (action == "direct") {
+                return "direct";
+            }
+            if (action == "block" || action == "reject") {
+                return "block";
+            }
+            return "proxy";
+        }
+
+        private static string monitor_host(TrafficConnectionPayload connection) {
+            var host = connection.target_host.strip();
+            if (host == "") {
+                host = connection.target;
+                var idx = host.last_index_of(":");
+                if (idx > 0) {
+                    host = host.substring(0, idx);
+                }
+            }
+            host = host.replace("[", "").replace("]", "").down();
+            if (host.has_suffix(".")) {
+                host = host.substring(0, host.length - 1);
+            }
+            return host;
+        }
+
+        private static RulePayload? rule_draft_from_connection(TrafficConnectionPayload connection) {
+            var host = monitor_host(connection);
+            if (host == "") {
+                return null;
+            }
+            var family = action_family(connection);
+            var rule = new RulePayload();
+            rule.name = "%s-%s".printf(family, rule_token(host));
+            if (family == "direct") {
+                rule.action = "direct";
+            } else if (family == "block") {
+                rule.action = connection.rule_action.down() == "reject" ? "reject" : "block";
+            } else {
+                rule.action = connection.chain_name == "" ? "direct" : "chain:%s".printf(connection.chain_name);
+            }
+            if (looks_like_ipv4(host)) {
+                rule.cidrs.add("%s/32".printf(host));
+            } else if (host.contains(":")) {
+                rule.cidrs.add("%s/128".printf(host));
+            } else {
+                rule.domains.add(host);
+            }
+            return rule;
+        }
+
+        private void show_rule_dialog(TrafficConnectionPayload connection) {
+            var draft = rule_draft_from_connection(connection);
+            if (draft == null) {
+                return;
+            }
+            var win = new Window();
+            win.title = "Create Rule";
+            win.transient_for = this;
+            win.modal = true;
+            win.default_width = 420;
+            var root = new Box(Orientation.VERTICAL, 12);
+            root.margin_top = 18;
+            root.margin_bottom = 18;
+            root.margin_start = 18;
+            root.margin_end = 18;
+            var name = new Entry();
+            name.text = draft.name;
+            var action_model = new StringList(null);
+            var action_values = new Gee.ArrayList<string>();
+            append_dropdown_choice(action_model, action_values, "block", "Block");
+            append_dropdown_choice(action_model, action_values, "direct", "Direct");
+            foreach (var chain in store.servers.chains) {
+                append_dropdown_choice(
+                    action_model,
+                    action_values,
+                    "chain:%s".printf(chain.name),
+                    "Proxy: %s".printf(chain.name)
+                );
+            }
+            var action = new DropDown(action_model, null);
+            action.set_selected(dropdown_index_for(action_values, draft.action));
+            root.append(field_label("Name", name));
+            root.append(field_label("Action", action));
+            root.append(new Label("Match: %s".printf(draft.domains.size > 0 ? draft.domains[0] : draft.cidrs[0])));
+            var buttons = new Box(Orientation.HORIZONTAL, 8);
+            buttons.halign = Align.END;
+            var cancel = new Button.with_label("Cancel");
+            cancel.clicked.connect(() => win.close());
+            var save = new Button.with_label("Save");
+            save.add_css_class("suggested-action");
+            save.clicked.connect(() => {
+                draft.name = name.text.strip();
+                if (action.selected != Gtk.INVALID_LIST_POSITION && (int) action.selected < action_values.size) {
+                    draft.action = action_values[(int) action.selected];
+                }
+                store.create_rule.begin(draft);
+                win.close();
+            });
+            buttons.append(cancel);
+            buttons.append(save);
+            root.append(buttons);
+            win.set_child(root);
+            win.present();
+        }
+
+        private static Widget field_label(string label_text, Widget control) {
+            var box = new Box(Orientation.VERTICAL, 4);
+            var label = new Label(label_text);
+            label.xalign = 0;
+            label.add_css_class("dim-label");
+            box.append(label);
+            box.append(control);
+            return box;
+        }
+
+        private static string rule_token(string host) {
+            var token = host.down()
+                .replace(".", "-")
+                .replace(":", "-")
+                .replace("_", "-")
+                .replace(" ", "-");
+            return token == "" ? "connection" : token;
+        }
+
+        private static StringList traffic_filter_model() {
+            var model = new StringList(null);
+            model.append("All");
+            model.append("Proxy");
+            model.append("Direct");
+            model.append("Block");
+            return model;
+        }
+
+        private string active_traffic_filter() {
+            switch (traffic_filter.selected) {
+            case 1:
+                return "proxy";
+            case 2:
+                return "direct";
+            case 3:
+                return "block";
+            default:
+                return "all";
+            }
+        }
+
+        private static void append_dropdown_choice(StringList model, Gee.ArrayList<string> values, string value, string label) {
+            values.add(value);
+            model.append(label);
+        }
+
+        private static uint dropdown_index_for(Gee.ArrayList<string> values, string value) {
+            for (int i = 0; i < values.size; i++) {
+                if (values[i] == value) {
+                    return (uint) i;
+                }
+            }
+            return 0;
+        }
+
+        private static bool looks_like_ipv4(string host) {
+            var parts = host.split(".");
+            if (parts.length != 4) {
+                return false;
+            }
+            foreach (var part in parts) {
+                int value;
+                if (!int.try_parse(part, out value) || value < 0 || value > 255) {
+                    return false;
+                }
+            }
+            return true;
         }
 
         private static string empty_dash(string value) {

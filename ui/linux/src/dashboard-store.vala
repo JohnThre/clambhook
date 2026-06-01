@@ -6,6 +6,7 @@ namespace Clambhook {
         public StatusPayload status { get; private set; default = new StatusPayload(); }
         public ProfilesPayload profiles { get; private set; default = new ProfilesPayload(); }
         public ServersPayload servers { get; private set; default = new ServersPayload(); }
+        public RulesPayload rules { get; private set; default = new RulesPayload(); }
         public TrafficSnapshotPayload traffic { get; private set; default = new TrafficSnapshotPayload(); }
         public Gee.ArrayList<BandwidthSample> bandwidth_samples { get; private set; default = new Gee.ArrayList<BandwidthSample>(); }
         public Gee.ArrayList<string> logs { get; private set; default = new Gee.ArrayList<string>(); }
@@ -46,6 +47,7 @@ namespace Clambhook {
                 status = yield api.status();
                 profiles = yield api.profiles();
                 servers = yield api.servers();
+                rules = yield api.rules();
                 traffic = yield api.traffic();
                 api_online = true;
                 error_text = "";
@@ -69,7 +71,7 @@ namespace Clambhook {
             changed();
         }
 
-        public async void connect() {
+        public new async void connect() {
             try {
                 yield api.connect();
                 yield refresh_dashboard();
@@ -80,7 +82,7 @@ namespace Clambhook {
             }
         }
 
-        public async void disconnect() {
+        public new async void disconnect() {
             try {
                 yield api.disconnect();
                 yield refresh_dashboard();
@@ -105,8 +107,19 @@ namespace Clambhook {
             }
         }
 
+        public async void create_rule(RulePayload rule) {
+            try {
+                rules = yield api.create_rule(rule);
+                yield refresh_dashboard();
+            } catch (Error err) {
+                api_online = false;
+                error_text = err.message;
+                changed();
+            }
+        }
+
         public void apply_event(DaemonEvent event) {
-            switch (event.type) {
+            switch (event.event_type) {
             case "connection.bytes":
                 apply_connection_bytes(event);
                 break;
@@ -114,6 +127,9 @@ namespace Clambhook {
                 apply_log_line(event);
                 break;
             default:
+                if (event.event_type.has_prefix("connection.") || event.event_type.has_prefix("rule.") || event.event_type.has_prefix("hop.")) {
+                    refresh_status.begin();
+                }
                 break;
             }
             changed();

@@ -10,10 +10,12 @@ namespace Clambhook {
         public abstract async StatusPayload status() throws Error;
         public abstract async ProfilesPayload profiles() throws Error;
         public abstract async ServersPayload servers() throws Error;
+        public abstract async RulesPayload rules() throws Error;
         public abstract async TrafficSnapshotPayload traffic() throws Error;
         public abstract async void connect() throws Error;
         public abstract async void disconnect() throws Error;
         public abstract async void set_active_profile(string name) throws Error;
+        public abstract async RulesPayload create_rule(RulePayload rule) throws Error;
     }
 
     public class ClambhookApiClient : Object, ClambhookApiProviding {
@@ -43,15 +45,19 @@ namespace Clambhook {
             return ServersPayload.from_json(yield send("GET", "/api/v1/servers"));
         }
 
+        public async RulesPayload rules() throws Error {
+            return RulesPayload.from_json(yield send("GET", "/api/v1/rules"));
+        }
+
         public async TrafficSnapshotPayload traffic() throws Error {
             return TrafficSnapshotPayload.from_json(yield send("GET", "/api/v1/traffic?limit=200"));
         }
 
-        public async void connect() throws Error {
+        public new async void connect() throws Error {
             yield send("POST", "/api/v1/connect");
         }
 
-        public async void disconnect() throws Error {
+        public new async void disconnect() throws Error {
             yield send("POST", "/api/v1/disconnect");
         }
 
@@ -59,11 +65,13 @@ namespace Clambhook {
             yield send("PUT", "/api/v1/profiles/active", active_profile_body(name));
         }
 
+        public async RulesPayload create_rule(RulePayload rule) throws Error {
+            return RulesPayload.from_json(yield send("POST", "/api/v1/rules", create_rule_body(rule)));
+        }
+
         public string build_uri(string path) {
-            if (!path.has_prefix("/")) {
-                path = "/" + path;
-            }
-            return base_url + path;
+            var normalized_path = path.has_prefix("/") ? path : "/" + path;
+            return base_url + normalized_path;
         }
 
         public string events_uri() {
@@ -71,7 +79,7 @@ namespace Clambhook {
             var host_and_path = base_url
                 .replace("https://", "")
                 .replace("http://", "");
-            return "%s%s/api/v1/events?types=connection.*,log.*".printf(scheme, host_and_path);
+            return "%s%s/api/v1/events?types=connection.*,rule.*,hop.*,log.*".printf(scheme, host_and_path);
         }
 
         public string authorization_header() {
@@ -84,6 +92,20 @@ namespace Clambhook {
             builder.begin_object();
             builder.set_member_name("name");
             builder.add_string_value(name);
+            builder.end_object();
+
+            var generator = new Json.Generator();
+            generator.set_root(builder.get_root());
+            return generator.to_data(null);
+        }
+
+        public static string create_rule_body(RulePayload rule) {
+            var builder = new Json.Builder();
+            builder.begin_object();
+            builder.set_member_name("rule");
+            rule.to_json(builder);
+            builder.set_member_name("position");
+            builder.add_string_value("append");
             builder.end_object();
 
             var generator = new Json.Generator();
@@ -107,8 +129,10 @@ namespace Clambhook {
             }
 
             var bytes = yield session.send_and_read_async(message, Priority.DEFAULT, null);
-            size_t size = 0;
-            unowned uint8[] data = bytes.get_data(out size);
+            unowned uint8[]? data = bytes.get_data();
+            if (data == null) {
+                return "";
+            }
             var text = (string) data;
 
             if (message.status_code < 200 || message.status_code > 299) {

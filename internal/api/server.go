@@ -17,13 +17,14 @@ import (
 
 // Server is the HTTP API server for frontend communication.
 type Server struct {
-	engine    *engine.Engine
-	bus       *events.Bus
-	traffic   *traffic.Store
-	authToken string
-	server    *http.Server
-	mu        sync.RWMutex
-	addr      string
+	engine     *engine.Engine
+	bus        *events.Bus
+	traffic    *traffic.Store
+	authToken  string
+	configPath string
+	server     *http.Server
+	mu         sync.RWMutex
+	addr       string
 }
 
 // New creates a new API server. bus may be nil to disable the
@@ -35,10 +36,11 @@ func New(eng *engine.Engine, bus *events.Bus) *Server {
 // NewWithOptions creates a new API server with optional route protection.
 func NewWithOptions(eng *engine.Engine, bus *events.Bus, opts Options) *Server {
 	s := &Server{
-		engine:    eng,
-		bus:       bus,
-		traffic:   opts.TrafficStore,
-		authToken: strings.TrimSpace(opts.AuthToken),
+		engine:     eng,
+		bus:        bus,
+		traffic:    opts.TrafficStore,
+		authToken:  strings.TrimSpace(opts.AuthToken),
+		configPath: strings.TrimSpace(opts.ConfigPath),
 	}
 	mux := http.NewServeMux()
 	s.registerRoutes(mux)

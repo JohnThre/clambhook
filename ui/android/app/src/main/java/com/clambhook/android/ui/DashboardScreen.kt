@@ -25,6 +25,7 @@ import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material3.AssistChip
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -36,7 +37,13 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TextField
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -57,6 +64,7 @@ fun DashboardScreen(
     onDisconnect: () -> Unit,
     onProfileSelected: (String) -> Unit,
     onOpenSettings: () -> Unit,
+    onCreateRule: (RulePayload) -> Unit,
     modifier: Modifier = Modifier
 ) {
     LazyColumn(
@@ -69,7 +77,7 @@ fun DashboardScreen(
             StatusCard(state, onRefresh, onConnect, onDisconnect)
         }
         item {
-            TrafficCard(state)
+            TrafficCard(state, onCreateRule)
         }
         item {
             ProfilesCard(state, onProfileSelected)
@@ -185,8 +193,24 @@ private fun StatusCard(
 }
 
 @Composable
-private fun TrafficCard(state: DashboardState) {
+private fun TrafficCard(state: DashboardState, onCreateRule: (RulePayload) -> Unit) {
     val traffic = state.traffic
+    var filter by remember { mutableStateOf("all") }
+    var search by remember { mutableStateOf("") }
+    var draftRule by remember { mutableStateOf<RulePayload?>(null) }
+    val counts = traffic.actionCounts()
+    val visibleConnections = traffic.connections.filter { connection ->
+        (filter == "all" || connection.actionFamily() == filter) &&
+            (search.isBlank() || listOf(
+                connection.target,
+                connection.monitorHost(),
+                connection.ruleName,
+                connection.ruleAction,
+                connection.chainName,
+                connection.application,
+                connection.network
+            ).any { it.contains(search, ignoreCase = true) })
+    }
     Card(shape = RoundedCornerShape(8.dp)) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(
@@ -219,22 +243,53 @@ private fun TrafficCard(state: DashboardState) {
                 Text("Total down ${formatBytes(traffic.summary.rxTotal)}", style = MaterialTheme.typography.bodySmall)
                 Text("Total up ${formatBytes(traffic.summary.txTotal)}", style = MaterialTheme.typography.bodySmall)
             }
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf("all" to "All ${traffic.connections.size}", "proxy" to "Proxy ${counts["proxy"] ?: 0}", "direct" to "Direct ${counts["direct"] ?: 0}", "block" to "Block ${counts["block"] ?: 0}").forEach { (value, label) ->
+                    FilterChip(selected = filter == value, onClick = { filter = value }, label = { Text(label) })
+                }
+            }
+            TextField(
+                value = search,
+                onValueChange = { search = it },
+                label = { Text("Search hosts, rules, chains") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+            val hits = traffic.ruleHitSummaries()
+            if (hits.isNotEmpty()) {
+                Text(
+                    "Rule hits " + hits.take(3).joinToString("  ") { "${it.ruleName}: ${it.count}" },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
             if (traffic.summary.persistError.isNotBlank()) {
                 Text(traffic.summary.persistError, color = MaterialTheme.colorScheme.error)
             }
-            if (traffic.connections.isEmpty()) {
+            if (visibleConnections.isEmpty()) {
                 EmptyText("No traffic history yet")
             } else {
-                traffic.connections.take(8).forEach { connection ->
-                    ConnectionRow(connection)
+                visibleConnections.take(8).forEach { connection ->
+                    ConnectionRow(connection, onCreateRule = { draftRule = connection.ruleDraft() })
                 }
             }
         }
     }
+    draftRule?.let { rule ->
+        RuleCreateDialog(
+            initialRule = rule,
+            chains = state.servers.chains.map { it.name },
+            onDismiss = { draftRule = null },
+            onSave = {
+                onCreateRule(it)
+                draftRule = null
+            }
+        )
+    }
 }
 
 @Composable
-private fun ConnectionRow(connection: TrafficConnectionPayload) {
+private fun ConnectionRow(connection: TrafficConnectionPayload, onCreateRule: () -> Unit) {
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(3.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text(
@@ -245,10 +300,10 @@ private fun ConnectionRow(connection: TrafficConnectionPayload) {
                 modifier = Modifier.weight(1f)
             )
             Spacer(Modifier.width(12.dp))
-            Text(connection.state, style = MaterialTheme.typography.bodySmall)
+            StatusPill(connection.actionFamily().uppercase())
         }
         Text(
-            listOf(connection.application, connection.network, connection.chainName)
+            listOf(connection.application, connection.network, connection.chainName, connection.ruleName)
                 .filter { it.isNotBlank() }
                 .joinToString(" · ")
                 .ifBlank { connection.listener.protocol },
@@ -262,7 +317,46 @@ private fun ConnectionRow(connection: TrafficConnectionPayload) {
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
+        OutlinedButton(onClick = onCreateRule, enabled = connection.ruleDraft() != null) {
+            Text("Create rule")
+        }
     }
+}
+
+@Composable
+private fun RuleCreateDialog(
+    initialRule: RulePayload,
+    chains: List<String>,
+    onDismiss: () -> Unit,
+    onSave: (RulePayload) -> Unit
+) {
+    var name by remember(initialRule) { mutableStateOf(initialRule.name) }
+    var action by remember(initialRule) { mutableStateOf(initialRule.action) }
+    val match = initialRule.domains.firstOrNull() ?: initialRule.cidrs.firstOrNull() ?: "--"
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Create rule") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                TextField(value = name, onValueChange = { name = it }, label = { Text("Name") }, singleLine = true)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(selected = action == "block", onClick = { action = "block" }, label = { Text("Block") })
+                    FilterChip(selected = action == "direct", onClick = { action = "direct" }, label = { Text("Direct") })
+                    chains.forEach { chain ->
+                        FilterChip(selected = action == "chain:$chain", onClick = { action = "chain:$chain" }, label = { Text("Proxy: $chain") })
+                    }
+                }
+                Text("Match $match", style = MaterialTheme.typography.bodySmall)
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { onSave(initialRule.copy(name = name.trim(), action = action)) },
+                enabled = name.isNotBlank()
+            ) { Text("Save") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+    )
 }
 
 @Composable

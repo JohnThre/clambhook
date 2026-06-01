@@ -28,12 +28,12 @@ namespace Clambhook {
                 message.request_headers.append("Authorization", authorization);
             }
 
-            session.websocket_connect_async(message, null, null, Priority.DEFAULT, cancellable, (obj, res) => {
+            session.websocket_connect_async.begin(message, null, null, Priority.DEFAULT, cancellable, (obj, res) => {
                 if (current_generation != generation) {
                     return;
                 }
                 try {
-                    connection = session.websocket_connect_finish(res);
+                    connection = session.websocket_connect_async.end(res);
                     connection.message.connect((type, bytes) => {
                         if (current_generation == generation) {
                             on_message(type, bytes);
@@ -72,10 +72,12 @@ namespace Clambhook {
             if (type != Soup.WebsocketDataType.TEXT) {
                 return;
             }
-            size_t size = 0;
-            unowned uint8[] data = bytes.get_data(out size);
+            unowned uint8[]? data = bytes.get_data();
+            if (data == null) {
+                return;
+            }
             var event = DaemonEvent.from_json((string) data);
-            if (event.type != "") {
+            if (event.event_type != "") {
                 event_received(event);
             }
         }

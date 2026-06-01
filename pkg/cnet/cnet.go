@@ -1,4 +1,4 @@
-//go:build cgo && !windows && !purego
+//go:build cgo && !purego && unix
 
 package cnet
 

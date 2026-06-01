@@ -52,6 +52,34 @@ class ClambhookApiClientTest {
     }
 
     @Test
+    fun createRuleSendsAppendRequest() = runBlocking {
+        val interceptor = CapturingInterceptor("""{"profile":"A","rules":[{"name":"block-example-com","action":"block","domains":["example.com"]}]}""")
+        val client = ClambhookApiClient(
+            baseUrl = "http://127.0.0.1:9090",
+            tokenProvider = { "secret-token" },
+            okHttpClient = OkHttpClient.Builder().addInterceptor(interceptor).build()
+        )
+
+        val response = client.createRule(RulePayload(
+            name = "block-example-com",
+            action = "block",
+            domains = listOf("example.com")
+        ))
+
+        val request = interceptor.requests.single()
+        assertEquals("POST", request.method)
+        assertEquals("/api/v1/rules", request.url.encodedPath)
+        assertEquals("Bearer secret-token", request.header("Authorization"))
+        assertEquals("application/json", request.header("Content-Type"))
+        assertEquals(
+            """{"rule":{"name":"block-example-com","action":"block","domains":["example.com"],"domain_suffixes":[],"domain_keywords":[],"cidrs":[],"ports":[],"networks":[]},"position":"append"}""",
+            requireNotNull(request.body).bodyToString()
+        )
+        assertEquals("A", response.profile)
+        assertEquals("block-example-com", response.rules.single().name)
+    }
+
+    @Test
     fun httpErrorsPreserveStatusAndBody() = runBlocking {
         val interceptor = CapturingInterceptor("unauthorized\n", statusCode = 401)
         val client = ClambhookApiClient(
@@ -80,12 +108,12 @@ class ClambhookApiClientTest {
         val httpsRequest = httpsClient.eventsRequest()
 
         assertEquals(
-            "ws://127.0.0.1:9090/api/v1/events?types=connection.*,log.*",
+            "ws://127.0.0.1:9090/api/v1/events?types=connection.*,rule.*,hop.*,log.*",
             httpClient.eventsUrl()
         )
         assertEquals("Bearer secret-token", httpRequest.headers["Authorization"])
         assertEquals(
-            "wss://proxy.example.test/api/v1/events?types=connection.*,log.*",
+            "wss://proxy.example.test/api/v1/events?types=connection.*,rule.*,hop.*,log.*",
             httpsClient.eventsUrl()
         )
         assertTrue(httpsRequest.headers["Authorization"].isNullOrEmpty())

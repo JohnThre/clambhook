@@ -6,6 +6,17 @@ project(
 )
 
 gnome = import('gnome')
+cc = meson.get_compiler('c')
+
+add_project_arguments(
+  cc.get_supported_arguments([
+    '-Wno-unused-variable',
+    '-Wno-unused-but-set-variable',
+    '-Wno-unused-value',
+    '-Wno-unused-function',
+  ]),
+  language: 'c',
+)
 
 gtk_dep = dependency('gtk4')
 adw_dep = dependency('libadwaita-1')

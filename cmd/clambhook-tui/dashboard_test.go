@@ -1,3 +1,5 @@
+//go:build unix
+
 package main
 
 import (
@@ -16,8 +18,8 @@ import (
 func TestEventsURLSubscribesToConnectionAndLogEvents(t *testing.T) {
 	c := newAPIClientFromBaseURL("http://127.0.0.1:9090")
 
-	if got := c.eventsURL(); !strings.Contains(got, "types=connection.*,log.*") {
-		t.Fatalf("eventsURL() = %q, want connection and log event filters", got)
+	if got := c.eventsURL(); !strings.Contains(got, "types=connection.*,rule.*,hop.*,log.*") {
+		t.Fatalf("eventsURL() = %q, want connection/rule/hop/log event filters", got)
 	}
 }
 
@@ -289,6 +291,41 @@ func TestTrafficModeRefreshKeyReturnsCommand(t *testing.T) {
 	_, cmd := m.Update(keyMsg("r"))
 	if cmd == nil {
 		t.Fatal("traffic view r key returned nil command")
+	}
+}
+
+func TestTrafficMonitorFiltersAndCreatesRuleDraft(t *testing.T) {
+	m := newModel("127.0.0.1:9090")
+	m.viewMode = viewModeTraffic
+	m.traffic.Connections = []trafficConnectionPayload{
+		{Target: "ads.example.com:443", TargetHost: "ads.example.com", RuleAction: "block", RuleName: "ads"},
+		{Target: "example.com:443", TargetHost: "example.com", ChainName: "proxy"},
+	}
+
+	updated, _ := m.Update(keyMsg("b"))
+	m = updated.(model)
+	if rows := m.filteredTrafficConnections(); len(rows) != 1 || rows[0].TargetHost != "ads.example.com" {
+		t.Fatalf("filtered rows = %+v", rows)
+	}
+
+	updated, _ = m.Update(keyMsg("n"))
+	m = updated.(model)
+	if m.pendingRule == nil || m.pendingRule.Action != "block" || len(m.pendingRule.Domains) != 1 || m.pendingRule.Domains[0] != "ads.example.com" {
+		t.Fatalf("pending rule = %+v", m.pendingRule)
+	}
+}
+
+func TestTrafficMonitorSearchMatchesRuleAndHost(t *testing.T) {
+	m := newModel("127.0.0.1:9090")
+	m.traffic.Connections = []trafficConnectionPayload{
+		{TargetHost: "ads.example.com", RuleName: "ads"},
+		{TargetHost: "example.org", RuleName: "default"},
+	}
+	m.searchText = "ads"
+
+	rows := m.filteredTrafficConnections()
+	if len(rows) != 1 || rows[0].TargetHost != "ads.example.com" {
+		t.Fatalf("filtered rows = %+v", rows)
 	}
 }
 
