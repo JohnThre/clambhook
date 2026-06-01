@@ -14,6 +14,7 @@ struct AppSettingsView: View {
     @State private var daemonConfigBookmark: Data?
     @State private var tunnelConfigText = ""
     @State private var tunnelConfigMessage = ""
+    @State private var biometricStatus = BiometricAuthStatus(isAvailable: false, label: "Biometric Lock")
 
     var body: some View {
         Form {
@@ -80,6 +81,15 @@ struct AppSettingsView: View {
                 )
             }
             #if os(iOS)
+            Section("Inspection Privacy") {
+                Toggle("Require \(biometricStatus.label) for Activity", isOn: $model.settingsStore.settings.inspectionLockEnabled)
+                    .disabled(!biometricStatus.isAvailable)
+                Text(biometricStatus.isAvailable ? "Connection details stay hidden until biometric authentication succeeds." : biometricStatus.reason)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+            #endif
+            #if os(iOS)
             Section("Privacy") {
                 Text(vpnDataUseDisclosure)
                     .font(.footnote)
@@ -118,6 +128,10 @@ struct AppSettingsView: View {
             daemonConfigBookmark = model.settingsStore.settings.daemonConfigBookmark
             #if os(iOS)
             tunnelConfigText = (try? TunnelConfigStore.loadOrCreateConfig(groupIdentifier: model.settingsStore.settings.appGroupIdentifier)) ?? defaultIOSTunnelConfig
+            biometricStatus = SystemBiometricAuthenticator().status()
+            if !biometricStatus.isAvailable {
+                model.settingsStore.settings.inspectionLockEnabled = false
+            }
             #endif
         }
     }

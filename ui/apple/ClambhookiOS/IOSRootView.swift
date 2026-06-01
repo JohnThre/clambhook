@@ -1,11 +1,14 @@
+import ClambhookShared
 import SwiftUI
 
 struct IOSRootView: View {
     @ObservedObject var model: AppleAppModel
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.scenePhase) private var scenePhase
     @State private var selectedDestination: IOSAppDestination = .status
     @State private var showingOnboarding = false
     @AppStorage("org.jpfchang.clambhook.onboardingComplete") private var onboardingComplete = false
+    @StateObject private var inspectionLock = InspectionLockState()
 
     var body: some View {
         Group {
@@ -22,9 +25,34 @@ struct IOSRootView: View {
                 model.refresh()
             }
         }
+        .overlay {
+            if shouldShowInspectionLock {
+                IOSInspectionLockOverlay(state: inspectionLock) {
+                    Task { await authenticateInspectionLock() }
+                }
+            }
+        }
         .task {
             if !onboardingComplete || model.shouldShowOnboarding() {
                 showingOnboarding = true
+            }
+            engageInspectionLockIfNeeded()
+        }
+        .onChange(of: scenePhase) { _, phase in
+            switch phase {
+            case .active:
+                engageInspectionLockIfNeeded()
+            case .background:
+                inspectionLock.lockIfNeeded(enabled: model.settingsStore.settings.inspectionLockEnabled)
+            default:
+                break
+            }
+        }
+        .onChange(of: model.settingsStore.settings.inspectionLockEnabled) { _, enabled in
+            if enabled {
+                engageInspectionLockIfNeeded()
+            } else {
+                inspectionLock.clearLock()
             }
         }
     }
@@ -88,6 +116,65 @@ struct IOSRootView: View {
         case .settings:
             AppSettingsView(model: model)
         }
+    }
+
+    private var shouldShowInspectionLock: Bool {
+        model.settingsStore.settings.inspectionLockEnabled && inspectionLock.isLocked
+    }
+
+    private func engageInspectionLockIfNeeded() {
+        inspectionLock.lockIfNeeded(enabled: model.settingsStore.settings.inspectionLockEnabled)
+        Task { await authenticateInspectionLock() }
+    }
+
+    private func authenticateInspectionLock() async {
+        await inspectionLock.authenticateIfNeeded(enabled: model.settingsStore.settings.inspectionLockEnabled)
+    }
+}
+
+private struct IOSInspectionLockOverlay: View {
+    @ObservedObject var state: InspectionLockState
+    var onUnlock: () -> Void
+
+    var body: some View {
+        ZStack {
+            Color(.systemBackground)
+                .ignoresSafeArea()
+            VStack(spacing: 18) {
+                Image(systemName: "lock.shield")
+                    .font(.system(size: 52, weight: .semibold))
+                    .foregroundStyle(.tint)
+                VStack(spacing: 6) {
+                    Text("Activity Locked")
+                        .font(.title2.weight(.semibold))
+                    Text("Use \(state.status.label) to view local inspection details.")
+                        .font(.body)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                }
+                if !state.message.isEmpty {
+                    Text(state.message)
+                        .font(.footnote)
+                        .foregroundStyle(.red)
+                        .multilineTextAlignment(.center)
+                }
+                Button {
+                    onUnlock()
+                } label: {
+                    if state.isAuthenticating {
+                        ProgressView()
+                    } else {
+                        Label("Unlock", systemImage: "faceid")
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .disabled(state.isAuthenticating || !state.status.isAvailable)
+            }
+            .padding(28)
+            .frame(maxWidth: 360)
+        }
+        .accessibilityIdentifier("inspection-lock")
     }
 }
 

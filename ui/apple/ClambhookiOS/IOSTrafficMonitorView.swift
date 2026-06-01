@@ -53,7 +53,15 @@ struct IOSActivityView: View {
                             NavigationLink {
                                 IOSActivityConnectionDetailView(model: model, connection: connection)
                             } label: {
-                                IOSActivityConnectionRow(connection: connection)
+                                IOSActivityConnectionRow(connection: connection, pinned: model.isConnectionPinned(connection))
+                            }
+                            .swipeActions(edge: .leading) {
+                                Button {
+                                    model.togglePinned(connection)
+                                } label: {
+                                    Label(model.isConnectionPinned(connection) ? "Unpin" : "Pin", systemImage: model.isConnectionPinned(connection) ? "pin.slash" : "pin")
+                                }
+                                .tint(.yellow)
                             }
                         }
                     }
@@ -89,16 +97,28 @@ struct IOSActivityView: View {
         }
         .listStyle(.insetGrouped)
         .searchable(text: $searchText, prompt: mode.searchPrompt)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                ShareLink(
+                    item: activityExportString,
+                    subject: Text("ClambHook inspection export"),
+                    message: Text("Redacted metadata-only JSON export.")
+                ) {
+                    Label("Export", systemImage: "square.and.arrow.up")
+                }
+            }
+        }
         .refreshable {
             await model.refreshNow()
         }
     }
 
     private var filteredConnections: [TrafficConnectionPayload] {
-        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        return model.dashboard.traffic.connections.filter { connection in
-            connectionFilter.matches(connection) && (query.isEmpty || connectionSearchFields(connection).contains { $0.lowercased().contains(query) })
-        }
+        model.dashboard.traffic.inspectionConnections(
+            filter: connectionFilter.inspectionKind,
+            query: searchText,
+            pinnedIDs: model.pinnedConnectionIDs
+        )
     }
 
     private var filteredLogs: [String] {
@@ -108,17 +128,21 @@ struct IOSActivityView: View {
         }
     }
 
-    private func connectionSearchFields(_ connection: TrafficConnectionPayload) -> [String] {
-        [
-            connection.target,
-            connection.targetHost,
-            connection.ruleName,
-            connection.ruleAction,
-            connection.chainName,
-            connection.application,
-            connection.displayVisibility,
-            connection.network,
-        ]
+    private var activityExportString: String {
+        switch mode {
+        case .connections:
+            return model.inspectionExportString(
+                scope: "activity.connections.filtered",
+                connections: filteredConnections,
+                logs: model.dashboard.logs
+            )
+        case .logs:
+            return model.inspectionExportString(
+                scope: "activity.logs.filtered",
+                connections: [],
+                logs: filteredLogs
+            )
+        }
     }
 }
 
@@ -234,12 +258,18 @@ private struct IOSTrafficSummaryView: View {
 
 private struct IOSActivityConnectionRow: View {
     var connection: TrafficConnectionPayload
+    var pinned: Bool
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
             IOSActionChip(action: connection.ruleAction.isEmpty ? "proxy" : connection.ruleAction)
             VStack(alignment: .leading, spacing: 4) {
                 HStack(alignment: .firstTextBaseline) {
+                    if pinned {
+                        Image(systemName: "pin.fill")
+                            .font(.caption)
+                            .foregroundStyle(.yellow)
+                    }
                     Text(emptyDash(connection.target))
                         .font(.body.weight(.medium))
                         .lineLimit(1)
@@ -270,10 +300,12 @@ private struct IOSActivityConnectionDetailView: View {
     var body: some View {
         List {
             Section("Connection") {
+                LabeledContent("ID", value: emptyDash(connection.connID))
                 LabeledContent("Target", value: emptyDash(connection.target))
                 LabeledContent("State", value: emptyDash(connection.state).capitalized)
                 LabeledContent("Network", value: emptyDash(connection.network))
                 LabeledContent("Application", value: emptyDash(connection.application))
+                LabeledContent("Pinned", value: model.isConnectionPinned(connection) ? "Yes" : "No")
                 LabeledContent("Client", value: emptyDash(connection.clientAddr))
                 LabeledContent("Listener", value: iosListenerDescription(connection.listener))
             }
@@ -328,6 +360,23 @@ private struct IOSActivityConnectionDetailView: View {
                 }
             }
 
+            if hasGeo {
+                Section("Location") {
+                    if !connection.geo.city.isEmpty {
+                        LabeledContent("City", value: connection.geo.city)
+                    }
+                    if !connection.geo.country.isEmpty {
+                        LabeledContent("Country", value: connection.geo.country)
+                    }
+                    if !connection.geo.countryCode.isEmpty {
+                        LabeledContent("Code", value: connection.geo.countryCode)
+                    }
+                    if !connection.geoError.isEmpty {
+                        LabeledContent("Geo Error", value: connection.geoError)
+                    }
+                }
+            }
+
             Section("Data") {
                 LabeledContent("Down", value: formatBytes(connection.rxTotal))
                 LabeledContent("Up", value: formatBytes(connection.txTotal))
@@ -340,9 +389,32 @@ private struct IOSActivityConnectionDetailView: View {
         .listStyle(.insetGrouped)
         .navigationTitle(emptyDash(connection.targetHost))
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                Button {
+                    model.togglePinned(connection)
+                } label: {
+                    Image(systemName: model.isConnectionPinned(connection) ? "pin.slash.fill" : "pin.fill")
+                }
+                ShareLink(
+                    item: model.inspectionExportString(scope: "connection.\(connection.connID)", connections: [connection]),
+                    subject: Text("ClambHook connection export"),
+                    message: Text("Redacted metadata-only JSON export.")
+                ) {
+                    Image(systemName: "square.and.arrow.up")
+                }
+            }
+        }
         .sheet(item: $draftRule) { rule in
             IOSRuleCreateSheet(model: model, initialRule: rule)
         }
+    }
+
+    private var hasGeo: Bool {
+        !connection.geo.city.isEmpty ||
+            !connection.geo.country.isEmpty ||
+            !connection.geo.countryCode.isEmpty ||
+            !connection.geoError.isEmpty
     }
 }
 
@@ -458,6 +530,7 @@ private struct IOSHopRow: View {
 private enum IOSTrafficFilter: String, CaseIterable, Identifiable {
     case all
     case active
+    case pinned
     case blocked
     case direct
     case proxy
@@ -468,24 +541,27 @@ private enum IOSTrafficFilter: String, CaseIterable, Identifiable {
         switch self {
         case .all: return "All"
         case .active: return "Active"
+        case .pinned: return "Pinned"
         case .blocked: return "Block"
         case .direct: return "Direct"
         case .proxy: return "Proxy"
         }
     }
 
-    func matches(_ connection: TrafficConnectionPayload) -> Bool {
+    var inspectionKind: InspectionFilterKind {
         switch self {
         case .all:
-            return true
+            return .all
         case .active:
-            return connection.state.lowercased() == "active"
+            return .active
+        case .pinned:
+            return .pinned
         case .blocked:
-            return connection.actionFamily == "block"
+            return .block
         case .direct:
-            return connection.actionFamily == "direct"
+            return .direct
         case .proxy:
-            return connection.actionFamily == "proxy"
+            return .proxy
         }
     }
 }
