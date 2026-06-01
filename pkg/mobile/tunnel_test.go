@@ -131,6 +131,73 @@ func TestCreateTunnelProfileConfigJSON(t *testing.T) {
 	}
 }
 
+func TestCreateTunnelProfileConfigJSONAcceptsTypedSettings(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "clambhook.toml")
+	req := map[string]any{
+		"profile_name":   "phone",
+		"chain_name":     "proxy",
+		"server_name":    "exit",
+		"server_address": "example.invalid:443",
+		"protocol":       "shadowsocks",
+		"settings": map[string]any{
+			"method":   "chacha20-ietf-poly1305",
+			"password": "secret",
+		},
+		"replace": true,
+	}
+	rawReq, err := json.Marshal(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := CreateTunnelProfileConfigJSON(path, string(rawReq)); err != nil {
+		t.Fatalf("CreateTunnelProfileConfigJSON: %v", err)
+	}
+	rawDashboard, err := TunnelConfigDashboardJSON(path)
+	if err != nil {
+		t.Fatalf("TunnelConfigDashboardJSON: %v", err)
+	}
+	var payload dashboardPayload
+	if err := json.Unmarshal([]byte(rawDashboard), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if got := payload.Servers.Chains[0].Servers[0]; got.Name != "exit" || got.Protocol != "shadowsocks" {
+		t.Fatalf("server = %+v", got)
+	}
+}
+
+func TestCreateTunnelProfileConfigJSONNormalizesNestedJSONNumbers(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "clambhook.toml")
+	validKey := "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+	req := map[string]any{
+		"profile_name":   "phone",
+		"chain_name":     "proxy",
+		"server_name":    "wg",
+		"server_address": "1.2.3.4:51820",
+		"protocol":       "wireguard",
+		"settings": map[string]any{
+			"private_key": validKey,
+			"addresses":   []any{"10.0.0.2/32"},
+			"mtu":         1280,
+			"peers": []any{
+				map[string]any{
+					"public_key":           validKey,
+					"endpoint":             "1.2.3.4:51820",
+					"allowed_ips":          []any{"0.0.0.0/0"},
+					"persistent_keepalive": 25,
+				},
+			},
+		},
+		"replace": true,
+	}
+	rawReq, err := json.Marshal(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := CreateTunnelProfileConfigJSON(path, string(rawReq)); err != nil {
+		t.Fatalf("CreateTunnelProfileConfigJSON: %v", err)
+	}
+}
+
 func TestValidateUsableTunnelConfigRejectsPlaceholder(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "clambhook.toml")
 	if err := os.WriteFile(path, []byte(`

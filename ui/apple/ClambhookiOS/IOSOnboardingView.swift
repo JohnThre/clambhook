@@ -12,7 +12,7 @@ struct IOSOnboardingView: View {
     @State private var showingFileImporter = false
     @State private var message = ""
     @State private var canContinue = false
-    @State private var profileRequest = TunnelProfileCreateRequest()
+    @State private var profileDraft = TunnelProfileCreateDraft()
 
     var body: some View {
         NavigationStack {
@@ -214,29 +214,7 @@ struct IOSOnboardingView: View {
 
     private var createProfileStep: some View {
         Form {
-            Section("Profile") {
-                TextField("Profile name", text: $profileRequest.profileName)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-            }
-
-            Section("Server") {
-                TextField("Server name", text: $profileRequest.serverName)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                TextField("Server address", text: $profileRequest.serverAddress)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                TextField("Protocol", text: $profileRequest.protocol)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-            }
-
-            Section("Settings") {
-                TextEditor(text: $profileRequest.settingsTOML)
-                    .font(.system(.footnote, design: .monospaced))
-                    .frame(minHeight: 130)
-            }
+            IOSTunnelProfileTemplateForm(draft: $profileDraft)
 
             if !message.isEmpty {
                 Section("Status") {
@@ -251,12 +229,16 @@ struct IOSOnboardingView: View {
                 Button {
                     createProfile()
                 } label: {
-                    Text("Create Profile")
+                    Text(profileDraft.template == .advanced ? "Save Config" : "Create Profile")
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
+                .disabled(!profileDraft.isInputComplete)
             }
+        }
+        .onAppear {
+            seedAdvancedTOMLIfNeeded()
         }
     }
 
@@ -325,8 +307,13 @@ struct IOSOnboardingView: View {
 
     private func createProfile() {
         do {
-            try model.createTunnelProfile(profileRequest)
-            refreshReadiness(successMessage: "Created profile.")
+            if profileDraft.template == .advanced {
+                try model.importTunnelConfigText(profileDraft.advancedTOML)
+                refreshReadiness(successMessage: "Saved advanced config.")
+            } else if let request = profileDraft.makeCreateRequest() {
+                try model.createTunnelProfile(request)
+                refreshReadiness(successMessage: "Created profile.")
+            }
             if canContinue {
                 step = .ready
             }
@@ -334,6 +321,13 @@ struct IOSOnboardingView: View {
             message = error.localizedDescription
             canContinue = false
         }
+    }
+
+    private func seedAdvancedTOMLIfNeeded() {
+        guard profileDraft.advancedTOML.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return
+        }
+        profileDraft.advancedTOML = (try? TunnelConfigStore.loadOrCreateConfig(groupIdentifier: model.settingsStore.settings.appGroupIdentifier)) ?? defaultIOSTunnelConfig
     }
 
     private func continueIfReady() {

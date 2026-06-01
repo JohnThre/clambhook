@@ -315,38 +315,13 @@ private struct IOSProfileCreateView: View {
     @ObservedObject var model: AppleAppModel
     var onCreated: (String) -> Void
     @Environment(\.dismiss) private var dismiss
-    @State private var request = TunnelProfileCreateRequest()
+    @State private var draft = TunnelProfileCreateDraft(replace: false)
     @State private var message = ""
 
     var body: some View {
         NavigationStack {
             Form {
-                Section("Profile") {
-                    TextField("Profile name", text: $request.profileName)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                }
-
-                Section("Endpoint") {
-                    TextField("Display name", text: $request.serverName)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                    TextField("Address", text: $request.serverAddress)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                    TextField("Protocol", text: $request.protocol)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                    TextField("Route", text: $request.chainName)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                }
-
-                Section("Settings") {
-                    TextEditor(text: $request.settingsTOML)
-                        .font(.system(.footnote, design: .monospaced))
-                        .frame(minHeight: 130)
-                }
+                IOSTunnelProfileTemplateForm(draft: $draft)
 
                 if !message.isEmpty {
                     Section {
@@ -358,6 +333,9 @@ private struct IOSProfileCreateView: View {
             }
             .navigationTitle("Create Profile")
             .navigationBarTitleDisplayMode(.inline)
+            .onAppear {
+                seedAdvancedTOMLIfNeeded()
+            }
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("Cancel") {
@@ -365,7 +343,7 @@ private struct IOSProfileCreateView: View {
                     }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("Create") {
+                    Button(createButtonTitle) {
                         createProfile()
                     }
                     .fontWeight(.semibold)
@@ -376,17 +354,200 @@ private struct IOSProfileCreateView: View {
     }
 
     private var createDisabled: Bool {
-        request.profileName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
-        request.serverAddress.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        !draft.isInputComplete
+    }
+
+    private var createButtonTitle: String {
+        draft.template == .advanced ? "Save" : "Create"
+    }
+
+    private func seedAdvancedTOMLIfNeeded() {
+        guard draft.advancedTOML.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return
+        }
+        draft.advancedTOML = (try? TunnelConfigStore.loadOrCreateConfig(groupIdentifier: model.settingsStore.settings.appGroupIdentifier)) ?? defaultIOSTunnelConfig
     }
 
     private func createProfile() {
         do {
-            try model.createTunnelProfile(request)
-            onCreated("Created profile.")
+            if draft.template == .advanced {
+                try model.importTunnelConfigText(draft.advancedTOML)
+                onCreated("Saved advanced config.")
+            } else if let request = draft.makeCreateRequest() {
+                try model.createTunnelProfile(request)
+                onCreated("Created profile.")
+            }
             dismiss()
         } catch {
             message = error.localizedDescription
         }
+    }
+}
+
+struct IOSTunnelProfileTemplateForm: View {
+    @Binding var draft: TunnelProfileCreateDraft
+
+    var body: some View {
+        Group {
+            Section("Template") {
+                Picker("Type", selection: $draft.template) {
+                    ForEach(TunnelProfileTemplate.allCases) { template in
+                        Text(template.displayName).tag(template)
+                    }
+                }
+            }
+
+            if draft.template == .advanced {
+                advancedSection
+            } else {
+                commonProfileSections
+                settingsSection
+            }
+        }
+        .onChange(of: draft.template) { oldTemplate, _ in
+            draft.applyTemplateDefaults(previousTemplate: oldTemplate)
+        }
+    }
+
+    @ViewBuilder
+    private var commonProfileSections: some View {
+        Section("Profile") {
+            TextField("Profile name", text: $draft.profileName)
+                .profileTemplateInput()
+            TextField("Route", text: $draft.chainName)
+                .profileTemplateInput()
+        }
+
+        Section("Server") {
+            TextField("Display name", text: $draft.serverName)
+                .profileTemplateInput()
+            TextField(serverAddressLabel, text: $draft.serverAddress)
+                .profileTemplateInput()
+        }
+    }
+
+    @ViewBuilder
+    private var settingsSection: some View {
+        switch draft.template {
+        case .shadowsocks:
+            Section("Shadowsocks") {
+                Picker("Method", selection: $draft.shadowsocks.method) {
+                    Text("chacha20-ietf-poly1305").tag("chacha20-ietf-poly1305")
+                    Text("aes-128-gcm").tag("aes-128-gcm")
+                    Text("aes-256-gcm").tag("aes-256-gcm")
+                }
+                SecureField("Password", text: $draft.shadowsocks.password)
+                    .profileTemplateInput()
+            }
+        case .wireguard:
+            Section("WireGuard") {
+                SecureField("Private key", text: $draft.wireguard.privateKey)
+                    .profileTemplateInput()
+                TextField("Interface addresses", text: $draft.wireguard.interfaceAddresses)
+                    .profileTemplateInput()
+                TextField("DNS servers", text: $draft.wireguard.dnsServers)
+                    .profileTemplateInput()
+                TextField("Peer public key", text: $draft.wireguard.peerPublicKey)
+                    .profileTemplateInput()
+                SecureField("Preshared key", text: $draft.wireguard.presharedKey)
+                    .profileTemplateInput()
+                TextField("Allowed IPs", text: $draft.wireguard.allowedIPs)
+                    .profileTemplateInput()
+                Stepper("Keepalive \(draft.wireguard.persistentKeepalive)s", value: $draft.wireguard.persistentKeepalive, in: 0...65535)
+                TextField("MTU", value: $draft.wireguard.mtu, format: .number)
+                    .keyboardType(.numberPad)
+                Picker("Log level", selection: $draft.wireguard.logLevel) {
+                    Text("error").tag("error")
+                    Text("silent").tag("silent")
+                    Text("verbose").tag("verbose")
+                }
+            }
+        case .openvpn:
+            Section("OpenVPN") {
+                pemEditor("CA certificate", text: $draft.openvpn.caCert)
+                pemEditor("Client certificate", text: $draft.openvpn.clientCert)
+                pemEditor("Client key", text: $draft.openvpn.clientKey)
+                TextField("Server CN", text: $draft.openvpn.serverCN)
+                    .profileTemplateInput()
+                TextField("Username", text: $draft.openvpn.username)
+                    .profileTemplateInput()
+                SecureField("Password", text: $draft.openvpn.password)
+                    .profileTemplateInput()
+                Picker("Cipher", selection: $draft.openvpn.cipher) {
+                    Text("Negotiated").tag("")
+                    Text("AES-256-GCM").tag("AES-256-GCM")
+                    Text("CHACHA20-POLY1305").tag("CHACHA20-POLY1305")
+                }
+                TextField("TUN MTU", value: $draft.openvpn.tunMTU, format: .number)
+                    .keyboardType(.numberPad)
+                Toggle("Skip certificate verification", isOn: $draft.openvpn.skipCertVerify)
+            }
+        case .trojan:
+            trojanSection(title: "Trojan", settings: $draft.trojan)
+        case .tor:
+            Section("Tor") {
+                TextField("Isolation user", text: $draft.tor.isolationUser)
+                    .profileTemplateInput()
+                SecureField("Isolation password", text: $draft.tor.isolationPass)
+                    .profileTemplateInput()
+            }
+        case .clambback:
+            trojanSection(title: "Clambback", settings: $draft.clambback)
+        case .advanced:
+            EmptyView()
+        }
+    }
+
+    private var advancedSection: some View {
+        Section("Advanced") {
+            TextEditor(text: $draft.advancedTOML)
+                .font(.system(.footnote, design: .monospaced))
+                .frame(minHeight: 320)
+                .profileTemplateInput()
+        }
+    }
+
+    private var serverAddressLabel: String {
+        switch draft.template {
+        case .tor:
+            return "SOCKS address"
+        case .wireguard:
+            return "Peer endpoint"
+        case .openvpn:
+            return "VPN address"
+        default:
+            return "Address"
+        }
+    }
+
+    private func pemEditor(_ title: String, text: Binding<String>) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+            TextEditor(text: text)
+                .font(.system(.footnote, design: .monospaced))
+                .frame(minHeight: 92)
+                .profileTemplateInput()
+        }
+    }
+
+    private func trojanSection(title: String, settings: Binding<TunnelTrojanTemplateSettings>) -> some View {
+        Section(title) {
+            SecureField("Password", text: settings.password)
+                .profileTemplateInput()
+            TextField("SNI", text: settings.sni)
+                .profileTemplateInput()
+            TextField("ALPN", text: settings.alpn)
+                .profileTemplateInput()
+            Toggle("Skip certificate verification", isOn: settings.skipCertVerify)
+        }
+    }
+}
+
+private extension View {
+    func profileTemplateInput() -> some View {
+        textInputAutocapitalization(.never)
+            .autocorrectionDisabled()
     }
 }

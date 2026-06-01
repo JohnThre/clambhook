@@ -45,6 +45,74 @@ final class OperationalSupportTests: XCTestCase {
         XCTAssertFalse(TunnelConfigStore.isPlaceholderConfigText(realConfig))
     }
 
+    func testProfileTemplateOrderKeepsAdvancedLast() {
+        XCTAssertEqual(
+            TunnelProfileTemplate.allCases.map(\.rawValue),
+            ["shadowsocks", "wireguard", "openvpn", "trojan", "tor", "clambback", "advanced"]
+        )
+    }
+
+    func testShadowsocksTemplateBuildsTypedSettingsRequest() throws {
+        let draft = TunnelProfileCreateDraft(
+            serverAddress: "example.com:8388",
+            shadowsocks: TunnelShadowsocksTemplateSettings(password: "secret")
+        )
+
+        let request = try XCTUnwrap(draft.makeCreateRequest())
+
+        XCTAssertTrue(draft.isInputComplete)
+        XCTAssertEqual(request.protocol, "shadowsocks")
+        XCTAssertEqual(request.serverAddress, "example.com:8388")
+        XCTAssertEqual(request.settingsTOML, "")
+        XCTAssertEqual(request.settings?["method"], .string("chacha20-ietf-poly1305"))
+        XCTAssertEqual(request.settings?["password"], .string("secret"))
+    }
+
+    func testWireGuardTemplateBuildsNestedSettingsRequest() throws {
+        let draft = TunnelProfileCreateDraft(
+            template: .wireguard,
+            serverAddress: "1.2.3.4:51820",
+            wireguard: TunnelWireGuardTemplateSettings(
+                privateKey: "private",
+                interfaceAddresses: "10.0.0.2/32\n10.0.0.3/32",
+                dnsServers: "1.1.1.1, 8.8.8.8",
+                peerPublicKey: "public",
+                presharedKey: "psk",
+                allowedIPs: "0.0.0.0/0, ::/0",
+                persistentKeepalive: 25,
+                mtu: 1280,
+                logLevel: "verbose"
+            )
+        )
+
+        let request = try XCTUnwrap(draft.makeCreateRequest())
+        let data = try JSONEncoder().encode(request)
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let settings = try XCTUnwrap(object["settings"] as? [String: Any])
+        let peers = try XCTUnwrap(settings["peers"] as? [[String: Any]])
+        let peer = try XCTUnwrap(peers.first)
+
+        XCTAssertTrue(draft.isInputComplete)
+        XCTAssertEqual(object["protocol"] as? String, "wireguard")
+        XCTAssertEqual(settings["private_key"] as? String, "private")
+        XCTAssertEqual(settings["addresses"] as? [String], ["10.0.0.2/32", "10.0.0.3/32"])
+        XCTAssertEqual(settings["dns"] as? [String], ["1.1.1.1", "8.8.8.8"])
+        XCTAssertEqual(settings["mtu"] as? Int, 1280)
+        XCTAssertEqual(settings["log_level"] as? String, "verbose")
+        XCTAssertEqual(peer["public_key"] as? String, "public")
+        XCTAssertEqual(peer["endpoint"] as? String, "1.2.3.4:51820")
+        XCTAssertEqual(peer["allowed_ips"] as? [String], ["0.0.0.0/0", "::/0"])
+        XCTAssertEqual(peer["preshared_key"] as? String, "psk")
+        XCTAssertEqual(peer["persistent_keepalive"] as? Int, 25)
+    }
+
+    func testAdvancedTemplateDoesNotBuildSingleProfileRequest() {
+        let draft = TunnelProfileCreateDraft(template: .advanced, advancedTOML: "active = \"default\"")
+
+        XCTAssertTrue(draft.isInputComplete)
+        XCTAssertNil(draft.makeCreateRequest())
+    }
+
     func testDashboardDerivedDecisionsRuleHitsAndHealth() async {
         let api = FakeOperationalAPIClient()
         api.serversResult = ServersPayload(profile: "A", chains: [
