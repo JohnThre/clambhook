@@ -1,7 +1,7 @@
 import ClambhookShared
 import SwiftUI
 
-struct IOSOperationsOverviewView: View {
+struct IOSStatusView: View {
     @ObservedObject var model: AppleAppModel
 
     var body: some View {
@@ -10,42 +10,21 @@ struct IOSOperationsOverviewView: View {
                 IOSStatusPanel(model: model)
             }
 
-            Section("Essentials") {
+            Section("Profile") {
+                IOSProfileControl(model: model)
+            }
+
+            Section("Now") {
                 IOSMetricsGrid(metrics: overviewMetrics)
                     .listRowInsets(EdgeInsets(top: 10, leading: 16, bottom: 10, trailing: 16))
             }
 
-            Section("Active Profile") {
-                IOSProfileControl(model: model)
-            }
-
-            Section("Recent Decisions") {
+            Section("Recent") {
                 if model.dashboard.recentDecisions.isEmpty {
-                    IOSInlineEmptyState(text: "No routing decisions yet.", systemImage: "arrow.triangle.branch")
+                    IOSInlineEmptyState(text: "No recent activity.", systemImage: "arrow.triangle.branch")
                 } else {
-                    ForEach(model.dashboard.recentDecisions) { decision in
+                    ForEach(model.dashboard.recentDecisions.prefix(5)) { decision in
                         IOSDecisionRow(decision: decision)
-                    }
-                }
-            }
-
-            Section("Rule Hits") {
-                if model.dashboard.ruleHitSummaries.isEmpty {
-                    IOSInlineEmptyState(text: "Rules have not matched traffic yet.", systemImage: "checklist")
-                } else {
-                    ForEach(model.dashboard.ruleHitSummaries.prefix(6)) { summary in
-                        IOSRuleHitRow(summary: summary)
-                    }
-                }
-            }
-
-            Section("Server Health") {
-                let healthRows = serverHealthRows
-                if healthRows.isEmpty {
-                    IOSInlineEmptyState(text: "No active profile servers.", systemImage: "server.rack")
-                } else {
-                    ForEach(healthRows.prefix(4)) { row in
-                        IOSServerHealthRow(row: row)
                     }
                 }
             }
@@ -62,17 +41,8 @@ struct IOSOperationsOverviewView: View {
             IOSMetric(title: "Down", value: formatRate(sample.rxBps), systemImage: "arrow.down"),
             IOSMetric(title: "Up", value: formatRate(sample.txBps), systemImage: "arrow.up"),
             IOSMetric(title: "Active", value: "\(model.dashboard.traffic.summary.activeConnections)", systemImage: "bolt.horizontal.circle"),
-            IOSMetric(title: "Servers", value: "\(model.dashboard.servers.chains.reduce(0) { $0 + $1.servers.count })", systemImage: "server.rack"),
+            IOSMetric(title: "Rules", value: "\(model.dashboard.rules.rules.count)", systemImage: "slider.horizontal.3"),
         ]
-    }
-
-    private var serverHealthRows: [IOSServerHealthRowData] {
-        let health = model.dashboard.passiveServerHealth
-        return model.dashboard.servers.chains.flatMap { chain in
-            chain.servers.map { server in
-                IOSServerHealthRowData(chainName: chain.name, server: server, health: health[server.id])
-            }
-        }
     }
 }
 

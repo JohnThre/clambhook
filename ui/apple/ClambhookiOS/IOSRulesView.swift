@@ -1,16 +1,30 @@
 import ClambhookShared
 import SwiftUI
 
-struct IOSRuleEditorView: View {
+struct IOSRulesView: View {
     @ObservedObject var model: AppleAppModel
-    @Environment(\.dismiss) private var dismiss
     @State private var rules: [RulePayload] = []
     @State private var message = ""
     @State private var loaded = false
 
     var body: some View {
         List {
-            Section("Rules") {
+            if model.dashboard.activeProfile.isEmpty {
+                Section {
+                    ContentUnavailableView(
+                        "No active profile",
+                        systemImage: "person.crop.rectangle.stack",
+                        description: Text("Choose a profile before editing rules.")
+                    )
+                }
+            } else {
+                Section("Profile") {
+                    Text(model.dashboard.activeProfile)
+                        .font(.body.weight(.medium))
+                }
+            }
+
+            Section {
                 if rules.isEmpty {
                     IOSInlineEmptyState(text: "No routing rules.", systemImage: "checklist")
                 } else {
@@ -26,21 +40,6 @@ struct IOSRuleEditorView: View {
                 }
             }
 
-            Section {
-                Button {
-                    rules.append(RulePayload(name: "new-rule", action: "block"))
-                } label: {
-                    Label("Add Rule", systemImage: "plus.circle")
-                }
-
-                Button {
-                    saveRules()
-                } label: {
-                    Label("Save Rules", systemImage: "checkmark.circle")
-                }
-                .fontWeight(.semibold)
-            }
-
             if !message.isEmpty {
                 Section("Status") {
                     Text(message)
@@ -50,11 +49,26 @@ struct IOSRuleEditorView: View {
             }
         }
         .listStyle(.insetGrouped)
-        .navigationTitle("Rule Editor")
-        .navigationBarTitleDisplayMode(.inline)
+        .navigationTitle("Rules")
         .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                Button("Apply") {
+                    saveRules()
+                }
+                .disabled(model.dashboard.activeProfile.isEmpty)
+            }
             ToolbarItem(placement: .topBarTrailing) {
-                EditButton()
+                Button {
+                    addRule()
+                } label: {
+                    Image(systemName: "plus")
+                }
+                .disabled(model.dashboard.activeProfile.isEmpty)
+            }
+            ToolbarItem(placement: .topBarTrailing) {
+                if !rules.isEmpty {
+                    EditButton()
+                }
             }
         }
         .onAppear {
@@ -62,6 +76,11 @@ struct IOSRuleEditorView: View {
                 rules = model.dashboard.rules.rules
                 loaded = true
             }
+        }
+        .onChange(of: model.dashboard.activeProfile) { _, _ in
+            rules = model.dashboard.rules.rules
+            loaded = true
+            message = ""
         }
     }
 
@@ -72,11 +91,14 @@ struct IOSRuleEditorView: View {
     private func saveRules() {
         do {
             try model.replaceActiveProfileRules(rules)
-            message = "Saved rules."
-            dismiss()
+            message = "Applied rules."
         } catch {
             message = error.localizedDescription
         }
+    }
+
+    private func addRule() {
+        rules.append(RulePayload(name: "new-rule", action: "block"))
     }
 }
 

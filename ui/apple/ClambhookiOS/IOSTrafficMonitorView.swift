@@ -1,53 +1,81 @@
 import ClambhookShared
 import SwiftUI
 
-struct IOSOperationsTrafficView: View {
+struct IOSActivityView: View {
     @ObservedObject var model: AppleAppModel
-    @State private var filter: IOSTrafficFilter = .all
+    @State private var mode: IOSActivityMode = .connections
+    @State private var connectionFilter: IOSTrafficFilter = .all
+    @State private var logFilter: IOSActivityLogFilter = .all
     @State private var searchText = ""
 
     var body: some View {
         List {
-            Section("Summary") {
+            Section("Now") {
                 IOSTrafficSummaryView(traffic: model.dashboard.traffic)
                     .listRowInsets(EdgeInsets(top: 10, leading: 16, bottom: 10, trailing: 16))
             }
 
-            Section("Controls") {
-                Picker("Traffic Filter", selection: $filter) {
-                    ForEach(IOSTrafficFilter.allCases) { filter in
-                        Text(filter.title).tag(filter)
+            Section {
+                Picker("Activity", selection: $mode) {
+                    ForEach(IOSActivityMode.allCases) { mode in
+                        Text(mode.title).tag(mode)
                     }
                 }
                 .pickerStyle(.segmented)
 
-                NavigationLink {
-                    IOSRuleEditorView(model: model)
-                } label: {
-                    Label("Rule Editor", systemImage: "slider.horizontal.3")
+                if mode == .connections {
+                    Picker("Connection Filter", selection: $connectionFilter) {
+                        ForEach(IOSTrafficFilter.allCases) { filter in
+                            Text(filter.title).tag(filter)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                } else {
+                    Picker("Log Filter", selection: $logFilter) {
+                        ForEach(IOSActivityLogFilter.allCases) { filter in
+                            Text(filter.title).tag(filter)
+                        }
+                    }
+                    .pickerStyle(.segmented)
                 }
             }
 
-            Section("Connections") {
-                if filteredConnections.isEmpty {
-                    ContentUnavailableView(
-                        searchText.isEmpty ? "No matching traffic" : "No matching connections",
-                        systemImage: "point.3.connected.trianglepath.dotted",
-                        description: Text("Recent connection decisions and timelines will appear here.")
-                    )
-                } else {
-                    ForEach(filteredConnections) { connection in
-                        NavigationLink {
-                            IOSOperationsConnectionDetailView(connection: connection)
-                        } label: {
-                            IOSOperationsConnectionRow(connection: connection)
+            if mode == .connections {
+                Section("Connections") {
+                    if filteredConnections.isEmpty {
+                        ContentUnavailableView(
+                            "No matching activity",
+                            systemImage: "waveform.path.ecg",
+                            description: Text("Connection decisions appear here.")
+                        )
+                    } else {
+                        ForEach(filteredConnections) { connection in
+                            NavigationLink {
+                                IOSActivityConnectionDetailView(connection: connection)
+                            } label: {
+                                IOSActivityConnectionRow(connection: connection)
+                            }
+                        }
+                    }
+                }
+            } else {
+                Section("Logs") {
+                    if filteredLogs.isEmpty {
+                        ContentUnavailableView(
+                            "No matching logs",
+                            systemImage: "doc.text.magnifyingglass",
+                            description: Text("Recent events appear here.")
+                        )
+                    } else {
+                        ForEach(Array(filteredLogs.enumerated()), id: \.offset) { _, line in
+                            IOSActivityLogLineRow(line: line)
                         }
                     }
                 }
             }
         }
         .listStyle(.insetGrouped)
-        .searchable(text: $searchText, prompt: "Search host, rule, app, decision")
+        .searchable(text: $searchText, prompt: mode.searchPrompt)
         .refreshable {
             await model.refreshNow()
         }
@@ -56,7 +84,14 @@ struct IOSOperationsTrafficView: View {
     private var filteredConnections: [TrafficConnectionPayload] {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         return model.dashboard.traffic.connections.filter { connection in
-            filter.matches(connection) && (query.isEmpty || connectionSearchFields(connection).contains { $0.lowercased().contains(query) })
+            connectionFilter.matches(connection) && (query.isEmpty || connectionSearchFields(connection).contains { $0.lowercased().contains(query) })
+        }
+    }
+
+    private var filteredLogs: [String] {
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return model.dashboard.logs.filter { line in
+            logFilter.matches(line) && (query.isEmpty || line.lowercased().contains(query))
         }
     }
 
@@ -71,6 +106,85 @@ struct IOSOperationsTrafficView: View {
             connection.displayVisibility,
             connection.network,
         ]
+    }
+}
+
+private enum IOSActivityMode: String, CaseIterable, Identifiable {
+    case connections
+    case logs
+
+    var id: Self { self }
+
+    var title: String {
+        switch self {
+        case .connections:
+            return "Connections"
+        case .logs:
+            return "Logs"
+        }
+    }
+
+    var searchPrompt: String {
+        switch self {
+        case .connections:
+            return "Search activity"
+        case .logs:
+            return "Search logs"
+        }
+    }
+}
+
+private enum IOSActivityLogFilter: String, CaseIterable, Identifiable {
+    case all
+    case errors
+    case warnings
+
+    var id: Self { self }
+
+    var title: String {
+        switch self {
+        case .all:
+            return "All"
+        case .errors:
+            return "Errors"
+        case .warnings:
+            return "Warn"
+        }
+    }
+
+    func matches(_ line: String) -> Bool {
+        let lower = line.lowercased()
+        switch self {
+        case .all:
+            return true
+        case .errors:
+            return lower.contains("error") || lower.contains("failed")
+        case .warnings:
+            return lower.contains("warn")
+        }
+    }
+}
+
+private struct IOSActivityLogLineRow: View {
+    var line: String
+
+    var body: some View {
+        Text(line)
+            .font(.system(.caption, design: .monospaced))
+            .foregroundStyle(tint)
+            .textSelection(.enabled)
+            .lineLimit(5)
+    }
+
+    private var tint: Color {
+        let lower = line.lowercased()
+        if lower.contains("error") || lower.contains("failed") {
+            return .red
+        }
+        if lower.contains("warn") {
+            return .orange
+        }
+        return .secondary
     }
 }
 
@@ -96,7 +210,7 @@ private struct IOSTrafficSummaryView: View {
     }
 }
 
-private struct IOSOperationsConnectionRow: View {
+private struct IOSActivityConnectionRow: View {
     var connection: TrafficConnectionPayload
 
     var body: some View {
@@ -126,7 +240,7 @@ private struct IOSOperationsConnectionRow: View {
     }
 }
 
-private struct IOSOperationsConnectionDetailView: View {
+private struct IOSActivityConnectionDetailView: View {
     var connection: TrafficConnectionPayload
 
     var body: some View {
@@ -184,7 +298,7 @@ private struct IOSOperationsConnectionDetailView: View {
                 }
             }
 
-            Section("Traffic") {
+            Section("Data") {
                 LabeledContent("Down", value: formatBytes(connection.rxTotal))
                 LabeledContent("Up", value: formatBytes(connection.txTotal))
                 LabeledContent("Down rate", value: formatRate(connection.rxBps))
