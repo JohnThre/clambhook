@@ -166,6 +166,28 @@ func CreateTunnelProfileConfigJSON(configPath, requestJSON string) error {
 	return writeTunnelConfig(configPath, cfg)
 }
 
+// SetActiveTunnelProfileConfig sets the active profile in configPath and writes
+// the updated tunnel config atomically.
+func SetActiveTunnelProfileConfig(configPath, profileName string) error {
+	cfg, err := loadTunnelConfig(configPath)
+	if err != nil {
+		return err
+	}
+	profileName = strings.TrimSpace(profileName)
+	if profileName == "" {
+		return fmt.Errorf("profile name is required")
+	}
+	if _, ok := cfg.ProfileByName(profileName); !ok {
+		return fmt.Errorf("profile %q not found", profileName)
+	}
+	cfg.Active = profileName
+	ensureTunnelConfig(cfg)
+	if err := engine.ValidateConfig(cfg); err != nil {
+		return err
+	}
+	return writeTunnelConfig(configPath, cfg)
+}
+
 func (r createTunnelProfileRequest) normalized() createTunnelProfileRequest {
 	r.ProfileName = strings.TrimSpace(r.ProfileName)
 	r.ChainName = strings.TrimSpace(r.ChainName)

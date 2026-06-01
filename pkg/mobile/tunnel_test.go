@@ -174,6 +174,47 @@ func TestValidateUsableTunnelConfigAcceptsRealProfile(t *testing.T) {
 	}
 }
 
+func TestSetActiveTunnelProfileConfig(t *testing.T) {
+	path := writeMultiProfileTunnelTestConfig(t)
+
+	if err := SetActiveTunnelProfileConfig(path, "backup"); err != nil {
+		t.Fatalf("SetActiveTunnelProfileConfig: %v", err)
+	}
+
+	rawDashboard, err := TunnelConfigDashboardJSON(path)
+	if err != nil {
+		t.Fatalf("TunnelConfigDashboardJSON: %v", err)
+	}
+	var payload dashboardPayload
+	if err := json.Unmarshal([]byte(rawDashboard), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Profiles.Active != "backup" || payload.Status.Profile != "backup" {
+		t.Fatalf("active profile = %+v status=%+v, want backup", payload.Profiles, payload.Status)
+	}
+}
+
+func TestSetActiveTunnelProfileConfigRejectsUnknownProfile(t *testing.T) {
+	path := writeMultiProfileTunnelTestConfig(t)
+
+	err := SetActiveTunnelProfileConfig(path, "missing")
+	if err == nil || !strings.Contains(err.Error(), "profile \"missing\" not found") {
+		t.Fatalf("SetActiveTunnelProfileConfig error = %v, want missing profile error", err)
+	}
+
+	rawDashboard, dashErr := TunnelConfigDashboardJSON(path)
+	if dashErr != nil {
+		t.Fatalf("TunnelConfigDashboardJSON: %v", dashErr)
+	}
+	var payload dashboardPayload
+	if err := json.Unmarshal([]byte(rawDashboard), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Profiles.Active != "default" {
+		t.Fatalf("active profile = %q, want default", payload.Profiles.Active)
+	}
+}
+
 func writeTunnelTestConfig(t *testing.T) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "clambhook.toml")
@@ -189,6 +230,47 @@ name = "default"
     [[profile.chain.server]]
     name = "example"
     address = "example.invalid:443"
+    protocol = "shadowsocks"
+
+      [profile.chain.server.settings]
+      method = "chacha20-ietf-poly1305"
+      password = "secret"
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func writeMultiProfileTunnelTestConfig(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "clambhook.toml")
+	if err := os.WriteFile(path, []byte(`
+active = "default"
+
+[[profile]]
+name = "default"
+
+  [[profile.chain]]
+  name = "proxy"
+
+    [[profile.chain.server]]
+    name = "primary"
+    address = "primary.example.invalid:443"
+    protocol = "shadowsocks"
+
+      [profile.chain.server.settings]
+      method = "chacha20-ietf-poly1305"
+      password = "secret"
+
+[[profile]]
+name = "backup"
+
+  [[profile.chain]]
+  name = "proxy"
+
+    [[profile.chain.server]]
+    name = "secondary"
+    address = "secondary.example.invalid:443"
     protocol = "shadowsocks"
 
       [profile.chain.server.settings]
