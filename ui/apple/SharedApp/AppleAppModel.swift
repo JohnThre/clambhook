@@ -206,11 +206,32 @@ final class AppleAppModel: ObservableObject {
         #endif
     }
 
-    func shouldShowOnboarding() -> Bool {
-        guard let text = try? TunnelConfigStore.loadOrCreateConfig(groupIdentifier: settingsStore.settings.appGroupIdentifier) else {
-            return true
+    func tunnelOnboardingReadinessMessage() -> String? {
+        do {
+            let text = try TunnelConfigStore.loadOrCreateConfig(groupIdentifier: settingsStore.settings.appGroupIdentifier)
+            if TunnelConfigStore.isPlaceholderConfigText(text) {
+                return "Replace the placeholder profile before continuing."
+            }
+            #if canImport(ClambhookMobile)
+            try mobileBool {
+                MobileValidateUsableTunnelConfig(
+                    TunnelConfigStore.configURL(groupIdentifier: settingsStore.settings.appGroupIdentifier).path,
+                    $0
+                )
+            }
+            #else
+            guard TunnelImportDecoder.looksLikeTOML(text), text.lowercased().contains("[[profile]]") else {
+                return "Import or create a tunnel profile before continuing."
+            }
+            #endif
+            return nil
+        } catch {
+            return error.localizedDescription
         }
-        return TunnelConfigStore.isPlaceholderConfigText(text) || dashboard.profiles.profiles.isEmpty
+    }
+
+    func shouldShowOnboarding() -> Bool {
+        tunnelOnboardingReadinessMessage() != nil
     }
 
     func reloadTunnelConfiguration() {

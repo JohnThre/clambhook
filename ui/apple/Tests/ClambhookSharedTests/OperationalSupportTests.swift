@@ -26,6 +26,25 @@ final class OperationalSupportTests: XCTestCase {
         XCTAssertEqual(try TunnelImportDecoder.decode(raw), toml)
     }
 
+    func testTunnelConfigStoreDetectsPlaceholderText() {
+        XCTAssertTrue(TunnelConfigStore.isPlaceholderConfigText("name = \"replace-me\""))
+        XCTAssertTrue(TunnelConfigStore.isPlaceholderConfigText("password = \"replace-with-secret\""))
+        XCTAssertTrue(TunnelConfigStore.isPlaceholderConfigText("address = \"proxy.example.com:443\""))
+
+        let realConfig = """
+        active = "phone"
+        [[profile]]
+        name = "phone"
+        [[profile.chain]]
+        name = "proxy"
+        [[profile.chain.server]]
+        name = "exit"
+        address = "vpn.example.net:443"
+        protocol = "shadowsocks"
+        """
+        XCTAssertFalse(TunnelConfigStore.isPlaceholderConfigText(realConfig))
+    }
+
     func testDashboardDerivedDecisionsRuleHitsAndHealth() async {
         let api = FakeOperationalAPIClient()
         api.serversResult = ServersPayload(profile: "A", chains: [

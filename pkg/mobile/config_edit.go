@@ -28,6 +28,19 @@ func ValidateTunnelConfig(configPath string) error {
 	return engine.ValidateConfig(cfg)
 }
 
+// ValidateUsableTunnelConfig rejects the generated placeholder profile before
+// applying packet tunnel runtime validation.
+func ValidateUsableTunnelConfig(configPath string) error {
+	cfg, err := loadTunnelConfig(configPath)
+	if err != nil {
+		return err
+	}
+	if isPlaceholderConfig(cfg) {
+		return errors.New("tunnel config still contains the placeholder profile")
+	}
+	return engine.ValidateConfig(cfg)
+}
+
 // TunnelConfigDashboardJSON returns profile, server, and rule data directly
 // from configPath. It lets the iOS app render onboarding/config screens before
 // the NetworkExtension runtime is connected.

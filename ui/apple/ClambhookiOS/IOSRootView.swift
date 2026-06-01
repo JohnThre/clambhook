@@ -1659,6 +1659,7 @@ private struct IOSOnboardingView: View {
     @State private var showingFileImporter = false
     @State private var showingScanner = false
     @State private var message = ""
+    @State private var canContinue = false
     @State private var profileRequest = TunnelProfileCreateRequest()
 
     var body: some View {
@@ -1734,9 +1735,10 @@ private struct IOSOnboardingView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Continue") {
-                        onComplete()
+                        continueIfReady()
                     }
                     .fontWeight(.semibold)
+                    .disabled(!canContinue)
                 }
             }
             .fileImporter(
@@ -1751,6 +1753,9 @@ private struct IOSOnboardingView: View {
                     showingScanner = false
                     importText(value)
                 }
+            }
+            .task {
+                refreshReadiness()
             }
         }
     }
@@ -1783,18 +1788,43 @@ private struct IOSOnboardingView: View {
     private func importText(_ raw: String) {
         do {
             try model.importTunnelConfigText(raw)
-            message = "Imported tunnel configuration."
+            refreshReadiness(successMessage: "Imported tunnel configuration.")
         } catch {
             message = error.localizedDescription
+            canContinue = false
         }
     }
 
     private func createProfile() {
         do {
             try model.createTunnelProfile(profileRequest)
-            message = "Created profile."
+            refreshReadiness(successMessage: "Created profile.")
         } catch {
             message = error.localizedDescription
+            canContinue = false
+        }
+    }
+
+    private func continueIfReady() {
+        refreshReadiness()
+        guard canContinue else {
+            return
+        }
+        onComplete()
+    }
+
+    private func refreshReadiness(successMessage: String? = nil) {
+        let wasReady = canContinue
+        if let readinessMessage = model.tunnelOnboardingReadinessMessage() {
+            canContinue = false
+            message = readinessMessage
+        } else {
+            canContinue = true
+            if let successMessage {
+                message = successMessage
+            } else if !wasReady {
+                message = ""
+            }
         }
     }
 }
