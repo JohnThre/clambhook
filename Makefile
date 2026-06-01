@@ -1,4 +1,4 @@
-.PHONY: all build build-clib build-daemon build-tui install install-linux prepare-apple-runtime generate-apple build-apple release-macos release-check package-smoke test-apple test-android build-android-mobile-aar build-ios-mobile-xcframework test-android build-android build-android-release build-android-play-release build-android-fdroid-release check-windows-host test-windows build-windows-daemon build-windows publish-windows check-linux-ui-deps check-linux-flatpak-deps test-linux build-linux build-linux-flatpak test-linux-flatpak test e2e e2e-release lint clean
+.PHONY: all build build-clib build-daemon build-tui install install-linux prepare-apple-runtime generate-apple build-apple archive-iphone build-iphone release-macos release-check package-smoke test-apple test-android build-android-mobile-aar build-ios-mobile-xcframework test-android build-android build-android-release build-android-play-release build-android-fdroid-release check-windows-host test-windows build-windows-daemon build-windows publish-windows check-linux-ui-deps check-linux-flatpak-deps test-linux build-linux build-linux-flatpak test-linux-flatpak test e2e e2e-release lint clean
 
 export CGO_ENABLED=1
 PREFIX ?= /usr/local
@@ -67,6 +67,11 @@ build-apple: prepare-apple-runtime build-ios-mobile-xcframework
 	xcodebuild -project ui/apple/Clambhook.xcodeproj -scheme ClambhookMac -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO build
 	xcodebuild -project ui/apple/Clambhook.xcodeproj -scheme ClambhookiOS -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build
 	xcodebuild -project ui/apple/Clambhook.xcodeproj -scheme ClambhookVision -destination 'generic/platform=visionOS Simulator' CODE_SIGNING_ALLOWED=NO build
+
+archive-iphone:
+	./scripts/archive-ios-app-store.sh
+
+build-iphone: archive-iphone
 
 release-macos:
 	./scripts/release-macos.sh
