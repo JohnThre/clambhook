@@ -1,0 +1,139 @@
+import ClambhookShared
+import SwiftUI
+
+struct IOSMetric: Identifiable {
+    var id: String { title }
+    var title: String
+    var value: String
+    var systemImage: String
+}
+
+struct IOSMetricsGrid: View {
+    var metrics: [IOSMetric]
+
+    private var columns: [GridItem] {
+        [GridItem(.adaptive(minimum: 145), spacing: 10)]
+    }
+
+    var body: some View {
+        LazyVGrid(columns: columns, alignment: .leading, spacing: 10) {
+            ForEach(metrics) { metric in
+                IOSMetricTile(metric: metric)
+            }
+        }
+    }
+}
+
+private struct IOSMetricTile: View {
+    var metric: IOSMetric
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: metric.systemImage)
+                .foregroundStyle(.secondary)
+                .frame(width: 22)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(metric.title)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text(metric.value)
+                    .font(.subheadline.weight(.semibold))
+                    .monospacedDigit()
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+    }
+}
+
+struct IOSStatusBadge: View {
+    var text: String
+    var systemImage: String
+    var tint: Color
+
+    var body: some View {
+        Label(text, systemImage: systemImage)
+            .font(.caption.weight(.medium))
+            .lineLimit(1)
+            .foregroundStyle(tint)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(tint.opacity(0.12), in: Capsule())
+    }
+}
+
+struct IOSInlineEmptyState: View {
+    var text: String
+    var systemImage: String
+
+    var body: some View {
+        Label(text, systemImage: systemImage)
+            .font(.subheadline)
+            .foregroundStyle(.secondary)
+    }
+}
+
+struct IOSActionChip: View {
+    var action: String
+
+    var body: some View {
+        Label(title, systemImage: icon)
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(tint)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(tint.opacity(0.12), in: Capsule())
+            .lineLimit(1)
+    }
+
+    private var normalized: String {
+        action.lowercased()
+    }
+
+    private var title: String {
+        switch normalized {
+        case "block", "reject":
+            return "Block"
+        case "direct":
+            return "Direct"
+        default:
+            return "Proxy"
+        }
+    }
+
+    private var icon: String {
+        switch normalized {
+        case "block", "reject":
+            return "hand.raised.fill"
+        case "direct":
+            return "arrow.up.right"
+        default:
+            return "shield.lefthalf.filled"
+        }
+    }
+
+    private var tint: Color {
+        switch normalized {
+        case "block", "reject":
+            return .red
+        case "direct":
+            return .blue
+        default:
+            return .green
+        }
+    }
+}
+
+func iosListenerDescription(_ listener: TrafficListenerPayload) -> String {
+    let protocolText = emptyDash(listener.protocol).uppercased()
+    if listener.addr.isEmpty {
+        return protocolText
+    }
+    return "\(protocolText) / \(listener.addr)"
+}
