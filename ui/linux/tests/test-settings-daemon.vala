@@ -47,40 +47,34 @@ namespace Clambhook.Tests {
             assert_false(loaded.event_stream_enabled);
         });
 
-        Test.add_func("/linux/daemon/resolves-configured-flatpak-path-and-adjacent-paths", () => {
+        Test.add_func("/linux/daemon/resolves-configured-path-and-adjacent-path", () => {
             var temp_root = temp_dir("clambhook-linux-daemon-path-test-XXXXXX");
             var configured = Path.build_filename(temp_root, "configured", "clambhook");
-            var flatpak = Path.build_filename(temp_root, "flatpak", "clambhook");
             var app_dir = Path.build_filename(temp_root, "app");
             var adjacent = Path.build_filename(app_dir, "clambhook");
 
             assert_cmpint(DirUtils.create_with_parents(Path.get_dirname(configured), 0700), CompareOperator.EQ, 0);
-            assert_cmpint(DirUtils.create_with_parents(Path.get_dirname(flatpak), 0700), CompareOperator.EQ, 0);
             assert_cmpint(DirUtils.create_with_parents(app_dir, 0700), CompareOperator.EQ, 0);
             try {
                 FileUtils.set_contents(configured, "configured daemon");
-                FileUtils.set_contents(flatpak, "flatpak daemon");
             } catch (Error err) {
                 assert_not_reached();
             }
 
             var settings = new AppSettings();
             settings.daemon_path = " %s ".printf(configured);
-            assert_cmpstr(DaemonSupervisor.resolve_executable_path(settings, app_dir, flatpak, false), CompareOperator.EQ, configured);
+            assert_cmpstr(DaemonSupervisor.resolve_executable_path(settings, app_dir, false), CompareOperator.EQ, configured);
 
             settings.daemon_path = "";
-            assert_cmpstr(DaemonSupervisor.resolve_executable_path(settings, app_dir, flatpak, false), CompareOperator.EQ, flatpak);
-
-            assert_cmpint(FileUtils.remove(flatpak), CompareOperator.EQ, 0);
             try {
                 FileUtils.set_contents(adjacent, "adjacent daemon");
             } catch (Error err) {
                 assert_not_reached();
             }
-            assert_cmpstr(DaemonSupervisor.resolve_executable_path(settings, app_dir, flatpak, false), CompareOperator.EQ, adjacent);
+            assert_cmpstr(DaemonSupervisor.resolve_executable_path(settings, app_dir, false), CompareOperator.EQ, adjacent);
 
             assert_cmpint(FileUtils.remove(adjacent), CompareOperator.EQ, 0);
-            assert_true(DaemonSupervisor.resolve_executable_path(settings, app_dir, flatpak, false) == null);
+            assert_true(DaemonSupervisor.resolve_executable_path(settings, app_dir, false) == null);
 
             settings.config_path = " /tmp/clambhook.toml ";
             var args = DaemonSupervisor.build_arguments(settings, " token ");

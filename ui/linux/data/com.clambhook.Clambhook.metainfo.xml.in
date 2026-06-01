@@ -2,12 +2,12 @@
 <component type="desktop-application">
   <id>@app_id@</id>
   <name>clambhook</name>
-  <summary>Control clambhook proxy profiles, listeners, and traffic</summary>
+  <summary>Control clambhook proxy profiles, listeners, and traffic on X11</summary>
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>GPL-3.0-only</project_license>
   <developer_name>clambhook contributors</developer_name>
   <description>
-    <p>clambhook for Linux manages daemon connectivity, proxy profiles, listener state, recent traffic, and log activity from a GTK desktop window.</p>
+    <p>clambhook for GNU/Linux manages daemon connectivity, proxy profiles, listener state, recent traffic, and log activity from an X11 GTK desktop window.</p>
     <p>The app can connect to an existing daemon or launch a packaged daemon helper when one is available.</p>
   </description>
   <launchable type="desktop-id">@app_id@.desktop</launchable>

@@ -3,7 +3,7 @@ AR ?= ar
 
 SODIUM_OK := $(shell pkg-config --exists libsodium && echo ok)
 ifneq ($(SODIUM_OK),ok)
-$(error libsodium not found via pkg-config. Install it: `brew install libsodium` on macOS, `apt install libsodium-dev` on Debian/Ubuntu, `dnf install libsodium-devel` on Fedora. Ensure pkg-config can find libsodium.pc (e.g. PKG_CONFIG_PATH=/opt/homebrew/lib/pkgconfig on Apple Silicon))
+$(error libsodium not found via pkg-config. Install it with `apt install libsodium-dev` on Debian/Ubuntu or `brew install libsodium` on macOS. Ensure pkg-config can find libsodium.pc.)
 endif
 
 SODIUM_CFLAGS := $(shell pkg-config --cflags libsodium)

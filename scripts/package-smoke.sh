@@ -6,8 +6,8 @@ usage() {
 Usage: scripts/package-smoke.sh [--strict]
 
 Runs release packaging smoke checks. By default, checks that packaging metadata
-exists, stages the shared install path under a temporary DESTDIR, and runs any
-package-manager build checks whose toolchains are available.
+exists, stages the shared install path under a temporary DESTDIR, and builds the
+Debian package when the toolchain is available.
 
 Options:
   --strict    Fail when optional packaging toolchains are missing and enable
@@ -15,7 +15,7 @@ Options:
 
 Environment:
   PACKAGE_SMOKE_TARGETS          Space-separated targets to run.
-                                 Default: paths install linux-gui homebrew debian rpm guix
+                                 Default: paths install linux-gui homebrew debian
   PACKAGE_SMOKE_VERSION          Version string used for staged install checks.
                                  Default: package-smoke
   PACKAGE_SMOKE_REQUIRE_TOOLS    If 1, missing optional packaging tools fail.
@@ -25,7 +25,7 @@ USAGE
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 HOST_OS="$(uname -s 2>/dev/null || echo unknown)"
-TARGETS="${PACKAGE_SMOKE_TARGETS:-paths install linux-gui homebrew debian rpm guix}"
+TARGETS="${PACKAGE_SMOKE_TARGETS:-paths install linux-gui homebrew debian}"
 SMOKE_VERSION="${PACKAGE_SMOKE_VERSION:-package-smoke}"
 REQUIRE_TOOLS="${PACKAGE_SMOKE_REQUIRE_TOOLS:-0}"
 HOMEBREW_INSTALL="${PACKAGE_SMOKE_HOMEBREW_INSTALL:-0}"
@@ -205,9 +205,6 @@ smoke_paths() {
     log "checking packaging metadata paths"
 
     assert_file "$ROOT/packaging/homebrew/clambhook.rb"
-    assert_file "$ROOT/packaging/rpm/clambhook.spec"
-    assert_file "$ROOT/packaging/guix/clambhook.scm"
-    assert_file "$ROOT/ui/linux/com.clambhook.Clambhook.yml"
     assert_file "$ROOT/ui/linux/meson_options.txt"
     assert_file "$ROOT/ui/linux/data/com.clambhook.Clambhook.desktop.in"
     assert_file "$ROOT/ui/linux/data/com.clambhook.Clambhook.metainfo.xml.in"
@@ -292,79 +289,10 @@ smoke_debian() {
     smoke_installed_linux_gui "$root" /usr
 }
 
-smoke_rpm() {
-    want rpm || return 0
-    log "building RPM package and extracting payload"
-
-    require_linux_target RPM || return 0
-    need_tools rpmbuild rpm2cpio cpio tar || return 0
-
-    local spec="$ROOT/packaging/rpm/clambhook.spec"
-    local version
-    version="$(awk '/^Version:/ { print $2; exit }' "$spec")"
-    if [ -z "$version" ]; then
-        echo "package-smoke: unable to read RPM Version from $spec" >&2
-        exit 1
-    fi
-
-    local src_parent="$WORKDIR/rpm-src"
-    local src="$src_parent/clambhook-$version"
-    local topdir="$WORKDIR/rpmbuild"
-    local root="$WORKDIR/rpm-root"
-    prepare_source_tree "$src"
-    mkdir -p "$topdir/SOURCES" "$topdir/BUILD" "$topdir/BUILDROOT" "$topdir/RPMS" "$topdir/SRPMS" "$root"
-
-    tar -czf "$topdir/SOURCES/clambhook-$version.tar.gz" -C "$src_parent" "clambhook-$version"
-    rpmbuild --nodeps --define "_topdir $topdir" -bb "$src/packaging/rpm/clambhook.spec"
-
-    local rpm
-    rpm="$(find "$topdir/RPMS" -type f -name 'clambhook-*.rpm' -print -quit)"
-    if [ -z "$rpm" ]; then
-        echo "package-smoke: RPM package was not produced" >&2
-        exit 1
-    fi
-    (cd "$root" && rpm2cpio "$rpm" | cpio -idm --quiet)
-    smoke_installed_root "$root" /usr
-    smoke_installed_linux_gui "$root" /usr
-}
-
-smoke_guix() {
-    want guix || return 0
-    log "building Guix package definition"
-
-    require_linux_target Guix || return 0
-    need_tools guix || return 0
-
-    local output
-    local store_path
-    output="$(guix build -f "$ROOT/packaging/guix/clambhook.scm")"
-    store_path="$(printf '%s\n' "$output" | tail -n 1)"
-    if [ -z "$store_path" ]; then
-        echo "package-smoke: Guix build did not return a store path" >&2
-        exit 1
-    fi
-    smoke_installed_root "$store_path" ""
-    smoke_installed_linux_gui "$store_path" ""
-}
-
-smoke_flatpak() {
-    want flatpak || return 0
-    log "building Linux Flatpak bundle"
-
-    require_linux_target Flatpak || return 0
-    need_tools flatpak flatpak-builder || return 0
-
-    (cd "$ROOT" && make test-linux-flatpak)
-    assert_file "$ROOT/dist/linux/com.clambhook.Clambhook.flatpak"
-}
-
 smoke_paths
 smoke_make_install
 smoke_linux_gui_install
 smoke_homebrew
 smoke_debian
-smoke_rpm
-smoke_guix
-smoke_flatpak
 
 log "completed"
