@@ -23,9 +23,6 @@ android {
         create("play") {
             dimension = "store"
         }
-        create("fdroid") {
-            dimension = "store"
-        }
     }
 
     buildFeatures {
@@ -59,11 +56,8 @@ val clambhookMobileAarConsumers = setOf(
     "assembleRelease",
     "assemblePlayDebug",
     "assemblePlayRelease",
-    "assembleFdroidDebug",
-    "assembleFdroidRelease",
     "bundleRelease",
-    "bundlePlayRelease",
-    "bundleFdroidRelease"
+    "bundlePlayRelease"
 )
 
 tasks.matching {

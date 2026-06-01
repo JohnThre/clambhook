@@ -15,7 +15,7 @@ Options:
 
 Environment:
   PACKAGE_SMOKE_TARGETS          Space-separated targets to run.
-                                 Default: paths install linux-gui homebrew debian rpm guix fdroid
+                                 Default: paths install linux-gui homebrew debian rpm guix
   PACKAGE_SMOKE_VERSION          Version string used for staged install checks.
                                  Default: package-smoke
   PACKAGE_SMOKE_REQUIRE_TOOLS    If 1, missing optional packaging tools fail.
@@ -25,7 +25,7 @@ USAGE
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 HOST_OS="$(uname -s 2>/dev/null || echo unknown)"
-TARGETS="${PACKAGE_SMOKE_TARGETS:-paths install linux-gui homebrew debian rpm guix fdroid}"
+TARGETS="${PACKAGE_SMOKE_TARGETS:-paths install linux-gui homebrew debian rpm guix}"
 SMOKE_VERSION="${PACKAGE_SMOKE_VERSION:-package-smoke}"
 REQUIRE_TOOLS="${PACKAGE_SMOKE_REQUIRE_TOOLS:-0}"
 HOMEBREW_INSTALL="${PACKAGE_SMOKE_HOMEBREW_INSTALL:-0}"
@@ -207,7 +207,6 @@ smoke_paths() {
     assert_file "$ROOT/packaging/homebrew/clambhook.rb"
     assert_file "$ROOT/packaging/rpm/clambhook.spec"
     assert_file "$ROOT/packaging/guix/clambhook.scm"
-    assert_file "$ROOT/packaging/fdroid/README.md"
     assert_file "$ROOT/ui/linux/com.clambhook.Clambhook.yml"
     assert_file "$ROOT/ui/linux/meson_options.txt"
     assert_file "$ROOT/ui/linux/data/com.clambhook.Clambhook.desktop.in"
@@ -359,33 +358,6 @@ smoke_flatpak() {
     assert_file "$ROOT/dist/linux/com.clambhook.Clambhook.flatpak"
 }
 
-smoke_fdroid() {
-    want fdroid || return 0
-    log "building Android release package for F-Droid path"
-
-    assert_file "$ROOT/packaging/fdroid/README.md"
-    assert_file "$ROOT/ui/android/app/build.gradle.kts"
-    assert_file "$ROOT/ui/android/app/src/main/AndroidManifest.xml"
-
-    if [ -z "${ANDROID_HOME:-}" ] && [ -n "${ANDROID_SDK_ROOT:-}" ]; then
-        export ANDROID_HOME="$ANDROID_SDK_ROOT"
-    fi
-    if [ -z "${ANDROID_HOME:-}${ANDROID_SDK_ROOT:-}" ]; then
-        skip_or_fail "ANDROID_HOME or ANDROID_SDK_ROOT is required for Android/F-Droid smoke"
-        return 0
-    fi
-    need_tools go gomobile gobind || return 0
-
-    (cd "$ROOT" && make build-android-release)
-
-    local apk
-    apk="$(find "$ROOT/ui/android/app/build/outputs/apk/release" -type f -name '*.apk' -print -quit)"
-    if [ -z "$apk" ]; then
-        echo "package-smoke: Android release APK was not produced" >&2
-        exit 1
-    fi
-}
-
 smoke_paths
 smoke_make_install
 smoke_linux_gui_install
@@ -394,6 +366,5 @@ smoke_debian
 smoke_rpm
 smoke_guix
 smoke_flatpak
-smoke_fdroid
 
 log "completed"
