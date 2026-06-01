@@ -52,6 +52,8 @@ targets:
       - target: ClambhookPacketTunnel
         embed: true
       - package: ClambhookShared
+      - framework: Frameworks/ClambhookMobile.xcframework
+        embed: false
       - target: ClambhookiOSWidgetExtension
         embed: true
     settings:
@@ -83,6 +85,8 @@ targets:
       - path: ClambhookPacketTunnel
     dependencies:
       - package: ClambhookShared
+      - framework: Frameworks/ClambhookMobile.xcframework
+        embed: false
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: org.jpfchang.clambhook.tunnel

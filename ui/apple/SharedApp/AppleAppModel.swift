@@ -2,11 +2,28 @@ import ClambhookShared
 import Combine
 import Foundation
 import SwiftUI
-#if os(iOS) && !DEBUG && !canImport(Mobile)
+#if os(iOS) && !DEBUG && !canImport(ClambhookMobile)
 #error("Mobile must be importable for iOS Release/App Store builds. Run make build-ios-mobile-xcframework before building the release app.")
 #endif
-#if os(iOS) && canImport(Mobile)
-import Mobile
+#if os(iOS) && canImport(ClambhookMobile)
+import ClambhookMobile
+#endif
+
+#if os(iOS) && canImport(ClambhookMobile)
+private func mobileConfigError(_ description: String) -> NSError {
+    NSError(
+        domain: "org.jpfchang.clambhook.mobile",
+        code: 1,
+        userInfo: [NSLocalizedDescriptionKey: description]
+    )
+}
+
+private func mobileBool(_ operation: (NSErrorPointer) -> Bool) throws {
+    var error: NSError?
+    if !operation(&error) {
+        throw error ?? mobileConfigError("Mobile config operation failed")
+    }
+}
 #endif
 
 @MainActor
@@ -149,12 +166,18 @@ final class AppleAppModel: ObservableObject {
     }
 
     func createTunnelProfile(_ request: TunnelProfileCreateRequest) throws {
-        #if canImport(Mobile)
+        #if canImport(ClambhookMobile)
         let data = try JSONEncoder().encode(request)
         guard let raw = String(data: data, encoding: .utf8) else {
             throw AppleAppModelError.invalidProfileRequest
         }
-        try MobileCreateTunnelProfileConfigJSON(TunnelConfigStore.configURL(groupIdentifier: settingsStore.settings.appGroupIdentifier).path, raw)
+        try mobileBool {
+            MobileCreateTunnelProfileConfigJSON(
+                TunnelConfigStore.configURL(groupIdentifier: settingsStore.settings.appGroupIdentifier).path,
+                raw,
+                $0
+            )
+        }
         applySettings()
         reloadTunnelConfiguration()
         #else
@@ -163,16 +186,19 @@ final class AppleAppModel: ObservableObject {
     }
 
     func replaceActiveProfileRules(_ rules: [RulePayload]) throws {
-        #if canImport(Mobile)
+        #if canImport(ClambhookMobile)
         let data = try JSONEncoder().encode(rules)
         guard let raw = String(data: data, encoding: .utf8) else {
             throw AppleAppModelError.invalidRules
         }
-        try MobileReplaceTunnelRulesJSON(
-            TunnelConfigStore.configURL(groupIdentifier: settingsStore.settings.appGroupIdentifier).path,
-            dashboard.activeProfile,
-            raw
-        )
+        try mobileBool {
+            MobileReplaceTunnelRulesJSON(
+                TunnelConfigStore.configURL(groupIdentifier: settingsStore.settings.appGroupIdentifier).path,
+                dashboard.activeProfile,
+                raw,
+                $0
+            )
+        }
         applySettings()
         reloadTunnelConfiguration()
         #else
@@ -200,13 +226,13 @@ final class AppleAppModel: ObservableObject {
     }
 
     private func validateAndSaveTunnelConfig(_ text: String) throws {
-        #if canImport(Mobile)
+        #if canImport(ClambhookMobile)
         let tempURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)
             .appendingPathExtension("toml")
         try text.write(to: tempURL, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: tempURL) }
-        try MobileValidateTunnelConfig(tempURL.path)
+        try mobileBool { MobileValidateTunnelConfig(tempURL.path, $0) }
         #else
         guard TunnelImportDecoder.looksLikeTOML(text) else {
             throw TunnelImportError.unsupported

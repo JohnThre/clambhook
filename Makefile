@@ -62,7 +62,8 @@ prepare-apple-runtime: build-daemon
 generate-apple:
 	cd ui/apple && xcodegen generate --spec project.yml
 
-build-apple: prepare-apple-runtime generate-apple
+build-apple: prepare-apple-runtime build-ios-mobile-xcframework
+	$(MAKE) generate-apple
 	xcodebuild -project ui/apple/Clambhook.xcodeproj -scheme ClambhookMac -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO build
 	xcodebuild -project ui/apple/Clambhook.xcodeproj -scheme ClambhookiOS -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build
 	xcodebuild -project ui/apple/Clambhook.xcodeproj -scheme ClambhookVision -destination 'generic/platform=visionOS Simulator' CODE_SIGNING_ALLOWED=NO build
