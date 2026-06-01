@@ -12,7 +12,6 @@ namespace Clambhook {
     }
 
     public class DaemonSupervisor : Object {
-        private const string FLATPAK_DAEMON_PATH = "/app/libexec/clambhook";
         private Subprocess? process;
         public DaemonState state { get; private set; default = DaemonState.STOPPED; }
         public string message { get; private set; default = ""; }
@@ -91,17 +90,11 @@ namespace Clambhook {
         public static string? resolve_executable_path(
             AppSettings settings,
             string app_base_dir,
-            string? flatpak_daemon_path = null,
             bool search_path = true
         ) {
             var configured = settings.daemon_path.strip();
             if (configured != "" && FileUtils.test(configured, FileTest.EXISTS)) {
                 return configured;
-            }
-
-            var flatpak = flatpak_daemon_path ?? FLATPAK_DAEMON_PATH;
-            if (FileUtils.test(flatpak, FileTest.EXISTS)) {
-                return flatpak;
             }
 
             if (search_path) {

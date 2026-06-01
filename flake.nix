@@ -7,9 +7,7 @@
     let
       systems = [
         "aarch64-darwin"
-        "aarch64-linux"
         "x86_64-darwin"
-        "x86_64-linux"
       ];
       forAllSystems = nixpkgs.lib.genAttrs systems;
     in {
@@ -39,7 +37,7 @@
               homepage = "https://github.com/JohnThre/clambhook";
               license = licenses.gpl3Only;
               mainProgram = "clambhook";
-              platforms = platforms.darwin ++ platforms.linux;
+              platforms = platforms.darwin;
             };
           };
         });

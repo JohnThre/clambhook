@@ -30,6 +30,6 @@ Architecture: any
 Depends:
  ${misc:Depends},
  ${shlibs:Depends}
-Description: local network client daemon, desktop controller, and terminal dashboard
+Description: local network client daemon, X11 desktop controller, and terminal dashboard
  clambhook provides a local network client daemon, HTTP control API, and
- native GTK desktop controller plus terminal dashboard.
+ native X11 GTK desktop controller plus terminal dashboard.
