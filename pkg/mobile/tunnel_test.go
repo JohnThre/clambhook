@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/JohnThre/clambhook/internal/config"
@@ -127,6 +128,49 @@ func TestCreateTunnelProfileConfigJSON(t *testing.T) {
 	}
 	if got := payload.Servers.Chains[0].Servers[0]; got.Name != "exit" || got.Protocol != "shadowsocks" {
 		t.Fatalf("server = %+v", got)
+	}
+}
+
+func TestValidateUsableTunnelConfigRejectsPlaceholder(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "clambhook.toml")
+	if err := os.WriteFile(path, []byte(`
+active = "default"
+
+[[profile]]
+name = "default"
+
+  [profile.listen.tun]
+  enabled = true
+  mtu = 1500
+  routes = ["0.0.0.0/0", "::/0"]
+  exclude_cidrs = ["127.0.0.0/8", "::1/128"]
+
+  [[profile.chain]]
+  name = "proxy"
+
+    [[profile.chain.server]]
+    name = "replace-me"
+    address = "proxy.example.com:443"
+    protocol = "shadowsocks"
+
+      [profile.chain.server.settings]
+      method = "chacha20-ietf-poly1305"
+      password = "replace-with-secret"
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	err := ValidateUsableTunnelConfig(path)
+	if err == nil || !strings.Contains(err.Error(), "placeholder profile") {
+		t.Fatalf("ValidateUsableTunnelConfig error = %v, want placeholder error", err)
+	}
+}
+
+func TestValidateUsableTunnelConfigAcceptsRealProfile(t *testing.T) {
+	path := writeTunnelTestConfig(t)
+
+	if err := ValidateUsableTunnelConfig(path); err != nil {
+		t.Fatalf("ValidateUsableTunnelConfig: %v", err)
 	}
 }
 
