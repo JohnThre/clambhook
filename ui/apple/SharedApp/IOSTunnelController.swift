@@ -2,8 +2,22 @@
 import ClambhookShared
 import Foundation
 @preconcurrency import NetworkExtension
+#if canImport(ClambhookMobile)
+import ClambhookMobile
+#endif
 
 private let clambhookTunnelProviderBundleIdentifier = "org.jpfchang.clambhook.tunnel"
+
+#if canImport(ClambhookMobile)
+private func mobileString(_ operation: (NSErrorPointer) -> String) throws -> String {
+    var error: NSError?
+    let value = operation(&error)
+    if let error {
+        throw error
+    }
+    return value
+}
+#endif
 
 @MainActor
 final class IOSTunnelController: ObservableObject {
@@ -44,7 +58,7 @@ final class IOSTunnelController: ObservableObject {
     }
 
     func reloadConfiguration() async throws {
-        guard status == .connected || status == .connecting || status == .reasserting else {
+        guard canSendProviderMessage else {
             return
         }
         _ = try await send(.init(action: .reload))
@@ -57,11 +71,27 @@ final class IOSTunnelController: ObservableObject {
     func dashboard() async throws -> TunnelDashboardPayload {
         let manager = try await configuredManager()
         updateStatus(from: manager)
-        guard status == .connected || status == .connecting || status == .reasserting else {
-            return TunnelDashboardPayload(status: StatusPayload(running: false))
+        if canSendProviderMessage {
+            let data = try await send(.init(action: .dashboard))
+            return try decoder.decode(TunnelDashboardPayload.self, from: data)
         }
-        let data = try await send(.init(action: .dashboard))
-        return try decoder.decode(TunnelDashboardPayload.self, from: data)
+        return try disconnectedDashboard()
+    }
+
+    private var canSendProviderMessage: Bool {
+        status == .connected || status == .connecting || status == .reasserting
+    }
+
+    private func disconnectedDashboard() throws -> TunnelDashboardPayload {
+        #if canImport(ClambhookMobile)
+        _ = try TunnelConfigStore.loadOrCreateConfig()
+        let json = try mobileString {
+            MobileTunnelConfigDashboardJSON(TunnelConfigStore.configURL().path, $0)
+        }
+        return try decoder.decode(TunnelDashboardPayload.self, from: Data(json.utf8))
+        #else
+        return TunnelDashboardPayload(status: StatusPayload(running: false))
+        #endif
     }
 
     private func configuredManager() async throws -> NETunnelProviderManager {
