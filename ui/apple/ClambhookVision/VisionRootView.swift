@@ -5,7 +5,7 @@ struct VisionRootView: View {
     @ObservedObject var model: AppleAppModel
     @Environment(\.dismissImmersiveSpace) private var dismissImmersiveSpace
     @Environment(\.openImmersiveSpace) private var openImmersiveSpace
-    @State private var selectedDestination: VisionDestination = .overview
+    @State private var selectedDestination: VisionDestination = .now
     @State private var showingSettings = false
     @State private var immersiveOpen = false
     @State private var immersiveTransition = false
@@ -87,14 +87,12 @@ struct VisionRootView: View {
     @ViewBuilder
     private func destinationView(_ destination: VisionDestination) -> some View {
         switch destination {
-        case .overview:
+        case .now:
             VisionOverviewView(model: model, onOpenSettings: { showingSettings = true })
-        case .traffic:
-            VisionTrafficView(model: model)
-        case .servers:
-            VisionServersView(model: model)
-        case .logs:
-            VisionLogsView(model: model)
+        case .activity:
+            VisionActivityView(model: model)
+        case .library:
+            VisionLibraryView(model: model)
         }
     }
 
@@ -123,36 +121,31 @@ struct VisionRootView: View {
 }
 
 private enum VisionDestination: String, CaseIterable, Identifiable, Hashable {
-    case overview
-    case traffic
-    case servers
-    case logs
+    case now
+    case activity
+    case library
 
     var id: Self { self }
 
     var title: String {
         switch self {
-        case .overview:
-            return "Overview"
-        case .traffic:
-            return "Traffic"
-        case .servers:
-            return "Servers"
-        case .logs:
-            return "Logs"
+        case .now:
+            return "Now"
+        case .activity:
+            return "Activity"
+        case .library:
+            return "Library"
         }
     }
 
     var systemImage: String {
         switch self {
-        case .overview:
+        case .now:
             return "gauge.with.dots.needle.67percent"
-        case .traffic:
+        case .activity:
             return "point.3.connected.trianglepath.dotted"
-        case .servers:
+        case .library:
             return "server.rack"
-        case .logs:
-            return "doc.text.magnifyingglass"
         }
     }
 }
@@ -176,13 +169,6 @@ private struct VisionControlStrip: View {
             }
             .buttonStyle(.borderedProminent)
             .disabled(!model.dashboard.apiOnline && !model.dashboard.status.running)
-
-            Button {
-                model.refresh()
-            } label: {
-                Label("Refresh", systemImage: "arrow.clockwise")
-            }
-            .buttonStyle(.bordered)
 
             Button {
                 onToggleImmersive()
@@ -227,6 +213,37 @@ private struct VisionOverviewView: View {
             VisionMetric(title: "Active", value: "\(activeConnections)", systemImage: "bolt.horizontal.circle"),
             VisionMetric(title: "Listeners", value: "\(model.dashboard.status.listeners.count)", systemImage: "antenna.radiowaves.left.and.right"),
         ]
+    }
+}
+
+private struct VisionActivityView: View {
+    @ObservedObject var model: AppleAppModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            VisionTrafficView(model: model)
+            VisionLogsView(model: model)
+        }
+    }
+}
+
+private struct VisionLibraryView: View {
+    @ObservedObject var model: AppleAppModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .top, spacing: 18) {
+                    VisionProfilesPanel(model: model)
+                    VisionListenersPanel(model: model)
+                }
+                VStack(alignment: .leading, spacing: 18) {
+                    VisionProfilesPanel(model: model)
+                    VisionListenersPanel(model: model)
+                }
+            }
+            VisionServersView(model: model)
+        }
     }
 }
 

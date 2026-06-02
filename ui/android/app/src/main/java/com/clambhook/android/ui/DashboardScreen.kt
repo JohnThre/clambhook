@@ -33,6 +33,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ElevatedAssistChip
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
@@ -56,8 +57,15 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlin.math.max
 
+enum class DashboardDestination {
+    Now,
+    Activity,
+    Library
+}
+
 @Composable
 fun DashboardScreen(
+    destination: DashboardDestination,
     state: DashboardState,
     onRefresh: () -> Unit,
     onConnect: () -> Unit,
@@ -73,23 +81,22 @@ fun DashboardScreen(
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        item {
-            StatusCard(state, onRefresh, onConnect, onDisconnect)
-        }
-        item {
-            TrafficCard(state, onCreateRule)
-        }
-        item {
-            ProfilesCard(state, onProfileSelected)
-        }
-        item {
-            ListenersCard(state.status.listeners)
-        }
-        item {
-            ServersCard(state.servers, onOpenSettings)
-        }
-        item {
-            LogsCard(state)
+        when (destination) {
+            DashboardDestination.Now -> {
+                item { StatusCard(state, onRefresh, onConnect, onDisconnect) }
+                item { NowActivityCard(state) }
+            }
+
+            DashboardDestination.Activity -> {
+                item { TrafficCard(state, onCreateRule) }
+                item { LogsCard(state) }
+            }
+
+            DashboardDestination.Library -> {
+                item { ProfilesCard(state, onProfileSelected) }
+                item { ListenersCard(state.status.listeners) }
+                item { ServersCard(state.servers, onOpenSettings) }
+            }
         }
     }
 }
@@ -141,7 +148,16 @@ private fun StatusCard(
                         style = MaterialTheme.typography.bodyMedium
                     )
                 }
-                StatusPill(state.activeProfile.ifBlank { "No profile" })
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    StatusPill(state.activeProfile.ifBlank { "No profile" })
+                    IconButton(onClick = onRefresh, enabled = !state.isBusy) {
+                        if (state.isRefreshing) {
+                            CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                        } else {
+                            Icon(Icons.Rounded.Refresh, contentDescription = "Refresh")
+                        }
+                    }
+                }
             }
 
             if (state.errorText.isNotBlank()) {
@@ -152,33 +168,29 @@ private fun StatusCard(
                 )
             }
 
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 Button(
-                    onClick = onConnect,
-                    enabled = !state.isBusy && state.apiOnline && !state.status.running
+                    onClick = if (state.status.running) onDisconnect else onConnect,
+                    enabled = !state.isBusy && state.apiOnline
                 ) {
                     ButtonProgressOrIcon(
-                        showProgress = state.actionInProgress == DashboardAction.Connect,
-                        icon = { Icon(Icons.Rounded.PlayArrow, contentDescription = null) }
+                        showProgress = state.actionInProgress == DashboardAction.Connect ||
+                            state.actionInProgress == DashboardAction.Disconnect,
+                        icon = {
+                            Icon(
+                                if (state.status.running) Icons.Rounded.Stop else Icons.Rounded.PlayArrow,
+                                contentDescription = null
+                            )
+                        }
                     )
-                    Text(if (state.actionInProgress == DashboardAction.Connect) "Connecting" else "Connect")
-                }
-                OutlinedButton(
-                    onClick = onDisconnect,
-                    enabled = !state.isBusy && state.apiOnline && state.status.running
-                ) {
-                    ButtonProgressOrIcon(
-                        showProgress = state.actionInProgress == DashboardAction.Disconnect,
-                        icon = { Icon(Icons.Rounded.Stop, contentDescription = null) }
+                    Text(
+                        when {
+                            state.actionInProgress == DashboardAction.Connect -> "Connecting"
+                            state.actionInProgress == DashboardAction.Disconnect -> "Disconnecting"
+                            state.status.running -> "Disconnect"
+                            else -> "Connect"
+                        }
                     )
-                    Text(if (state.actionInProgress == DashboardAction.Disconnect) "Disconnecting" else "Disconnect")
-                }
-                OutlinedButton(onClick = onRefresh, enabled = !state.isBusy) {
-                    ButtonProgressOrIcon(
-                        showProgress = state.isRefreshing,
-                        icon = { Icon(Icons.Rounded.Refresh, contentDescription = null) }
-                    )
-                    Text(if (state.isRefreshing) "Refreshing" else "Refresh")
                 }
             }
 
@@ -189,6 +201,71 @@ private fun StatusCard(
                 MetricPill("Updated", formatUpdatedAt(state.lastUpdatedEpochMillis))
             }
         }
+    }
+}
+
+@Composable
+private fun NowActivityCard(state: DashboardState) {
+    Card(shape = RoundedCornerShape(8.dp)) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.Top
+            ) {
+                Column {
+                    Text("Activity", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        "${state.traffic.summary.activeConnections} active connections",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Column(horizontalAlignment = Alignment.End) {
+                    Text("${formatRate(state.traffic.summary.rxBps)} down", fontWeight = FontWeight.SemiBold)
+                    Text("${formatRate(state.traffic.summary.txBps)} up", style = MaterialTheme.typography.bodySmall)
+                }
+            }
+            BandwidthSparkline(
+                samples = state.bandwidthSamples,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(56.dp)
+            )
+            val latest = state.traffic.connections.firstOrNull()
+            if (latest == null) {
+                EmptyState("No activity yet", "Recent connection decisions will appear here.")
+            } else {
+                LatestConnectionRow(latest)
+            }
+        }
+    }
+}
+
+@Composable
+private fun LatestConnectionRow(connection: TrafficConnectionPayload) {
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text(
+                connection.target.ifBlank { "Untitled connection" },
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f)
+            )
+            Spacer(Modifier.width(12.dp))
+            StatusPill(connection.actionFamily().uppercase())
+        }
+        Text(
+            listOf(connection.application, connection.network, connection.chainName, connection.ruleName)
+                .filter { it.isNotBlank() }
+                .joinToString(" · ")
+                .ifBlank { connection.listener.protocol },
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
     }
 }
 
@@ -267,7 +344,7 @@ private fun TrafficCard(state: DashboardState, onCreateRule: (RulePayload) -> Un
                 Text(traffic.summary.persistError, color = MaterialTheme.colorScheme.error)
             }
             if (visibleConnections.isEmpty()) {
-                EmptyText("No traffic history yet")
+                EmptyState("No matching activity", "Connection decisions appear here when traffic passes through clambhook.")
             } else {
                 visibleConnections.take(8).forEach { connection ->
                     ConnectionRow(connection, onCreateRule = { draftRule = connection.ruleDraft() })
@@ -365,7 +442,7 @@ private fun ProfilesCard(state: DashboardState, onProfileSelected: (String) -> U
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text("Profiles", style = MaterialTheme.typography.titleMedium)
             if (state.profiles.profiles.isEmpty()) {
-                EmptyText("No profiles found")
+                EmptyState("No profiles yet", "Add or import a profile in Settings.")
             } else {
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     state.profiles.profiles.forEach { profile ->
@@ -401,7 +478,7 @@ private fun ListenersCard(listeners: List<ListenerStatusPayload>) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text("Listeners", style = MaterialTheme.typography.titleMedium)
             if (listeners.isEmpty()) {
-                EmptyText("No listeners are active")
+                EmptyState("No listeners active", "Connect to start the configured listeners.")
             } else {
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     listeners.forEach { listener ->
@@ -430,7 +507,7 @@ private fun ServersCard(servers: ServersPayload, onOpenSettings: () -> Unit) {
                 }
             }
             if (servers.chains.isEmpty()) {
-                EmptyText("No servers in the active profile")
+                EmptyState("No servers in this profile", "Add a chain and server in Settings.")
             } else {
                 servers.chains.forEach { chain ->
                     Text(chain.name, fontWeight = FontWeight.SemiBold)
@@ -478,7 +555,7 @@ private fun LogsCard(state: DashboardState) {
                 )
             }
             if (state.logs.isEmpty()) {
-                EmptyText("No log events")
+                EmptyState("No logs yet", "Connection and daemon events will appear here.")
             } else {
                 state.logs.takeLast(12).forEach { line ->
                     Text(
@@ -580,10 +657,13 @@ private fun StatusPill(text: String, modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun EmptyText(text: String) {
-    Text(
-        text,
-        style = MaterialTheme.typography.bodyMedium,
-        color = MaterialTheme.colorScheme.onSurfaceVariant
-    )
+private fun EmptyState(title: String, detail: String) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+        Text(
+            detail,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
 }

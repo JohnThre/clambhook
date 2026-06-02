@@ -9,6 +9,8 @@ struct MacMenuBarView: View {
     @State private var trafficFilter = "all"
     @State private var trafficSearch = ""
     @State private var draftRule: RulePayload?
+    @State private var showActivity = false
+    @State private var showLibrary = false
 
     init(model: AppleAppModel) {
         self.model = model
@@ -23,11 +25,21 @@ struct MacMenuBarView: View {
                 VStack(alignment: .leading, spacing: 16) {
                     statusPanel
                     metricsPanel
-                    profilesPanel
-                    listenersPanel
-                    serversPanel
-                    trafficPanel
-                    logsPanel
+                    DisclosureGroup("Activity", isExpanded: $showActivity) {
+                        VStack(alignment: .leading, spacing: 14) {
+                            trafficPanel
+                            logsPanel
+                        }
+                        .padding(.top, 8)
+                    }
+                    DisclosureGroup("Library", isExpanded: $showLibrary) {
+                        VStack(alignment: .leading, spacing: 14) {
+                            profilesPanel
+                            listenersPanel
+                            serversPanel
+                        }
+                        .padding(.top, 8)
+                    }
                 }
                 .padding(14)
             }
@@ -108,13 +120,6 @@ struct MacMenuBarView: View {
                     }
                     .buttonStyle(.borderedProminent)
                     .disabled(!model.dashboard.apiOnline && !model.dashboard.status.running)
-
-                    Button {
-                        model.refresh()
-                    } label: {
-                        Label("Refresh", systemImage: "arrow.clockwise")
-                    }
-                    .buttonStyle(.bordered)
                 }
             }
         }

@@ -47,9 +47,10 @@ var (
 type viewMode int
 
 const (
-	viewModeDashboard viewMode = iota
-	viewModeLogs
-	viewModeTraffic
+	viewModeNow viewMode = iota
+	viewModeActivity
+	viewModeLibrary
+	viewModeSettings
 )
 
 type model struct {
@@ -157,23 +158,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.cancelEvents()
 			}
 			return m, tea.Quit
-		case "l":
-			if m.viewMode == viewModeLogs {
-				m.viewMode = viewModeDashboard
-			} else {
-				m.viewMode = viewModeLogs
-				m.logScroll = 0
-			}
+		case "1":
+			m.viewMode = viewModeNow
 			return m, nil
-		case "t":
-			if m.viewMode == viewModeTraffic {
-				m.viewMode = viewModeDashboard
-			} else {
-				m.viewMode = viewModeTraffic
-			}
+		case "2", "t":
+			m.viewMode = viewModeActivity
+			return m, nil
+		case "3", "l":
+			m.viewMode = viewModeLibrary
+			return m, nil
+		case "4", "s":
+			m.viewMode = viewModeSettings
 			return m, nil
 		}
-		if m.viewMode == viewModeTraffic {
+		if m.viewMode == viewModeActivity {
 			if m.searchEditing {
 				switch msg.String() {
 				case "esc", "enter":
@@ -258,42 +256,49 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		}
-		if m.viewMode == viewModeLogs {
-			switch msg.String() {
-			case "up", "k":
-				m.scrollLogs(1)
-				return m, nil
-			case "down", "j":
-				m.scrollLogs(-1)
-				return m, nil
-			case "end":
-				m.logScroll = 0
-				return m, nil
-			}
-			return m, nil
-		}
 		switch msg.String() {
 		case "c":
+			if m.viewMode != viewModeNow {
+				return m, nil
+			}
 			if m.status.Running {
 				return m, nil
 			}
 			return m, m.actionCmd(m.client.connect)
 		case "d":
+			if m.viewMode != viewModeNow {
+				return m, nil
+			}
 			if !m.status.Running {
 				return m, nil
 			}
 			return m, m.actionCmd(m.client.disconnect)
 		case "[":
+			if m.viewMode != viewModeLibrary {
+				return m, nil
+			}
 			return m, m.switchProfileCmd(-1)
 		case "]":
+			if m.viewMode != viewModeLibrary {
+				return m, nil
+			}
 			return m, m.switchProfileCmd(1)
 		case "up", "k":
+			if m.viewMode != viewModeLibrary {
+				return m, nil
+			}
 			m.moveProfileSelection(-1)
 			return m, nil
 		case "down", "j":
+			if m.viewMode != viewModeLibrary {
+				return m, nil
+			}
 			m.moveProfileSelection(1)
 			return m, nil
 		case "enter":
+			if m.viewMode != viewModeLibrary {
+				return m, nil
+			}
 			return m, m.switchSelectedProfileCmd()
 		case "r":
 			return m, m.loadDashboardCmd()
@@ -356,44 +361,55 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) View() string {
-	if m.viewMode == viewModeLogs {
-		return m.logView()
-	}
-	if m.viewMode == viewModeTraffic {
-		return m.trafficView()
+	switch m.viewMode {
+	case viewModeActivity:
+		return m.activityView()
+	case viewModeLibrary:
+		return m.libraryView()
+	case viewModeSettings:
+		return m.settingsView()
 	}
 
 	width := m.contentWidth()
 	sections := []string{
-		m.renderHeader("Dashboard"),
+		m.renderHeader("Now"),
 		m.renderStatusSummary(width),
 	}
 	if m.errText != "" {
 		sections = append(sections, m.renderError(width))
 	}
 	sections = append(sections,
-		m.renderProfileListenerSections(width),
-		m.renderServersSection(width),
 		m.renderBandwidthSection(width),
 		m.renderTrafficPreviewSection(width),
 		m.renderFooter(
-			"Keys: c connect  d disconnect  [ prev profile  ] next profile  enter switch  t traffic  l logs  r refresh  q quit",
-			"Keys: c/d  [/] profile  enter  t traffic  l logs  r refresh  q quit",
+			"Keys: c connect  d disconnect  r refresh  2 activity  3 library  4 settings  q quit",
+			"Keys: c/d  r refresh  2 activity  3 library  4 settings  q",
 		),
 	)
 	return joinSections(sections)
 }
 
-func (m model) logView() string {
+func (m model) activityView() string {
 	width := m.contentWidth()
-	sections := []string{m.renderHeader("Logs")}
+	sections := []string{m.renderHeader("Activity")}
 	if m.errText != "" {
 		sections = append(sections, m.renderError(width))
 	}
+	sections = append(sections,
+		m.renderTrafficDetailSection(width),
+		m.renderLogsSection(width),
+		m.renderFooter(
+			"Keys: a all  b block  d direct  p proxy  / search  up/down select  n new rule  r refresh  1 now  3 library  4 settings  q quit",
+			"Keys: a/b/d/p  / search  up/down  n rule  r refresh  1 now  3 lib  q",
+		),
+	)
+	return joinSections(sections)
+}
 
+func (m model) renderLogsSection(width int) string {
 	lines := make([]string, 0, m.logVisibleRows()+1)
 	if len(m.logs) == 0 {
-		lines = append(lines, subtleStyle.Render("  -- no logs yet"))
+		lines = append(lines, emptyStateLines("No logs yet", "Connection and daemon events will appear here.", width)...)
 	} else {
 		if m.logScroll > 0 {
 			lines = append(lines, subtleStyle.Render(fmt.Sprintf("  showing %d lines above tail", m.logScroll)))
@@ -402,28 +418,47 @@ func (m model) logView() string {
 			lines = append(lines, "  "+truncate(line, width-2))
 		}
 	}
+	return renderSection("Logs", lines)
+}
 
+func (m model) libraryView() string {
+	width := m.contentWidth()
+	sections := []string{m.renderHeader("Library")}
+	if m.errText != "" {
+		sections = append(sections, m.renderError(width))
+	}
 	sections = append(sections,
-		renderSection("Logs", lines),
+		m.renderProfileListenerSections(width),
+		m.renderServersSection(width),
 		m.renderFooter(
-			"Keys: l dashboard  up/k scroll  down/j scroll  end tail  q quit",
-			"Keys: l dashboard  up/down  end tail  q quit",
+			"Keys: [ prev profile  ] next profile  enter switch  r refresh  1 now  2 activity  4 settings  q quit",
+			"Keys: [/] profile  enter  r refresh  1 now  2 activity  q",
 		),
 	)
 	return joinSections(sections)
 }
 
-func (m model) trafficView() string {
+func (m model) settingsView() string {
 	width := m.contentWidth()
-	sections := []string{m.renderHeader("Monitor")}
+	sections := []string{m.renderHeader("Settings")}
 	if m.errText != "" {
 		sections = append(sections, m.renderError(width))
 	}
+	eventStatus := "enabled"
+	if m.eventCtx.Err() != nil {
+		eventStatus = "stopped"
+	}
+	lines := []string{
+		truncate("  API endpoint  "+m.apiAddr, width),
+		truncate("  API status    "+mapBool(m.apiOnline, "online", "offline"), width),
+		truncate("  Event stream  "+eventStatus, width),
+		subtleStyle.Render(truncate("  Edit daemon config in your TOML file or platform settings UI.", width)),
+	}
 	sections = append(sections,
-		m.renderTrafficDetailSection(width),
+		renderSection("Settings", lines),
 		m.renderFooter(
-			"Keys: a all  b block  d direct  p proxy  / search  up/down select  n new rule  r refresh  t dashboard  q quit",
-			"Keys: a/b/d/p  / search  up/down  n rule  r refresh  t dash  q",
+			"Keys: r refresh  1 now  2 activity  3 library  q quit",
+			"Keys: r refresh  1 now  2 activity  3 library  q",
 		),
 	)
 	return joinSections(sections)
@@ -471,6 +506,20 @@ func (m model) renderError(width int) string {
 	return errorStyle.Render(truncate("Error: "+m.errText, width))
 }
 
+func emptyStateLines(title, detail string, width int) []string {
+	return []string{
+		subtleStyle.Render(truncate("  "+title, width)),
+		subtleStyle.Render(truncate("  "+detail, width)),
+	}
+}
+
+func mapBool(value bool, yes, no string) string {
+	if value {
+		return yes
+	}
+	return no
+}
+
 func (m model) renderProfileListenerSections(width int) string {
 	if width >= 84 {
 		profileWidth := clampInt(width/3, 24, 36)
@@ -484,7 +533,7 @@ func (m model) renderProfileListenerSections(width int) string {
 
 func (m model) profileLines(width int) []string {
 	if len(m.profiles.Profiles) == 0 {
-		return []string{subtleStyle.Render("  -- no profiles")}
+		return emptyStateLines("No profiles yet", "Add or import a profile in the daemon config.", width)
 	}
 	active := m.activeProfile()
 	lines := make([]string, 0, len(m.profiles.Profiles))
@@ -513,7 +562,7 @@ func (m model) profileLines(width int) []string {
 
 func (m model) listenerLines(width int) []string {
 	if len(m.status.Listeners) == 0 {
-		return []string{subtleStyle.Render("  -- none active")}
+		return emptyStateLines("No listeners active", "Connect to start the configured listeners.", width)
 	}
 	lines := make([]string, 0, len(m.status.Listeners))
 	for _, l := range m.status.Listeners {
@@ -539,7 +588,7 @@ func (m model) renderServersSection(width int) string {
 
 func (m model) serverLines(width int) []string {
 	if len(m.servers.Chains) == 0 {
-		return []string{subtleStyle.Render("  -- no servers in active profile")}
+		return emptyStateLines("No servers in this profile", "Add a chain and server to the active profile.", width)
 	}
 	lines := make([]string, 0)
 	if width >= 92 {
@@ -588,7 +637,7 @@ func (m model) renderBandwidthSection(width int) string {
 func (m model) renderTrafficPreviewSection(width int) string {
 	lines := []string{m.trafficSummaryLine(width)}
 	if len(m.traffic.Connections) == 0 {
-		lines = append(lines, subtleStyle.Render("  -- no traffic history"))
+		lines = append(lines, emptyStateLines("No activity yet", "Recent connection decisions will appear here.", width)...)
 		return renderSection("Traffic", lines)
 	}
 
@@ -612,7 +661,8 @@ func (m model) renderTrafficDetailSection(width int) string {
 	}
 	rows := m.filteredTrafficConnections()
 	if len(rows) == 0 {
-		lines = append(lines, "", subtleStyle.Render("  -- no traffic history"))
+		lines = append(lines, "")
+		lines = append(lines, emptyStateLines("No matching activity", "Connection decisions appear here when traffic passes through clambhook.", width)...)
 	} else {
 		limit := m.trafficVisibleRows()
 		lines = append(lines, "", tableHeaderStyle.Render(trafficHeaderRow(width)))
@@ -623,7 +673,7 @@ func (m model) renderTrafficDetailSection(width int) string {
 		lines = append(lines, "")
 		lines = append(lines, m.selectedConnectionDetailLines(width)...)
 	}
-	return renderSection("Monitor", lines)
+	return renderSection("Activity", lines)
 }
 
 func (m model) trafficSummaryLine(width int) string {
