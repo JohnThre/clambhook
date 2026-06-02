@@ -30,6 +30,7 @@ private func mobileBool(_ operation: (NSErrorPointer) -> Bool) throws {
 final class AppleAppModel: ObservableObject {
     @Published var settingsStore: AppSettingsStore
     @Published private(set) var dashboard: DashboardStore
+    @Published private(set) var attention: AttentionStore
     @Published var apiToken = ""
     @Published var daemonMessage = ""
 
@@ -40,6 +41,7 @@ final class AppleAppModel: ObservableObject {
     private var snapshotStore: FileSnapshotStore
     private var pollingTask: Task<Void, Never>?
     private var dashboardChangeCancellable: AnyCancellable?
+    private var attentionChangeCancellable: AnyCancellable?
     private var settingsChangeCancellable: AnyCancellable?
     private var started = false
 
@@ -80,6 +82,7 @@ final class AppleAppModel: ObservableObject {
             snapshotStore: snapshotStore,
             logRetention: settingsStore.settings.logRetention
         )
+        self.attention = AttentionStore.appGroupStore(groupIdentifier: settingsStore.settings.appGroupIdentifier)
         bindChildStores()
         #if os(macOS)
         if platform == .macOS {
@@ -212,6 +215,19 @@ final class AppleAppModel: ObservableObject {
     }
 
     #if os(iOS)
+    func importInboxItem(_ item: InboxImportItem) {
+        do {
+            try validateAndSaveTunnelConfig(item.decodedConfigText)
+            attention.removeInboxItem(id: item.id)
+            applySettings()
+            reloadTunnelConfiguration()
+            daemonMessage = "imported staged config"
+        } catch {
+            attention.markInboxImportError(id: item.id, error: error.localizedDescription)
+            daemonMessage = error.localizedDescription
+        }
+    }
+
     func importTunnelConfigText(_ rawText: String) throws {
         let text = try TunnelImportDecoder.decode(rawText)
         try validateAndSaveTunnelConfig(text)
@@ -352,12 +368,23 @@ final class AppleAppModel: ObservableObject {
         #endif
         dashboard.stopEventStream()
         dashboard = DashboardStore(api: dashboardAPI, snapshotStore: snapshotStore, logRetention: settings.logRetention)
+        attention = AttentionStore.appGroupStore(groupIdentifier: settings.appGroupIdentifier)
         bindDashboardStore()
+        bindAttentionStore()
     }
 
     private func bindChildStores() {
         bindDashboardStore()
+        bindAttentionStore()
         settingsChangeCancellable = settingsStore.objectWillChange.sink { [weak self] _ in
+            Task { @MainActor in
+                self?.objectWillChange.send()
+            }
+        }
+    }
+
+    private func bindAttentionStore() {
+        attentionChangeCancellable = attention.objectWillChange.sink { [weak self] _ in
             Task { @MainActor in
                 self?.objectWillChange.send()
             }

@@ -1,13 +1,10 @@
 import ClambhookShared
 import SwiftUI
-import UniformTypeIdentifiers
-import UIKit
 
 struct IOSProfilesView: View {
     @ObservedObject var model: AppleAppModel
     @State private var searchText = ""
-    @State private var showingFileImporter = false
-    @State private var activeSheet: IOSProfileCaptureSheet?
+    @State private var showingCreateProfile = false
     @State private var message = ""
 
     var body: some View {
@@ -25,7 +22,7 @@ struct IOSProfilesView: View {
                     ContentUnavailableView(
                         searchText.isEmpty ? "No profiles" : "No matching profiles",
                         systemImage: "person.crop.rectangle.stack",
-                        description: Text("Import or create a profile to connect.")
+                        description: Text("Create a profile or process an Inbox import to connect.")
                     )
                 } else {
                     ForEach(filteredProfiles, id: \.self) { profile in
@@ -49,6 +46,34 @@ struct IOSProfilesView: View {
                     }
                 }
             }
+
+            Section("Rules") {
+                NavigationLink {
+                    IOSRulesView(model: model)
+                } label: {
+                    Label("Edit Routing Rules", systemImage: "slider.horizontal.3")
+                }
+                .disabled(model.dashboard.activeProfile.isEmpty)
+
+                if model.dashboard.rules.rules.isEmpty {
+                    IOSInlineEmptyState(text: "No active-profile rules.", systemImage: "checklist")
+                } else {
+                    ForEach(model.dashboard.rules.rules.prefix(5)) { rule in
+                        HStack(alignment: .top, spacing: 12) {
+                            IOSActionChip(action: rule.action)
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(emptyDash(rule.name))
+                                    .font(.body.weight(.medium))
+                                    .lineLimit(1)
+                                Text(iosRuleSummary(rule))
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(2)
+                            }
+                        }
+                    }
+                }
+            }
         }
         .listStyle(.insetGrouped)
         .searchable(text: $searchText, prompt: "Search profiles")
@@ -57,55 +82,18 @@ struct IOSProfilesView: View {
         }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                Menu {
-                    Button {
-                        showingFileImporter = true
-                    } label: {
-                        Label("Import From Files", systemImage: "doc.badge.plus")
-                    }
-
-                    Button {
-                        importFromClipboard()
-                    } label: {
-                        Label("Import From Clipboard", systemImage: "doc.on.clipboard")
-                    }
-
-                    Button {
-                        message = ""
-                        activeSheet = .scanQR
-                    } label: {
-                        Label("Scan QR", systemImage: "qrcode.viewfinder")
-                    }
-
-                    Button {
-                        activeSheet = .createProfile
-                    } label: {
-                        Label("Create Manually", systemImage: "plus.circle")
-                    }
+                Button {
+                    showingCreateProfile = true
                 } label: {
                     Image(systemName: "plus")
                 }
-                .accessibilityLabel("Add Profile")
+                .accessibilityLabel("Create Profile")
             }
         }
-        .fileImporter(
-            isPresented: $showingFileImporter,
-            allowedContentTypes: [.text, .plainText, .data],
-            allowsMultipleSelection: false
-        ) { result in
-            importFromFile(result)
-        }
-        .sheet(item: $activeSheet) { sheet in
-            switch sheet {
-            case .scanQR:
-                IOSProfileQRCodeImportView(message: $message) { value in
-                    importText(value, successMessage: "Imported QR code.")
-                }
-            case .createProfile:
-                IOSProfileCreateView(model: model) { message in
-                    self.message = message
-                    model.refresh()
-                }
+        .sheet(isPresented: $showingCreateProfile) {
+            IOSProfileCreateView(model: model) { message in
+                self.message = message
+                model.refresh()
             }
         }
     }
@@ -124,50 +112,29 @@ struct IOSProfilesView: View {
         }
         return model.dashboard.servers.chains.reduce(0) { $0 + $1.servers.count }
     }
-
-    private func importFromClipboard() {
-        guard let text = UIPasteboard.general.string, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            message = "Clipboard does not contain profile text."
-            return
-        }
-        _ = importText(text, successMessage: "Imported clipboard profile.")
-    }
-
-    private func importFromFile(_ result: Result<[URL], Error>) {
-        do {
-            guard let url = try result.get().first else {
-                return
-            }
-            let scoped = url.startAccessingSecurityScopedResource()
-            defer {
-                if scoped {
-                    url.stopAccessingSecurityScopedResource()
-                }
-            }
-            _ = importText(try String(contentsOf: url, encoding: .utf8), successMessage: "Imported file profile.")
-        } catch {
-            message = error.localizedDescription
-        }
-    }
-
-    private func importText(_ raw: String, successMessage: String) -> Bool {
-        do {
-            try model.importTunnelConfigText(raw)
-            message = successMessage
-            model.refresh()
-            return true
-        } catch {
-            message = error.localizedDescription
-            return false
-        }
-    }
 }
 
-private enum IOSProfileCaptureSheet: String, Identifiable {
-    case scanQR
-    case createProfile
-
-    var id: String { rawValue }
+private func iosRuleSummary(_ rule: RulePayload) -> String {
+    var parts: [String] = []
+    if !rule.domains.isEmpty {
+        parts.append(rule.domains.joined(separator: ", "))
+    }
+    if !rule.domainSuffixes.isEmpty {
+        parts.append(rule.domainSuffixes.map { "*.\($0)" }.joined(separator: ", "))
+    }
+    if !rule.domainKeywords.isEmpty {
+        parts.append(rule.domainKeywords.joined(separator: ", "))
+    }
+    if !rule.cidrs.isEmpty {
+        parts.append(rule.cidrs.joined(separator: ", "))
+    }
+    if !rule.ports.isEmpty {
+        parts.append(rule.ports.map(String.init).joined(separator: ", "))
+    }
+    if !rule.networks.isEmpty {
+        parts.append(rule.networks.joined(separator: ", "))
+    }
+    return parts.isEmpty ? "All traffic" : parts.joined(separator: " / ")
 }
 
 private struct IOSProfileRow: View {
@@ -263,49 +230,6 @@ private struct IOSProfileDetailView: View {
         return model.dashboard.servers.chains.flatMap { chain in
             chain.servers.map { server in
                 IOSServerHealthRowData(chainName: chain.name, server: server, health: health[server.id])
-            }
-        }
-    }
-}
-
-private struct IOSProfileQRCodeImportView: View {
-    @Binding var message: String
-    var onImport: (String) -> Bool
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        NavigationStack {
-            VStack(spacing: 0) {
-                IOSQRCodeScannerView { value in
-                    if onImport(value) {
-                        dismiss()
-                        return true
-                    }
-                    return false
-                }
-                .frame(maxWidth: .infinity)
-                .frame(height: 360)
-                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                .padding(20)
-
-                if !message.isEmpty {
-                    Text(message)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, 20)
-                }
-
-                Spacer(minLength: 0)
-            }
-            .background(Color(.systemGroupedBackground))
-            .navigationTitle("Scan QR")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button("Cancel") {
-                        dismiss()
-                    }
-                }
             }
         }
     }

@@ -3,6 +3,7 @@ import SwiftUI
 
 struct IOSActivityView: View {
     @ObservedObject var model: AppleAppModel
+    var logbookOnly = false
     @State private var mode: IOSActivityMode = .connections
     @State private var connectionFilter: IOSTrafficFilter = .all
     @State private var logFilter: IOSActivityLogFilter = .all
@@ -10,7 +11,7 @@ struct IOSActivityView: View {
 
     var body: some View {
         List {
-            Section("Now") {
+            Section(logbookOnly ? "History" : "Now") {
                 IOSTrafficSummaryView(traffic: model.dashboard.traffic)
                     .listRowInsets(EdgeInsets(top: 10, leading: 16, bottom: 10, trailing: 16))
             }
@@ -25,7 +26,7 @@ struct IOSActivityView: View {
 
                 if mode == .connections {
                     Picker("Connection Filter", selection: $connectionFilter) {
-                        ForEach(IOSTrafficFilter.allCases) { filter in
+                        ForEach(IOSTrafficFilter.cases(logbookOnly: logbookOnly)) { filter in
                             Text(filter.title).tag(filter)
                         }
                     }
@@ -114,11 +115,15 @@ struct IOSActivityView: View {
     }
 
     private var filteredConnections: [TrafficConnectionPayload] {
-        model.dashboard.traffic.inspectionConnections(
+        let rows = model.dashboard.traffic.inspectionConnections(
             filter: connectionFilter.inspectionKind,
             query: searchText,
             pinnedIDs: model.pinnedConnectionIDs
         )
+        guard logbookOnly else {
+            return rows
+        }
+        return rows.filter { $0.state.lowercased() == "closed" }
     }
 
     private var filteredLogs: [String] {
@@ -132,13 +137,13 @@ struct IOSActivityView: View {
         switch mode {
         case .connections:
             return model.inspectionExportString(
-                scope: "activity.connections.filtered",
+                scope: logbookOnly ? "logbook.connections.filtered" : "activity.connections.filtered",
                 connections: filteredConnections,
                 logs: model.dashboard.logs
             )
         case .logs:
             return model.inspectionExportString(
-                scope: "activity.logs.filtered",
+                scope: logbookOnly ? "logbook.logs.filtered" : "activity.logs.filtered",
                 connections: [],
                 logs: filteredLogs
             )
@@ -536,6 +541,10 @@ private enum IOSTrafficFilter: String, CaseIterable, Identifiable {
     case proxy
 
     var id: Self { self }
+
+    static func cases(logbookOnly: Bool) -> [IOSTrafficFilter] {
+        logbookOnly ? [.all, .pinned, .blocked, .direct, .proxy] : allCases
+    }
 
     var title: String {
         switch self {
