@@ -235,6 +235,13 @@ struct ServerListView: View {
                 .foregroundStyle(.secondary)
         } else {
             ForEach(servers.chains) { chain in
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(chain.name)
+                        .fontWeight(.semibold)
+                    Text("\(chain.hopCount) hops · \(udpSupportText(chain.capabilities))")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
                 ForEach(chain.servers) { server in
                     VStack(alignment: .leading, spacing: 4) {
                         HStack {

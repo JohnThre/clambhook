@@ -65,6 +65,66 @@ type PacketDialer interface {
 	DialPacketThrough(ctx context.Context, underlying io.ReadWriteCloser, address string) (PacketConn, error)
 }
 
+const (
+	UDPModeNative      = "native"
+	UDPModeStream      = "stream"
+	UDPModeUnsupported = "unsupported"
+)
+
+// Capabilities describes local protocol support without opening network
+// sockets. UDPMode is native when UDP must be sent directly to the server,
+// stream when the protocol can carry UDP through an upstream TCP tunnel, and
+// unsupported when UDP is unavailable.
+type Capabilities struct {
+	TCP       bool   `json:"tcp"`
+	UDP       bool   `json:"udp"`
+	UDPMode   string `json:"udp_mode"`
+	UDPReason string `json:"udp_reason,omitempty"`
+}
+
+// CapabilityReporter lets protocol implementations surface constraints that
+// cannot be inferred from interface shape alone.
+type CapabilityReporter interface {
+	Capabilities() Capabilities
+}
+
+// DialerCapabilities returns conservative local capabilities for a dialer.
+func DialerCapabilities(d Dialer) Capabilities {
+	if d == nil {
+		return Capabilities{UDPMode: UDPModeUnsupported, UDPReason: "dialer is not configured"}
+	}
+	if reporter, ok := d.(CapabilityReporter); ok {
+		caps := reporter.Capabilities()
+		return normalizeCapabilities(caps)
+	}
+	caps := Capabilities{TCP: true}
+	if _, ok := d.(PacketDialer); ok {
+		caps.UDP = true
+		caps.UDPMode = UDPModeStream
+	} else {
+		caps.UDPMode = UDPModeUnsupported
+		caps.UDPReason = "protocol does not support UDP"
+	}
+	return caps
+}
+
+func normalizeCapabilities(caps Capabilities) Capabilities {
+	if caps.UDPMode == "" {
+		if caps.UDP {
+			caps.UDPMode = UDPModeStream
+		} else {
+			caps.UDPMode = UDPModeUnsupported
+		}
+	}
+	if !caps.UDP {
+		caps.UDPMode = UDPModeUnsupported
+		if caps.UDPReason == "" {
+			caps.UDPReason = "protocol does not support UDP"
+		}
+	}
+	return caps
+}
+
 // Server represents a remote server endpoint.
 type Server struct {
 	Name     string

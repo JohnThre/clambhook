@@ -191,6 +191,50 @@ func TestActivityModeSelectionKeysDoNotMoveProfileSelection(t *testing.T) {
 	}
 }
 
+func TestParseRuleTestInput(t *testing.T) {
+	network, target, err := parseRuleTestInput("udp 1.1.1.1:53")
+	if err != nil {
+		t.Fatalf("parseRuleTestInput: %v", err)
+	}
+	if network != "udp" || target != "1.1.1.1:53" {
+		t.Fatalf("parsed = %q %q", network, target)
+	}
+	for _, input := range []string{"icmp 1.1.1.1:53", "tcp example.com", "udp example.com:bad"} {
+		if _, _, err := parseRuleTestInput(input); err == nil {
+			t.Fatalf("parseRuleTestInput(%q) returned nil error", input)
+		}
+	}
+}
+
+func TestLibraryViewShowsPolicyUDPCapability(t *testing.T) {
+	m := newModel("127.0.0.1:9090")
+	m.viewMode = viewModeLibrary
+	m.servers = serversPayload{
+		Profile: "A",
+		Chains: []chainPayload{{
+			Name:     "proxy",
+			HopCount: 2,
+			Capabilities: protocolCapabilitiesPayload{
+				UDP:       false,
+				UDPMode:   "unsupported",
+				UDPReason: "final protocol cannot carry UDP through an upstream chain",
+			},
+			Servers: []serverPayload{{
+				Name:     "exit",
+				Address:  "203.0.113.10:443",
+				Protocol: "shadowsocks",
+			}},
+		}},
+	}
+
+	view := m.View()
+	for _, want := range []string{"Proxy Policies", "Policy proxy", "2 hops", "UDP unsupported"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("library view missing %q:\n%s", want, view)
+		}
+	}
+}
+
 func TestWindowSizeLimitsRenderedLogLines(t *testing.T) {
 	m := newModel("127.0.0.1:9090")
 	m.viewMode = viewModeActivity

@@ -198,8 +198,14 @@ func (c *Chain) DialPacket(ctx context.Context, address string) (protocol.Packet
 // any network sockets. Device-wide TUN mode requires this so UDP flows don't
 // silently disappear after the host route has already been redirected.
 func (c *Chain) CheckPacketSupport() error {
-	_, err := c.packetDialerForLastHop()
-	return err
+	caps := c.Capabilities()
+	if caps.UDP {
+		return nil
+	}
+	if caps.UDPReason == "" {
+		caps.UDPReason = "UDP is not supported"
+	}
+	return fmt.Errorf("chain %q: %s", c.Name, caps.UDPReason)
 }
 
 func (c *Chain) packetDialerForLastHop() (protocol.PacketDialer, error) {
@@ -217,6 +223,49 @@ func (c *Chain) packetDialerForLastHop() (protocol.PacketDialer, error) {
 		return nil, fmt.Errorf("chain %q: protocol %q does not support UDP", c.Name, last.Protocol)
 	}
 	return pd, nil
+}
+
+// Capabilities describes the whole chain's local routing support.
+func (c *Chain) Capabilities() protocol.Capabilities {
+	caps := protocol.Capabilities{
+		TCP:     len(c.Nodes) > 0,
+		UDPMode: protocol.UDPModeUnsupported,
+	}
+	if len(c.Nodes) == 0 {
+		caps.UDPReason = "chain has no nodes"
+		return caps
+	}
+	lastIdx := len(c.Nodes) - 1
+	last := c.Nodes[lastIdx]
+	lastDialer, err := c.dialerAt(lastIdx)
+	if err != nil {
+		caps.UDPReason = err.Error()
+		return caps
+	}
+	lastCaps := protocol.DialerCapabilities(lastDialer)
+	if !lastCaps.UDP {
+		caps.UDPReason = fmt.Sprintf("protocol %q does not support UDP", last.Protocol)
+		if lastCaps.UDPReason != "" {
+			caps.UDPReason = lastCaps.UDPReason
+		}
+		return caps
+	}
+	if len(c.Nodes) == 1 {
+		caps.UDP = true
+		caps.UDPMode = lastCaps.UDPMode
+		caps.UDPReason = lastCaps.UDPReason
+		return caps
+	}
+	if lastCaps.UDPMode != protocol.UDPModeStream {
+		caps.UDPReason = fmt.Sprintf("protocol %q cannot carry UDP through an upstream chain", last.Protocol)
+		if lastCaps.UDPReason != "" {
+			caps.UDPReason = lastCaps.UDPReason
+		}
+		return caps
+	}
+	caps.UDP = true
+	caps.UDPMode = protocol.UDPModeStream
+	return caps
 }
 
 // Dial connects through the entire chain to reach the final address.

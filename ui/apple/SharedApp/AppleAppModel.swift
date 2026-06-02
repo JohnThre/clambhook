@@ -258,6 +258,10 @@ final class AppleAppModel: ObservableObject {
         }
     }
 
+    func testRule(network: String, target: String) async throws -> RuleTestResponse {
+        try await dashboardAPI.testRule(network: network, target: target, profile: dashboard.activeProfile)
+    }
+
     var pinnedConnectionIDs: Set<String> {
         Set(settingsStore.settings.pinnedConnectionIDs)
     }

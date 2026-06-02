@@ -5,6 +5,7 @@ public protocol ClambhookAPIProviding: AnyObject {
     func profiles() async throws -> ProfilesPayload
     func servers() async throws -> ServersPayload
     func rules() async throws -> RulesPayload
+    func testRule(network: String, target: String, profile: String) async throws -> RuleTestResponse
     func traffic() async throws -> TrafficSnapshotPayload
     func connect() async throws
     func disconnect() async throws
@@ -76,6 +77,12 @@ public final class ClambhookAPIClient: ClambhookAPIProviding {
         let body = try encoder.encode(CreateRuleRequest(rule: rule, position: "append"))
         let data = try await send(method: "POST", path: "/api/v1/rules", body: body)
         return try decoder.decode(RulesPayload.self, from: data)
+    }
+
+    public func testRule(network: String, target: String, profile: String = "") async throws -> RuleTestResponse {
+        let body = try encoder.encode(RuleTestRequest(profile: profile, network: network, target: target))
+        let data = try await send(method: "POST", path: "/api/v1/rules/test", body: body)
+        return try decoder.decode(RuleTestResponse.self, from: data)
     }
 
     public func connect() async throws {

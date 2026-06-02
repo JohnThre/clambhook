@@ -309,6 +309,17 @@ final class TunnelDashboardClient: ClambhookAPIProviding {
         try await controller.dashboard().rules
     }
 
+    func testRule(network: String, target: String, profile: String = "") async throws -> RuleTestResponse {
+        let dashboard = try await controller.dashboard()
+        return try RuleTester.test(
+            network: network,
+            target: target,
+            profile: profile.isEmpty ? dashboard.profiles.active : profile,
+            rules: dashboard.rules.rules,
+            chains: dashboard.servers.chains
+        )
+    }
+
     func traffic() async throws -> TrafficSnapshotPayload {
         try await controller.dashboard().traffic
     }

@@ -107,14 +107,62 @@ public struct RulePayload: Codable, Equatable, Identifiable, Sendable {
     }
 }
 
+public struct ProtocolCapabilitiesPayload: Codable, Equatable, Sendable {
+    public var tcp: Bool
+    public var udp: Bool
+    public var udpMode: String
+    public var udpReason: String
+
+    enum CodingKeys: String, CodingKey {
+        case tcp
+        case udp
+        case udpMode = "udp_mode"
+        case udpReason = "udp_reason"
+    }
+
+    public init(tcp: Bool = false, udp: Bool = false, udpMode: String = "unsupported", udpReason: String = "") {
+        self.tcp = tcp
+        self.udp = udp
+        self.udpMode = udpMode
+        self.udpReason = udpReason
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.tcp = try container.decodeIfPresent(Bool.self, forKey: .tcp) ?? false
+        self.udp = try container.decodeIfPresent(Bool.self, forKey: .udp) ?? false
+        self.udpMode = try container.decodeIfPresent(String.self, forKey: .udpMode) ?? "unsupported"
+        self.udpReason = try container.decodeIfPresent(String.self, forKey: .udpReason) ?? ""
+    }
+}
+
 public struct ChainPayload: Codable, Equatable, Identifiable, Sendable {
     public var id: String { name }
     public var name: String
+    public var hopCount: Int
+    public var capabilities: ProtocolCapabilitiesPayload
     public var servers: [ServerPayload]
 
-    public init(name: String, servers: [ServerPayload]) {
+    enum CodingKeys: String, CodingKey {
+        case name
+        case hopCount = "hop_count"
+        case capabilities
+        case servers
+    }
+
+    public init(name: String, hopCount: Int = 0, capabilities: ProtocolCapabilitiesPayload = ProtocolCapabilitiesPayload(), servers: [ServerPayload]) {
         self.name = name
+        self.hopCount = hopCount
+        self.capabilities = capabilities
         self.servers = servers
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.name = try container.decodeIfPresent(String.self, forKey: .name) ?? ""
+        self.servers = try container.decodeIfPresent([ServerPayload].self, forKey: .servers) ?? []
+        self.hopCount = try container.decodeIfPresent(Int.self, forKey: .hopCount) ?? servers.count
+        self.capabilities = try container.decodeIfPresent(ProtocolCapabilitiesPayload.self, forKey: .capabilities) ?? ProtocolCapabilitiesPayload()
     }
 }
 
@@ -123,6 +171,7 @@ public struct ServerPayload: Codable, Equatable, Identifiable, Sendable {
     public var name: String
     public var address: String
     public var `protocol`: String
+    public var capabilities: ProtocolCapabilitiesPayload
     public var geo: LocationPayload
     public var geoError: String?
 
@@ -130,16 +179,116 @@ public struct ServerPayload: Codable, Equatable, Identifiable, Sendable {
         case name
         case address
         case `protocol`
+        case capabilities
         case geo
         case geoError = "geo_error"
     }
 
-    public init(name: String, address: String, protocol: String, geo: LocationPayload = LocationPayload(), geoError: String? = nil) {
+    public init(name: String, address: String, protocol: String, capabilities: ProtocolCapabilitiesPayload = ProtocolCapabilitiesPayload(), geo: LocationPayload = LocationPayload(), geoError: String? = nil) {
         self.name = name
         self.address = address
         self.protocol = `protocol`
+        self.capabilities = capabilities
         self.geo = geo
         self.geoError = geoError
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.name = try container.decodeIfPresent(String.self, forKey: .name) ?? ""
+        self.address = try container.decodeIfPresent(String.self, forKey: .address) ?? ""
+        self.protocol = try container.decodeIfPresent(String.self, forKey: .protocol) ?? ""
+        self.capabilities = try container.decodeIfPresent(ProtocolCapabilitiesPayload.self, forKey: .capabilities) ?? ProtocolCapabilitiesPayload()
+        self.geo = try container.decodeIfPresent(LocationPayload.self, forKey: .geo) ?? LocationPayload()
+        self.geoError = try container.decodeIfPresent(String.self, forKey: .geoError)
+    }
+}
+
+public struct RuleTestRequest: Codable, Equatable, Sendable {
+    public var profile: String
+    public var network: String
+    public var target: String
+
+    public init(profile: String = "", network: String, target: String) {
+        self.profile = profile
+        self.network = network
+        self.target = target
+    }
+}
+
+public struct RuleTestResponse: Codable, Equatable, Sendable {
+    public var profile: String
+    public var decision: RuleTestDecisionPayload
+    public var chain: RuleTestChainPayload?
+    public var hops: [ServerPayload]
+
+    public init(profile: String = "", decision: RuleTestDecisionPayload = RuleTestDecisionPayload(), chain: RuleTestChainPayload? = nil, hops: [ServerPayload] = []) {
+        self.profile = profile
+        self.decision = decision
+        self.chain = chain
+        self.hops = hops
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.profile = try container.decodeIfPresent(String.self, forKey: .profile) ?? ""
+        self.decision = try container.decodeIfPresent(RuleTestDecisionPayload.self, forKey: .decision) ?? RuleTestDecisionPayload()
+        self.chain = try container.decodeIfPresent(RuleTestChainPayload.self, forKey: .chain)
+        self.hops = try container.decodeIfPresent([ServerPayload].self, forKey: .hops) ?? []
+    }
+}
+
+public struct RuleTestDecisionPayload: Codable, Equatable, Sendable {
+    public var ruleName: String
+    public var action: String
+    public var chainName: String
+    public var target: String
+    public var targetHost: String
+    public var targetPort: String
+    public var network: String
+    public var isDefault: Bool
+    public var elapsedNs: Int64
+
+    enum CodingKeys: String, CodingKey {
+        case ruleName = "rule_name"
+        case action
+        case chainName = "chain_name"
+        case target
+        case targetHost = "target_host"
+        case targetPort = "target_port"
+        case network
+        case isDefault = "default"
+        case elapsedNs = "elapsed_ns"
+    }
+
+    public init(ruleName: String = "", action: String = "", chainName: String = "", target: String = "", targetHost: String = "", targetPort: String = "", network: String = "", isDefault: Bool = false, elapsedNs: Int64 = 0) {
+        self.ruleName = ruleName
+        self.action = action
+        self.chainName = chainName
+        self.target = target
+        self.targetHost = targetHost
+        self.targetPort = targetPort
+        self.network = network
+        self.isDefault = isDefault
+        self.elapsedNs = elapsedNs
+    }
+}
+
+public struct RuleTestChainPayload: Codable, Equatable, Sendable {
+    public var name: String
+    public var hopCount: Int
+    public var capabilities: ProtocolCapabilitiesPayload
+
+    enum CodingKeys: String, CodingKey {
+        case name
+        case hopCount = "hop_count"
+        case capabilities
+    }
+
+    public init(name: String = "", hopCount: Int = 0, capabilities: ProtocolCapabilitiesPayload = ProtocolCapabilitiesPayload()) {
+        self.name = name
+        self.hopCount = hopCount
+        self.capabilities = capabilities
     }
 }
 

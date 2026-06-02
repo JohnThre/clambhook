@@ -7,6 +7,10 @@ struct IOSRulesView: View {
     @State private var validationErrors: [RuleEditorValidationError] = []
     @State private var message = ""
     @State private var loaded = false
+    @State private var routeTestNetwork = "tcp"
+    @State private var routeTestTarget = "example.com:443"
+    @State private var routeTestResult: RuleTestResponse?
+    @State private var routeTestError = ""
 
     var body: some View {
         List {
@@ -52,6 +56,31 @@ struct IOSRulesView: View {
                         rows.move(fromOffsets: offsets, toOffset: destination)
                         validationErrors = RuleEditor.validate(rows: rows, chainNames: chainNames)
                     }
+                }
+            }
+
+            Section("Test Route") {
+                Picker("Network", selection: $routeTestNetwork) {
+                    Text("TCP").tag("tcp")
+                    Text("UDP").tag("udp")
+                }
+                .pickerStyle(.segmented)
+                TextField("host:port", text: $routeTestTarget)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                Button {
+                    runRouteTest()
+                } label: {
+                    Label("Test Route", systemImage: "checkmark.circle")
+                }
+                if !routeTestError.isEmpty {
+                    Text(routeTestError)
+                        .font(.footnote)
+                        .foregroundStyle(.red)
+                } else if let routeTestResult {
+                    Text(routeTestSummary(routeTestResult))
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
                 }
             }
 
@@ -149,6 +178,18 @@ struct IOSRulesView: View {
             )
         )
         validationErrors = []
+    }
+
+    private func runRouteTest() {
+        routeTestError = ""
+        Task {
+            do {
+                routeTestResult = try await model.testRule(network: routeTestNetwork, target: routeTestTarget)
+            } catch {
+                routeTestResult = nil
+                routeTestError = error.localizedDescription
+            }
+        }
     }
 }
 

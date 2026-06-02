@@ -66,3 +66,45 @@ public func serverLocation(_ server: ServerPayload) -> String {
 public func emptyDash(_ value: String) -> String {
     value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "--" : value
 }
+
+public func udpSupportText(_ capabilities: ProtocolCapabilitiesPayload) -> String {
+    if capabilities.udp {
+        return capabilities.udpMode.isEmpty ? "UDP" : "UDP \(capabilities.udpMode)"
+    }
+    if capabilities.udpReason.isEmpty {
+        return "No UDP"
+    }
+    return "No UDP: \(capabilities.udpReason)"
+}
+
+public func routeTestSummary(_ response: RuleTestResponse) -> String {
+    let decision = response.decision
+    var parts = [
+        "\(decision.network.uppercased()) \(emptyDash(decision.target))",
+        routeActionFamily(decision.action).uppercased(),
+    ]
+    if !decision.ruleName.isEmpty {
+        parts.append("Rule \(decision.ruleName)")
+    } else if decision.isDefault {
+        parts.append("Default")
+    }
+    if !decision.chainName.isEmpty {
+        parts.append("Chain \(decision.chainName)")
+    }
+    if let chain = response.chain {
+        parts.append("\(chain.hopCount) hops")
+        parts.append(udpSupportText(chain.capabilities))
+    }
+    return parts.joined(separator: " / ")
+}
+
+private func routeActionFamily(_ action: String) -> String {
+    switch action.lowercased() {
+    case "direct":
+        return "direct"
+    case "block", "reject":
+        return "block"
+    default:
+        return "proxy"
+    }
+}

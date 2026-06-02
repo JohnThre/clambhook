@@ -84,6 +84,18 @@ func ParseConfig(name string, s protocol.Server) (Config, error) {
 
 func (d *Dialer) Protocol() string { return d.name }
 
+func (d *Dialer) Capabilities() protocol.Capabilities {
+	return Capabilities()
+}
+
+func Capabilities() protocol.Capabilities {
+	return protocol.Capabilities{
+		TCP:     true,
+		UDP:     true,
+		UDPMode: protocol.UDPModeStream,
+	}
+}
+
 func (d *Dialer) Dial(ctx context.Context, network, address string) (protocol.Conn, error) {
 	raw, err := (&net.Dialer{}).DialContext(ctx, "tcp", d.server.Address)
 	if err != nil {

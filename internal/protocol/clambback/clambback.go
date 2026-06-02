@@ -12,4 +12,5 @@ func init() {
 	protocol.Register("clambback", func(server protocol.Server) (protocol.Dialer, error) {
 		return trojanwire.NewDialer("clambback", server)
 	})
+	protocol.RegisterCapabilities("clambback", trojanwire.Capabilities())
 }

@@ -264,7 +264,11 @@ name = "default"
 	}
 
 	err := ValidateUsableTunnelConfig(path)
-	if err == nil || !strings.Contains(strings.ToLower(err.Error()), "does not support udp") {
+	if err == nil {
+		t.Fatalf("ValidateUsableTunnelConfig error = %v, want UDP support error", err)
+	}
+	lower := strings.ToLower(err.Error())
+	if !strings.Contains(lower, "does not support udp") && !strings.Contains(lower, "does not carry udp") {
 		t.Fatalf("ValidateUsableTunnelConfig error = %v, want UDP support error", err)
 	}
 }

@@ -41,16 +41,26 @@ type serversPayload struct {
 }
 
 type chainPayload struct {
-	Name    string          `json:"name"`
-	Servers []serverPayload `json:"servers"`
+	Name         string                      `json:"name"`
+	HopCount     int                         `json:"hop_count"`
+	Capabilities protocolCapabilitiesPayload `json:"capabilities"`
+	Servers      []serverPayload             `json:"servers"`
 }
 
 type serverPayload struct {
-	Name     string          `json:"name"`
-	Address  string          `json:"address"`
-	Protocol string          `json:"protocol"`
-	Geo      locationPayload `json:"geo"`
-	GeoError string          `json:"geo_error,omitempty"`
+	Name         string                      `json:"name"`
+	Address      string                      `json:"address"`
+	Protocol     string                      `json:"protocol"`
+	Capabilities protocolCapabilitiesPayload `json:"capabilities"`
+	Geo          locationPayload             `json:"geo"`
+	GeoError     string                      `json:"geo_error,omitempty"`
+}
+
+type protocolCapabilitiesPayload struct {
+	TCP       bool   `json:"tcp"`
+	UDP       bool   `json:"udp"`
+	UDPMode   string `json:"udp_mode"`
+	UDPReason string `json:"udp_reason,omitempty"`
 }
 
 type locationPayload struct {
@@ -125,6 +135,37 @@ type createRuleRequest struct {
 	Profile  string      `json:"profile,omitempty"`
 	Rule     rulePayload `json:"rule"`
 	Position string      `json:"position,omitempty"`
+}
+
+type ruleTestRequest struct {
+	Profile string `json:"profile,omitempty"`
+	Network string `json:"network"`
+	Target  string `json:"target"`
+}
+
+type ruleTestResponse struct {
+	Profile  string                  `json:"profile"`
+	Decision ruleTestDecisionPayload `json:"decision"`
+	Chain    *ruleTestChainPayload   `json:"chain,omitempty"`
+	Hops     []serverPayload         `json:"hops,omitempty"`
+}
+
+type ruleTestDecisionPayload struct {
+	RuleName  string `json:"rule_name,omitempty"`
+	Action    string `json:"action"`
+	ChainName string `json:"chain_name,omitempty"`
+	Target    string `json:"target"`
+	Host      string `json:"target_host,omitempty"`
+	Port      string `json:"target_port,omitempty"`
+	Network   string `json:"network,omitempty"`
+	Default   bool   `json:"default,omitempty"`
+	ElapsedNs int64  `json:"elapsed_ns,omitempty"`
+}
+
+type ruleTestChainPayload struct {
+	Name         string                      `json:"name"`
+	HopCount     int                         `json:"hop_count"`
+	Capabilities protocolCapabilitiesPayload `json:"capabilities"`
 }
 
 type listenerInfo struct {
@@ -234,6 +275,16 @@ func (c apiClient) createRule(rule rulePayload) error {
 	return c.doNoBody(http.MethodPost, "/api/v1/rules", bytes.NewReader(body))
 }
 
+func (c apiClient) testRule(network, target string) (ruleTestResponse, error) {
+	body, err := json.Marshal(ruleTestRequest{Network: network, Target: target})
+	if err != nil {
+		return ruleTestResponse{}, err
+	}
+	var out ruleTestResponse
+	err = c.doJSON(http.MethodPost, "/api/v1/rules/test", bytes.NewReader(body), &out)
+	return out, err
+}
+
 func (c apiClient) eventsURL() string {
 	return c.wsBaseURL + "/api/v1/events?types=connection.*,rule.*,hop.*,log.*"
 }
@@ -255,6 +306,10 @@ func (c apiClient) getJSON(path string, out any) error {
 }
 
 func (c apiClient) doNoBody(method, path string, body io.Reader) error {
+	return c.doJSON(method, path, body, nil)
+}
+
+func (c apiClient) doJSON(method, path string, body io.Reader, out any) error {
 	req, err := http.NewRequest(method, c.baseURL+path, body)
 	if err != nil {
 		return err
@@ -269,6 +324,9 @@ func (c apiClient) doNoBody(method, path string, body io.Reader) error {
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		return responseError(resp)
+	}
+	if out != nil {
+		return json.NewDecoder(resp.Body).Decode(out)
 	}
 	return nil
 }

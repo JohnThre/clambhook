@@ -39,6 +39,7 @@ func init() {
 		}
 		return &dialer{server: server, cfg: cfg}, nil
 	})
+	protocol.RegisterCapabilities("wireguard", wireguardCapabilities())
 }
 
 var newWireGuardInstance = newInstance
@@ -58,6 +59,19 @@ type config struct {
 	mtu           int          // default device.DefaultMTU (1420)
 	logLevel      int          // device.LogLevel{Silent,Error,Verbose}
 	peers         []peerConfig
+}
+
+func (d *dialer) Capabilities() protocol.Capabilities {
+	return wireguardCapabilities()
+}
+
+func wireguardCapabilities() protocol.Capabilities {
+	return protocol.Capabilities{
+		TCP:       true,
+		UDP:       true,
+		UDPMode:   protocol.UDPModeNative,
+		UDPReason: "WireGuard must be used as a single-hop chain",
+	}
 }
 
 // parseConfig extracts and validates WireGuard settings from the shared

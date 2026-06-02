@@ -210,11 +210,13 @@ private final class FakeOperationalAPIClient: ClambhookAPIProviding {
     var serversResult = ServersPayload()
     var rulesResult = RulesPayload()
     var trafficResult = TrafficSnapshotPayload()
+    var ruleTestResult = RuleTestResponse()
 
     func status() async throws -> StatusPayload { statusResult }
     func profiles() async throws -> ProfilesPayload { profilesResult }
     func servers() async throws -> ServersPayload { serversResult }
     func rules() async throws -> RulesPayload { rulesResult }
+    func testRule(network: String, target: String, profile: String) async throws -> RuleTestResponse { ruleTestResult }
     func traffic() async throws -> TrafficSnapshotPayload { trafficResult }
     func connect() async throws {}
     func disconnect() async throws {}

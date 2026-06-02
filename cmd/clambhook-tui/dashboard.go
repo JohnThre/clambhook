@@ -9,6 +9,7 @@ import (
 	"math"
 	"net/netip"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -67,6 +68,10 @@ type model struct {
 	trafficFilter   string
 	searchText      string
 	searchEditing   bool
+	ruleTestInput   string
+	ruleTestEditing bool
+	ruleTestResult  *ruleTestResponse
+	ruleTestErr     string
 	selectedTraffic int
 	pendingRule     *rulePayload
 	width           int
@@ -109,6 +114,11 @@ type statusLoadedMsg struct {
 
 type actionDoneMsg struct {
 	Err error
+}
+
+type ruleTestDoneMsg struct {
+	Result ruleTestResponse
+	Err    error
 }
 
 type eventMsg struct {
@@ -172,6 +182,31 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		if m.viewMode == viewModeActivity {
+			if m.ruleTestEditing {
+				switch msg.String() {
+				case "esc":
+					m.ruleTestEditing = false
+					return m, nil
+				case "enter":
+					network, target, err := parseRuleTestInput(m.ruleTestInput)
+					if err != nil {
+						m.ruleTestErr = err.Error()
+						return m, nil
+					}
+					m.ruleTestEditing = false
+					m.ruleTestErr = ""
+					return m, m.ruleTestCmd(network, target)
+				case "backspace", "ctrl+h":
+					if len(m.ruleTestInput) > 0 {
+						m.ruleTestInput = m.ruleTestInput[:len(m.ruleTestInput)-1]
+					}
+				default:
+					if len(msg.Runes) > 0 {
+						m.ruleTestInput += string(msg.Runes)
+					}
+				}
+				return m, nil
+			}
 			if m.searchEditing {
 				switch msg.String() {
 				case "esc", "enter":
@@ -252,6 +287,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 				m.pendingRule = &rule
+				return m, nil
+			case "x":
+				if m.ruleTestInput == "" {
+					m.ruleTestInput = "tcp example.com:443"
+				}
+				m.ruleTestEditing = true
+				m.ruleTestErr = ""
 				return m, nil
 			}
 			return m, nil
@@ -338,6 +380,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		return m, m.loadDashboardCmd()
+	case ruleTestDoneMsg:
+		if msg.Err != nil {
+			m.ruleTestErr = msg.Err.Error()
+			return m, nil
+		}
+		m.ruleTestResult = &msg.Result
+		m.ruleTestErr = ""
+		return m, nil
 	case eventMsg:
 		needsRefresh := m.applyEvent(msg.Event)
 		if needsRefresh {
@@ -399,8 +449,8 @@ func (m model) activityView() string {
 		m.renderTrafficDetailSection(width),
 		m.renderLogsSection(width),
 		m.renderFooter(
-			"Keys: a all  b block  d direct  p proxy  / search  up/down select  n new rule  r refresh  1 now  3 library  4 settings  q quit",
-			"Keys: a/b/d/p  / search  up/down  n rule  r refresh  1 now  3 lib  q",
+			"Keys: a all  b block  d direct  p proxy  / search  x test route  up/down select  n new rule  r refresh  1 now  3 library  4 settings  q quit",
+			"Keys: a/b/d/p  / search  x test  up/down  n rule  r refresh  1 now  3 lib  q",
 		),
 	)
 	return joinSections(sections)
@@ -583,7 +633,7 @@ func (m model) listenerLines(width int) []string {
 }
 
 func (m model) renderServersSection(width int) string {
-	return renderSection("Servers", m.serverLines(width))
+	return renderSection("Proxy Policies", m.serverLines(width))
 }
 
 func (m model) serverLines(width int) []string {
@@ -595,6 +645,7 @@ func (m model) serverLines(width int) []string {
 		widths := serverColumnWidths(width)
 		lines = append(lines, tableHeaderStyle.Render(tableRow([]string{"", "Name", "Protocol", "Address", "Location", "Chain"}, widths)))
 		for _, ch := range m.servers.Chains {
+			lines = append(lines, tableHeaderStyle.Render(truncate(policySummaryLine(ch, width), width)))
 			for _, server := range ch.Servers {
 				lines = append(lines, tableRow([]string{
 					countryFlag(server.Geo.CountryCode),
@@ -610,6 +661,7 @@ func (m model) serverLines(width int) []string {
 	}
 
 	for _, ch := range m.servers.Chains {
+		lines = append(lines, tableHeaderStyle.Render(truncate(policySummaryLine(ch, width), width)))
 		for _, server := range ch.Servers {
 			first := fmt.Sprintf("  %s %s · %s · %s",
 				countryFlag(server.Geo.CountryCode),
@@ -622,6 +674,27 @@ func (m model) serverLines(width int) []string {
 		}
 	}
 	return lines
+}
+
+func policySummaryLine(ch chainPayload, width int) string {
+	hops := ch.HopCount
+	if hops == 0 {
+		hops = len(ch.Servers)
+	}
+	return truncate(fmt.Sprintf("  Policy %s  %d hops  %s", ch.Name, hops, udpSummary(ch.Capabilities)), width)
+}
+
+func udpSummary(caps protocolCapabilitiesPayload) string {
+	if caps.UDP {
+		if caps.UDPMode == "" {
+			return "UDP supported"
+		}
+		return "UDP " + caps.UDPMode
+	}
+	if caps.UDPReason != "" {
+		return "UDP unsupported: " + caps.UDPReason
+	}
+	return "UDP unsupported"
 }
 
 func (m model) renderBandwidthSection(width int) string {
@@ -655,6 +728,9 @@ func (m model) renderTrafficDetailSection(width int) string {
 		lines = append(lines, errorStyle.Render(truncate("  History: "+m.traffic.Summary.PersistError, width)))
 	}
 	lines = append(lines, m.monitorFilterLine(width))
+	if line := m.ruleTestLine(width); line != "" {
+		lines = append(lines, line)
+	}
 	lines = append(lines, m.ruleHitLines(width)...)
 	if m.pendingRule != nil {
 		lines = append(lines, m.pendingRuleLine(width))
@@ -710,6 +786,40 @@ func (m model) monitorFilterLine(width int) string {
 		prompt,
 		search,
 	), width)
+}
+
+func (m model) ruleTestLine(width int) string {
+	if m.ruleTestEditing {
+		line := fmt.Sprintf("  Test route  %s  (enter run, esc cancel)", m.ruleTestInput)
+		if m.ruleTestErr != "" {
+			line += "  " + m.ruleTestErr
+		}
+		return selectedLineStyle.Render(truncate(line, width))
+	}
+	if m.ruleTestErr != "" {
+		return errorStyle.Render(truncate("  Test route  "+m.ruleTestErr, width))
+	}
+	if m.ruleTestResult == nil {
+		return ""
+	}
+	result := *m.ruleTestResult
+	decision := result.Decision
+	action := strings.ToUpper(actionFamilyFromAction(decision.Action))
+	parts := []string{
+		fmt.Sprintf("  Test route  %s %s -> %s", decision.Network, decision.Target, action),
+	}
+	if decision.RuleName != "" {
+		parts = append(parts, "rule "+decision.RuleName)
+	} else if decision.Default {
+		parts = append(parts, "default")
+	}
+	if decision.ChainName != "" {
+		parts = append(parts, "chain "+decision.ChainName)
+	}
+	if result.Chain != nil {
+		parts = append(parts, fmt.Sprintf("%d hops", result.Chain.HopCount), udpSummary(result.Chain.Capabilities))
+	}
+	return truncate(strings.Join(parts, "  "), width)
 }
 
 func (m model) ruleHitLines(width int) []string {
@@ -945,6 +1055,11 @@ func actionChip(conn trafficConnectionPayload) string {
 
 func actionFamily(conn trafficConnectionPayload) string {
 	action := strings.ToLower(strings.TrimSpace(conn.RuleAction))
+	return actionFamilyFromAction(action)
+}
+
+func actionFamilyFromAction(action string) string {
+	action = strings.ToLower(strings.TrimSpace(action))
 	switch action {
 	case "direct":
 		return "direct"
@@ -953,6 +1068,26 @@ func actionFamily(conn trafficConnectionPayload) string {
 	default:
 		return "proxy"
 	}
+}
+
+func parseRuleTestInput(input string) (network, target string, err error) {
+	parts := strings.Fields(input)
+	if len(parts) != 2 {
+		return "", "", fmt.Errorf("use: tcp host:port or udp host:port")
+	}
+	network = strings.ToLower(parts[0])
+	if network != "tcp" && network != "udp" {
+		return "", "", fmt.Errorf("network must be tcp or udp")
+	}
+	host, port := splitHostPortLoose(parts[1])
+	if host == "" || port == "" {
+		return "", "", fmt.Errorf("target must be host:port")
+	}
+	n, err := strconv.Atoi(port)
+	if err != nil || n < 1 || n > 65535 {
+		return "", "", fmt.Errorf("target port must be between 1 and 65535")
+	}
+	return network, parts[1], nil
 }
 
 func sortRuleHits(hits []ruleHit) {
@@ -1096,6 +1231,14 @@ func (m model) loadStatusCmd() tea.Cmd {
 func (m model) actionCmd(fn func() error) tea.Cmd {
 	return func() tea.Msg {
 		return actionDoneMsg{Err: fn()}
+	}
+}
+
+func (m model) ruleTestCmd(network, target string) tea.Cmd {
+	client := m.client
+	return func() tea.Msg {
+		result, err := client.testRule(network, target)
+		return ruleTestDoneMsg{Result: result, Err: err}
 	}
 }
 

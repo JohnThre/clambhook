@@ -11,6 +11,10 @@ struct MacMenuBarView: View {
     @State private var draftRule: RulePayload?
     @State private var showActivity = false
     @State private var showLibrary = false
+    @State private var routeTestNetwork = "tcp"
+    @State private var routeTestTarget = "example.com:443"
+    @State private var routeTestResult: RuleTestResponse?
+    @State private var routeTestError = ""
 
     init(model: AppleAppModel) {
         self.model = model
@@ -206,10 +210,13 @@ struct MacMenuBarView: View {
                                     .lineLimit(1)
                             }
                             Spacer()
-                            Text(row.chain)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
+                            VStack(alignment: .trailing, spacing: 2) {
+                                Text(row.chain)
+                                    .font(.caption)
+                                Text(udpSupportText(row.capabilities))
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
                         }
                     }
                 }
@@ -235,6 +242,34 @@ struct MacMenuBarView: View {
                 .pickerStyle(.segmented)
                 TextField("Search hosts, rules, chains", text: $trafficSearch)
                     .textFieldStyle(.roundedBorder)
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 8) {
+                        Picker("Network", selection: $routeTestNetwork) {
+                            Text("TCP").tag("tcp")
+                            Text("UDP").tag("udp")
+                        }
+                        .labelsHidden()
+                        .pickerStyle(.segmented)
+                        TextField("host:port", text: $routeTestTarget)
+                            .textFieldStyle(.roundedBorder)
+                        Button {
+                            runRouteTest()
+                        } label: {
+                            Label("Test", systemImage: "checkmark.circle")
+                        }
+                    }
+                    if !routeTestError.isEmpty {
+                        Text(routeTestError)
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                            .lineLimit(2)
+                    } else if let routeTestResult {
+                        Text(routeTestSummary(routeTestResult))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(2)
+                    }
+                }
                 if !model.dashboard.ruleHitSummaries.isEmpty {
                     Text("Rule hits " + model.dashboard.ruleHitSummaries.prefix(3).map { "\($0.ruleName.isEmpty ? "Default" : $0.ruleName): \($0.count)" }.joined(separator: "  "))
                         .font(.caption)
@@ -372,7 +407,7 @@ struct MacMenuBarView: View {
 
     private var serverRows: [ServerRow] {
         model.dashboard.servers.chains.flatMap { chain in
-            chain.servers.map { ServerRow(chain: chain.name, server: $0) }
+            chain.servers.map { ServerRow(chain: chain.name, capabilities: chain.capabilities, server: $0) }
         }
     }
 
@@ -384,11 +419,24 @@ struct MacMenuBarView: View {
         }
         return connection.listener.protocol
     }
+
+    private func runRouteTest() {
+        routeTestError = ""
+        Task {
+            do {
+                routeTestResult = try await model.testRule(network: routeTestNetwork, target: routeTestTarget)
+            } catch {
+                routeTestResult = nil
+                routeTestError = error.localizedDescription
+            }
+        }
+    }
 }
 
 private struct ServerRow: Identifiable {
     var id: String { "\(chain)-\(server.id)" }
     var chain: String
+    var capabilities: ProtocolCapabilitiesPayload
     var server: ServerPayload
 }
 
