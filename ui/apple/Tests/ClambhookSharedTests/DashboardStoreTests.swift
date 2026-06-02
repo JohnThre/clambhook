@@ -44,6 +44,51 @@ final class DashboardStoreTests: XCTestCase {
         XCTAssertEqual(snapshot.listenerCount, 1)
     }
 
+    func testRefreshUsesSingleDashboardSnapshotWhenAvailable() async throws {
+        let snapshotURL = temporaryURL("tunnel-dashboard-snapshot.json")
+        let snapshotStore = FileSnapshotStore(fileURL: snapshotURL)
+        let api = FakeDashboardAPI()
+        api.dashboardResult = TunnelDashboardPayload(
+            status: StatusPayload(
+                running: true,
+                profile: "phone",
+                listeners: [ListenerStatusPayload(protocol: "tun", addr: "packet", activeConns: 2)]
+            ),
+            profiles: ProfilesPayload(profiles: ["phone", "backup"], active: "phone"),
+            servers: ServersPayload(profile: "phone", chains: [
+                ChainPayload(name: "proxy", servers: [
+                    ServerPayload(name: "exit", address: "example.invalid:443", protocol: "shadowsocks")
+                ])
+            ]),
+            rules: RulesPayload(profile: "phone", rules: [
+                RulePayload(name: "ads", action: "block", domainSuffixes: ["ads.example.com"])
+            ]),
+            traffic: TrafficSnapshotPayload(
+                summary: TrafficSummaryPayload(activeConnections: 2, rxBps: 4096, txBps: 1024),
+                connections: [TrafficConnectionPayload(connID: "c1", state: "active", target: "example.com:443")]
+            )
+        )
+        let store = DashboardStore(api: api, snapshotStore: snapshotStore)
+
+        await store.refreshDashboard()
+
+        XCTAssertEqual(api.dashboardCalls, 1)
+        XCTAssertEqual(api.statusCalls, 0)
+        XCTAssertEqual(api.profilesCalls, 0)
+        XCTAssertEqual(api.serversCalls, 0)
+        XCTAssertEqual(api.rulesCalls, 0)
+        XCTAssertEqual(api.trafficCalls, 0)
+        XCTAssertEqual(store.status.profile, "phone")
+        XCTAssertEqual(store.profiles.profiles, ["phone", "backup"])
+        XCTAssertEqual(store.servers.chains.first?.name, "proxy")
+        XCTAssertEqual(store.rules.rules.first?.name, "ads")
+        XCTAssertEqual(store.traffic.summary.rxBps, 4096)
+        let snapshot = try await snapshotStore.load()
+        XCTAssertTrue(snapshot.apiOnline)
+        XCTAssertEqual(snapshot.profile, "phone")
+        XCTAssertEqual(snapshot.listenerCount, 1)
+    }
+
     func testApplyConnectionBytesKeepsLatestSamplesAndSnapshotRates() async throws {
         let snapshotURL = temporaryURL("bandwidth-snapshot.json")
         let snapshotStore = FileSnapshotStore(fileURL: snapshotURL)
@@ -143,7 +188,7 @@ private func temporaryURL(_ name: String) -> URL {
         .appendingPathComponent(name)
 }
 
-private final class FakeAPIClient: ClambhookAPIProviding {
+private class FakeAPIClient: ClambhookAPIProviding {
     var statusResult = StatusPayload(running: false, profile: "", listeners: [])
     var profilesResult = ProfilesPayload(profiles: [], active: "")
     var serversResult = ServersPayload(profile: "", chains: [])
@@ -153,21 +198,30 @@ private final class FakeAPIClient: ClambhookAPIProviding {
     private(set) var connectCalls = 0
     private(set) var disconnectCalls = 0
     private(set) var selectedProfiles: [String] = []
+    private(set) var statusCalls = 0
+    private(set) var profilesCalls = 0
+    private(set) var serversCalls = 0
+    private(set) var rulesCalls = 0
+    private(set) var trafficCalls = 0
 
     func status() async throws -> StatusPayload {
-        statusResult
+        statusCalls += 1
+        return statusResult
     }
 
     func profiles() async throws -> ProfilesPayload {
-        profilesResult
+        profilesCalls += 1
+        return profilesResult
     }
 
     func servers() async throws -> ServersPayload {
-        serversResult
+        serversCalls += 1
+        return serversResult
     }
 
     func rules() async throws -> RulesPayload {
-        rulesResult
+        rulesCalls += 1
+        return rulesResult
     }
 
     func testRule(network: String, target: String, profile: String) async throws -> RuleTestResponse {
@@ -175,7 +229,8 @@ private final class FakeAPIClient: ClambhookAPIProviding {
     }
 
     func traffic() async throws -> TrafficSnapshotPayload {
-        trafficResult
+        trafficCalls += 1
+        return trafficResult
     }
 
     func connect() async throws {
@@ -188,5 +243,15 @@ private final class FakeAPIClient: ClambhookAPIProviding {
 
     func setActiveProfile(_ name: String) async throws {
         selectedProfiles.append(name)
+    }
+}
+
+private final class FakeDashboardAPI: FakeAPIClient, ClambhookDashboardProviding {
+    var dashboardResult = TunnelDashboardPayload()
+    private(set) var dashboardCalls = 0
+
+    func dashboard() async throws -> TunnelDashboardPayload {
+        dashboardCalls += 1
+        return dashboardResult
     }
 }

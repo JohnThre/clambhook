@@ -12,6 +12,10 @@ public protocol ClambhookAPIProviding: AnyObject {
     func setActiveProfile(_ name: String) async throws
 }
 
+public protocol ClambhookDashboardProviding: ClambhookAPIProviding {
+    func dashboard() async throws -> TunnelDashboardPayload
+}
+
 public enum APIClientError: Error, LocalizedError, Equatable {
     case invalidURL(String)
     case httpStatus(Int, String)

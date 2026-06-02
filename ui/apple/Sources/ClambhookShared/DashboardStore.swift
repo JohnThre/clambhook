@@ -41,16 +41,22 @@ public final class DashboardStore: ObservableObject {
 
     public func refreshDashboard() async {
         do {
-            let status = try await api.status()
-            let profiles = try await api.profiles()
-            let servers = try await api.servers()
-            let rules = try await api.rules()
-            let traffic = try await api.traffic()
-            self.status = status
-            self.profiles = profiles
-            self.servers = servers
-            self.rules = rules
-            self.traffic = traffic
+            if let dashboardAPI = api as? ClambhookDashboardProviding {
+                apply(dashboard: try await dashboardAPI.dashboard())
+            } else {
+                let status = try await api.status()
+                let profiles = try await api.profiles()
+                let servers = try await api.servers()
+                let rules = try await api.rules()
+                let traffic = try await api.traffic()
+                apply(dashboard: TunnelDashboardPayload(
+                    status: status,
+                    profiles: profiles,
+                    servers: servers,
+                    rules: rules,
+                    traffic: traffic
+                ))
+            }
             self.apiOnline = true
             updateRecoveryIssueFromTraffic()
             await persistSnapshot()
@@ -59,6 +65,14 @@ public final class DashboardStore: ObservableObject {
             setRecoveryIssue(TunnelRecoveryClassifier.issue(for: error))
             await persistSnapshot()
         }
+    }
+
+    private func apply(dashboard: TunnelDashboardPayload) {
+        status = dashboard.status
+        profiles = dashboard.profiles
+        servers = dashboard.servers
+        rules = dashboard.rules
+        traffic = dashboard.traffic
     }
 
     public func refreshStatus() async {

@@ -27,7 +27,7 @@ struct ClambhookStatusWidget: Widget {
             StatusWidgetView(entry: entry)
         }
         .configurationDisplayName("clambhook")
-        .description("Daemon status, active profile, bandwidth, and quick actions.")
+        .description("Tunnel status, active profile, bandwidth, and quick actions.")
         .supportedFamilies([.systemSmall, .systemMedium])
     }
 }

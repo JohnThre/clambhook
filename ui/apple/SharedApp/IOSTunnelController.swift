@@ -286,7 +286,7 @@ final class IOSTunnelController: ObservableObject {
     }
 }
 
-final class TunnelDashboardClient: ClambhookAPIProviding {
+final class TunnelDashboardClient: ClambhookDashboardProviding {
     private let controller: IOSTunnelController
 
     init(controller: IOSTunnelController) {
