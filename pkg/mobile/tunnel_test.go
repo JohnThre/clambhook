@@ -241,6 +241,34 @@ func TestValidateUsableTunnelConfigAcceptsRealProfile(t *testing.T) {
 	}
 }
 
+func TestValidateUsableTunnelConfigRejectsActiveProfileWithoutUDPSupport(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "clambhook.toml")
+	if err := os.WriteFile(path, []byte(`
+active = "default"
+
+[[profile]]
+name = "default"
+
+  [profile.listen.tun]
+  enabled = true
+
+  [[profile.chain]]
+  name = "proxy"
+
+    [[profile.chain.server]]
+    name = "tor"
+    address = "127.0.0.1:9050"
+    protocol = "tor"
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	err := ValidateUsableTunnelConfig(path)
+	if err == nil || !strings.Contains(strings.ToLower(err.Error()), "does not support udp") {
+		t.Fatalf("ValidateUsableTunnelConfig error = %v, want UDP support error", err)
+	}
+}
+
 func TestSetActiveTunnelProfileConfig(t *testing.T) {
 	path := writeMultiProfileTunnelTestConfig(t)
 

@@ -88,7 +88,11 @@ private struct IOSStatusPanel: View {
                 }
             }
 
-            if !model.dashboard.errorText.isEmpty {
+            if let issue = model.dashboard.recoveryIssue {
+                IOSRecoveryBanner(issue: issue) { action in
+                    model.performRecoveryAction(action)
+                }
+            } else if !model.dashboard.errorText.isEmpty {
                 Label(model.dashboard.errorText, systemImage: "exclamationmark.triangle.fill")
                     .font(.caption)
                     .foregroundStyle(.red)

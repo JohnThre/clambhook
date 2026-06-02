@@ -103,6 +103,22 @@ final class AttentionStoreTests: XCTestCase {
         reloaded.setTags([], for: "phone")
         XCTAssertEqual(reloaded.tags(for: "phone"), [])
     }
+
+    func testProfileMetadataPersistsExpirationAlongsideTags() throws {
+        let url = temporaryAttentionURL("profile-metadata-expiry.json")
+        let store = ProfileMetadataStore(fileURL: url)
+        let expiresAt = Date(timeIntervalSince1970: 1_700_000_000)
+
+        store.setMetadata(ProfileMetadata(tags: ["demo"], expiresAt: expiresAt), for: "App Review Demo")
+
+        let reloaded = ProfileMetadataStore(fileURL: url)
+        XCTAssertEqual(reloaded.tags(for: "App Review Demo"), ["demo"])
+        XCTAssertEqual(try XCTUnwrap(reloaded.expiration(for: "App Review Demo")).timeIntervalSince1970, expiresAt.timeIntervalSince1970, accuracy: 1)
+
+        reloaded.setExpiration(nil, for: "App Review Demo")
+        reloaded.setTags([], for: "App Review Demo")
+        XCTAssertEqual(reloaded.metadata(for: "App Review Demo"), ProfileMetadata())
+    }
 }
 
 private func temporaryAttentionURL(_ name: String) -> URL {

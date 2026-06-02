@@ -1,6 +1,7 @@
 package mobile
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -36,7 +37,28 @@ func ValidateUsableTunnelConfig(configPath string) error {
 	if isPlaceholderConfig(cfg) {
 		return errors.New("tunnel config still contains the placeholder profile")
 	}
-	return engine.ValidateConfig(cfg)
+	if err := engine.ValidateConfig(cfg); err != nil {
+		return err
+	}
+	profile, err := cfg.ActiveProfile()
+	if err != nil {
+		return err
+	}
+	stack, chains, err := engine.BuildPacketStack(profile, nil, discardPacketWriter{})
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	if err := stack.Start(ctx); err != nil {
+		_ = closePacketChains(chains)
+		return err
+	}
+	if err := stack.Stop(); err != nil {
+		_ = closePacketChains(chains)
+		return err
+	}
+	return closePacketChains(chains)
 }
 
 // TunnelConfigDashboardJSON returns profile, server, and rule data directly
@@ -480,3 +502,7 @@ func isPlaceholderConfig(cfg *config.Config) bool {
 	server := profile.Chains[0].Servers[0]
 	return server.Name == "replace-me" || strings.Contains(server.Address, "proxy.example.com")
 }
+
+type discardPacketWriter struct{}
+
+func (discardPacketWriter) WritePacket([]byte) error { return nil }

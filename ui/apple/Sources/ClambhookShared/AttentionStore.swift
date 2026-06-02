@@ -277,9 +277,11 @@ public struct ProfileMetadataState: Codable, Equatable, Sendable {
 
 public struct ProfileMetadata: Codable, Equatable, Sendable {
     public var tags: [String]
+    public var expiresAt: Date?
 
-    public init(tags: [String] = []) {
+    public init(tags: [String] = [], expiresAt: Date? = nil) {
         self.tags = Self.normalizedTags(tags)
+        self.expiresAt = expiresAt
     }
 
     public static func normalizedTags(_ rawTags: [String]) -> [String] {
@@ -311,6 +313,8 @@ public final class ProfileMetadataStore: ObservableObject {
 
     public init(fileURL: URL? = nil) {
         self.fileURL = fileURL
+        encoder.dateEncodingStrategy = .iso8601
+        decoder.dateDecodingStrategy = .iso8601
         self.state = Self.load(fileURL: fileURL, decoder: decoder)
     }
 
@@ -318,8 +322,16 @@ public final class ProfileMetadataStore: ObservableObject {
         ProfileMetadataStore(fileURL: FileSnapshotStore.appGroupURL(groupIdentifier: groupIdentifier, fileName: fileName))
     }
 
+    public func metadata(for profile: String) -> ProfileMetadata {
+        state.profiles[profile] ?? ProfileMetadata()
+    }
+
     public func tags(for profile: String) -> [String] {
         state.profiles[profile]?.tags ?? []
+    }
+
+    public func expiration(for profile: String) -> Date? {
+        state.profiles[profile]?.expiresAt
     }
 
     public func setTags(_ rawTags: [String], for profile: String) {
@@ -328,10 +340,31 @@ public final class ProfileMetadataStore: ObservableObject {
             return
         }
         let tags = ProfileMetadata.normalizedTags(rawTags)
-        if tags.isEmpty {
+        var metadata = state.profiles[profile] ?? ProfileMetadata()
+        metadata.tags = tags
+        setMetadata(metadata, for: profile)
+    }
+
+    public func setExpiration(_ expiresAt: Date?, for profile: String) {
+        let profile = profile.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !profile.isEmpty else {
+            return
+        }
+        var metadata = state.profiles[profile] ?? ProfileMetadata()
+        metadata.expiresAt = expiresAt
+        setMetadata(metadata, for: profile)
+    }
+
+    public func setMetadata(_ metadata: ProfileMetadata, for profile: String) {
+        let profile = profile.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !profile.isEmpty else {
+            return
+        }
+        let normalized = ProfileMetadata(tags: metadata.tags, expiresAt: metadata.expiresAt)
+        if normalized.tags.isEmpty && normalized.expiresAt == nil {
             state.profiles.removeValue(forKey: profile)
         } else {
-            state.profiles[profile] = ProfileMetadata(tags: tags)
+            state.profiles[profile] = normalized
         }
         persist()
     }
