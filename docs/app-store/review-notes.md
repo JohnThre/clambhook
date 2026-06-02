@@ -17,10 +17,14 @@ Demo profile for App Review:
 - Endpoint: review-vpn.jpfchang.org:443
 - Credentials: provide only in the App Review Notes field in App Store Connect.
 
-Initial availability:
+Initial availability and VPN licensing plan:
 
-- Launch only in the United States and other regions cleared by VPN licensing review.
-- If any selected territory requires VPN license information, provide the license details in App Review Notes before submission.
+- App Store availability for v1: `Specific Countries or Regions` -> `United States` only.
+- Do not select `All Countries or Regions` or automatic availability in future App Store countries or regions for v1.
+- No territories requiring VPN license information are selected for this submission.
+- Any future country or region expansion must pass VPN licensing review before App Store Connect availability is changed.
+- If any selected territory requires VPN license information, provide the license holder, issuing regulator, license number, effective and expiry dates, and covered territory in App Review Notes before submission.
+- Territory plan: `docs/app-store/territory-plan.md`
 
 App Store Connect URLs:
 
