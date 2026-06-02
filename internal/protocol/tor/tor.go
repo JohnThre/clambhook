@@ -38,6 +38,7 @@ func init() {
 		}
 		return &dialer{server: server, cfg: cfg}, nil
 	})
+	protocol.RegisterCapabilities("tor", torCapabilities())
 }
 
 type dialer struct {
@@ -56,6 +57,19 @@ func (*conn) Protocol() string { return "tor" }
 var _ protocol.Dialer = (*dialer)(nil)
 
 func (d *dialer) Protocol() string { return "tor" }
+
+func (d *dialer) Capabilities() protocol.Capabilities {
+	return torCapabilities()
+}
+
+func torCapabilities() protocol.Capabilities {
+	return protocol.Capabilities{
+		TCP:       true,
+		UDP:       false,
+		UDPMode:   protocol.UDPModeUnsupported,
+		UDPReason: "Tor does not carry UDP",
+	}
+}
 
 func (d *dialer) Dial(ctx context.Context, network, address string) (protocol.Conn, error) {
 	raw, err := (&net.Dialer{}).DialContext(ctx, "tcp", d.cfg.socksAddr)

@@ -6,8 +6,9 @@ import (
 )
 
 var (
-	mu       sync.RWMutex
-	registry = make(map[string]DialerFactory)
+	mu                   sync.RWMutex
+	registry             = make(map[string]DialerFactory)
+	capabilitiesRegistry = make(map[string]Capabilities)
 )
 
 // Register makes a protocol available by name.
@@ -15,6 +16,30 @@ func Register(name string, factory DialerFactory) {
 	mu.Lock()
 	defer mu.Unlock()
 	registry[name] = factory
+}
+
+// RegisterCapabilities publishes static protocol capabilities for inventory
+// and UI surfaces that should not instantiate configured dialers.
+func RegisterCapabilities(name string, caps Capabilities) {
+	mu.Lock()
+	defer mu.Unlock()
+	capabilitiesRegistry[name] = normalizeCapabilities(caps)
+}
+
+// CapabilitiesForProtocol returns static capabilities for a registered
+// protocol name. Unknown protocols are reported as TCP-only so inventory
+// surfaces stay best-effort while runtime validation remains authoritative.
+func CapabilitiesForProtocol(name string) Capabilities {
+	mu.RLock()
+	defer mu.RUnlock()
+	if caps, ok := capabilitiesRegistry[name]; ok {
+		return caps
+	}
+	return Capabilities{
+		TCP:       true,
+		UDPMode:   UDPModeUnsupported,
+		UDPReason: "UDP support is unknown for this protocol",
+	}
 }
 
 // NewDialer creates a Dialer for the named protocol.

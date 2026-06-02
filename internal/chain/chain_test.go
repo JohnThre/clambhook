@@ -507,3 +507,58 @@ func TestChain_MultiHopUDP_FinalHopNoPacketSupport(t *testing.T) {
 		t.Errorf("error %q missing protocol-UDP-unsupported message", err)
 	}
 }
+
+func TestChain_CheckPacketSupportRejectsNativeOnlyFinalHopBehindStream(t *testing.T) {
+	protocol.Register("native_udp_only", func(s protocol.Server) (protocol.Dialer, error) {
+		return &nativeOnlyUDPDialer{name: s.Name}, nil
+	})
+	chainName := "native-udp-behind-stream"
+	r := newRecorder()
+	globalLoopbackState.setChain(chainName, r)
+
+	c := &Chain{
+		Name: chainName,
+		Nodes: []protocol.Server{
+			loopbackNode("A", "addr.A:1111", 0x01, chainName),
+			{Name: "B", Address: "addr.B:2222", Protocol: "native_udp_only"},
+		},
+	}
+
+	err := c.CheckPacketSupport()
+	if err == nil {
+		t.Fatal("expected unsupported UDP chain, got nil")
+	}
+	if !strings.Contains(err.Error(), "single-hop") {
+		t.Fatalf("error = %q, want single-hop reason", err)
+	}
+}
+
+type nativeOnlyUDPDialer struct{ name string }
+
+func (d *nativeOnlyUDPDialer) Protocol() string { return "native_udp_only" }
+func (d *nativeOnlyUDPDialer) Capabilities() protocol.Capabilities {
+	return protocol.Capabilities{
+		TCP:       true,
+		UDP:       true,
+		UDPMode:   protocol.UDPModeNative,
+		UDPReason: "native_udp_only must be used as a single-hop chain",
+	}
+}
+func (d *nativeOnlyUDPDialer) Dial(ctx context.Context, network, address string) (protocol.Conn, error) {
+	return nil, errors.New("not implemented")
+}
+func (d *nativeOnlyUDPDialer) DialThrough(ctx context.Context, u io.ReadWriteCloser, address string) (protocol.Conn, error) {
+	if u != nil {
+		_ = u.Close()
+	}
+	return nil, errors.New("not implemented")
+}
+func (d *nativeOnlyUDPDialer) DialPacket(ctx context.Context, address string) (protocol.PacketConn, error) {
+	return nil, errors.New("not implemented")
+}
+func (d *nativeOnlyUDPDialer) DialPacketThrough(ctx context.Context, u io.ReadWriteCloser, address string) (protocol.PacketConn, error) {
+	if u != nil {
+		_ = u.Close()
+	}
+	return nil, errors.New("not implemented")
+}

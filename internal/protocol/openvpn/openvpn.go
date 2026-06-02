@@ -48,6 +48,7 @@ func init() {
 		}
 		return &dialer{server: server, cfg: cfg}, nil
 	})
+	protocol.RegisterCapabilities("openvpn", openvpnCapabilities())
 }
 
 var newOpenVPNInstance = newInstance
@@ -60,6 +61,19 @@ type dialer struct {
 	inst       *instance
 	createDone chan struct{}
 	closed     bool
+}
+
+func (d *dialer) Capabilities() protocol.Capabilities {
+	return openvpnCapabilities()
+}
+
+func openvpnCapabilities() protocol.Capabilities {
+	return protocol.Capabilities{
+		TCP:       true,
+		UDP:       true,
+		UDPMode:   protocol.UDPModeNative,
+		UDPReason: "OpenVPN must be used as a single-hop chain",
+	}
 }
 
 // instance lazily brings up the VPN. The first Dial pays the handshake

@@ -85,6 +85,80 @@ func TestDecisionsEndpointReturnsRuleDecisions(t *testing.T) {
 	}
 }
 
+func TestRuleTestEndpointEvaluatesRulesWithoutTraffic(t *testing.T) {
+	cfg := testRuleCreateConfig()
+	cfg.Profiles[0].Rules = []config.RuleConfig{{
+		Name:           "ads",
+		Action:         "block",
+		DomainSuffixes: []string{"ads.example.com"},
+		Networks:       []string{"tcp"},
+	}}
+	srv := New(engine.New(cfg, nil), nil)
+	body := []byte(`{"network":"tcp","target":"cdn.ads.example.com:443"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/rules/test", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+
+	srv.server.Handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%q, want 200", rec.Code, rec.Body.String())
+	}
+	var resp struct {
+		Profile  string `json:"profile"`
+		Decision struct {
+			RuleName string `json:"rule_name"`
+			Action   string `json:"action"`
+			Network  string `json:"network"`
+			Target   string `json:"target"`
+		} `json:"decision"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp.Profile != "A" || resp.Decision.RuleName != "ads" || resp.Decision.Action != "block" || resp.Decision.Network != "tcp" {
+		t.Fatalf("rule test response = %+v", resp)
+	}
+}
+
+func TestRuleTestEndpointReturnsDefaultChainDetails(t *testing.T) {
+	srv := New(engine.New(testRuleCreateConfig(), nil), nil)
+	body := []byte(`{"network":"udp","target":"1.1.1.1:53"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/rules/test", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+
+	srv.server.Handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%q, want 200", rec.Code, rec.Body.String())
+	}
+	var resp struct {
+		Decision struct {
+			Action    string `json:"action"`
+			ChainName string `json:"chain_name"`
+			Default   bool   `json:"default"`
+		} `json:"decision"`
+		Chain struct {
+			Name         string `json:"name"`
+			HopCount     int    `json:"hop_count"`
+			Capabilities struct {
+				UDP       bool   `json:"udp"`
+				UDPMode   string `json:"udp_mode"`
+				UDPReason string `json:"udp_reason"`
+			} `json:"capabilities"`
+		} `json:"chain"`
+		Hops []serverPayload `json:"hops"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp.Decision.Action != "chain" || resp.Decision.ChainName != "proxy" || !resp.Decision.Default {
+		t.Fatalf("decision = %+v, want default chain proxy", resp.Decision)
+	}
+	if resp.Chain.Name != "proxy" || resp.Chain.HopCount != 1 || len(resp.Hops) != 1 {
+		t.Fatalf("chain details = %+v hops=%d", resp.Chain, len(resp.Hops))
+	}
+}
+
 func TestCreateRulePersistsConfigWithBackupAndReloads(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "clambhook.toml")
 	cfg := testRuleCreateConfig()

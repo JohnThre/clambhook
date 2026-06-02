@@ -16,12 +16,23 @@ import (
 type serversResponse struct {
 	Profile string `json:"profile"`
 	Chains  []struct {
-		Name    string `json:"name"`
+		Name         string `json:"name"`
+		HopCount     int    `json:"hop_count"`
+		Capabilities struct {
+			TCP     bool   `json:"tcp"`
+			UDP     bool   `json:"udp"`
+			UDPMode string `json:"udp_mode"`
+		} `json:"capabilities"`
 		Servers []struct {
-			Name     string `json:"name"`
-			Address  string `json:"address"`
-			Protocol string `json:"protocol"`
-			Geo      struct {
+			Name         string `json:"name"`
+			Address      string `json:"address"`
+			Protocol     string `json:"protocol"`
+			Capabilities struct {
+				TCP     bool   `json:"tcp"`
+				UDP     bool   `json:"udp"`
+				UDPMode string `json:"udp_mode"`
+			} `json:"capabilities"`
+			Geo struct {
 				Country     string `json:"country,omitempty"`
 				CountryCode string `json:"country_code,omitempty"`
 				City        string `json:"city,omitempty"`
@@ -47,12 +58,18 @@ func TestServersEndpointReturnsActiveProfileWithGeo(t *testing.T) {
 	if resp.Chains[0].Name != "b-default" {
 		t.Fatalf("chain name = %q, want b-default", resp.Chains[0].Name)
 	}
+	if resp.Chains[0].HopCount != 1 || !resp.Chains[0].Capabilities.UDP || resp.Chains[0].Capabilities.UDPMode != "stream" {
+		t.Fatalf("chain capabilities = %+v hop_count=%d, want one-hop UDP stream", resp.Chains[0].Capabilities, resp.Chains[0].HopCount)
+	}
 	if len(resp.Chains[0].Servers) != 1 {
 		t.Fatalf("servers = %d, want 1", len(resp.Chains[0].Servers))
 	}
 	row := resp.Chains[0].Servers[0]
 	if row.Name != "london" || row.Address != "81.2.69.142:443" || row.Protocol != "trojan" {
 		t.Fatalf("server row = %+v", row)
+	}
+	if !row.Capabilities.TCP || !row.Capabilities.UDP || row.Capabilities.UDPMode != "stream" {
+		t.Fatalf("server capabilities = %+v, want TCP and stream UDP", row.Capabilities)
 	}
 	if row.Geo.CountryCode != "GB" || row.Geo.Country != "United Kingdom" || row.Geo.City != "London" {
 		t.Fatalf("geo = %+v, want GB/United Kingdom/London", row.Geo)

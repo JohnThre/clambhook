@@ -149,6 +149,7 @@ private final class FakeAPIClient: ClambhookAPIProviding {
     var serversResult = ServersPayload(profile: "", chains: [])
     var rulesResult = RulesPayload(profile: "", rules: [])
     var trafficResult = TrafficSnapshotPayload()
+    var ruleTestResult = RuleTestResponse()
     private(set) var connectCalls = 0
     private(set) var disconnectCalls = 0
     private(set) var selectedProfiles: [String] = []
@@ -167,6 +168,10 @@ private final class FakeAPIClient: ClambhookAPIProviding {
 
     func rules() async throws -> RulesPayload {
         rulesResult
+    }
+
+    func testRule(network: String, target: String, profile: String) async throws -> RuleTestResponse {
+        ruleTestResult
     }
 
     func traffic() async throws -> TrafficSnapshotPayload {

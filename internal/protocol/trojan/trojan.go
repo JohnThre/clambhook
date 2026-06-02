@@ -9,4 +9,5 @@ func init() {
 	protocol.Register("trojan", func(server protocol.Server) (protocol.Dialer, error) {
 		return trojanwire.NewDialer("trojan", server)
 	})
+	protocol.RegisterCapabilities("trojan", trojanwire.Capabilities())
 }

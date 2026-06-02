@@ -2,12 +2,15 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
 
 	"github.com/JohnThre/clambhook/internal/config"
 	"github.com/JohnThre/clambhook/internal/engine"
+	"github.com/JohnThre/clambhook/internal/protocol"
+	"github.com/JohnThre/clambhook/internal/rules"
 	"github.com/JohnThre/clambhook/internal/traffic"
 )
 
@@ -19,6 +22,7 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/servers", s.handleServers)
 	mux.HandleFunc("GET /api/v1/rules", s.handleRules)
 	mux.HandleFunc("POST /api/v1/rules", s.handleCreateRule)
+	mux.HandleFunc("POST /api/v1/rules/test", s.handleTestRule)
 	mux.HandleFunc("GET /api/v1/decisions", s.handleDecisions)
 	mux.HandleFunc("PUT /api/v1/profiles/active", s.handleSetActiveProfile)
 	mux.HandleFunc("POST /api/v1/connect", s.handleConnect)
@@ -33,6 +37,25 @@ type createRuleRequest struct {
 	Position string            `json:"position"`
 }
 
+type testRuleRequest struct {
+	Profile string `json:"profile"`
+	Network string `json:"network"`
+	Target  string `json:"target"`
+}
+
+type testRuleResponse struct {
+	Profile  string          `json:"profile"`
+	Decision rules.Decision  `json:"decision"`
+	Chain    *testRuleChain  `json:"chain,omitempty"`
+	Hops     []serverPayload `json:"hops,omitempty"`
+}
+
+type testRuleChain struct {
+	Name         string                `json:"name"`
+	HopCount     int                   `json:"hop_count"`
+	Capabilities protocol.Capabilities `json:"capabilities"`
+}
+
 func (s *Server) handleRules(w http.ResponseWriter, r *http.Request) {
 	cfg := s.engine.Config()
 	profile, err := cfg.ActiveProfile()
@@ -44,6 +67,120 @@ func (s *Server) handleRules(w http.ResponseWriter, r *http.Request) {
 		"profile": profile.Name,
 		"rules":   profile.Rules,
 	})
+}
+
+func (s *Server) handleTestRule(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxJSONRequestBytes)
+	var req testRuleRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	network := strings.ToLower(strings.TrimSpace(req.Network))
+	if network != "tcp" && network != "udp" {
+		http.Error(w, "network must be tcp or udp", http.StatusBadRequest)
+		return
+	}
+	target := strings.TrimSpace(req.Target)
+	if err := validateRuleTestTarget(target); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	cfg := s.engine.Config()
+	profile, err := selectRuleTestProfile(cfg, req.Profile)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	if len(profile.Chains) == 0 {
+		http.Error(w, "profile has no chains", http.StatusBadRequest)
+		return
+	}
+	ruleEngine, err := compileProfileRules(profile, profile.Chains[0].Name)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	decision := ruleEngine.Decide(network, target)
+	resp := testRuleResponse{
+		Profile:  profile.Name,
+		Decision: decision,
+	}
+	if decision.Action == rules.ActionChain {
+		if ch := findChain(profile, decision.ChainName); ch != nil {
+			caps := chainCapabilities(*ch)
+			resp.Chain = &testRuleChain{
+				Name:         ch.Name,
+				HopCount:     len(ch.Servers),
+				Capabilities: caps,
+			}
+			resp.Hops = make([]serverPayload, 0, len(ch.Servers))
+			for _, server := range ch.Servers {
+				resp.Hops = append(resp.Hops, serverPayload{
+					Name:         server.Name,
+					Address:      server.Address,
+					Protocol:     server.Protocol,
+					Capabilities: protocol.CapabilitiesForProtocol(server.Protocol),
+				})
+			}
+		}
+	}
+	writeJSON(w, resp)
+}
+
+func validateRuleTestTarget(target string) error {
+	host, port := rules.SplitTarget(target)
+	if host == "" || port == "" {
+		return fmt.Errorf("target must be host:port")
+	}
+	n, err := strconv.Atoi(port)
+	if err != nil || n < 1 || n > 65535 {
+		return fmt.Errorf("target port must be between 1 and 65535")
+	}
+	return nil
+}
+
+func selectRuleTestProfile(cfg *config.Config, name string) (*config.Profile, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return cfg.ActiveProfile()
+	}
+	profile, ok := cfg.ProfileByName(name)
+	if !ok {
+		return nil, fmt.Errorf("profile %q not found", name)
+	}
+	return profile, nil
+}
+
+func compileProfileRules(profile *config.Profile, defaultChainName string) (*rules.Engine, error) {
+	known := make(map[string]struct{}, len(profile.Chains))
+	for _, ch := range profile.Chains {
+		known[ch.Name] = struct{}{}
+	}
+	ruleSet := make([]rules.Rule, 0, len(profile.Rules))
+	for _, rule := range profile.Rules {
+		ruleSet = append(ruleSet, rules.Rule{
+			Name:           rule.Name,
+			Action:         rule.Action,
+			Domains:        rule.Domains,
+			DomainSuffixes: rule.DomainSuffixes,
+			DomainKeywords: rule.DomainKeywords,
+			CIDRs:          rule.CIDRs,
+			Ports:          rule.Ports,
+			Networks:       rule.Networks,
+		})
+	}
+	return rules.Compile(ruleSet, defaultChainName, known)
+}
+
+func findChain(profile *config.Profile, name string) *config.ChainConfig {
+	for i := range profile.Chains {
+		if profile.Chains[i].Name == name {
+			return &profile.Chains[i]
+		}
+	}
+	return nil
 }
 
 func (s *Server) handleCreateRule(w http.ResponseWriter, r *http.Request) {

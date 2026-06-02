@@ -41,6 +41,7 @@ func init() {
 		}
 		return &dialer{server: server, cfg: cfg}, nil
 	})
+	protocol.RegisterCapabilities("shadowsocks", shadowsocksCapabilities())
 }
 
 type dialer struct {
@@ -86,6 +87,19 @@ func parseConfig(s protocol.Server) (config, error) {
 }
 
 func (d *dialer) Protocol() string { return "shadowsocks" }
+
+func (d *dialer) Capabilities() protocol.Capabilities {
+	return shadowsocksCapabilities()
+}
+
+func shadowsocksCapabilities() protocol.Capabilities {
+	return protocol.Capabilities{
+		TCP:       true,
+		UDP:       true,
+		UDPMode:   protocol.UDPModeNative,
+		UDPReason: "UDP over a chained stream is not supported",
+	}
+}
 
 func (d *dialer) Dial(ctx context.Context, network, address string) (protocol.Conn, error) {
 	raw, err := (&net.Dialer{}).DialContext(ctx, "tcp", d.server.Address)
