@@ -1,5 +1,5 @@
 // Package listener provides local ingress listeners (SOCKS5, HTTP CONNECT,
-// future TUN) that accept client connections and route them through a proxy
+// and TUN/packet stack) that accept client traffic and route it through a proxy
 // chain.
 package listener
 
