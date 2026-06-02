@@ -29,6 +29,7 @@ namespace Clambhook {
         private ListBox servers_list;
         private ListBox traffic_list;
         private ListBox logs_list;
+        private Stack main_stack;
         private SearchEntry traffic_search;
         private DropDown traffic_filter;
         private uint refresh_source = 0;
@@ -87,8 +88,12 @@ namespace Clambhook {
             var root = new Box(Orientation.VERTICAL, 0);
 
             var header = new Adw.HeaderBar();
-            var title = new Adw.WindowTitle("clambhook", "Linux controller");
-            header.set_title_widget(title);
+            main_stack = new Stack();
+            main_stack.transition_type = StackTransitionType.CROSSFADE;
+
+            var switcher = new StackSwitcher();
+            switcher.stack = main_stack;
+            header.set_title_widget(switcher);
 
             var refresh_button = new Button.from_icon_name("view-refresh-symbolic");
             refresh_button.tooltip_text = "Refresh";
@@ -105,14 +110,21 @@ namespace Clambhook {
             header.pack_end(preferences_button);
             root.append(header);
 
-            var scroller = new ScrolledWindow();
-            scroller.vexpand = true;
-            scroller.set_child(build_dashboard());
-            root.append(scroller);
+            main_stack.add_titled(wrap_page(build_now()), "now", "Now");
+            main_stack.add_titled(wrap_page(build_activity()), "activity", "Activity");
+            main_stack.add_titled(wrap_page(build_library()), "library", "Library");
+            root.append(main_stack);
             return root;
         }
 
-        private Widget build_dashboard() {
+        private Widget wrap_page(Widget child) {
+            var scroller = new ScrolledWindow();
+            scroller.vexpand = true;
+            scroller.set_child(child);
+            return scroller;
+        }
+
+        private Widget build_now() {
             var content = new Box(Orientation.VERTICAL, 18);
             content.margin_top = 18;
             content.margin_bottom = 18;
@@ -123,14 +135,32 @@ namespace Clambhook {
             status_frame.set_child(build_status_panel());
             content.append(status_frame);
 
+            return content;
+        }
+
+        private Widget build_activity() {
+            var content = new Box(Orientation.VERTICAL, 18);
+            content.margin_top = 18;
+            content.margin_bottom = 18;
+            content.margin_start = 18;
+            content.margin_end = 18;
+            content.append(build_traffic_monitor());
+            content.append(wrap_list("Recent logs", out logs_list));
+            return content;
+        }
+
+        private Widget build_library() {
+            var content = new Box(Orientation.VERTICAL, 18);
+            content.margin_top = 18;
+            content.margin_bottom = 18;
+            content.margin_start = 18;
+            content.margin_end = 18;
+
             var lists = new Box(Orientation.HORIZONTAL, 18);
             lists.homogeneous = true;
             lists.append(wrap_list("Listeners", out listeners_list));
             lists.append(wrap_list("Servers", out servers_list));
             content.append(lists);
-
-            content.append(wrap_list("Recent logs", out logs_list));
-            content.append(build_traffic_monitor());
             return content;
         }
 
@@ -291,6 +321,8 @@ namespace Clambhook {
             );
             connect_button.sensitive = store.api_online && !store.status.running;
             disconnect_button.sensitive = store.status.running;
+            connect_button.visible = !store.status.running;
+            disconnect_button.visible = store.status.running;
             daemon_button.label = daemon.is_running ? "Stop daemon" : "Start daemon";
             daemon_button.sensitive = !daemon.state_is_busy();
 
@@ -323,7 +355,7 @@ namespace Clambhook {
         private void render_listeners() {
             clear_list(listeners_list);
             if (store.status.listeners.size == 0) {
-                listeners_list.append(empty_row("No listeners"));
+                listeners_list.append(empty_state_row("No listeners active", "Connect to start the configured listeners."));
                 return;
             }
             foreach (var listener in store.status.listeners) {
@@ -338,7 +370,7 @@ namespace Clambhook {
         private void render_servers() {
             clear_list(servers_list);
             if (store.servers.chains.size == 0) {
-                servers_list.append(empty_row("No servers in active profile"));
+                servers_list.append(empty_state_row("No servers in this profile", "Add a chain and server in Settings."));
                 return;
             }
             foreach (var chain in store.servers.chains) {
@@ -355,7 +387,7 @@ namespace Clambhook {
         private void render_logs() {
             clear_list(logs_list);
             if (store.logs.size == 0) {
-                logs_list.append(empty_row("No log events"));
+                logs_list.append(empty_state_row("No logs yet", "Connection and daemon events will appear here."));
                 return;
             }
             var start = store.logs.size > 12 ? store.logs.size - 12 : 0;
@@ -367,7 +399,7 @@ namespace Clambhook {
         private void render_traffic() {
             clear_list(traffic_list);
             if (store.traffic.connections.size == 0) {
-                traffic_list.append(empty_row("No traffic history"));
+                traffic_list.append(empty_state_row("No activity yet", "Recent connection decisions will appear here."));
                 return;
             }
             var filter = active_traffic_filter();
@@ -384,7 +416,7 @@ namespace Clambhook {
                 }
             }
             if (rendered == 0) {
-                traffic_list.append(empty_row("No matching traffic"));
+                traffic_list.append(empty_state_row("No matching activity", "Connection decisions appear here when traffic passes through clambhook."));
             }
         }
 
@@ -634,17 +666,26 @@ namespace Clambhook {
             return value.strip() == "" ? "--" : value;
         }
 
-        private static ListBoxRow empty_row(string text) {
-            var label = new Label(text);
-            label.xalign = 0;
-            label.wrap = true;
-            label.add_css_class("dim-label");
-            label.margin_top = 8;
-            label.margin_bottom = 8;
-            label.margin_start = 10;
-            label.margin_end = 10;
+        private static ListBoxRow empty_state_row(string title, string detail) {
+            var box = new Box(Orientation.VERTICAL, 3);
+            box.margin_top = 10;
+            box.margin_bottom = 10;
+            box.margin_start = 10;
+            box.margin_end = 10;
+
+            var title_label = new Label(title);
+            title_label.xalign = 0;
+            title_label.wrap = true;
+
+            var detail_label = new Label(detail);
+            detail_label.xalign = 0;
+            detail_label.wrap = true;
+            detail_label.add_css_class("dim-label");
+
+            box.append(title_label);
+            box.append(detail_label);
             var row = new ListBoxRow();
-            row.set_child(label);
+            row.set_child(box);
             return row;
         }
 

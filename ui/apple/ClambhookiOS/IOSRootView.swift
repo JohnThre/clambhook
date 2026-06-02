@@ -7,7 +7,7 @@ struct IOSRootView: View {
     @ObservedObject var model: AppleAppModel
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.scenePhase) private var scenePhase
-    @State private var selectedDestination: IOSAppDestination = .today
+    @State private var selectedDestination: IOSAppDestination = .now
     @State private var showingOnboarding = false
     @AppStorage("org.jpfchang.clambhook.onboardingComplete") private var onboardingComplete = false
     @StateObject private var inspectionLock = InspectionLockState()
@@ -133,18 +133,12 @@ struct IOSRootView: View {
     @ViewBuilder
     private func destinationView(_ destination: IOSAppDestination) -> some View {
         switch destination {
-        case .inbox:
-            IOSInboxView(model: model)
-        case .today:
+        case .now:
             IOSTodayView(model: model)
-        case .anytime:
-            IOSProfilesView(model: model)
-        case .upcoming:
-            IOSUpcomingView(model: model)
-        case .someday:
-            IOSSomedayView(model: model)
-        case .logbook:
-            IOSActivityView(model: model, logbookOnly: true)
+        case .activity:
+            IOSActivityView(model: model, logbookOnly: false)
+        case .library:
+            IOSLibraryView(model: model)
         case .settings:
             AppSettingsView(model: model)
         }
@@ -152,18 +146,12 @@ struct IOSRootView: View {
 
     private func badgeCount(for destination: IOSAppDestination) -> Int? {
         switch destination {
-        case .inbox:
-            return model.attention.state.inbox.count
-        case .today:
+        case .now:
             return model.attention.dueScheduledItems().count + todayIncidentCount
-        case .upcoming:
-            return model.attention.upcomingScheduledItems().count
-        case .someday:
-            return model.attention.state.someday.count
-        case .logbook:
-            return model.dashboard.traffic.connections.filter { $0.state.lowercased() == "closed" }.count
-        case .anytime:
-            return model.dashboard.profiles.profiles.count
+        case .activity:
+            return model.dashboard.traffic.connections.count
+        case .library:
+            return model.dashboard.profiles.profiles.count + model.attention.state.inbox.count
         case .settings:
             return nil
         }
@@ -260,34 +248,25 @@ private struct IOSDestinationRow: View {
 }
 
 private enum IOSAppDestination: String, CaseIterable, Identifiable, Hashable {
-    case inbox
-    case today
-    case anytime
-    case upcoming
-    case someday
-    case logbook
+    case now
+    case activity
+    case library
     case settings
 
     var id: Self { self }
 
     static var attentionCases: [IOSAppDestination] {
-        [.inbox, .today, .anytime, .upcoming, .someday, .logbook]
+        [.now, .activity, .library]
     }
 
     var title: String {
         switch self {
-        case .inbox:
-            return "Inbox"
-        case .today:
-            return "Today"
-        case .anytime:
-            return "Anytime"
-        case .upcoming:
-            return "Upcoming"
-        case .someday:
-            return "Someday"
-        case .logbook:
-            return "Logbook"
+        case .now:
+            return "Now"
+        case .activity:
+            return "Activity"
+        case .library:
+            return "Library"
         case .settings:
             return "Settings"
         }
@@ -295,20 +274,90 @@ private enum IOSAppDestination: String, CaseIterable, Identifiable, Hashable {
 
     var systemImage: String {
         switch self {
-        case .inbox:
-            return "tray"
-        case .today:
+        case .now:
             return "sun.max"
-        case .anytime:
-            return "person.crop.rectangle.stack"
-        case .upcoming:
-            return "calendar"
-        case .someday:
-            return "archivebox"
-        case .logbook:
+        case .activity:
             return "waveform.path.ecg"
+        case .library:
+            return "person.crop.rectangle.stack"
         case .settings:
             return "gearshape"
+        }
+    }
+}
+
+private struct IOSLibraryView: View {
+    @ObservedObject var model: AppleAppModel
+
+    var body: some View {
+        List {
+            Section("Profiles") {
+                NavigationLink {
+                    IOSProfilesView(model: model)
+                } label: {
+                    IOSLibraryRow(
+                        title: "Profiles and Rules",
+                        detail: "\(model.dashboard.profiles.profiles.count) profiles",
+                        systemImage: "person.crop.rectangle.stack"
+                    )
+                }
+            }
+
+            Section("Imports") {
+                NavigationLink {
+                    IOSInboxView(model: model)
+                } label: {
+                    IOSLibraryRow(
+                        title: "Inbox",
+                        detail: "\(model.attention.state.inbox.count) staged imports",
+                        systemImage: "tray"
+                    )
+                }
+            }
+
+            Section("Schedules") {
+                NavigationLink {
+                    IOSUpcomingView(model: model)
+                } label: {
+                    IOSLibraryRow(
+                        title: "Upcoming",
+                        detail: "\(model.attention.upcomingScheduledItems().count) scheduled items",
+                        systemImage: "calendar"
+                    )
+                }
+
+                NavigationLink {
+                    IOSSomedayView(model: model)
+                } label: {
+                    IOSLibraryRow(
+                        title: "Someday",
+                        detail: "\(model.attention.state.someday.count) deferred items",
+                        systemImage: "archivebox"
+                    )
+                }
+            }
+        }
+        .listStyle(.insetGrouped)
+    }
+}
+
+private struct IOSLibraryRow: View {
+    var title: String
+    var detail: String
+    var systemImage: String
+
+    var body: some View {
+        Label {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.body.weight(.medium))
+                Text(detail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        } icon: {
+            Image(systemName: systemImage)
+                .foregroundStyle(.secondary)
         }
     }
 }
@@ -663,28 +712,18 @@ private struct IOSTodayView: View {
     }
 
     private var actionButtons: some View {
-        Group {
-            Button {
-                model.connectOrDisconnect()
-            } label: {
-                Label(
-                    model.dashboard.status.running ? "Disconnect" : "Connect",
-                    systemImage: model.dashboard.status.running ? "stop.fill" : "play.fill"
-                )
-                .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.borderedProminent)
-            .disabled(!model.dashboard.apiOnline && !model.dashboard.status.running)
-
-            Button {
-                model.refresh()
-            } label: {
-                Label("Refresh", systemImage: "arrow.clockwise")
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.bordered)
+        Button {
+            model.connectOrDisconnect()
+        } label: {
+            Label(
+                model.dashboard.status.running ? "Disconnect" : "Connect",
+                systemImage: model.dashboard.status.running ? "stop.fill" : "play.fill"
+            )
+            .frame(maxWidth: .infinity)
         }
+        .buttonStyle(.borderedProminent)
         .controlSize(.large)
+        .disabled(!model.dashboard.apiOnline && !model.dashboard.status.running)
     }
 
     private var metrics: [IOSMetric] {

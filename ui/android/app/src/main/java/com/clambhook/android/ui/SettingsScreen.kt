@@ -67,6 +67,9 @@ fun SettingsScreen(
     var tokenVisible by remember { mutableStateOf(false) }
     var saving by remember { mutableStateOf(false) }
     var confirmRestore by remember { mutableStateOf(false) }
+    var showApiSettings by remember { mutableStateOf(true) }
+    var showConfigEditor by remember { mutableStateOf(false) }
+    var showSupportOptions by remember { mutableStateOf(false) }
 
     LaunchedEffect(settings, token, configToml) {
         apiBaseUrl = settings.apiBaseUrl
@@ -121,7 +124,13 @@ fun SettingsScreen(
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Card {
+        SettingsDisclosureHeader(
+            title = "Daemon API",
+            expanded = showApiSettings,
+            onToggle = { showApiSettings = !showApiSettings }
+        )
+        if (showApiSettings) {
+            Card {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 Text("Daemon API", style = MaterialTheme.typography.titleMedium)
                 SettingSwitchRow(
@@ -175,8 +184,15 @@ fun SettingsScreen(
                 )
             }
         }
+        }
 
-        Card {
+        SettingsDisclosureHeader(
+            title = "Config TOML",
+            expanded = showConfigEditor,
+            onToggle = { showConfigEditor = !showConfigEditor }
+        )
+        if (showConfigEditor) {
+            Card {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -203,8 +219,17 @@ fun SettingsScreen(
                 )
             }
         }
+        }
 
         if (supportPurchaseState.visible) {
+            SettingsDisclosureHeader(
+                title = "Support",
+                expanded = showSupportOptions,
+                onToggle = { showSupportOptions = !showSupportOptions }
+            )
+        }
+
+        if (supportPurchaseState.visible && showSupportOptions) {
             Card {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Row(
@@ -282,6 +307,20 @@ fun SettingsScreen(
                 Text("Save")
             }
         }
+    }
+}
+
+@Composable
+private fun SettingsDisclosureHeader(
+    title: String,
+    expanded: Boolean,
+    onToggle: () -> Unit
+) {
+    TextButton(onClick = onToggle, modifier = Modifier.fillMaxWidth()) {
+        Text(
+            if (expanded) "$title: Hide" else "$title: Show",
+            modifier = Modifier.weight(1f)
+        )
     }
 }
 

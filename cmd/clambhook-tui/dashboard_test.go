@@ -95,7 +95,7 @@ func TestDashboardAppliesLogLineEventsWithCap(t *testing.T) {
 	}
 }
 
-func TestDashboardViewIncludesStatusServersAndGraph(t *testing.T) {
+func TestNowViewIncludesStatusAndGraph(t *testing.T) {
 	m := newModel("127.0.0.1:9090")
 	m.apiOnline = true
 	m.status = statusPayload{
@@ -126,38 +126,51 @@ func TestDashboardViewIncludesStatusServersAndGraph(t *testing.T) {
 	m.bandwidth.add(bandwidthSample{RxBps: 2048, TxBps: 1024})
 
 	view := m.View()
-	for _, want := range []string{"RUNNING", "B", "socks5", "🇬🇧", "london", "trojan", "Rx", "Tx"} {
+	for _, want := range []string{"Now", "RUNNING", "B", "Rx", "Tx"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("view missing %q:\n%s", want, view)
 		}
 	}
+	for _, hidden := range []string{"socks5", "🇬🇧", "london", "trojan"} {
+		if strings.Contains(view, hidden) {
+			t.Fatalf("now view should not render library detail %q:\n%s", hidden, view)
+		}
+	}
+
+	m.viewMode = viewModeLibrary
+	view = m.View()
+	for _, want := range []string{"Library", "socks5", "🇬🇧", "london", "trojan"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("library view missing %q:\n%s", want, view)
+		}
+	}
 }
 
-func TestLogViewToggleAndRender(t *testing.T) {
+func TestActivityViewToggleAndRenderLogs(t *testing.T) {
 	m := newModel("127.0.0.1:9090")
 	m.apiOnline = true
 	m.appendLogLine("api listening on 127.0.0.1:9090")
 
-	updated, _ := m.Update(keyMsg("l"))
+	updated, _ := m.Update(keyMsg("2"))
 	m = updated.(model)
 
-	if m.viewMode != viewModeLogs {
-		t.Fatalf("viewMode = %v, want logs", m.viewMode)
+	if m.viewMode != viewModeActivity {
+		t.Fatalf("viewMode = %v, want activity", m.viewMode)
 	}
 	view := m.View()
-	for _, want := range []string{"Logs", "api listening on 127.0.0.1:9090", "l dashboard"} {
+	for _, want := range []string{"Activity", "Logs", "api listening on 127.0.0.1:9090", "1 now"} {
 		if !strings.Contains(view, want) {
-			t.Fatalf("log view missing %q:\n%s", want, view)
+			t.Fatalf("activity view missing %q:\n%s", want, view)
 		}
 	}
 	if strings.Contains(view, "Servers") {
-		t.Fatalf("log view should not render dashboard sections:\n%s", view)
+		t.Fatalf("activity view should not render library sections:\n%s", view)
 	}
 }
 
-func TestLogModeScrollKeysDoNotMoveProfileSelection(t *testing.T) {
+func TestActivityModeSelectionKeysDoNotMoveProfileSelection(t *testing.T) {
 	m := newModel("127.0.0.1:9090")
-	m.viewMode = viewModeLogs
+	m.viewMode = viewModeActivity
 	m.height = 6
 	m.profiles = profilesPayload{Profiles: []string{"A", "B", "C"}, Active: "B"}
 	m.syncSelectedProfile()
@@ -170,23 +183,17 @@ func TestLogModeScrollKeysDoNotMoveProfileSelection(t *testing.T) {
 	if m.selectedProfile != 1 {
 		t.Fatalf("selectedProfile = %d, want 1", m.selectedProfile)
 	}
-	if m.logScroll != 1 {
-		t.Fatalf("logScroll after up = %d, want 1", m.logScroll)
-	}
 
 	updated, _ = m.Update(keyMsg("down"))
 	m = updated.(model)
 	if m.selectedProfile != 1 {
 		t.Fatalf("selectedProfile after down = %d, want 1", m.selectedProfile)
 	}
-	if m.logScroll != 0 {
-		t.Fatalf("logScroll after down = %d, want 0", m.logScroll)
-	}
 }
 
 func TestWindowSizeLimitsRenderedLogLines(t *testing.T) {
 	m := newModel("127.0.0.1:9090")
-	m.viewMode = viewModeLogs
+	m.viewMode = viewModeActivity
 	m.height = 7
 	for i := 0; i < 10; i++ {
 		m.appendLogLine(fmt.Sprintf("entry-%02d", i))
@@ -286,7 +293,7 @@ func TestNarrowDashboardLinesFitWidth(t *testing.T) {
 
 func TestTrafficModeRefreshKeyReturnsCommand(t *testing.T) {
 	m := newModel("127.0.0.1:9090")
-	m.viewMode = viewModeTraffic
+	m.viewMode = viewModeActivity
 
 	_, cmd := m.Update(keyMsg("r"))
 	if cmd == nil {
@@ -296,7 +303,7 @@ func TestTrafficModeRefreshKeyReturnsCommand(t *testing.T) {
 
 func TestTrafficMonitorFiltersAndCreatesRuleDraft(t *testing.T) {
 	m := newModel("127.0.0.1:9090")
-	m.viewMode = viewModeTraffic
+	m.viewMode = viewModeActivity
 	m.traffic.Connections = []trafficConnectionPayload{
 		{Target: "ads.example.com:443", TargetHost: "ads.example.com", RuleAction: "block", RuleName: "ads"},
 		{Target: "example.com:443", TargetHost: "example.com", ChainName: "proxy"},
@@ -331,6 +338,7 @@ func TestTrafficMonitorSearchMatchesRuleAndHost(t *testing.T) {
 
 func TestProfileListRendersEmojiNamesAndActiveMarker(t *testing.T) {
 	m := newModel("127.0.0.1:9090")
+	m.viewMode = viewModeLibrary
 	m.profiles = profilesPayload{
 		Profiles: []string{"🇺🇸 US Fast", "🔒 Double Hop", "🔐 ClambBack"},
 		Active:   "🔒 Double Hop",
@@ -348,6 +356,7 @@ func TestProfileListRendersEmojiNamesAndActiveMarker(t *testing.T) {
 
 func TestProfileSelectionMovesAndWraps(t *testing.T) {
 	m := newModel("127.0.0.1:9090")
+	m.viewMode = viewModeLibrary
 	m.profiles = profilesPayload{
 		Profiles: []string{"A", "B", "C"},
 		Active:   "B",
@@ -387,6 +396,7 @@ func TestEnterSwitchesSelectedInactiveProfile(t *testing.T) {
 	defer srv.Close()
 
 	m := newModel("127.0.0.1:9090")
+	m.viewMode = viewModeLibrary
 	m.client = newAPIClientFromBaseURL(srv.URL)
 	m.status = statusPayload{Profile: "A"}
 	m.profiles = profilesPayload{Profiles: []string{"A", "B"}, Active: "A"}
@@ -405,6 +415,7 @@ func TestEnterSwitchesSelectedInactiveProfile(t *testing.T) {
 
 func TestEnterOnActiveProfileDoesNotCallAPI(t *testing.T) {
 	m := newModel("127.0.0.1:9090")
+	m.viewMode = viewModeLibrary
 	m.status = statusPayload{Profile: "A"}
 	m.profiles = profilesPayload{Profiles: []string{"A", "B"}, Active: "A"}
 	m.selectedProfile = 0
@@ -456,6 +467,9 @@ func TestKeyActionsCallExpectedAPIEndpoints(t *testing.T) {
 			m.client = newAPIClientFromBaseURL(srv.URL)
 			m.status = statusPayload{Profile: "A", Running: tc.key == "d"}
 			m.profiles = profilesPayload{Profiles: []string{"A", "B"}, Active: "A"}
+			if tc.key == "]" {
+				m.viewMode = viewModeLibrary
+			}
 
 			_, cmd := m.Update(keyMsg(tc.key))
 			if cmd == nil {
