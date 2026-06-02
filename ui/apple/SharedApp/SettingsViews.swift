@@ -12,23 +12,16 @@ struct AppSettingsView: View {
     @State private var daemonConfigPath = ""
     @State private var daemonBinaryBookmark: Data?
     @State private var daemonConfigBookmark: Data?
-    @State private var tunnelConfigText = ""
-    @State private var tunnelConfigMessage = ""
     @State private var biometricStatus = BiometricAuthStatus(isAvailable: false, label: "Biometric Lock")
 
     var body: some View {
         Form {
             #if os(iOS)
-            Section("Tunnel Configuration") {
-                TextEditor(text: $tunnelConfigText)
-                    .font(.system(.footnote, design: .monospaced))
-                    .frame(minHeight: 220)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                if !tunnelConfigMessage.isEmpty {
-                    Text(tunnelConfigMessage)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+            Section("Advanced Config") {
+                NavigationLink {
+                    AdvancedConfigSettingsView(model: model)
+                } label: {
+                    Label("Raw Tunnel Config", systemImage: "doc.plaintext")
                 }
             }
             #else
@@ -101,22 +94,17 @@ struct AppSettingsView: View {
             #if os(iOS) || os(visionOS)
             SupportPurchasesSection()
             #endif
+            #if !os(iOS)
             Section {
                 Button("Apply") {
                     apply()
                 }
                 .disabled(applyDisabled)
-                #if os(iOS)
-                Button("Reset Tunnel Config") {
-                    tunnelConfigText = defaultIOSTunnelConfig
-                    tunnelConfigMessage = ""
-                }
-                #else
                 Button("Reset Endpoint") {
                     endpointText = defaultAPIEndpoint.absoluteString
                 }
-                #endif
             }
+            #endif
         }
         .formStyle(.grouped)
         .onAppear {
@@ -127,7 +115,6 @@ struct AppSettingsView: View {
             daemonBinaryBookmark = model.settingsStore.settings.daemonBinaryBookmark
             daemonConfigBookmark = model.settingsStore.settings.daemonConfigBookmark
             #if os(iOS)
-            tunnelConfigText = (try? TunnelConfigStore.loadOrCreateConfig(groupIdentifier: model.settingsStore.settings.appGroupIdentifier)) ?? defaultIOSTunnelConfig
             biometricStatus = SystemBiometricAuthenticator().status()
             if !biometricStatus.isAvailable {
                 model.settingsStore.settings.inspectionLockEnabled = false
@@ -137,16 +124,6 @@ struct AppSettingsView: View {
     }
 
     private func apply() {
-        #if os(iOS)
-        do {
-            try TunnelConfigStore.save(tunnelConfigText, groupIdentifier: model.settingsStore.settings.appGroupIdentifier)
-            tunnelConfigMessage = "Saved tunnel configuration."
-            model.applySettings()
-            model.reloadTunnelConfiguration()
-        } catch {
-            tunnelConfigMessage = error.localizedDescription
-        }
-        #else
         guard endpointValidationMessage(endpointText) == nil,
               let endpoint = URL(string: endpointText.trimmingCharacters(in: .whitespacesAndNewlines)) else {
             return
@@ -158,15 +135,10 @@ struct AppSettingsView: View {
         model.settingsStore.settings.daemonBinaryBookmark = matchingBookmark(daemonBinaryBookmark, path: daemonBinaryPath)
         model.settingsStore.settings.daemonConfigBookmark = matchingBookmark(daemonConfigBookmark, path: daemonConfigPath)
         model.applySettings()
-        #endif
     }
 
     private var applyDisabled: Bool {
-        #if os(iOS)
-        return tunnelConfigText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        #else
         return endpointValidationMessage(endpointText) != nil
-        #endif
     }
 
     private func endpointValidationMessage(_ value: String) -> String? {
@@ -228,3 +200,59 @@ struct AppSettingsView: View {
     }
     #endif
 }
+
+#if os(iOS)
+private struct AdvancedConfigSettingsView: View {
+    @ObservedObject var model: AppleAppModel
+    @State private var tunnelConfigText = ""
+    @State private var tunnelConfigMessage = ""
+
+    var body: some View {
+        Form {
+            Section("Advanced Config") {
+                TextEditor(text: $tunnelConfigText)
+                    .font(.system(.footnote, design: .monospaced))
+                    .frame(minHeight: 320)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                if !tunnelConfigMessage.isEmpty {
+                    Text(tunnelConfigMessage)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Section {
+                Button("Apply") {
+                    apply()
+                }
+                .disabled(applyDisabled)
+                Button("Reset Tunnel Config") {
+                    tunnelConfigText = defaultIOSTunnelConfig
+                    tunnelConfigMessage = ""
+                }
+            }
+        }
+        .formStyle(.grouped)
+        .navigationTitle("Advanced Config")
+        .onAppear {
+            tunnelConfigText = (try? TunnelConfigStore.loadOrCreateConfig(groupIdentifier: model.settingsStore.settings.appGroupIdentifier)) ?? defaultIOSTunnelConfig
+        }
+    }
+
+    private func apply() {
+        do {
+            try TunnelConfigStore.save(tunnelConfigText, groupIdentifier: model.settingsStore.settings.appGroupIdentifier)
+            tunnelConfigMessage = "Saved tunnel configuration."
+            model.applySettings()
+            model.reloadTunnelConfiguration()
+        } catch {
+            tunnelConfigMessage = error.localizedDescription
+        }
+    }
+
+    private var applyDisabled: Bool {
+        tunnelConfigText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+}
+#endif
