@@ -17,6 +17,13 @@ private func mobileString(_ operation: (NSErrorPointer) -> String) throws -> Str
     }
     return value
 }
+
+private func mobileBool(_ operation: (NSErrorPointer) -> Bool) throws {
+    var error: NSError?
+    if !operation(&error) {
+        throw error ?? TunnelControllerError.mobileValidationFailed
+    }
+}
 #endif
 
 @MainActor
@@ -37,14 +44,25 @@ final class IOSTunnelController: ObservableObject {
 
     func startTunnel() async throws {
         _ = try TunnelConfigStore.loadOrCreateConfig()
-        let manager = try await configuredManager()
-        guard let session = manager.connection as? NETunnelProviderSession else {
-            throw TunnelControllerError.invalidSession
+        #if canImport(ClambhookMobile)
+        try mobileBool {
+            MobileValidateUsableTunnelConfig(TunnelConfigStore.configURL().path, $0)
         }
-        try session.startTunnel(options: [
-            "configPath": TunnelConfigStore.configURL().path
-        ])
-        updateStatus(from: manager)
+        #endif
+        do {
+            let manager = try await configuredManager()
+            guard let session = manager.connection as? NETunnelProviderSession else {
+                throw TunnelControllerError.invalidSession
+            }
+            try session.startTunnel(options: [
+                "configPath": TunnelConfigStore.configURL().path
+            ])
+            updateStatus(from: manager)
+        } catch {
+            let issue = Self.recoveryIssue(for: error)
+            errorText = issue.message
+            throw TunnelRecoveryError(issue)
+        }
     }
 
     func stopTunnel() async {
@@ -62,6 +80,21 @@ final class IOSTunnelController: ObservableObject {
             return
         }
         _ = try await send(.init(action: .reload))
+    }
+
+    func resetVPNProfile() async throws {
+        let managers = try await loadAllManagers()
+        for manager in managers {
+            let bundleID = (manager.protocolConfiguration as? NETunnelProviderProtocol)?.providerBundleIdentifier
+            guard bundleID == clambhookTunnelProviderBundleIdentifier else {
+                continue
+            }
+            manager.connection.stopVPNTunnel()
+            try await remove(manager)
+        }
+        manager = nil
+        let next = try await configuredManager()
+        updateStatus(from: next)
     }
 
     func setActiveProfile(_ name: String) async throws {
@@ -142,7 +175,11 @@ final class IOSTunnelController: ObservableObject {
             do {
                 try session.sendProviderMessage(message) { data in
                     if let data {
-                        continuation.resume(returning: data)
+                        if let envelope = try? self.decoder.decode(TunnelProviderErrorEnvelope.self, from: data) {
+                            continuation.resume(throwing: TunnelRecoveryError(envelope.error))
+                        } else {
+                            continuation.resume(returning: data)
+                        }
                     } else {
                         continuation.resume(throwing: TunnelControllerError.emptyProviderResponse)
                     }
@@ -211,6 +248,42 @@ final class IOSTunnelController: ObservableObject {
             }
         }
     }
+
+    private func remove(_ manager: NETunnelProviderManager) async throws {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            manager.removeFromPreferences { error in
+                if let error {
+                    continuation.resume(throwing: error)
+                } else {
+                    continuation.resume()
+                }
+            }
+        }
+    }
+
+    private static func recoveryIssue(for error: Error) -> TunnelRecoveryIssue {
+        if let recoveryError = error as? TunnelRecoveryError {
+            return recoveryError.issue
+        }
+        let nsError = error as NSError
+        if nsError.domain == NEVPNErrorDomain, let code = NEVPNError.Code(rawValue: nsError.code) {
+            switch code {
+            case .configurationInvalid, .configurationStale, .configurationReadWriteFailed, .configurationDisabled:
+                return TunnelRecoveryIssue(
+                    kind: .invalidEntitlementOrProfile,
+                    title: "VPN profile is not usable",
+                    message: "The saved VPN configuration is invalid or disabled. Rebuild the local VPN profile and refresh.",
+                    actions: [.rebuildVPNProfile, .refresh],
+                    rawError: nsError.localizedDescription
+                )
+            case .connectionFailed:
+                return TunnelRecoveryClassifier.issue(forRawError: nsError.localizedDescription)
+            default:
+                break
+            }
+        }
+        return TunnelRecoveryClassifier.issue(for: error)
+    }
 }
 
 final class TunnelDashboardClient: ClambhookAPIProviding {
@@ -260,6 +333,7 @@ final class TunnelDashboardClient: ClambhookAPIProviding {
 enum TunnelControllerError: Error, LocalizedError {
     case invalidSession
     case emptyProviderResponse
+    case mobileValidationFailed
 
     var errorDescription: String? {
         switch self {
@@ -267,6 +341,8 @@ enum TunnelControllerError: Error, LocalizedError {
             return "packet tunnel session is unavailable"
         case .emptyProviderResponse:
             return "packet tunnel returned no response"
+        case .mobileValidationFailed:
+            return "tunnel validation failed"
         }
     }
 }

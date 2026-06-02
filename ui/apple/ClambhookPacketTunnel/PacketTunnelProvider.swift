@@ -117,7 +117,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             return Data(json.utf8)
         } catch {
             logger.error("Provider command failed: \(error.localizedDescription, privacy: .public)")
-            return nil
+            return encoded(TunnelProviderErrorEnvelope(error: TunnelRecoveryClassifier.issue(for: error)))
         }
         #else
         return encoded(TunnelDashboardPayload(status: StatusPayload(running: false)))

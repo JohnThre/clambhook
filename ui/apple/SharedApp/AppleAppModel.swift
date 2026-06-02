@@ -2,6 +2,9 @@ import ClambhookShared
 import Combine
 import Foundation
 import SwiftUI
+#if os(iOS)
+import UIKit
+#endif
 #if os(iOS) && !DEBUG && !canImport(ClambhookMobile)
 #error("Mobile must be importable for iOS Release/App Store builds. Run make build-ios-mobile-xcframework before building the release app.")
 #endif
@@ -121,7 +124,10 @@ final class AppleAppModel: ObservableObject {
             dashboard.startEventStream(from: apiClient)
         }
         startPolling()
-        Task { await dashboard.refreshDashboard() }
+        Task {
+            await dashboard.refreshDashboard()
+            syncProfileRecoveryIssue()
+        }
     }
 
     func stop() {
@@ -147,15 +153,22 @@ final class AppleAppModel: ObservableObject {
             }
             startPolling()
         }
-        Task { await dashboard.refreshDashboard() }
+        Task {
+            await dashboard.refreshDashboard()
+            syncProfileRecoveryIssue()
+        }
     }
 
     func refresh() {
-        Task { await dashboard.refreshDashboard() }
+        Task {
+            await dashboard.refreshDashboard()
+            syncProfileRecoveryIssue()
+        }
     }
 
     func refreshNow() async {
         await dashboard.refreshDashboard()
+        syncProfileRecoveryIssue()
     }
 
     func connectOrDisconnect() {
@@ -163,13 +176,67 @@ final class AppleAppModel: ObservableObject {
             if dashboard.status.running {
                 await dashboard.disconnect()
             } else {
+                guard !syncProfileRecoveryIssue() else {
+                    return
+                }
                 await dashboard.connect()
+                syncProfileRecoveryIssue()
             }
         }
     }
 
     func selectProfile(_ profile: String) {
-        Task { await dashboard.setActiveProfile(profile) }
+        Task {
+            await dashboard.setActiveProfile(profile)
+            syncProfileRecoveryIssue()
+        }
+    }
+
+    @discardableResult
+    func syncProfileRecoveryIssue(now: Date = Date()) -> Bool {
+        let profile = dashboard.activeProfile
+        guard !profile.isEmpty, let expiresAt = profileMetadata.expiration(for: profile) else {
+            dashboard.clearRecoveryIssue(kind: .demoProfileExpired)
+            return false
+        }
+        guard expiresAt <= now else {
+            dashboard.clearRecoveryIssue(kind: .demoProfileExpired)
+            return false
+        }
+        dashboard.setRecoveryIssue(TunnelRecoveryClassifier.expiredDemoProfile(profile: profile, expiresAt: expiresAt))
+        return true
+    }
+
+    func performRecoveryAction(_ action: TunnelRecoveryAction) {
+        switch action {
+        case .retry:
+            connectOrDisconnect()
+        case .refresh:
+            refresh()
+        case .openAppSettings:
+            #if os(iOS)
+            if let url = URL(string: UIApplication.openSettingsURLString) {
+                UIApplication.shared.open(url)
+            }
+            #endif
+        case .rebuildVPNProfile:
+            #if os(iOS)
+            Task {
+                do {
+                    try await tunnelController.resetVPNProfile()
+                    dashboard.clearRecoveryIssue(kind: .invalidEntitlementOrProfile)
+                    await dashboard.refreshDashboard()
+                    syncProfileRecoveryIssue()
+                } catch {
+                    dashboard.setRecoveryIssue(TunnelRecoveryClassifier.issue(for: error))
+                }
+            }
+            #else
+            refresh()
+            #endif
+        case .openProfiles, .importProfile:
+            daemonMessage = action == .importProfile ? "open imports" : "open profiles"
+        }
     }
 
     func createRule(_ rule: RulePayload) {
@@ -372,9 +439,11 @@ final class AppleAppModel: ObservableObject {
             do {
                 try await (dashboardAPI as? TunnelDashboardClient)?.reloadConfiguration()
                 await dashboard.refreshDashboard()
+                syncProfileRecoveryIssue()
             } catch {
                 dashboard.stopEventStream()
                 await dashboard.refreshDashboard()
+                syncProfileRecoveryIssue()
             }
         }
     }
@@ -484,6 +553,9 @@ final class AppleAppModel: ObservableObject {
                     break
                 }
                 await self?.dashboard.refreshStatus()
+                await MainActor.run {
+                    _ = self?.syncProfileRecoveryIssue()
+                }
             }
         }
     }

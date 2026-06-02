@@ -113,6 +113,25 @@ final class OperationalSupportTests: XCTestCase {
         XCTAssertNil(draft.makeCreateRequest())
     }
 
+    func testTunnelRecoveryClassifierRecognizesPrimaryFailures() {
+        XCTAssertEqual(
+            TunnelRecoveryClassifier.issue(forRawError: "user denied VPN permission").kind,
+            .vpnPermissionDenied
+        )
+        XCTAssertEqual(
+            TunnelRecoveryClassifier.issue(forRawError: "profile default chain proxy server 0 protocol tor: chain proxy: protocol tor does not support UDP").kind,
+            .noUDPSupport
+        )
+        XCTAssertEqual(
+            TunnelRecoveryClassifier.issue(forRawError: "openvpn: server rejected auth: AUTH_FAILED").kind,
+            .badServerCredentials
+        )
+        XCTAssertEqual(
+            TunnelRecoveryClassifier.issue(forRawError: "configuration invalid").kind,
+            .invalidEntitlementOrProfile
+        )
+    }
+
     func testReviewedTunnelImportRequestWireShape() throws {
         let request = ReviewedTunnelImportRequest(
             importText: "active = \"phone\"",
@@ -162,6 +181,26 @@ final class OperationalSupportTests: XCTestCase {
         let serverID = api.serversResult.chains[0].servers[0].id
         XCTAssertEqual(store.passiveServerHealth[serverID]?.state, "healthy")
         XCTAssertEqual(store.passiveServerHealth[serverID]?.latencyNs, 25_000_000)
+    }
+
+    func testDashboardRecoveryIssueUsesRecentClassifiedHopError() async {
+        let api = FakeOperationalAPIClient()
+        api.trafficResult = TrafficSnapshotPayload(connections: [
+            TrafficConnectionPayload(
+                connID: "c1",
+                state: "closed",
+                updatedTsNs: 10,
+                hops: [
+                    TrafficHopPayload(index: 0, state: "error", error: "openvpn: server rejected auth: AUTH_FAILED"),
+                ]
+            ),
+        ])
+        let store = DashboardStore(api: api, snapshotStore: .inMemory)
+
+        await store.refreshDashboard()
+
+        XCTAssertEqual(store.recoveryIssue?.kind, .badServerCredentials)
+        XCTAssertEqual(store.errorText, store.recoveryIssue?.message)
     }
 }
 

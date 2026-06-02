@@ -8,6 +8,7 @@ struct IOSRootView: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.scenePhase) private var scenePhase
     @State private var selectedDestination: IOSAppDestination = .now
+    @State private var compactPath: [IOSAppDestination] = []
     @State private var showingOnboarding = false
     @AppStorage("org.jpfchang.clambhook.onboardingComplete") private var onboardingComplete = false
     @StateObject private var inspectionLock = InspectionLockState()
@@ -60,7 +61,7 @@ struct IOSRootView: View {
     }
 
     private var compactNavigationView: some View {
-        NavigationStack {
+        NavigationStack(path: $compactPath) {
             List {
                 Section {
                     ForEach(IOSAppDestination.attentionCases) { destination in
@@ -134,7 +135,7 @@ struct IOSRootView: View {
     private func destinationView(_ destination: IOSAppDestination) -> some View {
         switch destination {
         case .now:
-            IOSTodayView(model: model)
+            IOSTodayView(model: model, onRecoveryAction: handleRecoveryAction)
         case .activity:
             IOSActivityView(model: model, logbookOnly: false)
         case .library:
@@ -176,6 +177,14 @@ struct IOSRootView: View {
     private func engageInspectionLockIfNeeded() {
         inspectionLock.lockIfNeeded(enabled: model.settingsStore.settings.inspectionLockEnabled)
         Task { await authenticateInspectionLock() }
+    }
+
+    private func handleRecoveryAction(_ action: TunnelRecoveryAction) {
+        if action == .openProfiles || action == .importProfile {
+            selectedDestination = .library
+            compactPath = [.library]
+        }
+        model.performRecoveryAction(action)
     }
 
     private func authenticateInspectionLock() async {
@@ -853,6 +862,7 @@ private struct IOSInboxQRScannerSheet: View {
 
 private struct IOSTodayView: View {
     @ObservedObject var model: AppleAppModel
+    var onRecoveryAction: (TunnelRecoveryAction) -> Void
 
     var body: some View {
         List {
@@ -876,6 +886,10 @@ private struct IOSTodayView: View {
                             systemImage: "network",
                             tint: model.dashboard.apiOnline ? .green : .red
                         )
+                    }
+
+                    if let issue = model.dashboard.recoveryIssue {
+                        IOSRecoveryBanner(issue: issue, onAction: onRecoveryAction)
                     }
 
                     ViewThatFits(in: .horizontal) {
@@ -971,7 +985,9 @@ private struct IOSTodayView: View {
 
     private var incidents: [IOSTodayIncident] {
         var rows: [IOSTodayIncident] = []
-        if !model.dashboard.errorText.isEmpty {
+        if let issue = model.dashboard.recoveryIssue {
+            rows.append(IOSTodayIncident(message: issue.title, systemImage: "network.slash", tint: .red))
+        } else if !model.dashboard.errorText.isEmpty {
             rows.append(IOSTodayIncident(message: model.dashboard.errorText, systemImage: "network.slash", tint: .red))
         }
         if !model.dashboard.traffic.summary.persistError.isEmpty {

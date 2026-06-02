@@ -14,6 +14,7 @@ public final class DashboardStore: ObservableObject {
     @Published public private(set) var logs: [String] = []
     @Published public private(set) var apiOnline = false
     @Published public private(set) var errorText = ""
+    @Published public private(set) var recoveryIssue: TunnelRecoveryIssue?
 
     private let api: ClambhookAPIProviding
     private let snapshotStore: FileSnapshotStore
@@ -51,11 +52,11 @@ public final class DashboardStore: ObservableObject {
             self.rules = rules
             self.traffic = traffic
             self.apiOnline = true
-            self.errorText = ""
+            updateRecoveryIssueFromTraffic()
             await persistSnapshot()
         } catch {
             self.apiOnline = false
-            self.errorText = error.localizedDescription
+            setRecoveryIssue(TunnelRecoveryClassifier.issue(for: error))
             await persistSnapshot()
         }
     }
@@ -65,11 +66,11 @@ public final class DashboardStore: ObservableObject {
             status = try await api.status()
             traffic = try await api.traffic()
             apiOnline = true
-            errorText = ""
+            updateRecoveryIssueFromTraffic()
             await persistSnapshot()
         } catch {
             apiOnline = false
-            errorText = error.localizedDescription
+            setRecoveryIssue(TunnelRecoveryClassifier.issue(for: error))
             await persistSnapshot()
         }
     }
@@ -97,7 +98,7 @@ public final class DashboardStore: ObservableObject {
                     }
                 } catch {
                     await MainActor.run {
-                        self?.errorText = "events: \(error.localizedDescription)"
+                        self?.setRecoveryIssue(TunnelRecoveryClassifier.issue(forRawError: "events: \(error.localizedDescription)"))
                     }
                 }
                 try? await Task.sleep(for: reconnectDelay)
@@ -130,15 +131,51 @@ public final class DashboardStore: ObservableObject {
         await persistSnapshot()
     }
 
+    public func setRecoveryIssue(_ issue: TunnelRecoveryIssue?) {
+        recoveryIssue = issue
+        errorText = issue?.message ?? ""
+    }
+
+    public func clearRecoveryIssue(kind: TunnelRecoveryKind? = nil) {
+        guard let kind else {
+            setRecoveryIssue(nil)
+            return
+        }
+        if recoveryIssue?.kind == kind {
+            setRecoveryIssue(nil)
+        }
+    }
+
     private func performAction(_ action: () async throws -> Void) async {
         do {
             try await action()
             await refreshDashboard()
         } catch {
             apiOnline = false
-            errorText = error.localizedDescription
+            setRecoveryIssue(TunnelRecoveryClassifier.issue(for: error))
             await persistSnapshot()
         }
+    }
+
+    private func updateRecoveryIssueFromTraffic() {
+        if let issue = trafficRecoveryIssue() {
+            setRecoveryIssue(issue)
+        } else {
+            setRecoveryIssue(nil)
+        }
+    }
+
+    private func trafficRecoveryIssue() -> TunnelRecoveryIssue? {
+        traffic.connections
+            .sorted { $0.updatedTsNs > $1.updatedTsNs }
+            .lazy
+            .flatMap(\.hops)
+            .compactMap { hop -> TunnelRecoveryIssue? in
+                guard !hop.error.isEmpty else { return nil }
+                let issue = TunnelRecoveryClassifier.issue(forRawError: hop.error)
+                return issue.kind == .generic ? nil : issue
+            }
+            .first
     }
 
     private func applyConnectionBytes(_ event: DaemonEvent) {
