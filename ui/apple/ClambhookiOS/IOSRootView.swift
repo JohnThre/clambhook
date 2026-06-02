@@ -367,6 +367,7 @@ private struct IOSInboxView: View {
     @State private var showingFileImporter = false
     @State private var showingQRScanner = false
     @State private var message = ""
+    @State private var stagedReviewItem: InboxImportItem?
 
     var body: some View {
         List {
@@ -442,6 +443,11 @@ private struct IOSInboxView: View {
                 stage(rawValue, source: .qr, title: "QR import")
             }
         }
+        .sheet(item: $stagedReviewItem) { item in
+            NavigationStack {
+                IOSInboxItemDetailView(model: model, itemID: item.id)
+            }
+        }
     }
 
     @discardableResult
@@ -449,6 +455,7 @@ private struct IOSInboxView: View {
         do {
             let item = try model.attention.captureImport(rawValue: rawValue, source: source, title: title)
             message = "Staged \(item.title)."
+            stagedReviewItem = item
             return true
         } catch {
             message = error.localizedDescription
@@ -510,10 +517,15 @@ private struct IOSInboxItemRow: View {
     }
 }
 
-private struct IOSInboxItemDetailView: View {
+struct IOSInboxItemDetailView: View {
     @ObservedObject var model: AppleAppModel
     var itemID: UUID
     @Environment(\.dismiss) private var dismiss
+    @State private var reviewPayload: TunnelImportReviewPayload?
+    @State private var drafts: [IOSReviewedProfileDraft] = []
+    @State private var activateProfile = ""
+    @State private var validationMessage = ""
+    @State private var validationError = ""
 
     var body: some View {
         if let item {
@@ -531,6 +543,41 @@ private struct IOSInboxItemDetailView: View {
                     }
                 }
 
+                if let reviewPayload {
+                    Section("Profiles") {
+                        ForEach($drafts) { $draft in
+                            IOSReviewedProfileRow(draft: $draft)
+                        }
+                    }
+
+                    Section("Activation") {
+                        Picker("Activate", selection: $activateProfile) {
+                            Text("Keep current").tag("")
+                            ForEach(selectedTargetNames, id: \.self) { profile in
+                                Text(profile).tag(profile)
+                            }
+                        }
+                        .disabled(selectedTargetNames.isEmpty)
+                        LabeledContent("Imported active", value: emptyDash(reviewPayload.activeProfile))
+                    }
+
+                    if !validationError.isEmpty || !validationMessage.isEmpty {
+                        Section("Validation") {
+                            if !validationError.isEmpty {
+                                Label(validationError, systemImage: "exclamationmark.triangle.fill")
+                                    .foregroundStyle(.red)
+                            } else {
+                                Label(validationMessage, systemImage: "checkmark.circle.fill")
+                                    .foregroundStyle(.green)
+                            }
+                        }
+                    }
+                } else {
+                    Section {
+                        IOSInlineEmptyState(text: "Preparing review.", systemImage: "tray.and.arrow.down")
+                    }
+                }
+
                 Section("Preview") {
                     Text(item.preview.redactedSnippet)
                         .font(.system(.caption, design: .monospaced))
@@ -539,13 +586,14 @@ private struct IOSInboxItemDetailView: View {
 
                 Section {
                     Button {
-                        model.importInboxItem(item)
+                        importReviewed(item)
                         if model.attention.state.inbox.first(where: { $0.id == itemID }) == nil {
                             dismiss()
                         }
                     } label: {
-                        Label("Import Config", systemImage: "tray.and.arrow.down")
+                        Label("Import Selected", systemImage: "tray.and.arrow.down")
                     }
+                    .disabled(!canImportReviewed)
 
                     Button {
                         _ = model.attention.moveInboxItemToSomeday(id: itemID)
@@ -565,6 +613,15 @@ private struct IOSInboxItemDetailView: View {
             .listStyle(.insetGrouped)
             .navigationTitle(item.title)
             .navigationBarTitleDisplayMode(.inline)
+            .onAppear {
+                loadReviewIfNeeded(item)
+            }
+            .onChange(of: drafts) { _, _ in
+                validateReview(item)
+            }
+            .onChange(of: activateProfile) { _, _ in
+                validateReview(item)
+            }
         } else {
             ContentUnavailableView("Import removed", systemImage: "tray")
         }
@@ -572,6 +629,182 @@ private struct IOSInboxItemDetailView: View {
 
     private var item: InboxImportItem? {
         model.attention.state.inbox.first { $0.id == itemID }
+    }
+
+    private var selectedTargetNames: [String] {
+        drafts
+            .filter(\.included)
+            .map { $0.targetName.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+    }
+
+    private var canImportReviewed: Bool {
+        reviewPayload != nil && !selectedTargetNames.isEmpty && validationError.isEmpty
+    }
+
+    private func loadReviewIfNeeded(_ item: InboxImportItem) {
+        guard reviewPayload == nil else {
+            return
+        }
+        do {
+            let payload = try model.importReviewPayload(for: item)
+            let nextDrafts = makeDrafts(from: payload)
+            reviewPayload = payload
+            drafts = nextDrafts
+            activateProfile = defaultActivation(for: payload, drafts: nextDrafts)
+            validateReview(item)
+        } catch {
+            validationError = error.localizedDescription
+        }
+    }
+
+    private func makeDrafts(from payload: TunnelImportReviewPayload) -> [IOSReviewedProfileDraft] {
+        var used = Set(model.dashboard.profiles.profiles)
+        return payload.profiles.map { profile in
+            let targetName = uniqueTargetName(from: profile.name, used: &used)
+            return IOSReviewedProfileDraft(profile: profile, targetName: targetName)
+        }
+    }
+
+    private func uniqueTargetName(from sourceName: String, used: inout Set<String>) -> String {
+        let base = sourceName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "imported" : sourceName
+        var candidate = base
+        var suffix = 2
+        while used.contains(candidate) {
+            candidate = "\(base)-\(suffix)"
+            suffix += 1
+        }
+        used.insert(candidate)
+        return candidate
+    }
+
+    private func defaultActivation(for payload: TunnelImportReviewPayload, drafts: [IOSReviewedProfileDraft]) -> String {
+        guard model.tunnelOnboardingReadinessMessage() != nil else {
+            return ""
+        }
+        if !payload.activeProfile.isEmpty,
+           let draft = drafts.first(where: { $0.sourceName == payload.activeProfile && $0.included }) {
+            return draft.targetName
+        }
+        return drafts.first(where: \.included)?.targetName ?? ""
+    }
+
+    private func validateReview(_ item: InboxImportItem) {
+        if !selectedTargetNames.contains(activateProfile) {
+            activateProfile = ""
+        }
+        guard reviewPayload != nil else {
+            validationMessage = ""
+            return
+        }
+        guard !selectedTargetNames.isEmpty else {
+            validationMessage = ""
+            validationError = "Select at least one profile."
+            return
+        }
+        do {
+            try model.validateReviewedTunnelImport(makeRequest(item))
+            validationError = ""
+            validationMessage = "Ready to import \(selectedTargetNames.count) profile\(selectedTargetNames.count == 1 ? "" : "s")."
+        } catch {
+            validationMessage = ""
+            validationError = error.localizedDescription
+        }
+    }
+
+    private func importReviewed(_ item: InboxImportItem) {
+        validateReview(item)
+        guard canImportReviewed else {
+            return
+        }
+        model.applyReviewedTunnelImport(
+            item: item,
+            request: makeRequest(item),
+            tagsByProfile: Dictionary(uniqueKeysWithValues: drafts
+                .filter(\.included)
+                .map { ($0.targetName, tags(from: $0.tagsText)) })
+        )
+    }
+
+    private func makeRequest(_ item: InboxImportItem) -> ReviewedTunnelImportRequest {
+        ReviewedTunnelImportRequest(
+            importText: item.decodedConfigText,
+            profiles: drafts
+                .filter(\.included)
+                .map { ReviewedTunnelImportProfile(sourceName: $0.sourceName, targetName: $0.targetName) },
+            activateProfile: activateProfile
+        )
+    }
+
+    private func tags(from text: String) -> [String] {
+        text.components(separatedBy: CharacterSet(charactersIn: ",\n"))
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+    }
+}
+
+private struct IOSReviewedProfileDraft: Identifiable, Equatable {
+    var id: String { sourceName }
+    var sourceName: String
+    var targetName: String
+    var tagsText: String
+    var included: Bool
+    var chainCount: Int
+    var serverCount: Int
+    var ruleCount: Int
+    var protocols: [String]
+
+    init(profile: TunnelImportReviewProfile, targetName: String) {
+        self.sourceName = profile.name
+        self.targetName = targetName
+        self.tagsText = ""
+        self.included = true
+        self.chainCount = profile.chainCount
+        self.serverCount = profile.serverCount
+        self.ruleCount = profile.ruleCount
+        self.protocols = profile.protocols
+    }
+
+    var summary: String {
+        var parts: [String] = []
+        parts.append(chainCount == 1 ? "1 chain" : "\(chainCount) chains")
+        parts.append(serverCount == 1 ? "1 server" : "\(serverCount) servers")
+        if ruleCount > 0 {
+            parts.append(ruleCount == 1 ? "1 rule" : "\(ruleCount) rules")
+        }
+        if !protocols.isEmpty {
+            parts.append(protocols.joined(separator: ", "))
+        }
+        return parts.joined(separator: " / ")
+    }
+}
+
+private struct IOSReviewedProfileRow: View {
+    @Binding var draft: IOSReviewedProfileDraft
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Toggle(isOn: $draft.included) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(emptyDash(draft.sourceName))
+                        .font(.body.weight(.medium))
+                    Text(draft.summary)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            TextField("Profile name", text: $draft.targetName)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .disabled(!draft.included)
+
+            TextField("Tags", text: $draft.tagsText, prompt: Text("work, backup"))
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .disabled(!draft.included)
+        }
+        .padding(.vertical, 4)
     }
 }
 

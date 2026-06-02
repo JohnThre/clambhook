@@ -265,6 +265,110 @@ public struct SomedayExperimentItem: Codable, Equatable, Identifiable, Sendable 
     }
 }
 
+public struct ProfileMetadataState: Codable, Equatable, Sendable {
+    public var version: Int
+    public var profiles: [String: ProfileMetadata]
+
+    public init(version: Int = 1, profiles: [String: ProfileMetadata] = [:]) {
+        self.version = version
+        self.profiles = profiles
+    }
+}
+
+public struct ProfileMetadata: Codable, Equatable, Sendable {
+    public var tags: [String]
+
+    public init(tags: [String] = []) {
+        self.tags = Self.normalizedTags(tags)
+    }
+
+    public static func normalizedTags(_ rawTags: [String]) -> [String] {
+        var seen: Set<String> = []
+        var tags: [String] = []
+        for rawTag in rawTags {
+            let tag = rawTag.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !tag.isEmpty else {
+                continue
+            }
+            let key = tag.lowercased()
+            guard !seen.contains(key) else {
+                continue
+            }
+            seen.insert(key)
+            tags.append(tag)
+        }
+        return tags
+    }
+}
+
+@MainActor
+public final class ProfileMetadataStore: ObservableObject {
+    @Published public private(set) var state: ProfileMetadataState
+
+    private let fileURL: URL?
+    private let encoder = JSONEncoder()
+    private let decoder = JSONDecoder()
+
+    public init(fileURL: URL? = nil) {
+        self.fileURL = fileURL
+        self.state = Self.load(fileURL: fileURL, decoder: decoder)
+    }
+
+    public static func appGroupStore(groupIdentifier: String, fileName: String = "profile-metadata.json") -> ProfileMetadataStore {
+        ProfileMetadataStore(fileURL: FileSnapshotStore.appGroupURL(groupIdentifier: groupIdentifier, fileName: fileName))
+    }
+
+    public func tags(for profile: String) -> [String] {
+        state.profiles[profile]?.tags ?? []
+    }
+
+    public func setTags(_ rawTags: [String], for profile: String) {
+        let profile = profile.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !profile.isEmpty else {
+            return
+        }
+        let tags = ProfileMetadata.normalizedTags(rawTags)
+        if tags.isEmpty {
+            state.profiles.removeValue(forKey: profile)
+        } else {
+            state.profiles[profile] = ProfileMetadata(tags: tags)
+        }
+        persist()
+    }
+
+    public func setTagsByProfile(_ tagsByProfile: [String: [String]]) {
+        for (profile, tags) in tagsByProfile {
+            setTags(tags, for: profile)
+        }
+    }
+
+    private func persist() {
+        guard let fileURL else {
+            return
+        }
+        do {
+            try FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+            let data = try encoder.encode(state)
+            try data.write(to: fileURL, options: [.atomic])
+        } catch {
+            // Metadata is non-routing UI state, so in-memory edits remain usable.
+        }
+    }
+
+    private static func load(fileURL: URL?, decoder: JSONDecoder) -> ProfileMetadataState {
+        guard
+            let fileURL,
+            FileManager.default.fileExists(atPath: fileURL.path),
+            let data = try? Data(contentsOf: fileURL),
+            let decoded = try? decoder.decode(ProfileMetadataState.self, from: data),
+            decoded.version == 1
+        else {
+            return ProfileMetadataState()
+        }
+        return decoded
+    }
+}
+
 @MainActor
 public final class AttentionStore: ObservableObject {
     @Published public private(set) var state: AttentionState

@@ -24,6 +24,15 @@ private func mobileBool(_ operation: (NSErrorPointer) -> Bool) throws {
         throw error ?? mobileConfigError("Mobile config operation failed")
     }
 }
+
+private func mobileString(_ operation: (NSErrorPointer) -> String) throws -> String {
+    var error: NSError?
+    let value = operation(&error)
+    if let error {
+        throw error
+    }
+    return value
+}
 #endif
 
 @MainActor
@@ -31,6 +40,7 @@ final class AppleAppModel: ObservableObject {
     @Published var settingsStore: AppSettingsStore
     @Published private(set) var dashboard: DashboardStore
     @Published private(set) var attention: AttentionStore
+    @Published private(set) var profileMetadata: ProfileMetadataStore
     @Published var apiToken = ""
     @Published var daemonMessage = ""
 
@@ -42,6 +52,7 @@ final class AppleAppModel: ObservableObject {
     private var pollingTask: Task<Void, Never>?
     private var dashboardChangeCancellable: AnyCancellable?
     private var attentionChangeCancellable: AnyCancellable?
+    private var profileMetadataChangeCancellable: AnyCancellable?
     private var settingsChangeCancellable: AnyCancellable?
     private var started = false
 
@@ -83,6 +94,7 @@ final class AppleAppModel: ObservableObject {
             logRetention: settingsStore.settings.logRetention
         )
         self.attention = AttentionStore.appGroupStore(groupIdentifier: settingsStore.settings.appGroupIdentifier)
+        self.profileMetadata = ProfileMetadataStore.appGroupStore(groupIdentifier: settingsStore.settings.appGroupIdentifier)
         bindChildStores()
         #if os(macOS)
         if platform == .macOS {
@@ -215,13 +227,64 @@ final class AppleAppModel: ObservableObject {
     }
 
     #if os(iOS)
-    func importInboxItem(_ item: InboxImportItem) {
+    func importReviewPayload(for item: InboxImportItem) throws -> TunnelImportReviewPayload {
+        #if canImport(ClambhookMobile)
+        let raw = try mobileString {
+            MobileTunnelImportReviewJSON(item.decodedConfigText, $0)
+        }
+        return try JSONDecoder().decode(TunnelImportReviewPayload.self, from: Data(raw.utf8))
+        #else
+        return TunnelImportReviewPayload(
+            activeProfile: item.preview.activeProfile,
+            profiles: item.preview.profileNames.map {
+                TunnelImportReviewProfile(name: $0, serverCount: item.preview.serverCount)
+            }
+        )
+        #endif
+    }
+
+    func validateReviewedTunnelImport(_ request: ReviewedTunnelImportRequest) throws {
+        #if canImport(ClambhookMobile)
+        let data = try JSONEncoder().encode(request)
+        guard let raw = String(data: data, encoding: .utf8) else {
+            throw AppleAppModelError.invalidProfileRequest
+        }
+        try mobileBool {
+            MobileValidateReviewedTunnelImportJSON(
+                TunnelConfigStore.configURL(groupIdentifier: settingsStore.settings.appGroupIdentifier).path,
+                raw,
+                $0
+            )
+        }
+        #endif
+    }
+
+    func applyReviewedTunnelImport(
+        item: InboxImportItem,
+        request: ReviewedTunnelImportRequest,
+        tagsByProfile: [String: [String]]
+    ) {
         do {
+            #if canImport(ClambhookMobile)
+            let data = try JSONEncoder().encode(request)
+            guard let raw = String(data: data, encoding: .utf8) else {
+                throw AppleAppModelError.invalidProfileRequest
+            }
+            try mobileBool {
+                MobileApplyReviewedTunnelImportJSON(
+                    TunnelConfigStore.configURL(groupIdentifier: settingsStore.settings.appGroupIdentifier).path,
+                    raw,
+                    $0
+                )
+            }
+            #else
             try validateAndSaveTunnelConfig(item.decodedConfigText)
+            #endif
+            profileMetadata.setTagsByProfile(tagsByProfile)
             attention.removeInboxItem(id: item.id)
             applySettings()
             reloadTunnelConfiguration()
-            daemonMessage = "imported staged config"
+            daemonMessage = "imported reviewed profiles"
         } catch {
             attention.markInboxImportError(id: item.id, error: error.localizedDescription)
             daemonMessage = error.localizedDescription
@@ -369,13 +432,16 @@ final class AppleAppModel: ObservableObject {
         dashboard.stopEventStream()
         dashboard = DashboardStore(api: dashboardAPI, snapshotStore: snapshotStore, logRetention: settings.logRetention)
         attention = AttentionStore.appGroupStore(groupIdentifier: settings.appGroupIdentifier)
+        profileMetadata = ProfileMetadataStore.appGroupStore(groupIdentifier: settings.appGroupIdentifier)
         bindDashboardStore()
         bindAttentionStore()
+        bindProfileMetadataStore()
     }
 
     private func bindChildStores() {
         bindDashboardStore()
         bindAttentionStore()
+        bindProfileMetadataStore()
         settingsChangeCancellable = settingsStore.objectWillChange.sink { [weak self] _ in
             Task { @MainActor in
                 self?.objectWillChange.send()
@@ -385,6 +451,14 @@ final class AppleAppModel: ObservableObject {
 
     private func bindAttentionStore() {
         attentionChangeCancellable = attention.objectWillChange.sink { [weak self] _ in
+            Task { @MainActor in
+                self?.objectWillChange.send()
+            }
+        }
+    }
+
+    private func bindProfileMetadataStore() {
+        profileMetadataChangeCancellable = profileMetadata.objectWillChange.sink { [weak self] _ in
             Task { @MainActor in
                 self?.objectWillChange.send()
             }

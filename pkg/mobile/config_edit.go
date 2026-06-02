@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"sort"
 	"strings"
 
 	"github.com/BurntSushi/toml"
@@ -103,6 +104,62 @@ type createTunnelProfileRequest struct {
 	Replace       bool           `json:"replace"`
 }
 
+type tunnelImportReviewPayload struct {
+	ActiveProfile string                      `json:"active_profile"`
+	Profiles      []tunnelImportReviewProfile `json:"profiles"`
+}
+
+type tunnelImportReviewProfile struct {
+	Name        string   `json:"name"`
+	ChainCount  int      `json:"chain_count"`
+	ServerCount int      `json:"server_count"`
+	RuleCount   int      `json:"rule_count"`
+	Protocols   []string `json:"protocols"`
+}
+
+type reviewedTunnelImportRequest struct {
+	ImportText      string                        `json:"import_text"`
+	Profiles        []reviewedTunnelImportProfile `json:"profiles"`
+	ActivateProfile string                        `json:"activate_profile"`
+}
+
+type reviewedTunnelImportProfile struct {
+	SourceName string `json:"source_name"`
+	TargetName string `json:"target_name"`
+}
+
+// TunnelImportReviewJSON parses decoded import TOML and returns profile
+// summaries for the native review UI. It never reads or writes the active
+// tunnel config.
+func TunnelImportReviewJSON(importText string) (string, error) {
+	cfg, err := parseTunnelImportConfig(importText)
+	if err != nil {
+		return "", err
+	}
+	return marshalString(tunnelImportReviewPayload{
+		ActiveProfile: cfg.Active,
+		Profiles:      reviewProfiles(cfg.Profiles),
+	})
+}
+
+// ValidateReviewedTunnelImportJSON validates the reviewed import merge against
+// configPath without writing any file.
+func ValidateReviewedTunnelImportJSON(configPath, requestJSON string) error {
+	_, err := buildReviewedTunnelImportConfig(configPath, requestJSON)
+	return err
+}
+
+// ApplyReviewedTunnelImportJSON validates, merges, and writes reviewed import
+// profiles into configPath. It only changes the active profile when the request
+// names activate_profile.
+func ApplyReviewedTunnelImportJSON(configPath, requestJSON string) error {
+	cfg, err := buildReviewedTunnelImportConfig(configPath, requestJSON)
+	if err != nil {
+		return err
+	}
+	return writeTunnelConfig(configPath, cfg)
+}
+
 // CreateTunnelProfileConfigJSON creates or updates one TUN-enabled profile and
 // sets it active. requestJSON encodes createTunnelProfileRequest.
 func CreateTunnelProfileConfigJSON(configPath, requestJSON string) error {
@@ -186,6 +243,137 @@ func SetActiveTunnelProfileConfig(configPath, profileName string) error {
 		return err
 	}
 	return writeTunnelConfig(configPath, cfg)
+}
+
+func parseTunnelImportConfig(importText string) (*config.Config, error) {
+	importText = strings.TrimSpace(importText)
+	if importText == "" {
+		return nil, fmt.Errorf("import text is required")
+	}
+	cfg := config.Config{Traffic: config.DefaultTrafficConfig()}
+	if err := toml.Unmarshal([]byte(importText), &cfg); err != nil {
+		return nil, fmt.Errorf("parse import config: %w", err)
+	}
+	ensureTunnelConfig(&cfg)
+	if err := engine.ValidateConfig(&cfg); err != nil {
+		return nil, fmt.Errorf("validate import config: %w", err)
+	}
+	return &cfg, nil
+}
+
+func reviewProfiles(profiles []config.Profile) []tunnelImportReviewProfile {
+	rows := make([]tunnelImportReviewProfile, 0, len(profiles))
+	for _, profile := range profiles {
+		protocols := map[string]struct{}{}
+		serverCount := 0
+		for _, ch := range profile.Chains {
+			for _, server := range ch.Servers {
+				serverCount++
+				proto := strings.TrimSpace(strings.ToLower(server.Protocol))
+				if proto != "" {
+					protocols[proto] = struct{}{}
+				}
+			}
+		}
+		protocolNames := make([]string, 0, len(protocols))
+		for protocolName := range protocols {
+			protocolNames = append(protocolNames, protocolName)
+		}
+		sort.Strings(protocolNames)
+		rows = append(rows, tunnelImportReviewProfile{
+			Name:        profile.Name,
+			ChainCount:  len(profile.Chains),
+			ServerCount: serverCount,
+			RuleCount:   len(profile.Rules),
+			Protocols:   protocolNames,
+		})
+	}
+	return rows
+}
+
+func buildReviewedTunnelImportConfig(configPath, requestJSON string) (*config.Config, error) {
+	var req reviewedTunnelImportRequest
+	if err := json.Unmarshal([]byte(requestJSON), &req); err != nil {
+		return nil, fmt.Errorf("parse reviewed import request: %w", err)
+	}
+	importCfg, err := parseTunnelImportConfig(req.ImportText)
+	if err != nil {
+		return nil, err
+	}
+	if len(req.Profiles) == 0 {
+		return nil, fmt.Errorf("select at least one profile")
+	}
+
+	cfg, err := loadTunnelConfig(configPath)
+	if err != nil {
+		if !isMissingConfigError(err) {
+			return nil, err
+		}
+		cfg = &config.Config{Traffic: config.DefaultTrafficConfig()}
+	}
+	placeholder := isPlaceholderConfig(cfg)
+	if cfg.Traffic == (config.TrafficConfig{}) {
+		cfg.Traffic = config.DefaultTrafficConfig()
+	}
+
+	existingNames := make(map[string]struct{}, len(cfg.Profiles))
+	if !placeholder {
+		for _, profile := range cfg.Profiles {
+			existingNames[profile.Name] = struct{}{}
+		}
+	}
+	selectedNames := make(map[string]struct{}, len(req.Profiles))
+	nextProfiles := make([]config.Profile, 0, len(req.Profiles))
+	for i, row := range req.Profiles {
+		sourceName := strings.TrimSpace(row.SourceName)
+		targetName := strings.TrimSpace(row.TargetName)
+		if sourceName == "" {
+			return nil, fmt.Errorf("profile %d: source_name is required", i)
+		}
+		if targetName == "" {
+			return nil, fmt.Errorf("profile %q: target_name is required", sourceName)
+		}
+		if targetName != row.TargetName {
+			return nil, fmt.Errorf("profile %q: target_name must not have surrounding whitespace", sourceName)
+		}
+		if _, ok := selectedNames[targetName]; ok {
+			return nil, fmt.Errorf("profile %q: duplicate target name", targetName)
+		}
+		if _, ok := existingNames[targetName]; ok {
+			return nil, fmt.Errorf("profile %q already exists", targetName)
+		}
+		source, ok := importCfg.ProfileByName(sourceName)
+		if !ok {
+			return nil, fmt.Errorf("import profile %q not found", sourceName)
+		}
+		selectedNames[targetName] = struct{}{}
+		next := *source
+		next.Name = targetName
+		nextProfiles = append(nextProfiles, next)
+	}
+
+	if placeholder {
+		cfg.Profiles = nextProfiles
+	} else {
+		cfg.Profiles = append(cfg.Profiles, nextProfiles...)
+	}
+	activateProfile := strings.TrimSpace(req.ActivateProfile)
+	if activateProfile != req.ActivateProfile {
+		return nil, fmt.Errorf("activate_profile must not have surrounding whitespace")
+	}
+	if activateProfile != "" {
+		if _, ok := selectedNames[activateProfile]; !ok {
+			return nil, fmt.Errorf("activate_profile %q was not selected", activateProfile)
+		}
+		cfg.Active = activateProfile
+	} else if placeholder || cfg.Active == "" {
+		cfg.Active = nextProfiles[0].Name
+	}
+	ensureTunnelConfig(cfg)
+	if err := engine.ValidateConfig(cfg); err != nil {
+		return nil, err
+	}
+	return cfg, nil
 }
 
 func (r createTunnelProfileRequest) normalized() createTunnelProfileRequest {

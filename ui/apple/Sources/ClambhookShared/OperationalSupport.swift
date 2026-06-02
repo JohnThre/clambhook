@@ -496,6 +496,90 @@ public struct TunnelProfileCreateRequest: Codable, Equatable, Sendable {
     }
 }
 
+public struct TunnelImportReviewPayload: Decodable, Equatable, Sendable {
+    public var activeProfile: String
+    public var profiles: [TunnelImportReviewProfile]
+
+    enum CodingKeys: String, CodingKey {
+        case activeProfile = "active_profile"
+        case profiles
+    }
+
+    public init(activeProfile: String = "", profiles: [TunnelImportReviewProfile] = []) {
+        self.activeProfile = activeProfile
+        self.profiles = profiles
+    }
+}
+
+public struct TunnelImportReviewProfile: Decodable, Equatable, Identifiable, Sendable {
+    public var id: String { name }
+    public var name: String
+    public var chainCount: Int
+    public var serverCount: Int
+    public var ruleCount: Int
+    public var protocols: [String]
+
+    enum CodingKeys: String, CodingKey {
+        case name
+        case chainCount = "chain_count"
+        case serverCount = "server_count"
+        case ruleCount = "rule_count"
+        case protocols
+    }
+
+    public init(
+        name: String,
+        chainCount: Int = 0,
+        serverCount: Int = 0,
+        ruleCount: Int = 0,
+        protocols: [String] = []
+    ) {
+        self.name = name
+        self.chainCount = chainCount
+        self.serverCount = serverCount
+        self.ruleCount = ruleCount
+        self.protocols = protocols
+    }
+}
+
+public struct ReviewedTunnelImportRequest: Encodable, Equatable, Sendable {
+    public var importText: String
+    public var profiles: [ReviewedTunnelImportProfile]
+    public var activateProfile: String
+
+    enum CodingKeys: String, CodingKey {
+        case importText = "import_text"
+        case profiles
+        case activateProfile = "activate_profile"
+    }
+
+    public init(
+        importText: String,
+        profiles: [ReviewedTunnelImportProfile],
+        activateProfile: String = ""
+    ) {
+        self.importText = importText
+        self.profiles = profiles
+        self.activateProfile = activateProfile
+    }
+}
+
+public struct ReviewedTunnelImportProfile: Encodable, Equatable, Identifiable, Sendable {
+    public var id: String { sourceName }
+    public var sourceName: String
+    public var targetName: String
+
+    enum CodingKeys: String, CodingKey {
+        case sourceName = "source_name"
+        case targetName = "target_name"
+    }
+
+    public init(sourceName: String, targetName: String) {
+        self.sourceName = sourceName
+        self.targetName = targetName
+    }
+}
+
 public struct RecentDecision: Identifiable, Equatable, Sendable {
     public var id: String { connection.connID }
     public var connection: TrafficConnectionPayload

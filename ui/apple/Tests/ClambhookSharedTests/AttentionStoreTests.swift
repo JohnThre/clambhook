@@ -90,6 +90,19 @@ final class AttentionStoreTests: XCTestCase {
             calendar.date(byAdding: .day, value: 7, to: overdue)
         )
     }
+
+    func testProfileMetadataPersistsNormalizedTags() {
+        let url = temporaryAttentionURL("profile-metadata.json")
+        let store = ProfileMetadataStore(fileURL: url)
+
+        store.setTags([" work ", "backup", "WORK", ""], for: "phone")
+
+        let reloaded = ProfileMetadataStore(fileURL: url)
+        XCTAssertEqual(reloaded.tags(for: "phone"), ["work", "backup"])
+
+        reloaded.setTags([], for: "phone")
+        XCTAssertEqual(reloaded.tags(for: "phone"), [])
+    }
 }
 
 private func temporaryAttentionURL(_ name: String) -> URL {

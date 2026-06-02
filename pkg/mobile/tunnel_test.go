@@ -282,6 +282,131 @@ func TestSetActiveTunnelProfileConfigRejectsUnknownProfile(t *testing.T) {
 	}
 }
 
+func TestTunnelImportReviewJSONSummarizesImportedProfiles(t *testing.T) {
+	raw, err := TunnelImportReviewJSON(reviewImportConfig())
+	if err != nil {
+		t.Fatalf("TunnelImportReviewJSON: %v", err)
+	}
+	var payload tunnelImportReviewPayload
+	if err := json.Unmarshal([]byte(raw), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.ActiveProfile != "imported" {
+		t.Fatalf("active profile = %q, want imported", payload.ActiveProfile)
+	}
+	if len(payload.Profiles) != 2 {
+		t.Fatalf("profiles = %#v, want 2 rows", payload.Profiles)
+	}
+	if got := payload.Profiles[0]; got.Name != "imported" || got.ServerCount != 1 || got.Protocols[0] != "shadowsocks" {
+		t.Fatalf("first profile = %#v", got)
+	}
+}
+
+func TestApplyReviewedTunnelImportMergesWithoutChangingActiveProfile(t *testing.T) {
+	path := writeMultiProfileTunnelTestConfig(t)
+	request := reviewedTunnelImportRequest{
+		ImportText: reviewImportConfig(),
+		Profiles: []reviewedTunnelImportProfile{{
+			SourceName: "imported",
+			TargetName: "imported-sg",
+		}},
+	}
+	rawReq, err := json.Marshal(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateReviewedTunnelImportJSON(path, string(rawReq)); err != nil {
+		t.Fatalf("ValidateReviewedTunnelImportJSON: %v", err)
+	}
+	if err := ApplyReviewedTunnelImportJSON(path, string(rawReq)); err != nil {
+		t.Fatalf("ApplyReviewedTunnelImportJSON: %v", err)
+	}
+
+	rawDashboard, err := TunnelConfigDashboardJSON(path)
+	if err != nil {
+		t.Fatalf("TunnelConfigDashboardJSON: %v", err)
+	}
+	var payload dashboardPayload
+	if err := json.Unmarshal([]byte(rawDashboard), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Profiles.Active != "default" {
+		t.Fatalf("active profile = %q, want default", payload.Profiles.Active)
+	}
+	if !containsString(payload.Profiles.Profiles, "imported-sg") {
+		t.Fatalf("profiles = %#v, want imported-sg", payload.Profiles.Profiles)
+	}
+}
+
+func TestApplyReviewedTunnelImportReplacesPlaceholderAndActivates(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "clambhook.toml")
+	if err := os.WriteFile(path, []byte(`
+active = "default"
+
+[[profile]]
+name = "default"
+
+  [[profile.chain]]
+  name = "proxy"
+
+    [[profile.chain.server]]
+    name = "replace-me"
+    address = "proxy.example.com:443"
+    protocol = "shadowsocks"
+
+      [profile.chain.server.settings]
+      method = "chacha20-ietf-poly1305"
+      password = "replace-with-secret"
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	request := reviewedTunnelImportRequest{
+		ImportText: reviewImportConfig(),
+		Profiles: []reviewedTunnelImportProfile{{
+			SourceName: "backup-import",
+			TargetName: "phone-backup",
+		}},
+		ActivateProfile: "phone-backup",
+	}
+	rawReq, err := json.Marshal(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ApplyReviewedTunnelImportJSON(path, string(rawReq)); err != nil {
+		t.Fatalf("ApplyReviewedTunnelImportJSON: %v", err)
+	}
+	rawDashboard, err := TunnelConfigDashboardJSON(path)
+	if err != nil {
+		t.Fatalf("TunnelConfigDashboardJSON: %v", err)
+	}
+	var payload dashboardPayload
+	if err := json.Unmarshal([]byte(rawDashboard), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Profiles.Active != "phone-backup" || len(payload.Profiles.Profiles) != 1 {
+		t.Fatalf("profiles = %+v, want only active phone-backup", payload.Profiles)
+	}
+}
+
+func TestValidateReviewedTunnelImportRejectsExistingProfileName(t *testing.T) {
+	path := writeMultiProfileTunnelTestConfig(t)
+	request := reviewedTunnelImportRequest{
+		ImportText: reviewImportConfig(),
+		Profiles: []reviewedTunnelImportProfile{{
+			SourceName: "imported",
+			TargetName: "backup",
+		}},
+	}
+	rawReq, err := json.Marshal(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = ValidateReviewedTunnelImportJSON(path, string(rawReq))
+	if err == nil || !strings.Contains(err.Error(), `profile "backup" already exists`) {
+		t.Fatalf("ValidateReviewedTunnelImportJSON error = %v, want collision", err)
+	}
+}
+
 func writeTunnelTestConfig(t *testing.T) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "clambhook.toml")
@@ -306,6 +431,51 @@ name = "default"
 		t.Fatal(err)
 	}
 	return path
+}
+
+func reviewImportConfig() string {
+	return `
+active = "imported"
+
+[[profile]]
+name = "imported"
+
+  [[profile.chain]]
+  name = "proxy"
+
+    [[profile.chain.server]]
+    name = "exit"
+    address = "import.example.invalid:443"
+    protocol = "shadowsocks"
+
+      [profile.chain.server.settings]
+      method = "chacha20-ietf-poly1305"
+      password = "secret"
+
+[[profile]]
+name = "backup-import"
+
+  [[profile.chain]]
+  name = "proxy"
+
+    [[profile.chain.server]]
+    name = "backup"
+    address = "backup-import.example.invalid:443"
+    protocol = "shadowsocks"
+
+      [profile.chain.server.settings]
+      method = "chacha20-ietf-poly1305"
+      password = "secret"
+`
+}
+
+func containsString(values []string, needle string) bool {
+	for _, value := range values {
+		if value == needle {
+			return true
+		}
+	}
+	return false
 }
 
 func writeMultiProfileTunnelTestConfig(t *testing.T) string {
