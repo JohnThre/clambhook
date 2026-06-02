@@ -32,7 +32,8 @@ struct IOSProfilesView: View {
                             IOSProfileRow(
                                 profile: profile,
                                 isActive: profile == model.dashboard.activeProfile,
-                                routeCount: activeRouteCount(for: profile)
+                                routeCount: activeRouteCount(for: profile),
+                                tags: model.profileMetadata.tags(for: profile)
                             )
                         }
                         .swipeActions(edge: .trailing, allowsFullSwipe: true) {
@@ -141,6 +142,7 @@ private struct IOSProfileRow: View {
     var profile: String
     var isActive: Bool
     var routeCount: Int
+    var tags: [String]
 
     var body: some View {
         HStack(spacing: 12) {
@@ -156,6 +158,12 @@ private struct IOSProfileRow: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
+                if !tags.isEmpty {
+                    Text(tags.joined(separator: ", "))
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
             }
         }
         .padding(.vertical, 2)
@@ -177,6 +185,10 @@ private struct IOSProfileDetailView: View {
         List {
             Section {
                 LabeledContent("State", value: isActive ? "Active" : "Inactive")
+                let tags = model.profileMetadata.tags(for: profile)
+                if !tags.isEmpty {
+                    LabeledContent("Tags", value: tags.joined(separator: ", "))
+                }
 
                 if !isActive {
                     Button {

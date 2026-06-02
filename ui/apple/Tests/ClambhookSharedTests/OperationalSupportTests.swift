@@ -113,6 +113,25 @@ final class OperationalSupportTests: XCTestCase {
         XCTAssertNil(draft.makeCreateRequest())
     }
 
+    func testReviewedTunnelImportRequestWireShape() throws {
+        let request = ReviewedTunnelImportRequest(
+            importText: "active = \"phone\"",
+            profiles: [
+                ReviewedTunnelImportProfile(sourceName: "phone", targetName: "phone-sg")
+            ],
+            activateProfile: "phone-sg"
+        )
+
+        let data = try JSONEncoder().encode(request)
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let profiles = try XCTUnwrap(object["profiles"] as? [[String: Any]])
+
+        XCTAssertEqual(object["import_text"] as? String, "active = \"phone\"")
+        XCTAssertEqual(object["activate_profile"] as? String, "phone-sg")
+        XCTAssertEqual(profiles.first?["source_name"] as? String, "phone")
+        XCTAssertEqual(profiles.first?["target_name"] as? String, "phone-sg")
+    }
+
     func testDashboardDerivedDecisionsRuleHitsAndHealth() async {
         let api = FakeOperationalAPIClient()
         api.serversResult = ServersPayload(profile: "A", chains: [

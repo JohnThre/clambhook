@@ -13,6 +13,7 @@ struct IOSOnboardingView: View {
     @State private var message = ""
     @State private var canContinue = false
     @State private var profileDraft = TunnelProfileCreateDraft()
+    @State private var stagedReviewItem: InboxImportItem?
 
     var body: some View {
         NavigationStack {
@@ -37,6 +38,13 @@ struct IOSOnboardingView: View {
             }
             .task {
                 refreshReadinessSilently()
+            }
+            .sheet(item: $stagedReviewItem, onDismiss: {
+                refreshReadinessSilently()
+            }) { item in
+                NavigationStack {
+                    IOSInboxItemDetailView(model: model, itemID: item.id)
+                }
             }
         }
     }
@@ -181,8 +189,7 @@ struct IOSOnboardingView: View {
             .padding(.bottom, 18)
 
             IOSQRCodeScannerView { value in
-                importText(value, successMessage: "Imported QR code.")
-                return canContinue
+                stageImport(value, source: .qr, title: "QR import")
             }
             .frame(maxWidth: .infinity)
             .frame(height: 360)
@@ -271,7 +278,7 @@ struct IOSOnboardingView: View {
             message = "Clipboard does not contain text."
             return
         }
-        importText(text)
+        stageImport(text, source: .clipboard, title: "Clipboard import")
     }
 
     private func importFromFile(_ result: Result<[URL], Error>) {
@@ -285,23 +292,25 @@ struct IOSOnboardingView: View {
                     url.stopAccessingSecurityScopedResource()
                 }
             }
-            importText(try String(contentsOf: url, encoding: .utf8))
+            stageImport(try String(contentsOf: url, encoding: .utf8), source: .file, title: url.lastPathComponent)
         } catch {
             message = error.localizedDescription
             canContinue = false
         }
     }
 
-    private func importText(_ raw: String, successMessage: String = "Imported tunnel configuration.") {
+    @discardableResult
+    private func stageImport(_ raw: String, source: InboxImportSource, title: String) -> Bool {
         do {
-            try model.importTunnelConfigText(raw)
-            refreshReadiness(successMessage: successMessage)
-            if canContinue {
-                step = .ready
-            }
+            let item = try model.attention.captureImport(rawValue: raw, source: source, title: title)
+            stagedReviewItem = item
+            message = "Review \(item.title) before it affects routing."
+            canContinue = false
+            return true
         } catch {
             message = error.localizedDescription
             canContinue = false
+            return false
         }
     }
 
