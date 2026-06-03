@@ -186,6 +186,10 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             settings.ipv6Settings = ipv6
         }
 
+        if !payload.dnsServers.isEmpty {
+            settings.dnsSettings = NEDNSSettings(servers: payload.dnsServers)
+        }
+
         if payload.httpProxy != nil || payload.httpsProxy != nil {
             let proxy = NEProxySettings()
             if let httpProxy = payload.httpProxy, httpProxy.port > 0 {

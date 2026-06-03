@@ -81,6 +81,7 @@ func validateProfile(p *Profile) []error {
 	for i := range p.RuleSubscriptions {
 		errs = append(errs, validateRuleSubscription(profileName, i, &p.RuleSubscriptions[i], subscriptionNames)...)
 	}
+	errs = append(errs, validateDNSConfig(profileName, &p.DNS)...)
 
 	listen := p.Listen
 	if listen.SOCKS5 != "" {
@@ -131,6 +132,104 @@ func validateProfile(p *Profile) []error {
 		errs = append(errs, validateListenAddr(profileName, "api.listen", p.API.Listen))
 	}
 	return errs
+}
+
+func validateDNSConfig(profileName string, dns *DNSConfig) []error {
+	if dns == nil {
+		return nil
+	}
+	var errs []error
+	if dns.Timeout < 0 {
+		errs = append(errs, fmt.Errorf("%s dns.timeout must be >= 0", profileName))
+	}
+	if !dns.Enabled {
+		return errs
+	}
+	if len(dns.Upstreams) == 0 {
+		errs = append(errs, fmt.Errorf("%s dns: at least one upstream is required when enabled", profileName))
+	}
+	for i := range dns.Upstreams {
+		errs = append(errs, validateDNSUpstream(profileName, i, &dns.Upstreams[i])...)
+	}
+	return errs
+}
+
+func validateDNSUpstream(profileName string, idx int, up *DNSUpstreamConfig) []error {
+	var errs []error
+	label := fmt.Sprintf("%s dns.upstream %d", profileName, idx)
+	if strings.TrimSpace(up.Name) != up.Name {
+		errs = append(errs, fmt.Errorf("%s name %q must not have surrounding whitespace", label, up.Name))
+	}
+	protocol := strings.ToLower(strings.TrimSpace(up.Protocol))
+	if protocol == "" {
+		errs = append(errs, fmt.Errorf("%s: protocol is required", label))
+	} else if protocol != up.Protocol {
+		errs = append(errs, fmt.Errorf("%s protocol %q must be lowercase without surrounding whitespace", label, up.Protocol))
+	}
+	switch protocol {
+	case "doh":
+		rawURL := strings.TrimSpace(up.URL)
+		if rawURL == "" {
+			errs = append(errs, fmt.Errorf("%s url is required for doh", label))
+		} else if rawURL != up.URL {
+			errs = append(errs, fmt.Errorf("%s url %q must not have surrounding whitespace", label, up.URL))
+		} else {
+			parsed, err := url.Parse(rawURL)
+			if err != nil || parsed.Host == "" {
+				errs = append(errs, fmt.Errorf("%s url %q must be a valid https URL", label, rawURL))
+			} else if parsed.Scheme != "https" {
+				errs = append(errs, fmt.Errorf("%s url %q must use https", label, rawURL))
+			}
+		}
+		if strings.TrimSpace(up.Address) != "" {
+			errs = append(errs, fmt.Errorf("%s address is only valid for dot or doq", label))
+		}
+	case "dot", "doq":
+		errs = append(errs, validateDNSUpstreamAddress(label, protocol, up.Address))
+		if strings.TrimSpace(up.URL) != "" {
+			errs = append(errs, fmt.Errorf("%s url is only valid for doh", label))
+		}
+	case "":
+	default:
+		errs = append(errs, fmt.Errorf("%s protocol %q must be doh, dot, or doq", label, up.Protocol))
+	}
+	if strings.TrimSpace(up.ServerName) != up.ServerName {
+		errs = append(errs, fmt.Errorf("%s server_name %q must not have surrounding whitespace", label, up.ServerName))
+	}
+	for j, raw := range up.BootstrapIPs {
+		if strings.TrimSpace(raw) != raw {
+			errs = append(errs, fmt.Errorf("%s bootstrap_ips[%d] %q must not have surrounding whitespace", label, j, raw))
+			continue
+		}
+		if _, err := netip.ParseAddr(raw); err != nil {
+			errs = append(errs, fmt.Errorf("%s bootstrap_ips[%d] %q: %w", label, j, raw, err))
+		}
+	}
+	return errs
+}
+
+func validateDNSUpstreamAddress(label, protocol, addr string) error {
+	if strings.TrimSpace(addr) == "" {
+		return fmt.Errorf("%s address is required for %s", label, protocol)
+	}
+	if strings.TrimSpace(addr) != addr {
+		return fmt.Errorf("%s address %q must not have surrounding whitespace", label, addr)
+	}
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return fmt.Errorf("%s address %q must be host:port: %w", label, addr, err)
+	}
+	if strings.ContainsAny(host, " \t\r\n") {
+		return fmt.Errorf("%s address %q has invalid host whitespace", label, addr)
+	}
+	n, err := strconv.Atoi(port)
+	if err != nil {
+		return fmt.Errorf("%s address %q has non-numeric port %q", label, addr, port)
+	}
+	if n <= 0 || n > 65535 {
+		return fmt.Errorf("%s address %q has port out of range", label, addr)
+	}
+	return nil
 }
 
 func validateRuleSubscription(profileName string, idx int, sub *RuleSubscriptionConfig, names map[string]struct{}) []error {

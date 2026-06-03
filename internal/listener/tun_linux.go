@@ -85,6 +85,9 @@ func (t *TUN) Start(parent context.Context) error {
 
 	routeMgr := newLinuxRouteManager(name, mtu, t.opts, t.ch)
 	if err := routeMgr.Setup(parent); err != nil {
+		if t.opts.DNSProxy != nil {
+			_ = t.opts.DNSProxy.Close()
+		}
 		_ = routeMgr.Cleanup(context.Background())
 		_ = dev.Close()
 		return fmt.Errorf("tun route setup: %w", err)
@@ -94,6 +97,9 @@ func (t *TUN) Start(parent context.Context) error {
 	stack := NewPacketStack(t.opts, t.ch, t.planner, tunPacketWriter{dev: dev})
 	if err := stack.Start(ctx); err != nil {
 		cancel()
+		if t.opts.DNSProxy != nil {
+			_ = t.opts.DNSProxy.Close()
+		}
 		_ = routeMgr.Cleanup(context.Background())
 		_ = dev.Close()
 		return err
@@ -115,7 +121,11 @@ func (t *TUN) Start(parent context.Context) error {
 func (t *TUN) Stop() error {
 	t.mu.Lock()
 	if t.dev == nil {
+		dnsProxy := t.opts.DNSProxy
 		t.mu.Unlock()
+		if dnsProxy != nil {
+			return dnsProxy.Close()
+		}
 		return nil
 	}
 	cancel := t.cancel

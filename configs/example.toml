@@ -16,6 +16,10 @@ name = "local"
   [profile.api]
   listen = "127.0.0.1:9090"
 
+  [profile.dns]
+  enabled = false
+  timeout = "5s"
+
   [[profile.chain]]
   name = "default"
 
