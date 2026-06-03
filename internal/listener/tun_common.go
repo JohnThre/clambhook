@@ -22,18 +22,25 @@ type DNSProxy interface {
 	Close() error
 }
 
+// PolicyManager is a lifecycle hook for route planners with background state.
+type PolicyManager interface {
+	Start(context.Context)
+	Close() error
+}
+
 // TUNOptions tunes the device-wide TUN listener. The Linux implementation
 // owns the interface and route changes for the lifetime of the listener.
 type TUNOptions struct {
-	Name         string
-	ProfileName  string
-	MTU          int
-	Addresses    []string
-	Routes       []string
-	ExcludeCIDRs []string
-	ChainName    string
-	EventBus     *events.Bus
-	DNSProxy     DNSProxy
+	Name          string
+	ProfileName   string
+	MTU           int
+	Addresses     []string
+	Routes        []string
+	ExcludeCIDRs  []string
+	ChainName     string
+	EventBus      *events.Bus
+	DNSProxy      DNSProxy
+	PolicyManager PolicyManager
 }
 
 func (o TUNOptions) name() string {

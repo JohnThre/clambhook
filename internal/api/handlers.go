@@ -23,6 +23,8 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/status", s.handleStatus)
 	mux.HandleFunc("GET /api/v1/profiles", s.handleProfiles)
 	mux.HandleFunc("GET /api/v1/servers", s.handleServers)
+	mux.HandleFunc("GET /api/v1/policy-groups", s.handlePolicyGroups)
+	mux.HandleFunc("POST /api/v1/policy-groups/test", s.handlePolicyGroupTest)
 	mux.HandleFunc("GET /api/v1/rules", s.handleRules)
 	mux.HandleFunc("POST /api/v1/rules", s.handleCreateRule)
 	mux.HandleFunc("POST /api/v1/rules/test", s.handleTestRule)
@@ -123,23 +125,28 @@ func (s *Server) handleTestRule(w http.ResponseWriter, r *http.Request) {
 		Decision: decision,
 	}
 	if decision.Action == rules.ActionChain {
-		if ch := findChain(profile, decision.ChainName); ch != nil {
-			caps := chainCapabilities(*ch)
-			resp.Chain = &testRuleChain{
-				Name:         ch.Name,
-				HopCount:     len(ch.Servers),
-				Capabilities: caps,
-			}
-			resp.Hops = make([]serverPayload, 0, len(ch.Servers))
-			for _, server := range ch.Servers {
-				resp.Hops = append(resp.Hops, serverPayload{
-					Name:         server.Name,
-					Address:      server.Address,
-					Protocol:     server.Protocol,
-					Capabilities: protocol.CapabilitiesForProtocol(server.Protocol),
-				})
+		populateRuleTestChain(profile, decision.ChainName, &resp)
+	}
+	if decision.Action == rules.ActionGroup {
+		selected := ""
+		ok := false
+		var err error
+		if s.engine.Status().Profile == profile.Name {
+			selected, ok, err = s.engine.SelectedPolicyChain(decision.GroupName, network)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
 			}
 		}
+		if !ok || selected == "" {
+			selected, err = selectPolicyGroupChain(profile, decision.GroupName, network)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+		}
+		resp.Decision.ChainName = selected
+		populateRuleTestChain(profile, selected, &resp)
 	}
 	writeJSON(w, resp)
 }
@@ -229,6 +236,10 @@ func compileProfileRules(profile *config.Profile, defaultChainName string) (*rul
 	for _, ch := range profile.Chains {
 		known[ch.Name] = struct{}{}
 	}
+	knownGroups := make(map[string]struct{}, len(profile.PolicyGroups))
+	for _, group := range profile.PolicyGroups {
+		knownGroups[group.Name] = struct{}{}
+	}
 	ruleSet := make([]rules.Rule, 0, len(profile.Rules))
 	for _, rule := range profile.Rules {
 		ruleSet = append(ruleSet, rules.Rule{
@@ -242,7 +253,7 @@ func compileProfileRules(profile *config.Profile, defaultChainName string) (*rul
 			Networks:       rule.Networks,
 		})
 	}
-	return rules.Compile(ruleSet, defaultChainName, known)
+	return rules.Compile(ruleSet, defaultChainName, known, knownGroups)
 }
 
 func findChain(profile *config.Profile, name string) *config.ChainConfig {
@@ -252,6 +263,58 @@ func findChain(profile *config.Profile, name string) *config.ChainConfig {
 		}
 	}
 	return nil
+}
+
+func findPolicyGroup(profile *config.Profile, name string) *config.PolicyGroupConfig {
+	for i := range profile.PolicyGroups {
+		if profile.PolicyGroups[i].Name == name {
+			return &profile.PolicyGroups[i]
+		}
+	}
+	return nil
+}
+
+func selectPolicyGroupChain(profile *config.Profile, groupName, network string) (string, error) {
+	group := findPolicyGroup(profile, groupName)
+	if group == nil {
+		return "", fmt.Errorf("policy group %q not found", groupName)
+	}
+	for _, chainName := range group.Chains {
+		ch := findChain(profile, chainName)
+		if ch == nil {
+			continue
+		}
+		if network == "udp" && !chainCapabilities(*ch).UDP {
+			continue
+		}
+		return chainName, nil
+	}
+	if network == "udp" {
+		return "", fmt.Errorf("policy group %q has no UDP-capable member chains", groupName)
+	}
+	return "", fmt.Errorf("policy group %q has no member chains", groupName)
+}
+
+func populateRuleTestChain(profile *config.Profile, chainName string, resp *testRuleResponse) {
+	ch := findChain(profile, chainName)
+	if ch == nil || resp == nil {
+		return
+	}
+	caps := chainCapabilities(*ch)
+	resp.Chain = &testRuleChain{
+		Name:         ch.Name,
+		HopCount:     len(ch.Servers),
+		Capabilities: caps,
+	}
+	resp.Hops = make([]serverPayload, 0, len(ch.Servers))
+	for _, server := range ch.Servers {
+		resp.Hops = append(resp.Hops, serverPayload{
+			Name:         server.Name,
+			Address:      server.Address,
+			Protocol:     server.Protocol,
+			Capabilities: protocol.CapabilitiesForProtocol(server.Protocol),
+		})
+	}
 }
 
 func (s *Server) handleCreateRule(w http.ResponseWriter, r *http.Request) {

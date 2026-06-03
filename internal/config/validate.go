@@ -74,8 +74,12 @@ func validateProfile(p *Profile) []error {
 			}
 		}
 	}
+	groupNames := make(map[string]struct{}, len(p.PolicyGroups))
+	for i := range p.PolicyGroups {
+		errs = append(errs, validatePolicyGroup(profileName, i, &p.PolicyGroups[i], chainNames, groupNames)...)
+	}
 	for i := range p.Rules {
-		errs = append(errs, validateRule(profileName, i, &p.Rules[i], chainNames)...)
+		errs = append(errs, validateRule(profileName, i, &p.Rules[i], chainNames, groupNames)...)
 	}
 	subscriptionNames := make(map[string]struct{}, len(p.RuleSubscriptions))
 	for i := range p.RuleSubscriptions {
@@ -130,6 +134,76 @@ func validateProfile(p *Profile) []error {
 
 	if p.API.Listen != "" {
 		errs = append(errs, validateListenAddr(profileName, "api.listen", p.API.Listen))
+	}
+	return errs
+}
+
+func validatePolicyGroup(profileName string, idx int, group *PolicyGroupConfig, chainNames, groupNames map[string]struct{}) []error {
+	var errs []error
+	label := fmt.Sprintf("%s policy_group %d", profileName, idx)
+	name := strings.TrimSpace(group.Name)
+	if name == "" {
+		errs = append(errs, fmt.Errorf("%s: name is required", label))
+	} else if name != group.Name {
+		errs = append(errs, fmt.Errorf("%s name %q must not have surrounding whitespace", label, group.Name))
+	} else if _, exists := groupNames[name]; exists {
+		errs = append(errs, fmt.Errorf("%s name %q: duplicate policy group name", label, name))
+	} else {
+		groupNames[name] = struct{}{}
+	}
+
+	groupType := strings.ToLower(strings.TrimSpace(group.Type))
+	if groupType == "" {
+		errs = append(errs, fmt.Errorf("%s: type is required", label))
+	} else if groupType != group.Type {
+		errs = append(errs, fmt.Errorf("%s type %q must be lowercase without surrounding whitespace", label, group.Type))
+	} else if groupType != "url-test" {
+		errs = append(errs, fmt.Errorf("%s type %q must be url-test", label, group.Type))
+	}
+
+	if len(group.Chains) == 0 {
+		errs = append(errs, fmt.Errorf("%s chains: at least one chain is required", label))
+	}
+	seenChains := make(map[string]struct{}, len(group.Chains))
+	for j, raw := range group.Chains {
+		name := strings.TrimSpace(raw)
+		if name == "" {
+			errs = append(errs, fmt.Errorf("%s chains[%d] must not be empty", label, j))
+			continue
+		}
+		if name != raw {
+			errs = append(errs, fmt.Errorf("%s chains[%d] %q must not have surrounding whitespace", label, j, raw))
+			continue
+		}
+		if _, ok := chainNames[name]; !ok {
+			errs = append(errs, fmt.Errorf("%s chains[%d] references unknown chain %q", label, j, name))
+			continue
+		}
+		if _, exists := seenChains[name]; exists {
+			errs = append(errs, fmt.Errorf("%s chains[%d] duplicates chain %q", label, j, name))
+			continue
+		}
+		seenChains[name] = struct{}{}
+	}
+
+	if group.TestURL != "" {
+		rawURL := strings.TrimSpace(group.TestURL)
+		if rawURL != group.TestURL {
+			errs = append(errs, fmt.Errorf("%s test_url %q must not have surrounding whitespace", label, group.TestURL))
+		} else {
+			parsed, err := url.Parse(rawURL)
+			if err != nil || parsed.Host == "" {
+				errs = append(errs, fmt.Errorf("%s test_url %q must be a valid http or https URL", label, rawURL))
+			} else if parsed.Scheme != "http" && parsed.Scheme != "https" {
+				errs = append(errs, fmt.Errorf("%s test_url %q must use http or https", label, rawURL))
+			}
+		}
+	}
+	if group.Interval < 0 {
+		errs = append(errs, fmt.Errorf("%s interval must be >= 0", label))
+	}
+	if group.Timeout < 0 {
+		errs = append(errs, fmt.Errorf("%s timeout must be >= 0", label))
 	}
 	return errs
 }
@@ -300,7 +374,7 @@ func validateRuleSubscription(profileName string, idx int, sub *RuleSubscription
 	return errs
 }
 
-func validateRule(profileName string, idx int, rule *RuleConfig, chainNames map[string]struct{}) []error {
+func validateRule(profileName string, idx int, rule *RuleConfig, chainNames, groupNames map[string]struct{}) []error {
 	var errs []error
 	label := fmt.Sprintf("%s rule %d", profileName, idx)
 	if strings.TrimSpace(rule.Name) == "" {
@@ -324,8 +398,15 @@ func validateRule(profileName string, idx int, rule *RuleConfig, chainNames map[
 			} else if _, ok := chainNames[name]; !ok {
 				errs = append(errs, fmt.Errorf("%s action references unknown chain %q", label, name))
 			}
+		case strings.HasPrefix(lower, "group:"):
+			name := strings.TrimSpace(action[len("group:"):])
+			if name == "" {
+				errs = append(errs, fmt.Errorf("%s action requires group:<name>", label))
+			} else if _, ok := groupNames[name]; !ok {
+				errs = append(errs, fmt.Errorf("%s action references unknown policy group %q", label, name))
+			}
 		default:
-			errs = append(errs, fmt.Errorf("%s action %q must be direct, block, reject, or chain:<name>", label, action))
+			errs = append(errs, fmt.Errorf("%s action %q must be direct, block, reject, chain:<name>, or group:<name>", label, action))
 		}
 	}
 	for _, field := range []struct {

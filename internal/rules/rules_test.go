@@ -6,7 +6,7 @@ func TestDecideFirstMatchingRule(t *testing.T) {
 	engine, err := Compile([]Rule{
 		{Name: "ads", Action: ActionBlock, DomainSuffixes: []string{"ads.example.com"}},
 		{Name: "corp", Action: "chain:corp", Domains: []string{"api.example.com"}, Ports: []int{443}},
-	}, "default", map[string]struct{}{"default": {}, "corp": {}})
+	}, "default", map[string]struct{}{"default": {}, "corp": {}}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -23,7 +23,7 @@ func TestDecideFirstMatchingRule(t *testing.T) {
 }
 
 func TestDecideFallsBackToDefaultChain(t *testing.T) {
-	engine, err := Compile(nil, "default", map[string]struct{}{"default": {}})
+	engine, err := Compile(nil, "default", map[string]struct{}{"default": {}}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -35,7 +35,7 @@ func TestDecideFallsBackToDefaultChain(t *testing.T) {
 }
 
 func TestCompileRejectsUnknownChain(t *testing.T) {
-	_, err := Compile([]Rule{{Name: "missing", Action: "chain:missing"}}, "default", map[string]struct{}{"default": {}})
+	_, err := Compile([]Rule{{Name: "missing", Action: "chain:missing"}}, "default", map[string]struct{}{"default": {}}, nil)
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -44,7 +44,7 @@ func TestCompileRejectsUnknownChain(t *testing.T) {
 func TestCIDRAndNetworkMatch(t *testing.T) {
 	engine, err := Compile([]Rule{
 		{Name: "local-dns", Action: ActionDirect, CIDRs: []string{"10.0.0.0/8"}, Ports: []int{53}, Networks: []string{"udp"}},
-	}, "default", map[string]struct{}{"default": {}})
+	}, "default", map[string]struct{}{"default": {}}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -57,5 +57,26 @@ func TestCIDRAndNetworkMatch(t *testing.T) {
 	got = engine.Decide("tcp", "10.1.2.3:53")
 	if !got.Default {
 		t.Fatalf("decision = %+v, want default for TCP", got)
+	}
+}
+
+func TestDecidePolicyGroupRule(t *testing.T) {
+	engine, err := Compile([]Rule{
+		{Name: "auto", Action: "group:auto", DomainSuffixes: []string{"example.com"}},
+	}, "default", map[string]struct{}{"default": {}}, map[string]struct{}{"auto": {}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got := engine.Decide("tcp", "api.example.com:443")
+	if got.RuleName != "auto" || got.Action != ActionGroup || got.GroupName != "auto" || got.ChainName != "" {
+		t.Fatalf("decision = %+v, want auto group", got)
+	}
+}
+
+func TestCompileRejectsUnknownPolicyGroup(t *testing.T) {
+	_, err := Compile([]Rule{{Name: "missing", Action: "group:missing"}}, "default", map[string]struct{}{"default": {}}, nil)
+	if err == nil {
+		t.Fatal("expected error")
 	}
 }

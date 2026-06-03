@@ -87,6 +87,7 @@ type ConnectionDialingData struct {
 	RuleName    string         `json:"rule_name,omitempty"`
 	RuleAction  string         `json:"rule_action,omitempty"`
 	ChainName   string         `json:"chain_name,omitempty"`
+	GroupName   string         `json:"group_name,omitempty"`
 	Default     bool           `json:"default,omitempty"`
 	DecisionNs  int64          `json:"decision_ns,omitempty"`
 	Hops        []HopInfo      `json:"hops"`
@@ -121,6 +122,7 @@ type RuleDecisionData struct {
 	RuleName   string `json:"rule_name,omitempty"`
 	Action     string `json:"action"`
 	ChainName  string `json:"chain_name,omitempty"`
+	GroupName  string `json:"group_name,omitempty"`
 	Target     string `json:"target"`
 	TargetHost string `json:"target_host,omitempty"`
 	TargetPort string `json:"target_port,omitempty"`

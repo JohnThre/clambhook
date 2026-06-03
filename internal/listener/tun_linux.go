@@ -88,6 +88,9 @@ func (t *TUN) Start(parent context.Context) error {
 		if t.opts.DNSProxy != nil {
 			_ = t.opts.DNSProxy.Close()
 		}
+		if t.opts.PolicyManager != nil {
+			_ = t.opts.PolicyManager.Close()
+		}
 		_ = routeMgr.Cleanup(context.Background())
 		_ = dev.Close()
 		return fmt.Errorf("tun route setup: %w", err)
@@ -99,6 +102,9 @@ func (t *TUN) Start(parent context.Context) error {
 		cancel()
 		if t.opts.DNSProxy != nil {
 			_ = t.opts.DNSProxy.Close()
+		}
+		if t.opts.PolicyManager != nil {
+			_ = t.opts.PolicyManager.Close()
 		}
 		_ = routeMgr.Cleanup(context.Background())
 		_ = dev.Close()
@@ -122,11 +128,20 @@ func (t *TUN) Stop() error {
 	t.mu.Lock()
 	if t.dev == nil {
 		dnsProxy := t.opts.DNSProxy
+		policyManager := t.opts.PolicyManager
 		t.mu.Unlock()
+		var errs []error
 		if dnsProxy != nil {
-			return dnsProxy.Close()
+			if err := dnsProxy.Close(); err != nil {
+				errs = append(errs, err)
+			}
 		}
-		return nil
+		if policyManager != nil {
+			if err := policyManager.Close(); err != nil {
+				errs = append(errs, err)
+			}
+		}
+		return errors.Join(errs...)
 	}
 	cancel := t.cancel
 	dev := t.dev

@@ -30,7 +30,7 @@ func TestBuildListenersIncludesEnabledTUN(t *testing.T) {
 		}},
 	}
 
-	listeners, chains, err := buildListeners(&profile, nil)
+	listeners, chains, policies, err := buildListeners(&profile, nil)
 	if !listener.TUNSupported() {
 		if err == nil {
 			t.Fatal("buildListeners returned nil error for unsupported TUN platform")
@@ -43,6 +43,8 @@ func TestBuildListenersIncludesEnabledTUN(t *testing.T) {
 	if err != nil {
 		t.Fatalf("buildListeners: %v", err)
 	}
+	t.Cleanup(func() { _ = policies.Close() })
+	t.Cleanup(func() { _ = closeChains(chains) })
 	if len(chains) != 1 {
 		t.Fatalf("len(chains) = %d, want 1", len(chains))
 	}

@@ -97,6 +97,7 @@ type Connection struct {
 	Listener    Listener        `json:"listener"`
 	ClientAddr  string          `json:"client_addr,omitempty"`
 	ChainName   string          `json:"chain_name,omitempty"`
+	GroupName   string          `json:"group_name,omitempty"`
 	RuleName    string          `json:"rule_name,omitempty"`
 	RuleAction  string          `json:"rule_action,omitempty"`
 	Default     bool            `json:"default,omitempty"`
@@ -709,7 +710,7 @@ func actionFamily(action string) string {
 func connectionMatchesQuery(conn Connection, query string) bool {
 	fields := []string{
 		conn.Profile, conn.Target, conn.TargetHost, conn.TargetPort, conn.RuleName,
-		conn.RuleAction, conn.ChainName, conn.Application, conn.Network,
+		conn.RuleAction, conn.ChainName, conn.GroupName, conn.Application, conn.Network,
 		conn.Listener.Protocol, conn.Listener.Addr, conn.ClientAddr,
 		conn.Geo.Country, conn.Geo.CountryCode, conn.Geo.City, conn.CloseReason,
 	}
@@ -820,11 +821,15 @@ func (s *Store) applyDialingLocked(ev events.Event) {
 	c.Application = data.Application
 	c.RuleName = data.RuleName
 	c.RuleAction = data.RuleAction
+	c.GroupName = data.GroupName
 	c.Default = data.Default
 	c.DecisionNs = data.DecisionNs
 	applyVisibility(c, data.Visibility)
 	if data.ChainName != "" {
 		c.ChainName = data.ChainName
+	}
+	if data.GroupName != "" {
+		c.GroupName = data.GroupName
 	}
 	if c.TargetHost == "" || c.TargetPort == "" {
 		host, port := splitTarget(data.Target)
@@ -870,6 +875,7 @@ func (s *Store) applyRuleDecisionLocked(ev events.Event) {
 	c := s.ensureConnLocked(data.ConnID, ev.TsNs)
 	c.RuleName = data.RuleName
 	c.RuleAction = data.Action
+	c.GroupName = data.GroupName
 	c.Default = data.Default
 	c.DecisionNs = data.ElapsedNs
 	if data.Profile != "" {
