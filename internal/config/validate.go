@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"net/url"
 	"strconv"
 	"strings"
 )
@@ -76,6 +77,10 @@ func validateProfile(p *Profile) []error {
 	for i := range p.Rules {
 		errs = append(errs, validateRule(profileName, i, &p.Rules[i], chainNames)...)
 	}
+	subscriptionNames := make(map[string]struct{}, len(p.RuleSubscriptions))
+	for i := range p.RuleSubscriptions {
+		errs = append(errs, validateRuleSubscription(profileName, i, &p.RuleSubscriptions[i], subscriptionNames)...)
+	}
 
 	listen := p.Listen
 	if listen.SOCKS5 != "" {
@@ -124,6 +129,74 @@ func validateProfile(p *Profile) []error {
 
 	if p.API.Listen != "" {
 		errs = append(errs, validateListenAddr(profileName, "api.listen", p.API.Listen))
+	}
+	return errs
+}
+
+func validateRuleSubscription(profileName string, idx int, sub *RuleSubscriptionConfig, names map[string]struct{}) []error {
+	var errs []error
+	label := fmt.Sprintf("%s rule_subscription %d", profileName, idx)
+	name := strings.TrimSpace(sub.Name)
+	if name == "" {
+		errs = append(errs, fmt.Errorf("%s: name is required", label))
+	} else if name != sub.Name {
+		errs = append(errs, fmt.Errorf("%s name %q must not have surrounding whitespace", label, sub.Name))
+	} else if _, exists := names[name]; exists {
+		errs = append(errs, fmt.Errorf("%s name %q: duplicate rule subscription name", label, name))
+	} else {
+		names[name] = struct{}{}
+	}
+
+	rawURL := strings.TrimSpace(sub.URL)
+	if rawURL == "" {
+		errs = append(errs, fmt.Errorf("%s: url is required", label))
+	} else if rawURL != sub.URL {
+		errs = append(errs, fmt.Errorf("%s url %q must not have surrounding whitespace", label, sub.URL))
+	} else {
+		parsed, err := url.Parse(rawURL)
+		if err != nil || parsed.Host == "" {
+			errs = append(errs, fmt.Errorf("%s url %q must be a valid http or https URL", label, rawURL))
+		} else if parsed.Scheme != "http" && parsed.Scheme != "https" {
+			errs = append(errs, fmt.Errorf("%s url %q must use http or https", label, rawURL))
+		}
+	}
+
+	format := strings.ToLower(strings.TrimSpace(sub.Format))
+	if format != sub.Format && sub.Format != "" {
+		errs = append(errs, fmt.Errorf("%s format %q must be lowercase without surrounding whitespace", label, sub.Format))
+	} else {
+		switch format {
+		case "", "auto", "plain", "hosts", "adblock":
+		default:
+			errs = append(errs, fmt.Errorf("%s format %q must be auto, plain, hosts, or adblock", label, sub.Format))
+		}
+	}
+
+	action := strings.ToLower(strings.TrimSpace(sub.Action))
+	if action != sub.Action && sub.Action != "" {
+		errs = append(errs, fmt.Errorf("%s action %q must be lowercase without surrounding whitespace", label, sub.Action))
+	} else {
+		switch action {
+		case "", "block", "reject":
+		default:
+			errs = append(errs, fmt.Errorf("%s action %q must be block or reject", label, sub.Action))
+		}
+	}
+
+	for j, raw := range sub.Networks {
+		if strings.TrimSpace(raw) == "" {
+			errs = append(errs, fmt.Errorf("%s networks[%d] must not be empty", label, j))
+			continue
+		}
+		if strings.TrimSpace(raw) != raw {
+			errs = append(errs, fmt.Errorf("%s networks[%d] %q must not have surrounding whitespace", label, j, raw))
+			continue
+		}
+		switch strings.ToLower(raw) {
+		case "tcp", "udp":
+		default:
+			errs = append(errs, fmt.Errorf("%s networks[%d] %q must be tcp or udp", label, j, raw))
+		}
 	}
 	return errs
 }

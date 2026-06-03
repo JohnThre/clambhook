@@ -151,6 +151,57 @@ name = "default"
 	}
 }
 
+func TestLoadRuleSubscriptions(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+	data := []byte(`
+active = "default"
+
+[[profile]]
+name = "default"
+
+  [[profile.chain]]
+  name = "default"
+
+    [[profile.chain.server]]
+    name = "exit"
+    address = "203.0.113.10:443"
+    protocol = "trojan"
+
+      [profile.chain.server.settings]
+      password = "secret"
+
+  [[profile.rule_subscription]]
+  name = "ads"
+  url = "https://lists.example.invalid/ads.txt"
+  format = "adblock"
+  action = "reject"
+  networks = ["tcp"]
+`)
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Path != path {
+		t.Fatalf("Path = %q, want %q", cfg.Path, path)
+	}
+	profile, err := cfg.ActiveProfile()
+	if err != nil {
+		t.Fatalf("ActiveProfile: %v", err)
+	}
+	if len(profile.RuleSubscriptions) != 1 {
+		t.Fatalf("rule subscriptions = %d, want 1", len(profile.RuleSubscriptions))
+	}
+	sub := profile.RuleSubscriptions[0]
+	if sub.Name != "ads" || sub.Format != "adblock" || sub.Action != "reject" || sub.Networks[0] != "tcp" {
+		t.Fatalf("subscription = %+v", sub)
+	}
+}
+
 func TestValidateRejectsBadRuleChainReference(t *testing.T) {
 	cfg := validConfig()
 	cfg.Profiles[0].Rules = []RuleConfig{{Name: "missing", Action: "chain:missing"}}
@@ -158,6 +209,26 @@ func TestValidateRejectsBadRuleChainReference(t *testing.T) {
 	err := cfg.Validate()
 	if err == nil || !strings.Contains(err.Error(), `action references unknown chain "missing"`) {
 		t.Fatalf("Validate error = %v, want unknown rule chain reference", err)
+	}
+}
+
+func TestValidateRejectsBadRuleSubscription(t *testing.T) {
+	cfg := validConfig()
+	cfg.Profiles[0].RuleSubscriptions = []RuleSubscriptionConfig{{
+		Name:   "ads",
+		URL:    "file:///tmp/ads.txt",
+		Format: "yaml",
+		Action: "direct",
+	}}
+
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("Validate error = nil, want rule subscription errors")
+	}
+	for _, want := range []string{"valid http or https URL", "format", "action"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("Validate error = %v, want %q", err, want)
+		}
 	}
 }
 

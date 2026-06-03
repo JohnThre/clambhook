@@ -2,12 +2,15 @@ package mobile
 
 import (
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/JohnThre/clambhook/internal/config"
+	"github.com/JohnThre/clambhook/internal/subscription"
 )
 
 func TestTunnelNetworkSettingsJSONAppliesMobileDefaults(t *testing.T) {
@@ -139,6 +142,53 @@ func TestTunnelConfigDashboardAndRuleReplacement(t *testing.T) {
 	}
 	if payload.Status.Running {
 		t.Fatalf("dashboard status running = true, want false")
+	}
+}
+
+func TestRuleSubscriptionMobileBridgeRefreshesAndReportsGeneratedRules(t *testing.T) {
+	source := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("ads.example.com\n"))
+	}))
+	defer source.Close()
+
+	path := writeTunnelTestConfig(t)
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.Profiles[0].RuleSubscriptions = []config.RuleSubscriptionConfig{{
+		Name: "ads",
+		URL:  source.URL,
+	}}
+	if _, err := config.WriteAtomicWithBackup(path, cfg); err != nil {
+		t.Fatalf("write subscription config: %v", err)
+	}
+
+	rawRefresh, err := RefreshRuleSubscriptionsJSON(path, "", `[]`)
+	if err != nil {
+		t.Fatalf("RefreshRuleSubscriptionsJSON: %v", err)
+	}
+	var refresh subscription.StatusPayload
+	if err := json.Unmarshal([]byte(rawRefresh), &refresh); err != nil {
+		t.Fatal(err)
+	}
+	if len(refresh.Subscriptions) != 1 || refresh.Subscriptions[0].DomainCount != 1 || refresh.Subscriptions[0].LastError != "" {
+		t.Fatalf("refresh = %+v", refresh)
+	}
+
+	rawDashboard, err := TunnelConfigDashboardJSON(path)
+	if err != nil {
+		t.Fatalf("TunnelConfigDashboardJSON: %v", err)
+	}
+	var dashboard dashboardPayload
+	if err := json.Unmarshal([]byte(rawDashboard), &dashboard); err != nil {
+		t.Fatal(err)
+	}
+	if len(dashboard.Rules.GeneratedRules) != 1 || dashboard.Rules.GeneratedRules[0].Name != "subscription:ads:domains" {
+		t.Fatalf("generated rules = %#v", dashboard.Rules.GeneratedRules)
+	}
+	if len(dashboard.RuleSubscriptions.Subscriptions) != 1 || dashboard.RuleSubscriptions.Subscriptions[0].Name != "ads" {
+		t.Fatalf("rule subscriptions = %+v", dashboard.RuleSubscriptions)
 	}
 }
 

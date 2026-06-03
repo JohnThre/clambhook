@@ -11,6 +11,7 @@ import (
 
 // Config is the top-level configuration.
 type Config struct {
+	Path     string        `toml:"-" json:"-"`
 	Active   string        `toml:"active"`
 	Profiles []Profile     `toml:"profile"`
 	Geo      GeoConfig     `toml:"geo"`
@@ -49,11 +50,12 @@ func DefaultTrafficConfig() TrafficConfig {
 
 // Profile represents a named configuration profile.
 type Profile struct {
-	Name   string        `toml:"name"`
-	Listen ListenConfig  `toml:"listen"`
-	API    APIConfig     `toml:"api"`
-	Chains []ChainConfig `toml:"chain"`
-	Rules  []RuleConfig  `toml:"rule"`
+	Name              string                   `toml:"name"`
+	Listen            ListenConfig             `toml:"listen"`
+	API               APIConfig                `toml:"api"`
+	Chains            []ChainConfig            `toml:"chain"`
+	Rules             []RuleConfig             `toml:"rule"`
+	RuleSubscriptions []RuleSubscriptionConfig `toml:"rule_subscription"`
 }
 
 // ChainConfig defines a proxy chain.
@@ -81,6 +83,17 @@ type RuleConfig struct {
 	CIDRs          []string `toml:"cidrs" json:"cidrs,omitempty"`
 	Ports          []int    `toml:"ports" json:"ports,omitempty"`
 	Networks       []string `toml:"networks" json:"networks,omitempty"`
+}
+
+// RuleSubscriptionConfig defines one cached blocklist subscription. The
+// subscription expands to generated block/reject rules at runtime.
+type RuleSubscriptionConfig struct {
+	Name     string   `toml:"name" json:"name"`
+	URL      string   `toml:"url" json:"url"`
+	Format   string   `toml:"format" json:"format,omitempty"`
+	Action   string   `toml:"action" json:"action,omitempty"`
+	Networks []string `toml:"networks" json:"networks,omitempty"`
+	Disabled bool     `toml:"disabled" json:"disabled,omitempty"`
 }
 
 // ListenConfig defines local proxy listener addresses.
@@ -167,6 +180,7 @@ func Load(path string) (*Config, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("validate config: %w", err)
 	}
+	cfg.Path = path
 
 	// Resolve a relative geo.database path against the config file's
 	// directory — matches how users intuitively think about TOML paths.
