@@ -293,6 +293,10 @@ final class TunnelDashboardClient: ClambhookDashboardProviding {
         self.controller = controller
     }
 
+    func dashboard() async throws -> TunnelDashboardPayload {
+        try await controller.dashboard()
+    }
+
     func status() async throws -> StatusPayload {
         try await controller.dashboard().status
     }

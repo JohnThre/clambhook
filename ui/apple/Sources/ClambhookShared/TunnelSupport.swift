@@ -9,6 +9,10 @@ active = "default"
 [[profile]]
 name = "default"
 
+  [profile.listen]
+  http = "127.0.0.1:8080"
+  http_chain = "proxy"
+
   [profile.listen.tun]
   enabled = true
   mtu = 1500
@@ -78,6 +82,8 @@ public struct TunnelNetworkSettingsPayload: Codable, Equatable, Sendable {
     public var ipv6: [TunnelIPAddressPayload]
     public var includedRoutes: [String]
     public var excludedRoutes: [String]
+    public var httpProxy: TunnelProxyPayload?
+    public var httpsProxy: TunnelProxyPayload?
 
     enum CodingKeys: String, CodingKey {
         case mtu
@@ -86,6 +92,8 @@ public struct TunnelNetworkSettingsPayload: Codable, Equatable, Sendable {
         case ipv6
         case includedRoutes = "included_routes"
         case excludedRoutes = "excluded_routes"
+        case httpProxy = "http_proxy"
+        case httpsProxy = "https_proxy"
     }
 
     public init(
@@ -94,7 +102,9 @@ public struct TunnelNetworkSettingsPayload: Codable, Equatable, Sendable {
         ipv4: [TunnelIPAddressPayload] = [],
         ipv6: [TunnelIPAddressPayload] = [],
         includedRoutes: [String] = [],
-        excludedRoutes: [String] = []
+        excludedRoutes: [String] = [],
+        httpProxy: TunnelProxyPayload? = nil,
+        httpsProxy: TunnelProxyPayload? = nil
     ) {
         self.mtu = mtu
         self.remoteAddress = remoteAddress
@@ -102,6 +112,18 @@ public struct TunnelNetworkSettingsPayload: Codable, Equatable, Sendable {
         self.ipv6 = ipv6
         self.includedRoutes = includedRoutes
         self.excludedRoutes = excludedRoutes
+        self.httpProxy = httpProxy
+        self.httpsProxy = httpsProxy
+    }
+}
+
+public struct TunnelProxyPayload: Codable, Equatable, Sendable {
+    public var host: String
+    public var port: Int
+
+    public init(host: String = "", port: Int = 0) {
+        self.host = host
+        self.port = port
     }
 }
 

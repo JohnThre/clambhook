@@ -186,6 +186,25 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             settings.ipv6Settings = ipv6
         }
 
+        if payload.httpProxy != nil || payload.httpsProxy != nil {
+            let proxy = NEProxySettings()
+            if let httpProxy = payload.httpProxy, httpProxy.port > 0 {
+                proxy.httpEnabled = true
+                proxy.httpServer = NEProxyServer(
+                    address: httpProxy.host,
+                    port: httpProxy.port
+                )
+            }
+            if let httpsProxy = payload.httpsProxy, httpsProxy.port > 0 {
+                proxy.httpsEnabled = true
+                proxy.httpsServer = NEProxyServer(
+                    address: httpsProxy.host,
+                    port: httpsProxy.port
+                )
+            }
+            settings.proxySettings = proxy
+        }
+
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             setTunnelNetworkSettings(settings) { error in
                 if let error {

@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		0160644C679581AF294E3747 /* IOSHTTPCaptureView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F32595BC328927A695355CA /* IOSHTTPCaptureView.swift */; };
 		032EB9CFFF8103097D695F50 /* VisionRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB084852D105E104FA1A2C08 /* VisionRootView.swift */; };
 		03C961B215EC8EF6A66E6DD7 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 71619AA1E2C9424F8D0CAE82 /* Assets.xcassets */; };
 		069007F5D0A7675880D40F9B /* libsodium.26.dylib in CopyFiles */ = {isa = PBXBuildFile; fileRef = 0A1CC5DD0620471B3CCA85A1 /* libsodium.26.dylib */; };
@@ -157,6 +158,7 @@
 		8B7ECD0E4E9DE7440023C997 /* MacMenuBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacMenuBarView.swift; sourceTree = "<group>"; };
 		8C0F701E4D02A594C2F5744B /* ClambhookPacketTunnel.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = ClambhookPacketTunnel.entitlements; sourceTree = "<group>"; };
 		8E7E93A4404814358F6C95DB /* ClambhookWidgetBundle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClambhookWidgetBundle.swift; sourceTree = "<group>"; };
+		8F32595BC328927A695355CA /* IOSHTTPCaptureView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IOSHTTPCaptureView.swift; sourceTree = "<group>"; };
 		903292C941E24F9681AB680C /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		962836E5FF857FC15720D328 /* ClambhookVision.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = ClambhookVision.entitlements; sourceTree = "<group>"; };
 		9A9A34557D90A7B2D48D34A7 /* ClambhookMacWidgetExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = ClambhookMacWidgetExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -349,6 +351,7 @@
 				27D701BE1DB83578C6553267 /* ClambhookIOSApp.swift */,
 				25BA7CB2A27B7FD25CFC4221 /* Info.plist */,
 				8991E030330B6AD4F39E430B /* IOSDashboardComponents.swift */,
+				8F32595BC328927A695355CA /* IOSHTTPCaptureView.swift */,
 				58D7CB0093B99DCD8627031D /* IOSOnboardingView.swift */,
 				6DD8C81B5516A352C3F1E355 /* IOSOverviewView.swift */,
 				DEE96F423A4757F386C66843 /* IOSProfilesView.swift */,
@@ -595,6 +598,7 @@
 				843EC58434DD9B6257CF4882 /* ClambhookIOSApp.swift in Sources */,
 				75A5F3A42D0B3DD6CDDC363C /* DashboardViews.swift in Sources */,
 				8A37F33697555110135B8D8A /* IOSDashboardComponents.swift in Sources */,
+				0160644C679581AF294E3747 /* IOSHTTPCaptureView.swift in Sources */,
 				C81F377D8DBD88BBFAD5D8C4 /* IOSOnboardingView.swift in Sources */,
 				5DB2155ED8081D6C22C0BCD5 /* IOSOverviewView.swift in Sources */,
 				827B70F31D27A1CF0978E40E /* IOSProfilesView.swift in Sources */,
