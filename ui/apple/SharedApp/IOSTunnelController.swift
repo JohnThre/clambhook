@@ -43,6 +43,7 @@ final class IOSTunnelController: ObservableObject {
     }
 
     func startTunnel() async throws {
+        try MobileLicenseRuntimeGuard.requireFeatureAccess(.tunnelRouting)
         _ = try TunnelConfigStore.loadOrCreateConfig()
         #if canImport(ClambhookMobile)
         try mobileBool {
