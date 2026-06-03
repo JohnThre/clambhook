@@ -9,7 +9,7 @@ public let maxRefreshIntervalSeconds: Double = 30
 public let minLogRetention = 50
 public let maxLogRetention = 500
 public let vpnDataUseDisclosure = """
-ClambHook creates a local VPN configuration to route device network traffic according to your profiles and rules. Profile data, connection metadata, logs, and diagnostics stay on this device unless you export them. ClambHook does not sell, use, or disclose VPN traffic data to third parties. Apple diagnostics may include crash and performance data if enabled.
+ClambHook creates a local VPN configuration to route device network traffic according to your profiles and rules. Inspection is metadata-only: connection targets, routing decisions, byte counts, timing, and hop status. ClambHook does not install a certificate authority, perform TLS MITM, store request or response bodies, or export HAR files. Profile data, connection metadata, logs, and diagnostics stay on this device unless you export them. ClambHook does not sell, use, or disclose VPN traffic data to third parties. Apple diagnostics may include crash and performance data if enabled.
 """
 
 public struct AppSettings: Codable, Equatable, Sendable {

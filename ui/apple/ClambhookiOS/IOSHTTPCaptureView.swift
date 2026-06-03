@@ -13,7 +13,7 @@ struct IOSHTTPCaptureView: View {
             }
 
             Section {
-                Picker("Capture Filter", selection: $filter) {
+                Picker("Metadata Filter", selection: $filter) {
                     ForEach(CaptureFilterKind.allCases) { filter in
                         Text(title(for: filter)).tag(filter)
                     }
@@ -21,12 +21,12 @@ struct IOSHTTPCaptureView: View {
                 .pickerStyle(.segmented)
             }
 
-            Section("Requests") {
+            Section("HTTP Metadata") {
                 if filteredEntries.isEmpty {
                     ContentUnavailableView(
-                        "No matching HTTP activity",
+                        "No matching HTTP metadata",
                         systemImage: "network",
-                        description: Text("HTTP proxy metadata appears here when traffic exposes HTTP visibility.")
+                        description: Text("HTTP and HTTPS CONNECT metadata appears here when traffic exposes HTTP visibility.")
                     )
                 } else {
                     ForEach(filteredEntries) { entry in
@@ -48,8 +48,8 @@ struct IOSHTTPCaptureView: View {
                         traffic: model.dashboard.traffic,
                         entries: filteredEntries
                     ),
-                    subject: Text("ClambHook HTTP capture export"),
-                    message: Text("Local HTTP capture export.")
+                    subject: Text("ClambHook HTTP metadata export"),
+                    message: Text("Local metadata-only export.")
                 ) {
                     Label("Export", systemImage: "square.and.arrow.up")
                 }
@@ -73,9 +73,7 @@ struct IOSHTTPCaptureView: View {
         case .all: return "All"
         case .http: return "HTTP"
         case .https: return "HTTPS"
-        case .sslReady: return "SSL"
-        case .sslUnavailable: return "Meta"
-        case .bodies: return "Bodies"
+        case .metadataOnly: return "Metadata"
         }
     }
 }
@@ -89,7 +87,6 @@ private struct IOSCaptureReadinessView: View {
                 IOSMetric(title: "Requests", value: "\(entries.count)", systemImage: "list.bullet.rectangle"),
                 IOSMetric(title: "HTTP", value: "\(entries.filter { $0.scheme.lowercased() == "http" }.count)", systemImage: "globe"),
                 IOSMetric(title: "HTTPS", value: "\(entries.filter { $0.scheme.lowercased() == "https" }.count)", systemImage: "lock"),
-                IOSMetric(title: "Bodies", value: "\(entries.filter { $0.hasBodyPreview }.count)", systemImage: "doc.text.magnifyingglass"),
             ])
             Text(CaptureSupport.captureNote)
                 .font(.caption)
@@ -153,7 +150,7 @@ private struct IOSHTTPCaptureDetailView: View {
                 LabeledContent("Port", value: emptyDash(entry.port))
                 LabeledContent("Path", value: emptyDash(entry.path))
                 LabeledContent("State", value: emptyDash(entry.state).capitalized)
-                LabeledContent("SSL", value: entry.sslState.replacingOccurrences(of: "_", with: " "))
+                LabeledContent("Visibility", value: entry.sslState.replacingOccurrences(of: "_", with: " "))
             }
 
             Section("Route") {
@@ -161,9 +158,6 @@ private struct IOSHTTPCaptureDetailView: View {
                 LabeledContent("Rule", value: emptyDash(entry.ruleName))
                 LabeledContent("Chain", value: emptyDash(entry.chainName))
             }
-
-            IOSCaptureBodySection(title: "Request Body", bodyPayload: entry.requestBody)
-            IOSCaptureBodySection(title: "Response Body", bodyPayload: entry.responseBody)
 
             Section("Data") {
                 LabeledContent("Down", value: formatBytes(entry.rxTotal))
@@ -181,34 +175,11 @@ private struct IOSHTTPCaptureDetailView: View {
                         traffic: model.dashboard.traffic,
                         entries: [entry]
                     ),
-                    subject: Text("ClambHook HTTP capture"),
-                    message: Text("Local HTTP capture export.")
+                    subject: Text("ClambHook HTTP metadata"),
+                    message: Text("Local metadata-only export.")
                 ) {
                     Image(systemName: "square.and.arrow.up")
                 }
-            }
-        }
-    }
-}
-
-private struct IOSCaptureBodySection: View {
-    var title: String
-    var bodyPayload: CaptureBodyPayload
-
-    var body: some View {
-        Section(title) {
-            if bodyPayload.available {
-                if !bodyPayload.contentType.isEmpty {
-                    LabeledContent("Type", value: bodyPayload.contentType)
-                }
-                LabeledContent("Bytes", value: formatBytes(bodyPayload.byteCount))
-                Text(bodyPayload.preview)
-                    .font(.system(.caption, design: .monospaced))
-                    .textSelection(.enabled)
-            } else {
-                Label(bodyPayload.reason, systemImage: "lock.doc")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
             }
         }
     }

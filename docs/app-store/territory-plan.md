@@ -28,7 +28,7 @@ Territory availability: ClambHook v1 is submitted with App Store availability se
 
 Before adding any country or region in App Store Connect:
 
-- Confirm whether local law permits this VPN/network client to be offered in that country or region.
+- Confirm whether local law permits this private VPN/proxy router with metadata inspection to be offered in that country or region.
 - Confirm whether a VPN, telecom, cybersecurity, encryption, or similar license is required.
 - If a license is required, obtain and verify it before selecting the territory.
 - Record the clearance result, reviewer, review date, and source materials before changing App Store Connect availability.
