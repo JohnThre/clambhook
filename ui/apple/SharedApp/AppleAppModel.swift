@@ -348,6 +348,11 @@ final class AppleAppModel: ObservableObject {
     }
 
     func refreshDeveloperCaptureNow() async {
+        #if os(iOS)
+        developerStatus = DeveloperStatusPayload()
+        developerEntries = []
+        return
+        #else
         guard let provider = dashboardAPI as? DeveloperCaptureProviding else {
             developerStatus = DeveloperStatusPayload()
             developerEntries = []
@@ -361,23 +366,36 @@ final class AppleAppModel: ObservableObject {
             developerEntries = []
             daemonMessage = error.localizedDescription
         }
+        #endif
     }
 
     func developerCAPEM() async throws -> String {
+        #if os(iOS)
+        throw APIClientError.invalidURL("developer capture unavailable in iOS v1")
+        #else
         guard let provider = dashboardAPI as? DeveloperCaptureProviding else {
             throw APIClientError.invalidURL("developer capture unavailable")
         }
         return try await provider.developerCAPEM()
+        #endif
     }
 
     func developerHAR() async throws -> String {
+        #if os(iOS)
+        throw APIClientError.invalidURL("developer capture unavailable in iOS v1")
+        #else
         guard let provider = dashboardAPI as? DeveloperCaptureProviding else {
             throw APIClientError.invalidURL("developer capture unavailable")
         }
         return try await provider.developerHAR()
+        #endif
     }
 
     func clearDeveloperEntries() {
+        #if os(iOS)
+        developerEntries = []
+        return
+        #else
         Task {
             guard let provider = dashboardAPI as? DeveloperCaptureProviding else {
                 return
@@ -389,6 +407,7 @@ final class AppleAppModel: ObservableObject {
                 daemonMessage = error.localizedDescription
             }
         }
+        #endif
     }
 
     #if os(iOS)

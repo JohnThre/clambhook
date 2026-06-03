@@ -543,6 +543,7 @@ func loadTunnelConfig(configPath string) (*config.Config, error) {
 		return nil, err
 	}
 	ensureTunnelConfig(cfg)
+	cfg.Developer = config.DefaultDeveloperConfig()
 	return cfg, nil
 }
 

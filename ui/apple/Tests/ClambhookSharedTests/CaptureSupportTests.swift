@@ -11,6 +11,10 @@ final class CaptureSupportTests: XCTestCase {
                 target: "example.com:80",
                 targetHost: "example.com",
                 targetPort: "80",
+                timeline: [
+                    TrafficTimelinePayload(tsNs: 10, type: "connection.opened", title: "Opened", detail: "http client"),
+                    TrafficTimelinePayload(tsNs: 20, type: "connection.established", title: "Connected", detail: "1ms"),
+                ],
                 visibility: TrafficVisibilityPayload(
                     kind: "http",
                     method: "GET",
@@ -40,33 +44,66 @@ final class CaptureSupportTests: XCTestCase {
 
         let entries = CaptureSupport.captureEntries(from: traffic)
 
-        XCTAssertEqual(entries.map(\.id).sorted(), ["http-1", "https-1"])
+        XCTAssertEqual(entries.map { $0.id }.sorted(), ["http-1", "https-1"])
         XCTAssertEqual(entries.first { $0.id == "http-1" }?.sslState, "not_tls")
         XCTAssertEqual(entries.first { $0.id == "https-1" }?.sslState, "metadata_only")
         XCTAssertEqual(entries.first { $0.id == "https-1" }?.requestBody.available, false)
+        XCTAssertEqual(entries.first { $0.id == "http-1" }?.timeline.map { $0.title }, ["Opened", "Connected"])
     }
 
-    func testCaptureFiltersAndExportNote() {
+    func testCaptureFiltersGroupingAndMetadataOnlyExport() throws {
         let entries = [
-            CaptureEntryPayload(id: "a", method: "GET", scheme: "http", host: "alpha.example", sslState: "not_tls"),
-            CaptureEntryPayload(id: "b", method: "CONNECT", scheme: "https", host: "beta.example", sslState: "metadata_only"),
+            CaptureEntryPayload(
+                id: "a",
+                updatedAtNs: 20,
+                method: "GET",
+                scheme: "http",
+                host: "alpha.example",
+                path: "/index",
+                sslState: "not_tls",
+                timeline: [TrafficTimelinePayload(tsNs: 20, type: "connection.closed", title: "Closed", detail: "client_eof")]
+            ),
+            CaptureEntryPayload(
+                id: "b",
+                updatedAtNs: 30,
+                method: "CONNECT",
+                scheme: "https",
+                host: "beta.example",
+                sslState: "metadata_only"
+            ),
             CaptureEntryPayload(
                 id: "c",
+                updatedAtNs: 10,
                 method: "GET",
-                scheme: "https",
-                host: "gamma.example",
-                sslState: "decrypted",
+                scheme: "http",
+                host: "ALPHA.example.",
+                sslState: "not_tls",
                 requestBody: CaptureBodyPayload(available: true, preview: "hello")
             ),
         ]
 
-        XCTAssertEqual(CaptureSupport.filteredEntries(entries, filter: .https).map(\.id), ["b", "c"])
-        XCTAssertEqual(CaptureSupport.filteredEntries(entries, filter: .metadataOnly).map(\.id), ["a", "b"])
+        XCTAssertEqual(CaptureSupport.filteredEntries(entries, filter: .https).map(\.id), ["b"])
         XCTAssertEqual(CaptureSupport.filteredEntries(entries, filter: .all, query: "beta").map(\.id), ["b"])
 
+        let groups = CaptureSupport.groupEntriesByHost(entries)
+        XCTAssertEqual(groups.map(\.key), ["beta.example", "alpha.example"])
+        XCTAssertEqual(groups.first { $0.key == "alpha.example" }?.count, 2)
+
         let export = CaptureSupport.exportString(traffic: TrafficSnapshotPayload(), entries: entries, generatedAt: Date(timeIntervalSince1970: 0))
-        XCTAssertTrue(export.contains("HTTPS Body Capture"))
-        XCTAssertTrue(export.contains("developer capture mode"))
+        XCTAssertTrue(export.contains(#""groups""#))
+        XCTAssertTrue(export.contains(#""timeline""#))
+        XCTAssertTrue(export.contains("Closed"))
         XCTAssertTrue(export.contains("metadata_only"))
+        XCTAssertFalse(export.contains("request_body"))
+        XCTAssertFalse(export.contains("response_body"))
+        XCTAssertFalse(export.contains("preview"))
+        XCTAssertFalse(export.contains("certificate"))
+        XCTAssertFalse(export.contains("HAR export"))
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let snapshot = try decoder.decode(CaptureSnapshotPayload.self, from: Data(export.utf8))
+        XCTAssertEqual(snapshot.groups.first?.key, "beta.example")
+        XCTAssertEqual(snapshot.entries.first?.id, "a")
     }
 }

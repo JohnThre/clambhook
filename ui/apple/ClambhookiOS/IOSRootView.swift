@@ -169,7 +169,6 @@ struct IOSRootView: View {
         case .logbook:
             return model.dashboard.traffic.connections.count
                 + CaptureSupport.captureEntries(from: model.dashboard.traffic).count
-                + model.developerEntries.count
         case .settings:
             return nil
         }
@@ -437,7 +436,7 @@ private struct IOSLogbookView: View {
                 } label: {
                     IOSLibraryRow(
                         title: "HTTP Capture",
-                        detail: "\(CaptureSupport.captureEntries(from: model.dashboard.traffic).count) metadata, \(model.developerEntries.count) body captures",
+                        detail: "\(CaptureSupport.captureEntries(from: model.dashboard.traffic).count) metadata requests",
                         systemImage: "network"
                     )
                 }
@@ -452,9 +451,6 @@ private struct IOSLogbookView: View {
             }
         }
         .listStyle(.insetGrouped)
-        .task {
-            await model.refreshDeveloperCaptureNow()
-        }
     }
 }
 

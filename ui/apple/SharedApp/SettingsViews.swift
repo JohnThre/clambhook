@@ -82,6 +82,7 @@ struct AppSettingsView: View {
                     .foregroundStyle(.secondary)
             }
             #endif
+            #if !os(iOS)
             Section("HTTPS Body Capture") {
                 Label(
                     model.developerStatus.enabled ? "Developer capture configured" : "Developer capture disabled",
@@ -90,14 +91,8 @@ struct AppSettingsView: View {
                 Text(developerCaptureDisclosure)
                     .font(.footnote)
                     .foregroundStyle(.secondary)
-                #if os(iOS)
-                NavigationLink {
-                    AdvancedConfigSettingsView(model: model)
-                } label: {
-                    Label("Edit Raw Capture Config", systemImage: "doc.plaintext")
-                }
-                #endif
             }
+            #endif
             #if os(iOS)
             Section("Privacy") {
                 Text(vpnDataUseDisclosure)
