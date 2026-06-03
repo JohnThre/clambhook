@@ -4,9 +4,7 @@ public enum CaptureFilterKind: String, CaseIterable, Identifiable, Sendable {
     case all
     case http
     case https
-    case sslReady
-    case sslUnavailable
-    case bodies
+    case metadataOnly
 
     public var id: Self { self }
 }
@@ -165,7 +163,7 @@ public struct CaptureBodyPayload: Codable, Equatable, Sendable {
         contentType: String = "",
         byteCount: UInt64 = 0,
         truncated: Bool = false,
-        reason: String = "Body capture unavailable for this flow."
+        reason: String = "Payload bodies are not captured in v1."
     ) {
         self.available = available
         self.preview = preview
@@ -177,7 +175,7 @@ public struct CaptureBodyPayload: Codable, Equatable, Sendable {
 }
 
 public enum CaptureSupport {
-    public static let captureNote = "Capture export distinguishes metadata-only flows from body-captured HTTP(S). HTTPS body capture requires trusted ClambHook CA setup and is unavailable for pinned TLS, QUIC/HTTP3, and apps that bypass system proxy settings."
+    public static let captureNote = "Metadata-only export. ClambHook v1 does not install a certificate authority, perform TLS MITM, store request or response bodies, or export HAR files. HTTPS entries contain CONNECT metadata only."
 
     public static func snapshot(
         traffic: TrafficSnapshotPayload,
@@ -210,12 +208,8 @@ public enum CaptureSupport {
                 guard entry.scheme.lowercased() == "http" else { return false }
             case .https:
                 guard entry.scheme.lowercased() == "https" else { return false }
-            case .sslReady:
-                guard entry.sslState.lowercased() == "decrypted" else { return false }
-            case .sslUnavailable:
-                guard entry.sslState.lowercased() != "decrypted" else { return false }
-            case .bodies:
-                guard entry.hasBodyPreview else { return false }
+            case .metadataOnly:
+                guard !entry.hasBodyPreview else { return false }
             }
             guard !normalizedQuery.isEmpty else { return true }
             return [
@@ -289,8 +283,8 @@ public enum CaptureSupport {
 
     private static func bodyUnavailableReason(kind: String) -> String {
         if kind == "http_connect" {
-            return "HTTPS body capture requires SSL proxying and a trusted ClambHook CA."
+            return "HTTPS payload bodies are not captured in v1; only CONNECT metadata is recorded."
         }
-        return "HTTP body capture is not present in this metadata snapshot."
+        return "HTTP payload bodies are not captured in v1; only request metadata is recorded."
     }
 }

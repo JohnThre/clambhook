@@ -1,6 +1,6 @@
 # App Review Notes
 
-ClambHook is an iPhone VPN/network client distributed only through the Apple App Store. It uses Network Extension with a packet tunnel provider to route device network traffic according to user-managed profiles and rules.
+ClambHook is a private iPhone VPN/proxy router with metadata inspection, distributed only through the Apple App Store. It uses Network Extension with a packet tunnel provider to route device network traffic according to user-managed profiles and rules.
 
 Supported v1 profile protocol identifiers: `clambback`, `openvpn`, `shadowsocks`, `tor`, `trojan`, and `wireguard`.
 
@@ -8,6 +8,8 @@ Privacy posture:
 
 - ClambHook does not sell, use, or disclose VPN traffic data to third parties.
 - Profile data, connection metadata, logs, and diagnostics stay on device unless the user exports them.
+- v1 inspection is metadata-only: connection targets, routing decisions, byte counts, timing, and hop status.
+- ClambHook does not install a certificate authority, perform TLS MITM, store request or response bodies, export HAR files, or provide body-level redaction workflows.
 - Apple diagnostics may include crash and performance data if the user has enabled sharing diagnostics with developers.
 - ClambHook does not include third-party analytics, advertising SDKs, or tracking SDKs.
 

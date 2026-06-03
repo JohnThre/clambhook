@@ -61,12 +61,12 @@ final class CaptureSupportTests: XCTestCase {
         ]
 
         XCTAssertEqual(CaptureSupport.filteredEntries(entries, filter: .https).map(\.id), ["b", "c"])
-        XCTAssertEqual(CaptureSupport.filteredEntries(entries, filter: .sslReady).map(\.id), ["c"])
-        XCTAssertEqual(CaptureSupport.filteredEntries(entries, filter: .bodies).map(\.id), ["c"])
+        XCTAssertEqual(CaptureSupport.filteredEntries(entries, filter: .metadataOnly).map(\.id), ["a", "b"])
         XCTAssertEqual(CaptureSupport.filteredEntries(entries, filter: .all, query: "beta").map(\.id), ["b"])
 
         let export = CaptureSupport.exportString(traffic: TrafficSnapshotPayload(), entries: entries, generatedAt: Date(timeIntervalSince1970: 0))
-        XCTAssertTrue(export.contains("pinned TLS"))
+        XCTAssertTrue(export.contains("does not install a certificate authority"))
+        XCTAssertTrue(export.contains("export HAR files"))
         XCTAssertTrue(export.contains("metadata_only"))
     }
 }

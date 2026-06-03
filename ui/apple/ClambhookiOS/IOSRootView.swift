@@ -280,7 +280,7 @@ private enum IOSAppDestination: String, CaseIterable, Identifiable, Hashable {
         case .activity:
             return "Activity"
         case .httpCapture:
-            return "HTTP Capture"
+            return "HTTP Metadata"
         case .library:
             return "Library"
         case .settings:

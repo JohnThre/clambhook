@@ -23,9 +23,11 @@ Create only these optional support purchases before submitting the build. They d
 
 ## Description
 
-ClambHook is an iPhone VPN and network client for routing device traffic through user-managed proxy and VPN profiles. It supports ClambHook, OpenVPN, Shadowsocks, Tor, Trojan, and WireGuard profile types with local profile storage and on-device connection diagnostics.
+ClambHook is a private iPhone VPN/proxy router with metadata inspection for routing device traffic through user-managed proxy and VPN profiles. It supports ClambHook, OpenVPN, Shadowsocks, Tor, Trojan, and WireGuard profile types with local profile storage and on-device connection diagnostics.
 
-Use ClambHook to import or edit profiles, start a local packet tunnel, choose the active route profile, and monitor connection status without third-party analytics, advertising SDKs, or tracking SDKs. Profile data, credentials, keys, connection metadata, logs, and diagnostics stay on the device unless you explicitly export them.
+Use ClambHook to import or edit profiles, start a local packet tunnel, choose the active route profile, and inspect metadata such as connection targets, routing decisions, byte counts, and hop status without third-party analytics, advertising SDKs, or tracking SDKs. Profile data, credentials, keys, connection metadata, logs, and diagnostics stay on the device unless you explicitly export them.
+
+ClambHook v1 is not an HTTPS debugging proxy. It does not install a certificate authority, perform TLS MITM, store request or response bodies, export HAR files, or provide body-level redaction workflows.
 
 ## Keywords
 
@@ -38,7 +40,7 @@ VPN,proxy,WireGuard,OpenVPN,Shadowsocks,Tor,Trojan,network,privacy,tunnel
 - Demo endpoint: `review-vpn.jpfchang.org:443`.
 - Demo credentials: paste only in the App Review Notes field in App Store Connect; do not commit them.
 - Territory availability: v1 is United States only. In App Store Connect, select `Specific Countries or Regions` and select only `United States`; do not select `All Countries or Regions` or automatic future-country availability for v1.
-- Notes: ClambHook creates a local VPN configuration through Network Extension and routes traffic according to user-managed profiles and rules. Support purchases are optional and do not gate app functionality. No territories requiring VPN license information are selected for the v1 submission.
+- Notes: ClambHook creates a local VPN configuration through Network Extension and routes traffic according to user-managed profiles and rules. v1 inspection is metadata-only; the app does not install a certificate authority, perform TLS MITM, store request or response bodies, or export HAR files. Support purchases are optional and do not gate app functionality. No territories requiring VPN license information are selected for the v1 submission.
 
 ## Screenshots
 
