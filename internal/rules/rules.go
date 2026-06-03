@@ -54,8 +54,8 @@ type compiledRule struct {
 	name           string
 	action         string
 	chainName      string
-	domains        []string
-	domainSuffixes []string
+	domains        map[string]struct{}
+	domainSuffixes map[string]struct{}
 	domainKeywords []string
 	cidrs          []netip.Prefix
 	ports          map[int]struct{}
@@ -103,8 +103,8 @@ func compileRule(rule Rule, knownChains map[string]struct{}) (compiledRule, erro
 		name:           name,
 		action:         action,
 		chainName:      chainName,
-		domains:        normalizeStrings(rule.Domains),
-		domainSuffixes: normalizeSuffixes(rule.DomainSuffixes),
+		domains:        makeStringSet(normalizeStrings(rule.Domains)),
+		domainSuffixes: makeStringSet(normalizeSuffixes(rule.DomainSuffixes)),
 		domainKeywords: normalizeStrings(rule.DomainKeywords),
 		ports:          makePortSet(rule.Ports),
 		networks:       makeStringSet(normalizeStrings(rule.Networks)),
@@ -205,15 +205,21 @@ func (r compiledRule) matchDomain(host string) bool {
 	if host == "" {
 		return false
 	}
-	for _, domain := range r.domains {
-		if host == domain {
-			return true
-		}
+	if _, ok := r.domains[host]; ok {
+		return true
 	}
-	for _, suffix := range r.domainSuffixes {
-		if host == suffix || strings.HasSuffix(host, "."+suffix) {
+	if _, ok := r.domainSuffixes[host]; ok {
+		return true
+	}
+	for i := strings.IndexByte(host, '.'); i >= 0 && i < len(host)-1; {
+		if _, ok := r.domainSuffixes[host[i+1:]]; ok {
 			return true
 		}
+		next := strings.IndexByte(host[i+1:], '.')
+		if next < 0 {
+			break
+		}
+		i += next + 1
 	}
 	for _, keyword := range r.domainKeywords {
 		if strings.Contains(host, keyword) {

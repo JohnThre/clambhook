@@ -37,3 +37,11 @@ name = "local"
   name = "example-direct-lan"
   action = "direct"
   cidrs = ["192.168.0.0/16", "10.0.0.0/8"]
+
+  [[profile.rule_subscription]]
+  name = "example-ads"
+  url = "https://lists.example.invalid/ads.txt"
+  format = "auto"
+  action = "block"
+  networks = ["tcp", "udp"]
+  disabled = true

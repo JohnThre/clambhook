@@ -239,6 +239,85 @@ func TestCreateRuleRejectsInvalidRule(t *testing.T) {
 	}
 }
 
+func TestRuleSubscriptionRefreshGeneratesEffectiveRules(t *testing.T) {
+	source := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("||ads.example.com^\n192.0.2.0/24\n"))
+	}))
+	defer source.Close()
+
+	path := filepath.Join(t.TempDir(), "clambhook.toml")
+	cfg := testRuleCreateConfig()
+	cfg.Profiles[0].RuleSubscriptions = []config.RuleSubscriptionConfig{{
+		Name:   "ads",
+		URL:    source.URL,
+		Format: "auto",
+		Action: "block",
+	}}
+	if _, err := config.WriteAtomicWithBackup(path, cfg); err != nil {
+		t.Fatalf("write initial config: %v", err)
+	}
+	srv := NewWithOptions(engine.New(cfg, nil), nil, Options{ConfigPath: path})
+
+	refreshReq := httptest.NewRequest(http.MethodPost, "/api/v1/rule-subscriptions/refresh", bytes.NewReader([]byte(`{}`)))
+	refreshRec := httptest.NewRecorder()
+	srv.server.Handler.ServeHTTP(refreshRec, refreshReq)
+	if refreshRec.Code != http.StatusOK {
+		t.Fatalf("refresh status = %d body=%q, want 200", refreshRec.Code, refreshRec.Body.String())
+	}
+	var refreshResp struct {
+		Profile       string `json:"profile"`
+		Subscriptions []struct {
+			Name        string `json:"name"`
+			DomainCount int    `json:"domain_count"`
+			CIDRCount   int    `json:"cidr_count"`
+			LastError   string `json:"last_error"`
+		} `json:"subscriptions"`
+	}
+	if err := json.NewDecoder(refreshRec.Body).Decode(&refreshResp); err != nil {
+		t.Fatal(err)
+	}
+	if len(refreshResp.Subscriptions) != 1 || refreshResp.Subscriptions[0].DomainCount != 1 || refreshResp.Subscriptions[0].CIDRCount != 1 || refreshResp.Subscriptions[0].LastError != "" {
+		t.Fatalf("refresh response = %+v", refreshResp)
+	}
+
+	rulesReq := httptest.NewRequest(http.MethodGet, "/api/v1/rules", nil)
+	rulesRec := httptest.NewRecorder()
+	srv.server.Handler.ServeHTTP(rulesRec, rulesReq)
+	if rulesRec.Code != http.StatusOK {
+		t.Fatalf("rules status = %d body=%q, want 200", rulesRec.Code, rulesRec.Body.String())
+	}
+	var rulesResp struct {
+		Rules          []config.RuleConfig `json:"rules"`
+		GeneratedRules []config.RuleConfig `json:"generated_rules"`
+		EffectiveRules []config.RuleConfig `json:"effective_rules"`
+	}
+	if err := json.NewDecoder(rulesRec.Body).Decode(&rulesResp); err != nil {
+		t.Fatal(err)
+	}
+	if len(rulesResp.Rules) != 0 || len(rulesResp.GeneratedRules) != 2 || len(rulesResp.EffectiveRules) != 2 {
+		t.Fatalf("rules response = %+v", rulesResp)
+	}
+
+	testReq := httptest.NewRequest(http.MethodPost, "/api/v1/rules/test", bytes.NewReader([]byte(`{"network":"tcp","target":"cdn.ads.example.com:443"}`)))
+	testRec := httptest.NewRecorder()
+	srv.server.Handler.ServeHTTP(testRec, testReq)
+	if testRec.Code != http.StatusOK {
+		t.Fatalf("rule test status = %d body=%q, want 200", testRec.Code, testRec.Body.String())
+	}
+	var testResp struct {
+		Decision struct {
+			RuleName string `json:"rule_name"`
+			Action   string `json:"action"`
+		} `json:"decision"`
+	}
+	if err := json.NewDecoder(testRec.Body).Decode(&testResp); err != nil {
+		t.Fatal(err)
+	}
+	if testResp.Decision.RuleName != "subscription:ads:domains" || testResp.Decision.Action != "block" {
+		t.Fatalf("rule test response = %+v", testResp.Decision)
+	}
+}
+
 func testRuleCreateConfig() *config.Config {
 	return &config.Config{
 		Active: "A",

@@ -18,6 +18,7 @@ import (
 	"github.com/JohnThre/clambhook/internal/geo"
 	"github.com/JohnThre/clambhook/internal/listener"
 	"github.com/JohnThre/clambhook/internal/protocol"
+	"github.com/JohnThre/clambhook/internal/subscription"
 	"github.com/JohnThre/clambhook/internal/traffic"
 )
 
@@ -98,14 +99,7 @@ func (r *TunnelRuntime) Start(configPath string) error {
 	}
 	trafficMgr.Start(context.Background(), bus)
 
-	profile, err := cfg.ActiveProfile()
-	if err != nil {
-		trafficMgr.Stop()
-		_ = geoReader.Close()
-		bus.Close()
-		return err
-	}
-	stack, chains, err := engine.BuildPacketStack(profile, bus, r.writer)
+	stack, chains, err := engine.BuildPacketStackForConfig(cfg, bus, r.writer)
 	if err != nil {
 		trafficMgr.Stop()
 		_ = geoReader.Close()
@@ -253,14 +247,7 @@ func (r *TunnelRuntime) startConfig(cfg *config.Config) error {
 		return fmt.Errorf("traffic: %w", err)
 	}
 	trafficMgr.Start(context.Background(), bus)
-	profile, err := cfg.ActiveProfile()
-	if err != nil {
-		trafficMgr.Stop()
-		_ = geoReader.Close()
-		bus.Close()
-		return err
-	}
-	stack, chains, err := engine.BuildPacketStack(profile, bus, r.writer)
+	stack, chains, err := engine.BuildPacketStackForConfig(cfg, bus, r.writer)
 	if err != nil {
 		trafficMgr.Stop()
 		_ = geoReader.Close()
@@ -369,9 +356,10 @@ func (r *TunnelRuntime) DashboardJSON() (string, error) {
 			Profiles: profileNames(cfg),
 			Active:   activeProfileName(cfg),
 		},
-		Servers: serversForConfig(cfg, geoReader),
-		Rules:   rulesForConfig(cfg),
-		Traffic: trafficSnapshot,
+		Servers:           serversForConfig(cfg, geoReader),
+		Rules:             rulesForConfig(cfg),
+		RuleSubscriptions: ruleSubscriptionsForConfig(cfg),
+		Traffic:           trafficSnapshot,
 	}
 	return marshalString(payload)
 }
@@ -494,16 +482,19 @@ type serverPayload struct {
 }
 
 type rulesPayload struct {
-	Profile string              `json:"profile"`
-	Rules   []config.RuleConfig `json:"rules"`
+	Profile        string              `json:"profile"`
+	Rules          []config.RuleConfig `json:"rules"`
+	GeneratedRules []config.RuleConfig `json:"generated_rules,omitempty"`
+	EffectiveRules []config.RuleConfig `json:"effective_rules,omitempty"`
 }
 
 type dashboardPayload struct {
-	Status   statusPayload    `json:"status"`
-	Profiles profilesPayload  `json:"profiles"`
-	Servers  serversPayload   `json:"servers"`
-	Rules    rulesPayload     `json:"rules"`
-	Traffic  traffic.Snapshot `json:"traffic"`
+	Status            statusPayload              `json:"status"`
+	Profiles          profilesPayload            `json:"profiles"`
+	Servers           serversPayload             `json:"servers"`
+	Rules             rulesPayload               `json:"rules"`
+	RuleSubscriptions subscription.StatusPayload `json:"rule_subscriptions"`
+	Traffic           traffic.Snapshot           `json:"traffic"`
 }
 
 type tunnelNetworkSettings struct {
@@ -607,7 +598,24 @@ func rulesForConfig(cfg *config.Config) rulesPayload {
 	if err != nil {
 		return rulesPayload{}
 	}
-	return rulesPayload{Profile: profile.Name, Rules: profile.Rules}
+	manual, generated, effective := subscription.EffectiveRules(cfg.Path, profile)
+	return rulesPayload{
+		Profile:        profile.Name,
+		Rules:          manual,
+		GeneratedRules: generated,
+		EffectiveRules: effective,
+	}
+}
+
+func ruleSubscriptionsForConfig(cfg *config.Config) subscription.StatusPayload {
+	if cfg == nil {
+		return subscription.StatusPayload{}
+	}
+	payload, err := subscription.StatusPayloadForProfile(cfg, "")
+	if err != nil {
+		return subscription.StatusPayload{}
+	}
+	return payload
 }
 
 func networkSettingsForProfile(profile *config.Profile) tunnelNetworkSettings {

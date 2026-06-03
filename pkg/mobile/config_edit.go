@@ -14,6 +14,7 @@ import (
 	"github.com/JohnThre/clambhook/internal/config"
 	"github.com/JohnThre/clambhook/internal/engine"
 	"github.com/JohnThre/clambhook/internal/geo"
+	"github.com/JohnThre/clambhook/internal/subscription"
 	"github.com/JohnThre/clambhook/internal/traffic"
 )
 
@@ -40,11 +41,7 @@ func ValidateUsableTunnelConfig(configPath string) error {
 	if err := engine.ValidateConfig(cfg); err != nil {
 		return err
 	}
-	profile, err := cfg.ActiveProfile()
-	if err != nil {
-		return err
-	}
-	stack, chains, err := engine.BuildPacketStack(profile, nil, discardPacketWriter{})
+	stack, chains, err := engine.BuildPacketStackForConfig(cfg, nil, discardPacketWriter{})
 	if err != nil {
 		return err
 	}
@@ -86,9 +83,10 @@ func TunnelConfigDashboardJSON(configPath string) (string, error) {
 			Profiles: profileNames(cfg),
 			Active:   activeProfileName(cfg),
 		},
-		Servers: serversForConfig(cfg, geoReader),
-		Rules:   rulesForConfig(cfg),
-		Traffic: empty.Snapshot("all", 200),
+		Servers:           serversForConfig(cfg, geoReader),
+		Rules:             rulesForConfig(cfg),
+		RuleSubscriptions: ruleSubscriptionsForConfig(cfg),
+		Traffic:           empty.Snapshot("all", 200),
 	}
 	return marshalString(payload)
 }
@@ -113,6 +111,46 @@ func ReplaceTunnelRulesJSON(configPath, profileName, rulesJSON string) error {
 		return err
 	}
 	return writeTunnelConfig(configPath, cfg)
+}
+
+// RuleSubscriptionsJSON returns rule subscription cache status for a profile.
+func RuleSubscriptionsJSON(configPath, profileName string) (string, error) {
+	cfg, err := loadTunnelConfig(configPath)
+	if err != nil {
+		return "", err
+	}
+	if err := engine.ValidateConfig(cfg); err != nil {
+		return "", err
+	}
+	payload, err := subscription.StatusPayloadForProfile(cfg, profileName)
+	if err != nil {
+		return "", err
+	}
+	return marshalString(payload)
+}
+
+// RefreshRuleSubscriptionsJSON refreshes selected enabled rule subscriptions.
+// namesJSON must encode []string; an empty string or [] refreshes all enabled
+// subscriptions for the selected profile.
+func RefreshRuleSubscriptionsJSON(configPath, profileName, namesJSON string) (string, error) {
+	cfg, err := loadTunnelConfig(configPath)
+	if err != nil {
+		return "", err
+	}
+	if err := engine.ValidateConfig(cfg); err != nil {
+		return "", err
+	}
+	var names []string
+	if strings.TrimSpace(namesJSON) != "" {
+		if err := json.Unmarshal([]byte(namesJSON), &names); err != nil {
+			return "", fmt.Errorf("parse subscription names: %w", err)
+		}
+	}
+	payload, err := subscription.RefreshProfile(context.Background(), cfg, profileName, names, nil)
+	if err != nil {
+		return "", err
+	}
+	return marshalString(payload)
 }
 
 type createTunnelProfileRequest struct {

@@ -15,6 +15,7 @@ import (
 	"github.com/JohnThre/clambhook/internal/listener"
 	"github.com/JohnThre/clambhook/internal/protocol"
 	"github.com/JohnThre/clambhook/internal/rules"
+	"github.com/JohnThre/clambhook/internal/subscription"
 )
 
 // defaultSOCKS5MaxConns is the default concurrent-handler ceiling when the
@@ -191,13 +192,14 @@ func (e *Engine) startLocked() error {
 	if err != nil {
 		return fmt.Errorf("start engine: %w", err)
 	}
+	effectiveProfile := subscription.ProfileWithCachedRules(e.cfg.Path, profile)
 
 	// Engine owns its own context — independent of any caller's ctx. This
 	// lets short-lived callers (HTTP handlers, CLI one-shots) invoke Start
 	// without their ctx cancellation tearing listeners down.
 	ctx, cancel := context.WithCancel(context.Background())
 
-	listeners, chains, err := buildListeners(profile, e.bus)
+	listeners, chains, err := buildListeners(&effectiveProfile, e.bus)
 	if err != nil {
 		cancel()
 		return fmt.Errorf("start engine: %w", err)
@@ -506,6 +508,20 @@ func BuildPacketStack(profile *config.Profile, bus *events.Bus, writer listener.
 		EventBus:     bus,
 	}
 	return listener.NewPacketStack(opts, ch, planner, writer), resolver.chains, nil
+}
+
+// BuildPacketStackForConfig constructs a packet stack for cfg's active profile
+// after applying cached subscription rules.
+func BuildPacketStackForConfig(cfg *config.Config, bus *events.Bus, writer listener.PacketWriter) (*listener.PacketStack, []*chain.Chain, error) {
+	if cfg == nil {
+		return nil, nil, errors.New("nil config")
+	}
+	profile, err := cfg.ActiveProfile()
+	if err != nil {
+		return nil, nil, err
+	}
+	effectiveProfile := subscription.ProfileWithCachedRules(cfg.Path, profile)
+	return BuildPacketStack(&effectiveProfile, bus, writer)
 }
 
 type chainResolver struct {

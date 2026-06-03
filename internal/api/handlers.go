@@ -2,7 +2,9 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -11,6 +13,7 @@ import (
 	"github.com/JohnThre/clambhook/internal/engine"
 	"github.com/JohnThre/clambhook/internal/protocol"
 	"github.com/JohnThre/clambhook/internal/rules"
+	"github.com/JohnThre/clambhook/internal/subscription"
 	"github.com/JohnThre/clambhook/internal/traffic"
 )
 
@@ -23,6 +26,8 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/rules", s.handleRules)
 	mux.HandleFunc("POST /api/v1/rules", s.handleCreateRule)
 	mux.HandleFunc("POST /api/v1/rules/test", s.handleTestRule)
+	mux.HandleFunc("GET /api/v1/rule-subscriptions", s.handleRuleSubscriptions)
+	mux.HandleFunc("POST /api/v1/rule-subscriptions/refresh", s.handleRefreshRuleSubscriptions)
 	mux.HandleFunc("GET /api/v1/decisions", s.handleDecisions)
 	mux.HandleFunc("PUT /api/v1/profiles/active", s.handleSetActiveProfile)
 	mux.HandleFunc("POST /api/v1/connect", s.handleConnect)
@@ -41,6 +46,11 @@ type testRuleRequest struct {
 	Profile string `json:"profile"`
 	Network string `json:"network"`
 	Target  string `json:"target"`
+}
+
+type refreshRuleSubscriptionsRequest struct {
+	Profile string   `json:"profile"`
+	Names   []string `json:"names"`
 }
 
 type testRuleResponse struct {
@@ -63,9 +73,13 @@ func (s *Server) handleRules(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	manualRules, generatedRules, effectiveRules := subscription.EffectiveRules(cfg.Path, profile)
 	writeJSON(w, map[string]any{
-		"profile": profile.Name,
-		"rules":   profile.Rules,
+		"profile":         profile.Name,
+		"rules":           manualRules,
+		"generated_rules": generatedRules,
+		"effective_rules": effectiveRules,
+		"subscriptions":   subscription.Statuses(cfg.Path, profile),
 	})
 }
 
@@ -97,7 +111,8 @@ func (s *Server) handleTestRule(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "profile has no chains", http.StatusBadRequest)
 		return
 	}
-	ruleEngine, err := compileProfileRules(profile, profile.Chains[0].Name)
+	effectiveProfile := subscription.ProfileWithCachedRules(cfg.Path, profile)
+	ruleEngine, err := compileProfileRules(&effectiveProfile, profile.Chains[0].Name)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -127,6 +142,62 @@ func (s *Server) handleTestRule(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, resp)
+}
+
+func (s *Server) handleRuleSubscriptions(w http.ResponseWriter, r *http.Request) {
+	cfg := s.engine.Config()
+	payload, err := subscription.StatusPayloadForProfile(cfg, r.URL.Query().Get("profile"))
+	if err != nil {
+		status := http.StatusBadRequest
+		if strings.Contains(err.Error(), "not found") {
+			status = http.StatusNotFound
+		}
+		http.Error(w, err.Error(), status)
+		return
+	}
+	writeJSON(w, payload)
+}
+
+func (s *Server) handleRefreshRuleSubscriptions(w http.ResponseWriter, r *http.Request) {
+	configPath := strings.TrimSpace(s.configPath)
+	if configPath == "" {
+		if cfg := s.engine.Config(); cfg != nil {
+			configPath = strings.TrimSpace(cfg.Path)
+		}
+	}
+	if configPath == "" {
+		http.Error(w, "rule subscription refresh requires daemon config path", http.StatusConflict)
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxJSONRequestBytes)
+	var req refreshRuleSubscriptionsRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	cfg, err := config.Load(configPath)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	currentProfile := strings.TrimSpace(s.engine.Status().Profile)
+	if currentProfile != "" {
+		cfg.Active = currentProfile
+	}
+	payload, err := subscription.RefreshProfile(r.Context(), cfg, req.Profile, req.Names, nil)
+	if err != nil {
+		status := http.StatusBadRequest
+		if strings.Contains(err.Error(), "not found") {
+			status = http.StatusNotFound
+		}
+		http.Error(w, err.Error(), status)
+		return
+	}
+	if err := s.engine.Reload(cfg); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, payload)
 }
 
 func validateRuleTestTarget(target string) error {
