@@ -42,6 +42,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
 
     override func startTunnel(options: [String: NSObject]?) async throws {
         logger.info("Packet tunnel start requested")
+        try MobileLicenseRuntimeGuard.requireFeatureAccess(.tunnelRouting)
         let configPath = tunnelConfigPath(options: options)
         _ = try TunnelConfigStore.loadOrCreateConfig()
 

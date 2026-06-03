@@ -15,7 +15,9 @@ struct IOSRootView: View {
 
     var body: some View {
         Group {
-            if horizontalSizeClass == .regular {
+            if !model.mobileLicenseDecision.canUseApp {
+                IOSLicenseGateView(model: model)
+            } else if horizontalSizeClass == .regular {
                 splitView
             } else {
                 compactNavigationView
@@ -36,7 +38,7 @@ struct IOSRootView: View {
             }
         }
         .task {
-            if !onboardingComplete || model.shouldShowOnboarding() {
+            if model.mobileLicenseDecision.canUseApp, !onboardingComplete || model.shouldShowOnboarding() {
                 showingOnboarding = true
             }
             engageInspectionLockIfNeeded()
@@ -56,6 +58,15 @@ struct IOSRootView: View {
                 engageInspectionLockIfNeeded()
             } else {
                 inspectionLock.clearLock()
+            }
+        }
+        .onChange(of: model.mobileLicenseDecision.canUseApp) { _, canUseApp in
+            if canUseApp {
+                if !onboardingComplete || model.shouldShowOnboarding() {
+                    showingOnboarding = true
+                }
+            } else {
+                showingOnboarding = false
             }
         }
     }
@@ -175,7 +186,7 @@ struct IOSRootView: View {
     }
 
     private var shouldShowInspectionLock: Bool {
-        model.settingsStore.settings.inspectionLockEnabled && inspectionLock.isLocked
+        model.mobileLicenseDecision.canUseApp && model.settingsStore.settings.inspectionLockEnabled && inspectionLock.isLocked
     }
 
     private func engageInspectionLockIfNeeded() {
@@ -239,6 +250,48 @@ private struct IOSInspectionLockOverlay: View {
             .frame(maxWidth: 360)
         }
         .accessibilityIdentifier("inspection-lock")
+    }
+}
+
+private struct IOSLicenseGateView: View {
+    @ObservedObject var model: AppleAppModel
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Label("Purchase required", systemImage: "lock.fill")
+                            .font(.headline)
+                            .foregroundStyle(.red)
+                        Text(licenseDetail)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Link("Support", destination: defaultSupportURL)
+                    Link("Privacy Policy", destination: defaultPrivacyPolicyURL)
+                }
+                PremiumPurchasesSection(manager: model.licenseManager)
+                Section("Settings") {
+                    NavigationLink {
+                        AppSettingsView(model: model)
+                    } label: {
+                        Label("Open Settings", systemImage: "gearshape")
+                    }
+                }
+            }
+            .formStyle(.grouped)
+            .navigationTitle("clambhook")
+        }
+    }
+
+    private var licenseDetail: String {
+        let decision = model.mobileLicenseDecision
+        if let trialEndsAt = decision.trialEndsAt {
+            return "The free trial ended \(trialEndsAt.formatted(date: .abbreviated, time: .omitted)). Purchase or restore the lifetime unlock to continue."
+        }
+        return "Purchase or restore the lifetime unlock to continue."
     }
 }
 

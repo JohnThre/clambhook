@@ -91,8 +91,8 @@ struct AppSettingsView: View {
                 Link("Support", destination: defaultSupportURL)
             }
             #endif
-            #if os(iOS) || os(visionOS)
-            PremiumPurchasesSection()
+            #if os(iOS)
+            PremiumPurchasesSection(manager: model.licenseManager)
             #endif
             #if !os(iOS)
             Section {

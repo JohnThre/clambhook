@@ -57,10 +57,12 @@ final class AppleAppModel: ObservableObject {
     private var attentionChangeCancellable: AnyCancellable?
     private var profileMetadataChangeCancellable: AnyCancellable?
     private var settingsChangeCancellable: AnyCancellable?
+    private var licenseChangeCancellable: AnyCancellable?
     private var started = false
 
     #if os(iOS)
     let tunnelController = IOSTunnelController()
+    @Published private(set) var licenseManager: StoreKitEntitlementManager
     #endif
 
     #if os(macOS)
@@ -80,6 +82,12 @@ final class AppleAppModel: ObservableObject {
         self.settingsStore = settingsStore
         self.credentialStore = credentialStore
         self.snapshotStore = FileSnapshotStore.appGroupStore(groupIdentifier: settingsStore.settings.appGroupIdentifier)
+        #if os(iOS)
+        self.licenseManager = StoreKitEntitlementManager(
+            defaults: UserDefaults(suiteName: settingsStore.settings.appGroupIdentifier) ?? .standard,
+            credentialStore: KeychainCredentialStore(service: "org.jpfchang.clambhook.license")
+        )
+        #endif
         let initialToken = (try? credentialStore.readToken(account: settingsStore.settings.apiEndpoint.absoluteString)) ?? ""
         self.apiToken = initialToken
         #if os(iOS)
@@ -114,6 +122,9 @@ final class AppleAppModel: ObservableObject {
             return
         }
         started = true
+        #if os(iOS)
+        licenseManager.start()
+        #endif
         reloadClient()
         #if os(macOS)
         if settingsStore.settings.launchDaemonOnStart {
@@ -127,6 +138,7 @@ final class AppleAppModel: ObservableObject {
         Task {
             await dashboard.refreshDashboard()
             syncProfileRecoveryIssue()
+            enforceLicenseState()
         }
     }
 
@@ -176,6 +188,10 @@ final class AppleAppModel: ObservableObject {
             if dashboard.status.running {
                 await dashboard.disconnect()
             } else {
+                guard canUseLicensedFeature(.tunnelRouting) else {
+                    daemonMessage = AppleAppModelError.licenseLocked.errorDescription ?? ""
+                    return
+                }
                 guard !syncProfileRecoveryIssue() else {
                     return
                 }
@@ -186,6 +202,10 @@ final class AppleAppModel: ObservableObject {
     }
 
     func selectProfile(_ profile: String) {
+        guard canUseLicensedFeature(.profileManagement) else {
+            daemonMessage = AppleAppModelError.licenseLocked.errorDescription ?? ""
+            return
+        }
         Task {
             await dashboard.setActiveProfile(profile)
             syncProfileRecoveryIssue()
@@ -240,6 +260,10 @@ final class AppleAppModel: ObservableObject {
     }
 
     func createRule(_ rule: RulePayload) {
+        guard canUseLicensedFeature(.routingRules) else {
+            daemonMessage = AppleAppModelError.licenseLocked.errorDescription ?? ""
+            return
+        }
         Task {
             do {
                 #if os(iOS)
@@ -259,7 +283,22 @@ final class AppleAppModel: ObservableObject {
     }
 
     func testRule(network: String, target: String) async throws -> RuleTestResponse {
-        try await dashboardAPI.testRule(network: network, target: target, profile: dashboard.activeProfile)
+        guard canUseLicensedFeature(.routingRules) else {
+            throw AppleAppModelError.licenseLocked
+        }
+        return try await dashboardAPI.testRule(network: network, target: target, profile: dashboard.activeProfile)
+    }
+
+    var mobileLicenseDecision: MobileLicenseDecision {
+        #if os(iOS)
+        return licenseManager.decision
+        #else
+        return MobileLicenseEvaluator.evaluate(snapshot: MobileLicenseSnapshot(trialStartDate: Date()))
+        #endif
+    }
+
+    func canUseLicensedFeature(_ featureID: MobileLicenseFeatureID) -> Bool {
+        mobileLicenseDecision.canUseFeature(featureID)
     }
 
     var pinnedConnectionIDs: Set<String> {
@@ -299,6 +338,9 @@ final class AppleAppModel: ObservableObject {
 
     #if os(iOS)
     func importReviewPayload(for item: InboxImportItem) throws -> TunnelImportReviewPayload {
+        guard canUseLicensedFeature(.profileManagement) else {
+            throw AppleAppModelError.licenseLocked
+        }
         #if canImport(ClambhookMobile)
         let raw = try mobileString {
             MobileTunnelImportReviewJSON(item.decodedConfigText, $0)
@@ -315,6 +357,9 @@ final class AppleAppModel: ObservableObject {
     }
 
     func validateReviewedTunnelImport(_ request: ReviewedTunnelImportRequest) throws {
+        guard canUseLicensedFeature(.profileManagement) else {
+            throw AppleAppModelError.licenseLocked
+        }
         #if canImport(ClambhookMobile)
         let data = try JSONEncoder().encode(request)
         guard let raw = String(data: data, encoding: .utf8) else {
@@ -335,6 +380,10 @@ final class AppleAppModel: ObservableObject {
         request: ReviewedTunnelImportRequest,
         tagsByProfile: [String: [String]]
     ) {
+        guard canUseLicensedFeature(.profileManagement) else {
+            daemonMessage = AppleAppModelError.licenseLocked.errorDescription ?? ""
+            return
+        }
         do {
             #if canImport(ClambhookMobile)
             let data = try JSONEncoder().encode(request)
@@ -363,6 +412,9 @@ final class AppleAppModel: ObservableObject {
     }
 
     func importTunnelConfigText(_ rawText: String) throws {
+        guard canUseLicensedFeature(.profileManagement) else {
+            throw AppleAppModelError.licenseLocked
+        }
         let text = try TunnelImportDecoder.decode(rawText)
         try validateAndSaveTunnelConfig(text)
         applySettings()
@@ -370,6 +422,9 @@ final class AppleAppModel: ObservableObject {
     }
 
     func createTunnelProfile(_ request: TunnelProfileCreateRequest) throws {
+        guard canUseLicensedFeature(.profileManagement) else {
+            throw AppleAppModelError.licenseLocked
+        }
         #if canImport(ClambhookMobile)
         let data = try JSONEncoder().encode(request)
         guard let raw = String(data: data, encoding: .utf8) else {
@@ -390,6 +445,9 @@ final class AppleAppModel: ObservableObject {
     }
 
     func replaceActiveProfileRules(_ rules: [RulePayload]) throws {
+        guard canUseLicensedFeature(.routingRules) else {
+            throw AppleAppModelError.licenseLocked
+        }
         #if canImport(ClambhookMobile)
         let data = try JSONEncoder().encode(rules)
         guard let raw = String(data: data, encoding: .utf8) else {
@@ -520,6 +578,9 @@ final class AppleAppModel: ObservableObject {
                 self?.objectWillChange.send()
             }
         }
+        #if os(iOS)
+        bindLicenseManager()
+        #endif
     }
 
     private func bindAttentionStore() {
@@ -546,6 +607,29 @@ final class AppleAppModel: ObservableObject {
         }
     }
 
+    #if os(iOS)
+    private func bindLicenseManager() {
+        licenseChangeCancellable = licenseManager.objectWillChange.sink { [weak self] _ in
+            Task { @MainActor in
+                self?.objectWillChange.send()
+                self?.enforceLicenseState()
+            }
+        }
+    }
+
+    private func enforceLicenseState() {
+        licenseManager.refreshDecision()
+        guard !licenseManager.decision.canUseApp, dashboard.status.running else {
+            return
+        }
+        Task {
+            await dashboard.disconnect()
+        }
+    }
+    #else
+    private func enforceLicenseState() {}
+    #endif
+
     private func startPolling() {
         pollingTask?.cancel()
         let interval = settingsStore.settings.normalized().refreshIntervalSeconds
@@ -559,6 +643,7 @@ final class AppleAppModel: ObservableObject {
                 await self?.dashboard.refreshStatus()
                 await MainActor.run {
                     _ = self?.syncProfileRecoveryIssue()
+                    self?.enforceLicenseState()
                 }
             }
         }
@@ -589,6 +674,7 @@ enum AppleAppModelError: Error, LocalizedError {
     case mobileConfigEditorUnavailable
     case invalidProfileRequest
     case invalidRules
+    case licenseLocked
 
     var errorDescription: String? {
         switch self {
@@ -598,6 +684,8 @@ enum AppleAppModelError: Error, LocalizedError {
             return "The profile request could not be encoded."
         case .invalidRules:
             return "The rule changes could not be encoded."
+        case .licenseLocked:
+            return "The trial has ended. Purchase or restore the lifetime unlock to keep using clambhook."
         }
     }
 }

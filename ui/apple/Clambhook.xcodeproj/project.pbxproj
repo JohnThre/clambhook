@@ -25,6 +25,7 @@
 		3D5A142E8942DA836F15A989 /* ClambhookMacWidgetExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 9A9A34557D90A7B2D48D34A7 /* ClambhookMacWidgetExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		3F66FD26F33A8017C4D60A10 /* AppleAppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F26A7314DC7A26F275AB285 /* AppleAppModel.swift */; };
 		45A80E689F43632BAAA799B0 /* SupportPurchasesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8D0525C10EE904F2F5523DA /* SupportPurchasesView.swift */; };
+		477C225F1E4F0BF6609C98F3 /* StoreKitEntitlementManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7DF297B3EF8801A24F5E1FBE /* StoreKitEntitlementManager.swift */; };
 		47C24BD8355FAEB8A5F4BA81 /* IOSTunnelController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C796A563F604DA4F32123737 /* IOSTunnelController.swift */; };
 		49F0380E1F53437DFA6C040B /* IOSRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFEDFA8D75241DDF56ABCB3F /* IOSRootView.swift */; };
 		518777F562CBD72CCE4A4BF7 /* IOSTunnelController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C796A563F604DA4F32123737 /* IOSTunnelController.swift */; };
@@ -52,9 +53,11 @@
 		CFCCC4198754EEF5353DF9EA /* SettingsViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11D3A8B6CD3A6119053C8908 /* SettingsViews.swift */; };
 		E20BEBC7404594F87E09BDF7 /* SettingsViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11D3A8B6CD3A6119053C8908 /* SettingsViews.swift */; };
 		E3AC92B579EB3A66A59300D5 /* ClambhookMobile.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 12F5B3C049819652D51B60F7 /* ClambhookMobile.xcframework */; };
+		F109B7EA31BAC151B174E2FE /* StoreKitEntitlementManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7DF297B3EF8801A24F5E1FBE /* StoreKitEntitlementManager.swift */; };
 		F661F1DFCEA4AEC664607E3A /* ClambhookShared in Frameworks */ = {isa = PBXBuildFile; productRef = 486535E4136EE4440DE8CBCE /* ClambhookShared */; };
 		F87E277DD4DAAE72743F3DA6 /* ClambhookShared in Frameworks */ = {isa = PBXBuildFile; productRef = 17ABE50C62B10E6EB5160225 /* ClambhookShared */; };
 		FBFCE712E8587F9F09400640 /* ClambhookPacketTunnel.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 381D40C9B488F22288A2D561 /* ClambhookPacketTunnel.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		FC004F16DCBC687E8A34471D /* StoreKitEntitlementManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7DF297B3EF8801A24F5E1FBE /* StoreKitEntitlementManager.swift */; };
 		FC394BF11B1952AAD881101F /* IOSTunnelController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C796A563F604DA4F32123737 /* IOSTunnelController.swift */; };
 		FE4BEC9988380D6CB0B7B82A /* ClambhookMobile.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 12F5B3C049819652D51B60F7 /* ClambhookMobile.xcframework */; };
 /* End PBXBuildFile section */
@@ -154,6 +157,7 @@
 		6DD8C81B5516A352C3F1E355 /* IOSOverviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IOSOverviewView.swift; sourceTree = "<group>"; };
 		71619AA1E2C9424F8D0CAE82 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		752B77E9507F4674BBA0E4D8 /* DaemonSupervisor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DaemonSupervisor.swift; sourceTree = "<group>"; };
+		7DF297B3EF8801A24F5E1FBE /* StoreKitEntitlementManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoreKitEntitlementManager.swift; sourceTree = "<group>"; };
 		8991E030330B6AD4F39E430B /* IOSDashboardComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IOSDashboardComponents.swift; sourceTree = "<group>"; };
 		8B7ECD0E4E9DE7440023C997 /* MacMenuBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacMenuBarView.swift; sourceTree = "<group>"; };
 		8C0F701E4D02A594C2F5744B /* ClambhookPacketTunnel.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = ClambhookPacketTunnel.entitlements; sourceTree = "<group>"; };
@@ -371,6 +375,7 @@
 				E5D820AE96C5A0080AA5CF1F /* DashboardViews.swift */,
 				C796A563F604DA4F32123737 /* IOSTunnelController.swift */,
 				11D3A8B6CD3A6119053C8908 /* SettingsViews.swift */,
+				7DF297B3EF8801A24F5E1FBE /* StoreKitEntitlementManager.swift */,
 				C8D0525C10EE904F2F5523DA /* SupportPurchasesView.swift */,
 			);
 			path = SharedApp;
@@ -586,6 +591,7 @@
 				518777F562CBD72CCE4A4BF7 /* IOSTunnelController.swift in Sources */,
 				591061674835E9B22E696123 /* MacMenuBarView.swift in Sources */,
 				E20BEBC7404594F87E09BDF7 /* SettingsViews.swift in Sources */,
+				F109B7EA31BAC151B174E2FE /* StoreKitEntitlementManager.swift in Sources */,
 				CC0CF0A287AC0E53A37374A7 /* SupportPurchasesView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -609,6 +615,7 @@
 				1BED84D526634AC010CE6F5F /* IOSTrafficMonitorView.swift in Sources */,
 				FC394BF11B1952AAD881101F /* IOSTunnelController.swift in Sources */,
 				CFCCC4198754EEF5353DF9EA /* SettingsViews.swift in Sources */,
+				FC004F16DCBC687E8A34471D /* StoreKitEntitlementManager.swift in Sources */,
 				45A80E689F43632BAAA799B0 /* SupportPurchasesView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -646,6 +653,7 @@
 				08E41EA0CC54ADA8C6AA6715 /* DashboardViews.swift in Sources */,
 				47C24BD8355FAEB8A5F4BA81 /* IOSTunnelController.swift in Sources */,
 				3C6BECDDFC169FDC9752E7E8 /* SettingsViews.swift in Sources */,
+				477C225F1E4F0BF6609C98F3 /* StoreKitEntitlementManager.swift in Sources */,
 				22E5858EF2C129AAA285716D /* SupportPurchasesView.swift in Sources */,
 				796E1CFB4C4751AEF5C1F502 /* VisionNetworkMapScene.swift in Sources */,
 				032EB9CFFF8103097D695F50 /* VisionRootView.swift in Sources */,

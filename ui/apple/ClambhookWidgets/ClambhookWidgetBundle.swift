@@ -120,12 +120,12 @@ struct StatusWidgetView: View {
                 Button(intent: DisconnectIntent()) {
                     Label("Stop", systemImage: "stop.fill")
                 }
-            } else {
+            } else if canUseApp {
                 Button(intent: ConnectIntent()) {
                     Label("Start", systemImage: "play.fill")
                 }
             }
-            if family == .systemMedium {
+            if family == .systemMedium, canUseApp {
                 Button(intent: NextProfileIntent()) {
                     Label("Next", systemImage: "arrow.right.circle")
                 }
@@ -133,6 +133,14 @@ struct StatusWidgetView: View {
         }
         .font(.caption.weight(.medium))
         .buttonStyle(.bordered)
+    }
+
+    private var canUseApp: Bool {
+        #if os(iOS)
+        WidgetEnvironment.licenseDecision().canUseApp
+        #else
+        true
+        #endif
     }
 }
 
@@ -318,6 +326,10 @@ enum WidgetEnvironment {
         }
         return settings
     }
+
+    static func licenseDecision() -> MobileLicenseDecision {
+        MobileLicenseRuntimeGuard.decision(groupIdentifier: settings().appGroupIdentifier)
+    }
 }
 
 #if os(iOS)
@@ -336,6 +348,7 @@ private final class IOSTunnelWidgetClient {
     }
 
     func connect() async throws {
+        try MobileLicenseRuntimeGuard.requireFeatureAccess(.tunnelRouting, groupIdentifier: groupIdentifier)
         _ = try TunnelConfigStore.loadOrCreateConfig(groupIdentifier: groupIdentifier)
         let manager = try await configuredManager()
         guard let session = manager.connection as? NETunnelProviderSession else {
@@ -360,6 +373,7 @@ private final class IOSTunnelWidgetClient {
     }
 
     func nextProfile() async throws {
+        try MobileLicenseRuntimeGuard.requireFeatureAccess(.profileManagement, groupIdentifier: groupIdentifier)
         guard let manager = try await loadManager(createIfMissing: false),
               canSendProviderMessage(status: manager.connection.status)
         else {
