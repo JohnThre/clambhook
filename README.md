@@ -10,6 +10,12 @@ Clambhook v1 routes device traffic through user-managed proxy and VPN profiles a
 
 The daemon and terminal UI also include a separate opt-in developer mode for the explicit HTTP proxy listener. When `[developer] enabled = true`, clambhook can capture bounded HTTP request/response previews, export HAR, and perform HTTPS CONNECT MITM after you manually trust the generated local CA. Android/App Store paths remain metadata-only.
 
+## End-user Distribution
+
+The iPhone app is distributed only through the Apple App Store as a free download with non-consumable In-App Purchases for premium access and paid feature updates.
+
+GitHub is source-only for end users. Do not publish or link end-user installers or package artifacts from GitHub, including `.dmg`, `.pkg`, `.apk`, `.aab`, `.ipa`, Homebrew formula releases, Debian packages, or macOS installer artifacts. Non-iPhone build and packaging targets in this repository are internal developer/QA workflows only.
+
 ## Donate
 
 <a href="https://nowpayments.io/donation?api_key=5792a927-dd7d-4b0c-982b-584a7499ffc9" target="_blank" rel="noreferrer noopener">

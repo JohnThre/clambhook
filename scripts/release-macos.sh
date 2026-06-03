@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+echo "internal-only: macOS archives are for developer QA/build validation and must not be published on GitHub for end users." >&2
+
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TEAM_ID="${CLAMBHOOK_DEVELOPMENT_TEAM:-}"
 NOTARY_PROFILE="${NOTARYTOOL_PROFILE:-}"

@@ -9,6 +9,7 @@ GO_LDFLAGS ?= -X main.version=$(VERSION)
 ANDROID_HOME ?= $(HOME)/Library/Android/sdk
 
 require-command = @command -v $(1) >/dev/null 2>&1 || { echo "$(1) is required for $(2)." >&2; echo "$(3)" >&2; exit 2; }
+internal-release-notice = @printf '%s\n' "internal-only: this target is for developer QA/build validation and must not publish end-user installers or packages on GitHub."
 
 all: build
 
@@ -51,16 +52,21 @@ build-apple: prepare-apple-runtime build-ios-mobile-xcframework
 	xcodebuild -project ui/apple/Clambhook.xcodeproj -scheme ClambhookVision -destination 'generic/platform=visionOS Simulator' CODE_SIGNING_ALLOWED=NO build
 
 archive-iphone:
+	@printf '%s\n' "App Store Connect only: exported IPAs must not be published on GitHub."
 	./scripts/archive-ios-app-store.sh
 
 build-iphone: archive-iphone
 
 release-macos:
+	$(internal-release-notice)
 	./scripts/release-macos.sh
 
-release-check: test lint package-smoke e2e-release
+release-check:
+	$(internal-release-notice)
+	$(MAKE) test lint package-smoke e2e-release
 
 package-smoke:
+	$(internal-release-notice)
 	./scripts/package-smoke.sh
 
 test-apple:
@@ -79,9 +85,11 @@ build-android:
 	cd ui/android && ANDROID_HOME="$(ANDROID_HOME)" ./gradlew :app:assemblePlayDebug
 
 build-android-release:
+	$(internal-release-notice)
 	cd ui/android && ANDROID_HOME="$(ANDROID_HOME)" ./gradlew :app:assemblePlayRelease
 
 build-android-play-release:
+	$(internal-release-notice)
 	cd ui/android && ANDROID_HOME="$(ANDROID_HOME)" ./gradlew :app:assemblePlayRelease
 
 test-linux: check-linux-ui-deps

@@ -2,21 +2,20 @@ import XCTest
 @testable import ClambhookShared
 
 final class MobileSupportTests: XCTestCase {
-    func testSupportProductIDsAreStableAndOrdered() {
-        XCTAssertEqual(MobileSupportCatalog.productIDs, [
-            "org.jpfchang.clambhook.support.small",
-            "org.jpfchang.clambhook.support.medium",
-            "org.jpfchang.clambhook.support.large",
+    func testPurchaseProductIDsAreStableAndOrdered() {
+        XCTAssertEqual(MobilePurchaseCatalog.productIDs, [
+            "org.jpfchang.clambhook.unlock.lifetime",
+            "org.jpfchang.clambhook.feature_update.2027",
         ])
         XCTAssertEqual(
-            MobileSupportCatalog.orderedIDs([
-                "org.jpfchang.clambhook.support.large",
+            MobilePurchaseCatalog.orderedIDs([
+                "org.jpfchang.clambhook.feature_update.2027",
                 "other",
-                "org.jpfchang.clambhook.support.small",
+                "org.jpfchang.clambhook.unlock.lifetime",
             ]),
             [
-                "org.jpfchang.clambhook.support.small",
-                "org.jpfchang.clambhook.support.large",
+                "org.jpfchang.clambhook.unlock.lifetime",
+                "org.jpfchang.clambhook.feature_update.2027",
                 "other",
             ]
         )

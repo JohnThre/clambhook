@@ -92,7 +92,7 @@ struct AppSettingsView: View {
             }
             #endif
             #if os(iOS) || os(visionOS)
-            SupportPurchasesSection()
+            PremiumPurchasesSection()
             #endif
             #if !os(iOS)
             Section {
