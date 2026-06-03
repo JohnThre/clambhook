@@ -29,6 +29,10 @@ type AuthCreds struct {
 // default" for each field — callers can pass a zero-valued Options and get
 // sensible behavior.
 type Options struct {
+	// ProfileName is copied into metadata-only connection events so UIs can
+	// distinguish history gathered under different active profiles.
+	ProfileName string
+
 	// MaxConnections caps concurrent in-flight client handlers. 0 means
 	// unlimited (the previous behavior). When the ceiling is hit, new
 	// accepts are held until an existing handler finishes.
@@ -278,7 +282,7 @@ func (s *SOCKSv5) acceptLoop(ctx context.Context, ln net.Listener) {
 			ce := newConnEvents(s.opts.EventBus, events.ListenerInfo{
 				Protocol: s.Protocol(),
 				Addr:     s.Addr(),
-			}, conn.RemoteAddr().String(), s.chainName)
+			}, s.opts.ProfileName, conn.RemoteAddr().String(), s.chainName)
 			ce.emitOpened()
 
 			relayErr := s.handleConn(ctx, conn, ce)
@@ -382,6 +386,9 @@ func (s *SOCKSv5) handleConnect(ctx context.Context, client net.Conn, req reques
 	ce.emitDialingPlan(plan)
 	if plan.Action == RouteActionBlock || plan.Action == RouteActionReject {
 		_ = writeReply(client, repConnNotAllowed, "")
+		if plan.Action == RouteActionReject {
+			return ErrRouteRejected
+		}
 		return ErrRouteBlocked
 	}
 
@@ -410,6 +417,7 @@ func (s *SOCKSv5) plan(ctx context.Context, network, target string) (RoutePlan, 
 		return s.planner.Plan(ctx, network, target)
 	}
 	plan := RoutePlan{
+		Profile:   s.opts.ProfileName,
 		Action:    RouteActionChain,
 		ChainName: s.chainName,
 		Target:    target,

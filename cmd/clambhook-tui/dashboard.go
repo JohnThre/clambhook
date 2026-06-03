@@ -732,6 +732,8 @@ func (m model) renderTrafficDetailSection(width int) string {
 		lines = append(lines, line)
 	}
 	lines = append(lines, m.ruleHitLines(width)...)
+	lines = append(lines, m.blockDecisionLines(width)...)
+	lines = append(lines, m.cleanupSuggestionLines(width)...)
 	if m.pendingRule != nil {
 		lines = append(lines, m.pendingRuleLine(width))
 	}
@@ -777,8 +779,13 @@ func (m model) monitorFilterLine(width int) string {
 	if m.searchEditing {
 		prompt = "typing"
 	}
-	return truncate(fmt.Sprintf("  [%s] all %d  proxy %d  direct %d  block %d  %s %q",
+	active := m.traffic.ProfileContext.Active
+	if active == "" {
+		active = m.activeProfile()
+	}
+	return truncate(fmt.Sprintf("  [%s] profile %s  all %d  proxy %d  direct %d  block %d  %s %q",
 		filter,
+		emptyDash(active),
 		len(m.traffic.Connections),
 		counts["proxy"],
 		counts["direct"],
@@ -836,6 +843,34 @@ func (m model) ruleHitLines(width int) []string {
 		parts = append(parts, fmt.Sprintf("%s/%s %d", emptyDash(hit.Name), hit.Action, hit.Count))
 	}
 	return []string{truncate("  Rule hits  "+strings.Join(parts, "  "), width)}
+}
+
+func (m model) blockDecisionLines(width int) []string {
+	if len(m.traffic.BlockDecisions) == 0 {
+		return nil
+	}
+	limit := minInt(3, len(m.traffic.BlockDecisions))
+	parts := make([]string, 0, limit)
+	for _, decision := range m.traffic.BlockDecisions[:limit] {
+		target := decision.TargetHost
+		if target == "" {
+			target = decision.Target
+		}
+		parts = append(parts, fmt.Sprintf("%s/%s", emptyDash(target), emptyDash(decision.RuleName)))
+	}
+	return []string{truncate("  Recent blocks  "+strings.Join(parts, "  "), width)}
+}
+
+func (m model) cleanupSuggestionLines(width int) []string {
+	if len(m.traffic.CleanupSuggestions) == 0 {
+		return nil
+	}
+	limit := minInt(2, len(m.traffic.CleanupSuggestions))
+	lines := make([]string, 0, limit)
+	for _, suggestion := range m.traffic.CleanupSuggestions[:limit] {
+		lines = append(lines, subtleStyle.Render(truncate(fmt.Sprintf("  Cleanup %s: %s", emptyDash(suggestion.RuleName), suggestion.Message), width)))
+	}
+	return lines
 }
 
 func (m model) pendingRuleLine(width int) string {
@@ -962,9 +997,12 @@ func (m model) selectedConnectionDetailLines(width int) []string {
 	host := connectionHost(conn)
 	lines := []string{
 		tableHeaderStyle.Render(truncate("  Host Detail", width)),
-		truncate(fmt.Sprintf("  Host %s  Action %s  Rule %s  Chain %s", emptyDash(host), actionChip(conn), emptyDash(conn.RuleName), emptyDash(conn.ChainName)), width),
+		truncate(fmt.Sprintf("  Host %s  Action %s  Rule %s  Chain %s  Profile %s", emptyDash(host), actionChip(conn), emptyDash(conn.RuleName), emptyDash(conn.ChainName), emptyDash(conn.Profile)), width),
 		truncate(fmt.Sprintf("  Target %s  Network %s  App %s  Listener %s %s", emptyDash(conn.Target), emptyDash(conn.Network), emptyDash(conn.Application), conn.Listener.Protocol, conn.Listener.Addr), width),
 		truncate(fmt.Sprintf("  Bytes %s down / %s up  Duration %s  Decision %s", formatBytes(conn.RxTotal), formatBytes(conn.TxTotal), formatDurationNs(conn.DurationNs), formatDurationNs(conn.DecisionNs)), width),
+	}
+	if conn.Geo.CountryCode != "" || conn.Geo.Country != "" || conn.Geo.City != "" {
+		lines = append(lines, truncate(fmt.Sprintf("  Location %s %s %s", countryFlag(conn.Geo.CountryCode), conn.Geo.Country, conn.Geo.City), width))
 	}
 	if conn.Visibility != nil {
 		lines = append(lines, truncate(fmt.Sprintf("  Visibility %s %s %s %s", conn.Visibility.Kind, conn.Visibility.Method, conn.Visibility.Host, conn.Visibility.Path), width))
@@ -983,6 +1021,14 @@ type ruleHit struct {
 }
 
 func (m model) ruleHits() []ruleHit {
+	if len(m.traffic.RuleHits) > 0 {
+		out := make([]ruleHit, 0, len(m.traffic.RuleHits))
+		for _, hit := range m.traffic.RuleHits {
+			out = append(out, ruleHit{Name: hit.RuleName, Action: hit.Action, Count: hit.Count})
+		}
+		sortRuleHits(out)
+		return out
+	}
 	index := map[string]*ruleHit{}
 	for _, conn := range m.traffic.Connections {
 		if conn.RuleName == "" && conn.RuleAction == "" {
@@ -1024,12 +1070,16 @@ func connectionMatchesSearch(conn trafficConnectionPayload, query string) bool {
 		conn.TargetPort,
 		conn.RuleName,
 		conn.RuleAction,
+		conn.Profile,
 		conn.ChainName,
 		conn.Application,
 		conn.Network,
 		conn.Listener.Protocol,
 		conn.Listener.Addr,
 		conn.ClientAddr,
+		conn.Geo.Country,
+		conn.Geo.CountryCode,
+		conn.Geo.City,
 	}
 	if conn.Visibility != nil {
 		fields = append(fields, conn.Visibility.Kind, conn.Visibility.Method, conn.Visibility.Host, conn.Visibility.Path, conn.Visibility.QueryType)
@@ -1922,6 +1972,13 @@ func clampInt(n, min, max int) int {
 
 func maxInt(a, b int) int {
 	if a > b {
+		return a
+	}
+	return b
+}
+
+func minInt(a, b int) int {
+	if a < b {
 		return a
 	}
 	return b

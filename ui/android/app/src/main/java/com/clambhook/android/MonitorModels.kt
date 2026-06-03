@@ -39,13 +39,19 @@ data class RuleHitSummary(
 )
 
 fun TrafficSnapshotPayload.ruleHitSummaries(): List<RuleHitSummary> =
-    connections
-        .filter { it.ruleName.isNotBlank() || it.ruleAction.isNotBlank() }
-        .groupBy { "${it.ruleName}|${it.actionFamily()}" }
-        .map { (_, rows) ->
-            RuleHitSummary(rows.first().ruleName.ifBlank { "default" }, rows.first().actionFamily(), rows.size)
-        }
-        .sortedWith(compareByDescending<RuleHitSummary> { it.count }.thenBy { it.ruleName }.thenBy { it.action })
+    if (ruleHits.isNotEmpty()) {
+        ruleHits
+            .map { RuleHitSummary(it.ruleName.ifBlank { "default" }, it.action, it.count) }
+            .sortedWith(compareByDescending<RuleHitSummary> { it.count }.thenBy { it.ruleName }.thenBy { it.action })
+    } else {
+        connections
+            .filter { it.ruleName.isNotBlank() || it.ruleAction.isNotBlank() }
+            .groupBy { "${it.ruleName}|${it.actionFamily()}" }
+            .map { (_, rows) ->
+                RuleHitSummary(rows.first().ruleName.ifBlank { "default" }, rows.first().actionFamily(), rows.size)
+            }
+            .sortedWith(compareByDescending<RuleHitSummary> { it.count }.thenBy { it.ruleName }.thenBy { it.action })
+    }
 
 private fun String.ruleNameToken(): String =
     lowercase()

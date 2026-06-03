@@ -85,4 +85,30 @@ class ApiModelsTest {
         assertEquals("connection.bytes", event.type)
         assertEquals(JsonPrimitive(2048), event.data["rx_delta"])
     }
+
+    @Test
+    fun decodesTrafficMonitorAnalytics() {
+        val traffic = ApiJson.decodeFromString<TrafficSnapshotPayload>(
+            """
+            {
+              "updated_ts_ns": 99,
+              "summary": {"active_connections": 1},
+              "profile_context": {"active": "Work", "profiles": ["Work", "Home"]},
+              "quick_filters": [{"key": "block", "label": "Block", "count": 2}],
+              "rule_hits": [{"profile": "Work", "rule_name": "ads", "action": "block", "count": 2, "last_target": "ads.example.com:443"}],
+              "block_decisions": [{"conn_id": "c1", "profile": "Work", "rule_name": "ads", "action": "block", "target_host": "ads.example.com", "ts_ns": 88}],
+              "cleanup_suggestions": [{"kind": "unused_in_history", "profile": "Work", "rule_name": "old", "message": "No recent traffic-history entries matched this rule."}],
+              "connections": [{"conn_id": "c1", "profile": "Work", "state": "closed", "rule_action": "block", "default": true, "target_host": "ads.example.com"}]
+            }
+            """.trimIndent()
+        )
+
+        assertEquals("Work", traffic.profileContext.active)
+        assertEquals("block", traffic.quickFilters.single().key)
+        assertEquals("ads", traffic.ruleHits.single().ruleName)
+        assertEquals("ads.example.com", traffic.blockDecisions.single().targetHost)
+        assertEquals("old", traffic.cleanupSuggestions.single().ruleName)
+        assertEquals("Work", traffic.connections.single().profile)
+        assertEquals(true, traffic.connections.single().isDefault)
+    }
 }

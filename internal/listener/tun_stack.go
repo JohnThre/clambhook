@@ -318,7 +318,7 @@ func (s *PacketStack) handleTCPFlow(ctx context.Context, local *gonet.TCPConn, i
 	ce := newConnEvents(s.opts.EventBus, events.ListenerInfo{
 		Protocol: s.Protocol(),
 		Addr:     s.Addr(),
-	}, idClientAddr(id), s.opts.ChainName)
+	}, s.opts.ProfileName, idClientAddr(id), s.opts.ChainName)
 	ce.emitOpened()
 
 	dialCtx, cancel := context.WithTimeout(ctx, tunDialTimeout)
@@ -334,7 +334,7 @@ func (s *PacketStack) handleTCPFlow(ctx context.Context, local *gonet.TCPConn, i
 	ce.emitRuleDecision(plan)
 	ce.emitDialingPlan(plan)
 	if plan.Action == RouteActionBlock || plan.Action == RouteActionReject {
-		ce.emitClosed(events.ReasonClientEOF)
+		ce.emitClosed(routeCloseReason(plan.Action))
 		return
 	}
 
@@ -398,7 +398,7 @@ func (s *PacketStack) handleUDPFlow(ctx context.Context, local *gonet.UDPConn, i
 	ce := newConnEvents(s.opts.EventBus, events.ListenerInfo{
 		Protocol: s.Protocol(),
 		Addr:     s.Addr(),
-	}, idClientAddr(id), s.opts.ChainName)
+	}, s.opts.ProfileName, idClientAddr(id), s.opts.ChainName)
 	ce.emitOpened()
 
 	dialCtx, cancel := context.WithTimeout(ctx, tunDialTimeout)
@@ -417,7 +417,7 @@ func (s *PacketStack) handleUDPFlow(ctx context.Context, local *gonet.UDPConn, i
 	ce.emitRuleDecision(plan)
 	ce.emitDialingPlan(plan)
 	if plan.Action == RouteActionBlock || plan.Action == RouteActionReject {
-		ce.emitClosed(events.ReasonClientEOF)
+		ce.emitClosed(routeCloseReason(plan.Action))
 		return
 	}
 	if plan.DialPacket == nil {
@@ -453,6 +453,7 @@ func (s *PacketStack) plan(ctx context.Context, network, target string) (RoutePl
 		return s.planner.Plan(ctx, network, target)
 	}
 	plan := RoutePlan{
+		Profile:   s.opts.ProfileName,
 		Action:    RouteActionChain,
 		ChainName: s.opts.ChainName,
 		Target:    target,

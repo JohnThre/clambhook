@@ -281,11 +281,16 @@ private fun TrafficCard(state: DashboardState, onCreateRule: (RulePayload) -> Un
             (search.isBlank() || listOf(
                 connection.target,
                 connection.monitorHost(),
+                connection.profile,
                 connection.ruleName,
                 connection.ruleAction,
                 connection.chainName,
                 connection.application,
-                connection.network
+                connection.network,
+                connection.geo.country,
+                connection.geo.countryCode,
+                connection.geo.city,
+                connection.targetPort
             ).any { it.contains(search, ignoreCase = true) })
     }
     Card(shape = RoundedCornerShape(8.dp)) {
@@ -340,6 +345,22 @@ private fun TrafficCard(state: DashboardState, onCreateRule: (RulePayload) -> Un
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
+            if (traffic.blockDecisions.isNotEmpty()) {
+                Text(
+                    "Recent blocks " + traffic.blockDecisions.take(3).joinToString("  ") {
+                        "${it.targetHost.ifBlank { it.target }} / ${it.ruleName.ifBlank { "default" }}"
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            traffic.cleanupSuggestions.take(2).forEach { suggestion ->
+                Text(
+                    "Cleanup ${suggestion.ruleName}: ${suggestion.message}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
             if (traffic.summary.persistError.isNotBlank()) {
                 Text(traffic.summary.persistError, color = MaterialTheme.colorScheme.error)
             }
@@ -380,7 +401,7 @@ private fun ConnectionRow(connection: TrafficConnectionPayload, onCreateRule: ()
             StatusPill(connection.actionFamily().uppercase())
         }
         Text(
-            listOf(connection.application, connection.network, connection.chainName, connection.ruleName)
+            listOf(connection.profile, connection.application, connection.network, connection.chainName, connection.ruleName)
                 .filter { it.isNotBlank() }
                 .joinToString(" · ")
                 .ifBlank { connection.listener.protocol },

@@ -80,6 +80,33 @@ struct IOSActivityView: View {
                         }
                     }
                 }
+                if !model.dashboard.traffic.blockDecisions.isEmpty {
+                    Section("Blocked") {
+                        ForEach(model.dashboard.traffic.blockDecisions.prefix(8)) { decision in
+                            HStack {
+                                IOSActionChip(action: decision.action)
+                                VStack(alignment: .leading) {
+                                    Text(emptyDash(decision.targetHost.isEmpty ? decision.target : decision.targetHost))
+                                    Text([decision.profile, decision.ruleName, decision.network].filter { !$0.isEmpty }.joined(separator: " / "))
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                        }
+                    }
+                }
+                if !model.dashboard.traffic.cleanupSuggestions.isEmpty {
+                    Section("Rule Cleanup") {
+                        ForEach(model.dashboard.traffic.cleanupSuggestions.prefix(6)) { suggestion in
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(suggestion.ruleName)
+                                Text(suggestion.message)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                }
             } else {
                 Section("Logs") {
                     if filteredLogs.isEmpty {
@@ -307,6 +334,7 @@ private struct IOSActivityConnectionDetailView: View {
             Section("Connection") {
                 LabeledContent("ID", value: emptyDash(connection.connID))
                 LabeledContent("Target", value: emptyDash(connection.target))
+                LabeledContent("Profile", value: emptyDash(connection.profile))
                 LabeledContent("State", value: emptyDash(connection.state).capitalized)
                 LabeledContent("Network", value: emptyDash(connection.network))
                 LabeledContent("Application", value: emptyDash(connection.application))
@@ -319,6 +347,7 @@ private struct IOSActivityConnectionDetailView: View {
                 LabeledContent("Action", value: emptyDash(connection.ruleAction))
                 LabeledContent("Rule", value: emptyDash(connection.ruleName))
                 LabeledContent("Chain", value: emptyDash(connection.chainName))
+                LabeledContent("Default", value: connection.isDefault ? "Yes" : "No")
                 LabeledContent("Decision time", value: formatDurationNs(connection.decisionNs))
                 Button {
                     draftRule = connection.ruleDraft()

@@ -19,6 +19,7 @@ func TUNUnsupportedError() error { return errors.New(unsupportedTUNError) }
 // owns the interface and route changes for the lifetime of the listener.
 type TUNOptions struct {
 	Name         string
+	ProfileName  string
 	MTU          int
 	Addresses    []string
 	Routes       []string

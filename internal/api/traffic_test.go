@@ -47,6 +47,43 @@ func TestHandleTrafficSnapshot(t *testing.T) {
 	}
 }
 
+func TestHandleTrafficAppliesMonitorFiltersAndContext(t *testing.T) {
+	store, err := traffic.NewStore(config.TrafficConfig{
+		Enabled:       true,
+		HistoryLimit:  10,
+		HistoryMaxAge: config.Duration(time.Hour),
+		HistoryPath:   filepath.Join(t.TempDir(), "traffic-history.json"),
+	}, nil)
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	store.ApplyEvent(events.Event{TsNs: 1, Type: events.TypeConnectionOpened, Data: events.ConnectionOpenedData{ConnID: "c1", Profile: "A"}})
+	store.ApplyEvent(events.Event{TsNs: 2, Type: events.TypeRuleBlocked, Data: events.RuleDecisionData{
+		ConnID: "c1", Profile: "A", RuleName: "ads", Action: "block", Target: "ads.example.com:443", TargetHost: "ads.example.com", TargetPort: "443",
+	}})
+	cfg := testServersConfig("A")
+	cfg.Profiles[0].Rules = []config.RuleConfig{{Name: "ads", Action: "block", Domains: []string{"ads.example.com"}}}
+	s := NewWithOptions(engine.New(cfg, nil), nil, Options{TrafficStore: store})
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/traffic?action=block&profile=A&query=ads", nil)
+	rec := httptest.NewRecorder()
+
+	s.server.Handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	var got traffic.Snapshot
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if got.ProfileContext.Active != "A" || len(got.Connections) != 1 {
+		t.Fatalf("snapshot = %+v", got)
+	}
+	if len(got.RuleHits) == 0 || len(got.QuickFilters) == 0 {
+		t.Fatalf("analytics missing: hits=%+v filters=%+v", got.RuleHits, got.QuickFilters)
+	}
+}
+
 func TestHandleTrafficDisabledReturnsEmptySnapshot(t *testing.T) {
 	s := &Server{}
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/traffic", nil)

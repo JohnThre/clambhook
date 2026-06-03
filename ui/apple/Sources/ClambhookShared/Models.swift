@@ -427,17 +427,226 @@ public struct TrafficSnapshotPayload: Codable, Equatable, Sendable {
     public var updatedTsNs: Int64
     public var summary: TrafficSummaryPayload
     public var connections: [TrafficConnectionPayload]
+    public var profileContext: TrafficProfileContextPayload
+    public var quickFilters: [TrafficQuickFilterPayload]
+    public var ruleHits: [TrafficRuleHitPayload]
+    public var blockDecisions: [TrafficBlockDecisionPayload]
+    public var cleanupSuggestions: [TrafficCleanupSuggestionPayload]
 
     enum CodingKeys: String, CodingKey {
         case updatedTsNs = "updated_ts_ns"
         case summary
         case connections
+        case profileContext = "profile_context"
+        case quickFilters = "quick_filters"
+        case ruleHits = "rule_hits"
+        case blockDecisions = "block_decisions"
+        case cleanupSuggestions = "cleanup_suggestions"
     }
 
-    public init(updatedTsNs: Int64 = 0, summary: TrafficSummaryPayload = TrafficSummaryPayload(), connections: [TrafficConnectionPayload] = []) {
+    public init(updatedTsNs: Int64 = 0, summary: TrafficSummaryPayload = TrafficSummaryPayload(), connections: [TrafficConnectionPayload] = [], profileContext: TrafficProfileContextPayload = TrafficProfileContextPayload(), quickFilters: [TrafficQuickFilterPayload] = [], ruleHits: [TrafficRuleHitPayload] = [], blockDecisions: [TrafficBlockDecisionPayload] = [], cleanupSuggestions: [TrafficCleanupSuggestionPayload] = []) {
         self.updatedTsNs = updatedTsNs
         self.summary = summary
         self.connections = connections
+        self.profileContext = profileContext
+        self.quickFilters = quickFilters
+        self.ruleHits = ruleHits
+        self.blockDecisions = blockDecisions
+        self.cleanupSuggestions = cleanupSuggestions
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.updatedTsNs = try container.decodeIfPresent(Int64.self, forKey: .updatedTsNs) ?? 0
+        self.summary = try container.decodeIfPresent(TrafficSummaryPayload.self, forKey: .summary) ?? TrafficSummaryPayload()
+        self.connections = try container.decodeIfPresent([TrafficConnectionPayload].self, forKey: .connections) ?? []
+        self.profileContext = try container.decodeIfPresent(TrafficProfileContextPayload.self, forKey: .profileContext) ?? TrafficProfileContextPayload()
+        self.quickFilters = try container.decodeIfPresent([TrafficQuickFilterPayload].self, forKey: .quickFilters) ?? []
+        self.ruleHits = try container.decodeIfPresent([TrafficRuleHitPayload].self, forKey: .ruleHits) ?? []
+        self.blockDecisions = try container.decodeIfPresent([TrafficBlockDecisionPayload].self, forKey: .blockDecisions) ?? []
+        self.cleanupSuggestions = try container.decodeIfPresent([TrafficCleanupSuggestionPayload].self, forKey: .cleanupSuggestions) ?? []
+    }
+}
+
+public struct TrafficProfileContextPayload: Codable, Equatable, Sendable {
+    public var active: String
+    public var profiles: [String]
+
+    public init(active: String = "", profiles: [String] = []) {
+        self.active = active
+        self.profiles = profiles
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.active = try container.decodeIfPresent(String.self, forKey: .active) ?? ""
+        self.profiles = try container.decodeIfPresent([String].self, forKey: .profiles) ?? []
+    }
+}
+
+public struct TrafficQuickFilterPayload: Codable, Equatable, Identifiable, Sendable {
+    public var id: String { key }
+    public var key: String
+    public var label: String
+    public var count: Int
+
+    public init(key: String = "", label: String = "", count: Int = 0) {
+        self.key = key
+        self.label = label
+        self.count = count
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.key = try container.decodeIfPresent(String.self, forKey: .key) ?? ""
+        self.label = try container.decodeIfPresent(String.self, forKey: .label) ?? ""
+        self.count = try container.decodeIfPresent(Int.self, forKey: .count) ?? 0
+    }
+}
+
+public struct TrafficRuleHitPayload: Codable, Equatable, Identifiable, Sendable {
+    public var id: String { "\(profile)-\(ruleName)-\(action)" }
+    public var profile: String
+    public var ruleName: String
+    public var action: String
+    public var count: Int
+    public var lastHitTsNs: Int64
+    public var rxTotal: UInt64
+    public var txTotal: UInt64
+    public var lastTarget: String
+    public var isDefault: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case profile
+        case ruleName = "rule_name"
+        case action
+        case count
+        case lastHitTsNs = "last_hit_ts_ns"
+        case rxTotal = "rx_total"
+        case txTotal = "tx_total"
+        case lastTarget = "last_target"
+        case isDefault = "default"
+    }
+
+    public init(profile: String = "", ruleName: String = "", action: String = "", count: Int = 0, lastHitTsNs: Int64 = 0, rxTotal: UInt64 = 0, txTotal: UInt64 = 0, lastTarget: String = "", isDefault: Bool = false) {
+        self.profile = profile
+        self.ruleName = ruleName
+        self.action = action
+        self.count = count
+        self.lastHitTsNs = lastHitTsNs
+        self.rxTotal = rxTotal
+        self.txTotal = txTotal
+        self.lastTarget = lastTarget
+        self.isDefault = isDefault
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.profile = try container.decodeIfPresent(String.self, forKey: .profile) ?? ""
+        self.ruleName = try container.decodeIfPresent(String.self, forKey: .ruleName) ?? ""
+        self.action = try container.decodeIfPresent(String.self, forKey: .action) ?? ""
+        self.count = try container.decodeIfPresent(Int.self, forKey: .count) ?? 0
+        self.lastHitTsNs = try container.decodeIfPresent(Int64.self, forKey: .lastHitTsNs) ?? 0
+        self.rxTotal = try container.decodeIfPresent(UInt64.self, forKey: .rxTotal) ?? 0
+        self.txTotal = try container.decodeIfPresent(UInt64.self, forKey: .txTotal) ?? 0
+        self.lastTarget = try container.decodeIfPresent(String.self, forKey: .lastTarget) ?? ""
+        self.isDefault = try container.decodeIfPresent(Bool.self, forKey: .isDefault) ?? false
+    }
+}
+
+public struct TrafficBlockDecisionPayload: Codable, Equatable, Identifiable, Sendable {
+    public var id: String { connID }
+    public var connID: String
+    public var profile: String
+    public var ruleName: String
+    public var action: String
+    public var target: String
+    public var targetHost: String
+    public var targetPort: String
+    public var network: String
+    public var tsNs: Int64
+    public var closeReason: String
+
+    enum CodingKeys: String, CodingKey {
+        case connID = "conn_id"
+        case profile
+        case ruleName = "rule_name"
+        case action
+        case target
+        case targetHost = "target_host"
+        case targetPort = "target_port"
+        case network
+        case tsNs = "ts_ns"
+        case closeReason = "close_reason"
+    }
+
+    public init(connID: String = "", profile: String = "", ruleName: String = "", action: String = "", target: String = "", targetHost: String = "", targetPort: String = "", network: String = "", tsNs: Int64 = 0, closeReason: String = "") {
+        self.connID = connID
+        self.profile = profile
+        self.ruleName = ruleName
+        self.action = action
+        self.target = target
+        self.targetHost = targetHost
+        self.targetPort = targetPort
+        self.network = network
+        self.tsNs = tsNs
+        self.closeReason = closeReason
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.connID = try container.decodeIfPresent(String.self, forKey: .connID) ?? ""
+        self.profile = try container.decodeIfPresent(String.self, forKey: .profile) ?? ""
+        self.ruleName = try container.decodeIfPresent(String.self, forKey: .ruleName) ?? ""
+        self.action = try container.decodeIfPresent(String.self, forKey: .action) ?? ""
+        self.target = try container.decodeIfPresent(String.self, forKey: .target) ?? ""
+        self.targetHost = try container.decodeIfPresent(String.self, forKey: .targetHost) ?? ""
+        self.targetPort = try container.decodeIfPresent(String.self, forKey: .targetPort) ?? ""
+        self.network = try container.decodeIfPresent(String.self, forKey: .network) ?? ""
+        self.tsNs = try container.decodeIfPresent(Int64.self, forKey: .tsNs) ?? 0
+        self.closeReason = try container.decodeIfPresent(String.self, forKey: .closeReason) ?? ""
+    }
+}
+
+public struct TrafficCleanupSuggestionPayload: Codable, Equatable, Identifiable, Sendable {
+    public var id: String { "\(kind)-\(profile)-\(ruleName)-\(message)" }
+    public var kind: String
+    public var profile: String
+    public var ruleName: String
+    public var action: String
+    public var message: String
+    public var count: Int
+    public var lastHitTsNs: Int64
+
+    enum CodingKeys: String, CodingKey {
+        case kind
+        case profile
+        case ruleName = "rule_name"
+        case action
+        case message
+        case count
+        case lastHitTsNs = "last_hit_ts_ns"
+    }
+
+    public init(kind: String = "", profile: String = "", ruleName: String = "", action: String = "", message: String = "", count: Int = 0, lastHitTsNs: Int64 = 0) {
+        self.kind = kind
+        self.profile = profile
+        self.ruleName = ruleName
+        self.action = action
+        self.message = message
+        self.count = count
+        self.lastHitTsNs = lastHitTsNs
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.kind = try container.decodeIfPresent(String.self, forKey: .kind) ?? ""
+        self.profile = try container.decodeIfPresent(String.self, forKey: .profile) ?? ""
+        self.ruleName = try container.decodeIfPresent(String.self, forKey: .ruleName) ?? ""
+        self.action = try container.decodeIfPresent(String.self, forKey: .action) ?? ""
+        self.message = try container.decodeIfPresent(String.self, forKey: .message) ?? ""
+        self.count = try container.decodeIfPresent(Int.self, forKey: .count) ?? 0
+        self.lastHitTsNs = try container.decodeIfPresent(Int64.self, forKey: .lastHitTsNs) ?? 0
     }
 }
 
@@ -493,6 +702,7 @@ public struct TrafficSummaryPayload: Codable, Equatable, Sendable {
 public struct TrafficConnectionPayload: Codable, Equatable, Identifiable, Sendable {
     public var id: String { connID }
     public var connID: String
+    public var profile: String
     public var state: String
     public var startTsNs: Int64
     public var updatedTsNs: Int64
@@ -502,6 +712,7 @@ public struct TrafficConnectionPayload: Codable, Equatable, Identifiable, Sendab
     public var chainName: String
     public var ruleName: String
     public var ruleAction: String
+    public var isDefault: Bool
     public var decisionNs: Int64
     public var target: String
     public var targetHost: String
@@ -523,6 +734,7 @@ public struct TrafficConnectionPayload: Codable, Equatable, Identifiable, Sendab
 
     enum CodingKeys: String, CodingKey {
         case connID = "conn_id"
+        case profile
         case state
         case startTsNs = "start_ts_ns"
         case updatedTsNs = "updated_ts_ns"
@@ -532,6 +744,7 @@ public struct TrafficConnectionPayload: Codable, Equatable, Identifiable, Sendab
         case chainName = "chain_name"
         case ruleName = "rule_name"
         case ruleAction = "rule_action"
+        case isDefault = "default"
         case decisionNs = "decision_ns"
         case target
         case targetHost = "target_host"
@@ -552,8 +765,9 @@ public struct TrafficConnectionPayload: Codable, Equatable, Identifiable, Sendab
         case closeReason = "close_reason"
     }
 
-    public init(connID: String = "", state: String = "", startTsNs: Int64 = 0, updatedTsNs: Int64 = 0, endTsNs: Int64 = 0, listener: TrafficListenerPayload = TrafficListenerPayload(), clientAddr: String = "", chainName: String = "", ruleName: String = "", ruleAction: String = "", decisionNs: Int64 = 0, target: String = "", targetHost: String = "", targetPort: String = "", network: String = "", application: String = "", hops: [TrafficHopPayload] = [], timeline: [TrafficTimelinePayload] = [], visibility: TrafficVisibilityPayload? = nil, geo: LocationPayload = LocationPayload(), geoError: String = "", totalDialNs: Int64 = 0, rxBps: Double = 0, txBps: Double = 0, rxTotal: UInt64 = 0, txTotal: UInt64 = 0, durationNs: Int64 = 0, closeReason: String = "") {
+    public init(connID: String = "", profile: String = "", state: String = "", startTsNs: Int64 = 0, updatedTsNs: Int64 = 0, endTsNs: Int64 = 0, listener: TrafficListenerPayload = TrafficListenerPayload(), clientAddr: String = "", chainName: String = "", ruleName: String = "", ruleAction: String = "", isDefault: Bool = false, decisionNs: Int64 = 0, target: String = "", targetHost: String = "", targetPort: String = "", network: String = "", application: String = "", hops: [TrafficHopPayload] = [], timeline: [TrafficTimelinePayload] = [], visibility: TrafficVisibilityPayload? = nil, geo: LocationPayload = LocationPayload(), geoError: String = "", totalDialNs: Int64 = 0, rxBps: Double = 0, txBps: Double = 0, rxTotal: UInt64 = 0, txTotal: UInt64 = 0, durationNs: Int64 = 0, closeReason: String = "") {
         self.connID = connID
+        self.profile = profile
         self.state = state
         self.startTsNs = startTsNs
         self.updatedTsNs = updatedTsNs
@@ -563,6 +777,7 @@ public struct TrafficConnectionPayload: Codable, Equatable, Identifiable, Sendab
         self.chainName = chainName
         self.ruleName = ruleName
         self.ruleAction = ruleAction
+        self.isDefault = isDefault
         self.decisionNs = decisionNs
         self.target = target
         self.targetHost = targetHost
@@ -586,6 +801,7 @@ public struct TrafficConnectionPayload: Codable, Equatable, Identifiable, Sendab
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.connID = try container.decodeIfPresent(String.self, forKey: .connID) ?? ""
+        self.profile = try container.decodeIfPresent(String.self, forKey: .profile) ?? ""
         self.state = try container.decodeIfPresent(String.self, forKey: .state) ?? ""
         self.startTsNs = try container.decodeIfPresent(Int64.self, forKey: .startTsNs) ?? 0
         self.updatedTsNs = try container.decodeIfPresent(Int64.self, forKey: .updatedTsNs) ?? 0
@@ -595,6 +811,7 @@ public struct TrafficConnectionPayload: Codable, Equatable, Identifiable, Sendab
         self.chainName = try container.decodeIfPresent(String.self, forKey: .chainName) ?? ""
         self.ruleName = try container.decodeIfPresent(String.self, forKey: .ruleName) ?? ""
         self.ruleAction = try container.decodeIfPresent(String.self, forKey: .ruleAction) ?? ""
+        self.isDefault = try container.decodeIfPresent(Bool.self, forKey: .isDefault) ?? false
         self.decisionNs = try container.decodeIfPresent(Int64.self, forKey: .decisionNs) ?? 0
         self.target = try container.decodeIfPresent(String.self, forKey: .target) ?? ""
         self.targetHost = try container.decodeIfPresent(String.self, forKey: .targetHost) ?? ""

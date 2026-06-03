@@ -380,6 +380,31 @@ func TestTrafficMonitorSearchMatchesRuleAndHost(t *testing.T) {
 	}
 }
 
+func TestTrafficMonitorRendersBackendAnalytics(t *testing.T) {
+	m := newModel("127.0.0.1:9090")
+	m.viewMode = viewModeActivity
+	m.width = 120
+	m.traffic.ProfileContext = profileContextPayload{Active: "Work", Profiles: []string{"Work", "Home"}}
+	m.traffic.RuleHits = []ruleHitPayload{{RuleName: "ads", Action: "block", Count: 3}}
+	m.traffic.BlockDecisions = []blockDecisionPayload{{TargetHost: "ads.example.com", RuleName: "ads", Action: "block"}}
+	m.traffic.CleanupSuggestions = []cleanupSuggestionPayload{{RuleName: "old-rule", Message: "No recent traffic-history entries matched this rule."}}
+	m.traffic.Connections = []trafficConnectionPayload{{
+		ConnID:     "c1",
+		Profile:    "Work",
+		Target:     "ads.example.com:443",
+		TargetHost: "ads.example.com",
+		RuleAction: "block",
+		RuleName:   "ads",
+	}}
+
+	view := m.View()
+	for _, want := range []string{"profile Work", "Rule hits", "ads/block 3", "Recent blocks", "Cleanup old-rule"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("view missing %q:\n%s", want, view)
+		}
+	}
+}
+
 func TestProfileListRendersEmojiNamesAndActiveMarker(t *testing.T) {
 	m := newModel("127.0.0.1:9090")
 	m.viewMode = viewModeLibrary

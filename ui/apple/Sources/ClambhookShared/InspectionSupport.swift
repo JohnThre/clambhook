@@ -42,6 +42,7 @@ public extension TrafficConnectionPayload {
         let normalized = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !normalized.isEmpty else { return true }
         let fields = [
+            profile,
             target,
             targetHost,
             targetPort,
@@ -53,6 +54,9 @@ public extension TrafficConnectionPayload {
             listener.protocol,
             listener.addr,
             clientAddr,
+            geo.country,
+            geo.countryCode,
+            geo.city,
             displayVisibility,
         ]
         if fields.contains(where: { $0.lowercased().contains(normalized) }) {

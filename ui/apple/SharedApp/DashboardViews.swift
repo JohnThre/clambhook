@@ -65,6 +65,39 @@ struct DashboardContentView: View {
                 TrafficSummaryView(traffic: model.dashboard.traffic)
                 TrafficListView(connections: model.dashboard.traffic.connections)
             }
+            if !model.dashboard.traffic.ruleHits.isEmpty {
+                Section("Rule Hits") {
+                    ForEach(model.dashboard.traffic.ruleHits.prefix(8)) { hit in
+                        LabeledContent(hit.ruleName.isEmpty ? "Default" : hit.ruleName, value: "\(hit.count)")
+                    }
+                }
+            }
+            if !model.dashboard.traffic.blockDecisions.isEmpty {
+                Section("Blocked") {
+                    ForEach(model.dashboard.traffic.blockDecisions.prefix(6)) { decision in
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(emptyDash(decision.targetHost.isEmpty ? decision.target : decision.targetHost))
+                                .fontWeight(.medium)
+                            Text([decision.profile, decision.ruleName, decision.action].filter { !$0.isEmpty }.joined(separator: " · "))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
+            if !model.dashboard.traffic.cleanupSuggestions.isEmpty {
+                Section("Rule Cleanup") {
+                    ForEach(model.dashboard.traffic.cleanupSuggestions.prefix(5)) { suggestion in
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(suggestion.ruleName)
+                                .fontWeight(.medium)
+                            Text(suggestion.message)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
             Section("Logs") {
                 if model.dashboard.logs.isEmpty {
                     Text("No logs yet")
@@ -132,7 +165,7 @@ struct TrafficListView: View {
 
     private func trafficSubtitle(_ connection: TrafficConnectionPayload) -> String {
         let decision = [connection.ruleName, connection.ruleAction].filter { !$0.isEmpty }.joined(separator: " -> ")
-        let parts = [connection.application, connection.network, connection.chainName, decision]
+        let parts = [connection.profile, connection.application, connection.network, connection.chainName, decision]
             .filter { !$0.isEmpty }
         if !parts.isEmpty {
             return parts.joined(separator: " · ")

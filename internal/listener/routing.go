@@ -23,6 +23,7 @@ var (
 // RoutePlan is the listener-facing form of a routing decision. The planner
 // owns the concrete chain/direct dialers; listeners only execute the plan.
 type RoutePlan struct {
+	Profile    string
 	RuleName   string
 	Action     string
 	ChainName  string
@@ -30,6 +31,7 @@ type RoutePlan struct {
 	Host       string
 	Port       string
 	Network    string
+	Default    bool
 	ElapsedNs  int64
 	Hops       []events.HopInfo
 	Visibility events.VisibilityInfo

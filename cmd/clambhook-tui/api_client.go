@@ -72,9 +72,14 @@ type locationPayload struct {
 }
 
 type trafficSnapshotPayload struct {
-	UpdatedTsNs int64                      `json:"updated_ts_ns"`
-	Summary     trafficSummaryPayload      `json:"summary"`
-	Connections []trafficConnectionPayload `json:"connections"`
+	UpdatedTsNs        int64                      `json:"updated_ts_ns"`
+	Summary            trafficSummaryPayload      `json:"summary"`
+	Connections        []trafficConnectionPayload `json:"connections"`
+	ProfileContext     profileContextPayload      `json:"profile_context,omitempty"`
+	QuickFilters       []quickFilterPayload       `json:"quick_filters,omitempty"`
+	RuleHits           []ruleHitPayload           `json:"rule_hits,omitempty"`
+	BlockDecisions     []blockDecisionPayload     `json:"block_decisions,omitempty"`
+	CleanupSuggestions []cleanupSuggestionPayload `json:"cleanup_suggestions,omitempty"`
 }
 
 type trafficSummaryPayload struct {
@@ -91,6 +96,7 @@ type trafficSummaryPayload struct {
 
 type trafficConnectionPayload struct {
 	ConnID      string          `json:"conn_id"`
+	Profile     string          `json:"profile,omitempty"`
 	State       string          `json:"state"`
 	StartTsNs   int64           `json:"start_ts_ns"`
 	UpdatedTsNs int64           `json:"updated_ts_ns"`
@@ -100,6 +106,7 @@ type trafficConnectionPayload struct {
 	ChainName   string          `json:"chain_name,omitempty"`
 	RuleName    string          `json:"rule_name,omitempty"`
 	RuleAction  string          `json:"rule_action,omitempty"`
+	Default     bool            `json:"default,omitempty"`
 	DecisionNs  int64           `json:"decision_ns,omitempty"`
 	Target      string          `json:"target,omitempty"`
 	TargetHost  string          `json:"target_host,omitempty"`
@@ -118,6 +125,52 @@ type trafficConnectionPayload struct {
 	TxTotal     uint64          `json:"tx_total"`
 	DurationNs  int64           `json:"duration_ns,omitempty"`
 	CloseReason string          `json:"close_reason,omitempty"`
+}
+
+type profileContextPayload struct {
+	Active   string   `json:"active,omitempty"`
+	Profiles []string `json:"profiles,omitempty"`
+}
+
+type quickFilterPayload struct {
+	Key   string `json:"key"`
+	Label string `json:"label"`
+	Count int    `json:"count"`
+}
+
+type ruleHitPayload struct {
+	Profile     string `json:"profile,omitempty"`
+	RuleName    string `json:"rule_name"`
+	Action      string `json:"action"`
+	Count       int    `json:"count"`
+	LastHitTsNs int64  `json:"last_hit_ts_ns,omitempty"`
+	RxTotal     uint64 `json:"rx_total"`
+	TxTotal     uint64 `json:"tx_total"`
+	LastTarget  string `json:"last_target,omitempty"`
+	Default     bool   `json:"default,omitempty"`
+}
+
+type blockDecisionPayload struct {
+	ConnID      string `json:"conn_id"`
+	Profile     string `json:"profile,omitempty"`
+	RuleName    string `json:"rule_name,omitempty"`
+	Action      string `json:"action"`
+	Target      string `json:"target,omitempty"`
+	TargetHost  string `json:"target_host,omitempty"`
+	TargetPort  string `json:"target_port,omitempty"`
+	Network     string `json:"network,omitempty"`
+	TsNs        int64  `json:"ts_ns"`
+	CloseReason string `json:"close_reason,omitempty"`
+}
+
+type cleanupSuggestionPayload struct {
+	Kind        string `json:"kind"`
+	Profile     string `json:"profile,omitempty"`
+	RuleName    string `json:"rule_name"`
+	Action      string `json:"action,omitempty"`
+	Message     string `json:"message"`
+	Count       int    `json:"count,omitempty"`
+	LastHitTsNs int64  `json:"last_hit_ts_ns,omitempty"`
 }
 
 type rulePayload struct {

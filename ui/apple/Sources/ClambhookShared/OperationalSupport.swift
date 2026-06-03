@@ -629,6 +629,17 @@ public extension DashboardStore {
     }
 
     var ruleHitSummaries: [RuleHitSummary] {
+        if !traffic.ruleHits.isEmpty {
+            return traffic.ruleHits.map {
+                RuleHitSummary(ruleName: $0.ruleName, action: $0.action, count: $0.count)
+            }
+            .sorted {
+                if $0.count == $1.count {
+                    return $0.id < $1.id
+                }
+                return $0.count > $1.count
+            }
+        }
         let grouped = Dictionary(grouping: traffic.connections.filter { !$0.ruleAction.isEmpty }) {
             "\($0.ruleName)|\($0.actionFamily)"
         }
