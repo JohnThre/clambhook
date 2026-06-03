@@ -13,7 +13,12 @@ type testPolicyGroupRequest struct {
 }
 
 func (s *Server) handlePolicyGroups(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, s.engine.PolicySnapshot())
+	snap, err := s.engine.PolicySnapshotForProfile(r.URL.Query().Get("profile"))
+	if err != nil {
+		writeProfileSelectionError(w, err)
+		return
+	}
+	writeJSON(w, snap)
 }
 
 func (s *Server) handlePolicyGroupTest(w http.ResponseWriter, r *http.Request) {

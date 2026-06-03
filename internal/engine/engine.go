@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"strings"
 	"sync"
 
 	"github.com/JohnThre/clambhook/internal/chain"
@@ -362,16 +363,38 @@ func (e *Engine) Config() *config.Config {
 // PolicySnapshot returns active profile policy group state. When the engine is
 // idle, it returns config-only defaults because no runtime probes are active.
 func (e *Engine) PolicySnapshot() policy.Snapshot {
+	snap, _ := e.PolicySnapshotForProfile("")
+	return snap
+}
+
+// PolicySnapshotForProfile returns policy group state for the requested
+// profile. The active running profile includes live probe state; inactive
+// profiles and idle engines return config-only defaults.
+func (e *Engine) PolicySnapshotForProfile(profileName string) (policy.Snapshot, error) {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
-	profile, err := e.cfg.ActiveProfile()
+	profileName = strings.TrimSpace(profileName)
+	var (
+		profile *config.Profile
+		err     error
+	)
+	if profileName == "" {
+		profile, err = e.cfg.ActiveProfile()
+	} else {
+		var ok bool
+		profile, ok = e.cfg.ProfileByName(profileName)
+		if !ok {
+			err = fmt.Errorf("profile %q not found", profileName)
+		}
+	}
 	if err != nil {
-		return policy.Snapshot{}
+		return policy.Snapshot{}, err
 	}
-	if e.policies != nil {
-		return e.policies.Snapshot(profile.Name)
+	activeProfile, activeErr := e.cfg.ActiveProfile()
+	if e.policies != nil && activeErr == nil && profile.Name == activeProfile.Name {
+		return e.policies.Snapshot(profile.Name), nil
 	}
-	return policy.ConfigSnapshot(profile.Name, profile.PolicyGroups)
+	return policy.ConfigSnapshot(profile.Name, profile.PolicyGroups), nil
 }
 
 // RefreshPolicyGroups runs latency tests for one group or all groups.
