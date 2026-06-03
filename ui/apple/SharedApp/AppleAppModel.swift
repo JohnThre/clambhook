@@ -743,6 +743,7 @@ final class AppleAppModel: ObservableObject {
 enum AppPlatform {
     case macOS
     case iOS
+    case tvOS
     case visionOS
 }
 
