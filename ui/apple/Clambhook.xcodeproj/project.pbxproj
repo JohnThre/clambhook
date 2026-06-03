@@ -139,6 +139,7 @@
 		0F26A7314DC7A26F275AB285 /* AppleAppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleAppModel.swift; sourceTree = "<group>"; };
 		0F6319893EEF7EF443C9B98F /* ClambhookiOS.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = ClambhookiOS.entitlements; sourceTree = "<group>"; };
 		11D3A8B6CD3A6119053C8908 /* SettingsViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsViews.swift; sourceTree = "<group>"; };
+		1291F45AF690B41C9544CF24 /* ClambhookProducts.storekit */ = {isa = PBXFileReference; path = ClambhookProducts.storekit; sourceTree = "<group>"; };
 		12F5B3C049819652D51B60F7 /* ClambhookMobile.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = ClambhookMobile.xcframework; path = Frameworks/ClambhookMobile.xcframework; sourceTree = "<group>"; };
 		183D6DAAE16811A1E782EF8D /* IOSRulesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IOSRulesView.swift; sourceTree = "<group>"; };
 		1B067640E07DD0E186D64487 /* ClambhookMacWidgetExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = ClambhookMacWidgetExtension.entitlements; sourceTree = "<group>"; };
@@ -335,6 +336,7 @@
 			isa = PBXGroup;
 			children = (
 				71619AA1E2C9424F8D0CAE82 /* Assets.xcassets */,
+				1291F45AF690B41C9544CF24 /* ClambhookProducts.storekit */,
 				89770E96EAB9F6FBEC965742 /* clambhook */,
 				F670A4FD48B43D5BE64B217F /* ClambhookiOS */,
 				02DBE71539B0AF31E3C21C10 /* ClambhookMac */,

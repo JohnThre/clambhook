@@ -1,0 +1,44 @@
+{
+  "identifier": "CLAMBHOOK_LOCAL_PRODUCTS",
+  "nonRenewingSubscriptions": [],
+  "products": [
+    {
+      "displayPrice": "99.99",
+      "familyShareable": false,
+      "internalID": "CLAMBHOOK_LIFETIME_UNLOCK",
+      "localizations": [
+        {
+          "description": "Unlocks lifetime mobile access for ClambHook.",
+          "displayName": "ClambHook Lifetime Unlock",
+          "locale": "en_US"
+        }
+      ],
+      "productID": "org.jpfchang.clambhook.unlock.lifetime",
+      "referenceName": "ClambHook Lifetime Unlock",
+      "type": "NonConsumable"
+    },
+    {
+      "displayPrice": "8.99",
+      "familyShareable": false,
+      "internalID": "CLAMBHOOK_FEATURE_UPDATE_2027",
+      "localizations": [
+        {
+          "description": "Unlocks ClambHook mobile features released in the 2027 update cycle.",
+          "displayName": "ClambHook 2027 Feature Update",
+          "locale": "en_US"
+        }
+      ],
+      "productID": "org.jpfchang.clambhook.feature_update.2027",
+      "referenceName": "ClambHook 2027 Feature Update",
+      "type": "NonConsumable"
+    }
+  ],
+  "settings": {
+    "_failTransactionsEnabled": false,
+    "_locale": "en_US",
+    "_storefront": "USA"
+  },
+  "subscriptionGroups": [],
+  "type": "local",
+  "version": 3
+}
