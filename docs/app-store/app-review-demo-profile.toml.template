@@ -1,0 +1,29 @@
+# App Review demo tunnel profile template.
+#
+# This template is intentionally non-operational until rendered by
+# scripts/app-review-compliance-check.sh with CLAMBHOOK_APP_REVIEW_DEMO_PASSWORD.
+# Do not replace the placeholder in this tracked file.
+
+active = "App Review Demo"
+
+[[profile]]
+name = "App Review Demo"
+
+  [profile.listen]
+
+  [profile.listen.tun]
+  enabled = true
+  mtu = 1500
+  routes = ["0.0.0.0/0", "::/0"]
+  exclude_cidrs = ["127.0.0.0/8", "::1/128"]
+
+  [[profile.chain]]
+  name = "app-review"
+
+    [[profile.chain.server]]
+    name = "review-vpn"
+    address = "review-vpn.jpfchang.org:443"
+    protocol = "clambback"
+
+      [profile.chain.server.settings]
+      password = "__CLAMBHOOK_APP_REVIEW_DEMO_PASSWORD__"
