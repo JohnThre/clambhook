@@ -472,6 +472,16 @@ func TestValidateUsableTunnelConfigAcceptsRealProfile(t *testing.T) {
 	}
 }
 
+func TestValidateAppReviewDemoProfile(t *testing.T) {
+	path := strings.TrimSpace(os.Getenv("CLAMBHOOK_APP_REVIEW_DEMO_CONFIG"))
+	if path == "" {
+		t.Skip("set CLAMBHOOK_APP_REVIEW_DEMO_CONFIG to validate the rendered App Review demo profile")
+	}
+	if err := ValidateUsableTunnelConfig(path); err != nil {
+		t.Fatalf("ValidateUsableTunnelConfig(%q): %v", path, err)
+	}
+}
+
 func TestValidateUsableTunnelConfigRejectsActiveProfileWithoutUDPSupport(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "clambhook.toml")
 	if err := os.WriteFile(path, []byte(`

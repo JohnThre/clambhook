@@ -23,9 +23,13 @@ Pricing and In-App Purchases:
 
 Demo profile for App Review:
 
+- No app account login is required.
 - Profile name: App Review Demo
 - Endpoint: review-vpn.jpfchang.org:443
-- Credentials: provide only in the App Review Notes field in App Store Connect.
+- Protocol: `clambback`
+- Credentials: provide only in the App Review Notes field in App Store Connect; do not commit them.
+- Demo profile source template: `docs/app-store/app-review-demo-profile.toml.template`
+- Release validation: render the template locally with `CLAMBHOOK_APP_REVIEW_DEMO_PASSWORD` and run `scripts/app-review-compliance-check.sh --require-demo-secret`.
 
 Initial availability and VPN licensing plan:
 

@@ -12,6 +12,9 @@ TUNNEL_BUNDLE_ID="org.jpfchang.clambhook.tunnel"
 WIDGET_BUNDLE_ID="org.jpfchang.clambhook.widgets"
 APP_GROUP_ID="group.org.jpfchang.clambhook"
 NETWORK_EXTENSION_VALUE="packet-tunnel-provider"
+SOURCE_APP_ENTITLEMENTS="$ROOT_DIR/ui/apple/ClambhookiOS/ClambhookiOS.entitlements"
+SOURCE_TUNNEL_ENTITLEMENTS="$ROOT_DIR/ui/apple/ClambhookPacketTunnel/ClambhookPacketTunnel.entitlements"
+SOURCE_WIDGET_ENTITLEMENTS="$ROOT_DIR/ui/apple/ClambhookWidgets/ClambhookiOSWidgetExtension.entitlements"
 DIST_DIR="$ROOT_DIR/dist/ios"
 ARCHIVE_PATH="$DIST_DIR/ClambhookiOS.xcarchive"
 EXPORT_PATH="$DIST_DIR/export"
@@ -179,6 +182,20 @@ verify_payload_tree() {
     verify_signed_bundle "$label iOS widget" "$app_path/PlugIns/ClambhookiOSWidgetExtension.appex" "$WIDGET_BUNDLE_ID"
 }
 
+verify_source_entitlements() {
+    local label="$1"
+    local entitlements_path="$2"
+
+    require_file "$entitlements_path" "$label source entitlements"
+
+    append_proof "### $label source entitlements"
+    append_proof "- Entitlements path: $entitlements_path"
+    plist_expect_array_contains "$entitlements_path" "com.apple.security.application-groups" "$APP_GROUP_ID" "$label source entitlements"
+    plist_expect_array_contains "$entitlements_path" "keychain-access-groups" '$(AppIdentifierPrefix)org.jpfchang.clambhook' "$label source entitlements"
+    plist_expect_array_contains "$entitlements_path" "com.apple.developer.networking.networkextension" "$NETWORK_EXTENSION_VALUE" "$label source entitlements"
+    append_proof ""
+}
+
 write_build_settings_proof() {
     local target="$1"
 
@@ -200,6 +217,8 @@ write_build_settings_proof() {
 rm -rf "$ARCHIVE_PATH" "$EXPORT_PATH" "$EXPORT_OPTIONS" "$SIGNING_PROOF"
 mkdir -p "$DIST_DIR"
 
+"$ROOT_DIR/scripts/app-review-compliance-check.sh" --require-demo-secret
+
 "$ROOT_DIR/scripts/build-ios-mobile-xcframework.sh"
 
 cd "$ROOT_DIR/ui/apple"
@@ -219,6 +238,11 @@ cat > "$SIGNING_PROOF" <<PROOF
 - Network Extension entitlement: $NETWORK_EXTENSION_VALUE
 
 PROOF
+
+append_proof "## Source Entitlement Preflight"
+verify_source_entitlements "iOS app" "$SOURCE_APP_ENTITLEMENTS"
+verify_source_entitlements "packet tunnel" "$SOURCE_TUNNEL_ENTITLEMENTS"
+verify_source_entitlements "iOS widget" "$SOURCE_WIDGET_ENTITLEMENTS"
 
 write_build_settings_proof "ClambhookiOS"
 write_build_settings_proof "ClambhookPacketTunnel"
