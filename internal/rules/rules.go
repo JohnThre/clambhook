@@ -12,6 +12,7 @@ import (
 
 const (
 	ActionChain  = "chain"
+	ActionGroup  = "group"
 	ActionDirect = "direct"
 	ActionBlock  = "block"
 	ActionReject = "reject"
@@ -36,6 +37,7 @@ type Decision struct {
 	RuleName  string `json:"rule_name,omitempty"`
 	Action    string `json:"action"`
 	ChainName string `json:"chain_name,omitempty"`
+	GroupName string `json:"group_name,omitempty"`
 	Target    string `json:"target"`
 	Host      string `json:"target_host,omitempty"`
 	Port      string `json:"target_port,omitempty"`
@@ -54,6 +56,7 @@ type compiledRule struct {
 	name           string
 	action         string
 	chainName      string
+	groupName      string
 	domains        map[string]struct{}
 	domainSuffixes map[string]struct{}
 	domainKeywords []string
@@ -63,7 +66,7 @@ type compiledRule struct {
 }
 
 // Compile validates and prepares rules for efficient matching.
-func Compile(in []Rule, defaultChain string, knownChains map[string]struct{}) (*Engine, error) {
+func Compile(in []Rule, defaultChain string, knownChains, knownGroups map[string]struct{}) (*Engine, error) {
 	defaultChain = strings.TrimSpace(defaultChain)
 	if defaultChain == "" {
 		return nil, fmt.Errorf("rules: default chain is required")
@@ -73,7 +76,7 @@ func Compile(in []Rule, defaultChain string, knownChains map[string]struct{}) (*
 	}
 	out := &Engine{defaultChain: defaultChain, rules: make([]compiledRule, 0, len(in))}
 	for i, rule := range in {
-		cr, err := compileRule(rule, knownChains)
+		cr, err := compileRule(rule, knownChains, knownGroups)
 		if err != nil {
 			return nil, fmt.Errorf("rule %d: %w", i, err)
 		}
@@ -82,27 +85,40 @@ func Compile(in []Rule, defaultChain string, knownChains map[string]struct{}) (*
 	return out, nil
 }
 
-func compileRule(rule Rule, knownChains map[string]struct{}) (compiledRule, error) {
+func compileRule(rule Rule, knownChains, knownGroups map[string]struct{}) (compiledRule, error) {
 	name := strings.TrimSpace(rule.Name)
 	if name == "" {
 		name = "unnamed"
 	}
-	action, chainName, err := parseAction(rule.Action)
+	action, targetName, err := parseAction(rule.Action)
 	if err != nil {
 		return compiledRule{}, err
 	}
+	chainName := ""
+	groupName := ""
 	if action == ActionChain {
-		if chainName == "" {
+		if targetName == "" {
 			return compiledRule{}, fmt.Errorf("chain action requires chain:<name>")
 		}
-		if _, ok := knownChains[chainName]; !ok {
-			return compiledRule{}, fmt.Errorf("chain %q not found", chainName)
+		if _, ok := knownChains[targetName]; !ok {
+			return compiledRule{}, fmt.Errorf("chain %q not found", targetName)
 		}
+		chainName = targetName
+	}
+	if action == ActionGroup {
+		if targetName == "" {
+			return compiledRule{}, fmt.Errorf("group action requires group:<name>")
+		}
+		if _, ok := knownGroups[targetName]; !ok {
+			return compiledRule{}, fmt.Errorf("policy group %q not found", targetName)
+		}
+		groupName = targetName
 	}
 	cr := compiledRule{
 		name:           name,
 		action:         action,
 		chainName:      chainName,
+		groupName:      groupName,
 		domains:        makeStringSet(normalizeStrings(rule.Domains)),
 		domainSuffixes: makeStringSet(normalizeSuffixes(rule.DomainSuffixes)),
 		domainKeywords: normalizeStrings(rule.DomainKeywords),
@@ -135,6 +151,12 @@ func parseAction(raw string) (action, chainName string, err error) {
 			return "", "", fmt.Errorf("chain action requires chain:<name>")
 		}
 		return ActionChain, name, nil
+	case strings.HasPrefix(lower, ActionGroup+":"):
+		name := strings.TrimSpace(raw[len(ActionGroup)+1:])
+		if name == "" {
+			return "", "", fmt.Errorf("group action requires group:<name>")
+		}
+		return ActionGroup, name, nil
 	default:
 		return "", "", fmt.Errorf("unknown action %q", raw)
 	}
@@ -153,6 +175,7 @@ func (e *Engine) Decide(network, target string) Decision {
 			RuleName:  rule.name,
 			Action:    rule.action,
 			ChainName: rule.chainName,
+			GroupName: rule.groupName,
 			Target:    target,
 			Host:      host,
 			Port:      port,

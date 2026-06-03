@@ -55,6 +55,7 @@ type Profile struct {
 	API               APIConfig                `toml:"api"`
 	DNS               DNSConfig                `toml:"dns"`
 	Chains            []ChainConfig            `toml:"chain"`
+	PolicyGroups      []PolicyGroupConfig      `toml:"policy_group"`
 	Rules             []RuleConfig             `toml:"rule"`
 	RuleSubscriptions []RuleSubscriptionConfig `toml:"rule_subscription"`
 }
@@ -82,6 +83,17 @@ type DNSUpstreamConfig struct {
 type ChainConfig struct {
 	Name    string         `toml:"name"`
 	Servers []ServerConfig `toml:"server"`
+}
+
+// PolicyGroupConfig defines a smart routing group. V1 supports url-test
+// groups, which select the currently lowest-latency healthy member chain.
+type PolicyGroupConfig struct {
+	Name     string   `toml:"name" json:"name"`
+	Type     string   `toml:"type" json:"type"`
+	Chains   []string `toml:"chains" json:"chains"`
+	TestURL  string   `toml:"test_url" json:"test_url,omitempty"`
+	Interval Duration `toml:"interval" json:"interval,omitempty"`
+	Timeout  Duration `toml:"timeout" json:"timeout,omitempty"`
 }
 
 // ServerConfig defines a remote server endpoint.

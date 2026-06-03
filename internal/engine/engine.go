@@ -14,6 +14,7 @@ import (
 	"github.com/JohnThre/clambhook/internal/events"
 	"github.com/JohnThre/clambhook/internal/geo"
 	"github.com/JohnThre/clambhook/internal/listener"
+	"github.com/JohnThre/clambhook/internal/policy"
 	"github.com/JohnThre/clambhook/internal/protocol"
 	"github.com/JohnThre/clambhook/internal/rules"
 	"github.com/JohnThre/clambhook/internal/subscription"
@@ -53,6 +54,7 @@ type Engine struct {
 	cancel    context.CancelFunc
 	listeners []listener.Listener
 	chains    []*chain.Chain
+	policies  *policy.Manager
 	geoReader *geo.Reader
 	bus       *events.Bus
 }
@@ -200,7 +202,7 @@ func (e *Engine) startLocked() error {
 	// without their ctx cancellation tearing listeners down.
 	ctx, cancel := context.WithCancel(context.Background())
 
-	listeners, chains, err := buildListeners(&effectiveProfile, e.bus)
+	listeners, chains, policies, err := buildListeners(&effectiveProfile, e.bus)
 	if err != nil {
 		cancel()
 		return fmt.Errorf("start engine: %w", err)
@@ -218,6 +220,9 @@ func (e *Engine) startLocked() error {
 			if closeErr := closeChains(chains); closeErr != nil {
 				log.Printf("engine: rollback close chains: %v", closeErr)
 			}
+			if policies != nil {
+				_ = policies.Close()
+			}
 			cancel()
 			return fmt.Errorf("start %s: %w", l.Protocol(), startErr)
 		}
@@ -226,6 +231,10 @@ func (e *Engine) startLocked() error {
 	e.cancel = cancel
 	e.listeners = listeners
 	e.chains = chains
+	e.policies = policies
+	if e.policies != nil {
+		e.policies.Start(ctx)
+	}
 	e.running = true
 	log.Printf("engine started with profile %q (%d listeners)", profile.Name, len(listeners))
 	return nil
@@ -244,6 +253,12 @@ func (e *Engine) stopLocked() error {
 	if e.cancel != nil {
 		e.cancel()
 		e.cancel = nil
+	}
+	if e.policies != nil {
+		if err := e.policies.Close(); err != nil {
+			errs = append(errs, err)
+		}
+		e.policies = nil
 	}
 	if err := closeChains(e.chains); err != nil {
 		errs = append(errs, err)
@@ -335,6 +350,63 @@ func (e *Engine) Config() *config.Config {
 	return e.cfg
 }
 
+// PolicySnapshot returns active profile policy group state. When the engine is
+// idle, it returns config-only defaults because no runtime probes are active.
+func (e *Engine) PolicySnapshot() policy.Snapshot {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	profile, err := e.cfg.ActiveProfile()
+	if err != nil {
+		return policy.Snapshot{}
+	}
+	if e.policies != nil {
+		return e.policies.Snapshot(profile.Name)
+	}
+	return policy.ConfigSnapshot(profile.Name, profile.PolicyGroups)
+}
+
+// RefreshPolicyGroups runs latency tests for one group or all groups.
+func (e *Engine) RefreshPolicyGroups(ctx context.Context, groupName string) (policy.Snapshot, error) {
+	e.mu.RLock()
+	running := e.running
+	manager := e.policies
+	profile, profileErr := e.cfg.ActiveProfile()
+	profileName := ""
+	var groups []config.PolicyGroupConfig
+	if profileErr == nil {
+		profileName = profile.Name
+		groups = append([]config.PolicyGroupConfig(nil), profile.PolicyGroups...)
+	}
+	e.mu.RUnlock()
+
+	if profileErr != nil {
+		return policy.Snapshot{}, profileErr
+	}
+	if !running || manager == nil {
+		return policy.ConfigSnapshot(profileName, groups), errors.New("policy group tests require a running engine")
+	}
+	snap, err := manager.Refresh(ctx, groupName)
+	snap.Profile = profileName
+	return snap, err
+}
+
+// SelectedPolicyChain returns the currently selected concrete chain for a
+// group on the active running profile. ok is false when no manager is active.
+func (e *Engine) SelectedPolicyChain(groupName, network string) (name string, ok bool, err error) {
+	e.mu.RLock()
+	manager := e.policies
+	running := e.running
+	e.mu.RUnlock()
+	if !running || manager == nil {
+		return "", false, nil
+	}
+	_, selected, err := manager.Select(groupName, network)
+	if err != nil {
+		return "", true, err
+	}
+	return selected, true, nil
+}
+
 // GeoReader returns the current geo reader. The returned value may be nil
 // if geo is disabled or failed to load — callers treat nil as "disabled"
 // (Reader.Lookup is nil-safe).
@@ -382,24 +454,36 @@ func (e *Engine) swapGeoLocked() {
 // It does not start them — Start does that so partial-startup can be rolled
 // back cleanly. bus is threaded into each listener for event emission; may
 // be nil to disable events.
-func buildListeners(profile *config.Profile, bus *events.Bus) (listeners []listener.Listener, chains []*chain.Chain, err error) {
+func buildListeners(profile *config.Profile, bus *events.Bus) (listeners []listener.Listener, chains []*chain.Chain, policies *policy.Manager, err error) {
 	var out []listener.Listener
 	resolver := newChainResolver(profile)
 	defer func() {
 		if err != nil {
+			if policies != nil {
+				if closeErr := policies.Close(); closeErr != nil {
+					err = errors.Join(err, closeErr)
+				}
+			}
 			if closeErr := closeChains(resolver.chains); closeErr != nil {
 				err = errors.Join(err, closeErr)
 			}
 		}
 	}()
+	if err := resolver.ensureBuilt(); err != nil {
+		return nil, nil, nil, err
+	}
+	policies, err = policy.New(profile.PolicyGroups, resolver.byName)
+	if err != nil {
+		return nil, nil, nil, err
+	}
 
 	if addr := profile.Listen.SOCKS5; addr != "" {
 		if _, err := resolver.resolve(profile.Listen.SOCKS5Chain); err != nil {
-			return nil, nil, fmt.Errorf("socks5: %w", err)
+			return nil, nil, nil, fmt.Errorf("socks5: %w", err)
 		}
-		planner, err := resolver.routePlanner(profile.Listen.SOCKS5Chain)
+		planner, err := resolver.routePlanner(profile.Listen.SOCKS5Chain, policies)
 		if err != nil {
-			return nil, nil, fmt.Errorf("socks5 rules: %w", err)
+			return nil, nil, nil, fmt.Errorf("socks5 rules: %w", err)
 		}
 		var auth *listener.AuthCreds
 		if profile.Listen.SOCKS5Auth != nil {
@@ -426,11 +510,11 @@ func buildListeners(profile *config.Profile, bus *events.Bus) (listeners []liste
 
 	if addr := profile.Listen.HTTP; addr != "" {
 		if _, err := resolver.resolve(profile.Listen.HTTPChain); err != nil {
-			return nil, nil, fmt.Errorf("http: %w", err)
+			return nil, nil, nil, fmt.Errorf("http: %w", err)
 		}
-		planner, err := resolver.routePlanner(profile.Listen.HTTPChain)
+		planner, err := resolver.routePlanner(profile.Listen.HTTPChain, policies)
 		if err != nil {
-			return nil, nil, fmt.Errorf("http rules: %w", err)
+			return nil, nil, nil, fmt.Errorf("http rules: %w", err)
 		}
 		var auth *listener.AuthCreds
 		if profile.Listen.HTTPAuth != nil {
@@ -454,19 +538,19 @@ func buildListeners(profile *config.Profile, bus *events.Bus) (listeners []liste
 
 	if tunCfg := profile.Listen.TUN; tunCfg != nil && tunCfg.Enabled {
 		if !listener.TUNSupported() {
-			return nil, nil, listener.TUNUnsupportedError()
+			return nil, nil, nil, listener.TUNUnsupportedError()
 		}
 		ch, err := resolver.resolve(tunCfg.Chain)
 		if err != nil {
-			return nil, nil, fmt.Errorf("tun: %w", err)
+			return nil, nil, nil, fmt.Errorf("tun: %w", err)
 		}
-		planner, err := resolver.routePlanner(tunCfg.Chain)
+		planner, err := resolver.routePlanner(tunCfg.Chain, policies)
 		if err != nil {
-			return nil, nil, fmt.Errorf("tun rules: %w", err)
+			return nil, nil, nil, fmt.Errorf("tun rules: %w", err)
 		}
 		dnsProxy, err := dnsproxy.New(profile.DNS, planner)
 		if err != nil {
-			return nil, nil, fmt.Errorf("tun dns: %w", err)
+			return nil, nil, nil, fmt.Errorf("tun dns: %w", err)
 		}
 		opts := listener.TUNOptions{
 			Name:         tunCfg.Name,
@@ -482,7 +566,7 @@ func buildListeners(profile *config.Profile, bus *events.Bus) (listeners []liste
 		out = append(out, listener.NewTUNWithPlanner(opts, ch, planner))
 	}
 
-	return out, resolver.chains, nil
+	return out, resolver.chains, policies, nil
 }
 
 // BuildPacketStack constructs a platform-neutral packet stack for the active
@@ -496,28 +580,45 @@ func BuildPacketStack(profile *config.Profile, bus *events.Bus, writer listener.
 		return nil, nil, errors.New("tun: packet tunnel is not enabled in active profile")
 	}
 	resolver := newChainResolver(profile)
+	if err := resolver.ensureBuilt(); err != nil {
+		return nil, nil, err
+	}
+	policies, err := policy.New(profile.PolicyGroups, resolver.byName)
+	if err != nil {
+		if closeErr := closeChains(resolver.chains); closeErr != nil {
+			return nil, nil, errors.Join(err, closeErr)
+		}
+		return nil, nil, err
+	}
 	ch, err := resolver.resolve(tunCfg.Chain)
 	if err != nil {
+		_ = policies.Close()
+		_ = closeChains(resolver.chains)
 		return nil, nil, fmt.Errorf("tun: %w", err)
 	}
-	planner, err := resolver.routePlanner(tunCfg.Chain)
+	planner, err := resolver.routePlanner(tunCfg.Chain, policies)
 	if err != nil {
+		_ = policies.Close()
+		_ = closeChains(resolver.chains)
 		return nil, nil, fmt.Errorf("tun rules: %w", err)
 	}
 	dnsProxy, err := dnsproxy.New(profile.DNS, planner)
 	if err != nil {
+		_ = policies.Close()
+		_ = closeChains(resolver.chains)
 		return nil, nil, fmt.Errorf("tun dns: %w", err)
 	}
 	opts := listener.TUNOptions{
-		Name:         tunCfg.Name,
-		ProfileName:  profile.Name,
-		MTU:          tunCfg.MTU,
-		Addresses:    tunCfg.Addresses,
-		Routes:       tunCfg.Routes,
-		ExcludeCIDRs: tunCfg.ExcludeCIDRs,
-		ChainName:    ch.Name,
-		EventBus:     bus,
-		DNSProxy:     dnsProxy,
+		Name:          tunCfg.Name,
+		ProfileName:   profile.Name,
+		MTU:           tunCfg.MTU,
+		Addresses:     tunCfg.Addresses,
+		Routes:        tunCfg.Routes,
+		ExcludeCIDRs:  tunCfg.ExcludeCIDRs,
+		ChainName:     ch.Name,
+		EventBus:      bus,
+		DNSProxy:      dnsProxy,
+		PolicyManager: policies,
 	}
 	return listener.NewPacketStack(opts, ch, planner, writer), resolver.chains, nil
 }
@@ -581,7 +682,7 @@ func (r *chainResolver) ensureBuilt() error {
 	return nil
 }
 
-func (r *chainResolver) routePlanner(defaultChainName string) (*routePlanner, error) {
+func (r *chainResolver) routePlanner(defaultChainName string, policies *policy.Manager) (*routePlanner, error) {
 	if err := r.ensureBuilt(); err != nil {
 		return nil, err
 	}
@@ -591,6 +692,10 @@ func (r *chainResolver) routePlanner(defaultChainName string) (*routePlanner, er
 	known := make(map[string]struct{}, len(r.byName))
 	for name := range r.byName {
 		known[name] = struct{}{}
+	}
+	knownGroups := make(map[string]struct{}, len(r.profile.PolicyGroups))
+	for _, group := range r.profile.PolicyGroups {
+		knownGroups[group.Name] = struct{}{}
 	}
 	ruleSet := make([]rules.Rule, 0, len(r.profile.Rules))
 	for _, rule := range r.profile.Rules {
@@ -605,17 +710,18 @@ func (r *chainResolver) routePlanner(defaultChainName string) (*routePlanner, er
 			Networks:       rule.Networks,
 		})
 	}
-	engine, err := rules.Compile(ruleSet, defaultChainName, known)
+	engine, err := rules.Compile(ruleSet, defaultChainName, known, knownGroups)
 	if err != nil {
 		return nil, err
 	}
-	return &routePlanner{profileName: r.profile.Name, rules: engine, chains: r.byName, defaultChainName: defaultChainName}, nil
+	return &routePlanner{profileName: r.profile.Name, rules: engine, chains: r.byName, policies: policies, defaultChainName: defaultChainName}, nil
 }
 
 type routePlanner struct {
 	profileName      string
 	rules            *rules.Engine
 	chains           map[string]*chain.Chain
+	policies         *policy.Manager
 	defaultChainName string
 	dialer           net.Dialer
 }
@@ -637,6 +743,7 @@ func (p *routePlanner) Plan(ctx context.Context, network, target string) (listen
 		RuleName:  decision.RuleName,
 		Action:    decision.Action,
 		ChainName: decision.ChainName,
+		GroupName: decision.GroupName,
 		Target:    decision.Target,
 		Host:      decision.Host,
 		Port:      decision.Port,
@@ -650,6 +757,22 @@ func (p *routePlanner) Plan(ctx context.Context, network, target string) (listen
 		if ch == nil {
 			return plan, fmt.Errorf("chain %q not found", decision.ChainName)
 		}
+		plan.Hops = ch.HopInfo()
+		plan.Dial = func(ctx context.Context, network, address string) (net.Conn, error) {
+			return ch.Dial(ctx, network, address)
+		}
+		plan.DialPacket = func(ctx context.Context, address string) (net.PacketConn, error) {
+			return ch.DialPacket(ctx, address)
+		}
+	case rules.ActionGroup:
+		if p.policies == nil {
+			return plan, fmt.Errorf("policy group %q: manager is not configured", decision.GroupName)
+		}
+		ch, selected, err := p.policies.Select(decision.GroupName, decision.Network)
+		if err != nil {
+			return plan, err
+		}
+		plan.ChainName = selected
 		plan.Hops = ch.HopInfo()
 		plan.Dial = func(ctx context.Context, network, address string) (net.Conn, error) {
 			return ch.Dial(ctx, network, address)

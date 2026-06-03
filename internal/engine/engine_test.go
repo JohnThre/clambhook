@@ -9,7 +9,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/JohnThre/clambhook/internal/chain"
 	"github.com/JohnThre/clambhook/internal/config"
+	"github.com/JohnThre/clambhook/internal/policy"
 	"github.com/JohnThre/clambhook/internal/protocol"
 )
 
@@ -459,15 +461,71 @@ func TestBuildListenersSharesRuntimeChainAcrossListeners(t *testing.T) {
 	profile := lifecycleProfile(t.Name(), freePort(t), t.Name()+"/chain")
 	profile.Listen.HTTP = freePort(t)
 
-	listeners, chains, err := buildListeners(&profile, nil)
+	listeners, chains, policies, err := buildListeners(&profile, nil)
 	if err != nil {
 		t.Fatalf("buildListeners: %v", err)
 	}
+	t.Cleanup(func() { _ = policies.Close() })
 	t.Cleanup(func() { _ = closeChains(chains) })
 	if len(listeners) != 2 {
 		t.Fatalf("len(listeners) = %d, want 2", len(listeners))
 	}
 	if len(chains) != 1 {
 		t.Fatalf("len(chains) = %d, want 1", len(chains))
+	}
+}
+
+func TestRoutePlannerResolvesPolicyGroupSelection(t *testing.T) {
+	profile := lifecycleProfile(t.Name(), freePort(t), t.Name()+"/primary")
+	profile.Chains[0].Name = "primary"
+	profile.Chains = append(profile.Chains, config.ChainConfig{
+		Name: "backup",
+		Servers: []config.ServerConfig{{
+			Name:     "dummy",
+			Address:  "127.0.0.1:1",
+			Protocol: "engine_lifecycle",
+			Settings: map[string]any{"id": t.Name() + "/backup"},
+		}},
+	})
+	profile.PolicyGroups = []config.PolicyGroupConfig{{
+		Name:    "auto",
+		Type:    policy.TypeURLTest,
+		Chains:  []string{"primary", "backup"},
+		TestURL: "https://probe.example/generate_204",
+	}}
+	profile.Rules = []config.RuleConfig{{
+		Name:   "auto",
+		Action: "group:auto",
+	}}
+
+	resolver := newChainResolver(&profile)
+	if err := resolver.ensureBuilt(); err != nil {
+		t.Fatalf("ensureBuilt: %v", err)
+	}
+	t.Cleanup(func() { _ = closeChains(resolver.chains) })
+	policies, err := policy.New(profile.PolicyGroups, resolver.byName, policy.WithProbeFunc(func(_ context.Context, ch *chain.Chain, _ string) policy.ProbeResult {
+		if ch.Name == "backup" {
+			return policy.ProbeResult{Healthy: true, LatencyNs: int64(time.Millisecond)}
+		}
+		return policy.ProbeResult{Healthy: true, LatencyNs: int64(50 * time.Millisecond)}
+	}))
+	if err != nil {
+		t.Fatalf("policy.New: %v", err)
+	}
+	t.Cleanup(func() { _ = policies.Close() })
+	if _, err := policies.Refresh(context.Background(), "auto"); err != nil {
+		t.Fatalf("policy refresh: %v", err)
+	}
+	planner, err := resolver.routePlanner("primary", policies)
+	if err != nil {
+		t.Fatalf("routePlanner: %v", err)
+	}
+
+	plan, err := planner.Plan(context.Background(), "tcp", "example.com:443")
+	if err != nil {
+		t.Fatalf("Plan: %v", err)
+	}
+	if plan.Action != "group" || plan.GroupName != "auto" || plan.ChainName != "backup" {
+		t.Fatalf("plan = %+v, want group auto selected backup", plan)
 	}
 }

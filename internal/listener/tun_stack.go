@@ -112,6 +112,9 @@ func (s *PacketStack) Start(parent context.Context) error {
 	s.stack = stk
 	s.linkEP = linkEP
 
+	if s.opts.PolicyManager != nil {
+		s.opts.PolicyManager.Start(ctx)
+	}
 	s.wg.Add(1)
 	go s.stackToWriterLoop(ctx, linkEP)
 	return nil
@@ -121,11 +124,20 @@ func (s *PacketStack) Stop() error {
 	s.mu.Lock()
 	if s.stack == nil {
 		dnsProxy := s.opts.DNSProxy
+		policyManager := s.opts.PolicyManager
 		s.mu.Unlock()
+		var errs []error
 		if dnsProxy != nil {
-			return dnsProxy.Close()
+			if err := dnsProxy.Close(); err != nil {
+				errs = append(errs, err)
+			}
 		}
-		return nil
+		if policyManager != nil {
+			if err := policyManager.Close(); err != nil {
+				errs = append(errs, err)
+			}
+		}
+		return errors.Join(errs...)
 	}
 	cancel := s.cancel
 	stk := s.stack
@@ -153,10 +165,18 @@ func (s *PacketStack) Stop() error {
 	case <-time.After(stopGrace):
 		log.Printf("tun: packet stack stop grace period expired; abandoning in-flight handlers")
 	}
+	var errs []error
 	if s.opts.DNSProxy != nil {
-		return s.opts.DNSProxy.Close()
+		if err := s.opts.DNSProxy.Close(); err != nil {
+			errs = append(errs, err)
+		}
 	}
-	return nil
+	if s.opts.PolicyManager != nil {
+		if err := s.opts.PolicyManager.Close(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	return errors.Join(errs...)
 }
 
 func (s *PacketStack) InjectPacket(pkt []byte) error {

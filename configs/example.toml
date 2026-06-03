@@ -31,6 +31,25 @@ name = "local"
       [profile.chain.server.settings]
       token = "replace-with-private-value"
 
+  [[profile.chain]]
+  name = "backup"
+
+    [[profile.chain.server]]
+    name = "backup-example"
+    address = "backup.example.invalid:443"
+    protocol = "replace-with-private-profile"
+
+      [profile.chain.server.settings]
+      token = "replace-with-private-value"
+
+  [[profile.policy_group]]
+  name = "auto"
+  type = "url-test"
+  chains = ["default", "backup"]
+  test_url = "https://www.gstatic.com/generate_204"
+  interval = "30s"
+  timeout = "5s"
+
   [[profile.rule]]
   name = "example-blocklist"
   action = "block"
@@ -41,6 +60,10 @@ name = "local"
   name = "example-direct-lan"
   action = "direct"
   cidrs = ["192.168.0.0/16", "10.0.0.0/8"]
+
+  [[profile.rule]]
+  name = "example-auto"
+  action = "group:auto"
 
   [[profile.rule_subscription]]
   name = "example-ads"

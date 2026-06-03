@@ -10,6 +10,7 @@ import (
 
 const (
 	RouteActionChain  = "chain"
+	RouteActionGroup  = "group"
 	RouteActionDirect = "direct"
 	RouteActionBlock  = "block"
 	RouteActionReject = "reject"
@@ -27,6 +28,7 @@ type RoutePlan struct {
 	RuleName   string
 	Action     string
 	ChainName  string
+	GroupName  string
 	Target     string
 	Host       string
 	Port       string
