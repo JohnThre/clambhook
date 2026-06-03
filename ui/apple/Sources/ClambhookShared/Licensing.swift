@@ -164,22 +164,11 @@ public enum MobileLicenseEvaluator {
         let cutoffDate = lifetime.flatMap {
             updateCutoffDate(lifetimePurchaseDate: $0.purchaseDate, transactions: activeTransactions, calendar: calendar)
         }
-        let offlineGraceEndsAt = snapshot.lastVerifiedAt.flatMap {
-            calendar.date(byAdding: .day, value: mobileLicenseOfflineGraceDays, to: $0)
-        }
-        let verifiedPaidAccess = lifetime != nil && offlineGraceEndsAt.map { now <= $0 } == true
-        let failedAfterVerification = snapshot.lastVerificationFailedAt.map { failedAt in
-            guard let verifiedAt = snapshot.lastVerifiedAt else {
-                return false
-            }
-            return failedAt >= verifiedAt
-        } ?? false
-
         let reason: MobileLicenseAccessReason
         if trialActive {
             reason = .trial
-        } else if verifiedPaidAccess {
-            reason = failedAfterVerification ? .offlineGrace : .lifetime
+        } else if lifetime != nil {
+            reason = .lifetime
         } else {
             reason = .locked
         }
@@ -206,7 +195,7 @@ public enum MobileLicenseEvaluator {
             trialDaysRemaining: trialDaysRemaining,
             hasLifetimeUnlock: lifetime != nil,
             updateCutoffDate: cutoffDate,
-            offlineGraceEndsAt: offlineGraceEndsAt,
+            offlineGraceEndsAt: nil,
             unlockedFeatureIDs: unlocked
         )
     }

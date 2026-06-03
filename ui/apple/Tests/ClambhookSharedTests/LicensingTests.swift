@@ -21,7 +21,7 @@ final class LicensingTests: XCTestCase {
         XCTAssertFalse(afterExpiry.canUseApp)
     }
 
-    func testLifetimeUnlockRequiresRecentVerifiedSnapshot() {
+    func testLifetimeUnlockRemainsUsableWithoutRecentVerification() {
         let purchaseDate = mobileLicenseUTCDate(year: 2026, month: 6, day: 3)
         let snapshot = MobileLicenseSnapshot(
             transactions: [
@@ -30,22 +30,17 @@ final class LicensingTests: XCTestCase {
             lastVerifiedAt: mobileLicenseUTCDate(year: 2026, month: 6, day: 10)
         )
 
-        let inGrace = MobileLicenseEvaluator.evaluate(
+        let decision = MobileLicenseEvaluator.evaluate(
             snapshot: snapshot,
-            now: mobileLicenseUTCDate(year: 2026, month: 6, day: 17)
+            now: mobileLicenseUTCDate(year: 2028, month: 6, day: 18)
         )
-        XCTAssertEqual(inGrace.reason, .lifetime)
-        XCTAssertTrue(inGrace.canUseApp)
-
-        let expiredGrace = MobileLicenseEvaluator.evaluate(
-            snapshot: snapshot,
-            now: mobileLicenseUTCDate(year: 2026, month: 6, day: 18)
-        )
-        XCTAssertEqual(expiredGrace.reason, .locked)
-        XCTAssertFalse(expiredGrace.canUseApp)
+        XCTAssertEqual(decision.reason, .lifetime)
+        XCTAssertTrue(decision.canUseApp)
+        XCTAssertEqual(decision.updateCutoffDate, mobileLicenseUTCDate(year: 2027, month: 6, day: 3))
+        XCTAssertTrue(decision.canUseFeature(.tunnelRouting))
     }
 
-    func testOfflineGraceReasonAfterVerificationFailure() {
+    func testVerificationFailureDoesNotExpireLifetimeUnlock() {
         let purchaseDate = mobileLicenseUTCDate(year: 2026, month: 6, day: 3)
         let snapshot = MobileLicenseSnapshot(
             transactions: [
@@ -57,10 +52,11 @@ final class LicensingTests: XCTestCase {
 
         let decision = MobileLicenseEvaluator.evaluate(
             snapshot: snapshot,
-            now: mobileLicenseUTCDate(year: 2026, month: 6, day: 14)
+            now: mobileLicenseUTCDate(year: 2028, month: 6, day: 14)
         )
-        XCTAssertEqual(decision.reason, .offlineGrace)
+        XCTAssertEqual(decision.reason, .lifetime)
         XCTAssertTrue(decision.canUseApp)
+        XCTAssertFalse(decision.isOfflineGraceActive)
     }
 
     func testRevokedLifetimeDoesNotUnlock() {
