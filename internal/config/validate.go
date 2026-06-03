@@ -45,6 +45,7 @@ func (c *Config) Validate() error {
 			errs = append(errs, fmt.Errorf("active profile %q not found", c.Active))
 		}
 	}
+	errs = append(errs, validateDeveloperConfig(&c.Developer)...)
 	return errors.Join(errs...)
 }
 
@@ -224,6 +225,37 @@ func validateDNSConfig(profileName string, dns *DNSConfig) []error {
 	}
 	for i := range dns.Upstreams {
 		errs = append(errs, validateDNSUpstream(profileName, i, &dns.Upstreams[i])...)
+	}
+	return errs
+}
+
+func validateDeveloperConfig(dev *DeveloperConfig) []error {
+	if dev == nil {
+		return nil
+	}
+	var errs []error
+	if dev.CaptureLimit < 0 {
+		errs = append(errs, errors.New("developer.capture_limit must be >= 0"))
+	}
+	if dev.BodyLimitBytes < 0 {
+		errs = append(errs, errors.New("developer.body_limit_bytes must be >= 0"))
+	}
+	if dev.HeaderValueLimitBytes < 0 {
+		errs = append(errs, errors.New("developer.header_value_limit_bytes must be >= 0"))
+	}
+	if strings.TrimSpace(dev.CACertPath) != dev.CACertPath {
+		errs = append(errs, fmt.Errorf("developer.ca_cert_path %q must not have surrounding whitespace", dev.CACertPath))
+	}
+	if strings.TrimSpace(dev.CAKeyPath) != dev.CAKeyPath {
+		errs = append(errs, fmt.Errorf("developer.ca_key_path %q must not have surrounding whitespace", dev.CAKeyPath))
+	}
+	for i, header := range dev.RedactHeaders {
+		name := strings.TrimSpace(strings.ToLower(header))
+		if name == "" {
+			errs = append(errs, fmt.Errorf("developer.redact_headers[%d] must not be empty", i))
+		} else if name != header {
+			errs = append(errs, fmt.Errorf("developer.redact_headers[%d] %q must be lowercase without surrounding whitespace", i, header))
+		}
 	}
 	return errs
 }

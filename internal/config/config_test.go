@@ -103,6 +103,62 @@ func TestValidateRejectsBadListenerChainReference(t *testing.T) {
 	}
 }
 
+func TestLoadDeveloperConfigResolvesCAPaths(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+	data := []byte(`
+active = "default"
+
+[developer]
+enabled = true
+mitm_enabled = true
+capture_limit = 25
+body_limit_bytes = 4096
+header_value_limit_bytes = 512
+redact_headers = ["authorization"]
+ca_cert_path = "dev-ca.pem"
+ca_key_path = "dev-ca-key.pem"
+
+[[profile]]
+name = "default"
+
+  [[profile.chain]]
+  name = "default"
+
+    [[profile.chain.server]]
+    name = "exit"
+    address = "203.0.113.10:443"
+    protocol = "trojan"
+
+      [profile.chain.server.settings]
+      password = "secret"
+`)
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if !cfg.Developer.Enabled || cfg.Developer.CaptureLimit != 25 || cfg.Developer.BodyLimitBytes != 4096 {
+		t.Fatalf("developer config = %+v", cfg.Developer)
+	}
+	if got := cfg.Developer.CACertPath; got != filepath.Join(dir, "dev-ca.pem") {
+		t.Fatalf("CACertPath = %q", got)
+	}
+}
+
+func TestValidateRejectsBadDeveloperConfig(t *testing.T) {
+	cfg := validConfig()
+	cfg.Developer.CaptureLimit = -1
+
+	err := cfg.Validate()
+	if err == nil || !strings.Contains(err.Error(), "developer.capture_limit must be >= 0") {
+		t.Fatalf("Validate error = %v, want developer capture limit error", err)
+	}
+}
+
 func TestLoadRules(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.toml")

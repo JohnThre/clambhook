@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"crypto/subtle"
+	"crypto/tls"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -19,6 +20,34 @@ import (
 	"github.com/JohnThre/clambhook/internal/chain"
 	"github.com/JohnThre/clambhook/internal/events"
 )
+
+// HTTPInspector is implemented by the opt-in developer-mode inspector. The
+// listener owns only this narrow interface so normal traffic metadata does not
+// grow request/response payload semantics.
+type HTTPInspector interface {
+	Enabled() bool
+	MITMEnabled() bool
+	TLSConfig(host string) (*tls.Config, error)
+	Begin(context.Context, HTTPCaptureMeta, *http.Request) HTTPInspection
+}
+
+// HTTPCaptureMeta identifies a transaction for developer capture.
+type HTTPCaptureMeta struct {
+	ConnID     string
+	Profile    string
+	ClientAddr string
+	ChainName  string
+	Scheme     string
+	Target     string
+	StartedAt  time.Time
+}
+
+// HTTPInspection wraps request and response bodies for bounded capture.
+type HTTPInspection interface {
+	RequestBody(io.ReadCloser) io.ReadCloser
+	ResponseBody(io.ReadCloser) io.ReadCloser
+	Finish(*http.Response, error)
+}
 
 const (
 	// maxRequestBytes caps the initial request (request-line + headers) to
@@ -255,6 +284,9 @@ func (s *HTTP) handleConn(ctx context.Context, client net.Conn, ce *connEvents) 
 
 	switch {
 	case req.Method == http.MethodConnect:
+		if s.opts.HTTPInspector != nil && s.opts.HTTPInspector.MITMEnabled() {
+			return s.handleMITMConnect(ctx, client, br, req, ce)
+		}
 		return s.handleConnect(ctx, client, br, req, ce)
 	case req.URL.IsAbs() && strings.EqualFold(req.URL.Scheme, "http"):
 		return s.handleForward(ctx, client, req, ce)
@@ -350,6 +382,166 @@ func (s *HTTP) handleConnect(ctx context.Context, client net.Conn, br *bufio.Rea
 	return relay(shim, remote, ce.rxCounter(), ce.txCounter())
 }
 
+func (s *HTTP) handleMITMConnect(ctx context.Context, client net.Conn, br *bufio.Reader, req *http.Request, ce *connEvents) error {
+	if req.ContentLength > 0 || len(req.TransferEncoding) > 0 {
+		writeSimpleStatus(client, req.Proto, http.StatusBadRequest,
+			"Bad Request: body on CONNECT")
+		return nil
+	}
+	if req.Host == "" {
+		writeSimpleStatus(client, req.Proto, http.StatusBadRequest,
+			"Bad Request: missing target")
+		return nil
+	}
+	host, _, err := net.SplitHostPort(req.Host)
+	if err != nil {
+		writeSimpleStatus(client, req.Proto, http.StatusBadRequest,
+			"Bad Request: invalid target")
+		return nil
+	}
+
+	dialCtx, cancel := context.WithTimeout(ctx, dialTimeout)
+	defer cancel()
+
+	dialCtx = ce.attach(dialCtx)
+	plan, err := s.plan(dialCtx, "tcp", req.Host)
+	if err != nil {
+		log.Printf("http: MITM route plan %s failed: %v", req.Host, err)
+		writeSimpleStatus(client, req.Proto, http.StatusBadGateway, "Bad Gateway")
+		return err
+	}
+	plan.Visibility = httpConnectVisibility(req.Host)
+	ce.emitRuleDecision(plan)
+	ce.emitDialingPlan(plan)
+	if plan.Action == RouteActionBlock || plan.Action == RouteActionReject {
+		writeSimpleStatus(client, req.Proto, http.StatusForbidden, "Forbidden")
+		if plan.Action == RouteActionReject {
+			return ErrRouteRejected
+		}
+		return ErrRouteBlocked
+	}
+
+	remote, err := plan.Dial(dialCtx, "tcp", req.Host)
+	if err != nil {
+		log.Printf("http: MITM chain dial %s failed: %v", req.Host, err)
+		code, reason := httpStatusForDialErr(err)
+		writeSimpleStatus(client, req.Proto, code, reason)
+		return err
+	}
+	defer remote.Close()
+
+	tlsConfig, err := s.opts.HTTPInspector.TLSConfig(host)
+	if err != nil {
+		log.Printf("http: MITM cert %s failed: %v", host, err)
+		writeSimpleStatus(client, req.Proto, http.StatusBadGateway, "Bad Gateway")
+		return err
+	}
+
+	if _, err := io.WriteString(client,
+		"HTTP/1.1 200 Connection established\r\nProxy-Agent: clambhook\r\n\r\n"); err != nil {
+		log.Printf("http: write MITM CONNECT 200 to %s: %v", client.RemoteAddr(), err)
+		return err
+	}
+	ce.emitEstablished()
+	_ = client.SetDeadline(time.Time{})
+
+	stopCh := make(chan struct{})
+	defer close(stopCh)
+	go func() {
+		select {
+		case <-ctx.Done():
+			_ = remote.Close()
+			_ = client.Close()
+		case <-stopCh:
+		}
+	}()
+
+	clientTLS := tls.Server(&bufReadConn{Conn: client, br: br}, tlsConfig)
+	if err := clientTLS.HandshakeContext(ctx); err != nil {
+		log.Printf("http: MITM client TLS handshake %s failed: %v", client.RemoteAddr(), err)
+		return err
+	}
+	defer clientTLS.Close()
+
+	serverName := strings.Trim(host, "[]")
+	remoteTLS := tls.Client(remote, &tls.Config{
+		ServerName: serverName,
+		NextProtos: []string{"http/1.1"},
+		MinVersion: tls.VersionTLS12,
+	})
+	if err := remoteTLS.HandshakeContext(ctx); err != nil {
+		log.Printf("http: MITM origin TLS handshake %s failed: %v", req.Host, err)
+		return err
+	}
+	defer remoteTLS.Close()
+
+	clientReader := bufio.NewReader(clientTLS)
+	remoteConn := net.Conn(remoteTLS)
+	if ce != nil {
+		remoteConn = &meteredConn{Conn: remoteTLS, rxCounter: ce.rxCounter(), txCounter: ce.txCounter()}
+	}
+	remoteReader := bufio.NewReader(remoteConn)
+	for {
+		mitmReq, err := http.ReadRequest(clientReader)
+		if errors.Is(err, io.EOF) || errors.Is(err, net.ErrClosed) {
+			return nil
+		}
+		if err != nil {
+			log.Printf("http: MITM read request from %s: %v", client.RemoteAddr(), err)
+			return err
+		}
+		if err := s.forwardMITMRequest(ctx, clientTLS, remoteConn, remoteReader, mitmReq, req.Host, client.RemoteAddr().String(), ce); err != nil {
+			return err
+		}
+		if mitmReq.Close {
+			return nil
+		}
+	}
+}
+
+func (s *HTTP) forwardMITMRequest(ctx context.Context, client io.Writer, remote io.Writer, remoteReader *bufio.Reader, req *http.Request, target, clientAddr string, ce *connEvents) error {
+	inspection := s.beginInspection(ctx, ce, clientAddr, req, "https", target)
+	if inspection != nil && req.Body != nil {
+		req.Body = inspection.RequestBody(req.Body)
+	}
+	stripHopByHopHeaders(req.Header)
+	req.RequestURI = ""
+	req.URL.Scheme = ""
+	req.URL.Host = ""
+
+	if err := req.Write(remote); err != nil {
+		log.Printf("http: MITM write request to %s: %v", target, err)
+		if inspection != nil {
+			inspection.Finish(nil, err)
+		}
+		return err
+	}
+	resp, err := http.ReadResponse(remoteReader, req)
+	if err != nil {
+		log.Printf("http: MITM read response from %s: %v", target, err)
+		if inspection != nil {
+			inspection.Finish(nil, err)
+		}
+		return err
+	}
+	defer resp.Body.Close()
+	if inspection != nil && resp.Body != nil {
+		resp.Body = inspection.ResponseBody(resp.Body)
+	}
+	stripHopByHopHeaders(resp.Header)
+	if err := resp.Write(client); err != nil {
+		log.Printf("http: MITM write response to client: %v", err)
+		if inspection != nil {
+			inspection.Finish(resp, err)
+		}
+		return err
+	}
+	if inspection != nil {
+		inspection.Finish(resp, nil)
+	}
+	return nil
+}
+
 func (s *HTTP) handleForward(ctx context.Context, client net.Conn, req *http.Request, ce *connEvents) error {
 	// Resolve target host:port — default port 80 for http://.
 	host := req.URL.Hostname()
@@ -412,6 +604,11 @@ func (s *HTTP) handleForward(ctx context.Context, client net.Conn, req *http.Req
 	// Clear the handshake deadline — large bodies must not time out.
 	_ = client.SetDeadline(time.Time{})
 
+	inspection := s.beginInspection(ctx, ce, client.RemoteAddr().String(), req, "http", target)
+	if inspection != nil && req.Body != nil {
+		req.Body = inspection.RequestBody(req.Body)
+	}
+
 	// Rewrite to origin-form and strip hop-by-hop headers before forwarding.
 	stripHopByHopHeaders(req.Header)
 	req.RequestURI = ""     // required by (*Request).Write
@@ -434,6 +631,9 @@ func (s *HTTP) handleForward(ctx context.Context, client net.Conn, req *http.Req
 
 	if err := req.Write(remote); err != nil {
 		log.Printf("http: forward write request to %s: %v", target, err)
+		if inspection != nil {
+			inspection.Finish(nil, err)
+		}
 		// Nothing sensible to say to the client — close.
 		return err
 	}
@@ -441,19 +641,46 @@ func (s *HTTP) handleForward(ctx context.Context, client net.Conn, req *http.Req
 	resp, err := http.ReadResponse(bufio.NewReader(remote), req)
 	if err != nil {
 		log.Printf("http: forward read response from %s: %v", target, err)
+		if inspection != nil {
+			inspection.Finish(nil, err)
+		}
 		writeSimpleStatus(client, req.Proto, http.StatusBadGateway, "Bad Gateway")
 		return err
 	}
 	defer resp.Body.Close()
+	if inspection != nil && resp.Body != nil {
+		resp.Body = inspection.ResponseBody(resp.Body)
+	}
 
 	stripHopByHopHeaders(resp.Header)
 
 	if err := resp.Write(client); err != nil {
 		// Client likely hung up mid-response — log and move on.
 		log.Printf("http: forward write response to %s: %v", client.RemoteAddr(), err)
+		if inspection != nil {
+			inspection.Finish(resp, err)
+		}
 		return err
 	}
+	if inspection != nil {
+		inspection.Finish(resp, nil)
+	}
 	return nil
+}
+
+func (s *HTTP) beginInspection(ctx context.Context, ce *connEvents, clientAddr string, req *http.Request, scheme, target string) HTTPInspection {
+	if s.opts.HTTPInspector == nil || !s.opts.HTTPInspector.Enabled() {
+		return nil
+	}
+	return s.opts.HTTPInspector.Begin(ctx, HTTPCaptureMeta{
+		ConnID:     ce.id(),
+		Profile:    s.opts.ProfileName,
+		ClientAddr: clientAddr,
+		ChainName:  s.chainName,
+		Scheme:     scheme,
+		Target:     target,
+		StartedAt:  time.Now(),
+	}, req)
 }
 
 func (s *HTTP) plan(ctx context.Context, network, target string) (RoutePlan, error) {

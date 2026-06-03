@@ -57,6 +57,7 @@ type Engine struct {
 	policies  *policy.Manager
 	geoReader *geo.Reader
 	bus       *events.Bus
+	inspector listener.HTTPInspector
 }
 
 // New creates a new engine with the given configuration and (optional)
@@ -80,6 +81,14 @@ func New(cfg *config.Config, bus *events.Bus) *Engine {
 
 // Bus returns the engine's event bus (may be nil).
 func (e *Engine) Bus() *events.Bus { return e.bus }
+
+// SetHTTPInspector wires the optional developer-mode HTTP inspector. Callers
+// should set it before Start or before a Reload-triggered listener rebuild.
+func (e *Engine) SetHTTPInspector(inspector listener.HTTPInspector) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.inspector = inspector
+}
 
 // Start begins accepting connections with the active profile.
 //
@@ -202,7 +211,7 @@ func (e *Engine) startLocked() error {
 	// without their ctx cancellation tearing listeners down.
 	ctx, cancel := context.WithCancel(context.Background())
 
-	listeners, chains, policies, err := buildListeners(&effectiveProfile, e.bus)
+	listeners, chains, policies, err := buildListenersWithInspector(&effectiveProfile, e.bus, e.inspector)
 	if err != nil {
 		cancel()
 		return fmt.Errorf("start engine: %w", err)
@@ -455,6 +464,10 @@ func (e *Engine) swapGeoLocked() {
 // back cleanly. bus is threaded into each listener for event emission; may
 // be nil to disable events.
 func buildListeners(profile *config.Profile, bus *events.Bus) (listeners []listener.Listener, chains []*chain.Chain, policies *policy.Manager, err error) {
+	return buildListenersWithInspector(profile, bus, nil)
+}
+
+func buildListenersWithInspector(profile *config.Profile, bus *events.Bus, inspector listener.HTTPInspector) (listeners []listener.Listener, chains []*chain.Chain, policies *policy.Manager, err error) {
 	var out []listener.Listener
 	resolver := newChainResolver(profile)
 	defer func() {
@@ -532,6 +545,7 @@ func buildListeners(profile *config.Profile, bus *events.Bus) (listeners []liste
 			MaxConnections:   maxConns,
 			HandshakeTimeout: profile.Listen.HTTPHandshakeTimeout.Std(),
 			EventBus:         bus,
+			HTTPInspector:    inspector,
 		}
 		out = append(out, listener.NewHTTPWithPlanner(addr, auth, planner, opts))
 	}

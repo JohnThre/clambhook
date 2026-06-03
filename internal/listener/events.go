@@ -206,6 +206,13 @@ func (c *connEvents) txCounter() *atomic.Uint64 {
 	return c.meter.Tx()
 }
 
+func (c *connEvents) id() string {
+	if c == nil {
+		return ""
+	}
+	return c.connID
+}
+
 // classifyClose picks a close reason from the listener-visible signals:
 //
 //   - ctx cancelled → shutdown (engine tearing down)

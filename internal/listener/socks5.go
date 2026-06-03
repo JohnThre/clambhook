@@ -47,6 +47,10 @@ type Options struct {
 	// bandwidth events. nil disables emission entirely — no allocations,
 	// no atomic adds — so tests that don't exercise events pay zero cost.
 	EventBus *events.Bus
+
+	// HTTPInspector enables the opt-in developer-mode HTTP(S) inspector for
+	// the HTTP listener. nil keeps the listener metadata-only.
+	HTTPInspector HTTPInspector
 }
 
 const (

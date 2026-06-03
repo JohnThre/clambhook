@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 )
@@ -173,6 +174,57 @@ type cleanupSuggestionPayload struct {
 	LastHitTsNs int64  `json:"last_hit_ts_ns,omitempty"`
 }
 
+type developerStatusPayload struct {
+	Enabled               bool   `json:"enabled"`
+	MITMEnabled           bool   `json:"mitm_enabled"`
+	CaptureLimit          int    `json:"capture_limit"`
+	BodyLimitBytes        int64  `json:"body_limit_bytes"`
+	HeaderValueLimitBytes int    `json:"header_value_limit_bytes"`
+	CACertPath            string `json:"ca_cert_path,omitempty"`
+	CAFingerprintSHA256   string `json:"ca_fingerprint_sha256,omitempty"`
+	CaptureCount          int    `json:"capture_count"`
+}
+
+type developerEntriesPayload struct {
+	Entries []developerEntryPayload `json:"entries"`
+}
+
+type developerEntryPayload struct {
+	ID         string                  `json:"id"`
+	ConnID     string                  `json:"conn_id,omitempty"`
+	Profile    string                  `json:"profile,omitempty"`
+	ClientAddr string                  `json:"client_addr,omitempty"`
+	ChainName  string                  `json:"chain_name,omitempty"`
+	Method     string                  `json:"method"`
+	URL        string                  `json:"url"`
+	Scheme     string                  `json:"scheme"`
+	Host       string                  `json:"host"`
+	Status     int                     `json:"status,omitempty"`
+	Request    developerMessagePayload `json:"request"`
+	Response   developerMessagePayload `json:"response"`
+	Error      string                  `json:"error,omitempty"`
+}
+
+type developerMessagePayload struct {
+	Headers []developerHeaderPayload `json:"headers,omitempty"`
+	Body    developerBodyPayload     `json:"body"`
+}
+
+type developerHeaderPayload struct {
+	Name      string `json:"name"`
+	Value     string `json:"value"`
+	Redacted  bool   `json:"redacted,omitempty"`
+	Truncated bool   `json:"truncated,omitempty"`
+}
+
+type developerBodyPayload struct {
+	Size           int64  `json:"size"`
+	Preview        string `json:"preview,omitempty"`
+	PreviewBytes   int64  `json:"preview_bytes"`
+	Truncated      bool   `json:"truncated"`
+	TruncatedAfter int64  `json:"truncated_after"`
+}
+
 type rulePayload struct {
 	Name           string   `json:"name"`
 	Action         string   `json:"action"`
@@ -299,6 +351,51 @@ func (c apiClient) traffic() (trafficSnapshotPayload, error) {
 	var out trafficSnapshotPayload
 	err := c.getJSON("/api/v1/traffic?limit=200", &out)
 	return out, err
+}
+
+func (c apiClient) developer() (developerStatusPayload, []developerEntryPayload, error) {
+	status, err := c.developerStatus()
+	if err != nil {
+		return developerStatusPayload{}, nil, err
+	}
+	entries, err := c.developerEntries()
+	return status, entries, err
+}
+
+func (c apiClient) developerStatus() (developerStatusPayload, error) {
+	var out developerStatusPayload
+	err := c.getJSON("/api/v1/developer/status", &out)
+	return out, err
+}
+
+func (c apiClient) developerEntries() ([]developerEntryPayload, error) {
+	var out developerEntriesPayload
+	err := c.getJSON("/api/v1/developer/entries?limit=200", &out)
+	return out.Entries, err
+}
+
+func (c apiClient) clearDeveloperEntries() error {
+	return c.doNoBody(http.MethodDelete, "/api/v1/developer/entries", nil)
+}
+
+func (c apiClient) exportDeveloperHAR(path string) error {
+	req, err := http.NewRequest(http.MethodGet, c.baseURL+"/api/v1/developer/har", nil)
+	if err != nil {
+		return err
+	}
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		return responseError(resp)
+	}
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0o600)
 }
 
 func (c apiClient) connect() error {

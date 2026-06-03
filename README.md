@@ -6,7 +6,9 @@
 
 <p align="center">A private VPN/proxy router with metadata inspection.</p>
 
-Clambhook v1 routes device traffic through user-managed proxy and VPN profiles and exposes metadata-only inspection for connection targets, routing decisions, byte counts, and hop status. It is not an HTTPS debugging proxy or Proxyman replacement: it does not install a certificate authority, perform TLS MITM, store request or response bodies, export HAR files, or provide body-level redaction workflows.
+Clambhook v1 routes device traffic through user-managed proxy and VPN profiles and exposes metadata-only inspection for connection targets, routing decisions, byte counts, and hop status by default.
+
+The daemon and terminal UI also include a separate opt-in developer mode for the explicit HTTP proxy listener. When `[developer] enabled = true`, clambhook can capture bounded HTTP request/response previews, export HAR, and perform HTTPS CONNECT MITM after you manually trust the generated local CA. Android/App Store paths remain metadata-only.
 
 ## Donate
 
