@@ -513,11 +513,18 @@ type tunnelNetworkSettings struct {
 	IPv6           []ipPrefixSetting `json:"ipv6"`
 	IncludedRoutes []string          `json:"included_routes"`
 	ExcludedRoutes []string          `json:"excluded_routes"`
+	HTTPProxy      *proxySetting     `json:"http_proxy,omitempty"`
+	HTTPSProxy     *proxySetting     `json:"https_proxy,omitempty"`
 }
 
 type ipPrefixSetting struct {
 	Address   string `json:"address"`
 	PrefixLen int    `json:"prefix_len"`
+}
+
+type proxySetting struct {
+	Host string `json:"host"`
+	Port int    `json:"port"`
 }
 
 func serversForConfig(cfg *config.Config, geoReader *geo.Reader) serversPayload {
@@ -639,7 +646,30 @@ func networkSettingsForProfile(profile *config.Profile) tunnelNetworkSettings {
 	if settings.RemoteAddress == "" {
 		settings.RemoteAddress = "127.0.0.1"
 	}
+	if proxy := proxySettingForListenAddr(profile.Listen.HTTP); proxy != nil {
+		settings.HTTPProxy = proxy
+		settings.HTTPSProxy = proxy
+	}
 	return settings
+}
+
+func proxySettingForListenAddr(raw string) *proxySetting {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	host, portRaw, err := net.SplitHostPort(raw)
+	if err != nil {
+		return nil
+	}
+	port, err := net.LookupPort("tcp", portRaw)
+	if err != nil || port <= 0 || port > 65535 {
+		return nil
+	}
+	if host == "" || host == "0.0.0.0" || host == "::" {
+		host = "127.0.0.1"
+	}
+	return &proxySetting{Host: strings.Trim(host, "[]"), Port: port}
 }
 
 func firstServerHost(profile *config.Profile) string {

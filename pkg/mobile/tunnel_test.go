@@ -60,6 +60,51 @@ name = "default"
 	}
 }
 
+func TestTunnelNetworkSettingsJSONIncludesHTTPProxy(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "clambhook.toml")
+	if err := os.WriteFile(path, []byte(`
+active = "default"
+
+[[profile]]
+name = "default"
+
+  [profile.listen]
+  http = "127.0.0.1:18080"
+  http_chain = "proxy"
+
+  [[profile.chain]]
+  name = "proxy"
+
+    [[profile.chain.server]]
+    name = "example"
+    address = "example.invalid:443"
+    protocol = "shadowsocks"
+
+      [profile.chain.server.settings]
+      method = "chacha20-ietf-poly1305"
+      password = "secret"
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	raw, err := TunnelNetworkSettingsJSON(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var payload tunnelNetworkSettings
+	if err := json.Unmarshal([]byte(raw), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.HTTPProxy == nil || payload.HTTPProxy.Host != "127.0.0.1" || payload.HTTPProxy.Port != 18080 {
+		t.Fatalf("http proxy = %#v, want 127.0.0.1:18080", payload.HTTPProxy)
+	}
+	if payload.HTTPSProxy == nil || *payload.HTTPSProxy != *payload.HTTPProxy {
+		t.Fatalf("https proxy = %#v, want %#v", payload.HTTPSProxy, payload.HTTPProxy)
+	}
+}
+
 func TestTunnelConfigDashboardAndRuleReplacement(t *testing.T) {
 	path := writeTunnelTestConfig(t)
 

@@ -138,6 +138,8 @@ struct IOSRootView: View {
             IOSTodayView(model: model, onRecoveryAction: handleRecoveryAction)
         case .activity:
             IOSActivityView(model: model, logbookOnly: false)
+        case .httpCapture:
+            IOSHTTPCaptureView(model: model)
         case .library:
             IOSLibraryView(model: model)
         case .settings:
@@ -151,6 +153,8 @@ struct IOSRootView: View {
             return model.attention.dueScheduledItems().count + todayIncidentCount
         case .activity:
             return model.dashboard.traffic.connections.count
+        case .httpCapture:
+            return CaptureSupport.captureEntries(from: model.dashboard.traffic).count
         case .library:
             return model.dashboard.profiles.profiles.count + model.attention.state.inbox.count
         case .settings:
@@ -259,13 +263,14 @@ private struct IOSDestinationRow: View {
 private enum IOSAppDestination: String, CaseIterable, Identifiable, Hashable {
     case now
     case activity
+    case httpCapture
     case library
     case settings
 
     var id: Self { self }
 
     static var attentionCases: [IOSAppDestination] {
-        [.now, .activity, .library]
+        [.now, .activity, .httpCapture, .library]
     }
 
     var title: String {
@@ -274,6 +279,8 @@ private enum IOSAppDestination: String, CaseIterable, Identifiable, Hashable {
             return "Now"
         case .activity:
             return "Activity"
+        case .httpCapture:
+            return "HTTP Capture"
         case .library:
             return "Library"
         case .settings:
@@ -287,6 +294,8 @@ private enum IOSAppDestination: String, CaseIterable, Identifiable, Hashable {
             return "sun.max"
         case .activity:
             return "waveform.path.ecg"
+        case .httpCapture:
+            return "network"
         case .library:
             return "person.crop.rectangle.stack"
         case .settings:
