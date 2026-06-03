@@ -44,8 +44,12 @@ targets:
   ClambhookiOS:
     type: application
     platform: iOS
+    scheme:
+      storeKitConfiguration: ClambhookProducts.storekit
     sources:
       - path: Assets.xcassets
+      - path: ClambhookProducts.storekit
+        buildPhase: none
       - path: SharedApp
       - path: ClambhookiOS
     dependencies:
