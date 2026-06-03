@@ -22,6 +22,10 @@ Future paid feature update products use the pattern `org.jpfchang.clambhook.feat
 - Support URL: https://jpfchang.org/clambhook/support
 - Privacy Policy URL: https://jpfchang.org/clambhook/privacy
 
+## Compatibility
+
+- Requires iOS 26 or later.
+
 ## Description
 
 ClambHook is a private iPhone VPN/proxy router with metadata inspection for routing device traffic through user-managed proxy and VPN profiles. It supports ClambHook, OpenVPN, Shadowsocks, Tor, Trojan, and WireGuard profile types with local profile storage and on-device connection diagnostics.
