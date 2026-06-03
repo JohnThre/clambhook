@@ -1,6 +1,7 @@
 package listener
 
 import (
+	"context"
 	"errors"
 
 	"github.com/JohnThre/clambhook/internal/events"
@@ -15,6 +16,12 @@ const (
 
 func TUNUnsupportedError() error { return errors.New(unsupportedTUNError) }
 
+// DNSProxy answers raw DNS wire queries for TUN DNS interception.
+type DNSProxy interface {
+	Exchange(context.Context, []byte) ([]byte, error)
+	Close() error
+}
+
 // TUNOptions tunes the device-wide TUN listener. The Linux implementation
 // owns the interface and route changes for the lifetime of the listener.
 type TUNOptions struct {
@@ -26,6 +33,7 @@ type TUNOptions struct {
 	ExcludeCIDRs []string
 	ChainName    string
 	EventBus     *events.Bus
+	DNSProxy     DNSProxy
 }
 
 func (o TUNOptions) name() string {

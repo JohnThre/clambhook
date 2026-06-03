@@ -80,6 +80,7 @@ public struct TunnelNetworkSettingsPayload: Codable, Equatable, Sendable {
     public var remoteAddress: String
     public var ipv4: [TunnelIPAddressPayload]
     public var ipv6: [TunnelIPAddressPayload]
+    public var dnsServers: [String]
     public var includedRoutes: [String]
     public var excludedRoutes: [String]
     public var httpProxy: TunnelProxyPayload?
@@ -90,6 +91,7 @@ public struct TunnelNetworkSettingsPayload: Codable, Equatable, Sendable {
         case remoteAddress = "remote_address"
         case ipv4
         case ipv6
+        case dnsServers = "dns_servers"
         case includedRoutes = "included_routes"
         case excludedRoutes = "excluded_routes"
         case httpProxy = "http_proxy"
@@ -101,6 +103,7 @@ public struct TunnelNetworkSettingsPayload: Codable, Equatable, Sendable {
         remoteAddress: String = "127.0.0.1",
         ipv4: [TunnelIPAddressPayload] = [],
         ipv6: [TunnelIPAddressPayload] = [],
+        dnsServers: [String] = [],
         includedRoutes: [String] = [],
         excludedRoutes: [String] = [],
         httpProxy: TunnelProxyPayload? = nil,
@@ -110,6 +113,7 @@ public struct TunnelNetworkSettingsPayload: Codable, Equatable, Sendable {
         self.remoteAddress = remoteAddress
         self.ipv4 = ipv4
         self.ipv6 = ipv6
+        self.dnsServers = dnsServers
         self.includedRoutes = includedRoutes
         self.excludedRoutes = excludedRoutes
         self.httpProxy = httpProxy

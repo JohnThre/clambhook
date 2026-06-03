@@ -120,7 +120,11 @@ func (s *PacketStack) Start(parent context.Context) error {
 func (s *PacketStack) Stop() error {
 	s.mu.Lock()
 	if s.stack == nil {
+		dnsProxy := s.opts.DNSProxy
 		s.mu.Unlock()
+		if dnsProxy != nil {
+			return dnsProxy.Close()
+		}
 		return nil
 	}
 	cancel := s.cancel
@@ -148,6 +152,9 @@ func (s *PacketStack) Stop() error {
 	case <-done:
 	case <-time.After(stopGrace):
 		log.Printf("tun: packet stack stop grace period expired; abandoning in-flight handlers")
+	}
+	if s.opts.DNSProxy != nil {
+		return s.opts.DNSProxy.Close()
 	}
 	return nil
 }
@@ -325,6 +332,11 @@ func (s *PacketStack) handleTCPFlow(ctx context.Context, local *gonet.TCPConn, i
 	defer cancel()
 	dialCtx = ce.attach(dialCtx)
 
+	if s.shouldProxyDNS("tcp", target) {
+		s.handleDNSTCPFlow(ce.attach(ctx), local, target, ce)
+		return
+	}
+
 	plan, err := s.plan(dialCtx, "tcp", target)
 	if err != nil {
 		log.Printf("tun tcp: route plan %s failed: %v", target, err)
@@ -405,6 +417,11 @@ func (s *PacketStack) handleUDPFlow(ctx context.Context, local *gonet.UDPConn, i
 	defer cancel()
 	dialCtx = ce.attach(dialCtx)
 
+	if s.shouldProxyDNS("udp", target) {
+		s.handleDNSUDPFlow(ce.attach(ctx), local, target, ce)
+		return
+	}
+
 	plan, err := s.plan(dialCtx, "udp", target)
 	if err != nil {
 		log.Printf("tun udp: route plan %s failed: %v", target, err)
@@ -446,6 +463,142 @@ func (s *PacketStack) handleUDPFlow(ctx context.Context, local *gonet.UDPConn, i
 		}
 	})
 	ce.emitClosed(classifyClose(ctx, relayErr))
+}
+
+func (s *PacketStack) shouldProxyDNS(network, target string) bool {
+	if s.opts.DNSProxy == nil {
+		return false
+	}
+	_, port := splitTrafficTarget(target)
+	return port == "53" && (network == "tcp" || network == "udp")
+}
+
+func (s *PacketStack) dnsPlan(network, target string) RoutePlan {
+	host, port := splitTrafficTarget(target)
+	return RoutePlan{
+		Profile:    s.opts.ProfileName,
+		Action:     RouteActionDirect,
+		Target:     target,
+		Host:       host,
+		Port:       port,
+		Network:    network,
+		Visibility: events.VisibilityInfo{Kind: "dns", Host: host, Port: port},
+	}
+}
+
+func (s *PacketStack) handleDNSUDPFlow(ctx context.Context, local *gonet.UDPConn, target string, ce *connEvents) {
+	plan := s.dnsPlan("udp", target)
+	ce.emitRuleDecision(plan)
+	ce.emitDialingPlan(plan)
+	ce.emitEstablished()
+
+	var dnsObserved bool
+	var lastActivity atomic.Int64
+	lastActivity.Store(time.Now().UnixNano())
+	idle := func() bool {
+		return time.Since(time.Unix(0, lastActivity.Load())) > tunUDPIdleTimeout
+	}
+	buf := make([]byte, 65535)
+	for {
+		_ = local.SetReadDeadline(time.Now().Add(tunUDPPollInterval))
+		n, _, err := local.ReadFrom(buf)
+		if err != nil {
+			if ctx.Err() != nil {
+				ce.emitClosed(events.ReasonShutdown)
+				return
+			}
+			if isTimeout(err) {
+				if idle() {
+					ce.emitClosed(events.ReasonClientEOF)
+					return
+				}
+				continue
+			}
+			log.Printf("tun dns udp: read %s: %v", target, err)
+			ce.emitClosed(events.ReasonError)
+			return
+		}
+		if n == 0 {
+			continue
+		}
+		lastActivity.Store(time.Now().UnixNano())
+		if tx := ce.txCounter(); tx != nil {
+			tx.Add(uint64(n))
+		}
+		query := append([]byte(nil), buf[:n]...)
+		if !dnsObserved {
+			if info, ok := dnsVisibilityFromPacket(query); ok {
+				dnsObserved = true
+				ce.emitVisibility(info)
+			}
+		}
+		resp, err := s.opts.DNSProxy.Exchange(ctx, query)
+		if err != nil {
+			log.Printf("tun dns udp: exchange %s: %v", target, err)
+		}
+		if len(resp) == 0 {
+			continue
+		}
+		if rx := ce.rxCounter(); rx != nil {
+			rx.Add(uint64(len(resp)))
+		}
+		if _, err := local.Write(resp); err != nil {
+			log.Printf("tun dns udp: write %s: %v", target, err)
+			ce.emitClosed(events.ReasonError)
+			return
+		}
+	}
+}
+
+func (s *PacketStack) handleDNSTCPFlow(ctx context.Context, local *gonet.TCPConn, target string, ce *connEvents) {
+	plan := s.dnsPlan("tcp", target)
+	ce.emitRuleDecision(plan)
+	ce.emitDialingPlan(plan)
+	ce.emitEstablished()
+
+	var dnsObserved bool
+	for {
+		_ = local.SetReadDeadline(time.Now().Add(tunUDPIdleTimeout))
+		query, wireLen, err := readDNSStreamFrame(local)
+		if err != nil {
+			if ctx.Err() != nil {
+				ce.emitClosed(events.ReasonShutdown)
+				return
+			}
+			if errors.Is(err, io.EOF) || isTimeout(err) || errors.Is(err, net.ErrClosed) {
+				ce.emitClosed(events.ReasonClientEOF)
+				return
+			}
+			log.Printf("tun dns tcp: read %s: %v", target, err)
+			ce.emitClosed(events.ReasonError)
+			return
+		}
+		if tx := ce.txCounter(); tx != nil {
+			tx.Add(uint64(wireLen))
+		}
+		if !dnsObserved {
+			if info, ok := dnsVisibilityFromPacket(query); ok {
+				dnsObserved = true
+				ce.emitVisibility(info)
+			}
+		}
+		resp, err := s.opts.DNSProxy.Exchange(ctx, query)
+		if err != nil {
+			log.Printf("tun dns tcp: exchange %s: %v", target, err)
+		}
+		if len(resp) == 0 {
+			continue
+		}
+		_ = local.SetWriteDeadline(time.Now().Add(tunUDPIdleTimeout))
+		if err := writeDNSStreamFrame(local, resp); err != nil {
+			log.Printf("tun dns tcp: write %s: %v", target, err)
+			ce.emitClosed(events.ReasonError)
+			return
+		}
+		if rx := ce.rxCounter(); rx != nil {
+			rx.Add(uint64(len(resp) + 2))
+		}
+	}
 }
 
 func (s *PacketStack) plan(ctx context.Context, network, target string) (RoutePlan, error) {
@@ -563,6 +716,36 @@ func relayUDP(ctx context.Context, local *gonet.UDPConn, chainPC net.PacketConn,
 	if errors.Is(err, io.EOF) || errors.Is(err, net.ErrClosed) {
 		return nil
 	}
+	return err
+}
+
+func readDNSStreamFrame(r io.Reader) ([]byte, int, error) {
+	var lenBuf [2]byte
+	if _, err := io.ReadFull(r, lenBuf[:]); err != nil {
+		return nil, 0, err
+	}
+	n := int(lenBuf[0])<<8 | int(lenBuf[1])
+	if n == 0 {
+		return nil, 2, errors.New("dns tcp: empty message")
+	}
+	buf := make([]byte, n)
+	if _, err := io.ReadFull(r, buf); err != nil {
+		return nil, 2 + n, err
+	}
+	return buf, 2 + n, nil
+}
+
+func writeDNSStreamFrame(w io.Writer, msg []byte) error {
+	if len(msg) == 0 || len(msg) > 65535 {
+		return fmt.Errorf("dns tcp: message length %d out of range", len(msg))
+	}
+	var lenBuf [2]byte
+	lenBuf[0] = byte(len(msg) >> 8)
+	lenBuf[1] = byte(len(msg))
+	if _, err := w.Write(lenBuf[:]); err != nil {
+		return err
+	}
+	_, err := w.Write(msg)
 	return err
 }
 

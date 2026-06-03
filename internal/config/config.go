@@ -53,9 +53,29 @@ type Profile struct {
 	Name              string                   `toml:"name"`
 	Listen            ListenConfig             `toml:"listen"`
 	API               APIConfig                `toml:"api"`
+	DNS               DNSConfig                `toml:"dns"`
 	Chains            []ChainConfig            `toml:"chain"`
 	Rules             []RuleConfig             `toml:"rule"`
 	RuleSubscriptions []RuleSubscriptionConfig `toml:"rule_subscription"`
+}
+
+// DNSConfig controls the profile-local encrypted DNS proxy used by TUN mode.
+// When enabled, DNS traffic from the packet tunnel is answered locally and
+// forwarded to the configured encrypted upstreams.
+type DNSConfig struct {
+	Enabled   bool                `toml:"enabled" json:"enabled"`
+	Timeout   Duration            `toml:"timeout" json:"timeout,omitempty"`
+	Upstreams []DNSUpstreamConfig `toml:"upstream" json:"upstreams,omitempty"`
+}
+
+// DNSUpstreamConfig defines one encrypted DNS resolver endpoint.
+type DNSUpstreamConfig struct {
+	Name         string   `toml:"name" json:"name,omitempty"`
+	Protocol     string   `toml:"protocol" json:"protocol"`
+	URL          string   `toml:"url" json:"url,omitempty"`
+	Address      string   `toml:"address" json:"address,omitempty"`
+	ServerName   string   `toml:"server_name" json:"server_name,omitempty"`
+	BootstrapIPs []string `toml:"bootstrap_ips" json:"bootstrap_ips,omitempty"`
 }
 
 // ChainConfig defines a proxy chain.

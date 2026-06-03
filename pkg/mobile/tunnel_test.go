@@ -108,6 +108,52 @@ name = "default"
 	}
 }
 
+func TestTunnelNetworkSettingsJSONIncludesDNSServers(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "clambhook.toml")
+	if err := os.WriteFile(path, []byte(`
+active = "default"
+
+[[profile]]
+name = "default"
+
+  [profile.dns]
+  enabled = true
+
+    [[profile.dns.upstream]]
+    name = "cloudflare"
+    protocol = "doh"
+    url = "https://cloudflare-dns.com/dns-query"
+
+  [[profile.chain]]
+  name = "proxy"
+
+    [[profile.chain.server]]
+    name = "example"
+    address = "example.invalid:443"
+    protocol = "shadowsocks"
+
+      [profile.chain.server.settings]
+      method = "chacha20-ietf-poly1305"
+      password = "secret"
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	raw, err := TunnelNetworkSettingsJSON(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var payload tunnelNetworkSettings
+	if err := json.Unmarshal([]byte(raw), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if len(payload.DNSServers) != 2 || payload.DNSServers[0] != "198.18.0.1" || payload.DNSServers[1] != "fd7a:636c:616d::1" {
+		t.Fatalf("dns servers = %#v, want tunnel addresses", payload.DNSServers)
+	}
+}
+
 func TestTunnelConfigDashboardAndRuleReplacement(t *testing.T) {
 	path := writeTunnelTestConfig(t)
 

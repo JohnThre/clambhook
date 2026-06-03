@@ -10,6 +10,7 @@ import (
 
 	"github.com/JohnThre/clambhook/internal/chain"
 	"github.com/JohnThre/clambhook/internal/config"
+	"github.com/JohnThre/clambhook/internal/dnsproxy"
 	"github.com/JohnThre/clambhook/internal/events"
 	"github.com/JohnThre/clambhook/internal/geo"
 	"github.com/JohnThre/clambhook/internal/listener"
@@ -205,10 +206,11 @@ func (e *Engine) startLocked() error {
 		return fmt.Errorf("start engine: %w", err)
 	}
 
-	for i, l := range listeners {
+	for _, l := range listeners {
 		if startErr := l.Start(ctx); startErr != nil {
-			// Roll back the listeners we already started.
-			for j := 0; j < i; j++ {
+			// Roll back all constructed listeners. Unstarted listeners are
+			// expected to no-op but may still own prebuilt resources.
+			for j := 0; j < len(listeners); j++ {
 				if stopErr := listeners[j].Stop(); stopErr != nil {
 					log.Printf("engine: rollback stop %s: %v", listeners[j].Protocol(), stopErr)
 				}
@@ -462,6 +464,10 @@ func buildListeners(profile *config.Profile, bus *events.Bus) (listeners []liste
 		if err != nil {
 			return nil, nil, fmt.Errorf("tun rules: %w", err)
 		}
+		dnsProxy, err := dnsproxy.New(profile.DNS, planner)
+		if err != nil {
+			return nil, nil, fmt.Errorf("tun dns: %w", err)
+		}
 		opts := listener.TUNOptions{
 			Name:         tunCfg.Name,
 			ProfileName:  profile.Name,
@@ -471,6 +477,7 @@ func buildListeners(profile *config.Profile, bus *events.Bus) (listeners []liste
 			ExcludeCIDRs: tunCfg.ExcludeCIDRs,
 			ChainName:    ch.Name,
 			EventBus:     bus,
+			DNSProxy:     dnsProxy,
 		}
 		out = append(out, listener.NewTUNWithPlanner(opts, ch, planner))
 	}
@@ -497,6 +504,10 @@ func BuildPacketStack(profile *config.Profile, bus *events.Bus, writer listener.
 	if err != nil {
 		return nil, nil, fmt.Errorf("tun rules: %w", err)
 	}
+	dnsProxy, err := dnsproxy.New(profile.DNS, planner)
+	if err != nil {
+		return nil, nil, fmt.Errorf("tun dns: %w", err)
+	}
 	opts := listener.TUNOptions{
 		Name:         tunCfg.Name,
 		ProfileName:  profile.Name,
@@ -506,6 +517,7 @@ func BuildPacketStack(profile *config.Profile, bus *events.Bus, writer listener.
 		ExcludeCIDRs: tunCfg.ExcludeCIDRs,
 		ChainName:    ch.Name,
 		EventBus:     bus,
+		DNSProxy:     dnsProxy,
 	}
 	return listener.NewPacketStack(opts, ch, planner, writer), resolver.chains, nil
 }

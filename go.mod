@@ -10,6 +10,7 @@ require (
 	github.com/fsnotify/fsnotify v1.9.0
 	github.com/google/uuid v1.3.1
 	github.com/oschwald/maxminddb-golang v1.13.1
+	github.com/quic-go/quic-go v0.59.1
 	golang.org/x/crypto v0.51.0
 	golang.zx2c4.com/wireguard v0.0.0-20250521234502-f333402bd9cb
 	gvisor.dev/gvisor v0.0.0-20250503011706-39ed1f5ac29c

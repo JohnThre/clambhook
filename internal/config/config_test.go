@@ -151,6 +151,155 @@ name = "default"
 	}
 }
 
+func TestLoadDNSConfig(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+	data := []byte(`
+active = "default"
+
+[[profile]]
+name = "default"
+
+  [profile.dns]
+  enabled = true
+  timeout = "3s"
+
+    [[profile.dns.upstream]]
+    name = "cloudflare"
+    protocol = "doh"
+    url = "https://cloudflare-dns.com/dns-query"
+    server_name = "cloudflare-dns.com"
+    bootstrap_ips = ["1.1.1.1", "2606:4700:4700::1111"]
+
+    [[profile.dns.upstream]]
+    name = "quad9"
+    protocol = "dot"
+    address = "9.9.9.9:853"
+
+    [[profile.dns.upstream]]
+    name = "adguard"
+    protocol = "doq"
+    address = "94.140.14.14:853"
+
+  [[profile.chain]]
+  name = "default"
+
+    [[profile.chain.server]]
+    name = "exit"
+    address = "203.0.113.10:443"
+    protocol = "trojan"
+
+      [profile.chain.server.settings]
+      password = "secret"
+`)
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	profile, err := cfg.ActiveProfile()
+	if err != nil {
+		t.Fatalf("ActiveProfile: %v", err)
+	}
+	if !profile.DNS.Enabled {
+		t.Fatal("DNS.Enabled = false, want true")
+	}
+	if profile.DNS.Timeout.Std().String() != "3s" {
+		t.Fatalf("DNS.Timeout = %s, want 3s", profile.DNS.Timeout.Std())
+	}
+	if len(profile.DNS.Upstreams) != 3 {
+		t.Fatalf("DNS.Upstreams = %d, want 3", len(profile.DNS.Upstreams))
+	}
+	if got := profile.DNS.Upstreams[0].URL; got != "https://cloudflare-dns.com/dns-query" {
+		t.Fatalf("first upstream URL = %q", got)
+	}
+	if got := profile.DNS.Upstreams[0].BootstrapIPs; len(got) != 2 || got[0] != "1.1.1.1" {
+		t.Fatalf("bootstrap IPs = %#v", got)
+	}
+}
+
+func TestValidateRejectsBadDNSConfig(t *testing.T) {
+	tests := []struct {
+		name string
+		edit func(*Config)
+		want string
+	}{
+		{
+			name: "enabled without upstreams",
+			edit: func(cfg *Config) {
+				cfg.Profiles[0].DNS.Enabled = true
+			},
+			want: "at least one upstream",
+		},
+		{
+			name: "bad protocol",
+			edit: func(cfg *Config) {
+				cfg.Profiles[0].DNS = DNSConfig{
+					Enabled: true,
+					Upstreams: []DNSUpstreamConfig{{
+						Protocol: "udp",
+						Address:  "1.1.1.1:53",
+					}},
+				}
+			},
+			want: "must be doh, dot, or doq",
+		},
+		{
+			name: "doh requires https",
+			edit: func(cfg *Config) {
+				cfg.Profiles[0].DNS = DNSConfig{
+					Enabled: true,
+					Upstreams: []DNSUpstreamConfig{{
+						Protocol: "doh",
+						URL:      "http://dns.example/dns-query",
+					}},
+				}
+			},
+			want: "must use https",
+		},
+		{
+			name: "dot requires address",
+			edit: func(cfg *Config) {
+				cfg.Profiles[0].DNS = DNSConfig{
+					Enabled: true,
+					Upstreams: []DNSUpstreamConfig{{
+						Protocol: "dot",
+						URL:      "https://dns.example/dns-query",
+					}},
+				}
+			},
+			want: "address is required for dot",
+		},
+		{
+			name: "bad bootstrap",
+			edit: func(cfg *Config) {
+				cfg.Profiles[0].DNS = DNSConfig{
+					Enabled: true,
+					Upstreams: []DNSUpstreamConfig{{
+						Protocol:     "doq",
+						Address:      "dns.example:853",
+						BootstrapIPs: []string{"not-an-ip"},
+					}},
+				}
+			},
+			want: "bootstrap_ips[0]",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := validConfig()
+			tt.edit(cfg)
+			err := cfg.Validate()
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("Validate error = %v, want %q", err, tt.want)
+			}
+		})
+	}
+}
+
 func TestLoadRuleSubscriptions(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.toml")

@@ -56,3 +56,53 @@ func TestBuildListenersIncludesEnabledTUN(t *testing.T) {
 		t.Fatalf("Addr = %q, want clambhook-test0", listeners[0].Addr())
 	}
 }
+
+func TestBuildPacketStackRejectsDirectDNSHostnameWithoutBootstrap(t *testing.T) {
+	profile := config.Profile{
+		Name: "default",
+		Listen: config.ListenConfig{
+			TUN: &config.TUNConfig{
+				Enabled: true,
+				Chain:   "main",
+			},
+		},
+		DNS: config.DNSConfig{
+			Enabled: true,
+			Upstreams: []config.DNSUpstreamConfig{{
+				Protocol: "dot",
+				Address:  "dns.example:853",
+			}},
+		},
+		Chains: []config.ChainConfig{{
+			Name: "main",
+			Servers: []config.ServerConfig{{
+				Name:     "exit",
+				Address:  "203.0.113.10:443",
+				Protocol: "trojan",
+				Settings: map[string]any{"password": "secret"},
+			}},
+		}},
+		Rules: []config.RuleConfig{{
+			Name:     "direct-dot",
+			Action:   "direct",
+			Domains:  []string{"dns.example"},
+			Ports:    []int{853},
+			Networks: []string{"tcp"},
+		}},
+	}
+
+	stack, chains, err := BuildPacketStack(&profile, nil, discardPacketWriter{})
+	if stack != nil {
+		_ = stack.Stop()
+	}
+	if closeErr := closeChains(chains); closeErr != nil {
+		t.Fatalf("close chains: %v", closeErr)
+	}
+	if err == nil || !strings.Contains(err.Error(), "needs bootstrap_ips") {
+		t.Fatalf("BuildPacketStack error = %v, want bootstrap guard", err)
+	}
+}
+
+type discardPacketWriter struct{}
+
+func (discardPacketWriter) WritePacket([]byte) error { return nil }

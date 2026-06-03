@@ -48,6 +48,7 @@ func ValidateUsableTunnelConfig(configPath string) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	if err := stack.Start(ctx); err != nil {
+		_ = stack.Stop()
 		_ = closePacketChains(chains)
 		return err
 	}

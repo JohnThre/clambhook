@@ -109,6 +109,7 @@ func (r *TunnelRuntime) Start(configPath string) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	if err := stack.Start(ctx); err != nil {
 		cancel()
+		_ = stack.Stop()
 		closePacketChains(chains)
 		trafficMgr.Stop()
 		_ = geoReader.Close()
@@ -257,6 +258,7 @@ func (r *TunnelRuntime) startConfig(cfg *config.Config) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	if err := stack.Start(ctx); err != nil {
 		cancel()
+		_ = stack.Stop()
 		closePacketChains(chains)
 		trafficMgr.Stop()
 		_ = geoReader.Close()
@@ -502,6 +504,7 @@ type tunnelNetworkSettings struct {
 	RemoteAddress  string            `json:"remote_address"`
 	IPv4           []ipPrefixSetting `json:"ipv4"`
 	IPv6           []ipPrefixSetting `json:"ipv6"`
+	DNSServers     []string          `json:"dns_servers,omitempty"`
 	IncludedRoutes []string          `json:"included_routes"`
 	ExcludedRoutes []string          `json:"excluded_routes"`
 	HTTPProxy      *proxySetting     `json:"http_proxy,omitempty"`
@@ -649,6 +652,9 @@ func networkSettingsForProfile(profile *config.Profile) tunnelNetworkSettings {
 			settings.IPv4 = append(settings.IPv4, row)
 		} else {
 			settings.IPv6 = append(settings.IPv6, row)
+		}
+		if profile.DNS.Enabled {
+			settings.DNSServers = append(settings.DNSServers, row.Address)
 		}
 	}
 	if settings.RemoteAddress == "" {
