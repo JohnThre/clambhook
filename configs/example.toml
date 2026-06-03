@@ -27,6 +27,9 @@ name = "local"
   [profile.dns]
   enabled = false
   timeout = "5s"
+  # When enabled for TUN mode, TCP/UDP destination port 53 is answered locally
+  # and forwarded to encrypted DoH/DoT/DoQ upstreams through the route planner.
+  # When disabled, DNS packets route like normal traffic and can match rules.
 
   [[profile.chain]]
   name = "default"
@@ -57,6 +60,7 @@ name = "local"
   test_url = "https://www.gstatic.com/generate_204"
   interval = "30s"
   timeout = "5s"
+  # Rules can route through smart groups with action = "group:<name>".
 
   [[profile.rule]]
   name = "example-blocklist"
@@ -80,3 +84,5 @@ name = "local"
   action = "block"
   networks = ["tcp", "udp"]
   disabled = true
+  # Refreshed subscription caches materialize as generated rules after manual
+  # profile rules, so hand-written rules can override broad subscription lists.

@@ -43,6 +43,51 @@ func TestRulesEndpointReturnsActiveProfileRules(t *testing.T) {
 	}
 }
 
+func TestRulesEndpointReturnsRequestedProfileRules(t *testing.T) {
+	cfg := testServersConfig("A")
+	cfg.Profiles[0].Rules = []config.RuleConfig{{
+		Name:    "a-rule",
+		Action:  "direct",
+		Domains: []string{"a.example.com"},
+	}}
+	cfg.Profiles[1].Rules = []config.RuleConfig{{
+		Name:    "b-rule",
+		Action:  "block",
+		Domains: []string{"b.example.com"},
+	}}
+	srv := New(engine.New(cfg, nil), nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/rules?profile=B", nil)
+	rec := httptest.NewRecorder()
+	srv.server.Handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%q, want 200", rec.Code, rec.Body.String())
+	}
+	var resp struct {
+		Profile string              `json:"profile"`
+		Rules   []config.RuleConfig `json:"rules"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp.Profile != "B" || len(resp.Rules) != 1 || resp.Rules[0].Name != "b-rule" {
+		t.Fatalf("rules response = %+v, want profile B b-rule", resp)
+	}
+}
+
+func TestRulesEndpointRejectsMissingProfile(t *testing.T) {
+	srv := New(engine.New(testServersConfig("A"), nil), nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/rules?profile=missing", nil)
+	rec := httptest.NewRecorder()
+	srv.server.Handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d body=%q, want 404", rec.Code, rec.Body.String())
+	}
+}
+
 func TestDecisionsEndpointReturnsRuleDecisions(t *testing.T) {
 	store, err := traffic.NewStore(config.TrafficConfig{
 		Enabled:     true,

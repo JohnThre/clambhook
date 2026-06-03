@@ -26,6 +26,7 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/policy-groups", s.handlePolicyGroups)
 	mux.HandleFunc("POST /api/v1/policy-groups/test", s.handlePolicyGroupTest)
 	mux.HandleFunc("GET /api/v1/rules", s.handleRules)
+	mux.HandleFunc("GET /api/v1/dns", s.handleDNS)
 	mux.HandleFunc("POST /api/v1/rules", s.handleCreateRule)
 	mux.HandleFunc("PUT /api/v1/rules", s.handleReplaceRules)
 	mux.HandleFunc("POST /api/v1/rules/test", s.handleTestRule)
@@ -82,9 +83,9 @@ type testRuleChain struct {
 
 func (s *Server) handleRules(w http.ResponseWriter, r *http.Request) {
 	cfg := s.engine.Config()
-	profile, err := cfg.ActiveProfile()
+	profile, err := selectAPIProfile(cfg, r.URL.Query().Get("profile"))
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		writeProfileSelectionError(w, err)
 		return
 	}
 	manualRules, generatedRules, effectiveRules := subscription.EffectiveRules(cfg.Path, profile)
@@ -232,6 +233,10 @@ func validateRuleTestTarget(target string) error {
 }
 
 func selectRuleTestProfile(cfg *config.Config, name string) (*config.Profile, error) {
+	return selectAPIProfile(cfg, name)
+}
+
+func selectAPIProfile(cfg *config.Config, name string) (*config.Profile, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return cfg.ActiveProfile()
@@ -241,6 +246,16 @@ func selectRuleTestProfile(cfg *config.Config, name string) (*config.Profile, er
 		return nil, fmt.Errorf("profile %q not found", name)
 	}
 	return profile, nil
+}
+
+func writeProfileSelectionError(w http.ResponseWriter, err error) {
+	status := http.StatusInternalServerError
+	if strings.Contains(err.Error(), "not found") {
+		status = http.StatusNotFound
+	} else if strings.Contains(err.Error(), "active profile") {
+		status = http.StatusBadRequest
+	}
+	http.Error(w, err.Error(), status)
 }
 
 func compileProfileRules(profile *config.Profile, defaultChainName string) (*rules.Engine, error) {

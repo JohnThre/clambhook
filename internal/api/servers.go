@@ -31,9 +31,9 @@ type serverPayload struct {
 
 func (s *Server) handleServers(w http.ResponseWriter, r *http.Request) {
 	cfg := s.engine.Config()
-	profile, err := cfg.ActiveProfile()
+	profile, err := selectAPIProfile(cfg, r.URL.Query().Get("profile"))
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		writeProfileSelectionError(w, err)
 		return
 	}
 

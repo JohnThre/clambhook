@@ -68,6 +68,54 @@ func TestPolicyGroupsEndpointReturnsIdleConfigSnapshot(t *testing.T) {
 	}
 }
 
+func TestPolicyGroupsEndpointReturnsRequestedInactiveProfileSnapshot(t *testing.T) {
+	cfg := testPolicyGroupConfig("https://probe.example/generate_204")
+	cfg.Profiles = append(cfg.Profiles, config.Profile{
+		Name: "B",
+		Chains: []config.ChainConfig{
+			policyAPIChain("b-primary"),
+			policyAPIChain("b-backup"),
+		},
+		PolicyGroups: []config.PolicyGroupConfig{{
+			Name:    "b-auto",
+			Type:    policy.TypeURLTest,
+			Chains:  []string{"b-primary", "b-backup"},
+			TestURL: "https://b-probe.example/generate_204",
+		}},
+	})
+	srv := New(engine.New(cfg, nil), nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/policy-groups?profile=B", nil)
+	rec := httptest.NewRecorder()
+	srv.server.Handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%q, want 200", rec.Code, rec.Body.String())
+	}
+	var resp policy.Snapshot
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp.Profile != "B" || len(resp.Groups) != 1 || resp.Groups[0].Name != "b-auto" || resp.Groups[0].SelectedChain != "b-primary" {
+		t.Fatalf("policy groups = %+v, want inactive profile B config snapshot", resp)
+	}
+	if len(resp.Groups[0].Results) != 0 {
+		t.Fatalf("results = %+v, want no runtime results for inactive profile", resp.Groups[0].Results)
+	}
+}
+
+func TestPolicyGroupsEndpointRejectsMissingProfile(t *testing.T) {
+	srv := New(engine.New(testPolicyGroupConfig("https://probe.example/generate_204"), nil), nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/policy-groups?profile=missing", nil)
+	rec := httptest.NewRecorder()
+	srv.server.Handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d body=%q, want 404", rec.Code, rec.Body.String())
+	}
+}
+
 func TestPolicyGroupManualTestRequiresRunningEngine(t *testing.T) {
 	cfg := testPolicyGroupConfig("https://probe.example/generate_204")
 	srv := New(engine.New(cfg, nil), nil)

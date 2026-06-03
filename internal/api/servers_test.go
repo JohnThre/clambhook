@@ -115,9 +115,36 @@ func TestServersEndpointReflectsProfileSwitch(t *testing.T) {
 	}
 }
 
+func TestServersEndpointReturnsRequestedProfile(t *testing.T) {
+	srv := New(engine.New(testServersConfig("A"), nil), nil)
+
+	resp := getServersPath(t, srv, "/api/v1/servers?profile=B")
+
+	if resp.Profile != "B" || resp.Chains[0].Name != "b-default" {
+		t.Fatalf("profile inventory = %+v, want profile B chain b-default", resp)
+	}
+}
+
+func TestServersEndpointRejectsMissingProfile(t *testing.T) {
+	srv := New(engine.New(testServersConfig("A"), nil), nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/servers?profile=missing", nil)
+	rec := httptest.NewRecorder()
+	srv.server.Handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d body=%q, want 404", rec.Code, rec.Body.String())
+	}
+}
+
 func getServers(t *testing.T, srv *Server) serversResponse {
 	t.Helper()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/servers", nil)
+	return getServersPath(t, srv, "/api/v1/servers")
+}
+
+func getServersPath(t *testing.T, srv *Server, path string) serversResponse {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodGet, path, nil)
 	rec := httptest.NewRecorder()
 	srv.server.Handler.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
