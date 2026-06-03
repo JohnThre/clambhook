@@ -1,3 +1,5 @@
+# Internal developer QA formula only. Do not publish Homebrew releases for
+# end-user distribution from GitHub.
 class Clambhook < Formula
   desc "Local connectivity utility with terminal interface"
   homepage "https://github.com/JohnThre/clambhook"

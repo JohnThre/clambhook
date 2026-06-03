@@ -34,6 +34,7 @@ export CLAMBHOOK_APP_STORE_CONNECT_API_ISSUER_ID=00000000-0000-0000-0000-0000000
 ```
 
 Do not commit the API key, private keys, provisioning profiles, or generated archives.
+Generated App Store archives and exported IPAs are for App Store Connect submission only. Do not publish `.ipa` files or any other installer/package artifact on GitHub for end users.
 
 ## Archive Proof
 

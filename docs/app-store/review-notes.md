@@ -13,6 +13,14 @@ Privacy posture:
 - Apple diagnostics may include crash and performance data if the user has enabled sharing diagnostics with developers.
 - ClambHook does not include third-party analytics, advertising SDKs, or tracking SDKs.
 
+Pricing and In-App Purchases:
+
+- App Store price: Free.
+- In-App Purchase products are non-consumable and Family Sharing is enabled.
+- Lifetime unlock: `org.jpfchang.clambhook.unlock.lifetime`, USD 99.99.
+- 2027 feature update: `org.jpfchang.clambhook.feature_update.2027`, USD 8.99.
+- Future paid feature update products use `org.jpfchang.clambhook.feature_update.YYYY`.
+
 Demo profile for App Review:
 
 - Profile name: App Review Demo

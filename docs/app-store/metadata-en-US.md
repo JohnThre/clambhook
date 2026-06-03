@@ -2,19 +2,20 @@
 
 ## Pricing
 
-- Paid app base price: USD 99.99.
+- App price: Free.
 - Paid Apps Agreement, tax, and banking must be complete in App Store Connect before review.
-- No subscription, annual upgrade purchase, major-release paywall, or post-purchase feature gate.
+- ClambHook uses non-consumable In-App Purchases for premium access and paid feature updates. It does not use subscriptions.
 
 ## In-App Purchases
 
-Create only these optional support purchases before submitting the build. They do not unlock app features, expire access, or gate future updates. Do not create any placeholder products because App Store Connect product IDs cannot be reused after assignment.
+Create only these non-consumable In-App Purchases before submitting the build. Enable Family Sharing for each product in App Store Connect. Do not create placeholder products because App Store Connect product IDs cannot be reused after assignment.
 
-| Display name | Product ID | US base price |
-| --- | --- | --- |
-| Small Support | `org.jpfchang.clambhook.support.small` | USD 4.99 |
-| Medium Support | `org.jpfchang.clambhook.support.medium` | USD 9.99 |
-| Large Support | `org.jpfchang.clambhook.support.large` | USD 24.99 |
+| Display name | Product ID | Type | US base price |
+| --- | --- | --- | --- |
+| ClambHook Lifetime Unlock | `org.jpfchang.clambhook.unlock.lifetime` | Non-Consumable | USD 99.99 |
+| ClambHook 2027 Feature Update | `org.jpfchang.clambhook.feature_update.2027` | Non-Consumable | USD 8.99 |
+
+Future paid feature update products use the pattern `org.jpfchang.clambhook.feature_update.YYYY`.
 
 ## URLs
 
@@ -40,7 +41,7 @@ VPN,proxy,WireGuard,OpenVPN,Shadowsocks,Tor,Trojan,network,privacy,tunnel
 - Demo endpoint: `review-vpn.jpfchang.org:443`.
 - Demo credentials: paste only in the App Review Notes field in App Store Connect; do not commit them.
 - Territory availability: v1 is United States only. In App Store Connect, select `Specific Countries or Regions` and select only `United States`; do not select `All Countries or Regions` or automatic future-country availability for v1.
-- Notes: ClambHook creates a local VPN configuration through Network Extension and routes traffic according to user-managed profiles and rules. v1 inspection is metadata-only; the app does not install a certificate authority, perform TLS MITM, store request or response bodies, or export HAR files. Support purchases are optional and do not gate app functionality. No territories requiring VPN license information are selected for the v1 submission.
+- Notes: ClambHook creates a local VPN configuration through Network Extension and routes traffic according to user-managed profiles and rules. v1 inspection is metadata-only; the app does not install a certificate authority, perform TLS MITM, store request or response bodies, or export HAR files. The app is free to download and uses non-consumable In-App Purchases for premium access and paid feature updates. Family Sharing is enabled for these purchases. No territories requiring VPN license information are selected for the v1 submission.
 
 ## Screenshots
 
@@ -48,4 +49,4 @@ Prepare iPhone screenshots for the current required App Store Connect iPhone dis
 
 - Dashboard with an active demo profile.
 - Profile/routing view showing supported protocol configuration without real secrets.
-- Settings or support screen showing privacy/support links.
+- Settings or purchases screen showing privacy/support links and premium purchase products.

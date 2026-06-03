@@ -1,6 +1,6 @@
 import Foundation
 
-public struct MobileSupportProduct: Identifiable, Equatable {
+public struct MobilePurchaseProduct: Identifiable, Equatable {
     public let id: String
     public let displayName: String
 
@@ -10,11 +10,13 @@ public struct MobileSupportProduct: Identifiable, Equatable {
     }
 }
 
-public enum MobileSupportCatalog {
-    public static let products: [MobileSupportProduct] = [
-        MobileSupportProduct(id: "org.jpfchang.clambhook.support.small", displayName: "Small Support"),
-        MobileSupportProduct(id: "org.jpfchang.clambhook.support.medium", displayName: "Medium Support"),
-        MobileSupportProduct(id: "org.jpfchang.clambhook.support.large", displayName: "Large Support"),
+public enum MobilePurchaseCatalog {
+    public static let lifetimeUnlockID = "org.jpfchang.clambhook.unlock.lifetime"
+    public static let featureUpdate2027ID = "org.jpfchang.clambhook.feature_update.2027"
+
+    public static let products: [MobilePurchaseProduct] = [
+        MobilePurchaseProduct(id: lifetimeUnlockID, displayName: "ClambHook Lifetime Unlock"),
+        MobilePurchaseProduct(id: featureUpdate2027ID, displayName: "ClambHook 2027 Feature Update"),
     ]
 
     public static let productIDs = products.map(\.id)

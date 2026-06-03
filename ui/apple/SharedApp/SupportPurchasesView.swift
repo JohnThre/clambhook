@@ -4,10 +4,10 @@ import SwiftUI
 #if os(iOS) || os(visionOS)
 import StoreKit
 
-struct SupportPurchasesSection: View {
+struct PremiumPurchasesSection: View {
     var body: some View {
-        Section("Support") {
-            StoreView(ids: MobileSupportCatalog.productIDs)
+        Section("Purchases") {
+            StoreView(ids: MobilePurchaseCatalog.productIDs)
         }
     }
 }
