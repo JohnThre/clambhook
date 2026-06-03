@@ -7,7 +7,7 @@ struct IOSRootView: View {
     @ObservedObject var model: AppleAppModel
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.scenePhase) private var scenePhase
-    @State private var selectedDestination: IOSAppDestination = .now
+    @State private var selectedDestination: IOSAppDestination = .today
     @State private var compactPath: [IOSAppDestination] = []
     @State private var showingOnboarding = false
     @AppStorage("org.jpfchang.clambhook.onboardingComplete") private var onboardingComplete = false
@@ -145,14 +145,14 @@ struct IOSRootView: View {
     @ViewBuilder
     private func destinationView(_ destination: IOSAppDestination) -> some View {
         switch destination {
-        case .now:
+        case .inbox:
+            IOSInboxView(model: model)
+        case .today:
             IOSTodayView(model: model, onRecoveryAction: handleRecoveryAction)
-        case .activity:
-            IOSActivityView(model: model, logbookOnly: false)
-        case .httpCapture:
-            IOSHTTPCaptureView(model: model)
-        case .library:
-            IOSLibraryView(model: model)
+        case .anytime:
+            IOSAnytimeView(model: model)
+        case .logbook:
+            IOSLogbookView(model: model)
         case .settings:
             AppSettingsView(model: model)
         }
@@ -160,14 +160,16 @@ struct IOSRootView: View {
 
     private func badgeCount(for destination: IOSAppDestination) -> Int? {
         switch destination {
-        case .now:
+        case .inbox:
+            return model.attention.state.inbox.count
+        case .today:
             return model.attention.dueScheduledItems().count + todayIncidentCount
-        case .activity:
+        case .anytime:
+            return model.dashboard.profiles.profiles.count + model.dashboard.rules.rules.count
+        case .logbook:
             return model.dashboard.traffic.connections.count
-        case .httpCapture:
-            return CaptureSupport.captureEntries(from: model.dashboard.traffic).count
-        case .library:
-            return model.dashboard.profiles.profiles.count + model.attention.state.inbox.count
+                + CaptureSupport.captureEntries(from: model.dashboard.traffic).count
+                + model.developerEntries.count
         case .settings:
             return nil
         }
@@ -196,8 +198,8 @@ struct IOSRootView: View {
 
     private func handleRecoveryAction(_ action: TunnelRecoveryAction) {
         if action == .openProfiles || action == .importProfile {
-            selectedDestination = .library
-            compactPath = [.library]
+            selectedDestination = action == .importProfile ? .inbox : .anytime
+            compactPath = [selectedDestination]
         }
         model.performRecoveryAction(action)
     }
@@ -314,28 +316,28 @@ private struct IOSDestinationRow: View {
 }
 
 private enum IOSAppDestination: String, CaseIterable, Identifiable, Hashable {
-    case now
-    case activity
-    case httpCapture
-    case library
+    case inbox
+    case today
+    case anytime
+    case logbook
     case settings
 
     var id: Self { self }
 
     static var attentionCases: [IOSAppDestination] {
-        [.now, .activity, .httpCapture, .library]
+        [.inbox, .today, .anytime, .logbook]
     }
 
     var title: String {
         switch self {
-        case .now:
-            return "Now"
-        case .activity:
-            return "Activity"
-        case .httpCapture:
-            return "HTTP Metadata"
-        case .library:
-            return "Library"
+        case .inbox:
+            return "Inbox"
+        case .today:
+            return "Today"
+        case .anytime:
+            return "Anytime"
+        case .logbook:
+            return "Logbook"
         case .settings:
             return "Settings"
         }
@@ -343,21 +345,21 @@ private enum IOSAppDestination: String, CaseIterable, Identifiable, Hashable {
 
     var systemImage: String {
         switch self {
-        case .now:
+        case .inbox:
+            return "tray"
+        case .today:
             return "sun.max"
-        case .activity:
-            return "waveform.path.ecg"
-        case .httpCapture:
-            return "network"
-        case .library:
-            return "person.crop.rectangle.stack"
+        case .anytime:
+            return "slider.horizontal.3"
+        case .logbook:
+            return "clock.arrow.circlepath"
         case .settings:
             return "gearshape"
         }
     }
 }
 
-private struct IOSLibraryView: View {
+private struct IOSAnytimeView: View {
     @ObservedObject var model: AppleAppModel
 
     var body: some View {
@@ -367,21 +369,21 @@ private struct IOSLibraryView: View {
                     IOSProfilesView(model: model)
                 } label: {
                     IOSLibraryRow(
-                        title: "Profiles and Rules",
+                        title: "Profiles, Policies, Rules",
                         detail: "\(model.dashboard.profiles.profiles.count) profiles",
-                        systemImage: "person.crop.rectangle.stack"
+                        systemImage: "slider.horizontal.3"
                     )
                 }
             }
 
-            Section("Imports") {
+            Section("Rules") {
                 NavigationLink {
-                    IOSInboxView(model: model)
+                    IOSRulesView(model: model)
                 } label: {
                     IOSLibraryRow(
-                        title: "Inbox",
-                        detail: "\(model.attention.state.inbox.count) staged imports",
-                        systemImage: "tray"
+                        title: "Rule Order",
+                        detail: "\(model.dashboard.rules.rules.count) rules",
+                        systemImage: "list.number"
                     )
                 }
             }
@@ -409,6 +411,50 @@ private struct IOSLibraryView: View {
             }
         }
         .listStyle(.insetGrouped)
+    }
+}
+
+private struct IOSLogbookView: View {
+    @ObservedObject var model: AppleAppModel
+
+    var body: some View {
+        List {
+            Section("Traffic") {
+                NavigationLink {
+                    IOSActivityView(model: model, logbookOnly: true)
+                } label: {
+                    IOSLibraryRow(
+                        title: "Historical Traffic",
+                        detail: "\(model.dashboard.traffic.connections.count) connections",
+                        systemImage: "waveform.path.ecg"
+                    )
+                }
+            }
+
+            Section("Capture") {
+                NavigationLink {
+                    IOSHTTPCaptureView(model: model)
+                } label: {
+                    IOSLibraryRow(
+                        title: "HTTP Capture",
+                        detail: "\(CaptureSupport.captureEntries(from: model.dashboard.traffic).count) metadata, \(model.developerEntries.count) body captures",
+                        systemImage: "network"
+                    )
+                }
+            }
+
+            Section("Decisions") {
+                IOSLibraryRow(
+                    title: "Routes and Alerts",
+                    detail: "\(model.dashboard.rules.rules.count) ordered rules, \(model.dashboard.passiveServerHealth.count) server checks",
+                    systemImage: "checklist"
+                )
+            }
+        }
+        .listStyle(.insetGrouped)
+        .task {
+            await model.refreshDeveloperCaptureNow()
+        }
     }
 }
 

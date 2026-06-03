@@ -208,6 +208,57 @@ func TestCreateRulePersistsConfigWithBackupAndReloads(t *testing.T) {
 	}
 }
 
+func TestReplaceRulesPersistsOrderedConfigWithBackupAndReloads(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "clambhook.toml")
+	cfg := testRuleCreateConfig()
+	cfg.Profiles[0].Rules = []config.RuleConfig{{
+		Name:    "old",
+		Action:  "direct",
+		Domains: []string{"old.example.com"},
+	}}
+	if _, err := config.WriteAtomicWithBackup(path, cfg); err != nil {
+		t.Fatalf("write initial config: %v", err)
+	}
+	srv := NewWithOptions(engine.New(cfg, nil), nil, Options{ConfigPath: path})
+	body := []byte(`{"rules":[{"name":"first","action":"block","domains":["one.example.com"]},{"name":"second","action":"direct","domains":["two.example.com"]}]}`)
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/rules", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+
+	srv.server.Handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%q, want 200", rec.Code, rec.Body.String())
+	}
+	var resp struct {
+		Profile    string              `json:"profile"`
+		Rules      []config.RuleConfig `json:"rules"`
+		BackupPath string              `json:"backup_path"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp.Profile != "A" || len(resp.Rules) != 2 || resp.Rules[0].Name != "first" || resp.Rules[1].Name != "second" {
+		t.Fatalf("response = %+v", resp)
+	}
+	if resp.BackupPath == "" {
+		t.Fatalf("backup_path empty in response %+v", resp)
+	}
+	reloaded, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("load persisted config: %v", err)
+	}
+	profile, err := reloaded.ActiveProfile()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(profile.Rules) != 2 || profile.Rules[0].Name != "first" || profile.Rules[1].Name != "second" {
+		t.Fatalf("persisted rules = %+v", profile.Rules)
+	}
+	if got := srv.engine.Config().Profiles[0].Rules; len(got) != 2 || got[0].Name != "first" || got[1].Name != "second" {
+		t.Fatalf("engine rules after reload = %+v", got)
+	}
+}
+
 func TestCreateRuleRequiresConfigPath(t *testing.T) {
 	srv := NewWithOptions(engine.New(testRuleCreateConfig(), nil), nil, Options{})
 	body := []byte(`{"rule":{"name":"ads","action":"block","domains":["ads.example.com"]}}`)

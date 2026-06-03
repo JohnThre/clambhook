@@ -108,6 +108,50 @@ name = "default"
 	}
 }
 
+func TestMobileHTTPProxyConfigDisablesPacketAndSOCKSListeners(t *testing.T) {
+	cfg := &config.Config{
+		Path:   "/tmp/clambhook.toml",
+		Active: "default",
+		Profiles: []config.Profile{{
+			Name: "default",
+			Listen: config.ListenConfig{
+				SOCKS5:      "127.0.0.1:1080",
+				SOCKS5Chain: "proxy",
+				HTTP:        "127.0.0.1:18080",
+				HTTPChain:   "proxy",
+				TUN:         &config.TUNConfig{Enabled: true},
+			},
+			Chains: []config.ChainConfig{{
+				Name: "proxy",
+				Servers: []config.ServerConfig{{
+					Name:     "example",
+					Address:  "example.invalid:443",
+					Protocol: "shadowsocks",
+					Settings: map[string]any{
+						"method":   "chacha20-ietf-poly1305",
+						"password": "secret",
+					},
+				}},
+			}},
+		}},
+	}
+
+	proxyCfg := mobileHTTPProxyConfig(cfg)
+	if proxyCfg == nil {
+		t.Fatal("mobileHTTPProxyConfig returned nil")
+	}
+	profile, err := proxyCfg.ActiveProfile()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if profile.Listen.HTTP != "127.0.0.1:18080" || profile.Listen.HTTPChain != "proxy" {
+		t.Fatalf("http listener = %+v", profile.Listen)
+	}
+	if profile.Listen.TUN != nil || profile.Listen.SOCKS5 != "" || profile.Listen.SOCKS5Chain != "" {
+		t.Fatalf("unexpected non-http listeners in proxy config: %+v", profile.Listen)
+	}
+}
+
 func TestTunnelNetworkSettingsJSONIncludesDNSServers(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "clambhook.toml")

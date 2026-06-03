@@ -44,6 +44,14 @@ class DashboardViewModel(
         viewModelScope.launch { repository.createRule(rule) }
     }
 
+    fun replaceRules(profile: String, rules: List<RulePayload>) {
+        viewModelScope.launch { repository.replaceRules(profile, rules) }
+    }
+
+    fun clearDeveloperEntries() {
+        viewModelScope.launch { repository.clearDeveloperEntries() }
+    }
+
     fun startPolling(intervalSeconds: Int) {
         pollingJob?.cancel()
         pollingJob = viewModelScope.launch {

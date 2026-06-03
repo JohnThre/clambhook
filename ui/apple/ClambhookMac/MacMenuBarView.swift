@@ -9,8 +9,8 @@ struct MacMenuBarView: View {
     @State private var trafficFilter = "all"
     @State private var trafficSearch = ""
     @State private var draftRule: RulePayload?
-    @State private var showActivity = false
-    @State private var showLibrary = false
+    @State private var showLogbook = false
+    @State private var showAnytime = false
     @State private var routeTestNetwork = "tcp"
     @State private var routeTestTarget = "example.com:443"
     @State private var routeTestResult: RuleTestResponse?
@@ -29,14 +29,15 @@ struct MacMenuBarView: View {
                 VStack(alignment: .leading, spacing: 16) {
                     statusPanel
                     metricsPanel
-                    DisclosureGroup("Activity", isExpanded: $showActivity) {
+                    DisclosureGroup("Logbook", isExpanded: $showLogbook) {
                         VStack(alignment: .leading, spacing: 14) {
                             trafficPanel
+                            developerCapturePanel
                             logsPanel
                         }
                         .padding(.top, 8)
                     }
-                    DisclosureGroup("Library", isExpanded: $showLibrary) {
+                    DisclosureGroup("Anytime", isExpanded: $showAnytime) {
                         VStack(alignment: .leading, spacing: 14) {
                             profilesPanel
                             listenersPanel
@@ -81,7 +82,7 @@ struct MacMenuBarView: View {
     }
 
     private var statusPanel: some View {
-        MacSection(title: "Status") {
+        MacSection(title: "Today") {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 8) {
                     MacStatusPill(
@@ -226,7 +227,7 @@ struct MacMenuBarView: View {
 
     private var trafficPanel: some View {
         let rows = filteredTraffic
-        return MacSection(title: "Traffic") {
+        return MacSection(title: "Historical Traffic") {
             VStack(alignment: .leading, spacing: 8) {
                 Text("\(model.dashboard.traffic.summary.activeConnections) active / \(formatBytes(model.dashboard.traffic.summary.rxTotal)) down / \(formatBytes(model.dashboard.traffic.summary.txTotal)) up")
                     .font(.caption)
@@ -311,6 +312,22 @@ struct MacMenuBarView: View {
                         }
                     }
                 }
+            }
+        }
+    }
+
+    private var developerCapturePanel: some View {
+        MacSection(title: "HTTP Capture") {
+            VStack(alignment: .leading, spacing: 8) {
+                MacStatusPill(
+                    text: model.developerStatus.enabled ? "\(model.developerEntries.count) body captures" : "Metadata by default",
+                    systemImage: model.developerStatus.mitmEnabled ? "lock.open" : "lock",
+                    tint: model.developerStatus.enabled ? .blue : .secondary
+                )
+                Text("HTTPS entries remain CONNECT metadata unless opt-in HTTPS Body Capture is enabled in developer config.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(3)
             }
         }
     }

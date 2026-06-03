@@ -68,6 +68,12 @@ data class CreateRuleRequest(
 )
 
 @Serializable
+data class ReplaceRulesRequest(
+    val profile: String = "",
+    val rules: List<RulePayload> = emptyList()
+)
+
+@Serializable
 data class ChainPayload(
     val name: String,
     val servers: List<ServerPayload>
@@ -300,6 +306,79 @@ data class TrafficHopPayload(
     @SerialName("elapsed_ns")
     val elapsedNs: Long = 0,
     val error: String = ""
+)
+
+@Serializable
+data class DeveloperStatusPayload(
+    val enabled: Boolean = false,
+    @SerialName("mitm_enabled")
+    val mitmEnabled: Boolean = false,
+    @SerialName("capture_limit")
+    val captureLimit: Int = 0,
+    @SerialName("body_limit_bytes")
+    val bodyLimitBytes: Long = 0,
+    @SerialName("header_value_limit_bytes")
+    val headerValueLimitBytes: Int = 0,
+    @SerialName("ca_cert_path")
+    val caCertPath: String = "",
+    @SerialName("ca_fingerprint_sha256")
+    val caFingerprintSha256: String = "",
+    @SerialName("capture_count")
+    val captureCount: Int = 0
+)
+
+@Serializable
+data class DeveloperEntriesPayload(
+    val entries: List<DeveloperEntryPayload> = emptyList()
+)
+
+@Serializable
+data class DeveloperEntryPayload(
+    val id: String = "",
+    @SerialName("conn_id")
+    val connId: String = "",
+    val profile: String = "",
+    @SerialName("client_addr")
+    val clientAddr: String = "",
+    @SerialName("chain_name")
+    val chainName: String = "",
+    @SerialName("started_at")
+    val startedAt: String = "",
+    @SerialName("finished_at")
+    val finishedAt: String = "",
+    val method: String = "",
+    val url: String = "",
+    val scheme: String = "",
+    val host: String = "",
+    val status: Int = 0,
+    val request: DeveloperMessagePayload = DeveloperMessagePayload(),
+    val response: DeveloperMessagePayload = DeveloperMessagePayload(),
+    val error: String = ""
+)
+
+@Serializable
+data class DeveloperMessagePayload(
+    val headers: List<DeveloperHeaderPayload> = emptyList(),
+    val body: DeveloperBodyPayload = DeveloperBodyPayload()
+)
+
+@Serializable
+data class DeveloperHeaderPayload(
+    val name: String = "",
+    val value: String = "",
+    val redacted: Boolean = false,
+    val truncated: Boolean = false
+)
+
+@Serializable
+data class DeveloperBodyPayload(
+    val size: Long = 0,
+    val preview: String = "",
+    @SerialName("preview_bytes")
+    val previewBytes: Long = 0,
+    val truncated: Boolean = false,
+    @SerialName("truncated_after")
+    val truncatedAfter: Long = 0
 )
 
 data class BandwidthSample(

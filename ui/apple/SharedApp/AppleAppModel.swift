@@ -44,6 +44,8 @@ final class AppleAppModel: ObservableObject {
     @Published private(set) var dashboard: DashboardStore
     @Published private(set) var attention: AttentionStore
     @Published private(set) var profileMetadata: ProfileMetadataStore
+    @Published private(set) var developerStatus = DeveloperStatusPayload()
+    @Published private(set) var developerEntries: [DeveloperEntryPayload] = []
     @Published var apiToken = ""
     @Published var daemonMessage = ""
 
@@ -137,6 +139,7 @@ final class AppleAppModel: ObservableObject {
         startPolling()
         Task {
             await dashboard.refreshDashboard()
+            await refreshDeveloperCaptureNow()
             syncProfileRecoveryIssue()
             enforceLicenseState()
         }
@@ -167,6 +170,7 @@ final class AppleAppModel: ObservableObject {
         }
         Task {
             await dashboard.refreshDashboard()
+            await refreshDeveloperCaptureNow()
             syncProfileRecoveryIssue()
         }
     }
@@ -180,6 +184,7 @@ final class AppleAppModel: ObservableObject {
 
     func refreshNow() async {
         await dashboard.refreshDashboard()
+        await refreshDeveloperCaptureNow()
         syncProfileRecoveryIssue()
     }
 
@@ -334,6 +339,56 @@ final class AppleAppModel: ObservableObject {
             connections: connections,
             logs: logs
         )
+    }
+
+    func refreshDeveloperCapture() {
+        Task {
+            await refreshDeveloperCaptureNow()
+        }
+    }
+
+    func refreshDeveloperCaptureNow() async {
+        guard let provider = dashboardAPI as? DeveloperCaptureProviding else {
+            developerStatus = DeveloperStatusPayload()
+            developerEntries = []
+            return
+        }
+        do {
+            developerStatus = try await provider.developerStatus()
+            developerEntries = try await provider.developerEntries().entries
+        } catch {
+            developerStatus = DeveloperStatusPayload()
+            developerEntries = []
+            daemonMessage = error.localizedDescription
+        }
+    }
+
+    func developerCAPEM() async throws -> String {
+        guard let provider = dashboardAPI as? DeveloperCaptureProviding else {
+            throw APIClientError.invalidURL("developer capture unavailable")
+        }
+        return try await provider.developerCAPEM()
+    }
+
+    func developerHAR() async throws -> String {
+        guard let provider = dashboardAPI as? DeveloperCaptureProviding else {
+            throw APIClientError.invalidURL("developer capture unavailable")
+        }
+        return try await provider.developerHAR()
+    }
+
+    func clearDeveloperEntries() {
+        Task {
+            guard let provider = dashboardAPI as? DeveloperCaptureProviding else {
+                return
+            }
+            do {
+                try await provider.clearDeveloperEntries()
+                await refreshDeveloperCaptureNow()
+            } catch {
+                daemonMessage = error.localizedDescription
+            }
+        }
     }
 
     #if os(iOS)
@@ -564,6 +619,8 @@ final class AppleAppModel: ObservableObject {
         dashboard = DashboardStore(api: dashboardAPI, snapshotStore: snapshotStore, logRetention: settings.logRetention)
         attention = AttentionStore.appGroupStore(groupIdentifier: settings.appGroupIdentifier)
         profileMetadata = ProfileMetadataStore.appGroupStore(groupIdentifier: settings.appGroupIdentifier)
+        developerStatus = DeveloperStatusPayload()
+        developerEntries = []
         bindDashboardStore()
         bindAttentionStore()
         bindProfileMetadataStore()

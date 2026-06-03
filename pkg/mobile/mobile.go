@@ -13,6 +13,7 @@ import (
 
 	"github.com/JohnThre/clambhook/internal/api"
 	"github.com/JohnThre/clambhook/internal/config"
+	"github.com/JohnThre/clambhook/internal/developer"
 	"github.com/JohnThre/clambhook/internal/engine"
 	"github.com/JohnThre/clambhook/internal/events"
 	"github.com/JohnThre/clambhook/internal/geo"
@@ -40,6 +41,7 @@ type runtime struct {
 	bus             *events.Bus
 	srv             *api.Server
 	trf             *traffic.Manager
+	dev             *developer.Manager
 	apiAddr         string
 	apiAddrExplicit bool
 }
@@ -81,9 +83,21 @@ func Start(configPath, apiAddr, apiToken string) error {
 		return fmt.Errorf("traffic: %w", err)
 	}
 	trafficMgr.Start(context.Background(), bus)
+	developerMgr, err := developer.NewManager(cfg.Developer)
+	if err != nil {
+		trafficMgr.Stop()
+		eng.Stop()
+		if closeErr := eng.CloseGeo(); closeErr != nil {
+			log.Printf("close geo after developer start failure: %v", closeErr)
+		}
+		bus.Close()
+		return fmt.Errorf("developer: %w", err)
+	}
+	eng.SetHTTPInspector(developerMgr)
 	srv := api.NewWithOptions(eng, bus, api.Options{
 		AuthToken:    strings.TrimSpace(apiToken),
 		TrafficStore: trafficMgr.Store(),
+		Developer:    developerMgr,
 		ConfigPath:   strings.TrimSpace(configPath),
 	})
 	if err := srv.Start(apiAddr); err != nil {
@@ -101,6 +115,7 @@ func Start(configPath, apiAddr, apiToken string) error {
 		bus:             bus,
 		srv:             srv,
 		trf:             trafficMgr,
+		dev:             developerMgr,
 		apiAddr:         apiAddr,
 		apiAddrExplicit: apiAddrExplicit,
 	}
@@ -162,6 +177,13 @@ func Reload(configPath string) error {
 	}
 	if err := active.trf.Reconfigure(cfg.Traffic); err != nil {
 		log.Printf("traffic reload: %v", err)
+	}
+	if active.dev != nil {
+		if err := active.dev.Reconfigure(cfg.Developer); err != nil {
+			log.Printf("developer reload: %v", err)
+		}
+		active.eng.SetHTTPInspector(active.dev)
+		active.srv.SetDeveloper(active.dev)
 	}
 	active.srv.SetTrafficStore(active.trf.Store())
 	return nil

@@ -114,6 +114,16 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                     try runtime.setActiveProfile(profile)
                 }
                 json = try mobileString { runtime.dashboardJSON($0) }
+            case .developerStatus:
+                json = #"{"enabled":false}"#
+            case .developerEntries:
+                json = #"{"entries":[]}"#
+            case .developerCA:
+                return encoded(DeveloperCAPayload())
+            case .developerHAR:
+                json = #"{"log":{"version":"1.2","entries":[]}}"#
+            case .clearDeveloperEntries:
+                json = #"{"cleared":true}"#
             }
             return Data(json.utf8)
         } catch {

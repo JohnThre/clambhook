@@ -58,9 +58,10 @@ import androidx.compose.ui.unit.dp
 import kotlin.math.max
 
 enum class DashboardDestination {
-    Now,
-    Activity,
-    Library
+    Inbox,
+    Today,
+    Anytime,
+    Logbook
 }
 
 @Composable
@@ -82,20 +83,108 @@ fun DashboardScreen(
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         when (destination) {
-            DashboardDestination.Now -> {
+            DashboardDestination.Inbox -> {
+                item { InboxCard(state, onOpenSettings) }
+                item { ListenersCard(state.status.listeners) }
+            }
+
+            DashboardDestination.Today -> {
                 item { StatusCard(state, onRefresh, onConnect, onDisconnect) }
                 item { NowActivityCard(state) }
             }
 
-            DashboardDestination.Activity -> {
-                item { TrafficCard(state, onCreateRule) }
-                item { LogsCard(state) }
+            DashboardDestination.Anytime -> {
+                item { ProfilesCard(state, onProfileSelected) }
+                item { ServersCard(state.servers, onOpenSettings) }
             }
 
-            DashboardDestination.Library -> {
-                item { ProfilesCard(state, onProfileSelected) }
-                item { ListenersCard(state.status.listeners) }
-                item { ServersCard(state.servers, onOpenSettings) }
+            DashboardDestination.Logbook -> {
+                item { TrafficCard(state, onCreateRule) }
+                item { DeveloperCaptureCard(state) }
+                item { LogsCard(state) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun InboxCard(state: DashboardState, onOpenSettings: () -> Unit) {
+    Card(shape = RoundedCornerShape(8.dp)) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text("Inbox", style = MaterialTheme.typography.titleMedium)
+            Text(
+                "Imports, QR scans, and unfinished setup are handled here. Android uses raw config until the import review flow is added.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            if (!state.apiOnline || state.activeProfile.isBlank()) {
+                Text(
+                    if (!state.apiOnline) "API offline" else "No active profile",
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            }
+            OutlinedButton(onClick = onOpenSettings) {
+                Icon(Icons.Rounded.Settings, contentDescription = null)
+                Text("Open Settings")
+            }
+        }
+    }
+}
+
+@Composable
+private fun DeveloperCaptureCard(state: DashboardState) {
+    Card(shape = RoundedCornerShape(8.dp)) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.Top
+            ) {
+                Column {
+                    Text("HTTP Capture", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        if (state.developerStatus.enabled) {
+                            "Opt-in body capture configured"
+                        } else {
+                            "Metadata by default; body capture disabled"
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                StatusPill("${state.developerEntries.size} bodies")
+            }
+            Text(
+                "HTTPS body capture requires explicit developer capture config and a trusted local CA. Without it, HTTPS entries remain CONNECT metadata only.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            state.developerEntries.take(3).forEach { entry ->
+                Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text(
+                            "${entry.method.ifBlank { "--" }} ${entry.host.ifBlank { entry.url }}",
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            if (entry.status > 0) entry.status.toString() else "open",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Text(
+                        "${formatBytes(entry.request.body.previewBytes)} request preview · ${formatBytes(entry.response.body.previewBytes)} response preview",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
             }
         }
     }

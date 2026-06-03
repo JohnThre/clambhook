@@ -33,7 +33,11 @@ final class IOSTunnelController: ObservableObject {
 
     private var manager: NETunnelProviderManager?
     private var statusObserver: NSObjectProtocol?
-    private let decoder = JSONDecoder()
+    private let decoder: JSONDecoder = {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return decoder
+    }()
     private let encoder = JSONEncoder()
 
     deinit {
@@ -110,6 +114,45 @@ final class IOSTunnelController: ObservableObject {
             return try decoder.decode(TunnelDashboardPayload.self, from: data)
         }
         return try disconnectedDashboard()
+    }
+
+    func developerStatus() async throws -> DeveloperStatusPayload {
+        guard canSendProviderMessage else {
+            return DeveloperStatusPayload()
+        }
+        let data = try await send(.init(action: .developerStatus))
+        return try decoder.decode(DeveloperStatusPayload.self, from: data)
+    }
+
+    func developerEntries() async throws -> DeveloperEntriesPayload {
+        guard canSendProviderMessage else {
+            return DeveloperEntriesPayload()
+        }
+        let data = try await send(.init(action: .developerEntries))
+        return try decoder.decode(DeveloperEntriesPayload.self, from: data)
+    }
+
+    func developerCAPEM() async throws -> String {
+        guard canSendProviderMessage else {
+            throw TunnelControllerError.tunnelNotRunning
+        }
+        let data = try await send(.init(action: .developerCA))
+        return try decoder.decode(DeveloperCAPayload.self, from: data).pem
+    }
+
+    func developerHAR() async throws -> String {
+        guard canSendProviderMessage else {
+            return #"{"log":{"version":"1.2","entries":[]}}"#
+        }
+        let data = try await send(.init(action: .developerHAR))
+        return String(data: data, encoding: .utf8) ?? #"{"log":{"version":"1.2","entries":[]}}"#
+    }
+
+    func clearDeveloperEntries() async throws {
+        guard canSendProviderMessage else {
+            return
+        }
+        _ = try await send(.init(action: .clearDeveloperEntries))
     }
 
     private var canSendProviderMessage: Bool {
@@ -287,7 +330,7 @@ final class IOSTunnelController: ObservableObject {
     }
 }
 
-final class TunnelDashboardClient: ClambhookDashboardProviding {
+final class TunnelDashboardClient: ClambhookDashboardProviding, DeveloperCaptureProviding {
     private let controller: IOSTunnelController
 
     init(controller: IOSTunnelController) {
@@ -341,6 +384,26 @@ final class TunnelDashboardClient: ClambhookDashboardProviding {
         try await controller.setActiveProfile(name)
     }
 
+    func developerStatus() async throws -> DeveloperStatusPayload {
+        try await controller.developerStatus()
+    }
+
+    func developerEntries() async throws -> DeveloperEntriesPayload {
+        try await controller.developerEntries()
+    }
+
+    func developerCAPEM() async throws -> String {
+        try await controller.developerCAPEM()
+    }
+
+    func developerHAR() async throws -> String {
+        try await controller.developerHAR()
+    }
+
+    func clearDeveloperEntries() async throws {
+        try await controller.clearDeveloperEntries()
+    }
+
     func reloadConfiguration() async throws {
         try await controller.reloadConfiguration()
     }
@@ -350,6 +413,7 @@ enum TunnelControllerError: Error, LocalizedError {
     case invalidSession
     case emptyProviderResponse
     case mobileValidationFailed
+    case tunnelNotRunning
 
     var errorDescription: String? {
         switch self {
@@ -359,6 +423,8 @@ enum TunnelControllerError: Error, LocalizedError {
             return "packet tunnel returned no response"
         case .mobileValidationFailed:
             return "tunnel validation failed"
+        case .tunnelNotRunning:
+            return "start the tunnel before exporting the capture CA"
         }
     }
 }

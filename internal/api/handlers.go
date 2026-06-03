@@ -27,6 +27,7 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/policy-groups/test", s.handlePolicyGroupTest)
 	mux.HandleFunc("GET /api/v1/rules", s.handleRules)
 	mux.HandleFunc("POST /api/v1/rules", s.handleCreateRule)
+	mux.HandleFunc("PUT /api/v1/rules", s.handleReplaceRules)
 	mux.HandleFunc("POST /api/v1/rules/test", s.handleTestRule)
 	mux.HandleFunc("GET /api/v1/rule-subscriptions", s.handleRuleSubscriptions)
 	mux.HandleFunc("POST /api/v1/rule-subscriptions/refresh", s.handleRefreshRuleSubscriptions)
@@ -48,6 +49,11 @@ type createRuleRequest struct {
 	Profile  string            `json:"profile"`
 	Rule     config.RuleConfig `json:"rule"`
 	Position string            `json:"position"`
+}
+
+type replaceRulesRequest struct {
+	Profile string              `json:"profile"`
+	Rules   []config.RuleConfig `json:"rules"`
 }
 
 type testRuleRequest struct {
@@ -339,46 +345,95 @@ func (s *Server) handleCreateRule(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "position must be append", http.StatusBadRequest)
 		return
 	}
+	resp, err := s.persistRules(req.Profile, func(existing []config.RuleConfig) []config.RuleConfig {
+		return append(existing, req.Rule)
+	})
+	if err != nil {
+		writeRulePersistenceError(w, err)
+		return
+	}
+	writeJSON(w, resp)
+}
 
+func (s *Server) handleReplaceRules(w http.ResponseWriter, r *http.Request) {
+	if strings.TrimSpace(s.configPath) == "" {
+		http.Error(w, "rule persistence requires daemon config path", http.StatusConflict)
+		return
+	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, maxJSONRequestBytes)
+	var req replaceRulesRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	resp, err := s.persistRules(req.Profile, func([]config.RuleConfig) []config.RuleConfig {
+		return append([]config.RuleConfig(nil), req.Rules...)
+	})
+	if err != nil {
+		writeRulePersistenceError(w, err)
+		return
+	}
+	writeJSON(w, resp)
+}
+
+type rulePersistenceResponse struct {
+	Profile    string              `json:"profile"`
+	Rules      []config.RuleConfig `json:"rules"`
+	BackupPath string              `json:"backup_path"`
+}
+
+type rulePersistenceError struct {
+	status int
+	err    error
+}
+
+func (e rulePersistenceError) Error() string { return e.err.Error() }
+
+func (s *Server) persistRules(profileName string, nextRules func([]config.RuleConfig) []config.RuleConfig) (rulePersistenceResponse, error) {
 	cfg, err := config.Load(s.configPath)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+		return rulePersistenceResponse{}, rulePersistenceError{status: http.StatusInternalServerError, err: err}
 	}
 
 	currentProfile := strings.TrimSpace(s.engine.Status().Profile)
 	if currentProfile != "" {
 		cfg.Active = currentProfile
 	}
-	profileName := strings.TrimSpace(req.Profile)
+	profileName = strings.TrimSpace(profileName)
 	if profileName == "" {
 		profileName = cfg.Active
 	}
 	profile, ok := cfg.ProfileByName(profileName)
 	if !ok {
-		http.Error(w, "profile not found", http.StatusNotFound)
-		return
+		return rulePersistenceResponse{}, rulePersistenceError{status: http.StatusNotFound, err: fmt.Errorf("profile not found")}
 	}
-	profile.Rules = append(profile.Rules, req.Rule)
+	profile.Rules = nextRules(profile.Rules)
 
 	if err := engine.ValidateConfig(cfg); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
+		return rulePersistenceResponse{}, rulePersistenceError{status: http.StatusBadRequest, err: err}
 	}
 	result, err := config.WriteAtomicWithBackup(s.configPath, cfg)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+		return rulePersistenceResponse{}, rulePersistenceError{status: http.StatusInternalServerError, err: err}
 	}
 	if err := s.engine.Reload(cfg); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return rulePersistenceResponse{}, rulePersistenceError{status: http.StatusInternalServerError, err: err}
+	}
+	return rulePersistenceResponse{
+		Profile:    profile.Name,
+		Rules:      profile.Rules,
+		BackupPath: result.BackupPath,
+	}, nil
+}
+
+func writeRulePersistenceError(w http.ResponseWriter, err error) {
+	var ruleErr rulePersistenceError
+	if errors.As(err, &ruleErr) {
+		http.Error(w, ruleErr.err.Error(), ruleErr.status)
 		return
 	}
-	writeJSON(w, map[string]any{
-		"profile":     profile.Name,
-		"rules":       profile.Rules,
-		"backup_path": result.BackupPath,
-	})
+	http.Error(w, err.Error(), http.StatusInternalServerError)
 }
 
 func (s *Server) handleDecisions(w http.ResponseWriter, r *http.Request) {
