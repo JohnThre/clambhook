@@ -36,6 +36,12 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/disconnect", s.handleDisconnect)
 	mux.HandleFunc("GET /api/v1/events", s.handleEvents)
 	mux.HandleFunc("GET /api/v1/traffic", s.handleTraffic)
+	mux.HandleFunc("GET /api/v1/developer/status", s.handleDeveloperStatus)
+	mux.HandleFunc("GET /api/v1/developer/ca.pem", s.handleDeveloperCA)
+	mux.HandleFunc("GET /api/v1/developer/entries", s.handleDeveloperEntries)
+	mux.HandleFunc("GET /api/v1/developer/entries/{id}", s.handleDeveloperEntry)
+	mux.HandleFunc("GET /api/v1/developer/har", s.handleDeveloperHAR)
+	mux.HandleFunc("DELETE /api/v1/developer/entries", s.handleDeveloperClear)
 }
 
 type createRuleRequest struct {
@@ -500,6 +506,83 @@ func (s *Server) handleTraffic(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, store.SnapshotWithOptions(opts))
+}
+
+func (s *Server) handleDeveloperStatus(w http.ResponseWriter, r *http.Request) {
+	dev := s.developerManager()
+	if dev == nil {
+		writeJSON(w, map[string]any{"enabled": false})
+		return
+	}
+	writeJSON(w, dev.Status())
+}
+
+func (s *Server) handleDeveloperCA(w http.ResponseWriter, r *http.Request) {
+	dev := s.developerManager()
+	if dev == nil {
+		http.Error(w, "developer mode disabled", http.StatusNotImplemented)
+		return
+	}
+	cert, ok := dev.CACertPEM()
+	if !ok {
+		http.Error(w, "developer MITM CA unavailable", http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Type", "application/x-pem-file")
+	w.Header().Set("Content-Disposition", `attachment; filename="clambhook-developer-ca.pem"`)
+	_, _ = w.Write(cert)
+}
+
+func (s *Server) handleDeveloperEntries(w http.ResponseWriter, r *http.Request) {
+	limit := 200
+	if raw := r.URL.Query().Get("limit"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 0 {
+			http.Error(w, "invalid limit", http.StatusBadRequest)
+			return
+		}
+		limit = n
+	}
+	dev := s.developerManager()
+	if dev == nil {
+		writeJSON(w, map[string]any{"entries": []any{}})
+		return
+	}
+	writeJSON(w, map[string]any{
+		"entries": dev.List(limit),
+	})
+}
+
+func (s *Server) handleDeveloperEntry(w http.ResponseWriter, r *http.Request) {
+	dev := s.developerManager()
+	if dev == nil {
+		http.Error(w, "developer mode disabled", http.StatusNotImplemented)
+		return
+	}
+	entry, ok := dev.Get(r.PathValue("id"))
+	if !ok {
+		http.Error(w, "developer entry not found", http.StatusNotFound)
+		return
+	}
+	writeJSON(w, entry)
+}
+
+func (s *Server) handleDeveloperHAR(w http.ResponseWriter, r *http.Request) {
+	dev := s.developerManager()
+	if dev == nil {
+		writeJSON(w, map[string]any{"log": map[string]any{"version": "1.2", "entries": []any{}}})
+		return
+	}
+	w.Header().Set("Content-Disposition", `attachment; filename="clambhook.har"`)
+	writeJSON(w, dev.HAR())
+}
+
+func (s *Server) handleDeveloperClear(w http.ResponseWriter, r *http.Request) {
+	dev := s.developerManager()
+	if dev != nil {
+		dev.Clear()
+	}
+	writeJSON(w, map[string]any{"cleared": true})
 }
 
 func writeJSON(w http.ResponseWriter, v any) {

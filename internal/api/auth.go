@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/JohnThre/clambhook/internal/developer"
 	"github.com/JohnThre/clambhook/internal/traffic"
 )
 
@@ -19,6 +20,9 @@ type Options struct {
 
 	// TrafficStore enables the /api/v1/traffic snapshot endpoint when non-nil.
 	TrafficStore *traffic.Store
+
+	// Developer enables opt-in developer-mode inspector endpoints.
+	Developer *developer.Manager
 
 	// ConfigPath enables API routes that persist changes to the daemon config.
 	ConfigPath string

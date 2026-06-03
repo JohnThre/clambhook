@@ -11,11 +11,12 @@ import (
 
 // Config is the top-level configuration.
 type Config struct {
-	Path     string        `toml:"-" json:"-"`
-	Active   string        `toml:"active"`
-	Profiles []Profile     `toml:"profile"`
-	Geo      GeoConfig     `toml:"geo"`
-	Traffic  TrafficConfig `toml:"traffic"`
+	Path      string          `toml:"-" json:"-"`
+	Active    string          `toml:"active"`
+	Profiles  []Profile       `toml:"profile"`
+	Geo       GeoConfig       `toml:"geo"`
+	Traffic   TrafficConfig   `toml:"traffic"`
+	Developer DeveloperConfig `toml:"developer"`
 }
 
 // GeoConfig points at an MMDB file for IP → country/city lookups. Geo is a
@@ -45,6 +46,38 @@ func DefaultTrafficConfig() TrafficConfig {
 		Enabled:       true,
 		HistoryLimit:  500,
 		HistoryMaxAge: Duration(168 * time.Hour),
+	}
+}
+
+// DeveloperConfig controls the opt-in HTTP(S) debugging inspector. It is
+// separate from TrafficConfig because it can retain headers and bounded body
+// previews, whereas normal traffic history is metadata-only.
+type DeveloperConfig struct {
+	Enabled               bool     `toml:"enabled" json:"enabled"`
+	MITMEnabled           bool     `toml:"mitm_enabled" json:"mitm_enabled"`
+	CaptureLimit          int      `toml:"capture_limit" json:"capture_limit"`
+	BodyLimitBytes        int64    `toml:"body_limit_bytes" json:"body_limit_bytes"`
+	HeaderValueLimitBytes int      `toml:"header_value_limit_bytes" json:"header_value_limit_bytes"`
+	RedactHeaders         []string `toml:"redact_headers" json:"redact_headers"`
+	CACertPath            string   `toml:"ca_cert_path" json:"ca_cert_path,omitempty"`
+	CAKeyPath             string   `toml:"ca_key_path" json:"ca_key_path,omitempty"`
+}
+
+// DefaultDeveloperConfig keeps developer mode disabled while defining bounded
+// capture defaults for users who explicitly enable it.
+func DefaultDeveloperConfig() DeveloperConfig {
+	return DeveloperConfig{
+		Enabled:               false,
+		MITMEnabled:           true,
+		CaptureLimit:          200,
+		BodyLimitBytes:        64 << 10,
+		HeaderValueLimitBytes: 8 << 10,
+		RedactHeaders: []string{
+			"authorization",
+			"proxy-authorization",
+			"cookie",
+			"set-cookie",
+		},
 	}
 }
 
@@ -205,7 +238,10 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("read config: %w", err)
 	}
 
-	cfg := Config{Traffic: DefaultTrafficConfig()}
+	cfg := Config{
+		Traffic:   DefaultTrafficConfig(),
+		Developer: DefaultDeveloperConfig(),
+	}
 	if err := toml.Unmarshal(data, &cfg); err != nil {
 		return nil, fmt.Errorf("parse config: %w", err)
 	}
@@ -221,6 +257,12 @@ func Load(path string) (*Config, error) {
 	}
 	if cfg.Traffic.HistoryPath != "" && !filepath.IsAbs(cfg.Traffic.HistoryPath) {
 		cfg.Traffic.HistoryPath = filepath.Join(filepath.Dir(path), cfg.Traffic.HistoryPath)
+	}
+	if cfg.Developer.CACertPath != "" && !filepath.IsAbs(cfg.Developer.CACertPath) {
+		cfg.Developer.CACertPath = filepath.Join(filepath.Dir(path), cfg.Developer.CACertPath)
+	}
+	if cfg.Developer.CAKeyPath != "" && !filepath.IsAbs(cfg.Developer.CAKeyPath) {
+		cfg.Developer.CAKeyPath = filepath.Join(filepath.Dir(path), cfg.Developer.CAKeyPath)
 	}
 
 	return &cfg, nil

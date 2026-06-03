@@ -6,6 +6,14 @@
 
 active = "local"
 
+[developer]
+enabled = false
+mitm_enabled = true
+capture_limit = 200
+body_limit_bytes = 65536
+header_value_limit_bytes = 8192
+redact_headers = ["authorization", "proxy-authorization", "cookie", "set-cookie"]
+
 [[profile]]
 name = "local"
 

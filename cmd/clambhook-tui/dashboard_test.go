@@ -405,6 +405,35 @@ func TestTrafficMonitorRendersBackendAnalytics(t *testing.T) {
 	}
 }
 
+func TestDeveloperViewRendersStatusAndCaptures(t *testing.T) {
+	m := newModel("127.0.0.1:9090")
+	m.viewMode = viewModeDeveloper
+	m.dev = developerStatusPayload{
+		Enabled:             true,
+		MITMEnabled:         true,
+		CaptureLimit:        200,
+		BodyLimitBytes:      65536,
+		CACertPath:          "/tmp/clambhook-ca.pem",
+		CAFingerprintSHA256: "ABCDEF",
+		CaptureCount:        1,
+	}
+	m.devRows = []developerEntryPayload{{
+		Method:  "GET",
+		URL:     "https://example.com/api",
+		Scheme:  "https",
+		Status:  200,
+		Profile: "Work",
+		Request: developerMessagePayload{Body: developerBodyPayload{Size: 10, PreviewBytes: 10}},
+	}}
+
+	view := m.View()
+	for _, want := range []string{"Developer", "MITM on", "clambhook-ca.pem", "GET", "https://example.com/api", "Request Detail"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("developer view missing %q:\n%s", want, view)
+		}
+	}
+}
+
 func TestProfileListRendersEmojiNamesAndActiveMarker(t *testing.T) {
 	m := newModel("127.0.0.1:9090")
 	m.viewMode = viewModeLibrary

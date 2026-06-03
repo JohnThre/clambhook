@@ -52,6 +52,7 @@ const (
 	viewModeActivity
 	viewModeLibrary
 	viewModeSettings
+	viewModeDeveloper
 )
 
 type model struct {
@@ -62,20 +63,23 @@ type model struct {
 	profiles profilesPayload
 	servers  serversPayload
 	traffic  trafficSnapshotPayload
+	dev      developerStatusPayload
+	devRows  []developerEntryPayload
 
-	selectedProfile int
-	viewMode        viewMode
-	trafficFilter   string
-	searchText      string
-	searchEditing   bool
-	ruleTestInput   string
-	ruleTestEditing bool
-	ruleTestResult  *ruleTestResponse
-	ruleTestErr     string
-	selectedTraffic int
-	pendingRule     *rulePayload
-	width           int
-	height          int
+	selectedProfile   int
+	viewMode          viewMode
+	trafficFilter     string
+	searchText        string
+	searchEditing     bool
+	ruleTestInput     string
+	ruleTestEditing   bool
+	ruleTestResult    *ruleTestResponse
+	ruleTestErr       string
+	selectedTraffic   int
+	selectedDeveloper int
+	pendingRule       *rulePayload
+	width             int
+	height            int
 
 	bandwidth bandwidthSeries
 	logs      []string
@@ -99,17 +103,30 @@ type bandwidthSeries struct {
 }
 
 type dashboardLoadedMsg struct {
-	Status   statusPayload
-	Profiles profilesPayload
-	Servers  serversPayload
-	Traffic  trafficSnapshotPayload
-	Err      error
+	Status    statusPayload
+	Profiles  profilesPayload
+	Servers   serversPayload
+	Traffic   trafficSnapshotPayload
+	Developer developerStatusPayload
+	DevRows   []developerEntryPayload
+	Err       error
 }
 
 type statusLoadedMsg struct {
 	Status  statusPayload
 	Traffic trafficSnapshotPayload
 	Err     error
+}
+
+type developerLoadedMsg struct {
+	Status  developerStatusPayload
+	Entries []developerEntryPayload
+	Err     error
+}
+
+type developerExportedMsg struct {
+	Path string
+	Err  error
 }
 
 type actionDoneMsg struct {
@@ -179,6 +196,26 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case "4", "s":
 			m.viewMode = viewModeSettings
+			return m, nil
+		case "5", "v":
+			m.viewMode = viewModeDeveloper
+			return m, m.loadDeveloperCmd()
+		}
+		if m.viewMode == viewModeDeveloper {
+			switch msg.String() {
+			case "r":
+				return m, m.loadDeveloperCmd()
+			case "up", "k":
+				m.moveDeveloperSelection(-1)
+				return m, nil
+			case "down", "j":
+				m.moveDeveloperSelection(1)
+				return m, nil
+			case "e":
+				return m, m.exportDeveloperHARCmd()
+			case "c":
+				return m, m.actionCmd(m.client.clearDeveloperEntries)
+			}
 			return m, nil
 		}
 		if m.viewMode == viewModeActivity {
@@ -357,8 +394,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.profiles = msg.Profiles
 		m.servers = msg.Servers
 		m.traffic = msg.Traffic
+		m.dev = msg.Developer
+		m.devRows = msg.DevRows
 		m.syncSelectedProfile()
 		m.clampTrafficSelection()
+		m.clampDeveloperSelection()
 		return m, nil
 	case statusLoadedMsg:
 		if msg.Err != nil {
@@ -372,6 +412,25 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.traffic = msg.Traffic
 		m.syncSelectedProfile()
 		m.clampTrafficSelection()
+		return m, nil
+	case developerLoadedMsg:
+		if msg.Err != nil {
+			m.apiOnline = false
+			m.errText = msg.Err.Error()
+			return m, nil
+		}
+		m.apiOnline = true
+		m.errText = ""
+		m.dev = msg.Status
+		m.devRows = msg.Entries
+		m.clampDeveloperSelection()
+		return m, nil
+	case developerExportedMsg:
+		if msg.Err != nil {
+			m.errText = msg.Err.Error()
+			return m, nil
+		}
+		m.errText = "exported HAR to " + msg.Path
 		return m, nil
 	case actionDoneMsg:
 		if msg.Err != nil {
@@ -418,6 +477,8 @@ func (m model) View() string {
 		return m.libraryView()
 	case viewModeSettings:
 		return m.settingsView()
+	case viewModeDeveloper:
+		return m.developerView()
 	}
 
 	width := m.contentWidth()
@@ -432,8 +493,8 @@ func (m model) View() string {
 		m.renderBandwidthSection(width),
 		m.renderTrafficPreviewSection(width),
 		m.renderFooter(
-			"Keys: c connect  d disconnect  r refresh  2 activity  3 library  4 settings  q quit",
-			"Keys: c/d  r refresh  2 activity  3 library  4 settings  q",
+			"Keys: c connect  d disconnect  r refresh  2 activity  3 library  4 settings  5 developer  q quit",
+			"Keys: c/d  r  2 activity  3 library  4 settings  5 dev  q",
 		),
 	)
 	return joinSections(sections)
@@ -449,8 +510,8 @@ func (m model) activityView() string {
 		m.renderTrafficDetailSection(width),
 		m.renderLogsSection(width),
 		m.renderFooter(
-			"Keys: a all  b block  d direct  p proxy  / search  x test route  up/down select  n new rule  r refresh  1 now  3 library  4 settings  q quit",
-			"Keys: a/b/d/p  / search  x test  up/down  n rule  r refresh  1 now  3 lib  q",
+			"Keys: a all  b block  d direct  p proxy  / search  x test route  up/down select  n new rule  r refresh  1 now  3 library  5 developer  q quit",
+			"Keys: a/b/d/p  / search  x test  up/down  n rule  r  1 now  3 lib  5 dev  q",
 		),
 	)
 	return joinSections(sections)
@@ -481,8 +542,8 @@ func (m model) libraryView() string {
 		m.renderProfileListenerSections(width),
 		m.renderServersSection(width),
 		m.renderFooter(
-			"Keys: [ prev profile  ] next profile  enter switch  r refresh  1 now  2 activity  4 settings  q quit",
-			"Keys: [/] profile  enter  r refresh  1 now  2 activity  q",
+			"Keys: [ prev profile  ] next profile  enter switch  r refresh  1 now  2 activity  5 developer  q quit",
+			"Keys: [/] profile  enter  r  1 now  2 activity  5 dev  q",
 		),
 	)
 	return joinSections(sections)
@@ -507,11 +568,155 @@ func (m model) settingsView() string {
 	sections = append(sections,
 		renderSection("Settings", lines),
 		m.renderFooter(
-			"Keys: r refresh  1 now  2 activity  3 library  q quit",
-			"Keys: r refresh  1 now  2 activity  3 library  q",
+			"Keys: r refresh  1 now  2 activity  3 library  5 developer  q quit",
+			"Keys: r  1 now  2 activity  3 library  5 dev  q",
 		),
 	)
 	return joinSections(sections)
+}
+
+func (m model) developerView() string {
+	width := m.contentWidth()
+	sections := []string{m.renderHeader("Developer")}
+	if m.errText != "" {
+		sections = append(sections, m.renderError(width))
+	}
+	sections = append(sections,
+		renderSection("Developer Mode", m.developerStatusLines(width)),
+		renderSection("HTTP Inspector", m.developerEntryLines(width)),
+		m.renderFooter(
+			"Keys: up/down select  e export HAR  c clear  r refresh  1 now  2 activity  3 library  4 settings  q quit",
+			"Keys: up/down  e export  c clear  r  1 now  2 activity  q",
+		),
+	)
+	return joinSections(sections)
+}
+
+func (m model) developerStatusLines(width int) []string {
+	state := "disabled"
+	if m.dev.Enabled {
+		state = "enabled"
+	}
+	mitm := "off"
+	if m.dev.MITMEnabled {
+		mitm = "on"
+	}
+	lines := []string{
+		truncate(fmt.Sprintf("  State %s  MITM %s  Captures %d/%d  Body cap %s",
+			state, mitm, m.dev.CaptureCount, m.dev.CaptureLimit, formatBytes(uint64(maxInt64(0, m.dev.BodyLimitBytes)))), width),
+	}
+	if m.dev.CACertPath != "" {
+		lines = append(lines, truncate("  CA "+m.dev.CACertPath, width))
+	}
+	if m.dev.CAFingerprintSHA256 != "" {
+		lines = append(lines, subtleStyle.Render(truncate("  SHA256 "+m.dev.CAFingerprintSHA256, width)))
+	}
+	if !m.dev.Enabled {
+		lines = append(lines, subtleStyle.Render(truncate("  Enable [developer] in TOML to capture HTTP(S) transactions.", width)))
+	}
+	return lines
+}
+
+func (m model) developerEntryLines(width int) []string {
+	if len(m.devRows) == 0 {
+		return emptyStateLines("No captured requests", "HTTP proxy requests appear here when developer mode is enabled.", width)
+	}
+	lines := make([]string, 0)
+	limit := m.developerVisibleRows()
+	for i, entry := range firstDeveloperRows(m.devRows, limit) {
+		prefix := " "
+		if i == m.selectedDeveloper {
+			prefix = "›"
+		}
+		status := "--"
+		if entry.Status > 0 {
+			status = strconv.Itoa(entry.Status)
+		}
+		lines = append(lines, truncate(fmt.Sprintf("%s %-6s %-3s %-7s %s",
+			prefix,
+			entry.Method,
+			status,
+			entry.Scheme,
+			entry.URL,
+		), width))
+	}
+	if len(m.devRows) > limit {
+		lines = append(lines, subtleStyle.Render(fmt.Sprintf("  +%d more rows hidden by terminal height", len(m.devRows)-limit)))
+	}
+	if entry, ok := m.selectedDeveloperEntry(); ok {
+		lines = append(lines, "")
+		lines = append(lines, tableHeaderStyle.Render(truncate("  Request Detail", width)))
+		lines = append(lines, truncate(fmt.Sprintf("  %s %s  Status %s  Profile %s  Chain %s", entry.Method, entry.URL, statusText(entry.Status), emptyDash(entry.Profile), emptyDash(entry.ChainName)), width))
+		lines = append(lines, truncate(fmt.Sprintf("  Request body %s preview %s%s", formatBytes(uint64(maxInt64(0, entry.Request.Body.Size))), formatBytes(uint64(maxInt64(0, entry.Request.Body.PreviewBytes))), truncSuffix(entry.Request.Body.Truncated)), width))
+		lines = append(lines, truncate(fmt.Sprintf("  Response body %s preview %s%s", formatBytes(uint64(maxInt64(0, entry.Response.Body.Size))), formatBytes(uint64(maxInt64(0, entry.Response.Body.PreviewBytes))), truncSuffix(entry.Response.Body.Truncated)), width))
+		if entry.Error != "" {
+			lines = append(lines, errorStyle.Render(truncate("  Error "+entry.Error, width)))
+		}
+	}
+	return lines
+}
+
+func (m model) selectedDeveloperEntry() (developerEntryPayload, bool) {
+	if len(m.devRows) == 0 {
+		return developerEntryPayload{}, false
+	}
+	idx := m.selectedDeveloper
+	if idx < 0 {
+		idx = 0
+	}
+	if idx >= len(m.devRows) {
+		idx = len(m.devRows) - 1
+	}
+	return m.devRows[idx], true
+}
+
+func (m *model) moveDeveloperSelection(delta int) {
+	if len(m.devRows) == 0 {
+		m.selectedDeveloper = 0
+		return
+	}
+	m.selectedDeveloper = (m.selectedDeveloper + delta + len(m.devRows)) % len(m.devRows)
+}
+
+func (m *model) clampDeveloperSelection() {
+	if len(m.devRows) == 0 {
+		m.selectedDeveloper = 0
+		return
+	}
+	if m.selectedDeveloper < 0 {
+		m.selectedDeveloper = 0
+	}
+	if m.selectedDeveloper >= len(m.devRows) {
+		m.selectedDeveloper = len(m.devRows) - 1
+	}
+}
+
+func firstDeveloperRows(rows []developerEntryPayload, limit int) []developerEntryPayload {
+	if limit > 0 && len(rows) > limit {
+		return rows[:limit]
+	}
+	return rows
+}
+
+func (m model) developerVisibleRows() int {
+	if m.height <= 0 {
+		return 10
+	}
+	return clampInt(m.height-16, 3, 16)
+}
+
+func statusText(status int) string {
+	if status <= 0 {
+		return "--"
+	}
+	return strconv.Itoa(status)
+}
+
+func truncSuffix(truncated bool) string {
+	if truncated {
+		return " truncated"
+	}
+	return ""
 }
 
 func (m model) renderHeader(title string) string {
@@ -1262,7 +1467,11 @@ func (m model) loadDashboardCmd() tea.Cmd {
 		if err != nil {
 			return dashboardLoadedMsg{Err: err}
 		}
-		return dashboardLoadedMsg{Status: status, Profiles: profiles, Servers: servers, Traffic: traffic}
+		dev, devRows, err := client.developer()
+		if err != nil {
+			return dashboardLoadedMsg{Err: err}
+		}
+		return dashboardLoadedMsg{Status: status, Profiles: profiles, Servers: servers, Traffic: traffic, Developer: dev, DevRows: devRows}
 	}
 }
 
@@ -1289,6 +1498,23 @@ func (m model) ruleTestCmd(network, target string) tea.Cmd {
 	return func() tea.Msg {
 		result, err := client.testRule(network, target)
 		return ruleTestDoneMsg{Result: result, Err: err}
+	}
+}
+
+func (m model) loadDeveloperCmd() tea.Cmd {
+	client := m.client
+	return func() tea.Msg {
+		status, entries, err := client.developer()
+		return developerLoadedMsg{Status: status, Entries: entries, Err: err}
+	}
+}
+
+func (m model) exportDeveloperHARCmd() tea.Cmd {
+	client := m.client
+	path := fmt.Sprintf("clambhook-%s.har", time.Now().Format("20060102-150405"))
+	return func() tea.Msg {
+		err := client.exportDeveloperHAR(path)
+		return developerExportedMsg{Path: path, Err: err}
 	}
 }
 
@@ -1979,6 +2205,13 @@ func maxInt(a, b int) int {
 
 func minInt(a, b int) int {
 	if a < b {
+		return a
+	}
+	return b
+}
+
+func maxInt64(a, b int64) int64 {
+	if a > b {
 		return a
 	}
 	return b

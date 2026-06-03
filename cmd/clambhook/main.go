@@ -16,6 +16,7 @@ import (
 
 	"github.com/JohnThre/clambhook/internal/api"
 	"github.com/JohnThre/clambhook/internal/config"
+	"github.com/JohnThre/clambhook/internal/developer"
 	"github.com/JohnThre/clambhook/internal/engine"
 	"github.com/JohnThre/clambhook/internal/events"
 	"github.com/JohnThre/clambhook/internal/geo"
@@ -84,6 +85,11 @@ func main() {
 	bus := events.NewBus(events.DefaultConfig())
 	log.SetOutput(io.MultiWriter(os.Stderr, logstream.NewWriter(bus)))
 	eng := engine.New(cfg, bus)
+	developerMgr, err := developer.NewManager(cfg.Developer)
+	if err != nil {
+		log.Fatalf("developer: %v", err)
+	}
+	eng.SetHTTPInspector(developerMgr)
 	trafficMgr, err := traffic.NewManager(cfg.Traffic, func(address string) (*geo.Location, error) {
 		return eng.GeoReader().Lookup(address)
 	})
@@ -105,6 +111,7 @@ func main() {
 	srv := api.NewWithOptions(eng, bus, api.Options{
 		AuthToken:    *apiToken,
 		TrafficStore: trafficMgr.Store(),
+		Developer:    developerMgr,
 		ConfigPath:   *configPath,
 	})
 	if err := srv.Start(resolvedAPIAddr); err != nil {
@@ -132,7 +139,12 @@ func main() {
 			if err := trafficMgr.Reconfigure(next.Traffic); err != nil {
 				log.Printf("traffic reload: %v", err)
 			}
+			if err := developerMgr.Reconfigure(next.Developer); err != nil {
+				log.Printf("developer reload: %v", err)
+			}
+			eng.SetHTTPInspector(developerMgr)
 			srv.SetTrafficStore(trafficMgr.Store())
+			srv.SetDeveloper(developerMgr)
 			return nil
 		}, bus)
 		if err != nil {

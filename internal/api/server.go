@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/JohnThre/clambhook/internal/developer"
 	"github.com/JohnThre/clambhook/internal/engine"
 	"github.com/JohnThre/clambhook/internal/events"
 	"github.com/JohnThre/clambhook/internal/traffic"
@@ -20,6 +21,7 @@ type Server struct {
 	engine     *engine.Engine
 	bus        *events.Bus
 	traffic    *traffic.Store
+	developer  *developer.Manager
 	authToken  string
 	configPath string
 	server     *http.Server
@@ -39,6 +41,7 @@ func NewWithOptions(eng *engine.Engine, bus *events.Bus, opts Options) *Server {
 		engine:     eng,
 		bus:        bus,
 		traffic:    opts.TrafficStore,
+		developer:  opts.Developer,
 		authToken:  strings.TrimSpace(opts.AuthToken),
 		configPath: strings.TrimSpace(opts.ConfigPath),
 	}
@@ -90,6 +93,19 @@ func (s *Server) trafficStore() *traffic.Store {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.traffic
+}
+
+// SetDeveloper swaps the manager backing /api/v1/developer/*.
+func (s *Server) SetDeveloper(dev *developer.Manager) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.developer = dev
+}
+
+func (s *Server) developerManager() *developer.Manager {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.developer
 }
 
 // Shutdown gracefully shuts down the API server.
