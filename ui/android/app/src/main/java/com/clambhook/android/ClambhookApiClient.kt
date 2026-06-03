@@ -23,6 +23,11 @@ interface ClambhookApi {
     suspend fun disconnect()
     suspend fun setActiveProfile(name: String)
     suspend fun createRule(rule: RulePayload): RulesPayload
+    suspend fun replaceRules(profile: String, rules: List<RulePayload>): RulesPayload
+    suspend fun developerStatus(): DeveloperStatusPayload
+    suspend fun developerEntries(): DeveloperEntriesPayload
+    suspend fun developerHar(): String
+    suspend fun clearDeveloperEntries()
 }
 
 class ApiHttpException(
@@ -69,6 +74,24 @@ class ClambhookApiClient(
         ApiJson.decodeFromString(
             send("POST", "/api/v1/rules", ApiJson.encodeToString(CreateRuleRequest(rule)))
         )
+
+    override suspend fun replaceRules(profile: String, rules: List<RulePayload>): RulesPayload =
+        ApiJson.decodeFromString(
+            send("PUT", "/api/v1/rules", ApiJson.encodeToString(ReplaceRulesRequest(profile, rules)))
+        )
+
+    override suspend fun developerStatus(): DeveloperStatusPayload =
+        ApiJson.decodeFromString(send("GET", "/api/v1/developer/status"))
+
+    override suspend fun developerEntries(): DeveloperEntriesPayload =
+        ApiJson.decodeFromString(send("GET", "/api/v1/developer/entries"))
+
+    override suspend fun developerHar(): String =
+        send("GET", "/api/v1/developer/har")
+
+    override suspend fun clearDeveloperEntries() {
+        send("DELETE", "/api/v1/developer/entries")
+    }
 
     fun eventsUrl(): String {
         val scheme = when {
@@ -119,6 +142,7 @@ class ClambhookApiClient(
                 "GET" -> builder.get()
                 "POST" -> builder.post(requestBody ?: ByteArray(0).toRequestBody(null))
                 "PUT" -> builder.put(requireNotNull(requestBody))
+                "DELETE" -> builder.delete(requestBody)
                 else -> error("unsupported method: $method")
             }
             okHttpClient.newCall(builder.build()).execute().use { response ->

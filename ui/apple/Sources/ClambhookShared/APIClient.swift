@@ -12,6 +12,18 @@ public protocol ClambhookAPIProviding: AnyObject {
     func setActiveProfile(_ name: String) async throws
 }
 
+public protocol ClambhookRuleEditing: AnyObject {
+    func replaceRules(_ rules: [RulePayload], profile: String) async throws -> RulesPayload
+}
+
+public protocol DeveloperCaptureProviding: AnyObject {
+    func developerStatus() async throws -> DeveloperStatusPayload
+    func developerEntries() async throws -> DeveloperEntriesPayload
+    func developerCAPEM() async throws -> String
+    func developerHAR() async throws -> String
+    func clearDeveloperEntries() async throws
+}
+
 public protocol ClambhookDashboardProviding: ClambhookAPIProviding {
     func dashboard() async throws -> TunnelDashboardPayload
 }
@@ -36,7 +48,7 @@ public enum APIClientError: Error, LocalizedError, Equatable {
     }
 }
 
-public final class ClambhookAPIClient: ClambhookAPIProviding {
+public final class ClambhookAPIClient: ClambhookAPIProviding, ClambhookRuleEditing, DeveloperCaptureProviding {
     private let baseURL: URL
     private let tokenProvider: () -> String?
     private let session: URLSession
@@ -51,6 +63,7 @@ public final class ClambhookAPIClient: ClambhookAPIProviding {
         self.baseURL = URL(string: baseURL.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/"))) ?? baseURL
         self.tokenProvider = tokenProvider
         self.session = session
+        self.decoder.dateDecodingStrategy = .iso8601
     }
 
     public func status() async throws -> StatusPayload {
@@ -81,6 +94,38 @@ public final class ClambhookAPIClient: ClambhookAPIProviding {
         let body = try encoder.encode(CreateRuleRequest(rule: rule, position: "append"))
         let data = try await send(method: "POST", path: "/api/v1/rules", body: body)
         return try decoder.decode(RulesPayload.self, from: data)
+    }
+
+    public func replaceRules(_ rules: [RulePayload], profile: String = "") async throws -> RulesPayload {
+        struct ReplaceRulesRequest: Encodable {
+            var profile: String
+            var rules: [RulePayload]
+        }
+        let body = try encoder.encode(ReplaceRulesRequest(profile: profile, rules: rules))
+        let data = try await send(method: "PUT", path: "/api/v1/rules", body: body)
+        return try decoder.decode(RulesPayload.self, from: data)
+    }
+
+    public func developerStatus() async throws -> DeveloperStatusPayload {
+        try await getJSON("/api/v1/developer/status")
+    }
+
+    public func developerEntries() async throws -> DeveloperEntriesPayload {
+        try await getJSON("/api/v1/developer/entries?limit=200")
+    }
+
+    public func developerCAPEM() async throws -> String {
+        let data = try await send(method: "GET", path: "/api/v1/developer/ca.pem")
+        return String(data: data, encoding: .utf8) ?? ""
+    }
+
+    public func developerHAR() async throws -> String {
+        let data = try await send(method: "GET", path: "/api/v1/developer/har")
+        return String(data: data, encoding: .utf8) ?? "{}"
+    }
+
+    public func clearDeveloperEntries() async throws {
+        _ = try await send(method: "DELETE", path: "/api/v1/developer/entries")
     }
 
     public func testRule(network: String, target: String, profile: String = "") async throws -> RuleTestResponse {
@@ -162,6 +207,9 @@ public final class ClambhookAPIClient: ClambhookAPIProviding {
         if let body {
             request.httpBody = body
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        }
+        if method == "DELETE" {
+            request.httpBody = body
         }
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else {

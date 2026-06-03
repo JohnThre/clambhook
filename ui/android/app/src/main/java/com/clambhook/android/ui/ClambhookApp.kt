@@ -10,10 +10,11 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Dashboard
-import androidx.compose.material.icons.rounded.Dns
+import androidx.compose.material.icons.rounded.History
+import androidx.compose.material.icons.rounded.Inbox
 import androidx.compose.material.icons.rounded.Settings
-import androidx.compose.material.icons.rounded.Timeline
+import androidx.compose.material.icons.rounded.Today
+import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -45,9 +46,10 @@ import com.clambhook.android.DashboardViewModel
 import kotlinx.coroutines.launch
 
 private enum class AppTab {
-    Now,
-    Activity,
-    Library,
+    Inbox,
+    Today,
+    Anytime,
+    Logbook,
     Settings
 }
 
@@ -70,7 +72,7 @@ fun ClambhookApp(
     } else {
         if (isSystemInDarkTheme()) androidx.compose.material3.darkColorScheme() else androidx.compose.material3.lightColorScheme()
     }
-    var selectedTab by rememberSaveable { mutableStateOf(AppTab.Now) }
+    var selectedTab by rememberSaveable { mutableStateOf(AppTab.Today) }
     val state by viewModel.state.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     val snackbarScope = rememberCoroutineScope()
@@ -137,29 +139,41 @@ fun ClambhookApp(
                 bottomBar = {
                     NavigationBar {
                         NavigationBarItem(
-                            selected = selectedTab == AppTab.Now,
-                            onClick = { selectedTab = AppTab.Now },
-                            icon = { Icon(Icons.Rounded.Dashboard, contentDescription = "Now") },
-                            label = { Text("Now") }
+                            selected = selectedTab == AppTab.Inbox,
+                            onClick = { selectedTab = AppTab.Inbox },
+                            icon = { Icon(Icons.Rounded.Inbox, contentDescription = "Inbox") },
+                            label = { Text("Inbox") }
                         )
                         NavigationBarItem(
-                            selected = selectedTab == AppTab.Activity,
-                            onClick = { selectedTab = AppTab.Activity },
-                            icon = { Icon(Icons.Rounded.Timeline, contentDescription = "Activity") },
-                            label = { Text("Activity") }
+                            selected = selectedTab == AppTab.Today,
+                            onClick = { selectedTab = AppTab.Today },
+                            icon = { Icon(Icons.Rounded.Today, contentDescription = "Today") },
+                            label = { Text("Today") }
                         )
                         NavigationBarItem(
-                            selected = selectedTab == AppTab.Library,
-                            onClick = { selectedTab = AppTab.Library },
-                            icon = { Icon(Icons.Rounded.Dns, contentDescription = "Library") },
-                            label = { Text("Library") }
+                            selected = selectedTab == AppTab.Anytime,
+                            onClick = { selectedTab = AppTab.Anytime },
+                            icon = { Icon(Icons.Rounded.Tune, contentDescription = "Anytime") },
+                            label = { Text("Anytime") }
+                        )
+                        NavigationBarItem(
+                            selected = selectedTab == AppTab.Logbook,
+                            onClick = { selectedTab = AppTab.Logbook },
+                            icon = { Icon(Icons.Rounded.History, contentDescription = "Logbook") },
+                            label = { Text("Logbook") }
+                        )
+                        NavigationBarItem(
+                            selected = selectedTab == AppTab.Settings,
+                            onClick = { selectedTab = AppTab.Settings },
+                            icon = { Icon(Icons.Rounded.Settings, contentDescription = "Settings") },
+                            label = { Text("Settings") }
                         )
                     }
                 }
             ) { padding ->
                 when (selectedTab) {
-                    AppTab.Now -> DashboardScreen(
-                        destination = DashboardDestination.Now,
+                    AppTab.Inbox -> DashboardScreen(
+                        destination = DashboardDestination.Inbox,
                         state = state,
                         onRefresh = viewModel::refresh,
                         onConnect = viewModel::connect,
@@ -170,8 +184,8 @@ fun ClambhookApp(
                         modifier = Modifier.padding(padding)
                     )
 
-                    AppTab.Activity -> DashboardScreen(
-                        destination = DashboardDestination.Activity,
+                    AppTab.Today -> DashboardScreen(
+                        destination = DashboardDestination.Today,
                         state = state,
                         onRefresh = viewModel::refresh,
                         onConnect = viewModel::connect,
@@ -182,8 +196,20 @@ fun ClambhookApp(
                         modifier = Modifier.padding(padding)
                     )
 
-                    AppTab.Library -> DashboardScreen(
-                        destination = DashboardDestination.Library,
+                    AppTab.Anytime -> DashboardScreen(
+                        destination = DashboardDestination.Anytime,
+                        state = state,
+                        onRefresh = viewModel::refresh,
+                        onConnect = viewModel::connect,
+                        onDisconnect = viewModel::disconnect,
+                        onProfileSelected = viewModel::setActiveProfile,
+                        onOpenSettings = { selectedTab = AppTab.Settings },
+                        onCreateRule = viewModel::createRule,
+                        modifier = Modifier.padding(padding)
+                    )
+
+                    AppTab.Logbook -> DashboardScreen(
+                        destination = DashboardDestination.Logbook,
                         state = state,
                         onRefresh = viewModel::refresh,
                         onConnect = viewModel::connect,

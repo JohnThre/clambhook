@@ -175,7 +175,7 @@ public struct CaptureBodyPayload: Codable, Equatable, Sendable {
 }
 
 public enum CaptureSupport {
-    public static let captureNote = "Metadata-only export. ClambHook v1 does not install a certificate authority, perform TLS MITM, store request or response bodies, or export HAR files. HTTPS entries contain CONNECT metadata only."
+    public static let captureNote = "Metadata-only export. HTTPS entries contain CONNECT metadata unless opt-in HTTPS Body Capture is enabled. Body previews, local CA details, and HAR exports are available only from that explicit developer capture mode."
 
     public static func snapshot(
         traffic: TrafficSnapshotPayload,

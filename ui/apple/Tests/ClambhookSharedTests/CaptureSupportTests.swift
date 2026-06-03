@@ -65,8 +65,8 @@ final class CaptureSupportTests: XCTestCase {
         XCTAssertEqual(CaptureSupport.filteredEntries(entries, filter: .all, query: "beta").map(\.id), ["b"])
 
         let export = CaptureSupport.exportString(traffic: TrafficSnapshotPayload(), entries: entries, generatedAt: Date(timeIntervalSince1970: 0))
-        XCTAssertTrue(export.contains("does not install a certificate authority"))
-        XCTAssertTrue(export.contains("export HAR files"))
+        XCTAssertTrue(export.contains("HTTPS Body Capture"))
+        XCTAssertTrue(export.contains("developer capture mode"))
         XCTAssertTrue(export.contains("metadata_only"))
     }
 }

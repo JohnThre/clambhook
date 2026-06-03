@@ -13,6 +13,7 @@ import (
 
 	"github.com/JohnThre/clambhook/internal/chain"
 	"github.com/JohnThre/clambhook/internal/config"
+	"github.com/JohnThre/clambhook/internal/developer"
 	"github.com/JohnThre/clambhook/internal/engine"
 	"github.com/JohnThre/clambhook/internal/events"
 	"github.com/JohnThre/clambhook/internal/geo"
@@ -50,7 +51,9 @@ type TunnelRuntime struct {
 	geo    *geo.Reader
 	bus    *events.Bus
 	trf    *traffic.Manager
+	dev    *developer.Manager
 	stack  *listener.PacketStack
+	proxy  *engine.Engine
 	chains []*chain.Chain
 	cancel context.CancelFunc
 }
@@ -98,6 +101,13 @@ func (r *TunnelRuntime) Start(configPath string) error {
 		return fmt.Errorf("traffic: %w", err)
 	}
 	trafficMgr.Start(context.Background(), bus)
+	developerMgr, err := developer.NewManager(cfg.Developer)
+	if err != nil {
+		trafficMgr.Stop()
+		_ = geoReader.Close()
+		bus.Close()
+		return fmt.Errorf("developer: %w", err)
+	}
 
 	stack, chains, err := engine.BuildPacketStackForConfig(cfg, bus, r.writer)
 	if err != nil {
@@ -116,12 +126,24 @@ func (r *TunnelRuntime) Start(configPath string) error {
 		bus.Close()
 		return err
 	}
+	proxyEngine, err := startMobileHTTPProxy(ctx, cfg, bus, developerMgr)
+	if err != nil {
+		cancel()
+		_ = stack.Stop()
+		closePacketChains(chains)
+		trafficMgr.Stop()
+		_ = geoReader.Close()
+		bus.Close()
+		return err
+	}
 
 	r.cfg = cfg
 	r.geo = geoReader
 	r.bus = bus
 	r.trf = trafficMgr
+	r.dev = developerMgr
 	r.stack = stack
+	r.proxy = proxyEngine
 	r.chains = chains
 	r.cancel = cancel
 	log.Printf("clambhook mobile packet tunnel started")
@@ -134,14 +156,17 @@ func (r *TunnelRuntime) Stop() error {
 	r.mu.Lock()
 	cancel := r.cancel
 	stack := r.stack
+	proxyEngine := r.proxy
 	chains := r.chains
 	trf := r.trf
 	geoReader := r.geo
 	bus := r.bus
 	r.cancel = nil
 	r.stack = nil
+	r.proxy = nil
 	r.chains = nil
 	r.trf = nil
+	r.dev = nil
 	r.geo = nil
 	r.bus = nil
 	r.cfg = nil
@@ -153,6 +178,14 @@ func (r *TunnelRuntime) Stop() error {
 	var firstErr error
 	if stack != nil {
 		firstErr = stack.Stop()
+	}
+	if proxyEngine != nil {
+		if err := proxyEngine.Stop(); err != nil && firstErr == nil {
+			firstErr = err
+		}
+		if err := proxyEngine.CloseGeo(); err != nil && firstErr == nil {
+			firstErr = err
+		}
 	}
 	if err := closePacketChains(chains); err != nil && firstErr == nil {
 		firstErr = err
@@ -248,6 +281,13 @@ func (r *TunnelRuntime) startConfig(cfg *config.Config) error {
 		return fmt.Errorf("traffic: %w", err)
 	}
 	trafficMgr.Start(context.Background(), bus)
+	developerMgr, err := developer.NewManager(cfg.Developer)
+	if err != nil {
+		trafficMgr.Stop()
+		_ = geoReader.Close()
+		bus.Close()
+		return fmt.Errorf("developer: %w", err)
+	}
 	stack, chains, err := engine.BuildPacketStackForConfig(cfg, bus, r.writer)
 	if err != nil {
 		trafficMgr.Stop()
@@ -265,15 +305,64 @@ func (r *TunnelRuntime) startConfig(cfg *config.Config) error {
 		bus.Close()
 		return err
 	}
+	proxyEngine, err := startMobileHTTPProxy(ctx, cfg, bus, developerMgr)
+	if err != nil {
+		cancel()
+		_ = stack.Stop()
+		closePacketChains(chains)
+		trafficMgr.Stop()
+		_ = geoReader.Close()
+		bus.Close()
+		return err
+	}
 
 	r.cfg = cfg
 	r.geo = geoReader
 	r.bus = bus
 	r.trf = trafficMgr
+	r.dev = developerMgr
 	r.stack = stack
+	r.proxy = proxyEngine
 	r.chains = chains
 	r.cancel = cancel
 	return nil
+}
+
+func startMobileHTTPProxy(ctx context.Context, cfg *config.Config, bus *events.Bus, inspector listener.HTTPInspector) (*engine.Engine, error) {
+	proxyCfg := mobileHTTPProxyConfig(cfg)
+	if proxyCfg == nil {
+		return nil, nil
+	}
+	eng := engine.New(proxyCfg, bus)
+	eng.SetHTTPInspector(inspector)
+	if err := eng.Start(ctx); err != nil {
+		_ = eng.CloseGeo()
+		return nil, fmt.Errorf("mobile http proxy: %w", err)
+	}
+	return eng, nil
+}
+
+func mobileHTTPProxyConfig(cfg *config.Config) *config.Config {
+	if cfg == nil {
+		return nil
+	}
+	profile, err := cfg.ActiveProfile()
+	if err != nil || strings.TrimSpace(profile.Listen.HTTP) == "" {
+		return nil
+	}
+	proxyProfile := *profile
+	proxyProfile.Listen.TUN = nil
+	proxyProfile.Listen.SOCKS5 = ""
+	proxyProfile.Listen.SOCKS5Chain = ""
+	proxyProfile.API.Listen = ""
+	return &config.Config{
+		Path:      cfg.Path,
+		Active:    proxyProfile.Name,
+		Profiles:  []config.Profile{proxyProfile},
+		Geo:       cfg.Geo,
+		Traffic:   cfg.Traffic,
+		Developer: cfg.Developer,
+	}
 }
 
 // InjectPacket feeds one raw IP packet from the native tunnel interface into
@@ -335,6 +424,59 @@ func (r *TunnelRuntime) TrafficJSON() (string, error) {
 		return marshalString(empty.Snapshot("all", 200))
 	}
 	return marshalString(trf.Store().Snapshot("all", 200))
+}
+
+func (r *TunnelRuntime) DeveloperStatusJSON() (string, error) {
+	r.mu.Lock()
+	dev := r.dev
+	r.mu.Unlock()
+	if dev == nil {
+		return marshalString(map[string]any{"enabled": false})
+	}
+	return marshalString(dev.Status())
+}
+
+func (r *TunnelRuntime) DeveloperEntriesJSON() (string, error) {
+	r.mu.Lock()
+	dev := r.dev
+	r.mu.Unlock()
+	if dev == nil {
+		return marshalString(map[string]any{"entries": []any{}})
+	}
+	return marshalString(map[string]any{"entries": dev.List(200)})
+}
+
+func (r *TunnelRuntime) DeveloperHARJSON() (string, error) {
+	r.mu.Lock()
+	dev := r.dev
+	r.mu.Unlock()
+	if dev == nil {
+		return marshalString(map[string]any{"log": map[string]any{"version": "1.2", "entries": []any{}}})
+	}
+	return marshalString(dev.HAR())
+}
+
+func (r *TunnelRuntime) DeveloperCAPEM() (string, error) {
+	r.mu.Lock()
+	dev := r.dev
+	r.mu.Unlock()
+	if dev == nil {
+		return "", errors.New("developer mode disabled")
+	}
+	cert, ok := dev.CACertPEM()
+	if !ok {
+		return "", errors.New("developer MITM CA unavailable")
+	}
+	return string(cert), nil
+}
+
+func (r *TunnelRuntime) ClearDeveloperEntries() {
+	r.mu.Lock()
+	dev := r.dev
+	r.mu.Unlock()
+	if dev != nil {
+		dev.Clear()
+	}
 }
 
 func (r *TunnelRuntime) DashboardJSON() (string, error) {

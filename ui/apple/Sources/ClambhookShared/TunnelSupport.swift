@@ -41,6 +41,11 @@ public enum TunnelCommandAction: String, Codable, Sendable {
     case traffic
     case reload
     case setActiveProfile = "set_active_profile"
+    case developerStatus = "developer_status"
+    case developerEntries = "developer_entries"
+    case developerCA = "developer_ca"
+    case developerHAR = "developer_har"
+    case clearDeveloperEntries = "clear_developer_entries"
 }
 
 public struct TunnelCommand: Codable, Equatable, Sendable {

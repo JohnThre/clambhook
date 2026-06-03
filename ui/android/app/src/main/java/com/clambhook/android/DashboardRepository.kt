@@ -21,6 +21,8 @@ data class DashboardState(
     val servers: ServersPayload = ServersPayload(),
     val rules: RulesPayload = RulesPayload(),
     val traffic: TrafficSnapshotPayload = TrafficSnapshotPayload(),
+    val developerStatus: DeveloperStatusPayload = DeveloperStatusPayload(),
+    val developerEntries: List<DeveloperEntryPayload> = emptyList(),
     val bandwidthSamples: List<BandwidthSample> = emptyList(),
     val logs: List<String> = emptyList(),
     val apiOnline: Boolean = false,
@@ -67,6 +69,8 @@ class DashboardRepository(
             val servers = api.servers()
             val rules = api.rules()
             val traffic = api.traffic()
+            val developerStatus = runCatching { api.developerStatus() }.getOrDefault(DeveloperStatusPayload())
+            val developerEntries = runCatching { api.developerEntries().entries }.getOrDefault(emptyList())
             _state.update {
                 it.copy(
                     status = status,
@@ -74,6 +78,8 @@ class DashboardRepository(
                     servers = servers,
                     rules = rules,
                     traffic = traffic,
+                    developerStatus = developerStatus,
+                    developerEntries = developerEntries,
                     apiOnline = true,
                     errorText = "",
                     lastUpdatedEpochMillis = System.currentTimeMillis()
@@ -92,10 +98,14 @@ class DashboardRepository(
         try {
             val status = api.status()
             val traffic = api.traffic()
+            val developerStatus = runCatching { api.developerStatus() }.getOrDefault(_state.value.developerStatus)
+            val developerEntries = runCatching { api.developerEntries().entries }.getOrDefault(_state.value.developerEntries)
             _state.update {
                 it.copy(
                     status = status,
                     traffic = traffic,
+                    developerStatus = developerStatus,
+                    developerEntries = developerEntries,
                     apiOnline = true,
                     errorText = "",
                     lastUpdatedEpochMillis = System.currentTimeMillis()
@@ -120,6 +130,14 @@ class DashboardRepository(
 
     suspend fun createRule(rule: RulePayload) {
         performAction(DashboardAction.Refresh) { api.createRule(rule) }
+    }
+
+    suspend fun replaceRules(profile: String, rules: List<RulePayload>) {
+        performAction(DashboardAction.Refresh) { api.replaceRules(profile, rules) }
+    }
+
+    suspend fun clearDeveloperEntries() {
+        performAction(DashboardAction.Refresh) { api.clearDeveloperEntries() }
     }
 
     fun applyEvent(event: DaemonEvent): Boolean {
