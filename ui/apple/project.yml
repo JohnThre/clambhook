@@ -1,9 +1,10 @@
 name: Clambhook
 options:
   deploymentTarget:
-    macOS: "14.0"
+    macOS: "26.0"
     iOS: "26.0"
-    visionOS: "1.0"
+    tvOS: "26.0"
+    visionOS: "26.0"
   createIntermediateGroups: true
 packages:
   ClambhookShared:
@@ -66,7 +67,19 @@ targets:
         INFOPLIST_FILE: ClambhookiOS/Info.plist
         CODE_SIGN_ENTITLEMENTS: ClambhookiOS/ClambhookiOS.entitlements
         FRAMEWORK_SEARCH_PATHS: "$(PROJECT_DIR)/Frameworks $(PROJECT_DIR)/Frameworks/**"
-        TARGETED_DEVICE_FAMILY: 1
+        TARGETED_DEVICE_FAMILY: "1,2"
+  ClambhookTV:
+    type: application
+    platform: tvOS
+    sources:
+      - path: SharedApp
+      - path: ClambhookTV
+    dependencies:
+      - package: ClambhookShared
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.clambhook.tv
+        INFOPLIST_FILE: ClambhookTV/Info.plist
   ClambhookVision:
     type: application
     platform: visionOS
@@ -98,7 +111,7 @@ targets:
         CODE_SIGN_ENTITLEMENTS: ClambhookPacketTunnel/ClambhookPacketTunnel.entitlements
         APPLICATION_EXTENSION_API_ONLY: YES
         FRAMEWORK_SEARCH_PATHS: "$(PROJECT_DIR)/Frameworks $(PROJECT_DIR)/Frameworks/**"
-        TARGETED_DEVICE_FAMILY: 1
+        TARGETED_DEVICE_FAMILY: "1,2"
         SKIP_INSTALL: YES
   ClambhookMacWidgetExtension:
     type: app-extension
@@ -129,5 +142,5 @@ targets:
         INFOPLIST_FILE: ClambhookWidgets/Info.plist
         CODE_SIGN_ENTITLEMENTS: ClambhookWidgets/ClambhookiOSWidgetExtension.entitlements
         FRAMEWORK_SEARCH_PATHS: "$(PROJECT_DIR)/Frameworks $(PROJECT_DIR)/Frameworks/**"
-        TARGETED_DEVICE_FAMILY: 1
+        TARGETED_DEVICE_FAMILY: "1,2"
         SKIP_INSTALL: YES

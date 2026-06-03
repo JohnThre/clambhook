@@ -12,9 +12,11 @@ The daemon and terminal UI also include a separate opt-in developer mode for the
 
 ## End-user Distribution
 
-The iPhone app is distributed only through the Apple App Store as a free download with non-consumable In-App Purchases for premium access and paid feature updates.
+The iOS and iPadOS app is distributed only through the Apple App Store as a free download with non-consumable In-App Purchases for premium access and paid feature updates. tvOS and visionOS builds are compile-first Apple targets until their platform-specific runtime surfaces are completed.
 
-GitHub is source-only for end users. Do not publish or link end-user installers or package artifacts from GitHub, including `.dmg`, `.pkg`, `.apk`, `.aab`, `.ipa`, Homebrew formula releases, Debian packages, or macOS installer artifacts. Non-iPhone build and packaging targets in this repository are internal developer/QA workflows only.
+GitHub is source-only for end users. Do not publish or link end-user installers or package artifacts from GitHub, including `.dmg`, `.pkg`, `.apk`, `.aab`, `.ipa`, Homebrew formula releases, Debian packages, or macOS installer artifacts. macOS and GNU/Linux builds are distributed from jpfchang.org, not the Apple App Store or GitHub release artifacts.
+
+The Android app should use Swift for shared domain logic as much as practical in a future migration. Keep Kotlin for Android lifecycle, Compose UI, billing, services, storage, JNI/glue, and Gradle integration unless the Android Swift toolchain plan changes.
 
 ## Donate
 
