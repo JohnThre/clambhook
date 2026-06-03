@@ -2,6 +2,7 @@ package listener
 
 import (
 	"context"
+	"errors"
 	"net"
 	"strconv"
 	"strings"
@@ -28,6 +29,7 @@ type connEvents struct {
 	// capture data needed by the connection.opened event so we can emit
 	// once after allocation rather than plumbing fields through.
 	listenerInfo events.ListenerInfo
+	profileName  string
 	clientAddr   string
 	chainName    string
 }
@@ -36,7 +38,7 @@ type connEvents struct {
 // Lamport shard, a byte meter. Registers the meter with the bus so the
 // scanner includes it in periodic bandwidth emits. Returns nil when bus is
 // nil — callers check for nil before invoking methods.
-func newConnEvents(bus *events.Bus, li events.ListenerInfo, clientAddr, chainName string) *connEvents {
+func newConnEvents(bus *events.Bus, li events.ListenerInfo, profileName, clientAddr, chainName string) *connEvents {
 	if bus == nil {
 		return nil
 	}
@@ -53,6 +55,7 @@ func newConnEvents(bus *events.Bus, li events.ListenerInfo, clientAddr, chainNam
 		connID:       connID,
 		startedAt:    time.Now(),
 		listenerInfo: li,
+		profileName:  profileName,
 		clientAddr:   clientAddr,
 		chainName:    chainName,
 	}
@@ -77,6 +80,7 @@ func (c *connEvents) emitOpened() {
 	}
 	c.emitter.Emit(events.TypeConnectionOpened, events.ConnectionOpenedData{
 		ConnID:     c.connID,
+		Profile:    c.profileName,
 		Listener:   c.listenerInfo,
 		ClientAddr: c.clientAddr,
 		ChainName:  c.chainName,
@@ -94,6 +98,7 @@ func (c *connEvents) emitDialingPlan(plan RoutePlan) {
 	}
 	c.emitter.Emit(events.TypeConnectionDialing, events.ConnectionDialingData{
 		ConnID:      c.connID,
+		Profile:     nonEmpty(plan.Profile, c.profileName),
 		Target:      plan.Target,
 		TargetHost:  host,
 		TargetPort:  port,
@@ -102,6 +107,7 @@ func (c *connEvents) emitDialingPlan(plan RoutePlan) {
 		RuleName:    plan.RuleName,
 		RuleAction:  plan.Action,
 		ChainName:   plan.ChainName,
+		Default:     plan.Default,
 		DecisionNs:  plan.ElapsedNs,
 		Hops:        plan.Hops,
 		Visibility:  plan.Visibility,
@@ -138,6 +144,7 @@ func (c *connEvents) emitRuleDecision(plan RoutePlan) {
 	}
 	c.emitter.Emit(eventType, events.RuleDecisionData{
 		ConnID:     c.connID,
+		Profile:    nonEmpty(plan.Profile, c.profileName),
 		RuleName:   plan.RuleName,
 		Action:     plan.Action,
 		ChainName:  plan.ChainName,
@@ -145,6 +152,7 @@ func (c *connEvents) emitRuleDecision(plan RoutePlan) {
 		TargetHost: host,
 		TargetPort: port,
 		Network:    plan.Network,
+		Default:    plan.Default,
 		ElapsedNs:  plan.ElapsedNs,
 	})
 }
@@ -209,10 +217,34 @@ func classifyClose(ctx context.Context, relayErr error) string {
 	if ctx.Err() != nil {
 		return events.ReasonShutdown
 	}
+	if errors.Is(relayErr, ErrRouteRejected) {
+		return events.ReasonRouteRejected
+	}
+	if errors.Is(relayErr, ErrRouteBlocked) {
+		return events.ReasonRouteBlocked
+	}
 	if relayErr != nil {
 		return events.ReasonError
 	}
 	return events.ReasonClientEOF
+}
+
+func routeCloseReason(action string) string {
+	switch action {
+	case RouteActionBlock:
+		return events.ReasonRouteBlocked
+	case RouteActionReject:
+		return events.ReasonRouteRejected
+	default:
+		return events.ReasonClientEOF
+	}
+}
+
+func nonEmpty(value, fallback string) string {
+	if value != "" {
+		return value
+	}
+	return fallback
 }
 
 func splitTrafficTarget(target string) (host, port string) {

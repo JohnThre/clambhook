@@ -215,7 +215,7 @@ func (s *HTTP) acceptLoop(ctx context.Context, ln net.Listener) {
 			ce := newConnEvents(s.opts.EventBus, events.ListenerInfo{
 				Protocol: s.Protocol(),
 				Addr:     s.Addr(),
-			}, conn.RemoteAddr().String(), s.chainName)
+			}, s.opts.ProfileName, conn.RemoteAddr().String(), s.chainName)
 			ce.emitOpened()
 
 			relayErr := s.handleConn(ctx, conn, ce)
@@ -303,6 +303,9 @@ func (s *HTTP) handleConnect(ctx context.Context, client net.Conn, br *bufio.Rea
 	ce.emitDialingPlan(plan)
 	if plan.Action == RouteActionBlock || plan.Action == RouteActionReject {
 		writeSimpleStatus(client, req.Proto, http.StatusForbidden, "Forbidden")
+		if plan.Action == RouteActionReject {
+			return ErrRouteRejected
+		}
 		return ErrRouteBlocked
 	}
 
@@ -376,6 +379,9 @@ func (s *HTTP) handleForward(ctx context.Context, client net.Conn, req *http.Req
 	if plan.Action == RouteActionBlock || plan.Action == RouteActionReject {
 		dialCancel()
 		writeSimpleStatus(client, req.Proto, http.StatusForbidden, "Forbidden")
+		if plan.Action == RouteActionReject {
+			return ErrRouteRejected
+		}
 		return ErrRouteBlocked
 	}
 
@@ -455,6 +461,7 @@ func (s *HTTP) plan(ctx context.Context, network, target string) (RoutePlan, err
 		return s.planner.Plan(ctx, network, target)
 	}
 	plan := RoutePlan{
+		Profile:   s.opts.ProfileName,
 		Action:    RouteActionChain,
 		ChainName: s.chainName,
 		Target:    target,

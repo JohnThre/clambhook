@@ -87,6 +87,35 @@ final class APIClientTests: XCTestCase {
         XCTAssertEqual(decoded.rule.domains, ["example.com"])
     }
 
+    func testTrafficDecodesMonitorAnalytics() async throws {
+        MockURLProtocol.responseData = Data("""
+        {
+          "updated_ts_ns": 99,
+          "summary": {"active_connections": 1},
+          "profile_context": {"active": "Work", "profiles": ["Work", "Home"]},
+          "quick_filters": [{"key": "block", "label": "Block", "count": 2}],
+          "rule_hits": [{"profile": "Work", "rule_name": "ads", "action": "block", "count": 2, "last_target": "ads.example.com:443"}],
+          "block_decisions": [{"conn_id": "c1", "profile": "Work", "rule_name": "ads", "action": "block", "target_host": "ads.example.com", "ts_ns": 88}],
+          "cleanup_suggestions": [{"kind": "unused_in_history", "profile": "Work", "rule_name": "old", "message": "No recent traffic-history entries matched this rule."}],
+          "connections": [{"conn_id": "c1", "profile": "Work", "state": "closed", "rule_action": "block", "default": true, "target_host": "ads.example.com"}]
+        }
+        """.utf8)
+        let client = ClambhookAPIClient(
+            baseURL: URL(string: "http://127.0.0.1:9090")!,
+            session: mockSession()
+        )
+
+        let traffic = try await client.traffic()
+
+        XCTAssertEqual(traffic.profileContext.active, "Work")
+        XCTAssertEqual(traffic.quickFilters.first?.key, "block")
+        XCTAssertEqual(traffic.ruleHits.first?.ruleName, "ads")
+        XCTAssertEqual(traffic.blockDecisions.first?.targetHost, "ads.example.com")
+        XCTAssertEqual(traffic.cleanupSuggestions.first?.ruleName, "old")
+        XCTAssertEqual(traffic.connections.first?.profile, "Work")
+        XCTAssertEqual(traffic.connections.first?.isDefault, true)
+    }
+
     func testHTTPErrorIncludesResponseBody() async {
         MockURLProtocol.statusCode = 401
         MockURLProtocol.responseData = Data("unauthorized\n".utf8)

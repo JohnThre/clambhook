@@ -89,6 +89,7 @@ type Visibility struct {
 // contains connection metadata and counters only; payload bytes are not stored.
 type Connection struct {
 	ConnID      string          `json:"conn_id"`
+	Profile     string          `json:"profile,omitempty"`
 	State       string          `json:"state"`
 	StartTsNs   int64           `json:"start_ts_ns"`
 	UpdatedTsNs int64           `json:"updated_ts_ns"`
@@ -98,6 +99,7 @@ type Connection struct {
 	ChainName   string          `json:"chain_name,omitempty"`
 	RuleName    string          `json:"rule_name,omitempty"`
 	RuleAction  string          `json:"rule_action,omitempty"`
+	Default     bool            `json:"default,omitempty"`
 	DecisionNs  int64           `json:"decision_ns,omitempty"`
 	Target      string          `json:"target,omitempty"`
 	TargetHost  string          `json:"target_host,omitempty"`
@@ -134,9 +136,80 @@ type Summary struct {
 
 // Snapshot is returned by GET /api/v1/traffic.
 type Snapshot struct {
-	UpdatedTsNs int64        `json:"updated_ts_ns"`
-	Summary     Summary      `json:"summary"`
-	Connections []Connection `json:"connections"`
+	UpdatedTsNs        int64               `json:"updated_ts_ns"`
+	Summary            Summary             `json:"summary"`
+	Connections        []Connection        `json:"connections"`
+	ProfileContext     ProfileContext      `json:"profile_context,omitempty"`
+	QuickFilters       []QuickFilter       `json:"quick_filters,omitempty"`
+	RuleHits           []RuleHit           `json:"rule_hits,omitempty"`
+	BlockDecisions     []BlockDecision     `json:"block_decisions,omitempty"`
+	CleanupSuggestions []CleanupSuggestion `json:"cleanup_suggestions,omitempty"`
+}
+
+// SnapshotOptions controls optional filtering and UI analytics.
+type SnapshotOptions struct {
+	State         string
+	Limit         int
+	Action        string
+	Profile       string
+	Rule          string
+	Country       string
+	Port          string
+	Query         string
+	ActiveProfile string
+	Profiles      []string
+	Rules         []config.RuleConfig
+}
+
+// ProfileContext names the active profile and available profile choices.
+type ProfileContext struct {
+	Active   string   `json:"active,omitempty"`
+	Profiles []string `json:"profiles,omitempty"`
+}
+
+// QuickFilter is a count-backed monitor filter token.
+type QuickFilter struct {
+	Key   string `json:"key"`
+	Label string `json:"label"`
+	Count int    `json:"count"`
+}
+
+// RuleHit summarizes history-derived rule usage.
+type RuleHit struct {
+	Profile     string `json:"profile,omitempty"`
+	RuleName    string `json:"rule_name"`
+	Action      string `json:"action"`
+	Count       int    `json:"count"`
+	LastHitTsNs int64  `json:"last_hit_ts_ns,omitempty"`
+	RxTotal     uint64 `json:"rx_total"`
+	TxTotal     uint64 `json:"tx_total"`
+	LastTarget  string `json:"last_target,omitempty"`
+	Default     bool   `json:"default,omitempty"`
+}
+
+// BlockDecision is a compact recent block/reject decision row.
+type BlockDecision struct {
+	ConnID      string `json:"conn_id"`
+	Profile     string `json:"profile,omitempty"`
+	RuleName    string `json:"rule_name,omitempty"`
+	Action      string `json:"action"`
+	Target      string `json:"target,omitempty"`
+	TargetHost  string `json:"target_host,omitempty"`
+	TargetPort  string `json:"target_port,omitempty"`
+	Network     string `json:"network,omitempty"`
+	TsNs        int64  `json:"ts_ns"`
+	CloseReason string `json:"close_reason,omitempty"`
+}
+
+// CleanupSuggestion is advisory; the daemon never changes rules from it.
+type CleanupSuggestion struct {
+	Kind        string `json:"kind"`
+	Profile     string `json:"profile,omitempty"`
+	RuleName    string `json:"rule_name"`
+	Action      string `json:"action,omitempty"`
+	Message     string `json:"message"`
+	Count       int    `json:"count,omitempty"`
+	LastHitTsNs int64  `json:"last_hit_ts_ns,omitempty"`
 }
 
 type historyFile struct {
@@ -306,10 +379,20 @@ func (s *Store) ApplyEvent(ev events.Event) {
 
 // Snapshot returns a consistent copy of the current traffic state.
 func (s *Store) Snapshot(state string, limit int) Snapshot {
+	return s.SnapshotWithOptions(SnapshotOptions{State: state, Limit: limit})
+}
+
+// SnapshotWithOptions returns a consistent copy of traffic state, with
+// optional filters and analytics for connection-monitor UIs.
+func (s *Store) SnapshotWithOptions(opts SnapshotOptions) Snapshot {
 	if s == nil {
-		return Snapshot{UpdatedTsNs: time.Now().UnixNano()}
+		return Snapshot{
+			UpdatedTsNs:    time.Now().UnixNano(),
+			ProfileContext: ProfileContext{Active: opts.ActiveProfile, Profiles: append([]string(nil), opts.Profiles...)},
+			Connections:    []Connection{},
+		}
 	}
-	state = strings.ToLower(strings.TrimSpace(state))
+	state := strings.ToLower(strings.TrimSpace(opts.State))
 	if state == "" {
 		state = "all"
 	}
@@ -342,22 +425,349 @@ func (s *Store) Snapshot(state string, limit int) Snapshot {
 		return active[i].UpdatedTsNs > active[j].UpdatedTsNs
 	})
 
-	var conns []Connection
+	var all []Connection
 	if state == "all" || state == "active" {
-		conns = append(conns, active...)
+		all = append(all, active...)
 	}
 	if state == "all" || state == "closed" {
-		conns = append(conns, cloneConnections(s.closed)...)
+		all = append(all, cloneConnections(s.closed)...)
 	}
-	if limit > 0 && len(conns) > limit {
-		conns = conns[:limit]
+	filtered := filterConnections(all, opts)
+	limited := filtered
+	if opts.Limit > 0 && len(limited) > opts.Limit {
+		limited = limited[:opts.Limit]
 	}
 
 	return Snapshot{
-		UpdatedTsNs: time.Now().UnixNano(),
-		Summary:     summary,
-		Connections: conns,
+		UpdatedTsNs:        time.Now().UnixNano(),
+		Summary:            summary,
+		Connections:        limited,
+		ProfileContext:     ProfileContext{Active: opts.ActiveProfile, Profiles: append([]string(nil), opts.Profiles...)},
+		QuickFilters:       buildQuickFilters(all),
+		RuleHits:           buildRuleHits(all),
+		BlockDecisions:     buildBlockDecisions(all, 12),
+		CleanupSuggestions: buildCleanupSuggestions(opts.ActiveProfile, opts.Rules, all),
 	}
+}
+
+func filterConnections(conns []Connection, opts SnapshotOptions) []Connection {
+	action := strings.ToLower(strings.TrimSpace(opts.Action))
+	profile := strings.TrimSpace(opts.Profile)
+	rule := strings.TrimSpace(opts.Rule)
+	country := strings.ToUpper(strings.TrimSpace(opts.Country))
+	port := strings.TrimSpace(opts.Port)
+	query := strings.ToLower(strings.TrimSpace(opts.Query))
+	if action == "" && profile == "" && rule == "" && country == "" && port == "" && query == "" {
+		return conns
+	}
+	out := make([]Connection, 0, len(conns))
+	for _, conn := range conns {
+		if action != "" && actionFamily(conn.RuleAction) != action {
+			continue
+		}
+		if profile != "" && conn.Profile != profile {
+			continue
+		}
+		if rule != "" {
+			name := conn.RuleName
+			if name == "" && conn.Default {
+				name = "default"
+			}
+			if name != rule {
+				continue
+			}
+		}
+		if country != "" && strings.ToUpper(conn.Geo.CountryCode) != country {
+			continue
+		}
+		if port != "" && conn.TargetPort != port {
+			continue
+		}
+		if query != "" && !connectionMatchesQuery(conn, query) {
+			continue
+		}
+		out = append(out, conn)
+	}
+	return out
+}
+
+func buildQuickFilters(conns []Connection) []QuickFilter {
+	counts := map[string]int{
+		"all":    len(conns),
+		"active": 0,
+		"proxy":  0,
+		"direct": 0,
+		"block":  0,
+	}
+	countries := map[string]int{}
+	ports := map[string]int{}
+	for _, conn := range conns {
+		if conn.State == StateActive || conn.State == StateDialing || conn.State == StateOpening {
+			counts["active"]++
+		}
+		counts[actionFamily(conn.RuleAction)]++
+		if conn.Geo.CountryCode != "" {
+			countries[strings.ToUpper(conn.Geo.CountryCode)]++
+		}
+		if conn.TargetPort != "" {
+			ports[conn.TargetPort]++
+		}
+	}
+	filters := []QuickFilter{
+		{Key: "all", Label: "All", Count: counts["all"]},
+		{Key: "active", Label: "Active", Count: counts["active"]},
+		{Key: "proxy", Label: "Proxy", Count: counts["proxy"]},
+		{Key: "direct", Label: "Direct", Count: counts["direct"]},
+		{Key: "block", Label: "Block", Count: counts["block"]},
+	}
+	for _, row := range topCounts(countries, 3) {
+		filters = append(filters, QuickFilter{Key: "country:" + row.Key, Label: row.Key, Count: row.Count})
+	}
+	for _, row := range topCounts(ports, 3) {
+		filters = append(filters, QuickFilter{Key: "port:" + row.Key, Label: ":" + row.Key, Count: row.Count})
+	}
+	return filters
+}
+
+func buildRuleHits(conns []Connection) []RuleHit {
+	index := map[string]*RuleHit{}
+	for _, conn := range conns {
+		if conn.RuleName == "" && conn.RuleAction == "" && !conn.Default {
+			continue
+		}
+		name := conn.RuleName
+		if name == "" && conn.Default {
+			name = "default"
+		}
+		action := actionFamily(conn.RuleAction)
+		key := conn.Profile + "\x00" + name + "\x00" + action
+		hit := index[key]
+		if hit == nil {
+			hit = &RuleHit{Profile: conn.Profile, RuleName: name, Action: action, Default: conn.Default}
+			index[key] = hit
+		}
+		hit.Count++
+		hit.RxTotal += conn.RxTotal
+		hit.TxTotal += conn.TxTotal
+		if conn.UpdatedTsNs > hit.LastHitTsNs {
+			hit.LastHitTsNs = conn.UpdatedTsNs
+			hit.LastTarget = conn.Target
+		}
+	}
+	out := make([]RuleHit, 0, len(index))
+	for _, hit := range index {
+		out = append(out, *hit)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Count == out[j].Count {
+			if out[i].LastHitTsNs == out[j].LastHitTsNs {
+				return out[i].RuleName < out[j].RuleName
+			}
+			return out[i].LastHitTsNs > out[j].LastHitTsNs
+		}
+		return out[i].Count > out[j].Count
+	})
+	return out
+}
+
+func buildBlockDecisions(conns []Connection, limit int) []BlockDecision {
+	out := make([]BlockDecision, 0)
+	for _, conn := range conns {
+		action := actionFamily(conn.RuleAction)
+		if action != "block" {
+			continue
+		}
+		out = append(out, BlockDecision{
+			ConnID:      conn.ConnID,
+			Profile:     conn.Profile,
+			RuleName:    conn.RuleName,
+			Action:      conn.RuleAction,
+			Target:      conn.Target,
+			TargetHost:  conn.TargetHost,
+			TargetPort:  conn.TargetPort,
+			Network:     conn.Network,
+			TsNs:        conn.UpdatedTsNs,
+			CloseReason: conn.CloseReason,
+		})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].TsNs > out[j].TsNs })
+	if limit > 0 && len(out) > limit {
+		out = out[:limit]
+	}
+	return out
+}
+
+func buildCleanupSuggestions(profile string, rules []config.RuleConfig, conns []Connection) []CleanupSuggestion {
+	if len(rules) == 0 {
+		return nil
+	}
+	hits := map[string]RuleHit{}
+	for _, hit := range buildRuleHits(conns) {
+		if profile != "" && hit.Profile != "" && hit.Profile != profile {
+			continue
+		}
+		hits[hit.RuleName] = hit
+	}
+	out := make([]CleanupSuggestion, 0)
+	seen := map[string]string{}
+	exactDomains := map[string]string{}
+	for i, rule := range rules {
+		name := strings.TrimSpace(rule.Name)
+		action := strings.TrimSpace(rule.Action)
+		if name == "" {
+			name = "unnamed"
+		}
+		if _, ok := hits[name]; !ok {
+			out = append(out, CleanupSuggestion{
+				Kind:     "unused_in_history",
+				Profile:  profile,
+				RuleName: name,
+				Action:   action,
+				Message:  "No recent traffic-history entries matched this rule.",
+			})
+		}
+		key := ruleMatcherKey(rule)
+		if key != "" {
+			if prev, ok := seen[key]; ok {
+				out = append(out, CleanupSuggestion{
+					Kind:     "duplicate_matcher",
+					Profile:  profile,
+					RuleName: name,
+					Action:   action,
+					Message:  fmt.Sprintf("Matches the same traffic as rule %q.", prev),
+				})
+			} else {
+				seen[key] = name
+			}
+		}
+		for _, domain := range normalizeStrings(rule.Domains) {
+			exactDomains[domain] = name
+		}
+		for _, suffix := range normalizeStrings(rule.DomainSuffixes) {
+			for domain, prev := range exactDomains {
+				if prev == name {
+					continue
+				}
+				if domain == suffix || strings.HasSuffix(domain, "."+suffix) {
+					out = append(out, CleanupSuggestion{
+						Kind:     "shadowed_exact_match",
+						Profile:  profile,
+						RuleName: name,
+						Action:   action,
+						Message:  fmt.Sprintf("May make earlier exact-domain rule %q redundant.", prev),
+					})
+					break
+				}
+			}
+		}
+		if i == 0 && ruleHasNoMatchers(rule) {
+			out = append(out, CleanupSuggestion{
+				Kind:     "broad_match",
+				Profile:  profile,
+				RuleName: name,
+				Action:   action,
+				Message:  "First rule has no matchers and may shadow every later rule.",
+			})
+		}
+	}
+	return out
+}
+
+type countRow struct {
+	Key   string
+	Count int
+}
+
+func topCounts(counts map[string]int, limit int) []countRow {
+	rows := make([]countRow, 0, len(counts))
+	for key, count := range counts {
+		rows = append(rows, countRow{Key: key, Count: count})
+	}
+	sort.Slice(rows, func(i, j int) bool {
+		if rows[i].Count == rows[j].Count {
+			return rows[i].Key < rows[j].Key
+		}
+		return rows[i].Count > rows[j].Count
+	})
+	if limit > 0 && len(rows) > limit {
+		rows = rows[:limit]
+	}
+	return rows
+}
+
+func actionFamily(action string) string {
+	switch strings.ToLower(strings.TrimSpace(action)) {
+	case "direct":
+		return "direct"
+	case "block", "reject":
+		return "block"
+	default:
+		return "proxy"
+	}
+}
+
+func connectionMatchesQuery(conn Connection, query string) bool {
+	fields := []string{
+		conn.Profile, conn.Target, conn.TargetHost, conn.TargetPort, conn.RuleName,
+		conn.RuleAction, conn.ChainName, conn.Application, conn.Network,
+		conn.Listener.Protocol, conn.Listener.Addr, conn.ClientAddr,
+		conn.Geo.Country, conn.Geo.CountryCode, conn.Geo.City, conn.CloseReason,
+	}
+	if conn.Visibility != nil {
+		fields = append(fields, conn.Visibility.Kind, conn.Visibility.Method, conn.Visibility.Host, conn.Visibility.Port, conn.Visibility.Path, conn.Visibility.QueryType)
+	}
+	for _, hop := range conn.Hops {
+		fields = append(fields, hop.Name, hop.Protocol, hop.Address, hop.State, hop.Error)
+	}
+	for _, field := range fields {
+		if strings.Contains(strings.ToLower(field), query) {
+			return true
+		}
+	}
+	return false
+}
+
+func ruleMatcherKey(rule config.RuleConfig) string {
+	parts := []string{
+		strings.ToLower(strings.TrimSpace(rule.Action)),
+		"domains=" + strings.Join(normalizeStrings(rule.Domains), ","),
+		"suffixes=" + strings.Join(normalizeStrings(rule.DomainSuffixes), ","),
+		"keywords=" + strings.Join(normalizeStrings(rule.DomainKeywords), ","),
+		"cidrs=" + strings.Join(normalizeStrings(rule.CIDRs), ","),
+		"networks=" + strings.Join(normalizeStrings(rule.Networks), ","),
+	}
+	ports := make([]string, 0, len(rule.Ports))
+	for _, port := range rule.Ports {
+		ports = append(ports, strconv.Itoa(port))
+	}
+	sort.Strings(ports)
+	parts = append(parts, "ports="+strings.Join(ports, ","))
+	key := strings.Join(parts, "|")
+	if ruleHasNoMatchers(rule) {
+		return ""
+	}
+	return key
+}
+
+func ruleHasNoMatchers(rule config.RuleConfig) bool {
+	return len(rule.Domains) == 0 &&
+		len(rule.DomainSuffixes) == 0 &&
+		len(rule.DomainKeywords) == 0 &&
+		len(rule.CIDRs) == 0 &&
+		len(rule.Ports) == 0 &&
+		len(rule.Networks) == 0
+}
+
+func normalizeStrings(values []string) []string {
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.ToLower(strings.TrimSpace(value))
+		if value != "" {
+			out = append(out, value)
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 func (s *Store) setPersistResult(err error) {
@@ -378,6 +788,7 @@ func (s *Store) applyOpenedLocked(ev events.Event) {
 	}
 	s.active[data.ConnID] = &Connection{
 		ConnID:      data.ConnID,
+		Profile:     data.Profile,
 		State:       StateOpening,
 		StartTsNs:   ev.TsNs,
 		UpdatedTsNs: ev.TsNs,
@@ -399,6 +810,9 @@ func (s *Store) applyDialingLocked(ev events.Event) {
 	}
 	c := s.ensureConnLocked(data.ConnID, ev.TsNs)
 	c.State = StateDialing
+	if data.Profile != "" {
+		c.Profile = data.Profile
+	}
 	c.Target = data.Target
 	c.Network = data.Network
 	c.TargetHost = data.TargetHost
@@ -406,6 +820,7 @@ func (s *Store) applyDialingLocked(ev events.Event) {
 	c.Application = data.Application
 	c.RuleName = data.RuleName
 	c.RuleAction = data.RuleAction
+	c.Default = data.Default
 	c.DecisionNs = data.DecisionNs
 	applyVisibility(c, data.Visibility)
 	if data.ChainName != "" {
@@ -455,7 +870,11 @@ func (s *Store) applyRuleDecisionLocked(ev events.Event) {
 	c := s.ensureConnLocked(data.ConnID, ev.TsNs)
 	c.RuleName = data.RuleName
 	c.RuleAction = data.Action
+	c.Default = data.Default
 	c.DecisionNs = data.ElapsedNs
+	if data.Profile != "" {
+		c.Profile = data.Profile
+	}
 	if data.ChainName != "" {
 		c.ChainName = data.ChainName
 	}

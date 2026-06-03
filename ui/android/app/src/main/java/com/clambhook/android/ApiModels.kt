@@ -109,7 +109,82 @@ data class TrafficSnapshotPayload(
     @SerialName("updated_ts_ns")
     val updatedTsNs: Long = 0,
     val summary: TrafficSummaryPayload = TrafficSummaryPayload(),
-    val connections: List<TrafficConnectionPayload> = emptyList()
+    val connections: List<TrafficConnectionPayload> = emptyList(),
+    @SerialName("profile_context")
+    val profileContext: TrafficProfileContextPayload = TrafficProfileContextPayload(),
+    @SerialName("quick_filters")
+    val quickFilters: List<TrafficQuickFilterPayload> = emptyList(),
+    @SerialName("rule_hits")
+    val ruleHits: List<TrafficRuleHitPayload> = emptyList(),
+    @SerialName("block_decisions")
+    val blockDecisions: List<TrafficBlockDecisionPayload> = emptyList(),
+    @SerialName("cleanup_suggestions")
+    val cleanupSuggestions: List<TrafficCleanupSuggestionPayload> = emptyList()
+)
+
+@Serializable
+data class TrafficProfileContextPayload(
+    val active: String = "",
+    val profiles: List<String> = emptyList()
+)
+
+@Serializable
+data class TrafficQuickFilterPayload(
+    val key: String = "",
+    val label: String = "",
+    val count: Int = 0
+)
+
+@Serializable
+data class TrafficRuleHitPayload(
+    val profile: String = "",
+    @SerialName("rule_name")
+    val ruleName: String = "",
+    val action: String = "",
+    val count: Int = 0,
+    @SerialName("last_hit_ts_ns")
+    val lastHitTsNs: Long = 0,
+    @SerialName("rx_total")
+    val rxTotal: Long = 0,
+    @SerialName("tx_total")
+    val txTotal: Long = 0,
+    @SerialName("last_target")
+    val lastTarget: String = "",
+    @SerialName("default")
+    val isDefault: Boolean = false
+)
+
+@Serializable
+data class TrafficBlockDecisionPayload(
+    @SerialName("conn_id")
+    val connId: String = "",
+    val profile: String = "",
+    @SerialName("rule_name")
+    val ruleName: String = "",
+    val action: String = "",
+    val target: String = "",
+    @SerialName("target_host")
+    val targetHost: String = "",
+    @SerialName("target_port")
+    val targetPort: String = "",
+    val network: String = "",
+    @SerialName("ts_ns")
+    val tsNs: Long = 0,
+    @SerialName("close_reason")
+    val closeReason: String = ""
+)
+
+@Serializable
+data class TrafficCleanupSuggestionPayload(
+    val kind: String = "",
+    val profile: String = "",
+    @SerialName("rule_name")
+    val ruleName: String = "",
+    val action: String = "",
+    val message: String = "",
+    val count: Int = 0,
+    @SerialName("last_hit_ts_ns")
+    val lastHitTsNs: Long = 0
 )
 
 @Serializable
@@ -138,6 +213,7 @@ data class TrafficSummaryPayload(
 data class TrafficConnectionPayload(
     @SerialName("conn_id")
     val connId: String = "",
+    val profile: String = "",
     val state: String = "",
     @SerialName("start_ts_ns")
     val startTsNs: Long = 0,
@@ -154,6 +230,8 @@ data class TrafficConnectionPayload(
     val ruleName: String = "",
     @SerialName("rule_action")
     val ruleAction: String = "",
+    @SerialName("default")
+    val isDefault: Boolean = false,
     @SerialName("decision_ns")
     val decisionNs: Long = 0,
     val target: String = "",

@@ -116,6 +116,86 @@ func TestStoreAggregatesAndPersistsClosedHistory(t *testing.T) {
 	}
 }
 
+func TestSnapshotWithOptionsFiltersAndBuildsMonitorAnalytics(t *testing.T) {
+	store, err := NewStore(config.TrafficConfig{
+		Enabled:       true,
+		HistoryLimit:  10,
+		HistoryMaxAge: config.Duration(time.Hour),
+		HistoryPath:   filepath.Join(t.TempDir(), "traffic-history.json"),
+	}, nil)
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	base := time.Now().UnixNano()
+	store.ApplyEvent(events.Event{TsNs: base + 1, Type: events.TypeConnectionOpened, Data: events.ConnectionOpenedData{
+		ConnID:  "c1",
+		Profile: "Work",
+	}})
+	store.ApplyEvent(events.Event{TsNs: base + 2, Type: events.TypeRuleBlocked, Data: events.RuleDecisionData{
+		ConnID:     "c1",
+		Profile:    "Work",
+		RuleName:   "ads",
+		Action:     "block",
+		Target:     "ads.example.com:443",
+		TargetHost: "ads.example.com",
+		TargetPort: "443",
+		Network:    "tcp",
+	}})
+	store.ApplyEvent(events.Event{TsNs: base + 3, Type: events.TypeConnectionClosed, Data: events.ConnectionClosedData{
+		ConnID: "c1",
+		Reason: events.ReasonRouteBlocked,
+	}})
+	store.ApplyEvent(events.Event{TsNs: base + 4, Type: events.TypeConnectionOpened, Data: events.ConnectionOpenedData{
+		ConnID:  "c2",
+		Profile: "Home",
+	}})
+	store.ApplyEvent(events.Event{TsNs: base + 5, Type: events.TypeRuleMatched, Data: events.RuleDecisionData{
+		ConnID:     "c2",
+		Profile:    "Home",
+		Action:     "chain",
+		ChainName:  "proxy",
+		Target:     "example.com:443",
+		TargetHost: "example.com",
+		TargetPort: "443",
+		Default:    true,
+	}})
+
+	snapshot := store.SnapshotWithOptions(SnapshotOptions{
+		State:         "all",
+		Limit:         20,
+		Action:        "block",
+		Profile:       "Work",
+		ActiveProfile: "Work",
+		Profiles:      []string{"Work", "Home"},
+		Rules: []config.RuleConfig{
+			{Name: "ads", Action: "block", DomainSuffixes: []string{"ads.example.com"}},
+			{Name: "unused", Action: "direct", Domains: []string{"unused.example.com"}},
+		},
+	})
+
+	if len(snapshot.Connections) != 1 || snapshot.Connections[0].ConnID != "c1" {
+		t.Fatalf("filtered connections = %+v", snapshot.Connections)
+	}
+	if snapshot.ProfileContext.Active != "Work" || len(snapshot.QuickFilters) == 0 {
+		t.Fatalf("context/filters = %+v %+v", snapshot.ProfileContext, snapshot.QuickFilters)
+	}
+	var sawAdsHit bool
+	for _, hit := range snapshot.RuleHits {
+		if hit.RuleName == "ads" && hit.Action == "block" {
+			sawAdsHit = true
+		}
+	}
+	if !sawAdsHit {
+		t.Fatalf("rule hits = %+v", snapshot.RuleHits)
+	}
+	if len(snapshot.BlockDecisions) != 1 || snapshot.BlockDecisions[0].CloseReason != events.ReasonRouteBlocked {
+		t.Fatalf("block decisions = %+v", snapshot.BlockDecisions)
+	}
+	if len(snapshot.CleanupSuggestions) == 0 {
+		t.Fatalf("cleanup suggestions empty")
+	}
+}
+
 func TestStoreReconfigureDisabledStopsRecording(t *testing.T) {
 	store, err := NewStore(config.TrafficConfig{
 		Enabled:       true,

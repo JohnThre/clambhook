@@ -69,6 +69,7 @@ type HopInfo struct {
 // ConnectionOpenedData is emitted when a listener accepts a new client.
 type ConnectionOpenedData struct {
 	ConnID     string       `json:"conn_id"`
+	Profile    string       `json:"profile,omitempty"`
 	Listener   ListenerInfo `json:"listener"`
 	ClientAddr string       `json:"client_addr"`
 	ChainName  string       `json:"chain_name,omitempty"`
@@ -77,6 +78,7 @@ type ConnectionOpenedData struct {
 // ConnectionDialingData is emitted before the chain dial begins.
 type ConnectionDialingData struct {
 	ConnID      string         `json:"conn_id"`
+	Profile     string         `json:"profile,omitempty"`
 	Target      string         `json:"target"`
 	TargetHost  string         `json:"target_host,omitempty"`
 	TargetPort  string         `json:"target_port,omitempty"`
@@ -85,6 +87,7 @@ type ConnectionDialingData struct {
 	RuleName    string         `json:"rule_name,omitempty"`
 	RuleAction  string         `json:"rule_action,omitempty"`
 	ChainName   string         `json:"chain_name,omitempty"`
+	Default     bool           `json:"default,omitempty"`
 	DecisionNs  int64          `json:"decision_ns,omitempty"`
 	Hops        []HopInfo      `json:"hops"`
 	Visibility  VisibilityInfo `json:"visibility,omitempty"`
@@ -114,6 +117,7 @@ type ConnectionVisibilityData struct {
 // RuleDecisionData records the routing decision made for a connection.
 type RuleDecisionData struct {
 	ConnID     string `json:"conn_id"`
+	Profile    string `json:"profile,omitempty"`
 	RuleName   string `json:"rule_name,omitempty"`
 	Action     string `json:"action"`
 	ChainName  string `json:"chain_name,omitempty"`
@@ -121,6 +125,7 @@ type RuleDecisionData struct {
 	TargetHost string `json:"target_host,omitempty"`
 	TargetPort string `json:"target_port,omitempty"`
 	Network    string `json:"network,omitempty"`
+	Default    bool   `json:"default,omitempty"`
 	ElapsedNs  int64  `json:"elapsed_ns,omitempty"`
 }
 
@@ -200,10 +205,12 @@ type LogLineData struct {
 
 // Close reasons used by the listener teardown path.
 const (
-	ReasonClientEOF = "client_eof"
-	ReasonRemoteEOF = "remote_eof"
-	ReasonError     = "error"
-	ReasonShutdown  = "shutdown"
+	ReasonClientEOF     = "client_eof"
+	ReasonRemoteEOF     = "remote_eof"
+	ReasonError         = "error"
+	ReasonShutdown      = "shutdown"
+	ReasonRouteBlocked  = "route_blocked"
+	ReasonRouteRejected = "route_rejected"
 )
 
 // Emitter is the interface publishers see. A handler goroutine gets an

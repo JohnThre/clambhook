@@ -323,9 +323,10 @@ func (s *Server) handleDisconnect(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleTraffic(w http.ResponseWriter, r *http.Request) {
-	state := r.URL.Query().Get("state")
+	query := r.URL.Query()
+	state := query.Get("state")
 	limit := 200
-	if raw := r.URL.Query().Get("limit"); raw != "" {
+	if raw := query.Get("limit"); raw != "" {
 		n, err := strconv.Atoi(raw)
 		if err != nil || n < 0 {
 			http.Error(w, "invalid limit", http.StatusBadRequest)
@@ -333,13 +334,38 @@ func (s *Server) handleTraffic(w http.ResponseWriter, r *http.Request) {
 		}
 		limit = n
 	}
+	var profileNames []string
+	activeProfile := ""
+	activeRules := []config.RuleConfig(nil)
+	if s.engine != nil {
+		cfg := s.engine.Config()
+		activeProfile = cfg.Active
+		profileNames = cfg.ProfileNames()
+		if profile, err := cfg.ActiveProfile(); err == nil {
+			activeProfile = profile.Name
+			activeRules = profile.Rules
+		}
+	}
+	opts := traffic.SnapshotOptions{
+		State:         state,
+		Limit:         limit,
+		Action:        query.Get("action"),
+		Profile:       query.Get("profile"),
+		Rule:          query.Get("rule"),
+		Country:       query.Get("country"),
+		Port:          query.Get("port"),
+		Query:         query.Get("query"),
+		ActiveProfile: activeProfile,
+		Profiles:      profileNames,
+		Rules:         activeRules,
+	}
 	store := s.trafficStore()
 	if store == nil {
 		var empty *traffic.Store
-		writeJSON(w, empty.Snapshot(state, limit))
+		writeJSON(w, empty.SnapshotWithOptions(opts))
 		return
 	}
-	writeJSON(w, store.Snapshot(state, limit))
+	writeJSON(w, store.SnapshotWithOptions(opts))
 }
 
 func writeJSON(w http.ResponseWriter, v any) {

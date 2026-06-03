@@ -412,6 +412,7 @@ func buildListeners(profile *config.Profile, bus *events.Bus) (listeners []liste
 			maxConns = defaultSOCKS5MaxConns
 		}
 		opts := listener.Options{
+			ProfileName:      profile.Name,
 			MaxConnections:   maxConns,
 			HandshakeTimeout: profile.Listen.SOCKS5HandshakeTimeout.Std(),
 			EventBus:         bus,
@@ -439,6 +440,7 @@ func buildListeners(profile *config.Profile, bus *events.Bus) (listeners []liste
 			maxConns = defaultHTTPMaxConns
 		}
 		opts := listener.Options{
+			ProfileName:      profile.Name,
 			MaxConnections:   maxConns,
 			HandshakeTimeout: profile.Listen.HTTPHandshakeTimeout.Std(),
 			EventBus:         bus,
@@ -460,6 +462,7 @@ func buildListeners(profile *config.Profile, bus *events.Bus) (listeners []liste
 		}
 		opts := listener.TUNOptions{
 			Name:         tunCfg.Name,
+			ProfileName:  profile.Name,
 			MTU:          tunCfg.MTU,
 			Addresses:    tunCfg.Addresses,
 			Routes:       tunCfg.Routes,
@@ -494,6 +497,7 @@ func BuildPacketStack(profile *config.Profile, bus *events.Bus, writer listener.
 	}
 	opts := listener.TUNOptions{
 		Name:         tunCfg.Name,
+		ProfileName:  profile.Name,
 		MTU:          tunCfg.MTU,
 		Addresses:    tunCfg.Addresses,
 		Routes:       tunCfg.Routes,
@@ -577,10 +581,11 @@ func (r *chainResolver) routePlanner(defaultChainName string) (*routePlanner, er
 	if err != nil {
 		return nil, err
 	}
-	return &routePlanner{rules: engine, chains: r.byName, defaultChainName: defaultChainName}, nil
+	return &routePlanner{profileName: r.profile.Name, rules: engine, chains: r.byName, defaultChainName: defaultChainName}, nil
 }
 
 type routePlanner struct {
+	profileName      string
 	rules            *rules.Engine
 	chains           map[string]*chain.Chain
 	defaultChainName string
@@ -600,6 +605,7 @@ func (p *routePlanner) Plan(ctx context.Context, network, target string) (listen
 	}
 	decision := p.rules.Decide(network, target)
 	plan := listener.RoutePlan{
+		Profile:   p.profileName,
 		RuleName:  decision.RuleName,
 		Action:    decision.Action,
 		ChainName: decision.ChainName,
@@ -607,6 +613,7 @@ func (p *routePlanner) Plan(ctx context.Context, network, target string) (listen
 		Host:      decision.Host,
 		Port:      decision.Port,
 		Network:   decision.Network,
+		Default:   decision.Default,
 		ElapsedNs: decision.ElapsedNs,
 	}
 	switch decision.Action {
