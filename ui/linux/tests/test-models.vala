@@ -70,5 +70,42 @@ namespace Clambhook.Tests {
             assert_cmpfloat(event.double_data("tx_delta"), CompareOperator.EQ, 1024);
             assert_cmpstr(event.string_data("line"), CompareOperator.EQ, "ready");
         });
+
+        Test.add_func("/linux/models/traffic-decodes-rule-suggestions", () => {
+            var traffic = TrafficSnapshotPayload.from_json("""
+                {
+                  "updated_ts_ns": 99,
+                  "summary": { "active_connections": 1 },
+                  "rule_suggestions": [
+                    {
+                      "id": "domain_suffix:block:example.com",
+                      "kind": "domain_suffix",
+                      "profile": "Work",
+                      "action": "block",
+                      "draft_rule": {
+                        "name": "block-example-com",
+                        "action": "block",
+                        "domain_suffixes": ["example.com"],
+                        "ports": [443],
+                        "networks": ["tcp"]
+                      },
+                      "count": 3,
+                      "reason": "Observed 3 connections across 2 subdomains."
+                    }
+                  ],
+                  "connections": [
+                    { "conn_id": "c1", "state": "closed", "target_host": "api.example.com" }
+                  ]
+                }
+            """);
+
+            assert_cmpint(traffic.rule_suggestions.size, CompareOperator.EQ, 1);
+            var suggestion = traffic.rule_suggestions[0];
+            assert_cmpstr(suggestion.kind, CompareOperator.EQ, "domain_suffix");
+            assert_cmpstr(suggestion.draft_rule.name, CompareOperator.EQ, "block-example-com");
+            assert_cmpstr(suggestion.draft_rule.domain_suffixes[0], CompareOperator.EQ, "example.com");
+            assert_cmpint(suggestion.draft_rule.ports[0], CompareOperator.EQ, 443);
+            assert_cmpstr(suggestion.draft_rule.networks[0], CompareOperator.EQ, "tcp");
+        });
     }
 }

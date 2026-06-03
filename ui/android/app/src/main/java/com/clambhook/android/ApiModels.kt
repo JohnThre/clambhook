@@ -125,7 +125,9 @@ data class TrafficSnapshotPayload(
     @SerialName("block_decisions")
     val blockDecisions: List<TrafficBlockDecisionPayload> = emptyList(),
     @SerialName("cleanup_suggestions")
-    val cleanupSuggestions: List<TrafficCleanupSuggestionPayload> = emptyList()
+    val cleanupSuggestions: List<TrafficCleanupSuggestionPayload> = emptyList(),
+    @SerialName("rule_suggestions")
+    val ruleSuggestions: List<TrafficRuleSuggestionPayload> = emptyList()
 )
 
 @Serializable
@@ -191,6 +193,23 @@ data class TrafficCleanupSuggestionPayload(
     val count: Int = 0,
     @SerialName("last_hit_ts_ns")
     val lastHitTsNs: Long = 0
+)
+
+@Serializable
+data class TrafficRuleSuggestionPayload(
+    val id: String = "",
+    val kind: String = "",
+    val profile: String = "",
+    val action: String = "",
+    @SerialName("draft_rule")
+    val draftRule: RulePayload = RulePayload(),
+    val count: Int = 0,
+    @SerialName("last_seen_ts_ns")
+    val lastSeenTsNs: Long = 0,
+    @SerialName("sample_targets")
+    val sampleTargets: List<String> = emptyList(),
+    val confidence: String = "",
+    val reason: String = ""
 )
 
 @Serializable

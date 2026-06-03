@@ -81,6 +81,7 @@ type trafficSnapshotPayload struct {
 	RuleHits           []ruleHitPayload           `json:"rule_hits,omitempty"`
 	BlockDecisions     []blockDecisionPayload     `json:"block_decisions,omitempty"`
 	CleanupSuggestions []cleanupSuggestionPayload `json:"cleanup_suggestions,omitempty"`
+	RuleSuggestions    []ruleSuggestionPayload    `json:"rule_suggestions,omitempty"`
 }
 
 type trafficSummaryPayload struct {
@@ -172,6 +173,19 @@ type cleanupSuggestionPayload struct {
 	Message     string `json:"message"`
 	Count       int    `json:"count,omitempty"`
 	LastHitTsNs int64  `json:"last_hit_ts_ns,omitempty"`
+}
+
+type ruleSuggestionPayload struct {
+	ID            string      `json:"id"`
+	Kind          string      `json:"kind"`
+	Profile       string      `json:"profile,omitempty"`
+	Action        string      `json:"action"`
+	DraftRule     rulePayload `json:"draft_rule"`
+	Count         int         `json:"count"`
+	LastSeenTsNs  int64       `json:"last_seen_ts_ns,omitempty"`
+	SampleTargets []string    `json:"sample_targets,omitempty"`
+	Confidence    string      `json:"confidence,omitempty"`
+	Reason        string      `json:"reason,omitempty"`
 }
 
 type developerStatusPayload struct {

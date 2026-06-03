@@ -450,6 +450,9 @@ private fun TrafficCard(state: DashboardState, onCreateRule: (RulePayload) -> Un
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
+            traffic.ruleSuggestions.take(4).forEach { suggestion ->
+                RuleSuggestionRow(suggestion, onCreateRule = { draftRule = suggestion.draftRule })
+            }
             if (traffic.summary.persistError.isNotBlank()) {
                 Text(traffic.summary.persistError, color = MaterialTheme.colorScheme.error)
             }
@@ -472,6 +475,46 @@ private fun TrafficCard(state: DashboardState, onCreateRule: (RulePayload) -> Un
                 draftRule = null
             }
         )
+    }
+}
+
+@Composable
+private fun RuleSuggestionRow(suggestion: TrafficRuleSuggestionPayload, onCreateRule: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(
+                suggestion.draftRule.name.ifBlank { suggestion.kind.ifBlank { "Suggested rule" } },
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                listOf(suggestion.draftRule.action, suggestionMatchText(suggestion.draftRule), "${suggestion.count} hits")
+                    .filter { it.isNotBlank() }
+                    .joinToString(" · "),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            if (suggestion.reason.isNotBlank()) {
+                Text(
+                    suggestion.reason,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+        Spacer(Modifier.width(12.dp))
+        OutlinedButton(onClick = onCreateRule, enabled = suggestion.draftRule.name.isNotBlank()) {
+            Text("Create")
+        }
     }
 }
 
@@ -545,6 +588,15 @@ private fun RuleCreateDialog(
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
     )
 }
+
+private fun suggestionMatchText(rule: RulePayload): String =
+    when {
+        rule.domains.isNotEmpty() -> rule.domains.joinToString(", ")
+        rule.domainSuffixes.isNotEmpty() -> rule.domainSuffixes.joinToString(", ") { "*.$it" }
+        rule.cidrs.isNotEmpty() -> rule.cidrs.joinToString(", ")
+        rule.domainKeywords.isNotEmpty() -> rule.domainKeywords.joinToString(", ") { "contains $it" }
+        else -> ""
+    }
 
 @Composable
 private fun ProfilesCard(state: DashboardState, onProfileSelected: (String) -> Unit) {

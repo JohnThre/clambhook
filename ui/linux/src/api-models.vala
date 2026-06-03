@@ -138,7 +138,24 @@ namespace Clambhook {
         public string name { get; set; default = ""; }
         public string action { get; set; default = ""; }
         public Gee.ArrayList<string> domains { get; private set; default = new Gee.ArrayList<string>(); }
+        public Gee.ArrayList<string> domain_suffixes { get; private set; default = new Gee.ArrayList<string>(); }
+        public Gee.ArrayList<string> domain_keywords { get; private set; default = new Gee.ArrayList<string>(); }
         public Gee.ArrayList<string> cidrs { get; private set; default = new Gee.ArrayList<string>(); }
+        public Gee.ArrayList<int> ports { get; private set; default = new Gee.ArrayList<int>(); }
+        public Gee.ArrayList<string> networks { get; private set; default = new Gee.ArrayList<string>(); }
+
+        public static RulePayload from_object(Json.Object item) {
+            var rule = new RulePayload();
+            rule.name = JsonReader.string_member(item, "name");
+            rule.action = JsonReader.string_member(item, "action");
+            add_string_array(item, "domains", rule.domains);
+            add_string_array(item, "domain_suffixes", rule.domain_suffixes);
+            add_string_array(item, "domain_keywords", rule.domain_keywords);
+            add_string_array(item, "cidrs", rule.cidrs);
+            add_int_array(item, "ports", rule.ports);
+            add_string_array(item, "networks", rule.networks);
+            return rule;
+        }
 
         public void to_json(Json.Builder builder) {
             builder.begin_object();
@@ -154,6 +171,22 @@ namespace Clambhook {
                 }
                 builder.end_array();
             }
+            if (domain_suffixes.size > 0) {
+                builder.set_member_name("domain_suffixes");
+                builder.begin_array();
+                foreach (var suffix in domain_suffixes) {
+                    builder.add_string_value(suffix);
+                }
+                builder.end_array();
+            }
+            if (domain_keywords.size > 0) {
+                builder.set_member_name("domain_keywords");
+                builder.begin_array();
+                foreach (var keyword in domain_keywords) {
+                    builder.add_string_value(keyword);
+                }
+                builder.end_array();
+            }
             if (cidrs.size > 0) {
                 builder.set_member_name("cidrs");
                 builder.begin_array();
@@ -162,7 +195,43 @@ namespace Clambhook {
                 }
                 builder.end_array();
             }
+            if (ports.size > 0) {
+                builder.set_member_name("ports");
+                builder.begin_array();
+                foreach (var port in ports) {
+                    builder.add_int_value(port);
+                }
+                builder.end_array();
+            }
+            if (networks.size > 0) {
+                builder.set_member_name("networks");
+                builder.begin_array();
+                foreach (var network in networks) {
+                    builder.add_string_value(network);
+                }
+                builder.end_array();
+            }
             builder.end_object();
+        }
+
+        private static void add_string_array(Json.Object item, string name, Gee.ArrayList<string> out) {
+            if (!JsonReader.has_array(item, name)) {
+                return;
+            }
+            var values = item.get_array_member(name);
+            for (uint i = 0; i < values.get_length(); i++) {
+                out.add(values.get_string_element(i));
+            }
+        }
+
+        private static void add_int_array(Json.Object item, string name, Gee.ArrayList<int> out) {
+            if (!JsonReader.has_array(item, name)) {
+                return;
+            }
+            var values = item.get_array_member(name);
+            for (uint i = 0; i < values.get_length(); i++) {
+                out.add((int) values.get_int_element(i));
+            }
         }
     }
 
@@ -184,23 +253,7 @@ namespace Clambhook {
             if (JsonReader.has_array(object, "rules")) {
                 var rules = object.get_array_member("rules");
                 for (uint i = 0; i < rules.get_length(); i++) {
-                    var item = rules.get_object_element(i);
-                    var rule = new RulePayload();
-                    rule.name = JsonReader.string_member(item, "name");
-                    rule.action = JsonReader.string_member(item, "action");
-                    if (JsonReader.has_array(item, "domains")) {
-                        var domains = item.get_array_member("domains");
-                        for (uint j = 0; j < domains.get_length(); j++) {
-                            rule.domains.add(domains.get_string_element(j));
-                        }
-                    }
-                    if (JsonReader.has_array(item, "cidrs")) {
-                        var cidrs = item.get_array_member("cidrs");
-                        for (uint j = 0; j < cidrs.get_length(); j++) {
-                            rule.cidrs.add(cidrs.get_string_element(j));
-                        }
-                    }
-                    payload.rules.add(rule);
+                    payload.rules.add(RulePayload.from_object(rules.get_object_element(i)));
                 }
             }
             return payload;
@@ -367,10 +420,46 @@ namespace Clambhook {
         public string close_reason { get; set; default = ""; }
     }
 
+    public class TrafficRuleSuggestionPayload : Object {
+        public string id { get; set; default = ""; }
+        public string kind { get; set; default = ""; }
+        public string profile { get; set; default = ""; }
+        public string action { get; set; default = ""; }
+        public RulePayload draft_rule { get; set; default = new RulePayload(); }
+        public int count { get; set; default = 0; }
+        public int64 last_seen_ts_ns { get; set; default = 0; }
+        public Gee.ArrayList<string> sample_targets { get; private set; default = new Gee.ArrayList<string>(); }
+        public string confidence { get; set; default = ""; }
+        public string reason { get; set; default = ""; }
+
+        public static TrafficRuleSuggestionPayload from_object(Json.Object object) {
+            var suggestion = new TrafficRuleSuggestionPayload();
+            suggestion.id = JsonReader.string_member(object, "id");
+            suggestion.kind = JsonReader.string_member(object, "kind");
+            suggestion.profile = JsonReader.string_member(object, "profile");
+            suggestion.action = JsonReader.string_member(object, "action");
+            if (JsonReader.has_object(object, "draft_rule")) {
+                suggestion.draft_rule = RulePayload.from_object(object.get_object_member("draft_rule"));
+            }
+            suggestion.count = JsonReader.int_member(object, "count");
+            suggestion.last_seen_ts_ns = JsonReader.int64_member(object, "last_seen_ts_ns");
+            if (JsonReader.has_array(object, "sample_targets")) {
+                var samples = object.get_array_member("sample_targets");
+                for (uint i = 0; i < samples.get_length(); i++) {
+                    suggestion.sample_targets.add(samples.get_string_element(i));
+                }
+            }
+            suggestion.confidence = JsonReader.string_member(object, "confidence");
+            suggestion.reason = JsonReader.string_member(object, "reason");
+            return suggestion;
+        }
+    }
+
     public class TrafficSnapshotPayload : Object {
         public int64 updated_ts_ns { get; set; default = 0; }
         public TrafficSummaryPayload summary { get; set; default = new TrafficSummaryPayload(); }
         public Gee.ArrayList<TrafficConnectionPayload> connections { get; private set; default = new Gee.ArrayList<TrafficConnectionPayload>(); }
+        public Gee.ArrayList<TrafficRuleSuggestionPayload> rule_suggestions { get; private set; default = new Gee.ArrayList<TrafficRuleSuggestionPayload>(); }
 
         public static TrafficSnapshotPayload from_json(string json) {
             try {
@@ -390,6 +479,12 @@ namespace Clambhook {
                 var connections = object.get_array_member("connections");
                 for (uint i = 0; i < connections.get_length(); i++) {
                     payload.connections.add(connection_from_object(connections.get_object_element(i)));
+                }
+            }
+            if (JsonReader.has_array(object, "rule_suggestions")) {
+                var suggestions = object.get_array_member("rule_suggestions");
+                for (uint i = 0; i < suggestions.get_length(); i++) {
+                    payload.rule_suggestions.add(TrafficRuleSuggestionPayload.from_object(suggestions.get_object_element(i)));
                 }
             }
             return payload;

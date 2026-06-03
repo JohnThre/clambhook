@@ -192,4 +192,20 @@ private class FakeApi(
         rules = RulesPayload(profile = "A", rules = listOf(rule))
         return rules
     }
+
+    override suspend fun replaceRules(profile: String, rules: List<RulePayload>): RulesPayload {
+        actions += "replace:$profile"
+        this.rules = RulesPayload(profile = profile, rules = rules)
+        return this.rules
+    }
+
+    override suspend fun developerStatus(): DeveloperStatusPayload = DeveloperStatusPayload()
+
+    override suspend fun developerEntries(): DeveloperEntriesPayload = DeveloperEntriesPayload()
+
+    override suspend fun developerHar(): String = "{}"
+
+    override suspend fun clearDeveloperEntries() {
+        actions += "developer:clear"
+    }
 }

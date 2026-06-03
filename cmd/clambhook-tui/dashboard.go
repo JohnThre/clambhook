@@ -66,20 +66,22 @@ type model struct {
 	dev      developerStatusPayload
 	devRows  []developerEntryPayload
 
-	selectedProfile   int
-	viewMode          viewMode
-	trafficFilter     string
-	searchText        string
-	searchEditing     bool
-	ruleTestInput     string
-	ruleTestEditing   bool
-	ruleTestResult    *ruleTestResponse
-	ruleTestErr       string
-	selectedTraffic   int
-	selectedDeveloper int
-	pendingRule       *rulePayload
-	width             int
-	height            int
+	selectedProfile    int
+	viewMode           viewMode
+	trafficFilter      string
+	searchText         string
+	searchEditing      bool
+	ruleTestInput      string
+	ruleTestEditing    bool
+	ruleTestResult     *ruleTestResponse
+	ruleTestErr        string
+	selectedTraffic    int
+	selectedSuggestion int
+	suggestionFocus    bool
+	selectedDeveloper  int
+	pendingRule        *rulePayload
+	width              int
+	height             int
 
 	bandwidth bandwidthSeries
 	logs      []string
@@ -293,29 +295,49 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "esc":
 				m.searchText = ""
 				m.trafficFilter = ""
+				m.suggestionFocus = false
 				m.clampTrafficSelection()
+				m.clampSuggestionSelection()
 				return m, nil
 			case "a":
 				m.trafficFilter = ""
+				m.suggestionFocus = false
 				m.clampTrafficSelection()
 				return m, nil
 			case "b":
 				m.trafficFilter = "block"
+				m.suggestionFocus = false
 				m.clampTrafficSelection()
 				return m, nil
 			case "d":
 				m.trafficFilter = "direct"
+				m.suggestionFocus = false
 				m.clampTrafficSelection()
 				return m, nil
 			case "p":
 				m.trafficFilter = "proxy"
+				m.suggestionFocus = false
 				m.clampTrafficSelection()
 				return m, nil
+			case "tab":
+				if len(m.traffic.RuleSuggestions) > 0 {
+					m.suggestionFocus = !m.suggestionFocus
+					m.clampSuggestionSelection()
+				}
+				return m, nil
 			case "up", "k":
-				m.moveTrafficSelection(-1)
+				if m.suggestionFocus {
+					m.moveSuggestionSelection(-1)
+				} else {
+					m.moveTrafficSelection(-1)
+				}
 				return m, nil
 			case "down", "j":
-				m.moveTrafficSelection(1)
+				if m.suggestionFocus {
+					m.moveSuggestionSelection(1)
+				} else {
+					m.moveTrafficSelection(1)
+				}
 				return m, nil
 			case "n":
 				rule, ok := m.ruleDraftFromSelected()
@@ -398,6 +420,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.devRows = msg.DevRows
 		m.syncSelectedProfile()
 		m.clampTrafficSelection()
+		m.clampSuggestionSelection()
 		m.clampDeveloperSelection()
 		return m, nil
 	case statusLoadedMsg:
@@ -412,6 +435,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.traffic = msg.Traffic
 		m.syncSelectedProfile()
 		m.clampTrafficSelection()
+		m.clampSuggestionSelection()
 		return m, nil
 	case developerLoadedMsg:
 		if msg.Err != nil {
@@ -510,8 +534,8 @@ func (m model) activityView() string {
 		m.renderTrafficDetailSection(width),
 		m.renderLogsSection(width),
 		m.renderFooter(
-			"Keys: a all  b block  d direct  p proxy  / search  x test route  up/down select  n new rule  r refresh  1 now  3 library  5 developer  q quit",
-			"Keys: a/b/d/p  / search  x test  up/down  n rule  r  1 now  3 lib  5 dev  q",
+			"Keys: a all  b block  d direct  p proxy  / search  x test route  tab suggestions  up/down select  n new rule  r refresh  1 now  3 library  q quit",
+			"Keys: a/b/d/p  / search  x test  tab  up/down  n rule  r  1 now  3 lib  q",
 		),
 	)
 	return joinSections(sections)
@@ -939,6 +963,7 @@ func (m model) renderTrafficDetailSection(width int) string {
 	lines = append(lines, m.ruleHitLines(width)...)
 	lines = append(lines, m.blockDecisionLines(width)...)
 	lines = append(lines, m.cleanupSuggestionLines(width)...)
+	lines = append(lines, m.ruleSuggestionLines(width)...)
 	if m.pendingRule != nil {
 		lines = append(lines, m.pendingRuleLine(width))
 	}
@@ -1078,16 +1103,56 @@ func (m model) cleanupSuggestionLines(width int) []string {
 	return lines
 }
 
+func (m model) ruleSuggestionLines(width int) []string {
+	if len(m.traffic.RuleSuggestions) == 0 {
+		return nil
+	}
+	limit := minInt(4, len(m.traffic.RuleSuggestions))
+	lines := []string{tableHeaderStyle.Render(truncate("  Suggested rules", width))}
+	for i, suggestion := range m.traffic.RuleSuggestions[:limit] {
+		prefix := " "
+		if m.suggestionFocus && i == m.selectedSuggestion {
+			prefix = "›"
+		}
+		match := ruleMatchText(suggestion.DraftRule)
+		lines = append(lines, truncate(fmt.Sprintf("%s %s  %s  %s  %d hits  %s",
+			prefix,
+			strings.ToUpper(suggestion.Kind),
+			suggestion.DraftRule.Action,
+			match,
+			suggestion.Count,
+			suggestion.Reason,
+		), width))
+	}
+	if len(m.traffic.RuleSuggestions) > limit {
+		lines = append(lines, subtleStyle.Render(fmt.Sprintf("  +%d more suggested rules", len(m.traffic.RuleSuggestions)-limit)))
+	}
+	return lines
+}
+
 func (m model) pendingRuleLine(width int) string {
 	rule := m.pendingRule
 	if rule == nil {
 		return ""
 	}
-	match := strings.Join(rule.Domains, ",")
-	if match == "" {
-		match = strings.Join(rule.CIDRs, ",")
-	}
+	match := ruleMatchText(*rule)
 	return selectedLineStyle.Render(truncate(fmt.Sprintf("  New rule: %s  %s  %s  (y save, b/d/p action, esc cancel)", rule.Name, rule.Action, match), width))
+}
+
+func ruleMatchText(rule rulePayload) string {
+	if len(rule.Domains) > 0 {
+		return strings.Join(rule.Domains, ",")
+	}
+	if len(rule.DomainSuffixes) > 0 {
+		return "*." + strings.Join(rule.DomainSuffixes, ",*.")
+	}
+	if len(rule.CIDRs) > 0 {
+		return strings.Join(rule.CIDRs, ",")
+	}
+	if len(rule.DomainKeywords) > 0 {
+		return "contains " + strings.Join(rule.DomainKeywords, ",")
+	}
+	return "any"
 }
 
 func (m model) trafficRows(width, limit int, full bool) []string {
@@ -1101,7 +1166,7 @@ func (m model) trafficRowsFor(connections []trafficConnectionPayload, width, lim
 	widths := trafficColumnWidths(width)
 	for i, conn := range rows {
 		prefix := " "
-		if full && i == m.selectedTraffic {
+		if full && !m.suggestionFocus && i == m.selectedTraffic {
 			prefix = "›"
 		}
 		if wide && full {
@@ -1171,6 +1236,20 @@ func (m model) selectedConnection() (trafficConnectionPayload, bool) {
 	return rows[idx], true
 }
 
+func (m model) selectedRuleSuggestion() (ruleSuggestionPayload, bool) {
+	if len(m.traffic.RuleSuggestions) == 0 {
+		return ruleSuggestionPayload{}, false
+	}
+	idx := m.selectedSuggestion
+	if idx < 0 {
+		idx = 0
+	}
+	if idx >= len(m.traffic.RuleSuggestions) {
+		idx = len(m.traffic.RuleSuggestions) - 1
+	}
+	return m.traffic.RuleSuggestions[idx], true
+}
+
 func (m *model) moveTrafficSelection(delta int) {
 	rows := m.filteredTrafficConnections()
 	if len(rows) == 0 {
@@ -1178,6 +1257,15 @@ func (m *model) moveTrafficSelection(delta int) {
 		return
 	}
 	m.selectedTraffic = (m.selectedTraffic + delta + len(rows)) % len(rows)
+}
+
+func (m *model) moveSuggestionSelection(delta int) {
+	if len(m.traffic.RuleSuggestions) == 0 {
+		m.selectedSuggestion = 0
+		m.suggestionFocus = false
+		return
+	}
+	m.selectedSuggestion = (m.selectedSuggestion + delta + len(m.traffic.RuleSuggestions)) % len(m.traffic.RuleSuggestions)
 }
 
 func (m *model) clampTrafficSelection() {
@@ -1191,6 +1279,20 @@ func (m *model) clampTrafficSelection() {
 	}
 	if m.selectedTraffic >= len(rows) {
 		m.selectedTraffic = len(rows) - 1
+	}
+}
+
+func (m *model) clampSuggestionSelection() {
+	if len(m.traffic.RuleSuggestions) == 0 {
+		m.selectedSuggestion = 0
+		m.suggestionFocus = false
+		return
+	}
+	if m.selectedSuggestion < 0 {
+		m.selectedSuggestion = 0
+	}
+	if m.selectedSuggestion >= len(m.traffic.RuleSuggestions) {
+		m.selectedSuggestion = len(m.traffic.RuleSuggestions) - 1
 	}
 }
 
@@ -1358,6 +1460,13 @@ func sortRuleHits(hits []ruleHit) {
 }
 
 func (m model) ruleDraftFromSelected() (rulePayload, bool) {
+	if m.suggestionFocus {
+		suggestion, ok := m.selectedRuleSuggestion()
+		if !ok {
+			return rulePayload{}, false
+		}
+		return suggestion.DraftRule, true
+	}
 	conn, ok := m.selectedConnection()
 	if !ok {
 		return rulePayload{}, false

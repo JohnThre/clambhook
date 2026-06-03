@@ -145,21 +145,23 @@ type Snapshot struct {
 	RuleHits           []RuleHit           `json:"rule_hits,omitempty"`
 	BlockDecisions     []BlockDecision     `json:"block_decisions,omitempty"`
 	CleanupSuggestions []CleanupSuggestion `json:"cleanup_suggestions,omitempty"`
+	RuleSuggestions    []RuleSuggestion    `json:"rule_suggestions,omitempty"`
 }
 
 // SnapshotOptions controls optional filtering and UI analytics.
 type SnapshotOptions struct {
-	State         string
-	Limit         int
-	Action        string
-	Profile       string
-	Rule          string
-	Country       string
-	Port          string
-	Query         string
-	ActiveProfile string
-	Profiles      []string
-	Rules         []config.RuleConfig
+	State          string
+	Limit          int
+	Action         string
+	Profile        string
+	Rule           string
+	Country        string
+	Port           string
+	Query          string
+	ActiveProfile  string
+	Profiles       []string
+	Rules          []config.RuleConfig
+	EffectiveRules []config.RuleConfig
 }
 
 // ProfileContext names the active profile and available profile choices.
@@ -211,6 +213,21 @@ type CleanupSuggestion struct {
 	Message     string `json:"message"`
 	Count       int    `json:"count,omitempty"`
 	LastHitTsNs int64  `json:"last_hit_ts_ns,omitempty"`
+}
+
+// RuleSuggestion is a draft allow/block rule derived from observed traffic.
+// It is advisory: clients must ask the user before persisting DraftRule.
+type RuleSuggestion struct {
+	ID            string            `json:"id"`
+	Kind          string            `json:"kind"`
+	Profile       string            `json:"profile,omitempty"`
+	Action        string            `json:"action"`
+	DraftRule     config.RuleConfig `json:"draft_rule"`
+	Count         int               `json:"count"`
+	LastSeenTsNs  int64             `json:"last_seen_ts_ns,omitempty"`
+	SampleTargets []string          `json:"sample_targets,omitempty"`
+	Confidence    string            `json:"confidence,omitempty"`
+	Reason        string            `json:"reason,omitempty"`
 }
 
 type historyFile struct {
@@ -448,7 +465,15 @@ func (s *Store) SnapshotWithOptions(opts SnapshotOptions) Snapshot {
 		RuleHits:           buildRuleHits(all),
 		BlockDecisions:     buildBlockDecisions(all, 12),
 		CleanupSuggestions: buildCleanupSuggestions(opts.ActiveProfile, opts.Rules, all),
+		RuleSuggestions:    buildRuleSuggestions(opts.ActiveProfile, suggestionCoverageRules(opts), all, 12),
 	}
+}
+
+func suggestionCoverageRules(opts SnapshotOptions) []config.RuleConfig {
+	if len(opts.EffectiveRules) > 0 {
+		return opts.EffectiveRules
+	}
+	return opts.Rules
 }
 
 func filterConnections(conns []Connection, opts SnapshotOptions) []Connection {
@@ -672,6 +697,361 @@ func buildCleanupSuggestions(profile string, rules []config.RuleConfig, conns []
 		}
 	}
 	return out
+}
+
+type suggestionGroup struct {
+	kind     string
+	profile  string
+	action   string
+	value    string
+	isIP     bool
+	count    int
+	hosts    map[string]struct{}
+	ports    map[string]int
+	networks map[string]int
+	samples  []string
+	lastTsNs int64
+}
+
+func buildRuleSuggestions(profile string, rules []config.RuleConfig, conns []Connection, limit int) []RuleSuggestion {
+	if len(conns) == 0 {
+		return nil
+	}
+	coverage := compileRuleCoverage(rules)
+	exactGroups := map[string]*suggestionGroup{}
+	suffixGroups := map[string]*suggestionGroup{}
+	for _, conn := range conns {
+		if profile != "" && conn.Profile != "" && conn.Profile != profile {
+			continue
+		}
+		host := suggestionHost(conn)
+		if host == "" {
+			continue
+		}
+		action := suggestionAction(conn)
+		if action == "" {
+			continue
+		}
+		isIP := looksLikeIP(host)
+		if coverage.coversHostAction(host, action, isIP) {
+			continue
+		}
+		exactKey := strings.Join([]string{"exact_host", conn.Profile, action, host}, "\x00")
+		addSuggestionSample(exactGroups, exactKey, "exact_host", conn.Profile, action, host, host, isIP, conn)
+
+		if !isIP {
+			suffix := suffixCandidate(host)
+			if suffix != "" && suffix != host && !coverage.coversSuffixAction(suffix, action) {
+				suffixKey := strings.Join([]string{"domain_suffix", conn.Profile, action, suffix}, "\x00")
+				addSuggestionSample(suffixGroups, suffixKey, "domain_suffix", conn.Profile, action, suffix, host, false, conn)
+			}
+		}
+	}
+
+	out := make([]RuleSuggestion, 0, len(exactGroups)+len(suffixGroups))
+	for _, group := range exactGroups {
+		out = append(out, group.ruleSuggestion())
+	}
+	for _, group := range suffixGroups {
+		if group.count < 3 || len(group.hosts) < 2 {
+			continue
+		}
+		out = append(out, group.ruleSuggestion())
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Count == out[j].Count {
+			if out[i].LastSeenTsNs == out[j].LastSeenTsNs {
+				return out[i].ID < out[j].ID
+			}
+			return out[i].LastSeenTsNs > out[j].LastSeenTsNs
+		}
+		return out[i].Count > out[j].Count
+	})
+	if limit > 0 && len(out) > limit {
+		out = out[:limit]
+	}
+	return out
+}
+
+func addSuggestionSample(groups map[string]*suggestionGroup, key, kind, profile, action, value, host string, isIP bool, conn Connection) {
+	group := groups[key]
+	if group == nil {
+		group = &suggestionGroup{
+			kind:     kind,
+			profile:  profile,
+			action:   action,
+			value:    value,
+			isIP:     isIP,
+			hosts:    map[string]struct{}{},
+			ports:    map[string]int{},
+			networks: map[string]int{},
+		}
+		groups[key] = group
+	}
+	group.count++
+	group.hosts[host] = struct{}{}
+	if conn.TargetPort != "" {
+		group.ports[conn.TargetPort]++
+	}
+	if conn.Network != "" {
+		group.networks[strings.ToLower(conn.Network)]++
+	}
+	if conn.UpdatedTsNs > group.lastTsNs {
+		group.lastTsNs = conn.UpdatedTsNs
+	}
+	if conn.Target != "" && !containsString(group.samples, conn.Target) {
+		group.samples = append(group.samples, conn.Target)
+		if len(group.samples) > 3 {
+			group.samples = group.samples[:3]
+		}
+	}
+}
+
+func (g *suggestionGroup) ruleSuggestion() RuleSuggestion {
+	rule := config.RuleConfig{
+		Name:   ruleNameForSuggestion(g.action, g.value),
+		Action: g.action,
+	}
+	switch {
+	case g.kind == "domain_suffix":
+		rule.DomainSuffixes = []string{g.value}
+	case g.isIP:
+		if strings.Contains(g.value, ":") {
+			rule.CIDRs = []string{g.value + "/128"}
+		} else {
+			rule.CIDRs = []string{g.value + "/32"}
+		}
+	default:
+		rule.Domains = []string{g.value}
+	}
+	if only := onlyCounterKey(g.networks, g.count); only != "" {
+		rule.Networks = []string{only}
+	}
+	if only := onlyCounterKey(g.ports, g.count); only != "" {
+		if port, err := strconv.Atoi(only); err == nil && port > 0 && port <= 65535 {
+			rule.Ports = []int{port}
+		}
+	}
+	confidence := "medium"
+	reason := fmt.Sprintf("Observed %d matching connections.", g.count)
+	if g.kind == "domain_suffix" {
+		confidence = "low"
+		reason = fmt.Sprintf("Observed %d connections across %d subdomains.", g.count, len(g.hosts))
+	} else if g.count >= 3 {
+		confidence = "high"
+	}
+	return RuleSuggestion{
+		ID:            strings.Join([]string{g.kind, g.action, g.value}, ":"),
+		Kind:          g.kind,
+		Profile:       g.profile,
+		Action:        g.action,
+		DraftRule:     rule,
+		Count:         g.count,
+		LastSeenTsNs:  g.lastTsNs,
+		SampleTargets: append([]string(nil), g.samples...),
+		Confidence:    confidence,
+		Reason:        reason,
+	}
+}
+
+type ruleCoverage struct {
+	domains        map[string]map[string]struct{}
+	domainSuffixes map[string]map[string]struct{}
+	cidrs          map[string]map[string]struct{}
+	broadActions   map[string]struct{}
+}
+
+func compileRuleCoverage(rules []config.RuleConfig) ruleCoverage {
+	c := ruleCoverage{
+		domains:        map[string]map[string]struct{}{},
+		domainSuffixes: map[string]map[string]struct{}{},
+		cidrs:          map[string]map[string]struct{}{},
+		broadActions:   map[string]struct{}{},
+	}
+	for _, rule := range rules {
+		action := strings.ToLower(strings.TrimSpace(rule.Action))
+		if action == "" {
+			continue
+		}
+		if ruleHasNoMatchers(rule) {
+			c.broadActions[action] = struct{}{}
+			continue
+		}
+		for _, domain := range normalizeStrings(rule.Domains) {
+			addCoverage(c.domains, domain, action)
+		}
+		for _, suffix := range normalizeStrings(rule.DomainSuffixes) {
+			addCoverage(c.domainSuffixes, suffix, action)
+		}
+		for _, cidr := range normalizeStrings(rule.CIDRs) {
+			addCoverage(c.cidrs, cidr, action)
+		}
+	}
+	return c
+}
+
+func addCoverage(index map[string]map[string]struct{}, key, action string) {
+	actions := index[key]
+	if actions == nil {
+		actions = map[string]struct{}{}
+		index[key] = actions
+	}
+	actions[action] = struct{}{}
+}
+
+func (c ruleCoverage) coversHostAction(host, action string, isIP bool) bool {
+	if actionCovered(c.broadActions, action) {
+		return true
+	}
+	if isIP {
+		if strings.Contains(host, ":") && actionCovered(c.cidrs[host+"/128"], action) {
+			return true
+		}
+		if !strings.Contains(host, ":") && actionCovered(c.cidrs[host+"/32"], action) {
+			return true
+		}
+		return false
+	}
+	if actionCovered(c.domains[host], action) {
+		return true
+	}
+	return c.coversSuffixAction(host, action)
+}
+
+func (c ruleCoverage) coversSuffixAction(suffix, action string) bool {
+	if actionCovered(c.broadActions, action) {
+		return true
+	}
+	if actionCovered(c.domainSuffixes[suffix], action) {
+		return true
+	}
+	for i := strings.IndexByte(suffix, '.'); i >= 0 && i < len(suffix)-1; {
+		parent := suffix[i+1:]
+		if actionCovered(c.domainSuffixes[parent], action) {
+			return true
+		}
+		next := strings.IndexByte(suffix[i+1:], '.')
+		if next < 0 {
+			break
+		}
+		i += next + 1
+	}
+	return false
+}
+
+func actionCovered(actions map[string]struct{}, action string) bool {
+	if len(actions) == 0 {
+		return false
+	}
+	if _, ok := actions[action]; ok {
+		return true
+	}
+	switch actionFamily(action) {
+	case "proxy":
+		_, ok := actions["chain"]
+		return ok
+	case "block":
+		if _, ok := actions["block"]; ok {
+			return true
+		}
+		_, ok := actions["reject"]
+		return ok
+	default:
+		return false
+	}
+}
+
+func suggestionHost(conn Connection) string {
+	host := conn.TargetHost
+	if host == "" && conn.Visibility != nil {
+		host = conn.Visibility.Host
+	}
+	if host == "" {
+		host, _ = splitTarget(conn.Target)
+	}
+	host = strings.TrimSpace(strings.Trim(host, "[]"))
+	host = strings.TrimSuffix(host, ".")
+	return strings.ToLower(host)
+}
+
+func suggestionAction(conn Connection) string {
+	action := strings.ToLower(strings.TrimSpace(conn.RuleAction))
+	switch action {
+	case "direct", "block", "reject":
+		return action
+	case "chain":
+		if conn.ChainName != "" {
+			return "chain:" + conn.ChainName
+		}
+	case "group":
+		if conn.GroupName != "" {
+			return "group:" + conn.GroupName
+		}
+	}
+	if conn.GroupName != "" {
+		return "group:" + conn.GroupName
+	}
+	if conn.ChainName != "" {
+		return "chain:" + conn.ChainName
+	}
+	return "direct"
+}
+
+func suffixCandidate(host string) string {
+	parts := strings.Split(host, ".")
+	if len(parts) < 3 {
+		return ""
+	}
+	candidate := strings.Join(parts[len(parts)-2:], ".")
+	if broadSuffix(candidate) {
+		return ""
+	}
+	return candidate
+}
+
+func broadSuffix(suffix string) bool {
+	switch suffix {
+	case "co.uk", "com.au", "co.jp", "com.br", "com.cn", "com.sg", "co.nz":
+		return true
+	default:
+		return false
+	}
+}
+
+func looksLikeIP(host string) bool {
+	return net.ParseIP(strings.Trim(host, "[]")) != nil
+}
+
+func onlyCounterKey(counts map[string]int, total int) string {
+	if len(counts) != 1 {
+		return ""
+	}
+	for key, count := range counts {
+		if count == total {
+			return key
+		}
+	}
+	return ""
+}
+
+func ruleNameForSuggestion(action, value string) string {
+	family := actionFamily(action)
+	token := strings.ToLower(strings.Trim(value, "[]"))
+	replacer := strings.NewReplacer(".", "-", ":", "-", "_", "-", " ", "-")
+	token = strings.Trim(replacer.Replace(token), "-")
+	if token == "" {
+		token = "connection"
+	}
+	return family + "-" + token
+}
+
+func containsString(values []string, value string) bool {
+	for _, existing := range values {
+		if existing == value {
+			return true
+		}
+	}
+	return false
 }
 
 type countRow struct {
