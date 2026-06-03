@@ -159,6 +159,20 @@ func TestSnapshotWithOptionsFiltersAndBuildsMonitorAnalytics(t *testing.T) {
 		TargetPort: "443",
 		Default:    true,
 	}})
+	store.ApplyEvent(events.Event{TsNs: base + 6, Type: events.TypeConnectionOpened, Data: events.ConnectionOpenedData{
+		ConnID:  "c3",
+		Profile: "Work",
+	}})
+	store.ApplyEvent(events.Event{TsNs: base + 7, Type: events.TypeRuleMatched, Data: events.RuleDecisionData{
+		ConnID:     "c3",
+		Profile:    "Work",
+		Action:     "chain",
+		ChainName:  "proxy",
+		Target:     "api.example.com:443",
+		TargetHost: "api.example.com",
+		TargetPort: "443",
+		Network:    "tcp",
+	}})
 
 	snapshot := store.SnapshotWithOptions(SnapshotOptions{
 		State:         "all",
@@ -193,6 +207,109 @@ func TestSnapshotWithOptionsFiltersAndBuildsMonitorAnalytics(t *testing.T) {
 	}
 	if len(snapshot.CleanupSuggestions) == 0 {
 		t.Fatalf("cleanup suggestions empty")
+	}
+	if len(snapshot.RuleSuggestions) != 1 {
+		t.Fatalf("rule suggestions = %+v, want one uncovered Work host", snapshot.RuleSuggestions)
+	}
+	suggestion := snapshot.RuleSuggestions[0]
+	if suggestion.Kind != "exact_host" || suggestion.Action != "chain:proxy" || len(suggestion.DraftRule.Domains) != 1 || suggestion.DraftRule.Domains[0] != "api.example.com" {
+		t.Fatalf("rule suggestion = %+v", suggestion)
+	}
+	if len(suggestion.DraftRule.Ports) != 1 || suggestion.DraftRule.Ports[0] != 443 || len(suggestion.DraftRule.Networks) != 1 || suggestion.DraftRule.Networks[0] != "tcp" {
+		t.Fatalf("rule suggestion match scope = %+v", suggestion.DraftRule)
+	}
+}
+
+func TestRuleSuggestionsIncludeConservativeDomainSuffixes(t *testing.T) {
+	store, err := NewStore(config.TrafficConfig{
+		Enabled:       true,
+		HistoryLimit:  10,
+		HistoryMaxAge: config.Duration(time.Hour),
+		HistoryPath:   filepath.Join(t.TempDir(), "traffic-history.json"),
+	}, nil)
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	base := time.Now().UnixNano()
+	rows := []struct {
+		id     string
+		target string
+		host   string
+	}{
+		{"c1", "api.example.com:443", "api.example.com"},
+		{"c2", "cdn.example.com:443", "cdn.example.com"},
+		{"c3", "img.example.com:443", "img.example.com"},
+	}
+	for i, row := range rows {
+		store.ApplyEvent(events.Event{TsNs: base + int64(i*2+1), Type: events.TypeConnectionOpened, Data: events.ConnectionOpenedData{
+			ConnID:  row.id,
+			Profile: "Work",
+		}})
+		store.ApplyEvent(events.Event{TsNs: base + int64(i*2+2), Type: events.TypeRuleMatched, Data: events.RuleDecisionData{
+			ConnID:     row.id,
+			Profile:    "Work",
+			Action:     "direct",
+			Target:     row.target,
+			TargetHost: row.host,
+			TargetPort: "443",
+			Network:    "tcp",
+		}})
+	}
+
+	snapshot := store.SnapshotWithOptions(SnapshotOptions{State: "all", ActiveProfile: "Work"})
+	var suffix *RuleSuggestion
+	for i := range snapshot.RuleSuggestions {
+		if snapshot.RuleSuggestions[i].Kind == "domain_suffix" {
+			suffix = &snapshot.RuleSuggestions[i]
+			break
+		}
+	}
+	if suffix == nil {
+		t.Fatalf("rule suggestions = %+v, want domain suffix suggestion", snapshot.RuleSuggestions)
+	}
+	if suffix.DraftRule.Action != "direct" || len(suffix.DraftRule.DomainSuffixes) != 1 || suffix.DraftRule.DomainSuffixes[0] != "example.com" {
+		t.Fatalf("suffix suggestion = %+v", *suffix)
+	}
+	if suffix.Count != 3 || suffix.Confidence != "low" {
+		t.Fatalf("suffix suggestion confidence/count = %+v", *suffix)
+	}
+}
+
+func TestRuleSuggestionsSuppressEffectiveRuleCoverage(t *testing.T) {
+	store, err := NewStore(config.TrafficConfig{
+		Enabled:       true,
+		HistoryLimit:  10,
+		HistoryMaxAge: config.Duration(time.Hour),
+		HistoryPath:   filepath.Join(t.TempDir(), "traffic-history.json"),
+	}, nil)
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	store.ApplyEvent(events.Event{TsNs: 1, Type: events.TypeConnectionOpened, Data: events.ConnectionOpenedData{
+		ConnID:  "c1",
+		Profile: "Work",
+	}})
+	store.ApplyEvent(events.Event{TsNs: 2, Type: events.TypeRuleMatched, Data: events.RuleDecisionData{
+		ConnID:     "c1",
+		Profile:    "Work",
+		Action:     "block",
+		Target:     "ads.example.com:443",
+		TargetHost: "ads.example.com",
+		TargetPort: "443",
+		Network:    "tcp",
+	}})
+
+	snapshot := store.SnapshotWithOptions(SnapshotOptions{
+		State:         "all",
+		ActiveProfile: "Work",
+		EffectiveRules: []config.RuleConfig{{
+			Name:           "subscription-ads",
+			Action:         "block",
+			DomainSuffixes: []string{"example.com"},
+		}},
+	})
+	if len(snapshot.RuleSuggestions) != 0 {
+		t.Fatalf("rule suggestions = %+v, want covered host suppressed", snapshot.RuleSuggestions)
 	}
 }
 

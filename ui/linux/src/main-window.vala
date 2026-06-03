@@ -398,7 +398,11 @@ namespace Clambhook {
 
         private void render_traffic() {
             clear_list(traffic_list);
+            append_rule_suggestions();
             if (store.traffic.connections.size == 0) {
+                if (store.traffic.rule_suggestions.size > 0) {
+                    return;
+                }
                 traffic_list.append(empty_state_row("No activity yet", "Recent connection decisions will appear here."));
                 return;
             }
@@ -417,6 +421,17 @@ namespace Clambhook {
             }
             if (rendered == 0) {
                 traffic_list.append(empty_state_row("No matching activity", "Connection decisions appear here when traffic passes through clambhook."));
+            }
+        }
+
+        private void append_rule_suggestions() {
+            var limit = store.traffic.rule_suggestions.size < 4 ? store.traffic.rule_suggestions.size : 4;
+            if (limit == 0) {
+                return;
+            }
+            traffic_list.append(detail_row("Suggested rules", "Observed traffic can become persistent allow or block rules.", "emblem-system-symbolic"));
+            for (int i = 0; i < limit; i++) {
+                traffic_list.append(rule_suggestion_row(store.traffic.rule_suggestions[i]));
             }
         }
 
@@ -466,6 +481,40 @@ namespace Clambhook {
             var button = new Button.with_label("Rule");
             button.sensitive = rule_draft_from_connection(connection) != null;
             button.clicked.connect(() => show_rule_dialog(connection));
+            outer.append(button);
+
+            var row = new ListBoxRow();
+            row.set_child(outer);
+            return row;
+        }
+
+        private ListBoxRow rule_suggestion_row(TrafficRuleSuggestionPayload suggestion) {
+            var outer = new Box(Orientation.HORIZONTAL, 10);
+            outer.margin_top = 8;
+            outer.margin_bottom = 8;
+            outer.margin_start = 10;
+            outer.margin_end = 10;
+
+            var text = new Box(Orientation.VERTICAL, 2);
+            text.hexpand = true;
+            var title = new Label("%s  %s".printf(suggestion.draft_rule.action.up(), empty_dash(suggestion.draft_rule.name)));
+            title.xalign = 0;
+            title.wrap = true;
+            text.append(title);
+            var secondary = new Label("%s / %d hits / %s".printf(
+                rule_match_text(suggestion.draft_rule),
+                suggestion.count,
+                suggestion.reason
+            ));
+            secondary.xalign = 0;
+            secondary.wrap = true;
+            secondary.add_css_class("dim-label");
+            text.append(secondary);
+            outer.append(text);
+
+            var button = new Button.with_label("Create");
+            button.sensitive = suggestion.draft_rule.name.strip() != "";
+            button.clicked.connect(() => show_rule_dialog_for_draft(suggestion.draft_rule));
             outer.append(button);
 
             var row = new ListBoxRow();
@@ -543,6 +592,10 @@ namespace Clambhook {
             if (draft == null) {
                 return;
             }
+            show_rule_dialog_for_draft(draft);
+        }
+
+        private void show_rule_dialog_for_draft(RulePayload draft) {
             var win = new Window();
             win.title = "Create Rule";
             win.transient_for = this;
@@ -571,7 +624,7 @@ namespace Clambhook {
             action.set_selected(dropdown_index_for(action_values, draft.action));
             root.append(field_label("Name", name));
             root.append(field_label("Action", action));
-            root.append(new Label("Match: %s".printf(draft.domains.size > 0 ? draft.domains[0] : draft.cidrs[0])));
+            root.append(new Label("Match: %s".printf(rule_match_text(draft))));
             var buttons = new Box(Orientation.HORIZONTAL, 8);
             buttons.halign = Align.END;
             var cancel = new Button.with_label("Cancel");
@@ -591,6 +644,26 @@ namespace Clambhook {
             root.append(buttons);
             win.set_child(root);
             win.present();
+        }
+
+        private static string rule_match_text(RulePayload rule) {
+            if (rule.domains.size > 0) {
+                return string.joinv(", ", rule.domains.to_array());
+            }
+            if (rule.domain_suffixes.size > 0) {
+                var labels = new Gee.ArrayList<string>();
+                foreach (var suffix in rule.domain_suffixes) {
+                    labels.add("*.%s".printf(suffix));
+                }
+                return string.joinv(", ", labels.to_array());
+            }
+            if (rule.cidrs.size > 0) {
+                return string.joinv(", ", rule.cidrs.to_array());
+            }
+            if (rule.domain_keywords.size > 0) {
+                return "contains %s".printf(string.joinv(", ", rule.domain_keywords.to_array()));
+            }
+            return "any";
         }
 
         private static Widget field_label(string label_text, Widget control) {

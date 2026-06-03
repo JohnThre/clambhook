@@ -366,6 +366,38 @@ func TestTrafficMonitorFiltersAndCreatesRuleDraft(t *testing.T) {
 	}
 }
 
+func TestTrafficMonitorCreatesRuleDraftFromSuggestion(t *testing.T) {
+	m := newModel("127.0.0.1:9090")
+	m.viewMode = viewModeActivity
+	m.traffic.Connections = []trafficConnectionPayload{
+		{Target: "example.com:443", TargetHost: "example.com", ChainName: "proxy"},
+	}
+	m.traffic.RuleSuggestions = []ruleSuggestionPayload{{
+		Kind:   "domain_suffix",
+		Action: "block",
+		Count:  3,
+		DraftRule: rulePayload{
+			Name:           "block-example-com",
+			Action:         "block",
+			DomainSuffixes: []string{"example.com"},
+			Ports:          []int{443},
+			Networks:       []string{"tcp"},
+		},
+		Reason: "Observed 3 connections across 2 subdomains.",
+	}}
+
+	updated, _ := m.Update(keyMsg("tab"))
+	m = updated.(model)
+	if !m.suggestionFocus {
+		t.Fatal("suggestionFocus = false, want true")
+	}
+	updated, _ = m.Update(keyMsg("n"))
+	m = updated.(model)
+	if m.pendingRule == nil || m.pendingRule.Name != "block-example-com" || len(m.pendingRule.DomainSuffixes) != 1 || m.pendingRule.DomainSuffixes[0] != "example.com" {
+		t.Fatalf("pending rule = %+v", m.pendingRule)
+	}
+}
+
 func TestTrafficMonitorSearchMatchesRuleAndHost(t *testing.T) {
 	m := newModel("127.0.0.1:9090")
 	m.traffic.Connections = []trafficConnectionPayload{
@@ -388,6 +420,13 @@ func TestTrafficMonitorRendersBackendAnalytics(t *testing.T) {
 	m.traffic.RuleHits = []ruleHitPayload{{RuleName: "ads", Action: "block", Count: 3}}
 	m.traffic.BlockDecisions = []blockDecisionPayload{{TargetHost: "ads.example.com", RuleName: "ads", Action: "block"}}
 	m.traffic.CleanupSuggestions = []cleanupSuggestionPayload{{RuleName: "old-rule", Message: "No recent traffic-history entries matched this rule."}}
+	m.traffic.RuleSuggestions = []ruleSuggestionPayload{{
+		Kind:      "exact_host",
+		Action:    "block",
+		Count:     2,
+		DraftRule: rulePayload{Name: "block-api", Action: "block", Domains: []string{"api.example.com"}},
+		Reason:    "Observed 2 matching connections.",
+	}}
 	m.traffic.Connections = []trafficConnectionPayload{{
 		ConnID:     "c1",
 		Profile:    "Work",
@@ -398,7 +437,7 @@ func TestTrafficMonitorRendersBackendAnalytics(t *testing.T) {
 	}}
 
 	view := m.View()
-	for _, want := range []string{"profile Work", "Rule hits", "ads/block 3", "Recent blocks", "Cleanup old-rule"} {
+	for _, want := range []string{"profile Work", "Rule hits", "ads/block 3", "Recent blocks", "Cleanup old-rule", "Suggested rules", "api.example.com"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("view missing %q:\n%s", want, view)
 		}

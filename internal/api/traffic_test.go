@@ -61,6 +61,10 @@ func TestHandleTrafficAppliesMonitorFiltersAndContext(t *testing.T) {
 	store.ApplyEvent(events.Event{TsNs: 2, Type: events.TypeRuleBlocked, Data: events.RuleDecisionData{
 		ConnID: "c1", Profile: "A", RuleName: "ads", Action: "block", Target: "ads.example.com:443", TargetHost: "ads.example.com", TargetPort: "443",
 	}})
+	store.ApplyEvent(events.Event{TsNs: 3, Type: events.TypeConnectionOpened, Data: events.ConnectionOpenedData{ConnID: "c2", Profile: "A"}})
+	store.ApplyEvent(events.Event{TsNs: 4, Type: events.TypeRuleMatched, Data: events.RuleDecisionData{
+		ConnID: "c2", Profile: "A", Action: "direct", Target: "api.example.com:443", TargetHost: "api.example.com", TargetPort: "443", Network: "tcp",
+	}})
 	cfg := testServersConfig("A")
 	cfg.Profiles[0].Rules = []config.RuleConfig{{Name: "ads", Action: "block", Domains: []string{"ads.example.com"}}}
 	s := NewWithOptions(engine.New(cfg, nil), nil, Options{TrafficStore: store})
@@ -81,6 +85,9 @@ func TestHandleTrafficAppliesMonitorFiltersAndContext(t *testing.T) {
 	}
 	if len(got.RuleHits) == 0 || len(got.QuickFilters) == 0 {
 		t.Fatalf("analytics missing: hits=%+v filters=%+v", got.RuleHits, got.QuickFilters)
+	}
+	if len(got.RuleSuggestions) != 1 || got.RuleSuggestions[0].DraftRule.Domains[0] != "api.example.com" {
+		t.Fatalf("rule suggestions = %+v", got.RuleSuggestions)
 	}
 }
 

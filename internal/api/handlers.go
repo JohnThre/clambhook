@@ -547,6 +547,7 @@ func (s *Server) handleTraffic(w http.ResponseWriter, r *http.Request) {
 	var profileNames []string
 	activeProfile := ""
 	activeRules := []config.RuleConfig(nil)
+	activeEffectiveRules := []config.RuleConfig(nil)
 	if s.engine != nil {
 		cfg := s.engine.Config()
 		activeProfile = cfg.Active
@@ -554,20 +555,22 @@ func (s *Server) handleTraffic(w http.ResponseWriter, r *http.Request) {
 		if profile, err := cfg.ActiveProfile(); err == nil {
 			activeProfile = profile.Name
 			activeRules = profile.Rules
+			_, _, activeEffectiveRules = subscription.EffectiveRules(cfg.Path, profile)
 		}
 	}
 	opts := traffic.SnapshotOptions{
-		State:         state,
-		Limit:         limit,
-		Action:        query.Get("action"),
-		Profile:       query.Get("profile"),
-		Rule:          query.Get("rule"),
-		Country:       query.Get("country"),
-		Port:          query.Get("port"),
-		Query:         query.Get("query"),
-		ActiveProfile: activeProfile,
-		Profiles:      profileNames,
-		Rules:         activeRules,
+		State:          state,
+		Limit:          limit,
+		Action:         query.Get("action"),
+		Profile:        query.Get("profile"),
+		Rule:           query.Get("rule"),
+		Country:        query.Get("country"),
+		Port:           query.Get("port"),
+		Query:          query.Get("query"),
+		ActiveProfile:  activeProfile,
+		Profiles:       profileNames,
+		Rules:          activeRules,
+		EffectiveRules: activeEffectiveRules,
 	}
 	store := s.trafficStore()
 	if store == nil {

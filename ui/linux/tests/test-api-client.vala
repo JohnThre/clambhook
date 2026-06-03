@@ -23,11 +23,13 @@ namespace Clambhook.Tests {
             var rule = new RulePayload();
             rule.name = "block-example-com";
             rule.action = "block";
-            rule.domains.add("example.com");
+            rule.domain_suffixes.add("example.com");
+            rule.ports.add(443);
+            rule.networks.add("tcp");
             assert_cmpstr(
                 ClambhookApiClient.create_rule_body(rule),
                 CompareOperator.EQ,
-                "{\"rule\":{\"name\":\"block-example-com\",\"action\":\"block\",\"domains\":[\"example.com\"]},\"position\":\"append\"}"
+                "{\"rule\":{\"name\":\"block-example-com\",\"action\":\"block\",\"domain_suffixes\":[\"example.com\"],\"ports\":[443],\"networks\":[\"tcp\"]},\"position\":\"append\"}"
             );
         });
     }
