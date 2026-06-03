@@ -4,7 +4,6 @@ public enum CaptureFilterKind: String, CaseIterable, Identifiable, Sendable {
     case all
     case http
     case https
-    case metadataOnly
 
     public var id: Self { self }
 }
@@ -12,12 +11,14 @@ public enum CaptureFilterKind: String, CaseIterable, Identifiable, Sendable {
 public struct CaptureSnapshotPayload: Codable, Equatable, Sendable {
     public var version: Int
     public var generatedAt: Date
-    public var entries: [CaptureEntryPayload]
+    public var groups: [CaptureGroupPayload]
+    public var entries: [CaptureMetadataEntryPayload]
     public var note: String
 
     enum CodingKeys: String, CodingKey {
         case version
         case generatedAt = "generated_at"
+        case groups
         case entries
         case note
     }
@@ -25,13 +26,136 @@ public struct CaptureSnapshotPayload: Codable, Equatable, Sendable {
     public init(
         version: Int = 1,
         generatedAt: Date = Date(),
-        entries: [CaptureEntryPayload] = [],
+        groups: [CaptureGroupPayload] = [],
+        entries: [CaptureMetadataEntryPayload] = [],
         note: String = CaptureSupport.captureNote
     ) {
         self.version = version
         self.generatedAt = generatedAt
+        self.groups = groups
         self.entries = entries
         self.note = note
+    }
+}
+
+public struct CaptureGroupPayload: Codable, Equatable, Identifiable, Sendable {
+    public var id: String { key }
+    public var key: String
+    public var host: String
+    public var schemes: [String]
+    public var count: Int
+    public var latestUpdatedAtNs: Int64
+    public var entries: [CaptureMetadataEntryPayload]
+
+    enum CodingKeys: String, CodingKey {
+        case key
+        case host
+        case schemes
+        case count
+        case latestUpdatedAtNs = "latest_updated_at_ns"
+        case entries
+    }
+
+    public init(
+        key: String = "",
+        host: String = "",
+        schemes: [String] = [],
+        count: Int = 0,
+        latestUpdatedAtNs: Int64 = 0,
+        entries: [CaptureMetadataEntryPayload] = []
+    ) {
+        self.key = key
+        self.host = host
+        self.schemes = schemes
+        self.count = count
+        self.latestUpdatedAtNs = latestUpdatedAtNs
+        self.entries = entries
+    }
+}
+
+public struct CaptureMetadataEntryPayload: Codable, Equatable, Identifiable, Sendable {
+    public var id: String
+    public var connectionID: String
+    public var startedAtNs: Int64
+    public var updatedAtNs: Int64
+    public var state: String
+    public var method: String
+    public var scheme: String
+    public var host: String
+    public var port: String
+    public var path: String
+    public var statusCode: Int
+    public var sslState: String
+    public var ruleName: String
+    public var ruleAction: String
+    public var chainName: String
+    public var rxTotal: UInt64
+    public var txTotal: UInt64
+    public var durationNs: Int64
+    public var timeline: [TrafficTimelinePayload]
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case connectionID = "connection_id"
+        case startedAtNs = "started_at_ns"
+        case updatedAtNs = "updated_at_ns"
+        case state
+        case method
+        case scheme
+        case host
+        case port
+        case path
+        case statusCode = "status_code"
+        case sslState = "ssl_state"
+        case ruleName = "rule_name"
+        case ruleAction = "rule_action"
+        case chainName = "chain_name"
+        case rxTotal = "rx_total"
+        case txTotal = "tx_total"
+        case durationNs = "duration_ns"
+        case timeline
+    }
+
+    public init(
+        id: String = "",
+        connectionID: String = "",
+        startedAtNs: Int64 = 0,
+        updatedAtNs: Int64 = 0,
+        state: String = "",
+        method: String = "",
+        scheme: String = "",
+        host: String = "",
+        port: String = "",
+        path: String = "",
+        statusCode: Int = 0,
+        sslState: String = "metadata_only",
+        ruleName: String = "",
+        ruleAction: String = "",
+        chainName: String = "",
+        rxTotal: UInt64 = 0,
+        txTotal: UInt64 = 0,
+        durationNs: Int64 = 0,
+        timeline: [TrafficTimelinePayload] = []
+    ) {
+        self.id = id
+        self.connectionID = connectionID
+        self.startedAtNs = startedAtNs
+        self.updatedAtNs = updatedAtNs
+        self.state = state
+        self.method = method
+        self.scheme = scheme
+        self.host = host
+        self.port = port
+        self.path = path
+        self.statusCode = statusCode
+        self.sslState = sslState
+        self.ruleName = ruleName
+        self.ruleAction = ruleAction
+        self.chainName = chainName
+        self.rxTotal = rxTotal
+        self.txTotal = txTotal
+        self.durationNs = durationNs
+        self.timeline = timeline
     }
 }
 
@@ -56,6 +180,7 @@ public struct CaptureEntryPayload: Codable, Equatable, Identifiable, Sendable {
     public var rxTotal: UInt64
     public var txTotal: UInt64
     public var durationNs: Int64
+    public var timeline: [TrafficTimelinePayload]
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -78,6 +203,7 @@ public struct CaptureEntryPayload: Codable, Equatable, Identifiable, Sendable {
         case rxTotal = "rx_total"
         case txTotal = "tx_total"
         case durationNs = "duration_ns"
+        case timeline
     }
 
     public init(
@@ -100,7 +226,8 @@ public struct CaptureEntryPayload: Codable, Equatable, Identifiable, Sendable {
         responseBody: CaptureBodyPayload = CaptureBodyPayload(),
         rxTotal: UInt64 = 0,
         txTotal: UInt64 = 0,
-        durationNs: Int64 = 0
+        durationNs: Int64 = 0,
+        timeline: [TrafficTimelinePayload] = []
     ) {
         self.id = id
         self.connectionID = connectionID
@@ -122,6 +249,7 @@ public struct CaptureEntryPayload: Codable, Equatable, Identifiable, Sendable {
         self.rxTotal = rxTotal
         self.txTotal = txTotal
         self.durationNs = durationNs
+        self.timeline = timeline
     }
 
     public var displayTarget: String {
@@ -175,15 +303,18 @@ public struct CaptureBodyPayload: Codable, Equatable, Sendable {
 }
 
 public enum CaptureSupport {
-    public static let captureNote = "Metadata-only export. HTTPS entries contain CONNECT metadata unless opt-in HTTPS Body Capture is enabled. Body previews, local CA details, and HAR exports are available only from that explicit developer capture mode."
+    public static let captureNote = "Metadata-only export. HTTP rows include method, host, path, route, byte counts, timing, and connection timeline. HTTPS rows contain CONNECT metadata only. Payload bodies, headers, local CA data, TLS MITM data, and HAR fields are not collected or exported in v1."
 
     public static func snapshot(
         traffic: TrafficSnapshotPayload,
         generatedAt: Date = Date()
     ) -> CaptureSnapshotPayload {
-        CaptureSnapshotPayload(
+        let entries = captureEntries(from: traffic)
+        let exportEntries = entries.map(metadataEntry)
+        return CaptureSnapshotPayload(
             generatedAt: generatedAt,
-            entries: captureEntries(from: traffic),
+            groups: groupMetadataEntriesByHost(exportEntries),
+            entries: exportEntries,
             note: captureNote
         )
     }
@@ -208,8 +339,6 @@ public enum CaptureSupport {
                 guard entry.scheme.lowercased() == "http" else { return false }
             case .https:
                 guard entry.scheme.lowercased() == "https" else { return false }
-            case .metadataOnly:
-                guard !entry.hasBodyPreview else { return false }
             }
             guard !normalizedQuery.isEmpty else { return true }
             return [
@@ -227,14 +356,21 @@ public enum CaptureSupport {
         }
     }
 
+    public static func groupEntriesByHost(_ entries: [CaptureEntryPayload]) -> [CaptureGroupPayload] {
+        groupMetadataEntriesByHost(entries.map(metadataEntry))
+    }
+
     public static func exportString(
         traffic: TrafficSnapshotPayload,
         entries: [CaptureEntryPayload],
         generatedAt: Date = Date()
     ) -> String {
+        _ = traffic
+        let exportEntries = entries.map(metadataEntry)
         let payload = CaptureSnapshotPayload(
             generatedAt: generatedAt,
-            entries: entries,
+            groups: groupMetadataEntriesByHost(exportEntries),
+            entries: exportEntries,
             note: captureNote
         )
         let encoder = JSONEncoder()
@@ -277,8 +413,63 @@ public enum CaptureSupport {
             responseBody: CaptureBodyPayload(reason: bodyUnavailableReason(kind: kind)),
             rxTotal: connection.rxTotal,
             txTotal: connection.txTotal,
-            durationNs: connection.durationNs
+            durationNs: connection.durationNs,
+            timeline: connection.timeline
         )
+    }
+
+    private static func metadataEntry(_ entry: CaptureEntryPayload) -> CaptureMetadataEntryPayload {
+        CaptureMetadataEntryPayload(
+            id: entry.id,
+            connectionID: entry.connectionID,
+            startedAtNs: entry.startedAtNs,
+            updatedAtNs: entry.updatedAtNs,
+            state: entry.state,
+            method: entry.method,
+            scheme: entry.scheme,
+            host: entry.host,
+            port: entry.port,
+            path: entry.path,
+            statusCode: entry.statusCode,
+            sslState: entry.sslState,
+            ruleName: entry.ruleName,
+            ruleAction: entry.ruleAction,
+            chainName: entry.chainName,
+            rxTotal: entry.rxTotal,
+            txTotal: entry.txTotal,
+            durationNs: entry.durationNs,
+            timeline: entry.timeline
+        )
+    }
+
+    private static func groupMetadataEntriesByHost(_ entries: [CaptureMetadataEntryPayload]) -> [CaptureGroupPayload] {
+        let sortedEntries = entries.sorted { $0.updatedAtNs > $1.updatedAtNs }
+        let grouped = Dictionary(grouping: sortedEntries) { normalizedHost($0.host) }
+        return grouped.map { key, rows in
+            let orderedRows = rows.sorted { $0.updatedAtNs > $1.updatedAtNs }
+            let schemes = Array(Set(orderedRows.map { $0.scheme.lowercased() }.filter { !$0.isEmpty })).sorted()
+            return CaptureGroupPayload(
+                key: key,
+                host: orderedRows.first(where: { !$0.host.isEmpty })?.host ?? "Unknown Host",
+                schemes: schemes,
+                count: orderedRows.count,
+                latestUpdatedAtNs: orderedRows.first?.updatedAtNs ?? 0,
+                entries: orderedRows
+            )
+        }
+        .sorted {
+            if $0.latestUpdatedAtNs == $1.latestUpdatedAtNs {
+                return $0.host < $1.host
+            }
+            return $0.latestUpdatedAtNs > $1.latestUpdatedAtNs
+        }
+    }
+
+    private static func normalizedHost(_ host: String) -> String {
+        let value = host.trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "."))
+            .lowercased()
+        return value.isEmpty ? "unknown" : value
     }
 
     private static func bodyUnavailableReason(kind: String) -> String {

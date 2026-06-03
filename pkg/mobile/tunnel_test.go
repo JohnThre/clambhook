@@ -152,6 +152,52 @@ func TestMobileHTTPProxyConfigDisablesPacketAndSOCKSListeners(t *testing.T) {
 	}
 }
 
+func TestLoadTunnelConfigDisablesDeveloperCapture(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "clambhook.toml")
+	if err := os.WriteFile(path, []byte(`
+active = "default"
+
+[developer]
+enabled = true
+mitm_enabled = true
+capture_limit = 10
+body_limit_bytes = 1024
+
+[[profile]]
+name = "default"
+
+  [profile.listen]
+  http = "127.0.0.1:18080"
+  http_chain = "proxy"
+
+  [[profile.chain]]
+  name = "proxy"
+
+    [[profile.chain.server]]
+    name = "example"
+    address = "example.invalid:443"
+    protocol = "shadowsocks"
+
+      [profile.chain.server.settings]
+      method = "chacha20-ietf-poly1305"
+      password = "secret"
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := loadTunnelConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Developer.Enabled {
+		t.Fatalf("developer enabled = true, want false")
+	}
+	if cfg.Developer.BodyLimitBytes != config.DefaultDeveloperConfig().BodyLimitBytes {
+		t.Fatalf("body limit = %d, want mobile default disabled config", cfg.Developer.BodyLimitBytes)
+	}
+}
+
 func TestTunnelNetworkSettingsJSONIncludesDNSServers(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "clambhook.toml")
