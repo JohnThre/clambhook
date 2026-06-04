@@ -7,7 +7,7 @@ struct IOSRootView: View {
     @ObservedObject var model: AppleAppModel
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.scenePhase) private var scenePhase
-    @State private var selectedDestination: IOSAppDestination = .today
+    @State private var selectedDestination: IOSAppDestination = .dashboard
     @State private var compactPath: [IOSAppDestination] = []
     @State private var showingOnboarding = false
     @AppStorage("org.jpfchang.clambhook.onboardingComplete") private var onboardingComplete = false
@@ -75,16 +75,10 @@ struct IOSRootView: View {
         NavigationStack(path: $compactPath) {
             List {
                 Section {
-                    ForEach(IOSAppDestination.attentionCases) { destination in
+                    ForEach(IOSAppDestination.shellCases) { destination in
                         NavigationLink(value: destination) {
                             IOSDestinationRow(destination: destination, count: badgeCount(for: destination))
                         }
-                    }
-                }
-
-                Section {
-                    NavigationLink(value: IOSAppDestination.settings) {
-                        IOSDestinationRow(destination: .settings, count: nil)
                     }
                 }
             }
@@ -100,7 +94,7 @@ struct IOSRootView: View {
         NavigationSplitView {
             List {
                 Section {
-                    ForEach(IOSAppDestination.attentionCases) { destination in
+                    ForEach(IOSAppDestination.shellCases) { destination in
                         Button {
                             selectedDestination = destination
                         } label: {
@@ -116,22 +110,6 @@ struct IOSRootView: View {
                         .buttonStyle(.plain)
                     }
                 }
-
-                Section {
-                    Button {
-                        selectedDestination = .settings
-                    } label: {
-                        HStack {
-                            Label(IOSAppDestination.settings.title, systemImage: IOSAppDestination.settings.systemImage)
-                            Spacer()
-                            if selectedDestination == .settings {
-                                Image(systemName: "checkmark")
-                                    .foregroundStyle(.tint)
-                            }
-                        }
-                    }
-                    .buttonStyle(.plain)
-                }
             }
             .navigationTitle("clambhook")
         } detail: {
@@ -145,14 +123,14 @@ struct IOSRootView: View {
     @ViewBuilder
     private func destinationView(_ destination: IOSAppDestination) -> some View {
         switch destination {
-        case .inbox:
-            IOSInboxView(model: model)
-        case .today:
-            IOSTodayView(model: model, onRecoveryAction: handleRecoveryAction)
-        case .anytime:
-            IOSAnytimeView(model: model)
-        case .logbook:
-            IOSLogbookView(model: model)
+        case .dashboard:
+            IOSStatusView(model: model, onRecoveryAction: handleRecoveryAction)
+        case .profiles:
+            IOSProfilesView(model: model)
+        case .rules:
+            IOSRulesView(model: model)
+        case .activity:
+            IOSActivityView(model: model)
         case .settings:
             AppSettingsView(model: model)
         }
@@ -160,13 +138,13 @@ struct IOSRootView: View {
 
     private func badgeCount(for destination: IOSAppDestination) -> Int? {
         switch destination {
-        case .inbox:
-            return model.attention.state.inbox.count
-        case .today:
+        case .dashboard:
             return model.attention.dueScheduledItems().count + todayIncidentCount
-        case .anytime:
-            return model.dashboard.profiles.profiles.count + model.dashboard.rules.rules.count
-        case .logbook:
+        case .profiles:
+            return model.dashboard.profiles.profiles.count
+        case .rules:
+            return model.dashboard.rules.rules.count
+        case .activity:
             return model.dashboard.traffic.connections.count
                 + CaptureSupport.captureEntries(from: model.dashboard.traffic).count
         case .settings:
@@ -197,7 +175,7 @@ struct IOSRootView: View {
 
     private func handleRecoveryAction(_ action: TunnelRecoveryAction) {
         if action == .openProfiles || action == .importProfile {
-            selectedDestination = action == .importProfile ? .inbox : .anytime
+            selectedDestination = .profiles
             compactPath = [selectedDestination]
         }
         model.performRecoveryAction(action)
@@ -315,28 +293,28 @@ private struct IOSDestinationRow: View {
 }
 
 private enum IOSAppDestination: String, CaseIterable, Identifiable, Hashable {
-    case inbox
-    case today
-    case anytime
-    case logbook
+    case dashboard
+    case profiles
+    case rules
+    case activity
     case settings
 
     var id: Self { self }
 
-    static var attentionCases: [IOSAppDestination] {
-        [.inbox, .today, .anytime, .logbook]
+    static var shellCases: [IOSAppDestination] {
+        [.dashboard, .profiles, .rules, .activity, .settings]
     }
 
     var title: String {
         switch self {
-        case .inbox:
-            return "Inbox"
-        case .today:
-            return "Today"
-        case .anytime:
-            return "Anytime"
-        case .logbook:
-            return "Logbook"
+        case .dashboard:
+            return "Dashboard"
+        case .profiles:
+            return "Profiles"
+        case .rules:
+            return "Rules"
+        case .activity:
+            return "Activity"
         case .settings:
             return "Settings"
         }
@@ -344,13 +322,13 @@ private enum IOSAppDestination: String, CaseIterable, Identifiable, Hashable {
 
     var systemImage: String {
         switch self {
-        case .inbox:
-            return "tray"
-        case .today:
-            return "sun.max"
-        case .anytime:
+        case .dashboard:
+            return "network"
+        case .profiles:
+            return "person.crop.rectangle.stack"
+        case .rules:
             return "slider.horizontal.3"
-        case .logbook:
+        case .activity:
             return "clock.arrow.circlepath"
         case .settings:
             return "gearshape"
@@ -475,12 +453,16 @@ private struct IOSLibraryRow: View {
     }
 }
 
-private struct IOSInboxView: View {
+struct IOSProfileImportsView: View {
     @ObservedObject var model: AppleAppModel
     @State private var showingFileImporter = false
     @State private var showingQRScanner = false
     @State private var message = ""
     @State private var stagedReviewItem: InboxImportItem?
+
+    init(model: AppleAppModel) {
+        self.model = model
+    }
 
     var body: some View {
         List {
@@ -492,17 +474,17 @@ private struct IOSInboxView: View {
                 }
             }
 
-            Section("Capture") {
+            Section("Stage") {
                 Button {
                     showingFileImporter = true
                 } label: {
-                    Label("Stage From Files", systemImage: "doc.badge.plus")
+                    Label("Stage from Files", systemImage: "doc.badge.plus")
                 }
 
                 Button {
                     stageFromClipboard()
                 } label: {
-                    Label("Stage From Clipboard", systemImage: "doc.on.clipboard")
+                    Label("Stage from Clipboard", systemImage: "doc.on.clipboard")
                 }
 
                 Button {
@@ -515,9 +497,9 @@ private struct IOSInboxView: View {
             Section("Unprocessed") {
                 if model.attention.state.inbox.isEmpty {
                     ContentUnavailableView(
-                        "Inbox is empty",
-                        systemImage: "tray",
-                        description: Text("Captured configs wait here until you import, defer, or delete them.")
+                        "No staged profiles",
+                        systemImage: "tray.and.arrow.down",
+                        description: Text("Imported configs wait here until you review or delete them.")
                     )
                 } else {
                     ForEach(model.attention.state.inbox) { item in
@@ -532,12 +514,6 @@ private struct IOSInboxView: View {
                             } label: {
                                 Label("Delete", systemImage: "trash")
                             }
-                            Button {
-                                _ = model.attention.moveInboxItemToSomeday(id: item.id)
-                            } label: {
-                                Label("Someday", systemImage: "archivebox")
-                            }
-                            .tint(.gray)
                         }
                     }
                 }
@@ -561,6 +537,7 @@ private struct IOSInboxView: View {
                 IOSInboxItemDetailView(model: model, itemID: item.id)
             }
         }
+        .navigationTitle("Import Profiles")
     }
 
     @discardableResult
@@ -707,13 +684,6 @@ struct IOSInboxItemDetailView: View {
                         Label("Import Selected", systemImage: "tray.and.arrow.down")
                     }
                     .disabled(!canImportReviewed)
-
-                    Button {
-                        _ = model.attention.moveInboxItemToSomeday(id: itemID)
-                        dismiss()
-                    } label: {
-                        Label("Move to Someday", systemImage: "archivebox")
-                    }
 
                     Button(role: .destructive) {
                         model.attention.removeInboxItem(id: itemID)

@@ -22,7 +22,7 @@ struct IOSProfilesView: View {
                     ContentUnavailableView(
                         searchText.isEmpty ? "No profiles" : "No matching profiles",
                         systemImage: "person.crop.rectangle.stack",
-                        description: Text("Create a profile or process an Inbox import to connect.")
+                        description: Text("Create or import a profile to connect.")
                     )
                 } else {
                     ForEach(filteredProfiles, id: \.self) { profile in
@@ -45,6 +45,21 @@ struct IOSProfilesView: View {
                             }
                         }
                     }
+                }
+            }
+
+            Section("Import") {
+                NavigationLink {
+                    IOSProfileImportsView(model: model)
+                } label: {
+                    Label("Import Profiles", systemImage: "tray.and.arrow.down")
+                }
+
+                if !model.attention.state.inbox.isEmpty {
+                    LabeledContent(
+                        "Staged",
+                        value: "\(model.attention.state.inbox.count) profile\(model.attention.state.inbox.count == 1 ? "" : "s")"
+                    )
                 }
             }
 
