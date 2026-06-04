@@ -45,7 +45,7 @@ VPN,proxy,WireGuard,OpenVPN,Shadowsocks,Tor,Trojan,network,privacy,tunnel
 - Demo profile name: App Review Demo.
 - Demo endpoint: `review-vpn.jpfchang.org:443`.
 - Demo credentials: paste only in the App Review Notes field in App Store Connect; do not commit them.
-- Demo profile template: `docs/app-store/app-review-demo-profile.toml.template`; render only with local secret values for validation.
+- Demo profile template: `docs/app-store/app-review-demo-profile.toml.template`; render only with secret values during `make app-review-release-check` or the manual App Review Compliance workflow.
 - Territory availability: v1 is United States only. In App Store Connect, select `Specific Countries or Regions` and select only `United States`; do not select `All Countries or Regions` or automatic future-country availability for v1.
 - Notes: ClambHook creates a local VPN configuration through Network Extension and routes traffic according to user-managed profiles and rules. v1 inspection is metadata-only; the app does not install a certificate authority, perform TLS MITM, store request or response bodies, or export HAR files. The app is free to download and uses non-consumable In-App Purchases for premium access and paid feature updates. Family Sharing is enabled for these purchases. No territories requiring VPN license information are selected for the v1 submission.
 

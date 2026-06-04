@@ -1,4 +1,4 @@
-.PHONY: all build build-clib build-daemon build-tui install install-linux prepare-apple-runtime generate-apple build-apple archive-iphone build-iphone release-macos release-check package-smoke test-apple test-android build-android-mobile-aar build-ios-mobile-xcframework build-android build-android-release build-android-play-release check-linux-ui-deps test-linux build-linux test e2e e2e-release lint clean
+.PHONY: all build build-clib build-daemon build-tui install install-linux prepare-apple-runtime generate-apple build-apple archive-iphone build-iphone release-macos release-check app-review-release-check package-smoke test-apple test-android build-android-mobile-aar build-ios-mobile-xcframework build-android build-android-release build-android-play-release check-linux-ui-deps test-linux build-linux test e2e e2e-release lint clean
 
 export CGO_ENABLED=1
 PREFIX ?= /usr/local
@@ -65,6 +65,10 @@ release-macos:
 release-check:
 	$(internal-release-notice)
 	$(MAKE) test lint package-smoke e2e-release
+
+app-review-release-check:
+	$(internal-release-notice)
+	./scripts/app-review-compliance-check.sh --require-demo-secret
 
 package-smoke:
 	$(internal-release-notice)
