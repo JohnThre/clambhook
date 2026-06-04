@@ -111,9 +111,9 @@ fun DashboardScreen(
 private fun InboxCard(state: DashboardState, onOpenSettings: () -> Unit) {
     Card(shape = RoundedCornerShape(8.dp)) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("Inbox", style = MaterialTheme.typography.titleMedium)
+            Text("Profile Imports", style = MaterialTheme.typography.titleMedium)
             Text(
-                "Imports, QR scans, and unfinished setup are handled here. Android uses raw config until the import review flow is added.",
+                "Imported configs and QR scans are staged here. Android uses raw config in Settings until profile review is added.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )

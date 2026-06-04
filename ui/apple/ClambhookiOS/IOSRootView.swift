@@ -377,13 +377,13 @@ private struct IOSAnytimeView: View {
                 }
             }
 
-            Section("Schedules") {
+            Section("Maintenance") {
                 NavigationLink {
                     IOSUpcomingView(model: model)
                 } label: {
                     IOSLibraryRow(
-                        title: "Upcoming",
-                        detail: "\(model.attention.upcomingScheduledItems().count) scheduled items",
+                        title: "Maintenance Checks",
+                        detail: "\(model.attention.upcomingScheduledItems().count) planned checks",
                         systemImage: "calendar"
                     )
                 }
@@ -392,8 +392,8 @@ private struct IOSAnytimeView: View {
                     IOSSomedayView(model: model)
                 } label: {
                     IOSLibraryRow(
-                        title: "Someday",
-                        detail: "\(model.attention.state.someday.count) deferred items",
+                        title: "Config Drafts",
+                        detail: "\(model.attention.state.someday.count) saved drafts",
                         systemImage: "archivebox"
                     )
                 }
@@ -486,17 +486,17 @@ struct IOSProfileImportsView: View {
                 }
             }
 
-            Section("Stage") {
+            Section("Add Profiles") {
                 Button {
                     showingFileImporter = true
                 } label: {
-                    Label("Stage from Files", systemImage: "doc.badge.plus")
+                    Label("Import from Files", systemImage: "doc.badge.plus")
                 }
 
                 Button {
                     stageFromClipboard()
                 } label: {
-                    Label("Stage from Clipboard", systemImage: "doc.on.clipboard")
+                    Label("Import from Clipboard", systemImage: "doc.on.clipboard")
                 }
 
                 Button {
@@ -506,7 +506,7 @@ struct IOSProfileImportsView: View {
                 }
             }
 
-            Section("Unprocessed") {
+            Section("Pending Review") {
                 if model.attention.state.inbox.isEmpty {
                     ContentUnavailableView(
                         "No staged profiles",
@@ -549,7 +549,7 @@ struct IOSProfileImportsView: View {
                 IOSInboxItemDetailView(model: model, itemID: item.id)
             }
         }
-        .navigationTitle("Import Profiles")
+        .navigationTitle("Profile Imports")
     }
 
     @discardableResult
@@ -1065,7 +1065,7 @@ private struct IOSTodayView: View {
             IOSMetric(title: "Down", value: formatRate(sample.rxBps), systemImage: "arrow.down"),
             IOSMetric(title: "Up", value: formatRate(sample.txBps), systemImage: "arrow.up"),
             IOSMetric(title: "Active", value: "\(model.dashboard.traffic.summary.activeConnections)", systemImage: "bolt.horizontal.circle"),
-            IOSMetric(title: "Inbox", value: "\(model.attention.state.inbox.count)", systemImage: "tray"),
+            IOSMetric(title: "Imports", value: "\(model.attention.state.inbox.count)", systemImage: "tray"),
         ]
     }
 
@@ -1115,9 +1115,9 @@ private struct IOSUpcomingView: View {
                 let upcoming = model.attention.upcomingScheduledItems()
                 if upcoming.isEmpty {
                     ContentUnavailableView(
-                        "No upcoming checks",
+                        "No planned checks",
                         systemImage: "calendar",
-                        description: Text("Schedule server tests and credential renewals here.")
+                        description: Text("Plan server tests and credential renewals here.")
                     )
                 } else {
                     ForEach(upcoming) { item in
@@ -1135,7 +1135,7 @@ private struct IOSUpcomingView: View {
                 } label: {
                     Image(systemName: "plus")
                 }
-                .accessibilityLabel("Add Scheduled Item")
+                .accessibilityLabel("Add Maintenance Check")
             }
         }
         .sheet(isPresented: $showingEditor) {
@@ -1247,7 +1247,7 @@ private struct IOSScheduledEditorSheet: View {
                     }
                 }
             }
-            .navigationTitle(item == nil ? "Schedule" : "Edit")
+            .navigationTitle(item == nil ? "Maintenance Check" : "Edit")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
@@ -1283,12 +1283,12 @@ private struct IOSSomedayView: View {
 
     var body: some View {
         List {
-            Section("Experiments") {
+            Section("Draft Profiles") {
                 if model.attention.state.someday.isEmpty {
                     ContentUnavailableView(
-                        "No deferred experiments",
+                        "No saved profile drafts",
                         systemImage: "archivebox",
-                        description: Text("Inactive config ideas live here until you are ready to revisit them.")
+                        description: Text("Inactive profile configs can be saved here until you are ready to review them.")
                     )
                 } else {
                     ForEach(model.attention.state.someday) { item in
@@ -1306,7 +1306,7 @@ private struct IOSSomedayView: View {
                             Button {
                                 model.attention.restoreSomedayItemToInbox(id: item.id)
                             } label: {
-                                Label("Inbox", systemImage: "tray")
+                                Label("Profile Imports", systemImage: "tray")
                             }
                             .tint(.blue)
                         }
@@ -1322,7 +1322,7 @@ private struct IOSSomedayView: View {
                 } label: {
                     Image(systemName: "plus")
                 }
-                .accessibilityLabel("Add Experiment")
+                .accessibilityLabel("Add Profile Draft")
             }
         }
         .sheet(isPresented: $showingEditor) {
@@ -1363,7 +1363,7 @@ private struct IOSSomedayDetailView: View {
     var body: some View {
         if let item {
             List {
-                Section("Experiment") {
+                Section("Profile Draft") {
                     LabeledContent("Created", value: item.createdAt.formatted(date: .abbreviated, time: .shortened))
                     if !item.detail.isEmpty {
                         Text(item.detail)
@@ -1383,7 +1383,7 @@ private struct IOSSomedayDetailView: View {
                         model.attention.restoreSomedayItemToInbox(id: itemID)
                         dismiss()
                     } label: {
-                        Label("Restore to Inbox", systemImage: "tray")
+                        Label("Move to Profile Imports", systemImage: "tray")
                     }
 
                     Button(role: .destructive) {
@@ -1398,7 +1398,7 @@ private struct IOSSomedayDetailView: View {
             .navigationTitle(item.title)
             .navigationBarTitleDisplayMode(.inline)
         } else {
-            ContentUnavailableView("Experiment removed", systemImage: "archivebox")
+            ContentUnavailableView("Profile draft removed", systemImage: "archivebox")
         }
     }
 
@@ -1416,13 +1416,13 @@ private struct IOSSomedayEditorSheet: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("Experiment") {
+                Section("Profile Draft") {
                     TextField("Title", text: $title)
                     TextField("Detail", text: $detail, axis: .vertical)
                         .lineLimit(2...4)
                 }
             }
-            .navigationTitle("Add Experiment")
+            .navigationTitle("Add Profile Draft")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {

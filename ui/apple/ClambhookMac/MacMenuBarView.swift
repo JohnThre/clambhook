@@ -29,7 +29,7 @@ struct MacMenuBarView: View {
                 VStack(alignment: .leading, spacing: 16) {
                     statusPanel
                     metricsPanel
-                    DisclosureGroup("Logbook", isExpanded: $showLogbook) {
+                    DisclosureGroup("Activity", isExpanded: $showLogbook) {
                         VStack(alignment: .leading, spacing: 14) {
                             trafficPanel
                             developerCapturePanel
@@ -37,7 +37,7 @@ struct MacMenuBarView: View {
                         }
                         .padding(.top, 8)
                     }
-                    DisclosureGroup("Anytime", isExpanded: $showAnytime) {
+                    DisclosureGroup("Profiles", isExpanded: $showAnytime) {
                         VStack(alignment: .leading, spacing: 14) {
                             profilesPanel
                             listenersPanel
@@ -82,7 +82,7 @@ struct MacMenuBarView: View {
     }
 
     private var statusPanel: some View {
-        MacSection(title: "Today") {
+        MacSection(title: "Status") {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 8) {
                     MacStatusPill(

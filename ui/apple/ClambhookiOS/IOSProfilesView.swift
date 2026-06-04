@@ -52,7 +52,7 @@ struct IOSProfilesView: View {
                 NavigationLink {
                     IOSProfileImportsView(model: model)
                 } label: {
-                    Label("Import Profiles", systemImage: "tray.and.arrow.down")
+                    Label("Profile Imports", systemImage: "tray.and.arrow.down")
                 }
 
                 if !model.attention.state.inbox.isEmpty {
