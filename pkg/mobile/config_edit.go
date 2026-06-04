@@ -86,6 +86,7 @@ func TunnelConfigDashboardJSON(configPath string) (string, error) {
 		},
 		Servers:           serversForConfig(cfg, geoReader),
 		Rules:             rulesForConfig(cfg),
+		PolicyGroups:      policyGroupsForConfig(cfg),
 		RuleSubscriptions: ruleSubscriptionsForConfig(cfg),
 		Traffic:           empty.Snapshot("all", 200),
 	}

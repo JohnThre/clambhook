@@ -16,6 +16,7 @@ import (
 
 	"github.com/JohnThre/clambhook/internal/chain"
 	"github.com/JohnThre/clambhook/internal/events"
+	"github.com/JohnThre/clambhook/internal/policy"
 	"gvisor.dev/gvisor/pkg/buffer"
 	"gvisor.dev/gvisor/pkg/tcpip"
 	"gvisor.dev/gvisor/pkg/tcpip/adapters/gonet"
@@ -77,6 +78,13 @@ func (s *PacketStack) ActiveConns() int64 {
 		return 0
 	}
 	return s.active.Load()
+}
+
+func (s *PacketStack) PolicySnapshot(profile string) policy.Snapshot {
+	if s == nil || s.opts.PolicyManager == nil {
+		return policy.Snapshot{Profile: profile}
+	}
+	return s.opts.PolicyManager.Snapshot(profile)
 }
 
 func (s *PacketStack) Start(parent context.Context) error {

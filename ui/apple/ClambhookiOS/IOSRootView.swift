@@ -73,21 +73,33 @@ struct IOSRootView: View {
 
     private var compactNavigationView: some View {
         NavigationStack(path: $compactPath) {
-            List {
-                Section {
-                    ForEach(IOSAppDestination.shellCases) { destination in
-                        NavigationLink(value: destination) {
-                            IOSDestinationRow(destination: destination, count: badgeCount(for: destination))
+            IOSStatusView(model: model, onRecoveryAction: handleRecoveryAction)
+                .navigationTitle(IOSAppDestination.dashboard.title)
+                .navigationDestination(for: IOSAppDestination.self) { destination in
+                    destinationView(destination)
+                        .navigationTitle(destination.title)
+                }
+                .toolbar {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Menu {
+                            ForEach(IOSAppDestination.shellCases) { destination in
+                                Button {
+                                    if destination == .dashboard {
+                                        compactPath.removeAll()
+                                    } else {
+                                        compactPath = [destination]
+                                    }
+                                } label: {
+                                    Label(destination.title, systemImage: destination.systemImage)
+                                }
+                            }
+                        } label: {
+                            Image(systemName: "ellipsis.circle")
                         }
+                        .accessibilityLabel("Navigate")
                     }
                 }
             }
-            .navigationTitle("clambhook")
-            .navigationDestination(for: IOSAppDestination.self) { destination in
-                destinationView(destination)
-                    .navigationTitle(destination.title)
-            }
-        }
     }
 
     private var splitView: some View {

@@ -615,7 +615,7 @@ public struct ServerHealth: Equatable, Sendable {
 public extension DashboardStore {
     var recentDecisions: [RecentDecision] {
         traffic.connections
-            .filter { !$0.ruleAction.isEmpty || !$0.ruleName.isEmpty }
+            .filter { !$0.ruleAction.isEmpty || !$0.ruleName.isEmpty || !$0.chainName.isEmpty }
             .sorted { $0.updatedTsNs > $1.updatedTsNs }
             .prefix(8)
             .map {

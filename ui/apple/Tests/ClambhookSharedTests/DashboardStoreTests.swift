@@ -63,6 +63,9 @@ final class DashboardStoreTests: XCTestCase {
             rules: RulesPayload(profile: "phone", rules: [
                 RulePayload(name: "ads", action: "block", domainSuffixes: ["ads.example.com"])
             ]),
+            policyGroups: PolicyGroupsPayload(profile: "phone", groups: [
+                PolicyGroupPayload(name: "auto", type: "url-test", chains: ["proxy"], selectedChain: "proxy")
+            ]),
             traffic: TrafficSnapshotPayload(
                 summary: TrafficSummaryPayload(activeConnections: 2, rxBps: 4096, txBps: 1024),
                 connections: [TrafficConnectionPayload(connID: "c1", state: "active", target: "example.com:443")]
@@ -82,11 +85,29 @@ final class DashboardStoreTests: XCTestCase {
         XCTAssertEqual(store.profiles.profiles, ["phone", "backup"])
         XCTAssertEqual(store.servers.chains.first?.name, "proxy")
         XCTAssertEqual(store.rules.rules.first?.name, "ads")
+        XCTAssertEqual(store.policyGroups.groups.first?.selectedChain, "proxy")
         XCTAssertEqual(store.traffic.summary.rxBps, 4096)
         let snapshot = try await snapshotStore.load()
         XCTAssertTrue(snapshot.apiOnline)
         XCTAssertEqual(snapshot.profile, "phone")
         XCTAssertEqual(snapshot.listenerCount, 1)
+    }
+
+    func testDashboardPayloadDecodesMissingPolicyGroups() throws {
+        let data = Data("""
+        {
+          "status": {"running": true, "profile": "A", "listeners": []},
+          "profiles": {"profiles": ["A"], "active": "A"},
+          "servers": {"profile": "A", "chains": []},
+          "rules": {"profile": "A", "rules": []},
+          "traffic": {"summary": {"active_connections": 0}, "connections": []}
+        }
+        """.utf8)
+
+        let payload = try JSONDecoder().decode(TunnelDashboardPayload.self, from: data)
+
+        XCTAssertEqual(payload.policyGroups, PolicyGroupsPayload())
+        XCTAssertEqual(payload.status.profile, "A")
     }
 
     func testApplyConnectionBytesKeepsLatestSamplesAndSnapshotRates() async throws {

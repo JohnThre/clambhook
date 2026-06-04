@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	"github.com/JohnThre/clambhook/internal/events"
+	"github.com/JohnThre/clambhook/internal/policy"
 )
 
 const (
@@ -26,6 +27,7 @@ type DNSProxy interface {
 type PolicyManager interface {
 	Start(context.Context)
 	Close() error
+	Snapshot(profile string) policy.Snapshot
 }
 
 // TUNOptions tunes the device-wide TUN listener. The Linux implementation

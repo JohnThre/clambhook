@@ -61,6 +61,110 @@ public struct RulesPayload: Codable, Equatable, Sendable {
     }
 }
 
+public struct PolicyGroupsPayload: Codable, Equatable, Sendable {
+    public var profile: String
+    public var groups: [PolicyGroupPayload]
+
+    public init(profile: String = "", groups: [PolicyGroupPayload] = []) {
+        self.profile = profile
+        self.groups = groups
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.profile = try container.decodeIfPresent(String.self, forKey: .profile) ?? ""
+        self.groups = try container.decodeIfPresent([PolicyGroupPayload].self, forKey: .groups) ?? []
+    }
+}
+
+public struct PolicyGroupPayload: Codable, Equatable, Identifiable, Sendable {
+    public var id: String { name }
+    public var name: String
+    public var type: String
+    public var chains: [String]
+    public var testURL: String
+    public var interval: String
+    public var timeout: String
+    public var selectedChain: String
+    public var updatedTsNs: Int64
+    public var results: [PolicyProbeResultPayload]
+
+    enum CodingKeys: String, CodingKey {
+        case name
+        case type
+        case chains
+        case testURL = "test_url"
+        case interval
+        case timeout
+        case selectedChain = "selected_chain"
+        case updatedTsNs = "updated_ts_ns"
+        case results
+    }
+
+    public init(name: String = "", type: String = "", chains: [String] = [], testURL: String = "", interval: String = "", timeout: String = "", selectedChain: String = "", updatedTsNs: Int64 = 0, results: [PolicyProbeResultPayload] = []) {
+        self.name = name
+        self.type = type
+        self.chains = chains
+        self.testURL = testURL
+        self.interval = interval
+        self.timeout = timeout
+        self.selectedChain = selectedChain
+        self.updatedTsNs = updatedTsNs
+        self.results = results
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.name = try container.decodeIfPresent(String.self, forKey: .name) ?? ""
+        self.type = try container.decodeIfPresent(String.self, forKey: .type) ?? ""
+        self.chains = try container.decodeIfPresent([String].self, forKey: .chains) ?? []
+        self.testURL = try container.decodeIfPresent(String.self, forKey: .testURL) ?? ""
+        self.interval = try container.decodeIfPresent(String.self, forKey: .interval) ?? ""
+        self.timeout = try container.decodeIfPresent(String.self, forKey: .timeout) ?? ""
+        self.selectedChain = try container.decodeIfPresent(String.self, forKey: .selectedChain) ?? ""
+        self.updatedTsNs = try container.decodeIfPresent(Int64.self, forKey: .updatedTsNs) ?? 0
+        self.results = try container.decodeIfPresent([PolicyProbeResultPayload].self, forKey: .results) ?? []
+    }
+}
+
+public struct PolicyProbeResultPayload: Codable, Equatable, Identifiable, Sendable {
+    public var id: String { chainName }
+    public var chainName: String
+    public var healthy: Bool
+    public var latencyNs: Int64
+    public var statusCode: Int
+    public var error: String
+    public var lastTestTsNs: Int64
+
+    enum CodingKeys: String, CodingKey {
+        case chainName = "chain_name"
+        case healthy
+        case latencyNs = "latency_ns"
+        case statusCode = "status_code"
+        case error
+        case lastTestTsNs = "last_test_ts_ns"
+    }
+
+    public init(chainName: String = "", healthy: Bool = false, latencyNs: Int64 = 0, statusCode: Int = 0, error: String = "", lastTestTsNs: Int64 = 0) {
+        self.chainName = chainName
+        self.healthy = healthy
+        self.latencyNs = latencyNs
+        self.statusCode = statusCode
+        self.error = error
+        self.lastTestTsNs = lastTestTsNs
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.chainName = try container.decodeIfPresent(String.self, forKey: .chainName) ?? ""
+        self.healthy = try container.decodeIfPresent(Bool.self, forKey: .healthy) ?? false
+        self.latencyNs = try container.decodeIfPresent(Int64.self, forKey: .latencyNs) ?? 0
+        self.statusCode = try container.decodeIfPresent(Int.self, forKey: .statusCode) ?? 0
+        self.error = try container.decodeIfPresent(String.self, forKey: .error) ?? ""
+        self.lastTestTsNs = try container.decodeIfPresent(Int64.self, forKey: .lastTestTsNs) ?? 0
+    }
+}
+
 public struct RulePayload: Codable, Equatable, Identifiable, Sendable {
     public var id: String { name }
     public var name: String
