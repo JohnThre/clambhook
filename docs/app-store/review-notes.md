@@ -29,7 +29,7 @@ Demo profile for App Review:
 - Protocol: `clambback`
 - Credentials: provide only in the App Review Notes field in App Store Connect; do not commit them.
 - Demo profile source template: `docs/app-store/app-review-demo-profile.toml.template`
-- Release validation: render the template locally with `CLAMBHOOK_APP_REVIEW_DEMO_PASSWORD` and run `scripts/app-review-compliance-check.sh --require-demo-secret`.
+- Release validation: run `make app-review-release-check` locally with `CLAMBHOOK_APP_REVIEW_DEMO_PASSWORD` set, or run the manual App Review Compliance GitHub Actions workflow with the repository secret configured.
 
 Initial availability and VPN licensing plan:
 

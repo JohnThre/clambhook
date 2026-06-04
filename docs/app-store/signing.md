@@ -31,9 +31,12 @@ export CLAMBHOOK_DEVELOPMENT_TEAM=V6GG4HYABJ
 export CLAMBHOOK_APP_STORE_CONNECT_API_KEY_PATH=/path/to/AuthKey_XXXXXXXXXX.p8
 export CLAMBHOOK_APP_STORE_CONNECT_API_KEY_ID=XXXXXXXXXX
 export CLAMBHOOK_APP_STORE_CONNECT_API_ISSUER_ID=00000000-0000-0000-0000-000000000000
+export CLAMBHOOK_APP_REVIEW_DEMO_PASSWORD=replace-with-review-demo-password
 ```
 
-Do not commit the API key, private keys, provisioning profiles, or generated archives.
+Before App Store submission, run `make app-review-release-check` locally or the manual App Review Compliance GitHub Actions workflow. The workflow requires the `CLAMBHOOK_APP_REVIEW_DEMO_PASSWORD` repository secret and validates a temp-rendered demo profile without writing the password into source.
+
+Do not commit the API key, private keys, demo profile password, provisioning profiles, or generated archives.
 Generated App Store archives and exported IPAs are for App Store Connect submission only. Do not publish `.ipa` files or any other installer/package artifact on GitHub for end users.
 
 ## Archive Proof
