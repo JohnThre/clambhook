@@ -10,10 +10,10 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.FileDownload
 import androidx.compose.material.icons.rounded.History
-import androidx.compose.material.icons.rounded.Inbox
+import androidx.compose.material.icons.rounded.NetworkCheck
 import androidx.compose.material.icons.rounded.Settings
-import androidx.compose.material.icons.rounded.Today
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -141,26 +141,26 @@ fun ClambhookApp(
                         NavigationBarItem(
                             selected = selectedTab == AppTab.Inbox,
                             onClick = { selectedTab = AppTab.Inbox },
-                            icon = { Icon(Icons.Rounded.Inbox, contentDescription = "Inbox") },
-                            label = { Text("Inbox") }
+                            icon = { Icon(Icons.Rounded.FileDownload, contentDescription = "Imports") },
+                            label = { Text("Imports") }
                         )
                         NavigationBarItem(
                             selected = selectedTab == AppTab.Today,
                             onClick = { selectedTab = AppTab.Today },
-                            icon = { Icon(Icons.Rounded.Today, contentDescription = "Today") },
-                            label = { Text("Today") }
+                            icon = { Icon(Icons.Rounded.NetworkCheck, contentDescription = "Status") },
+                            label = { Text("Status") }
                         )
                         NavigationBarItem(
                             selected = selectedTab == AppTab.Anytime,
                             onClick = { selectedTab = AppTab.Anytime },
-                            icon = { Icon(Icons.Rounded.Tune, contentDescription = "Anytime") },
-                            label = { Text("Anytime") }
+                            icon = { Icon(Icons.Rounded.Tune, contentDescription = "Profiles") },
+                            label = { Text("Profiles") }
                         )
                         NavigationBarItem(
                             selected = selectedTab == AppTab.Logbook,
                             onClick = { selectedTab = AppTab.Logbook },
-                            icon = { Icon(Icons.Rounded.History, contentDescription = "Logbook") },
-                            label = { Text("Logbook") }
+                            icon = { Icon(Icons.Rounded.History, contentDescription = "Activity") },
+                            label = { Text("Activity") }
                         )
                         NavigationBarItem(
                             selected = selectedTab == AppTab.Settings,
