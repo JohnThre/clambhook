@@ -11,20 +11,25 @@ struct IOSStatusView: View {
                 IOSStatusPanel(model: model, onRecoveryAction: onRecoveryAction)
             }
 
-            Section("Profile") {
-                IOSProfileControl(model: model)
+            Section("Route") {
+                IOSRouteStatusPanel(model: model)
             }
 
-            Section("Now") {
+            Section("Rates") {
                 IOSMetricsGrid(metrics: overviewMetrics)
                     .listRowInsets(EdgeInsets(top: 10, leading: 16, bottom: 10, trailing: 16))
             }
 
-            Section("Recent") {
+            Section("Profiles") {
+                IOSProfileSwitchStrip(model: model)
+                    .listRowInsets(EdgeInsets(top: 10, leading: 16, bottom: 10, trailing: 0))
+            }
+
+            Section("Recent Decisions") {
                 if model.dashboard.recentDecisions.isEmpty {
                     IOSInlineEmptyState(text: "No recent activity.", systemImage: "arrow.triangle.branch")
                 } else {
-                    ForEach(model.dashboard.recentDecisions.prefix(5)) { decision in
+                    ForEach(model.dashboard.recentDecisions.prefix(6)) { decision in
                         IOSDecisionRow(decision: decision)
                     }
                 }
@@ -42,7 +47,7 @@ struct IOSStatusView: View {
             IOSMetric(title: "Down", value: formatRate(sample.rxBps), systemImage: "arrow.down"),
             IOSMetric(title: "Up", value: formatRate(sample.txBps), systemImage: "arrow.up"),
             IOSMetric(title: "Active", value: "\(model.dashboard.traffic.summary.activeConnections)", systemImage: "bolt.horizontal.circle"),
-            IOSMetric(title: "Rules", value: "\(model.dashboard.rules.rules.count)", systemImage: "slider.horizontal.3"),
+            IOSMetric(title: "Total", value: "\(formatBytes(model.dashboard.traffic.summary.rxTotal)) / \(formatBytes(model.dashboard.traffic.summary.txTotal))", systemImage: "sum"),
         ]
     }
 }
@@ -208,47 +213,122 @@ private struct IOSVPNDisclosureSheet: View {
     }
 }
 
-private struct IOSProfileControl: View {
+private struct IOSRouteStatusPanel: View {
+    @ObservedObject var model: AppleAppModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 12) {
+                Image(systemName: "arrow.triangle.branch")
+                    .foregroundStyle(.secondary)
+                    .frame(width: 24)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Rule")
+                        .font(.body.weight(.medium))
+                    Text(routeSubtitle)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+
+                Spacer(minLength: 8)
+
+                IOSStatusBadge(text: "\(model.dashboard.rules.rules.count) rules", systemImage: "slider.horizontal.3", tint: .blue)
+            }
+
+            if model.dashboard.policyGroups.groups.isEmpty {
+                LabeledContent("Default route", value: emptyDash(defaultChain))
+                    .font(.subheadline)
+            } else {
+                ForEach(model.dashboard.policyGroups.groups.prefix(4)) { group in
+                    IOSPolicyGroupRow(group: group)
+                }
+            }
+        }
+    }
+
+    private var defaultChain: String {
+        model.dashboard.servers.chains.first?.name ?? ""
+    }
+
+    private var routeSubtitle: String {
+        var parts = ["\(model.dashboard.servers.chains.count) route\(model.dashboard.servers.chains.count == 1 ? "" : "s")"]
+        if !model.dashboard.policyGroups.groups.isEmpty {
+            parts.append("\(model.dashboard.policyGroups.groups.count) polic\(model.dashboard.policyGroups.groups.count == 1 ? "y" : "ies")")
+        }
+        return parts.joined(separator: " / ")
+    }
+}
+
+private struct IOSPolicyGroupRow: View {
+    var group: PolicyGroupPayload
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: "point.3.connected.trianglepath.dotted")
+                .foregroundStyle(.secondary)
+                .frame(width: 24)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(emptyDash(group.name))
+                    .font(.subheadline.weight(.medium))
+                    .lineLimit(1)
+                Text(policyDetail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+
+            Spacer(minLength: 8)
+
+            Text(emptyDash(group.selectedChain))
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+        }
+        .padding(.vertical, 2)
+    }
+
+    private var policyDetail: String {
+        let healthy = group.results.filter(\.healthy).count
+        var parts = [group.type.isEmpty ? "policy" : group.type]
+        parts.append("\(group.chains.count) route\(group.chains.count == 1 ? "" : "s")")
+        if !group.results.isEmpty {
+            parts.append("\(healthy) healthy")
+        }
+        return parts.joined(separator: " / ")
+    }
+}
+
+private struct IOSProfileSwitchStrip: View {
     @ObservedObject var model: AppleAppModel
 
     var body: some View {
         if model.dashboard.profiles.profiles.isEmpty {
             IOSInlineEmptyState(text: "No profiles are available.", systemImage: "person.crop.rectangle.stack")
+                .padding(.bottom, 10)
         } else {
-            HStack(spacing: 12) {
-                Label {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(emptyDash(model.dashboard.activeProfile))
-                            .font(.body.weight(.medium))
-                            .lineLimit(1)
-                        Text("\(model.dashboard.profiles.profiles.count) profiles")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                } icon: {
-                    Image(systemName: "person.crop.rectangle.stack")
-                        .foregroundStyle(.secondary)
-                }
-
-                Spacer(minLength: 8)
-
-                Menu {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
                     ForEach(model.dashboard.profiles.profiles, id: \.self) { profile in
                         Button {
                             model.selectProfile(profile)
                         } label: {
-                            if profile == model.dashboard.activeProfile {
-                                Label(profile, systemImage: "checkmark")
-                            } else {
-                                Text(profile)
-                            }
+                            Label(profile, systemImage: profile == model.dashboard.activeProfile ? "checkmark.circle.fill" : "circle")
+                                .font(.subheadline.weight(.medium))
+                                .lineLimit(1)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 8)
+                                .background(profile == model.dashboard.activeProfile ? Color.accentColor.opacity(0.16) : Color.secondary.opacity(0.08), in: Capsule())
                         }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(profile == model.dashboard.activeProfile ? Color.accentColor : Color.primary)
+                        .disabled(profile == model.dashboard.activeProfile)
                     }
-                } label: {
-                    Label("Change", systemImage: "arrow.up.arrow.down.circle")
                 }
-                .buttonStyle(.bordered)
             }
+            .padding(.bottom, 10)
         }
     }
 }

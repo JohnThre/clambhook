@@ -171,12 +171,20 @@ final class OperationalSupportTests: XCTestCase {
                     TrafficHopPayload(index: 0, name: "exit", protocol: "trojan", address: "203.0.113.10:443", state: "connected", elapsedNs: 25_000_000),
                 ]
             ),
+            TrafficConnectionPayload(
+                connID: "c2",
+                state: "closed",
+                updatedTsNs: 11,
+                chainName: "proxy",
+                target: "default.example.com:443"
+            ),
         ])
         let store = DashboardStore(api: api, snapshotStore: .inMemory)
 
         await store.refreshDashboard()
 
-        XCTAssertEqual(store.recentDecisions.first?.ruleName, "ads")
+        XCTAssertEqual(store.recentDecisions.first?.target, "default.example.com:443")
+        XCTAssertEqual(store.recentDecisions.dropFirst().first?.ruleName, "ads")
         XCTAssertEqual(store.ruleHitSummaries.first?.count, 1)
         let serverID = api.serversResult.chains[0].servers[0].id
         XCTAssertEqual(store.passiveServerHealth[serverID]?.state, "healthy")

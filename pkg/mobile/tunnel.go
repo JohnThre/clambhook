@@ -18,6 +18,7 @@ import (
 	"github.com/JohnThre/clambhook/internal/events"
 	"github.com/JohnThre/clambhook/internal/geo"
 	"github.com/JohnThre/clambhook/internal/listener"
+	"github.com/JohnThre/clambhook/internal/policy"
 	"github.com/JohnThre/clambhook/internal/protocol"
 	"github.com/JohnThre/clambhook/internal/subscription"
 	"github.com/JohnThre/clambhook/internal/traffic"
@@ -484,6 +485,7 @@ func (r *TunnelRuntime) DashboardJSON() (string, error) {
 	cfg := r.cfg
 	geoReader := r.geo
 	trf := r.trf
+	stack := r.stack
 	status := r.statusLocked()
 	r.mu.Unlock()
 
@@ -502,6 +504,7 @@ func (r *TunnelRuntime) DashboardJSON() (string, error) {
 		},
 		Servers:           serversForConfig(cfg, geoReader),
 		Rules:             rulesForConfig(cfg),
+		PolicyGroups:      policyGroupsForRuntime(cfg, stack),
 		RuleSubscriptions: ruleSubscriptionsForConfig(cfg),
 		Traffic:           trafficSnapshot,
 	}
@@ -638,6 +641,7 @@ type dashboardPayload struct {
 	Profiles          profilesPayload            `json:"profiles"`
 	Servers           serversPayload             `json:"servers"`
 	Rules             rulesPayload               `json:"rules"`
+	PolicyGroups      policy.Snapshot            `json:"policy_groups"`
 	RuleSubscriptions subscription.StatusPayload `json:"rule_subscriptions"`
 	Traffic           traffic.Snapshot           `json:"traffic"`
 }
@@ -751,6 +755,28 @@ func rulesForConfig(cfg *config.Config) rulesPayload {
 		GeneratedRules: generated,
 		EffectiveRules: effective,
 	}
+}
+
+func policyGroupsForConfig(cfg *config.Config) policy.Snapshot {
+	if cfg == nil {
+		return policy.Snapshot{}
+	}
+	profile, err := cfg.ActiveProfile()
+	if err != nil {
+		return policy.Snapshot{}
+	}
+	return policy.ConfigSnapshot(profile.Name, profile.PolicyGroups)
+}
+
+func policyGroupsForRuntime(cfg *config.Config, stack *listener.PacketStack) policy.Snapshot {
+	if cfg == nil {
+		return policy.Snapshot{}
+	}
+	profileName := activeProfileName(cfg)
+	if stack == nil {
+		return policyGroupsForConfig(cfg)
+	}
+	return stack.PolicySnapshot(profileName)
 }
 
 func ruleSubscriptionsForConfig(cfg *config.Config) subscription.StatusPayload {

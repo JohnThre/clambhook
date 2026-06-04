@@ -281,6 +281,86 @@ func TestTunnelConfigDashboardAndRuleReplacement(t *testing.T) {
 	}
 }
 
+func TestTunnelConfigDashboardJSONIncludesPolicyGroups(t *testing.T) {
+	path := writeTunnelTestConfig(t)
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.Profiles[0].Chains = append(cfg.Profiles[0].Chains, config.ChainConfig{
+		Name: "backup",
+		Servers: []config.ServerConfig{{
+			Name:     "backup",
+			Address:  "backup.example.invalid:443",
+			Protocol: "shadowsocks",
+			Settings: map[string]any{
+				"method":   "chacha20-ietf-poly1305",
+				"password": "secret",
+			},
+		}},
+	})
+	cfg.Profiles[0].PolicyGroups = []config.PolicyGroupConfig{{
+		Name:   "auto",
+		Type:   "url-test",
+		Chains: []string{"proxy", "backup"},
+	}}
+	if _, err := config.WriteAtomicWithBackup(path, cfg); err != nil {
+		t.Fatalf("write policy group config: %v", err)
+	}
+
+	rawDashboard, err := TunnelConfigDashboardJSON(path)
+	if err != nil {
+		t.Fatalf("TunnelConfigDashboardJSON: %v", err)
+	}
+	var payload dashboardPayload
+	if err := json.Unmarshal([]byte(rawDashboard), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.PolicyGroups.Profile != "default" || len(payload.PolicyGroups.Groups) != 1 {
+		t.Fatalf("policy groups = %+v", payload.PolicyGroups)
+	}
+	group := payload.PolicyGroups.Groups[0]
+	if group.Name != "auto" || group.SelectedChain != "proxy" || len(group.Chains) != 2 {
+		t.Fatalf("policy group = %+v", group)
+	}
+}
+
+func TestTunnelRuntimeDashboardJSONIncludesLivePolicyGroups(t *testing.T) {
+	path := writeTunnelTestConfig(t)
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.Profiles[0].PolicyGroups = []config.PolicyGroupConfig{{
+		Name:   "auto",
+		Type:   "url-test",
+		Chains: []string{"proxy"},
+	}}
+	if _, err := config.WriteAtomicWithBackup(path, cfg); err != nil {
+		t.Fatalf("write policy group config: %v", err)
+	}
+	runtime := NewTunnelRuntime(discardPacketWriter{})
+	if err := runtime.Start(path); err != nil {
+		t.Fatalf("runtime Start: %v", err)
+	}
+	defer runtime.Stop()
+
+	rawDashboard, err := runtime.DashboardJSON()
+	if err != nil {
+		t.Fatalf("DashboardJSON: %v", err)
+	}
+	var payload dashboardPayload
+	if err := json.Unmarshal([]byte(rawDashboard), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.PolicyGroups.Profile != "default" || len(payload.PolicyGroups.Groups) != 1 {
+		t.Fatalf("policy groups = %+v", payload.PolicyGroups)
+	}
+	if got := payload.PolicyGroups.Groups[0].SelectedChain; got != "proxy" {
+		t.Fatalf("selected chain = %q, want proxy", got)
+	}
+}
+
 func TestRuleSubscriptionMobileBridgeRefreshesAndReportsGeneratedRules(t *testing.T) {
 	source := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte("ads.example.com\n"))

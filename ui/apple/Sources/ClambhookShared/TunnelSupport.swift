@@ -63,20 +63,42 @@ public struct TunnelDashboardPayload: Codable, Equatable, Sendable {
     public var profiles: ProfilesPayload
     public var servers: ServersPayload
     public var rules: RulesPayload
+    public var policyGroups: PolicyGroupsPayload
     public var traffic: TrafficSnapshotPayload
+
+    enum CodingKeys: String, CodingKey {
+        case status
+        case profiles
+        case servers
+        case rules
+        case policyGroups = "policy_groups"
+        case traffic
+    }
 
     public init(
         status: StatusPayload = StatusPayload(),
         profiles: ProfilesPayload = ProfilesPayload(),
         servers: ServersPayload = ServersPayload(),
         rules: RulesPayload = RulesPayload(),
+        policyGroups: PolicyGroupsPayload = PolicyGroupsPayload(),
         traffic: TrafficSnapshotPayload = TrafficSnapshotPayload()
     ) {
         self.status = status
         self.profiles = profiles
         self.servers = servers
         self.rules = rules
+        self.policyGroups = policyGroups
         self.traffic = traffic
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.status = try container.decodeIfPresent(StatusPayload.self, forKey: .status) ?? StatusPayload()
+        self.profiles = try container.decodeIfPresent(ProfilesPayload.self, forKey: .profiles) ?? ProfilesPayload()
+        self.servers = try container.decodeIfPresent(ServersPayload.self, forKey: .servers) ?? ServersPayload()
+        self.rules = try container.decodeIfPresent(RulesPayload.self, forKey: .rules) ?? RulesPayload()
+        self.policyGroups = try container.decodeIfPresent(PolicyGroupsPayload.self, forKey: .policyGroups) ?? PolicyGroupsPayload()
+        self.traffic = try container.decodeIfPresent(TrafficSnapshotPayload.self, forKey: .traffic) ?? TrafficSnapshotPayload()
     }
 }
 
