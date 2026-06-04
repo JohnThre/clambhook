@@ -3,11 +3,12 @@ import SwiftUI
 
 struct IOSStatusView: View {
     @ObservedObject var model: AppleAppModel
+    var onRecoveryAction: ((TunnelRecoveryAction) -> Void)? = nil
 
     var body: some View {
         List {
             Section {
-                IOSStatusPanel(model: model)
+                IOSStatusPanel(model: model, onRecoveryAction: onRecoveryAction)
             }
 
             Section("Profile") {
@@ -48,6 +49,7 @@ struct IOSStatusView: View {
 
 private struct IOSStatusPanel: View {
     @ObservedObject var model: AppleAppModel
+    var onRecoveryAction: ((TunnelRecoveryAction) -> Void)?
     @AppStorage("org.jpfchang.clambhook.vpnDisclosureAccepted") private var vpnDisclosureAccepted = false
     @State private var showingVPNDisclosure = false
 
@@ -90,7 +92,11 @@ private struct IOSStatusPanel: View {
 
             if let issue = model.dashboard.recoveryIssue {
                 IOSRecoveryBanner(issue: issue) { action in
-                    model.performRecoveryAction(action)
+                    if let onRecoveryAction {
+                        onRecoveryAction(action)
+                    } else {
+                        model.performRecoveryAction(action)
+                    }
                 }
             } else if !model.dashboard.errorText.isEmpty {
                 Label(model.dashboard.errorText, systemImage: "exclamationmark.triangle.fill")
