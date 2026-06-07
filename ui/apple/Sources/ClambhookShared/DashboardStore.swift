@@ -10,6 +10,7 @@ public final class DashboardStore: ObservableObject {
     @Published public private(set) var servers = ServersPayload()
     @Published public private(set) var rules = RulesPayload()
     @Published public private(set) var policyGroups = PolicyGroupsPayload()
+    @Published public private(set) var ruleSets = RuleSetsPayload()
     @Published public private(set) var ruleSubscriptions = RuleSubscriptionsPayload()
     @Published public private(set) var traffic = TrafficSnapshotPayload()
     @Published public private(set) var bandwidthSamples: [BandwidthSample] = []
@@ -58,6 +59,7 @@ public final class DashboardStore: ObservableObject {
                     servers: servers,
                     rules: rules,
                     policyGroups: policyGroups,
+                    ruleSets: RuleSetsPayload(profile: rules.profile, statuses: rules.ruleSets),
                     traffic: traffic
                 ))
             }
@@ -77,6 +79,7 @@ public final class DashboardStore: ObservableObject {
         servers = dashboard.servers
         rules = dashboard.rules
         policyGroups = dashboard.policyGroups
+        ruleSets = dashboard.ruleSets
         ruleSubscriptions = dashboard.ruleSubscriptions
         traffic = dashboard.traffic
     }

@@ -87,6 +87,10 @@ public final class ClambhookAPIClient: ClambhookAPIProviding, ClambhookRuleEditi
         try await getJSON("/api/v1/rules")
     }
 
+    public func ruleSets() async throws -> RuleSetsPayload {
+        try await getJSON("/api/v1/rule-sets")
+    }
+
     public func traffic() async throws -> TrafficSnapshotPayload {
         try await getJSON("/api/v1/traffic?limit=200")
     }
@@ -109,6 +113,31 @@ public final class ClambhookAPIClient: ClambhookAPIProviding, ClambhookRuleEditi
         let body = try encoder.encode(ReplaceRulesRequest(profile: profile, rules: rules))
         let data = try await send(method: "PUT", path: "/api/v1/rules", body: body)
         return try decoder.decode(RulesPayload.self, from: data)
+    }
+
+    public func replaceRuleSets(_ ruleSets: [RuleSetPayload], profile: String = "") async throws -> RuleSetsPayload {
+        struct ReplaceRuleSetsRequest: Encodable {
+            var profile: String
+            var ruleSets: [RuleSetPayload]
+
+            enum CodingKeys: String, CodingKey {
+                case profile
+                case ruleSets = "rule_sets"
+            }
+        }
+        let body = try encoder.encode(ReplaceRuleSetsRequest(profile: profile, ruleSets: ruleSets))
+        let data = try await send(method: "PUT", path: "/api/v1/rule-sets", body: body)
+        return try decoder.decode(RuleSetsPayload.self, from: data)
+    }
+
+    public func refreshRuleSets(names: [String] = [], profile: String = "") async throws -> RuleSetsPayload {
+        struct RefreshRuleSetsRequest: Encodable {
+            var profile: String
+            var names: [String]
+        }
+        let body = try encoder.encode(RefreshRuleSetsRequest(profile: profile, names: names))
+        let data = try await send(method: "POST", path: "/api/v1/rule-sets/refresh", body: body)
+        return try decoder.decode(RuleSetsPayload.self, from: data)
     }
 
     public func developerStatus() async throws -> DeveloperStatusPayload {
@@ -137,6 +166,30 @@ public final class ClambhookAPIClient: ClambhookAPIProviding, ClambhookRuleEditi
         let body = try encoder.encode(RuleTestRequest(profile: profile, network: network, target: target))
         let data = try await send(method: "POST", path: "/api/v1/rules/test", body: body)
         return try decoder.decode(RuleTestResponse.self, from: data)
+    }
+
+    public func explainRoute(network: String, target: String, source: String = "", profile: String = "") async throws -> RuleTestResponse {
+        let body = try encoder.encode(RuleTestRequest(profile: profile, network: network, target: target, source: source))
+        let data = try await send(method: "POST", path: "/api/v1/routes/explain", body: body)
+        return try decoder.decode(RuleTestResponse.self, from: data)
+    }
+
+    public func selectPolicyGroup(profile: String = "", group: String, chain: String) async throws -> PolicyGroupsPayload {
+        struct SelectPolicyGroupRequest: Encodable {
+            var profile: String
+            var group: String
+            var chain: String
+        }
+        struct SelectPolicyGroupResponse: Decodable {
+            var policyGroups: PolicyGroupsPayload
+
+            enum CodingKeys: String, CodingKey {
+                case policyGroups = "policy_groups"
+            }
+        }
+        let body = try encoder.encode(SelectPolicyGroupRequest(profile: profile, group: group, chain: chain))
+        let data = try await send(method: "PUT", path: "/api/v1/policy-groups/selection", body: body)
+        return try decoder.decode(SelectPolicyGroupResponse.self, from: data).policyGroups
     }
 
     public func connect() async throws {

@@ -14,6 +14,7 @@ import (
 	"github.com/JohnThre/clambhook/internal/config"
 	"github.com/JohnThre/clambhook/internal/engine"
 	"github.com/JohnThre/clambhook/internal/geo"
+	"github.com/JohnThre/clambhook/internal/ruleset"
 	"github.com/JohnThre/clambhook/internal/subscription"
 	"github.com/JohnThre/clambhook/internal/traffic"
 )
@@ -87,6 +88,7 @@ func TunnelConfigDashboardJSON(configPath string) (string, error) {
 		Servers:           serversForConfig(cfg, geoReader),
 		Rules:             rulesForConfig(cfg),
 		PolicyGroups:      policyGroupsForConfig(cfg),
+		RuleSets:          ruleSetsForConfig(cfg),
 		RuleSubscriptions: ruleSubscriptionsForConfig(cfg),
 		Traffic:           empty.Snapshot("all", 200),
 	}
@@ -113,6 +115,83 @@ func ReplaceTunnelRulesJSON(configPath, profileName, rulesJSON string) error {
 		return err
 	}
 	return writeTunnelConfig(configPath, cfg)
+}
+
+// RuleSetsJSON returns rule-set cache status for a profile.
+func RuleSetsJSON(configPath, profileName string) (string, error) {
+	cfg, err := loadTunnelConfig(configPath)
+	if err != nil {
+		return "", err
+	}
+	if err := engine.ValidateConfig(cfg); err != nil {
+		return "", err
+	}
+	profile := selectProfileForEdit(cfg, profileName)
+	if profile == nil {
+		return "", fmt.Errorf("profile %q not found", profileName)
+	}
+	statusesPayload, err := ruleset.StatusPayloadForProfile(cfg, profileName)
+	if err != nil {
+		return "", err
+	}
+	return marshalString(ruleSetsPayload{
+		Profile:  profile.Name,
+		RuleSets: append([]config.RuleSetConfig(nil), profile.RuleSets...),
+		Statuses: statusesPayload.RuleSets,
+	})
+}
+
+// ReplaceTunnelRuleSetsJSON replaces the active profile's named rule sets and
+// writes the config atomically. ruleSetsJSON must encode []config.RuleSetConfig.
+func ReplaceTunnelRuleSetsJSON(configPath, profileName, ruleSetsJSON string) error {
+	cfg, err := loadTunnelConfig(configPath)
+	if err != nil {
+		return err
+	}
+	var ruleSets []config.RuleSetConfig
+	if err := json.Unmarshal([]byte(ruleSetsJSON), &ruleSets); err != nil {
+		return fmt.Errorf("parse rule sets: %w", err)
+	}
+	profile := selectProfileForEdit(cfg, profileName)
+	if profile == nil {
+		return fmt.Errorf("profile %q not found", profileName)
+	}
+	profile.RuleSets = ruleSets
+	if err := engine.ValidateConfig(cfg); err != nil {
+		return err
+	}
+	return writeTunnelConfig(configPath, cfg)
+}
+
+// RefreshRuleSetsJSON refreshes selected enabled remote rule sets. namesJSON
+// must encode []string; an empty string or [] refreshes all enabled sets.
+func RefreshRuleSetsJSON(configPath, profileName, namesJSON string) (string, error) {
+	cfg, err := loadTunnelConfig(configPath)
+	if err != nil {
+		return "", err
+	}
+	if err := engine.ValidateConfig(cfg); err != nil {
+		return "", err
+	}
+	var names []string
+	if strings.TrimSpace(namesJSON) != "" {
+		if err := json.Unmarshal([]byte(namesJSON), &names); err != nil {
+			return "", fmt.Errorf("parse rule set names: %w", err)
+		}
+	}
+	payload, err := ruleset.RefreshProfile(context.Background(), cfg, profileName, names, nil)
+	if err != nil {
+		return "", err
+	}
+	profile := selectProfileForEdit(cfg, profileName)
+	if profile == nil {
+		return "", fmt.Errorf("profile %q not found", profileName)
+	}
+	return marshalString(ruleSetsPayload{
+		Profile:  profile.Name,
+		RuleSets: append([]config.RuleSetConfig(nil), profile.RuleSets...),
+		Statuses: payload.RuleSets,
+	})
 }
 
 // RuleSubscriptionsJSON returns rule subscription cache status for a profile.

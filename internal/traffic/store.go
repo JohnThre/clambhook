@@ -106,6 +106,7 @@ type Connection struct {
 	TargetHost  string          `json:"target_host,omitempty"`
 	TargetPort  string          `json:"target_port,omitempty"`
 	Network     string          `json:"network,omitempty"`
+	Source      string          `json:"source,omitempty"`
 	Application string          `json:"application,omitempty"`
 	Hops        []Hop           `json:"hops,omitempty"`
 	Timeline    []TimelineEvent `json:"timeline,omitempty"`
@@ -146,6 +147,25 @@ type Snapshot struct {
 	BlockDecisions     []BlockDecision     `json:"block_decisions,omitempty"`
 	CleanupSuggestions []CleanupSuggestion `json:"cleanup_suggestions,omitempty"`
 	RuleSuggestions    []RuleSuggestion    `json:"rule_suggestions,omitempty"`
+	Breakdowns         TrafficBreakdowns   `json:"breakdowns,omitempty"`
+}
+
+// TrafficBreakdowns groups traffic counters for monitor summaries.
+type TrafficBreakdowns struct {
+	Profiles []BreakdownRow `json:"profiles,omitempty"`
+	Chains   []BreakdownRow `json:"chains,omitempty"`
+	Rules    []BreakdownRow `json:"rules,omitempty"`
+	Actions  []BreakdownRow `json:"actions,omitempty"`
+	Networks []BreakdownRow `json:"networks,omitempty"`
+}
+
+// BreakdownRow is one count/byte aggregate.
+type BreakdownRow struct {
+	Key     string `json:"key"`
+	Label   string `json:"label"`
+	Count   int    `json:"count"`
+	RxTotal uint64 `json:"rx_total"`
+	TxTotal uint64 `json:"tx_total"`
 }
 
 // SnapshotOptions controls optional filtering and UI analytics.
@@ -466,6 +486,7 @@ func (s *Store) SnapshotWithOptions(opts SnapshotOptions) Snapshot {
 		BlockDecisions:     buildBlockDecisions(all, 12),
 		CleanupSuggestions: buildCleanupSuggestions(opts.ActiveProfile, opts.Rules, all),
 		RuleSuggestions:    buildRuleSuggestions(opts.ActiveProfile, suggestionCoverageRules(opts), all, 12),
+		Breakdowns:         buildBreakdowns(all),
 	}
 }
 
@@ -553,6 +574,86 @@ func buildQuickFilters(conns []Connection) []QuickFilter {
 		filters = append(filters, QuickFilter{Key: "port:" + row.Key, Label: ":" + row.Key, Count: row.Count})
 	}
 	return filters
+}
+
+func buildBreakdowns(conns []Connection) TrafficBreakdowns {
+	return TrafficBreakdowns{
+		Profiles: breakdownRows(conns, func(c Connection) (string, string) {
+			return valueOrDefault(c.Profile, "unknown"), valueOrDefault(c.Profile, "Unknown")
+		}),
+		Chains: breakdownRows(conns, func(c Connection) (string, string) {
+			return valueOrDefault(c.ChainName, "direct"), valueOrDefault(c.ChainName, "Direct")
+		}),
+		Rules: breakdownRows(conns, func(c Connection) (string, string) {
+			name := c.RuleName
+			if name == "" && c.Default {
+				name = "default"
+			}
+			return valueOrDefault(name, "none"), valueOrDefault(name, "None")
+		}),
+		Actions: breakdownRows(conns, func(c Connection) (string, string) {
+			action := actionFamily(c.RuleAction)
+			return action, titleLabel(action)
+		}),
+		Networks: breakdownRows(conns, func(c Connection) (string, string) {
+			network := strings.ToLower(strings.TrimSpace(c.Network))
+			if network == "" {
+				network = "unknown"
+			}
+			return network, strings.ToUpper(network)
+		}),
+	}
+}
+
+func breakdownRows(conns []Connection, keyFn func(Connection) (string, string)) []BreakdownRow {
+	index := map[string]*BreakdownRow{}
+	for _, conn := range conns {
+		key, label := keyFn(conn)
+		if key == "" {
+			key = "unknown"
+		}
+		if label == "" {
+			label = key
+		}
+		row := index[key]
+		if row == nil {
+			row = &BreakdownRow{Key: key, Label: label}
+			index[key] = row
+		}
+		row.Count++
+		row.RxTotal += conn.RxTotal
+		row.TxTotal += conn.TxTotal
+	}
+	out := make([]BreakdownRow, 0, len(index))
+	for _, row := range index {
+		out = append(out, *row)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Count == out[j].Count {
+			return out[i].Label < out[j].Label
+		}
+		return out[i].Count > out[j].Count
+	})
+	if len(out) > 8 {
+		out = out[:8]
+	}
+	return out
+}
+
+func valueOrDefault(value, fallback string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return fallback
+	}
+	return value
+}
+
+func titleLabel(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	return strings.ToUpper(value[:1]) + value[1:]
 }
 
 func buildRuleHits(conns []Connection) []RuleHit {
@@ -1199,6 +1300,7 @@ func (s *Store) applyDialingLocked(ev events.Event) {
 	c.TargetHost = data.TargetHost
 	c.TargetPort = data.TargetPort
 	c.Application = data.Application
+	c.Source = data.Source
 	c.RuleName = data.RuleName
 	c.RuleAction = data.RuleAction
 	c.GroupName = data.GroupName
@@ -1275,6 +1377,9 @@ func (s *Store) applyRuleDecisionLocked(ev events.Event) {
 	}
 	if c.Network == "" {
 		c.Network = data.Network
+	}
+	if c.Source == "" {
+		c.Source = data.Source
 	}
 	c.UpdatedTsNs = ev.TsNs
 	addTimeline(c, ev, "Decision", decisionDetail(c.RuleName, c.RuleAction, c.ChainName))

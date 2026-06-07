@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"testing"
 
 	"github.com/JohnThre/clambhook/internal/config"
@@ -113,6 +114,56 @@ func TestPolicyGroupsEndpointRejectsMissingProfile(t *testing.T) {
 
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("status = %d body=%q, want 404", rec.Code, rec.Body.String())
+	}
+}
+
+func TestPolicyGroupSelectionPersistsSelectGroup(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "clambhook.toml")
+	cfg := testPolicyGroupConfig("https://probe.example/generate_204")
+	cfg.Profiles[0].PolicyGroups = []config.PolicyGroupConfig{{
+		Name:     "manual",
+		Type:     policy.TypeSelect,
+		Chains:   []string{"primary", "backup"},
+		Selected: "primary",
+	}}
+	if _, err := config.WriteAtomicWithBackup(path, cfg); err != nil {
+		t.Fatalf("write initial config: %v", err)
+	}
+	srv := NewWithOptions(engine.New(cfg, nil), nil, Options{ConfigPath: path})
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/policy-groups/selection", bytes.NewReader([]byte(`{"group":"manual","chain":"backup"}`)))
+	rec := httptest.NewRecorder()
+
+	srv.server.Handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%q, want 200", rec.Code, rec.Body.String())
+	}
+	var resp struct {
+		Profile    string                 `json:"profile"`
+		Group      string                 `json:"group"`
+		Chain      string                 `json:"chain"`
+		BackupPath string                 `json:"backup_path"`
+		Groups     []policy.GroupSnapshot `json:"groups"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp.Profile != "A" || resp.Group != "manual" || resp.Chain != "backup" || resp.BackupPath == "" {
+		t.Fatalf("response = %+v", resp)
+	}
+	if len(resp.Groups) != 1 || resp.Groups[0].SelectedChain != "backup" || resp.Groups[0].SelectionMode != "manual" {
+		t.Fatalf("policy groups = %+v", resp.Groups)
+	}
+	reloaded, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("load persisted config: %v", err)
+	}
+	profile, err := reloaded.ActiveProfile()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := profile.PolicyGroups[0].Selected; got != "backup" {
+		t.Fatalf("persisted selected = %q, want backup", got)
 	}
 }
 

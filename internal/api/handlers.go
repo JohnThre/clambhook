@@ -13,6 +13,7 @@ import (
 	"github.com/JohnThre/clambhook/internal/engine"
 	"github.com/JohnThre/clambhook/internal/protocol"
 	"github.com/JohnThre/clambhook/internal/rules"
+	"github.com/JohnThre/clambhook/internal/ruleset"
 	"github.com/JohnThre/clambhook/internal/subscription"
 	"github.com/JohnThre/clambhook/internal/traffic"
 )
@@ -24,12 +25,17 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/profiles", s.handleProfiles)
 	mux.HandleFunc("GET /api/v1/servers", s.handleServers)
 	mux.HandleFunc("GET /api/v1/policy-groups", s.handlePolicyGroups)
+	mux.HandleFunc("PUT /api/v1/policy-groups/selection", s.handlePolicyGroupSelection)
 	mux.HandleFunc("POST /api/v1/policy-groups/test", s.handlePolicyGroupTest)
+	mux.HandleFunc("GET /api/v1/rule-sets", s.handleRuleSets)
+	mux.HandleFunc("PUT /api/v1/rule-sets", s.handleReplaceRuleSets)
+	mux.HandleFunc("POST /api/v1/rule-sets/refresh", s.handleRefreshRuleSets)
 	mux.HandleFunc("GET /api/v1/rules", s.handleRules)
 	mux.HandleFunc("GET /api/v1/dns", s.handleDNS)
 	mux.HandleFunc("POST /api/v1/rules", s.handleCreateRule)
 	mux.HandleFunc("PUT /api/v1/rules", s.handleReplaceRules)
 	mux.HandleFunc("POST /api/v1/rules/test", s.handleTestRule)
+	mux.HandleFunc("POST /api/v1/routes/explain", s.handleExplainRoute)
 	mux.HandleFunc("GET /api/v1/rule-subscriptions", s.handleRuleSubscriptions)
 	mux.HandleFunc("POST /api/v1/rule-subscriptions/refresh", s.handleRefreshRuleSubscriptions)
 	mux.HandleFunc("GET /api/v1/decisions", s.handleDecisions)
@@ -61,11 +67,22 @@ type testRuleRequest struct {
 	Profile string `json:"profile"`
 	Network string `json:"network"`
 	Target  string `json:"target"`
+	Source  string `json:"source"`
 }
 
 type refreshRuleSubscriptionsRequest struct {
 	Profile string   `json:"profile"`
 	Names   []string `json:"names"`
+}
+
+type refreshRuleSetsRequest struct {
+	Profile string   `json:"profile"`
+	Names   []string `json:"names"`
+}
+
+type replaceRuleSetsRequest struct {
+	Profile  string                 `json:"profile"`
+	RuleSets []config.RuleSetConfig `json:"rule_sets"`
 }
 
 type testRuleResponse struct {
@@ -94,8 +111,14 @@ func (s *Server) handleRules(w http.ResponseWriter, r *http.Request) {
 		"rules":           manualRules,
 		"generated_rules": generatedRules,
 		"effective_rules": effectiveRules,
+		"rule_sets":       rulesetStatusRows(cfg.Path, profile),
 		"subscriptions":   subscription.Statuses(cfg.Path, profile),
 	})
+}
+
+func rulesetStatusRows(configPath string, profile *config.Profile) []ruleset.Status {
+	_, statuses := ruleset.Resolve(configPath, profile)
+	return statuses
 }
 
 func (s *Server) handleTestRule(w http.ResponseWriter, r *http.Request) {
@@ -127,39 +150,46 @@ func (s *Server) handleTestRule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	effectiveProfile := subscription.ProfileWithCachedRules(cfg.Path, profile)
-	ruleEngine, err := compileProfileRules(&effectiveProfile, profile.Chains[0].Name)
+	resp, err := s.explainRouteForProfile(cfg, profile, &effectiveProfile, network, target, strings.TrimSpace(req.Source))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	decision := ruleEngine.Decide(network, target)
-	resp := testRuleResponse{
-		Profile:  profile.Name,
-		Decision: decision,
+	writeJSON(w, resp)
+}
+
+func (s *Server) handleExplainRoute(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxJSONRequestBytes)
+	var req testRuleRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
 	}
-	if decision.Action == rules.ActionChain {
-		populateRuleTestChain(profile, decision.ChainName, &resp)
+	network := strings.ToLower(strings.TrimSpace(req.Network))
+	if network != "tcp" && network != "udp" {
+		http.Error(w, "network must be tcp or udp", http.StatusBadRequest)
+		return
 	}
-	if decision.Action == rules.ActionGroup {
-		selected := ""
-		ok := false
-		var err error
-		if s.engine.Status().Profile == profile.Name {
-			selected, ok, err = s.engine.SelectedPolicyChain(decision.GroupName, network)
-			if err != nil {
-				http.Error(w, err.Error(), http.StatusBadRequest)
-				return
-			}
-		}
-		if !ok || selected == "" {
-			selected, err = selectPolicyGroupChain(profile, decision.GroupName, network)
-			if err != nil {
-				http.Error(w, err.Error(), http.StatusBadRequest)
-				return
-			}
-		}
-		resp.Decision.ChainName = selected
-		populateRuleTestChain(profile, selected, &resp)
+	target := strings.TrimSpace(req.Target)
+	if err := validateRuleTestTarget(target); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	cfg := s.engine.Config()
+	profile, err := selectRuleTestProfile(cfg, req.Profile)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	if len(profile.Chains) == 0 {
+		http.Error(w, "profile has no chains", http.StatusBadRequest)
+		return
+	}
+	effectiveProfile := subscription.ProfileWithCachedRules(cfg.Path, profile)
+	resp, err := s.explainRouteForProfile(cfg, profile, &effectiveProfile, network, target, strings.TrimSpace(req.Source))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
 	}
 	writeJSON(w, resp)
 }
@@ -176,6 +206,87 @@ func (s *Server) handleRuleSubscriptions(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	writeJSON(w, payload)
+}
+
+func (s *Server) handleRuleSets(w http.ResponseWriter, r *http.Request) {
+	cfg := s.engine.Config()
+	profile, err := selectAPIProfile(cfg, r.URL.Query().Get("profile"))
+	if err != nil {
+		writeProfileSelectionError(w, err)
+		return
+	}
+	_, statuses := ruleset.Resolve(cfg.Path, profile)
+	writeJSON(w, map[string]any{
+		"profile":   profile.Name,
+		"rule_sets": append([]config.RuleSetConfig(nil), profile.RuleSets...),
+		"statuses":  statuses,
+	})
+}
+
+func (s *Server) handleReplaceRuleSets(w http.ResponseWriter, r *http.Request) {
+	if strings.TrimSpace(s.configPath) == "" {
+		http.Error(w, "rule set persistence requires daemon config path", http.StatusConflict)
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxJSONRequestBytes)
+	var req replaceRuleSetsRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	resp, err := s.persistRuleSets(req.Profile, req.RuleSets)
+	if err != nil {
+		writeRulePersistenceError(w, err)
+		return
+	}
+	writeJSON(w, resp)
+}
+
+func (s *Server) handleRefreshRuleSets(w http.ResponseWriter, r *http.Request) {
+	configPath := strings.TrimSpace(s.configPath)
+	if configPath == "" {
+		if cfg := s.engine.Config(); cfg != nil {
+			configPath = strings.TrimSpace(cfg.Path)
+		}
+	}
+	if configPath == "" {
+		http.Error(w, "rule set refresh requires daemon config path", http.StatusConflict)
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxJSONRequestBytes)
+	var req refreshRuleSetsRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	cfg, err := config.Load(configPath)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	currentProfile := strings.TrimSpace(s.engine.Status().Profile)
+	if currentProfile != "" {
+		cfg.Active = currentProfile
+	}
+	payload, err := ruleset.RefreshProfile(r.Context(), cfg, req.Profile, req.Names, nil)
+	if err != nil {
+		status := http.StatusBadRequest
+		if strings.Contains(err.Error(), "not found") {
+			status = http.StatusNotFound
+		}
+		http.Error(w, err.Error(), status)
+		return
+	}
+	if err := s.engine.Reload(cfg); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	profile, _ := selectAPIProfile(cfg, req.Profile)
+	writeJSON(w, map[string]any{
+		"profile":   payload.Profile,
+		"rule_sets": append([]config.RuleSetConfig(nil), profile.RuleSets...),
+		"statuses":  payload.RuleSets,
+	})
 }
 
 func (s *Server) handleRefreshRuleSubscriptions(w http.ResponseWriter, r *http.Request) {
@@ -258,7 +369,42 @@ func writeProfileSelectionError(w http.ResponseWriter, err error) {
 	http.Error(w, err.Error(), status)
 }
 
-func compileProfileRules(profile *config.Profile, defaultChainName string) (*rules.Engine, error) {
+func (s *Server) explainRouteForProfile(cfg *config.Config, profile, effectiveProfile *config.Profile, network, target, source string) (testRuleResponse, error) {
+	ruleEngine, err := compileProfileRules(cfg.Path, effectiveProfile, profile.Chains[0].Name)
+	if err != nil {
+		return testRuleResponse{}, err
+	}
+	decision := ruleEngine.DecideWithSource(network, target, source)
+	resp := testRuleResponse{
+		Profile:  profile.Name,
+		Decision: decision,
+	}
+	if decision.Action == rules.ActionChain {
+		populateRuleTestChain(profile, decision.ChainName, &resp)
+	}
+	if decision.Action == rules.ActionGroup {
+		selected := ""
+		ok := false
+		var err error
+		if s.engine.Status().Profile == profile.Name {
+			selected, ok, err = s.engine.SelectedPolicyChain(decision.GroupName, network)
+			if err != nil {
+				return testRuleResponse{}, err
+			}
+		}
+		if !ok || selected == "" {
+			selected, err = selectPolicyGroupChain(profile, decision.GroupName, network)
+			if err != nil {
+				return testRuleResponse{}, err
+			}
+		}
+		resp.Decision.ChainName = selected
+		populateRuleTestChain(profile, selected, &resp)
+	}
+	return resp, nil
+}
+
+func compileProfileRules(configPath string, profile *config.Profile, defaultChainName string) (*rules.Engine, error) {
 	known := make(map[string]struct{}, len(profile.Chains))
 	for _, ch := range profile.Chains {
 		known[ch.Name] = struct{}{}
@@ -272,15 +418,18 @@ func compileProfileRules(profile *config.Profile, defaultChainName string) (*rul
 		ruleSet = append(ruleSet, rules.Rule{
 			Name:           rule.Name,
 			Action:         rule.Action,
+			RuleSets:       rule.RuleSets,
 			Domains:        rule.Domains,
 			DomainSuffixes: rule.DomainSuffixes,
 			DomainKeywords: rule.DomainKeywords,
 			CIDRs:          rule.CIDRs,
+			SourceCIDRs:    rule.SourceCIDRs,
 			Ports:          rule.Ports,
 			Networks:       rule.Networks,
 		})
 	}
-	return rules.Compile(ruleSet, defaultChainName, known, knownGroups)
+	ruleSets, _ := ruleset.Resolve(configPath, profile)
+	return rules.CompileWithRuleSets(ruleSet, defaultChainName, known, knownGroups, ruleSets)
 }
 
 func findChain(profile *config.Profile, name string) *config.ChainConfig {
@@ -305,6 +454,20 @@ func selectPolicyGroupChain(profile *config.Profile, groupName, network string) 
 	group := findPolicyGroup(profile, groupName)
 	if group == nil {
 		return "", fmt.Errorf("policy group %q not found", groupName)
+	}
+	if group.Type == "select" {
+		selected := strings.TrimSpace(group.Selected)
+		if selected == "" && len(group.Chains) > 0 {
+			selected = group.Chains[0]
+		}
+		ch := findChain(profile, selected)
+		if ch == nil {
+			return "", fmt.Errorf("policy group %q selected missing chain %q", groupName, selected)
+		}
+		if network == "udp" && !chainCapabilities(*ch).UDP {
+			return "", fmt.Errorf("policy group %q selected chain %q is not UDP-capable", groupName, selected)
+		}
+		return selected, nil
 	}
 	for _, chainName := range group.Chains {
 		ch := findChain(profile, chainName)
@@ -398,6 +561,12 @@ type rulePersistenceResponse struct {
 	BackupPath string              `json:"backup_path"`
 }
 
+type ruleSetPersistenceResponse struct {
+	Profile    string                 `json:"profile"`
+	RuleSets   []config.RuleSetConfig `json:"rule_sets"`
+	BackupPath string                 `json:"backup_path"`
+}
+
 type rulePersistenceError struct {
 	status int
 	err    error
@@ -438,6 +607,41 @@ func (s *Server) persistRules(profileName string, nextRules func([]config.RuleCo
 	return rulePersistenceResponse{
 		Profile:    profile.Name,
 		Rules:      profile.Rules,
+		BackupPath: result.BackupPath,
+	}, nil
+}
+
+func (s *Server) persistRuleSets(profileName string, nextRuleSets []config.RuleSetConfig) (ruleSetPersistenceResponse, error) {
+	cfg, err := config.Load(s.configPath)
+	if err != nil {
+		return ruleSetPersistenceResponse{}, rulePersistenceError{status: http.StatusInternalServerError, err: err}
+	}
+	currentProfile := strings.TrimSpace(s.engine.Status().Profile)
+	if currentProfile != "" {
+		cfg.Active = currentProfile
+	}
+	profileName = strings.TrimSpace(profileName)
+	if profileName == "" {
+		profileName = cfg.Active
+	}
+	profile, ok := cfg.ProfileByName(profileName)
+	if !ok {
+		return ruleSetPersistenceResponse{}, rulePersistenceError{status: http.StatusNotFound, err: fmt.Errorf("profile not found")}
+	}
+	profile.RuleSets = append([]config.RuleSetConfig(nil), nextRuleSets...)
+	if err := engine.ValidateConfig(cfg); err != nil {
+		return ruleSetPersistenceResponse{}, rulePersistenceError{status: http.StatusBadRequest, err: err}
+	}
+	result, err := config.WriteAtomicWithBackup(s.configPath, cfg)
+	if err != nil {
+		return ruleSetPersistenceResponse{}, rulePersistenceError{status: http.StatusInternalServerError, err: err}
+	}
+	if err := s.engine.Reload(cfg); err != nil {
+		return ruleSetPersistenceResponse{}, rulePersistenceError{status: http.StatusInternalServerError, err: err}
+	}
+	return ruleSetPersistenceResponse{
+		Profile:    profile.Name,
+		RuleSets:   profile.RuleSets,
 		BackupPath: result.BackupPath,
 	}, nil
 }
@@ -504,7 +708,44 @@ func (s *Server) handleSetActiveProfile(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	if err := s.engine.SetActiveProfile(req.Name); err != nil {
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
+		http.Error(w, "profile name is required", http.StatusBadRequest)
+		return
+	}
+	if strings.TrimSpace(s.configPath) != "" {
+		cfg, err := config.Load(s.configPath)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if _, ok := cfg.ProfileByName(name); !ok {
+			http.Error(w, fmt.Sprintf("profile %q not found", name), http.StatusNotFound)
+			return
+		}
+		cfg.Active = name
+		if err := engine.ValidateConfig(cfg); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		result, err := config.WriteAtomicWithBackup(s.configPath, cfg)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if err := s.engine.Reload(cfg); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		status := s.engine.Status()
+		writeJSON(w, struct {
+			engine.Status
+			Persisted  bool   `json:"persisted"`
+			BackupPath string `json:"backup_path,omitempty"`
+		}{Status: status, Persisted: true, BackupPath: result.BackupPath})
+		return
+	}
+	if err := s.engine.SetActiveProfile(name); err != nil {
 		// "not found" is the only user-correctable case.
 		status := http.StatusInternalServerError
 		if strings.Contains(err.Error(), "not found") {
@@ -513,7 +754,11 @@ func (s *Server) handleSetActiveProfile(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, err.Error(), status)
 		return
 	}
-	writeJSON(w, s.engine.Status())
+	status := s.engine.Status()
+	writeJSON(w, struct {
+		engine.Status
+		Persisted bool `json:"persisted"`
+	}{Status: status})
 }
 
 func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request) {

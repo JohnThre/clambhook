@@ -324,7 +324,7 @@ func (s *HTTP) handleConnect(ctx context.Context, client net.Conn, br *bufio.Rea
 	defer cancel()
 
 	dialCtx = ce.attach(dialCtx)
-	plan, err := s.plan(dialCtx, "tcp", req.Host)
+	plan, err := s.plan(dialCtx, "tcp", req.Host, client.RemoteAddr().String())
 	if err != nil {
 		log.Printf("http: route plan %s failed: %v", req.Host, err)
 		writeSimpleStatus(client, req.Proto, http.StatusBadGateway, "Bad Gateway")
@@ -404,7 +404,7 @@ func (s *HTTP) handleMITMConnect(ctx context.Context, client net.Conn, br *bufio
 	defer cancel()
 
 	dialCtx = ce.attach(dialCtx)
-	plan, err := s.plan(dialCtx, "tcp", req.Host)
+	plan, err := s.plan(dialCtx, "tcp", req.Host, client.RemoteAddr().String())
 	if err != nil {
 		log.Printf("http: MITM route plan %s failed: %v", req.Host, err)
 		writeSimpleStatus(client, req.Proto, http.StatusBadGateway, "Bad Gateway")
@@ -558,7 +558,7 @@ func (s *HTTP) handleForward(ctx context.Context, client net.Conn, req *http.Req
 
 	dialCtx, dialCancel := context.WithTimeout(ctx, dialTimeout)
 	dialCtx = ce.attach(dialCtx)
-	plan, err := s.plan(dialCtx, "tcp", target)
+	plan, err := s.plan(dialCtx, "tcp", target, client.RemoteAddr().String())
 	if err != nil {
 		dialCancel()
 		log.Printf("http: route plan %s failed: %v", target, err)
@@ -683,9 +683,9 @@ func (s *HTTP) beginInspection(ctx context.Context, ce *connEvents, clientAddr s
 	}, req)
 }
 
-func (s *HTTP) plan(ctx context.Context, network, target string) (RoutePlan, error) {
+func (s *HTTP) plan(ctx context.Context, network, target, source string) (RoutePlan, error) {
 	if s.planner != nil {
-		return s.planner.Plan(ctx, network, target)
+		return PlanRoute(ctx, s.planner, network, target, source)
 	}
 	plan := RoutePlan{
 		Profile:   s.opts.ProfileName,
@@ -693,6 +693,7 @@ func (s *HTTP) plan(ctx context.Context, network, target string) (RoutePlan, err
 		ChainName: s.chainName,
 		Target:    target,
 		Network:   network,
+		Source:    source,
 		Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
 			return s.dial(ctx, network, address)
 		},

@@ -89,6 +89,7 @@ type Profile struct {
 	DNS               DNSConfig                `toml:"dns"`
 	Chains            []ChainConfig            `toml:"chain"`
 	PolicyGroups      []PolicyGroupConfig      `toml:"policy_group"`
+	RuleSets          []RuleSetConfig          `toml:"rule_set"`
 	Rules             []RuleConfig             `toml:"rule"`
 	RuleSubscriptions []RuleSubscriptionConfig `toml:"rule_subscription"`
 }
@@ -124,6 +125,7 @@ type PolicyGroupConfig struct {
 	Name     string   `toml:"name" json:"name"`
 	Type     string   `toml:"type" json:"type"`
 	Chains   []string `toml:"chains" json:"chains"`
+	Selected string   `toml:"selected" json:"selected,omitempty"`
 	TestURL  string   `toml:"test_url" json:"test_url,omitempty"`
 	Interval Duration `toml:"interval" json:"interval,omitempty"`
 	Timeout  Duration `toml:"timeout" json:"timeout,omitempty"`
@@ -142,12 +144,27 @@ type ServerConfig struct {
 type RuleConfig struct {
 	Name           string   `toml:"name" json:"name"`
 	Action         string   `toml:"action" json:"action"`
+	RuleSets       []string `toml:"rule_sets" json:"rule_sets,omitempty"`
 	Domains        []string `toml:"domains" json:"domains,omitempty"`
 	DomainSuffixes []string `toml:"domain_suffixes" json:"domain_suffixes,omitempty"`
 	DomainKeywords []string `toml:"domain_keywords" json:"domain_keywords,omitempty"`
 	CIDRs          []string `toml:"cidrs" json:"cidrs,omitempty"`
+	SourceCIDRs    []string `toml:"source_cidrs" json:"source_cidrs,omitempty"`
 	Ports          []int    `toml:"ports" json:"ports,omitempty"`
 	Networks       []string `toml:"networks" json:"networks,omitempty"`
+}
+
+// RuleSetConfig defines a named reusable matcher set. Inline entries are
+// always available; remote entries are cached after an explicit refresh.
+type RuleSetConfig struct {
+	Name           string   `toml:"name" json:"name"`
+	Domains        []string `toml:"domains" json:"domains,omitempty"`
+	DomainSuffixes []string `toml:"domain_suffixes" json:"domain_suffixes,omitempty"`
+	DomainKeywords []string `toml:"domain_keywords" json:"domain_keywords,omitempty"`
+	CIDRs          []string `toml:"cidrs" json:"cidrs,omitempty"`
+	URL            string   `toml:"url" json:"url,omitempty"`
+	Format         string   `toml:"format" json:"format,omitempty"`
+	Disabled       bool     `toml:"disabled" json:"disabled,omitempty"`
 }
 
 // RuleSubscriptionConfig defines one cached blocklist subscription. The

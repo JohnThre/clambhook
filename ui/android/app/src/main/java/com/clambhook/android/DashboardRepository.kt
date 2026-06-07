@@ -21,6 +21,7 @@ data class DashboardState(
     val servers: ServersPayload = ServersPayload(),
     val policyGroups: PolicyGroupsPayload = PolicyGroupsPayload(),
     val rules: RulesPayload = RulesPayload(),
+    val ruleSets: RuleSetsPayload = RuleSetsPayload(),
     val traffic: TrafficSnapshotPayload = TrafficSnapshotPayload(),
     val developerStatus: DeveloperStatusPayload = DeveloperStatusPayload(),
     val developerEntries: List<DeveloperEntryPayload> = emptyList(),
@@ -70,6 +71,7 @@ class DashboardRepository(
             val servers = api.servers()
             val policyGroups = api.policyGroups()
             val rules = api.rules()
+            val ruleSets = runCatching { api.ruleSets() }.getOrDefault(RuleSetsPayload(profile = rules.profile, statuses = rules.ruleSets))
             val traffic = api.traffic()
             val developerStatus = runCatching { api.developerStatus() }.getOrDefault(DeveloperStatusPayload())
             val developerEntries = runCatching { api.developerEntries().entries }.getOrDefault(emptyList())
@@ -80,6 +82,7 @@ class DashboardRepository(
                     servers = servers,
                     policyGroups = policyGroups,
                     rules = rules,
+                    ruleSets = ruleSets,
                     traffic = traffic,
                     developerStatus = developerStatus,
                     developerEntries = developerEntries,
@@ -102,6 +105,7 @@ class DashboardRepository(
             val status = api.status()
             val policyGroups = api.policyGroups()
             val traffic = api.traffic()
+            val ruleSets = runCatching { api.ruleSets() }.getOrDefault(_state.value.ruleSets)
             val developerStatus = runCatching { api.developerStatus() }.getOrDefault(_state.value.developerStatus)
             val developerEntries = runCatching { api.developerEntries().entries }.getOrDefault(_state.value.developerEntries)
             _state.update {
@@ -109,6 +113,7 @@ class DashboardRepository(
                     status = status,
                     policyGroups = policyGroups,
                     traffic = traffic,
+                    ruleSets = ruleSets,
                     developerStatus = developerStatus,
                     developerEntries = developerEntries,
                     apiOnline = true,
@@ -139,6 +144,18 @@ class DashboardRepository(
 
     suspend fun replaceRules(profile: String, rules: List<RulePayload>) {
         performAction(DashboardAction.Refresh) { api.replaceRules(profile, rules) }
+    }
+
+    suspend fun selectPolicyGroup(profile: String, group: String, chain: String) {
+        performAction(DashboardAction.Refresh) { api.selectPolicyGroup(profile, group, chain) }
+    }
+
+    suspend fun replaceRuleSets(profile: String, ruleSets: List<RuleSetPayload>) {
+        performAction(DashboardAction.Refresh) { api.replaceRuleSets(profile, ruleSets) }
+    }
+
+    suspend fun refreshRuleSets(profile: String, names: List<String> = emptyList()) {
+        performAction(DashboardAction.Refresh) { api.refreshRuleSets(profile, names) }
     }
 
     suspend fun clearDeveloperEntries() {

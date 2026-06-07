@@ -103,6 +103,7 @@ func (c *connEvents) emitDialingPlan(plan RoutePlan) {
 		TargetHost:  host,
 		TargetPort:  port,
 		Network:     plan.Network,
+		Source:      plan.Source,
 		Application: inferTrafficApplication(plan.Network, host, port),
 		RuleName:    plan.RuleName,
 		RuleAction:  plan.Action,
@@ -154,6 +155,7 @@ func (c *connEvents) emitRuleDecision(plan RoutePlan) {
 		TargetHost: host,
 		TargetPort: port,
 		Network:    plan.Network,
+		Source:     plan.Source,
 		Default:    plan.Default,
 		ElapsedNs:  plan.ElapsedNs,
 	})

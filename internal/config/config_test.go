@@ -207,6 +207,81 @@ name = "default"
 	}
 }
 
+func TestLoadPolicySelectRuleSetsAndSourceCIDRs(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+	data := []byte(`
+active = "default"
+
+[[profile]]
+name = "default"
+
+  [[profile.chain]]
+  name = "default"
+
+    [[profile.chain.server]]
+    name = "exit"
+    address = "203.0.113.10:443"
+    protocol = "trojan"
+
+      [profile.chain.server.settings]
+      password = "secret"
+
+  [[profile.chain]]
+  name = "backup"
+
+    [[profile.chain.server]]
+    name = "backup-exit"
+    address = "203.0.113.11:443"
+    protocol = "trojan"
+
+      [profile.chain.server.settings]
+      password = "secret"
+
+  [[profile.policy_group]]
+  name = "manual"
+  type = "select"
+  chains = ["default", "backup"]
+  selected = "backup"
+
+  [[profile.rule_set]]
+  name = "ads"
+  domain_suffixes = ["ads.example.com"]
+  cidrs = ["203.0.113.0/24"]
+
+  [[profile.rule]]
+  name = "guest-ads"
+  action = "group:manual"
+  rule_sets = ["ads"]
+  source_cidrs = ["10.10.0.0/16"]
+`)
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+	profile, err := cfg.ActiveProfile()
+	if err != nil {
+		t.Fatalf("ActiveProfile: %v", err)
+	}
+	if got := profile.PolicyGroups[0].Selected; got != "backup" {
+		t.Fatalf("selected = %q, want backup", got)
+	}
+	if got := profile.RuleSets[0].Name; got != "ads" {
+		t.Fatalf("rule set name = %q, want ads", got)
+	}
+	rule := profile.Rules[0]
+	if len(rule.RuleSets) != 1 || rule.RuleSets[0] != "ads" || len(rule.SourceCIDRs) != 1 || rule.SourceCIDRs[0] != "10.10.0.0/16" {
+		t.Fatalf("rule = %+v", rule)
+	}
+}
+
 func TestLoadDNSConfig(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.toml")
@@ -368,7 +443,7 @@ func TestValidateRejectsBadPolicyGroupConfig(t *testing.T) {
 			edit: func(cfg *Config) {
 				cfg.Profiles[0].PolicyGroups = []PolicyGroupConfig{{Name: "auto", Type: "fallback", Chains: []string{"default"}}}
 			},
-			want: "must be url-test",
+			want: "must be select or url-test",
 		},
 		{
 			name: "missing chain",
