@@ -24,6 +24,7 @@ public enum RuleTester {
         target rawTarget: String,
         profile: String,
         rules: [RulePayload],
+        effectiveRules: [RulePayload] = [],
         chains: [ChainPayload]
     ) throws -> RuleTestResponse {
         let network = rawNetwork.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
@@ -39,12 +40,14 @@ public enum RuleTester {
             throw RuleTestFailure.noChains
         }
 
-        for rule in rules where matches(rule: rule, network: network, host: split.host, port: port) {
+        let routeRules = effectiveRules.isEmpty ? rules : effectiveRules
+        for (index, rule) in routeRules.enumerated() where matches(rule: rule, network: network, host: split.host, port: port) {
             let parsed = parseAction(rule.action)
             return response(
                 profile: profile,
                 decision: RuleTestDecisionPayload(
                     ruleName: rule.name.isEmpty ? "unnamed" : rule.name,
+                    ruleNumber: index + 1,
                     action: parsed.action,
                     chainName: parsed.chainName,
                     target: target,
@@ -59,6 +62,7 @@ public enum RuleTester {
         return response(
             profile: profile,
             decision: RuleTestDecisionPayload(
+                ruleNumber: routeRules.count + 1,
                 action: "chain",
                 chainName: defaultChain.name,
                 target: target,

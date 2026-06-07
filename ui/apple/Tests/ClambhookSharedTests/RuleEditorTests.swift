@@ -77,6 +77,51 @@ final class RuleEditorTests: XCTestCase {
         ])
     }
 
+    func testRowsCanAppendUnstoredVirtualFinal() throws {
+        let rows = RuleEditor.rows(
+            from: [
+                RulePayload(name: "ads", action: "block", domainSuffixes: ["ads.example.com"])
+            ],
+            defaultChainName: "proxy",
+            includeVirtualFinal: true
+        )
+
+        XCTAssertEqual(rows.count, 2)
+        XCTAssertEqual(rows[1].source, .virtualFinal)
+        XCTAssertEqual(rows[1].name, "FINAL")
+        XCTAssertEqual(rows[1].matcherKind, .allTraffic)
+        XCTAssertEqual(rows[1].chainName, "proxy")
+
+        let rules = try RuleEditor.rules(from: rows, chainNames: ["proxy"], defaultChainName: "proxy")
+
+        XCTAssertEqual(rules, [
+            RulePayload(name: "ads", action: "block", domainSuffixes: ["ads.example.com"])
+        ])
+    }
+
+    func testEditedVirtualFinalBecomesStoredRule() throws {
+        var rows = RuleEditor.rows(from: [], defaultChainName: "proxy", includeVirtualFinal: true)
+        rows[0].policyKind = .direct
+
+        let rules = try RuleEditor.rules(from: rows, chainNames: ["proxy"], defaultChainName: "proxy")
+
+        XCTAssertEqual(rules, [
+            RulePayload(name: "FINAL", action: "direct")
+        ])
+    }
+
+    func testGeneratedRowsAreReadOnlyForPersistence() throws {
+        let rows = RuleEditor.rows(
+            from: [
+                RulePayload(name: "subscription:ads:domains", action: "block", domainSuffixes: ["ads.example.com"])
+            ],
+            source: .generated
+        )
+
+        XCTAssertEqual(rows.first?.source, .generated)
+        XCTAssertEqual(try RuleEditor.rules(from: rows, chainNames: []), [])
+    }
+
     func testValidationRejectsAllTrafficBeforeEnd() {
         let rows = [
             RuleEditorRow(name: "final", matcherKind: .allTraffic, policyKind: .direct),

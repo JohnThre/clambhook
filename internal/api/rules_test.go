@@ -151,16 +151,17 @@ func TestRuleTestEndpointEvaluatesRulesWithoutTraffic(t *testing.T) {
 	var resp struct {
 		Profile  string `json:"profile"`
 		Decision struct {
-			RuleName string `json:"rule_name"`
-			Action   string `json:"action"`
-			Network  string `json:"network"`
-			Target   string `json:"target"`
+			RuleName   string `json:"rule_name"`
+			RuleNumber int    `json:"rule_number"`
+			Action     string `json:"action"`
+			Network    string `json:"network"`
+			Target     string `json:"target"`
 		} `json:"decision"`
 	}
 	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
 		t.Fatal(err)
 	}
-	if resp.Profile != "A" || resp.Decision.RuleName != "ads" || resp.Decision.Action != "block" || resp.Decision.Network != "tcp" {
+	if resp.Profile != "A" || resp.Decision.RuleName != "ads" || resp.Decision.RuleNumber != 1 || resp.Decision.Action != "block" || resp.Decision.Network != "tcp" {
 		t.Fatalf("rule test response = %+v", resp)
 	}
 }
@@ -178,9 +179,10 @@ func TestRuleTestEndpointReturnsDefaultChainDetails(t *testing.T) {
 	}
 	var resp struct {
 		Decision struct {
-			Action    string `json:"action"`
-			ChainName string `json:"chain_name"`
-			Default   bool   `json:"default"`
+			RuleNumber int    `json:"rule_number"`
+			Action     string `json:"action"`
+			ChainName  string `json:"chain_name"`
+			Default    bool   `json:"default"`
 		} `json:"decision"`
 		Chain struct {
 			Name         string `json:"name"`
@@ -196,7 +198,7 @@ func TestRuleTestEndpointReturnsDefaultChainDetails(t *testing.T) {
 	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
 		t.Fatal(err)
 	}
-	if resp.Decision.Action != "chain" || resp.Decision.ChainName != "proxy" || !resp.Decision.Default {
+	if resp.Decision.RuleNumber != 1 || resp.Decision.Action != "chain" || resp.Decision.ChainName != "proxy" || !resp.Decision.Default {
 		t.Fatalf("decision = %+v, want default chain proxy", resp.Decision)
 	}
 	if resp.Chain.Name != "proxy" || resp.Chain.HopCount != 1 || len(resp.Hops) != 1 {
@@ -402,14 +404,15 @@ func TestRuleSubscriptionRefreshGeneratesEffectiveRules(t *testing.T) {
 	}
 	var testResp struct {
 		Decision struct {
-			RuleName string `json:"rule_name"`
-			Action   string `json:"action"`
+			RuleName   string `json:"rule_name"`
+			RuleNumber int    `json:"rule_number"`
+			Action     string `json:"action"`
 		} `json:"decision"`
 	}
 	if err := json.NewDecoder(testRec.Body).Decode(&testResp); err != nil {
 		t.Fatal(err)
 	}
-	if testResp.Decision.RuleName != "subscription:ads:domains" || testResp.Decision.Action != "block" {
+	if testResp.Decision.RuleName != "subscription:ads:domains" || testResp.Decision.RuleNumber != 1 || testResp.Decision.Action != "block" {
 		t.Fatalf("rule test response = %+v", testResp.Decision)
 	}
 }

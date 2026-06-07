@@ -62,9 +62,25 @@ final class DashboardStoreTests: XCTestCase {
             ]),
             rules: RulesPayload(profile: "phone", rules: [
                 RulePayload(name: "ads", action: "block", domainSuffixes: ["ads.example.com"])
+            ], generatedRules: [
+                RulePayload(name: "subscription:ads:domains", action: "block", domainSuffixes: ["tracker.example.com"])
+            ], effectiveRules: [
+                RulePayload(name: "ads", action: "block", domainSuffixes: ["ads.example.com"]),
+                RulePayload(name: "subscription:ads:domains", action: "block", domainSuffixes: ["tracker.example.com"])
             ]),
             policyGroups: PolicyGroupsPayload(profile: "phone", groups: [
                 PolicyGroupPayload(name: "auto", type: "url-test", chains: ["proxy"], selectedChain: "proxy")
+            ]),
+            ruleSubscriptions: RuleSubscriptionsPayload(profile: "phone", subscriptions: [
+                RuleSubscriptionPayload(
+                    name: "ads",
+                    url: "https://lists.example.invalid/ads.txt",
+                    format: "auto",
+                    action: "block",
+                    cached: true,
+                    domainCount: 1,
+                    generatedRules: ["subscription:ads:domains"]
+                )
             ]),
             traffic: TrafficSnapshotPayload(
                 summary: TrafficSummaryPayload(activeConnections: 2, rxBps: 4096, txBps: 1024),
@@ -85,7 +101,10 @@ final class DashboardStoreTests: XCTestCase {
         XCTAssertEqual(store.profiles.profiles, ["phone", "backup"])
         XCTAssertEqual(store.servers.chains.first?.name, "proxy")
         XCTAssertEqual(store.rules.rules.first?.name, "ads")
+        XCTAssertEqual(store.rules.generatedRules.first?.name, "subscription:ads:domains")
+        XCTAssertEqual(store.rules.effectiveRules.count, 2)
         XCTAssertEqual(store.policyGroups.groups.first?.selectedChain, "proxy")
+        XCTAssertEqual(store.ruleSubscriptions.subscriptions.first?.generatedRules, ["subscription:ads:domains"])
         XCTAssertEqual(store.traffic.summary.rxBps, 4096)
         let snapshot = try await snapshotStore.load()
         XCTAssertTrue(snapshot.apiOnline)
@@ -107,6 +126,7 @@ final class DashboardStoreTests: XCTestCase {
         let payload = try JSONDecoder().decode(TunnelDashboardPayload.self, from: data)
 
         XCTAssertEqual(payload.policyGroups, PolicyGroupsPayload())
+        XCTAssertEqual(payload.ruleSubscriptions, RuleSubscriptionsPayload())
         XCTAssertEqual(payload.status.profile, "A")
     }
 

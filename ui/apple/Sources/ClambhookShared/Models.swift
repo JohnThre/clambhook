@@ -54,10 +54,139 @@ public struct ServersPayload: Codable, Equatable, Sendable {
 public struct RulesPayload: Codable, Equatable, Sendable {
     public var profile: String
     public var rules: [RulePayload]
+    public var generatedRules: [RulePayload]
+    public var effectiveRules: [RulePayload]
 
-    public init(profile: String = "", rules: [RulePayload] = []) {
+    enum CodingKeys: String, CodingKey {
+        case profile
+        case rules
+        case generatedRules = "generated_rules"
+        case effectiveRules = "effective_rules"
+    }
+
+    public init(profile: String = "", rules: [RulePayload] = [], generatedRules: [RulePayload] = [], effectiveRules: [RulePayload] = []) {
         self.profile = profile
         self.rules = rules
+        self.generatedRules = generatedRules
+        self.effectiveRules = effectiveRules
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.profile = try container.decodeIfPresent(String.self, forKey: .profile) ?? ""
+        self.rules = try container.decodeIfPresent([RulePayload].self, forKey: .rules) ?? []
+        self.generatedRules = try container.decodeIfPresent([RulePayload].self, forKey: .generatedRules) ?? []
+        self.effectiveRules = try container.decodeIfPresent([RulePayload].self, forKey: .effectiveRules) ?? []
+    }
+
+    public var routeTestRules: [RulePayload] {
+        effectiveRules.isEmpty ? rules : effectiveRules
+    }
+}
+
+public struct RuleSubscriptionsPayload: Codable, Equatable, Sendable {
+    public var profile: String
+    public var subscriptions: [RuleSubscriptionPayload]
+
+    enum CodingKeys: String, CodingKey {
+        case profile
+        case subscriptions
+    }
+
+    public init(profile: String = "", subscriptions: [RuleSubscriptionPayload] = []) {
+        self.profile = profile
+        self.subscriptions = subscriptions
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.profile = try container.decodeIfPresent(String.self, forKey: .profile) ?? ""
+        self.subscriptions = try container.decodeIfPresent([RuleSubscriptionPayload].self, forKey: .subscriptions) ?? []
+    }
+}
+
+public struct RuleSubscriptionPayload: Codable, Equatable, Identifiable, Sendable {
+    public var id: String { name }
+    public var name: String
+    public var url: String
+    public var format: String
+    public var action: String
+    public var networks: [String]
+    public var disabled: Bool
+    public var cached: Bool
+    public var fetchedTsNs: Int64
+    public var domainCount: Int
+    public var cidrCount: Int
+    public var skipped: Int
+    public var cacheError: String
+    public var lastError: String
+    public var generatedRules: [String]
+
+    enum CodingKeys: String, CodingKey {
+        case name
+        case url
+        case format
+        case action
+        case networks
+        case disabled
+        case cached
+        case fetchedTsNs = "fetched_ts_ns"
+        case domainCount = "domain_count"
+        case cidrCount = "cidr_count"
+        case skipped
+        case cacheError = "cache_error"
+        case lastError = "last_error"
+        case generatedRules = "generated_rules"
+    }
+
+    public init(
+        name: String = "",
+        url: String = "",
+        format: String = "",
+        action: String = "",
+        networks: [String] = [],
+        disabled: Bool = false,
+        cached: Bool = false,
+        fetchedTsNs: Int64 = 0,
+        domainCount: Int = 0,
+        cidrCount: Int = 0,
+        skipped: Int = 0,
+        cacheError: String = "",
+        lastError: String = "",
+        generatedRules: [String] = []
+    ) {
+        self.name = name
+        self.url = url
+        self.format = format
+        self.action = action
+        self.networks = networks
+        self.disabled = disabled
+        self.cached = cached
+        self.fetchedTsNs = fetchedTsNs
+        self.domainCount = domainCount
+        self.cidrCount = cidrCount
+        self.skipped = skipped
+        self.cacheError = cacheError
+        self.lastError = lastError
+        self.generatedRules = generatedRules
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.name = try container.decodeIfPresent(String.self, forKey: .name) ?? ""
+        self.url = try container.decodeIfPresent(String.self, forKey: .url) ?? ""
+        self.format = try container.decodeIfPresent(String.self, forKey: .format) ?? ""
+        self.action = try container.decodeIfPresent(String.self, forKey: .action) ?? ""
+        self.networks = try container.decodeIfPresent([String].self, forKey: .networks) ?? []
+        self.disabled = try container.decodeIfPresent(Bool.self, forKey: .disabled) ?? false
+        self.cached = try container.decodeIfPresent(Bool.self, forKey: .cached) ?? false
+        self.fetchedTsNs = try container.decodeIfPresent(Int64.self, forKey: .fetchedTsNs) ?? 0
+        self.domainCount = try container.decodeIfPresent(Int.self, forKey: .domainCount) ?? 0
+        self.cidrCount = try container.decodeIfPresent(Int.self, forKey: .cidrCount) ?? 0
+        self.skipped = try container.decodeIfPresent(Int.self, forKey: .skipped) ?? 0
+        self.cacheError = try container.decodeIfPresent(String.self, forKey: .cacheError) ?? ""
+        self.lastError = try container.decodeIfPresent(String.self, forKey: .lastError) ?? ""
+        self.generatedRules = try container.decodeIfPresent([String].self, forKey: .generatedRules) ?? []
     }
 }
 
@@ -344,6 +473,7 @@ public struct RuleTestResponse: Codable, Equatable, Sendable {
 
 public struct RuleTestDecisionPayload: Codable, Equatable, Sendable {
     public var ruleName: String
+    public var ruleNumber: Int
     public var action: String
     public var chainName: String
     public var target: String
@@ -355,6 +485,7 @@ public struct RuleTestDecisionPayload: Codable, Equatable, Sendable {
 
     enum CodingKeys: String, CodingKey {
         case ruleName = "rule_name"
+        case ruleNumber = "rule_number"
         case action
         case chainName = "chain_name"
         case target
@@ -365,8 +496,9 @@ public struct RuleTestDecisionPayload: Codable, Equatable, Sendable {
         case elapsedNs = "elapsed_ns"
     }
 
-    public init(ruleName: String = "", action: String = "", chainName: String = "", target: String = "", targetHost: String = "", targetPort: String = "", network: String = "", isDefault: Bool = false, elapsedNs: Int64 = 0) {
+    public init(ruleName: String = "", ruleNumber: Int = 0, action: String = "", chainName: String = "", target: String = "", targetHost: String = "", targetPort: String = "", network: String = "", isDefault: Bool = false, elapsedNs: Int64 = 0) {
         self.ruleName = ruleName
+        self.ruleNumber = ruleNumber
         self.action = action
         self.chainName = chainName
         self.target = target
@@ -375,6 +507,20 @@ public struct RuleTestDecisionPayload: Codable, Equatable, Sendable {
         self.network = network
         self.isDefault = isDefault
         self.elapsedNs = elapsedNs
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.ruleName = try container.decodeIfPresent(String.self, forKey: .ruleName) ?? ""
+        self.ruleNumber = try container.decodeIfPresent(Int.self, forKey: .ruleNumber) ?? 0
+        self.action = try container.decodeIfPresent(String.self, forKey: .action) ?? ""
+        self.chainName = try container.decodeIfPresent(String.self, forKey: .chainName) ?? ""
+        self.target = try container.decodeIfPresent(String.self, forKey: .target) ?? ""
+        self.targetHost = try container.decodeIfPresent(String.self, forKey: .targetHost) ?? ""
+        self.targetPort = try container.decodeIfPresent(String.self, forKey: .targetPort) ?? ""
+        self.network = try container.decodeIfPresent(String.self, forKey: .network) ?? ""
+        self.isDefault = try container.decodeIfPresent(Bool.self, forKey: .isDefault) ?? false
+        self.elapsedNs = try container.decodeIfPresent(Int64.self, forKey: .elapsedNs) ?? 0
     }
 }
 

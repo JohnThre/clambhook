@@ -34,16 +34,17 @@ type Rule struct {
 
 // Decision is the result of evaluating a target against the rule set.
 type Decision struct {
-	RuleName  string `json:"rule_name,omitempty"`
-	Action    string `json:"action"`
-	ChainName string `json:"chain_name,omitempty"`
-	GroupName string `json:"group_name,omitempty"`
-	Target    string `json:"target"`
-	Host      string `json:"target_host,omitempty"`
-	Port      string `json:"target_port,omitempty"`
-	Network   string `json:"network,omitempty"`
-	Default   bool   `json:"default,omitempty"`
-	ElapsedNs int64  `json:"elapsed_ns,omitempty"`
+	RuleName   string `json:"rule_name,omitempty"`
+	RuleNumber int    `json:"rule_number,omitempty"`
+	Action     string `json:"action"`
+	ChainName  string `json:"chain_name,omitempty"`
+	GroupName  string `json:"group_name,omitempty"`
+	Target     string `json:"target"`
+	Host       string `json:"target_host,omitempty"`
+	Port       string `json:"target_port,omitempty"`
+	Network    string `json:"network,omitempty"`
+	Default    bool   `json:"default,omitempty"`
+	ElapsedNs  int64  `json:"elapsed_ns,omitempty"`
 }
 
 // Engine evaluates ordered rules and falls back to a default chain.
@@ -167,31 +168,33 @@ func (e *Engine) Decide(network, target string) Decision {
 	start := time.Now()
 	host, port := SplitTarget(target)
 	network = strings.ToLower(strings.TrimSpace(network))
-	for _, rule := range e.rules {
+	for i, rule := range e.rules {
 		if !rule.match(network, host, port) {
 			continue
 		}
 		return Decision{
-			RuleName:  rule.name,
-			Action:    rule.action,
-			ChainName: rule.chainName,
-			GroupName: rule.groupName,
-			Target:    target,
-			Host:      host,
-			Port:      port,
-			Network:   network,
-			ElapsedNs: time.Since(start).Nanoseconds(),
+			RuleName:   rule.name,
+			RuleNumber: i + 1,
+			Action:     rule.action,
+			ChainName:  rule.chainName,
+			GroupName:  rule.groupName,
+			Target:     target,
+			Host:       host,
+			Port:       port,
+			Network:    network,
+			ElapsedNs:  time.Since(start).Nanoseconds(),
 		}
 	}
 	return Decision{
-		Action:    ActionChain,
-		ChainName: e.defaultChain,
-		Target:    target,
-		Host:      host,
-		Port:      port,
-		Network:   network,
-		Default:   true,
-		ElapsedNs: time.Since(start).Nanoseconds(),
+		RuleNumber: len(e.rules) + 1,
+		Action:     ActionChain,
+		ChainName:  e.defaultChain,
+		Target:     target,
+		Host:       host,
+		Port:       port,
+		Network:    network,
+		Default:    true,
+		ElapsedNs:  time.Since(start).Nanoseconds(),
 	}
 }
 
