@@ -48,6 +48,7 @@ public final class DashboardStore: ObservableObject {
                 let status = try await api.status()
                 let profiles = try await api.profiles()
                 let servers = try await api.servers()
+                let policyGroups = try await api.policyGroups()
                 let rules = try await api.rules()
                 let traffic = try await api.traffic()
                 apply(dashboard: TunnelDashboardPayload(
@@ -55,6 +56,7 @@ public final class DashboardStore: ObservableObject {
                     profiles: profiles,
                     servers: servers,
                     rules: rules,
+                    policyGroups: policyGroups,
                     traffic: traffic
                 ))
             }
@@ -80,6 +82,7 @@ public final class DashboardStore: ObservableObject {
     public func refreshStatus() async {
         do {
             status = try await api.status()
+            policyGroups = try await api.policyGroups()
             traffic = try await api.traffic()
             apiOnline = true
             updateRecoveryIssueFromTraffic()

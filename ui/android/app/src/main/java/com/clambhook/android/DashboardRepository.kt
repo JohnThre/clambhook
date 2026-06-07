@@ -19,6 +19,7 @@ data class DashboardState(
     val status: StatusPayload = StatusPayload(),
     val profiles: ProfilesPayload = ProfilesPayload(),
     val servers: ServersPayload = ServersPayload(),
+    val policyGroups: PolicyGroupsPayload = PolicyGroupsPayload(),
     val rules: RulesPayload = RulesPayload(),
     val traffic: TrafficSnapshotPayload = TrafficSnapshotPayload(),
     val developerStatus: DeveloperStatusPayload = DeveloperStatusPayload(),
@@ -67,6 +68,7 @@ class DashboardRepository(
             val status = api.status()
             val profiles = api.profiles()
             val servers = api.servers()
+            val policyGroups = api.policyGroups()
             val rules = api.rules()
             val traffic = api.traffic()
             val developerStatus = runCatching { api.developerStatus() }.getOrDefault(DeveloperStatusPayload())
@@ -76,6 +78,7 @@ class DashboardRepository(
                     status = status,
                     profiles = profiles,
                     servers = servers,
+                    policyGroups = policyGroups,
                     rules = rules,
                     traffic = traffic,
                     developerStatus = developerStatus,
@@ -97,12 +100,14 @@ class DashboardRepository(
     suspend fun refreshStatus() {
         try {
             val status = api.status()
+            val policyGroups = api.policyGroups()
             val traffic = api.traffic()
             val developerStatus = runCatching { api.developerStatus() }.getOrDefault(_state.value.developerStatus)
             val developerEntries = runCatching { api.developerEntries().entries }.getOrDefault(_state.value.developerEntries)
             _state.update {
                 it.copy(
                     status = status,
+                    policyGroups = policyGroups,
                     traffic = traffic,
                     developerStatus = developerStatus,
                     developerEntries = developerEntries,

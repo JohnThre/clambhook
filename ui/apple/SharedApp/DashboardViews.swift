@@ -50,6 +50,9 @@ struct DashboardContentView: View {
                     }
                 }
             }
+            Section("Policy") {
+                CompactPolicySelectorView(summary: model.dashboard.policySelectorSummary)
+            }
             Section("Servers") {
                 ServerListView(servers: model.dashboard.servers)
             }
@@ -171,6 +174,172 @@ struct TrafficListView: View {
             return parts.joined(separator: " · ")
         }
         return connection.listener.protocol
+    }
+}
+
+struct CompactPolicySelectorView: View {
+    var summary: PolicySelectorSummary
+    var routeLimit = 4
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 8) {
+                    actionPills
+                }
+                VStack(alignment: .leading, spacing: 8) {
+                    actionPills
+                }
+            }
+
+            if summary.routes.isEmpty {
+                Label("No route selected", systemImage: "arrow.triangle.branch")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(Array(summary.routes.prefix(routeLimit))) { route in
+                    CompactPolicyRouteRow(route: route)
+                }
+            }
+
+            if !summary.topRuleHits.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Rule hits")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    ForEach(summary.topRuleHits) { hit in
+                        HStack(spacing: 8) {
+                            CompactPolicyActionDot(action: hit.action)
+                            Text(hit.ruleName.isEmpty ? "Default route" : hit.ruleName)
+                                .font(.subheadline)
+                                .lineLimit(1)
+                            Spacer(minLength: 8)
+                            Text("\(hit.count)")
+                                .font(.subheadline.weight(.semibold))
+                                .monospacedDigit()
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
+        }
+        .padding(.vertical, 2)
+    }
+
+    private var actionPills: some View {
+        Group {
+            CompactPolicyCountPill(title: "Proxy", count: summary.proxyCount, systemImage: "shield.lefthalf.filled", tint: .green)
+            CompactPolicyCountPill(title: "Direct", count: summary.directCount, systemImage: "arrow.up.right", tint: .blue)
+            CompactPolicyCountPill(title: "Block/Reject", count: summary.blockCount, systemImage: "hand.raised.fill", tint: .red)
+        }
+    }
+}
+
+private struct CompactPolicyCountPill: View {
+    var title: String
+    var count: Int
+    var systemImage: String
+    var tint: Color
+
+    var body: some View {
+        Label {
+            Text("\(title) \(count)")
+                .monospacedDigit()
+        } icon: {
+            Image(systemName: systemImage)
+        }
+        .font(.caption.weight(.semibold))
+        .foregroundStyle(tint)
+        .lineLimit(1)
+        .padding(.horizontal, 9)
+        .padding(.vertical, 6)
+        .background(tint.opacity(0.12), in: Capsule())
+    }
+}
+
+private struct CompactPolicyRouteRow: View {
+    var route: PolicySelectorRouteSummary
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "point.3.connected.trianglepath.dotted")
+                .foregroundStyle(.secondary)
+                .frame(width: 22)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(route.groupName.isEmpty ? "Route" : route.groupName)
+                    .font(.subheadline.weight(.medium))
+                    .lineLimit(1)
+                Text(route.selectedChain.isEmpty ? "No chain selected" : route.selectedChain)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: 8)
+
+            CompactPolicyHealthBadge(route: route)
+        }
+        .padding(.vertical, 2)
+    }
+}
+
+private struct CompactPolicyHealthBadge: View {
+    var route: PolicySelectorRouteSummary
+
+    var body: some View {
+        Label(route.healthText, systemImage: icon)
+            .font(.caption.weight(.medium))
+            .lineLimit(1)
+            .foregroundStyle(tint)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(tint.opacity(0.12), in: Capsule())
+    }
+
+    private var icon: String {
+        switch route.healthState {
+        case .staticRoute:
+            return "arrow.triangle.branch"
+        case .pending:
+            return "clock"
+        case .healthy:
+            return "checkmark.circle.fill"
+        case .fallback:
+            return "exclamationmark.triangle.fill"
+        }
+    }
+
+    private var tint: Color {
+        switch route.healthState {
+        case .staticRoute, .pending:
+            return .secondary
+        case .healthy:
+            return .green
+        case .fallback:
+            return .orange
+        }
+    }
+}
+
+private struct CompactPolicyActionDot: View {
+    var action: String
+
+    var body: some View {
+        Circle()
+            .fill(tint)
+            .frame(width: 8, height: 8)
+    }
+
+    private var tint: Color {
+        switch action.lowercased() {
+        case "direct":
+            return .blue
+        case "block", "reject":
+            return .red
+        default:
+            return .green
+        }
     }
 }
 

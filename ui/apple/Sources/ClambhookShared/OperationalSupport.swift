@@ -595,6 +595,63 @@ public struct RuleHitSummary: Identifiable, Equatable, Sendable {
     public var count: Int
 }
 
+public enum PolicySelectorHealthState: String, Equatable, Sendable {
+    case staticRoute
+    case pending
+    case healthy
+    case fallback
+}
+
+public struct PolicySelectorRouteSummary: Identifiable, Equatable, Sendable {
+    public var id: String { groupName.isEmpty ? selectedChain : groupName }
+    public var groupName: String
+    public var selectedChain: String
+    public var healthState: PolicySelectorHealthState
+    public var healthText: String
+
+    public init(groupName: String = "", selectedChain: String = "", healthState: PolicySelectorHealthState = .pending, healthText: String = "") {
+        self.groupName = groupName
+        self.selectedChain = selectedChain
+        self.healthState = healthState
+        self.healthText = healthText
+    }
+}
+
+public struct PolicySelectorSummary: Equatable, Sendable {
+    public var proxyCount: Int
+    public var directCount: Int
+    public var blockCount: Int
+    public var routes: [PolicySelectorRouteSummary]
+    public var topRuleHits: [RuleHitSummary]
+
+    public init(proxyCount: Int = 0, directCount: Int = 0, blockCount: Int = 0, routes: [PolicySelectorRouteSummary] = [], topRuleHits: [RuleHitSummary] = []) {
+        self.proxyCount = proxyCount
+        self.directCount = directCount
+        self.blockCount = blockCount
+        self.routes = routes
+        self.topRuleHits = topRuleHits
+    }
+
+    public static func build(policyGroups: PolicyGroupsPayload, servers: ServersPayload, traffic: TrafficSnapshotPayload) -> PolicySelectorSummary {
+        let counts = actionCounts(from: traffic)
+        let routes: [PolicySelectorRouteSummary]
+        if policyGroups.groups.isEmpty {
+            routes = servers.chains.first.map {
+                [PolicySelectorRouteSummary(groupName: "Default route", selectedChain: $0.name, healthState: .staticRoute, healthText: "Static / no health probes")]
+            } ?? []
+        } else {
+            routes = policyGroups.groups.map { routeSummary(for: $0) }
+        }
+        return PolicySelectorSummary(
+            proxyCount: counts["proxy", default: 0],
+            directCount: counts["direct", default: 0],
+            blockCount: counts["block", default: 0],
+            routes: routes,
+            topRuleHits: Array(buildRuleHitSummaries(from: traffic).prefix(3))
+        )
+    }
+}
+
 public struct ServerHealth: Equatable, Sendable {
     public var latencyNs: Int64
     public var lastUsedTsNs: Int64
@@ -629,38 +686,15 @@ public extension DashboardStore {
     }
 
     var ruleHitSummaries: [RuleHitSummary] {
-        if !traffic.ruleHits.isEmpty {
-            return traffic.ruleHits.map {
-                RuleHitSummary(ruleName: $0.ruleName, action: $0.action, count: $0.count)
-            }
-            .sorted {
-                if $0.count == $1.count {
-                    return $0.id < $1.id
-                }
-                return $0.count > $1.count
-            }
-        }
-        let grouped = Dictionary(grouping: traffic.connections.filter { !$0.ruleAction.isEmpty }) {
-            "\($0.ruleName)|\($0.actionFamily)"
-        }
-        return grouped.map { _, rows in
-            let first = rows[0]
-            return RuleHitSummary(ruleName: first.ruleName, action: first.actionFamily, count: rows.count)
-        }
-        .sorted {
-            if $0.count == $1.count {
-                return $0.id < $1.id
-            }
-            return $0.count > $1.count
-        }
+        buildRuleHitSummaries(from: traffic)
     }
 
     var monitorActionCounts: [String: Int] {
-        var counts = ["proxy": 0, "direct": 0, "block": 0]
-        for connection in traffic.connections {
-            counts[connection.actionFamily, default: 0] += 1
-        }
-        return counts
+        actionCounts(from: traffic)
+    }
+
+    var policySelectorSummary: PolicySelectorSummary {
+        PolicySelectorSummary.build(policyGroups: policyGroups, servers: servers, traffic: traffic)
     }
 
     var passiveServerHealth: [String: ServerHealth] {
@@ -775,6 +809,50 @@ public extension TunnelConfigStore {
 
 private func hopMatchesServer(_ hop: TrafficHopPayload, server: ServerPayload) -> Bool {
     hop.address == server.address || (!hop.name.isEmpty && hop.name == server.name)
+}
+
+private func actionCounts(from traffic: TrafficSnapshotPayload) -> [String: Int] {
+    var counts = ["proxy": 0, "direct": 0, "block": 0]
+    for connection in traffic.connections {
+        counts[connection.actionFamily, default: 0] += 1
+    }
+    return counts
+}
+
+private func buildRuleHitSummaries(from traffic: TrafficSnapshotPayload) -> [RuleHitSummary] {
+    let summaries: [RuleHitSummary]
+    if !traffic.ruleHits.isEmpty {
+        summaries = traffic.ruleHits.map {
+            RuleHitSummary(ruleName: $0.ruleName, action: $0.action, count: $0.count)
+        }
+    } else {
+        let grouped = Dictionary(grouping: traffic.connections.filter { !$0.ruleAction.isEmpty }) {
+            "\($0.ruleName)|\($0.actionFamily)"
+        }
+        summaries = grouped.map { _, rows in
+            let first = rows[0]
+            return RuleHitSummary(ruleName: first.ruleName, action: first.actionFamily, count: rows.count)
+        }
+    }
+    return summaries.sorted {
+        if $0.count == $1.count {
+            return $0.id < $1.id
+        }
+        return $0.count > $1.count
+    }
+}
+
+private func routeSummary(for group: PolicyGroupPayload) -> PolicySelectorRouteSummary {
+    let selected = group.selectedChain.isEmpty ? (group.chains.first ?? "") : group.selectedChain
+    guard !group.results.isEmpty else {
+        return PolicySelectorRouteSummary(groupName: group.name, selectedChain: selected, healthState: .pending, healthText: "Pending health")
+    }
+    let healthy = group.results.filter(\.healthy).count
+    let total = group.results.count
+    if group.results.first(where: { $0.chainName == selected })?.healthy == true {
+        return PolicySelectorRouteSummary(groupName: group.name, selectedChain: selected, healthState: .healthy, healthText: "Healthy / \(healthy)/\(total)")
+    }
+    return PolicySelectorRouteSummary(groupName: group.name, selectedChain: selected, healthState: .fallback, healthText: "Fallback / \(healthy)/\(total) healthy")
 }
 
 private extension String {

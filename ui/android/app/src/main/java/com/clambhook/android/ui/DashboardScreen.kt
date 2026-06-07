@@ -19,6 +19,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Dns
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Refresh
@@ -49,7 +50,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -90,6 +93,7 @@ fun DashboardScreen(
 
             DashboardDestination.Today -> {
                 item { StatusCard(state, onRefresh, onConnect, onDisconnect) }
+                item { PolicySelectorCard(state) }
                 item { NowActivityCard(state) }
             }
 
@@ -291,6 +295,189 @@ private fun StatusCard(
             }
         }
     }
+}
+
+@Composable
+private fun PolicySelectorCard(state: DashboardState) {
+    val summary = policySelectorSummary(state.policyGroups, state.servers, state.traffic)
+    Card(shape = RoundedCornerShape(8.dp)) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.Top
+            ) {
+                Column {
+                    Text("Policy", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        state.activeProfile.ifBlank { "No active profile" },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                StatusPill("${state.rules.rules.size} rules")
+            }
+
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                PolicyCountPill("Proxy", summary.proxyCount, Icons.Rounded.Dns, MaterialTheme.colorScheme.primary)
+                PolicyCountPill("Direct", summary.directCount, Icons.Rounded.PlayArrow, MaterialTheme.colorScheme.tertiary)
+                PolicyCountPill("Block/Reject", summary.blockCount, Icons.Rounded.Stop, MaterialTheme.colorScheme.error)
+            }
+
+            if (summary.routes.isEmpty()) {
+                EmptyState("No route selected", "Add a chain or policy group in Settings.")
+            } else {
+                summary.routes.take(4).forEach { route ->
+                    PolicyRouteRow(route)
+                }
+            }
+
+            if (summary.topRuleHits.isNotEmpty()) {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(
+                        "Rule hits",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    summary.topRuleHits.forEach { hit ->
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                modifier = Modifier.weight(1f),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                PolicyActionDot(hit.action)
+                                Spacer(Modifier.width(8.dp))
+                                Text(
+                                    hit.ruleName.ifBlank { "Default route" },
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                hit.count.toString(),
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PolicyCountPill(title: String, count: Int, imageVector: ImageVector, tint: Color) {
+    Surface(
+        shape = RoundedCornerShape(999.dp),
+        color = tint.copy(alpha = 0.12f),
+        contentColor = tint
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(imageVector, contentDescription = null, modifier = Modifier.size(16.dp))
+            Spacer(Modifier.width(6.dp))
+            Text(
+                "$title $count",
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1
+            )
+        }
+    }
+}
+
+@Composable
+private fun PolicyRouteRow(route: PolicySelectorRouteSummary) {
+    Row(
+        Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.Top
+    ) {
+        Row(modifier = Modifier.weight(1f), verticalAlignment = Alignment.Top) {
+            Icon(
+                Icons.Rounded.Dns,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(20.dp)
+            )
+            Spacer(Modifier.width(10.dp))
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    route.groupName.ifBlank { "Route" },
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    route.selectedChain.ifBlank { "No chain selected" },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+        Spacer(Modifier.width(10.dp))
+        PolicyHealthPill(route)
+    }
+}
+
+@Composable
+private fun PolicyHealthPill(route: PolicySelectorRouteSummary) {
+    val tint = when (route.healthState) {
+        PolicySelectorHealthState.StaticRoute,
+        PolicySelectorHealthState.Pending -> MaterialTheme.colorScheme.onSurfaceVariant
+        PolicySelectorHealthState.Healthy -> MaterialTheme.colorScheme.primary
+        PolicySelectorHealthState.Fallback -> MaterialTheme.colorScheme.error
+    }
+    val icon = when (route.healthState) {
+        PolicySelectorHealthState.Healthy -> Icons.Rounded.CheckCircle
+        PolicySelectorHealthState.StaticRoute,
+        PolicySelectorHealthState.Pending -> Icons.Rounded.Refresh
+        PolicySelectorHealthState.Fallback -> Icons.Rounded.Stop
+    }
+    Surface(
+        modifier = Modifier.widthIn(max = 180.dp),
+        shape = RoundedCornerShape(999.dp),
+        color = tint.copy(alpha = 0.12f),
+        contentColor = tint
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(icon, contentDescription = null, modifier = Modifier.size(15.dp))
+            Spacer(Modifier.width(6.dp))
+            Text(
+                route.healthText,
+                style = MaterialTheme.typography.labelMedium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+@Composable
+private fun PolicyActionDot(action: String) {
+    val tint = when (action.lowercase()) {
+        "direct" -> MaterialTheme.colorScheme.tertiary
+        "block", "reject" -> MaterialTheme.colorScheme.error
+        else -> MaterialTheme.colorScheme.primary
+    }
+    Box(
+        modifier = Modifier
+            .size(8.dp)
+            .background(tint, CircleShape)
+    )
 }
 
 @Composable

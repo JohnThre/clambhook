@@ -63,6 +63,41 @@ class ApiModelsTest {
     }
 
     @Test
+    fun decodesPolicyGroupsPayload() {
+        val policyGroups = ApiJson.decodeFromString<PolicyGroupsPayload>(
+            """
+            {
+              "profile": "default",
+              "groups": [
+                {
+                  "name": "auto",
+                  "type": "url-test",
+                  "chains": ["proxy", "backup"],
+                  "test_url": "https://probe.example/generate_204",
+                  "interval": "30s",
+                  "timeout": "5s",
+                  "selected_chain": "backup",
+                  "updated_ts_ns": 123,
+                  "results": [
+                    {"chain_name": "proxy", "healthy": false, "error": "timeout", "last_test_ts_ns": 100},
+                    {"chain_name": "backup", "healthy": true, "latency_ns": 25000000, "status_code": 204, "last_test_ts_ns": 101}
+                  ]
+                }
+              ]
+            }
+            """.trimIndent()
+        )
+
+        val group = policyGroups.groups.single()
+        assertEquals("default", policyGroups.profile)
+        assertEquals("auto", group.name)
+        assertEquals("backup", group.selectedChain)
+        assertEquals(2, group.results.size)
+        assertEquals(true, group.results[1].healthy)
+        assertEquals(25_000_000, group.results[1].latencyNs)
+    }
+
+    @Test
     fun decodesDaemonEventPayload() {
         val event = ApiJson.decodeFromString<DaemonEvent>(
             """

@@ -353,6 +353,10 @@ final class TunnelDashboardClient: ClambhookDashboardProviding, DeveloperCapture
         try await controller.dashboard().servers
     }
 
+    func policyGroups() async throws -> PolicyGroupsPayload {
+        try await controller.dashboard().policyGroups
+    }
+
     func rules() async throws -> RulesPayload {
         try await controller.dashboard().rules
     }

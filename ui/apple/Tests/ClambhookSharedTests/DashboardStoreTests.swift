@@ -213,6 +213,7 @@ private class FakeAPIClient: ClambhookAPIProviding {
     var statusResult = StatusPayload(running: false, profile: "", listeners: [])
     var profilesResult = ProfilesPayload(profiles: [], active: "")
     var serversResult = ServersPayload(profile: "", chains: [])
+    var policyGroupsResult = PolicyGroupsPayload()
     var rulesResult = RulesPayload(profile: "", rules: [])
     var trafficResult = TrafficSnapshotPayload()
     var ruleTestResult = RuleTestResponse()
@@ -222,6 +223,7 @@ private class FakeAPIClient: ClambhookAPIProviding {
     private(set) var statusCalls = 0
     private(set) var profilesCalls = 0
     private(set) var serversCalls = 0
+    private(set) var policyGroupCalls = 0
     private(set) var rulesCalls = 0
     private(set) var trafficCalls = 0
 
@@ -238,6 +240,11 @@ private class FakeAPIClient: ClambhookAPIProviding {
     func servers() async throws -> ServersPayload {
         serversCalls += 1
         return serversResult
+    }
+
+    func policyGroups() async throws -> PolicyGroupsPayload {
+        policyGroupCalls += 1
+        return policyGroupsResult
     }
 
     func rules() async throws -> RulesPayload {

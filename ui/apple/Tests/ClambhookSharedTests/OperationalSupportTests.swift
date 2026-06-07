@@ -191,6 +191,77 @@ final class OperationalSupportTests: XCTestCase {
         XCTAssertEqual(store.passiveServerHealth[serverID]?.latencyNs, 25_000_000)
     }
 
+    func testPolicySelectorSummaryUsesStaticDefaultRoute() {
+        let summary = PolicySelectorSummary.build(
+            policyGroups: PolicyGroupsPayload(),
+            servers: ServersPayload(profile: "A", chains: [ChainPayload(name: "proxy", servers: [])]),
+            traffic: TrafficSnapshotPayload(connections: [
+                TrafficConnectionPayload(connID: "c1", ruleAction: "direct"),
+                TrafficConnectionPayload(connID: "c2", ruleAction: "block"),
+                TrafficConnectionPayload(connID: "c3", chainName: "proxy"),
+            ])
+        )
+
+        XCTAssertEqual(summary.proxyCount, 1)
+        XCTAssertEqual(summary.directCount, 1)
+        XCTAssertEqual(summary.blockCount, 1)
+        XCTAssertEqual(summary.routes.count, 1)
+        XCTAssertEqual(summary.routes.first?.selectedChain, "proxy")
+        XCTAssertEqual(summary.routes.first?.healthState, .staticRoute)
+    }
+
+    func testPolicySelectorSummaryReportsHealthySelectedChain() {
+        let summary = PolicySelectorSummary.build(
+            policyGroups: PolicyGroupsPayload(profile: "A", groups: [
+                PolicyGroupPayload(name: "auto", chains: ["proxy", "backup"], selectedChain: "proxy", results: [
+                    PolicyProbeResultPayload(chainName: "proxy", healthy: true, latencyNs: 20),
+                    PolicyProbeResultPayload(chainName: "backup", healthy: false, error: "timeout"),
+                ]),
+            ]),
+            servers: ServersPayload(profile: "A"),
+            traffic: TrafficSnapshotPayload()
+        )
+
+        XCTAssertEqual(summary.routes.count, 1)
+        XCTAssertEqual(summary.routes.first?.groupName, "auto")
+        XCTAssertEqual(summary.routes.first?.selectedChain, "proxy")
+        XCTAssertEqual(summary.routes.first?.healthState, .healthy)
+        XCTAssertEqual(summary.routes.first?.healthText, "Healthy / 1/2")
+    }
+
+    func testPolicySelectorSummaryReportsFallbackWhenSelectedChainUnhealthy() {
+        let summary = PolicySelectorSummary.build(
+            policyGroups: PolicyGroupsPayload(profile: "A", groups: [
+                PolicyGroupPayload(name: "auto", chains: ["proxy", "backup"], selectedChain: "proxy", results: [
+                    PolicyProbeResultPayload(chainName: "proxy", healthy: false, error: "timeout"),
+                    PolicyProbeResultPayload(chainName: "backup", healthy: true, latencyNs: 30),
+                ]),
+            ]),
+            servers: ServersPayload(profile: "A"),
+            traffic: TrafficSnapshotPayload()
+        )
+
+        XCTAssertEqual(summary.routes.count, 1)
+        XCTAssertEqual(summary.routes.first?.selectedChain, "proxy")
+        XCTAssertEqual(summary.routes.first?.healthState, .fallback)
+        XCTAssertEqual(summary.routes.first?.healthText, "Fallback / 1/2 healthy")
+    }
+
+    func testPolicySelectorSummaryKeepsTopThreeRuleHits() {
+        let summary = PolicySelectorSummary.build(
+            policyGroups: PolicyGroupsPayload(),
+            servers: ServersPayload(profile: "A"),
+            traffic: TrafficSnapshotPayload(ruleHits: [
+                TrafficRuleHitPayload(ruleName: "one", action: "direct", count: 1),
+                TrafficRuleHitPayload(ruleName: "four", action: "block", count: 4),
+                TrafficRuleHitPayload(ruleName: "three", action: "chain:proxy", count: 3),
+                TrafficRuleHitPayload(ruleName: "two", action: "reject", count: 2),
+            ])
+        )
+
+        XCTAssertEqual(summary.topRuleHits.map(\.ruleName), ["four", "three", "two"])
+    }
+
     func testDashboardRecoveryIssueUsesRecentClassifiedHopError() async {
         let api = FakeOperationalAPIClient()
         api.trafficResult = TrafficSnapshotPayload(connections: [
@@ -216,6 +287,7 @@ private final class FakeOperationalAPIClient: ClambhookAPIProviding {
     var statusResult = StatusPayload()
     var profilesResult = ProfilesPayload()
     var serversResult = ServersPayload()
+    var policyGroupsResult = PolicyGroupsPayload()
     var rulesResult = RulesPayload()
     var trafficResult = TrafficSnapshotPayload()
     var ruleTestResult = RuleTestResponse()
@@ -223,6 +295,7 @@ private final class FakeOperationalAPIClient: ClambhookAPIProviding {
     func status() async throws -> StatusPayload { statusResult }
     func profiles() async throws -> ProfilesPayload { profilesResult }
     func servers() async throws -> ServersPayload { serversResult }
+    func policyGroups() async throws -> PolicyGroupsPayload { policyGroupsResult }
     func rules() async throws -> RulesPayload { rulesResult }
     func testRule(network: String, target: String, profile: String) async throws -> RuleTestResponse { ruleTestResult }
     func traffic() async throws -> TrafficSnapshotPayload { trafficResult }
