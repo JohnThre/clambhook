@@ -84,9 +84,17 @@ public func routeTestSummary(_ response: RuleTestResponse) -> String {
         routeActionFamily(decision.action).uppercased(),
     ]
     if !decision.ruleName.isEmpty {
-        parts.append("Rule \(decision.ruleName)")
+        if decision.ruleNumber > 0 {
+            parts.append("Rule #\(decision.ruleNumber) \(decision.ruleName)")
+        } else {
+            parts.append("Rule \(decision.ruleName)")
+        }
     } else if decision.isDefault {
-        parts.append("Default")
+        if decision.ruleNumber > 0 {
+            parts.append("FINAL #\(decision.ruleNumber)")
+        } else {
+            parts.append("Default")
+        }
     }
     if !decision.chainName.isEmpty {
         parts.append("Chain \(decision.chainName)")

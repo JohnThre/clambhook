@@ -12,12 +12,12 @@ func TestDecideFirstMatchingRule(t *testing.T) {
 	}
 
 	got := engine.Decide("tcp", "api.example.com:443")
-	if got.RuleName != "corp" || got.Action != ActionChain || got.ChainName != "corp" {
+	if got.RuleName != "corp" || got.RuleNumber != 2 || got.Action != ActionChain || got.ChainName != "corp" {
 		t.Fatalf("decision = %+v, want corp chain", got)
 	}
 
 	got = engine.Decide("tcp", "cdn.ads.example.com:443")
-	if got.RuleName != "ads" || got.Action != ActionBlock {
+	if got.RuleName != "ads" || got.RuleNumber != 1 || got.Action != ActionBlock {
 		t.Fatalf("decision = %+v, want ads block", got)
 	}
 }
@@ -29,7 +29,7 @@ func TestDecideFallsBackToDefaultChain(t *testing.T) {
 	}
 
 	got := engine.Decide("tcp", "example.org:80")
-	if !got.Default || got.Action != ActionChain || got.ChainName != "default" {
+	if !got.Default || got.RuleNumber != 1 || got.Action != ActionChain || got.ChainName != "default" {
 		t.Fatalf("decision = %+v, want default chain", got)
 	}
 }
@@ -55,7 +55,7 @@ func TestCIDRAndNetworkMatch(t *testing.T) {
 	}
 
 	got = engine.Decide("tcp", "10.1.2.3:53")
-	if !got.Default {
+	if !got.Default || got.RuleNumber != 2 {
 		t.Fatalf("decision = %+v, want default for TCP", got)
 	}
 }

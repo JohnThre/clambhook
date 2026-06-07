@@ -22,21 +22,21 @@ public enum RuleMatcherKind: String, CaseIterable, Identifiable, Sendable {
     public var displayName: String {
         switch self {
         case .domain:
-            return "Domain"
+            return "DOMAIN"
         case .domainSuffix:
-            return "Domain Suffix"
+            return "DOMAIN-SUFFIX"
         case .domainKeyword:
-            return "Domain Keyword"
+            return "DOMAIN-KEYWORD"
         case .cidr:
-            return "CIDR"
+            return "IP-CIDR"
         case .port:
-            return "Port"
+            return "PORT"
         case .network:
-            return "Network"
+            return "NETWORK"
         case .allTraffic:
-            return "All Traffic"
+            return "FINAL"
         case .combined:
-            return "Combined"
+            return "COMBINED"
         }
     }
 
@@ -121,6 +121,12 @@ public enum RulePolicyKind: String, CaseIterable, Identifiable, Sendable {
     }
 }
 
+public enum RuleEditorRowSource: String, Equatable, Sendable {
+    case manual
+    case generated
+    case virtualFinal
+}
+
 public struct RuleEditorRow: Identifiable, Equatable, Sendable {
     public let id: UUID
     public var name: String
@@ -129,6 +135,7 @@ public struct RuleEditorRow: Identifiable, Equatable, Sendable {
     public var policyKind: RulePolicyKind
     public var chainName: String
     public var compatibilityRule: RulePayload?
+    public var source: RuleEditorRowSource
 
     public init(
         id: UUID = UUID(),
@@ -137,7 +144,8 @@ public struct RuleEditorRow: Identifiable, Equatable, Sendable {
         value: String = "",
         policyKind: RulePolicyKind = .proxy,
         chainName: String = "",
-        compatibilityRule: RulePayload? = nil
+        compatibilityRule: RulePayload? = nil,
+        source: RuleEditorRowSource = .manual
     ) {
         self.id = id
         self.name = name
@@ -146,7 +154,12 @@ public struct RuleEditorRow: Identifiable, Equatable, Sendable {
         self.policyKind = policyKind
         self.chainName = chainName
         self.compatibilityRule = compatibilityRule
+        self.source = source
     }
+
+    public var isGenerated: Bool { source == .generated }
+    public var isVirtualFinal: Bool { source == .virtualFinal }
+    public var isEditable: Bool { source != .generated }
 
     public var encodedAction: String {
         switch policyKind {
@@ -185,10 +198,18 @@ public struct RuleEditorRow: Identifiable, Equatable, Sendable {
         case .network:
             return trimmedValue.isEmpty ? matcherKind.displayName : trimmedValue.uppercased()
         case .allTraffic:
-            return "All traffic"
+            return "Any target"
         case .combined:
             return trimmedValue.isEmpty ? "Combined matchers" : trimmedValue
         }
+    }
+
+    public func isUnchangedVirtualFinal(defaultChainName: String) -> Bool {
+        source == .virtualFinal &&
+            matcherKind == .allTraffic &&
+            name == "FINAL" &&
+            policyKind == .proxy &&
+            chainName == defaultChainName
     }
 }
 
@@ -221,22 +242,39 @@ public struct RuleEditorValidationFailure: Error, LocalizedError, Equatable, Sen
 }
 
 public enum RuleEditor {
-    public static func rows(from rules: [RulePayload]) -> [RuleEditorRow] {
-        rules.flatMap(rows(from:))
+    public static func rows(
+        from rules: [RulePayload],
+        source: RuleEditorRowSource = .manual,
+        defaultChainName: String = "",
+        includeVirtualFinal: Bool = false
+    ) -> [RuleEditorRow] {
+        var out = rules.flatMap { rows(from: $0, source: source) }
+        if includeVirtualFinal && !rules.contains(where: isFinalRule) {
+            out.append(virtualFinalRow(defaultChainName: defaultChainName))
+        }
+        return out
     }
 
-    public static func rules(from rows: [RuleEditorRow], chainNames: [String]) throws -> [RulePayload] {
-        let errors = validate(rows: rows, chainNames: chainNames)
+    public static func rules(from rows: [RuleEditorRow], chainNames: [String], defaultChainName: String = "") throws -> [RulePayload] {
+        let errors = validate(rows: rows, chainNames: chainNames, defaultChainName: defaultChainName)
         if !errors.isEmpty {
             throw RuleEditorValidationFailure(errors: errors)
         }
-        return rows.map(rule(from:))
+        return rows.compactMap { row in
+            if row.isGenerated || row.isUnchangedVirtualFinal(defaultChainName: defaultChainName) {
+                return nil
+            }
+            return rule(from: row)
+        }
     }
 
-    public static func validate(rows: [RuleEditorRow], chainNames: [String]) -> [RuleEditorValidationError] {
+    public static func validate(rows: [RuleEditorRow], chainNames: [String], defaultChainName: String = "") -> [RuleEditorValidationError] {
         var errors: [RuleEditorValidationError] = []
         let knownChains = Set(chainNames)
         for (index, row) in rows.enumerated() {
+            if row.isGenerated {
+                continue
+            }
             let name = row.name.ruleEditorTrimmed
             if name.isEmpty {
                 errors.append(.init(rowIndex: index, message: "name is required"))
@@ -257,7 +295,7 @@ public enum RuleEditor {
         return errors
     }
 
-    private static func rows(from rule: RulePayload) -> [RuleEditorRow] {
+    private static func rows(from rule: RulePayload, source: RuleEditorRowSource) -> [RuleEditorRow] {
         let policy = RulePolicyKind.parse(action: rule.action)
         let families = matcherFamilies(for: rule)
         if families.isEmpty {
@@ -266,7 +304,9 @@ public enum RuleEditor {
                     name: rule.name,
                     matcherKind: .allTraffic,
                     policyKind: policy.kind,
-                    chainName: policy.chainName
+                    chainName: policy.chainName,
+                    compatibilityRule: source == .generated ? rule : nil,
+                    source: source
                 )
             ]
         }
@@ -277,7 +317,9 @@ public enum RuleEditor {
                     matcherKind: families[0].kind,
                     value: value,
                     policyKind: policy.kind,
-                    chainName: policy.chainName
+                    chainName: policy.chainName,
+                    compatibilityRule: source == .generated ? rule : nil,
+                    source: source
                 )
             }
         }
@@ -288,9 +330,24 @@ public enum RuleEditor {
                 value: summary(for: rule),
                 policyKind: policy.kind,
                 chainName: policy.chainName,
-                compatibilityRule: rule
+                compatibilityRule: rule,
+                source: source
             )
         ]
+    }
+
+    private static func virtualFinalRow(defaultChainName: String) -> RuleEditorRow {
+        RuleEditorRow(
+            name: "FINAL",
+            matcherKind: .allTraffic,
+            policyKind: .proxy,
+            chainName: defaultChainName,
+            source: .virtualFinal
+        )
+    }
+
+    private static func isFinalRule(_ rule: RulePayload) -> Bool {
+        matcherFamilies(for: rule).isEmpty
     }
 
     private static func matcherFamilies(for rule: RulePayload) -> [MatcherFamily] {

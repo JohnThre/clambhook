@@ -21,10 +21,31 @@ final class RuleTesterTests: XCTestCase {
         )
 
         XCTAssertEqual(response.decision.ruleName, "ads")
+        XCTAssertEqual(response.decision.ruleNumber, 1)
         XCTAssertEqual(response.decision.action, "chain")
         XCTAssertEqual(response.decision.chainName, "proxy")
         XCTAssertEqual(response.chain?.capabilities.udpMode, "stream")
         XCTAssertEqual(response.hops.first?.name, "exit")
+    }
+
+    func testRuleTesterUsesEffectiveRulesWhenPresent() throws {
+        let manual = RulePayload(name: "manual", action: "direct", domains: ["manual.example.com"])
+        let generated = RulePayload(name: "subscription:ads:domains", action: "block", domainSuffixes: ["ads.example.com"])
+
+        let response = try RuleTester.test(
+            network: "tcp",
+            target: "cdn.ads.example.com:443",
+            profile: "A",
+            rules: [manual],
+            effectiveRules: [manual, generated],
+            chains: [
+                ChainPayload(name: "proxy", hopCount: 1, servers: [ServerPayload(name: "exit", address: "203.0.113.10:443", protocol: "trojan")])
+            ]
+        )
+
+        XCTAssertEqual(response.decision.ruleName, "subscription:ads:domains")
+        XCTAssertEqual(response.decision.ruleNumber, 2)
+        XCTAssertEqual(response.decision.action, "block")
     }
 
     func testRuleTesterUsesDefaultChain() throws {
@@ -39,6 +60,7 @@ final class RuleTesterTests: XCTestCase {
         )
 
         XCTAssertTrue(response.decision.isDefault)
+        XCTAssertEqual(response.decision.ruleNumber, 1)
         XCTAssertEqual(response.decision.action, "chain")
         XCTAssertEqual(response.decision.chainName, "proxy")
     }
