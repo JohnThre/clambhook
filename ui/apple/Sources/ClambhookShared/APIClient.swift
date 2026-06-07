@@ -4,6 +4,7 @@ public protocol ClambhookAPIProviding: AnyObject {
     func status() async throws -> StatusPayload
     func profiles() async throws -> ProfilesPayload
     func servers() async throws -> ServersPayload
+    func policyGroups() async throws -> PolicyGroupsPayload
     func rules() async throws -> RulesPayload
     func testRule(network: String, target: String, profile: String) async throws -> RuleTestResponse
     func traffic() async throws -> TrafficSnapshotPayload
@@ -76,6 +77,10 @@ public final class ClambhookAPIClient: ClambhookAPIProviding, ClambhookRuleEditi
 
     public func servers() async throws -> ServersPayload {
         try await getJSON("/api/v1/servers")
+    }
+
+    public func policyGroups() async throws -> PolicyGroupsPayload {
+        try await getJSON("/api/v1/policy-groups")
     }
 
     public func rules() async throws -> RulesPayload {

@@ -237,65 +237,14 @@ private struct IOSRouteStatusPanel: View {
                 IOSStatusBadge(text: "\(model.dashboard.rules.rules.count) rules", systemImage: "slider.horizontal.3", tint: .blue)
             }
 
-            if model.dashboard.policyGroups.groups.isEmpty {
-                LabeledContent("Default route", value: emptyDash(defaultChain))
-                    .font(.subheadline)
-            } else {
-                ForEach(model.dashboard.policyGroups.groups.prefix(4)) { group in
-                    IOSPolicyGroupRow(group: group)
-                }
-            }
+            CompactPolicySelectorView(summary: model.dashboard.policySelectorSummary)
         }
-    }
-
-    private var defaultChain: String {
-        model.dashboard.servers.chains.first?.name ?? ""
     }
 
     private var routeSubtitle: String {
         var parts = ["\(model.dashboard.servers.chains.count) route\(model.dashboard.servers.chains.count == 1 ? "" : "s")"]
         if !model.dashboard.policyGroups.groups.isEmpty {
             parts.append("\(model.dashboard.policyGroups.groups.count) polic\(model.dashboard.policyGroups.groups.count == 1 ? "y" : "ies")")
-        }
-        return parts.joined(separator: " / ")
-    }
-}
-
-private struct IOSPolicyGroupRow: View {
-    var group: PolicyGroupPayload
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            Image(systemName: "point.3.connected.trianglepath.dotted")
-                .foregroundStyle(.secondary)
-                .frame(width: 24)
-
-            VStack(alignment: .leading, spacing: 3) {
-                Text(emptyDash(group.name))
-                    .font(.subheadline.weight(.medium))
-                    .lineLimit(1)
-                Text(policyDetail)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-            }
-
-            Spacer(minLength: 8)
-
-            Text(emptyDash(group.selectedChain))
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-        }
-        .padding(.vertical, 2)
-    }
-
-    private var policyDetail: String {
-        let healthy = group.results.filter(\.healthy).count
-        var parts = [group.type.isEmpty ? "policy" : group.type]
-        parts.append("\(group.chains.count) route\(group.chains.count == 1 ? "" : "s")")
-        if !group.results.isEmpty {
-            parts.append("\(healthy) healthy")
         }
         return parts.joined(separator: " / ")
     }

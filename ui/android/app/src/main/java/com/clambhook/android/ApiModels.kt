@@ -48,6 +48,42 @@ data class RulesPayload(
 )
 
 @Serializable
+data class PolicyGroupsPayload(
+    val profile: String = "",
+    val groups: List<PolicyGroupPayload> = emptyList()
+)
+
+@Serializable
+data class PolicyGroupPayload(
+    val name: String = "",
+    val type: String = "",
+    val chains: List<String> = emptyList(),
+    @SerialName("test_url")
+    val testUrl: String = "",
+    val interval: String = "",
+    val timeout: String = "",
+    @SerialName("selected_chain")
+    val selectedChain: String = "",
+    @SerialName("updated_ts_ns")
+    val updatedTsNs: Long = 0,
+    val results: List<PolicyProbeResultPayload> = emptyList()
+)
+
+@Serializable
+data class PolicyProbeResultPayload(
+    @SerialName("chain_name")
+    val chainName: String = "",
+    val healthy: Boolean = false,
+    @SerialName("latency_ns")
+    val latencyNs: Long = 0,
+    @SerialName("status_code")
+    val statusCode: Int = 0,
+    val error: String = "",
+    @SerialName("last_test_ts_ns")
+    val lastTestTsNs: Long = 0
+)
+
+@Serializable
 data class RulePayload(
     val name: String = "",
     val action: String = "",

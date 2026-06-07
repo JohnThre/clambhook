@@ -17,6 +17,7 @@ interface ClambhookApi {
     suspend fun status(): StatusPayload
     suspend fun profiles(): ProfilesPayload
     suspend fun servers(): ServersPayload
+    suspend fun policyGroups(): PolicyGroupsPayload
     suspend fun rules(): RulesPayload
     suspend fun traffic(): TrafficSnapshotPayload
     suspend fun connect()
@@ -51,6 +52,9 @@ class ClambhookApiClient(
 
     override suspend fun servers(): ServersPayload =
         ApiJson.decodeFromString(send("GET", "/api/v1/servers"))
+
+    override suspend fun policyGroups(): PolicyGroupsPayload =
+        ApiJson.decodeFromString(send("GET", "/api/v1/policy-groups"))
 
     override suspend fun rules(): RulesPayload =
         ApiJson.decodeFromString(send("GET", "/api/v1/rules"))

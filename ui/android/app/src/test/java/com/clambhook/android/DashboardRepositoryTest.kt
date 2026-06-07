@@ -27,6 +27,17 @@ class DashboardRepositoryTest {
                     )
                 )
             ),
+            policyGroups = PolicyGroupsPayload(
+                profile = "A",
+                groups = listOf(
+                    PolicyGroupPayload(
+                        name = "auto",
+                        chains = listOf("default"),
+                        selectedChain = "default",
+                        results = listOf(PolicyProbeResultPayload(chainName = "default", healthy = true))
+                    )
+                )
+            ),
             traffic = TrafficSnapshotPayload(
                 summary = TrafficSummaryPayload(activeConnections = 1, rxBps = 1024.0),
                 connections = listOf(TrafficConnectionPayload(connId = "c1", state = "active", target = "example.com:443"))
@@ -42,6 +53,7 @@ class DashboardRepositoryTest {
         assertEquals("A", state.activeProfile)
         assertEquals(3, state.activeConnections)
         assertEquals("london", state.servers.chains.single().servers.single().name)
+        assertEquals("default", state.policyGroups.groups.single().selectedChain)
         assertEquals("example.com:443", state.traffic.connections.single().target)
         assertTrue(state.lastUpdatedEpochMillis > 0)
         assertFalse(state.isRefreshing)
@@ -59,6 +71,36 @@ class DashboardRepositoryTest {
     }
 
     @Test
+    fun refreshStatusUpdatesPolicyGroupsForSelector() = runBlocking {
+        val api = FakeApi(
+            policyGroups = PolicyGroupsPayload(
+                profile = "A",
+                groups = listOf(
+                    PolicyGroupPayload(
+                        name = "auto",
+                        chains = listOf("proxy", "backup"),
+                        selectedChain = "proxy",
+                        results = listOf(
+                            PolicyProbeResultPayload(chainName = "proxy", healthy = false, error = "timeout"),
+                            PolicyProbeResultPayload(chainName = "backup", healthy = true, latencyNs = 30_000_000)
+                        )
+                    )
+                )
+            )
+        )
+        val repository = DashboardRepository(api)
+
+        repository.refreshStatus()
+
+        val state = repository.state.value
+        val summary = policySelectorSummary(state.policyGroups, state.servers, state.traffic)
+        assertEquals("proxy", state.policyGroups.groups.single().selectedChain)
+        assertEquals(PolicySelectorHealthState.Fallback, summary.routes.single().healthState)
+        assertEquals("Fallback / 1/2 healthy", summary.routes.single().healthText)
+        assertEquals(1, api.policyGroupCalls)
+    }
+
+    @Test
     fun actionsRefreshDashboardAfterSuccess() = runBlocking {
         val api = FakeApi()
         val repository = DashboardRepository(api)
@@ -71,6 +113,7 @@ class DashboardRepositoryTest {
         assertEquals(3, api.statusCalls)
         assertEquals(3, api.profileCalls)
         assertEquals(3, api.serverCalls)
+        assertEquals(3, api.policyGroupCalls)
         assertEquals(3, api.ruleCalls)
         assertEquals(3, api.trafficCalls)
         assertNull(repository.state.value.actionInProgress)
@@ -134,6 +177,7 @@ private class FakeApi(
     private val status: StatusPayload = StatusPayload(),
     private val profiles: ProfilesPayload = ProfilesPayload(profiles = listOf("A", "B"), active = "A"),
     private val servers: ServersPayload = ServersPayload(profile = "A"),
+    private val policyGroups: PolicyGroupsPayload = PolicyGroupsPayload(profile = "A"),
     private var rules: RulesPayload = RulesPayload(profile = "A"),
     private val traffic: TrafficSnapshotPayload = TrafficSnapshotPayload(),
     private val error: Throwable? = null
@@ -142,6 +186,7 @@ private class FakeApi(
     var statusCalls = 0
     var profileCalls = 0
     var serverCalls = 0
+    var policyGroupCalls = 0
     var ruleCalls = 0
     var trafficCalls = 0
 
@@ -161,6 +206,12 @@ private class FakeApi(
         serverCalls += 1
         error?.let { throw it }
         return servers
+    }
+
+    override suspend fun policyGroups(): PolicyGroupsPayload {
+        policyGroupCalls += 1
+        error?.let { throw it }
+        return policyGroups
     }
 
     override suspend fun rules(): RulesPayload {

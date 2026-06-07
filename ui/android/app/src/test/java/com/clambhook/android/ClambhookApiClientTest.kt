@@ -80,6 +80,23 @@ class ClambhookApiClientTest {
     }
 
     @Test
+    fun policyGroupsUsesPolicyGroupsEndpoint() = runBlocking {
+        val interceptor = CapturingInterceptor("""{"profile":"A","groups":[{"name":"auto","selected_chain":"proxy"}]}""")
+        val client = ClambhookApiClient(
+            baseUrl = "http://127.0.0.1:9090",
+            okHttpClient = OkHttpClient.Builder().addInterceptor(interceptor).build()
+        )
+
+        val response = client.policyGroups()
+
+        val request = interceptor.requests.single()
+        assertEquals("GET", request.method)
+        assertEquals("/api/v1/policy-groups", request.url.encodedPath)
+        assertEquals("auto", response.groups.single().name)
+        assertEquals("proxy", response.groups.single().selectedChain)
+    }
+
+    @Test
     fun httpErrorsPreserveStatusAndBody() = runBlocking {
         val interceptor = CapturingInterceptor("unauthorized\n", statusCode = 401)
         val client = ClambhookApiClient(
