@@ -420,6 +420,28 @@ func (s *Store) Snapshot(state string, limit int) Snapshot {
 	return s.SnapshotWithOptions(SnapshotOptions{State: state, Limit: limit})
 }
 
+// Connection returns one active or recently closed connection by ID.
+func (s *Store) Connection(connID string) (Connection, bool) {
+	if s == nil {
+		return Connection{}, false
+	}
+	connID = strings.TrimSpace(connID)
+	if connID == "" {
+		return Connection{}, false
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if conn, ok := s.active[connID]; ok {
+		return cloneConnection(*conn), true
+	}
+	for _, conn := range s.closed {
+		if conn.ConnID == connID {
+			return cloneConnection(conn), true
+		}
+	}
+	return Connection{}, false
+}
+
 // SnapshotWithOptions returns a consistent copy of traffic state, with
 // optional filters and analytics for connection-monitor UIs.
 func (s *Store) SnapshotWithOptions(opts SnapshotOptions) Snapshot {
@@ -737,7 +759,7 @@ func buildCleanupSuggestions(profile string, rules []config.RuleConfig, conns []
 	}
 	out := make([]CleanupSuggestion, 0)
 	seen := map[string]string{}
-	exactDomains := map[string]string{}
+	exactDomains := map[string][]ruleShadowDescriptor{}
 	for i, rule := range rules {
 		name := strings.TrimSpace(rule.Name)
 		action := strings.TrimSpace(rule.Action)
@@ -767,23 +789,37 @@ func buildCleanupSuggestions(profile string, rules []config.RuleConfig, conns []
 				seen[key] = name
 			}
 		}
-		for _, domain := range normalizeStrings(rule.Domains) {
-			exactDomains[domain] = name
+		if !ruleHasNonExactDestinationMatchers(rule) {
+			descriptor := ruleShadowDescriptor{
+				name:     name,
+				action:   normalizedRuleAction(rule),
+				scopeKey: ruleNonDestinationScopeKey(rule),
+			}
+			for _, domain := range normalizeStrings(rule.Domains) {
+				exactDomains[domain] = append(exactDomains[domain], descriptor)
+			}
 		}
-		for _, suffix := range normalizeStrings(rule.DomainSuffixes) {
-			for domain, prev := range exactDomains {
-				if prev == name {
-					continue
-				}
-				if domain == suffix || strings.HasSuffix(domain, "."+suffix) {
-					out = append(out, CleanupSuggestion{
-						Kind:     "shadowed_exact_match",
-						Profile:  profile,
-						RuleName: name,
-						Action:   action,
-						Message:  fmt.Sprintf("May make earlier exact-domain rule %q redundant.", prev),
-					})
-					break
+		if !ruleHasNonSuffixDestinationMatchers(rule) {
+			descriptor := ruleShadowDescriptor{
+				name:     name,
+				action:   normalizedRuleAction(rule),
+				scopeKey: ruleNonDestinationScopeKey(rule),
+			}
+			for _, suffix := range normalizeStrings(rule.DomainSuffixes) {
+				for domain, previous := range exactDomains {
+					if domain != suffix && !strings.HasSuffix(domain, "."+suffix) {
+						continue
+					}
+					if prev, ok := matchingShadowDescriptor(previous, descriptor); ok {
+						out = append(out, CleanupSuggestion{
+							Kind:     "shadowed_exact_match",
+							Profile:  profile,
+							RuleName: name,
+							Action:   action,
+							Message:  fmt.Sprintf("May make earlier exact-domain rule %q redundant.", prev.name),
+						})
+						break
+					}
 				}
 			}
 		}
@@ -798,6 +834,24 @@ func buildCleanupSuggestions(profile string, rules []config.RuleConfig, conns []
 		}
 	}
 	return out
+}
+
+type ruleShadowDescriptor struct {
+	name     string
+	action   string
+	scopeKey string
+}
+
+func matchingShadowDescriptor(previous []ruleShadowDescriptor, current ruleShadowDescriptor) (ruleShadowDescriptor, bool) {
+	for _, prev := range previous {
+		if prev.name == current.name {
+			continue
+		}
+		if prev.action == current.action && prev.scopeKey == current.scopeKey {
+			return prev, true
+		}
+	}
+	return ruleShadowDescriptor{}, false
 }
 
 type suggestionGroup struct {
@@ -1212,10 +1266,12 @@ func connectionMatchesQuery(conn Connection, query string) bool {
 func ruleMatcherKey(rule config.RuleConfig) string {
 	parts := []string{
 		strings.ToLower(strings.TrimSpace(rule.Action)),
+		"rule_sets=" + strings.Join(normalizeStrings(rule.RuleSets), ","),
 		"domains=" + strings.Join(normalizeStrings(rule.Domains), ","),
 		"suffixes=" + strings.Join(normalizeStrings(rule.DomainSuffixes), ","),
 		"keywords=" + strings.Join(normalizeStrings(rule.DomainKeywords), ","),
 		"cidrs=" + strings.Join(normalizeStrings(rule.CIDRs), ","),
+		"source_cidrs=" + strings.Join(normalizeStrings(rule.SourceCIDRs), ","),
 		"networks=" + strings.Join(normalizeStrings(rule.Networks), ","),
 	}
 	ports := make([]string, 0, len(rule.Ports))
@@ -1231,11 +1287,45 @@ func ruleMatcherKey(rule config.RuleConfig) string {
 	return key
 }
 
+func normalizedRuleAction(rule config.RuleConfig) string {
+	return strings.ToLower(strings.TrimSpace(rule.Action))
+}
+
+func ruleNonDestinationScopeKey(rule config.RuleConfig) string {
+	parts := []string{
+		"source_cidrs=" + strings.Join(normalizeStrings(rule.SourceCIDRs), ","),
+		"networks=" + strings.Join(normalizeStrings(rule.Networks), ","),
+	}
+	ports := make([]string, 0, len(rule.Ports))
+	for _, port := range rule.Ports {
+		ports = append(ports, strconv.Itoa(port))
+	}
+	sort.Strings(ports)
+	parts = append(parts, "ports="+strings.Join(ports, ","))
+	return strings.Join(parts, "|")
+}
+
+func ruleHasNonExactDestinationMatchers(rule config.RuleConfig) bool {
+	return len(rule.DomainSuffixes) > 0 ||
+		len(rule.DomainKeywords) > 0 ||
+		len(rule.CIDRs) > 0 ||
+		len(rule.RuleSets) > 0
+}
+
+func ruleHasNonSuffixDestinationMatchers(rule config.RuleConfig) bool {
+	return len(rule.Domains) > 0 ||
+		len(rule.DomainKeywords) > 0 ||
+		len(rule.CIDRs) > 0 ||
+		len(rule.RuleSets) > 0
+}
+
 func ruleHasNoMatchers(rule config.RuleConfig) bool {
 	return len(rule.Domains) == 0 &&
 		len(rule.DomainSuffixes) == 0 &&
 		len(rule.DomainKeywords) == 0 &&
 		len(rule.CIDRs) == 0 &&
+		len(rule.RuleSets) == 0 &&
+		len(rule.SourceCIDRs) == 0 &&
 		len(rule.Ports) == 0 &&
 		len(rule.Networks) == 0
 }

@@ -3,6 +3,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -395,6 +396,99 @@ func TestTrafficMonitorCreatesRuleDraftFromSuggestion(t *testing.T) {
 	m = updated.(model)
 	if m.pendingRule == nil || m.pendingRule.Name != "block-example-com" || len(m.pendingRule.DomainSuffixes) != 1 || m.pendingRule.DomainSuffixes[0] != "example.com" {
 		t.Fatalf("pending rule = %+v", m.pendingRule)
+	}
+}
+
+func TestTrafficMonitorSavesConnectionRuleFromConnectionEndpoint(t *testing.T) {
+	var requests []string
+	var gotReq createRuleFromConnectionRequest
+	var decodeErr error
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests = append(requests, r.Method+" "+r.URL.Path)
+		if r.URL.Path == "/api/v1/rules/from-connection" {
+			decodeErr = json.NewDecoder(r.Body).Decode(&gotReq)
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	m := newModel("127.0.0.1:9090")
+	m.client = newAPIClientFromBaseURL(srv.URL)
+	m.viewMode = viewModeActivity
+	m.traffic.Connections = []trafficConnectionPayload{{
+		ConnID:     "c1",
+		Profile:    "Work",
+		Target:     "ads.example.com:443",
+		TargetHost: "ads.example.com",
+		RuleAction: "block",
+		RuleName:   "ads",
+	}}
+
+	updated, _ := m.Update(keyMsg("n"))
+	m = updated.(model)
+	if m.pendingRule == nil || m.pendingRule.ConnID != "c1" {
+		t.Fatalf("pending rule = %+v", m.pendingRule)
+	}
+	updated, _ = m.Update(keyMsg("a"))
+	m = updated.(model)
+	if m.pendingRule == nil || m.pendingRule.Action != "allow" {
+		t.Fatalf("pending rule after allow = %+v", m.pendingRule)
+	}
+	_, cmd := m.Update(keyMsg("y"))
+	if cmd == nil {
+		t.Fatal("save returned nil command")
+	}
+	_ = cmd()
+
+	if decodeErr != nil {
+		t.Fatalf("decode request: %v", decodeErr)
+	}
+	if len(requests) != 1 || requests[0] != "POST /api/v1/rules/from-connection" {
+		t.Fatalf("requests = %v, want rules/from-connection", requests)
+	}
+	if gotReq.ConnID != "c1" || gotReq.Profile != "Work" || gotReq.Action != "allow" || gotReq.Scope != "auto" || gotReq.Position != "append" {
+		t.Fatalf("request = %+v", gotReq)
+	}
+}
+
+func TestTrafficMonitorSavesSuggestionRuleThroughRulesEndpoint(t *testing.T) {
+	var requests []string
+	var gotReq createRuleRequest
+	var decodeErr error
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests = append(requests, r.Method+" "+r.URL.Path)
+		if r.URL.Path == "/api/v1/rules" {
+			decodeErr = json.NewDecoder(r.Body).Decode(&gotReq)
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	m := newModel("127.0.0.1:9090")
+	m.client = newAPIClientFromBaseURL(srv.URL)
+	m.viewMode = viewModeActivity
+	m.traffic.RuleSuggestions = []ruleSuggestionPayload{{
+		DraftRule: rulePayload{Name: "block-api", Action: "block", Domains: []string{"api.example.com"}},
+	}}
+
+	updated, _ := m.Update(keyMsg("tab"))
+	m = updated.(model)
+	updated, _ = m.Update(keyMsg("n"))
+	m = updated.(model)
+	_, cmd := m.Update(keyMsg("y"))
+	if cmd == nil {
+		t.Fatal("save returned nil command")
+	}
+	_ = cmd()
+
+	if decodeErr != nil {
+		t.Fatalf("decode request: %v", decodeErr)
+	}
+	if len(requests) != 1 || requests[0] != "POST /api/v1/rules" {
+		t.Fatalf("requests = %v, want rules endpoint", requests)
+	}
+	if gotReq.Rule.Name != "block-api" || gotReq.Rule.Action != "block" || len(gotReq.Rule.Domains) != 1 || gotReq.Rule.Domains[0] != "api.example.com" {
+		t.Fatalf("request = %+v", gotReq)
 	}
 }
 

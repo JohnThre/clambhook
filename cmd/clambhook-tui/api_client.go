@@ -277,6 +277,14 @@ type createRuleRequest struct {
 	Position string      `json:"position,omitempty"`
 }
 
+type createRuleFromConnectionRequest struct {
+	ConnID   string `json:"conn_id"`
+	Profile  string `json:"profile,omitempty"`
+	Action   string `json:"action,omitempty"`
+	Scope    string `json:"scope,omitempty"`
+	Position string `json:"position,omitempty"`
+}
+
 type ruleTestRequest struct {
 	Profile string `json:"profile,omitempty"`
 	Network string `json:"network"`
@@ -460,6 +468,15 @@ func (c apiClient) createRule(rule rulePayload) error {
 		return err
 	}
 	return c.doNoBody(http.MethodPost, "/api/v1/rules", bytes.NewReader(body))
+}
+
+func (c apiClient) createRuleFromConnection(req createRuleFromConnectionRequest) error {
+	req.Position = "append"
+	body, err := json.Marshal(req)
+	if err != nil {
+		return err
+	}
+	return c.doNoBody(http.MethodPost, "/api/v1/rules/from-connection", bytes.NewReader(body))
 }
 
 func (c apiClient) testRule(network, target string) (ruleTestResponse, error) {
