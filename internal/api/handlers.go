@@ -33,6 +33,7 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/rules", s.handleRules)
 	mux.HandleFunc("GET /api/v1/dns", s.handleDNS)
 	mux.HandleFunc("POST /api/v1/rules", s.handleCreateRule)
+	mux.HandleFunc("POST /api/v1/rules/from-connection", s.handleCreateRuleFromConnection)
 	mux.HandleFunc("PUT /api/v1/rules", s.handleReplaceRules)
 	mux.HandleFunc("POST /api/v1/rules/test", s.handleTestRule)
 	mux.HandleFunc("POST /api/v1/routes/explain", s.handleExplainRoute)

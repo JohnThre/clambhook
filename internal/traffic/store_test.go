@@ -313,6 +313,34 @@ func TestRuleSuggestionsSuppressEffectiveRuleCoverage(t *testing.T) {
 	}
 }
 
+func TestCleanupSuggestionsRespectRuleScope(t *testing.T) {
+	rules := []config.RuleConfig{
+		{Name: "guest-api", Action: "block", Domains: []string{"api.example.com"}, SourceCIDRs: []string{"10.0.0.0/8"}},
+		{Name: "corp-api", Action: "block", Domains: []string{"api.example.com"}, SourceCIDRs: []string{"192.168.0.0/16"}},
+		{Name: "ads-a", Action: "block", RuleSets: []string{"ads-a"}},
+		{Name: "ads-b", Action: "block", RuleSets: []string{"ads-b"}},
+		{Name: "exact-direct", Action: "direct", Domains: []string{"cdn.example.com"}},
+		{Name: "suffix-block", Action: "block", DomainSuffixes: []string{"example.com"}},
+		{Name: "scoped-exact", Action: "block", Domains: []string{"api.work.example.com"}, SourceCIDRs: []string{"10.0.0.0/8"}, Networks: []string{"tcp"}, Ports: []int{443}},
+		{Name: "scoped-suffix", Action: "block", DomainSuffixes: []string{"work.example.com"}, SourceCIDRs: []string{"10.0.0.0/8"}, Networks: []string{"tcp"}, Ports: []int{443}},
+	}
+
+	suggestions := buildCleanupSuggestions("Work", rules, nil)
+
+	if hasCleanupKindForRule(suggestions, "duplicate_matcher", "corp-api") {
+		t.Fatalf("cleanup suggestions = %+v, different source_cidrs should not duplicate", suggestions)
+	}
+	if hasCleanupKindForRule(suggestions, "duplicate_matcher", "ads-b") {
+		t.Fatalf("cleanup suggestions = %+v, different rule_sets should not duplicate", suggestions)
+	}
+	if hasCleanupKindForRule(suggestions, "shadowed_exact_match", "suffix-block") {
+		t.Fatalf("cleanup suggestions = %+v, different actions should not shadow", suggestions)
+	}
+	if !hasCleanupKindForRule(suggestions, "shadowed_exact_match", "scoped-suffix") {
+		t.Fatalf("cleanup suggestions = %+v, want scoped suffix shadow suggestion", suggestions)
+	}
+}
+
 func TestStoreReconfigureDisabledStopsRecording(t *testing.T) {
 	store, err := NewStore(config.TrafficConfig{
 		Enabled:       true,
@@ -330,6 +358,15 @@ func TestStoreReconfigureDisabledStopsRecording(t *testing.T) {
 	if got := len(store.Snapshot("all", 0).Connections); got != 0 {
 		t.Fatalf("connections after disabled recording = %d, want 0", got)
 	}
+}
+
+func hasCleanupKindForRule(suggestions []CleanupSuggestion, kind, ruleName string) bool {
+	for _, suggestion := range suggestions {
+		if suggestion.Kind == kind && suggestion.RuleName == ruleName {
+			return true
+		}
+	}
+	return false
 }
 
 func TestManagerEnablesAndDisablesStoreOnReconfigure(t *testing.T) {

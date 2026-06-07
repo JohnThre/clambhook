@@ -255,6 +255,229 @@ func TestCreateRulePersistsConfigWithBackupAndReloads(t *testing.T) {
 	}
 }
 
+func TestCreateRuleFromConnectionPreservesObservedRoute(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "clambhook.toml")
+	cfg := testRuleCreateConfig()
+	if _, err := config.WriteAtomicWithBackup(path, cfg); err != nil {
+		t.Fatalf("write initial config: %v", err)
+	}
+	store := newRuleConnectionStore(t)
+	store.ApplyEvent(events.Event{TsNs: 1, Type: events.TypeConnectionOpened, Data: events.ConnectionOpenedData{
+		ConnID:  "c1",
+		Profile: "A",
+	}})
+	store.ApplyEvent(events.Event{TsNs: 2, Type: events.TypeRuleMatched, Data: events.RuleDecisionData{
+		ConnID:     "c1",
+		Profile:    "A",
+		Action:     "chain",
+		ChainName:  "proxy",
+		Target:     "api.example.com:443",
+		TargetHost: "api.example.com",
+		TargetPort: "443",
+		Network:    "tcp",
+	}})
+	srv := NewWithOptions(engine.New(cfg, nil), nil, Options{ConfigPath: path, TrafficStore: store})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/rules/from-connection", bytes.NewReader([]byte(`{"conn_id":"c1","action":"allow"}`)))
+	rec := httptest.NewRecorder()
+	srv.server.Handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%q, want 200", rec.Code, rec.Body.String())
+	}
+	var resp rulePersistenceResponse
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatal(err)
+	}
+	if len(resp.Rules) != 1 {
+		t.Fatalf("rules = %+v, want one", resp.Rules)
+	}
+	rule := resp.Rules[0]
+	if rule.Name != "allow-api-example-com" || rule.Action != "chain:proxy" || len(rule.Domains) != 1 || rule.Domains[0] != "api.example.com" {
+		t.Fatalf("created rule = %+v", rule)
+	}
+}
+
+func TestCreateRuleFromConnectionAllowBlockedUsesListenerDefaultChain(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "clambhook.toml")
+	cfg := testRuleCreateConfig()
+	cfg.Profiles[0].Chains = append(cfg.Profiles[0].Chains, config.ChainConfig{
+		Name: "fallback",
+		Servers: []config.ServerConfig{{
+			Name:     "backup",
+			Address:  "127.0.0.1:9051",
+			Protocol: "tor",
+		}},
+	})
+	cfg.Profiles[0].Listen.SOCKS5Chain = "fallback"
+	if _, err := config.WriteAtomicWithBackup(path, cfg); err != nil {
+		t.Fatalf("write initial config: %v", err)
+	}
+	store := newRuleConnectionStore(t)
+	store.ApplyEvent(events.Event{TsNs: 1, Type: events.TypeConnectionOpened, Data: events.ConnectionOpenedData{
+		ConnID:  "c1",
+		Profile: "A",
+		Listener: events.ListenerInfo{
+			Protocol: "socks5",
+			Addr:     "127.0.0.1:1080",
+		},
+	}})
+	store.ApplyEvent(events.Event{TsNs: 2, Type: events.TypeRuleBlocked, Data: events.RuleDecisionData{
+		ConnID:     "c1",
+		Profile:    "A",
+		RuleName:   "ads",
+		Action:     "block",
+		Target:     "ads.example.com:443",
+		TargetHost: "ads.example.com",
+	}})
+	srv := NewWithOptions(engine.New(cfg, nil), nil, Options{ConfigPath: path, TrafficStore: store})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/rules/from-connection", bytes.NewReader([]byte(`{"conn_id":"c1","action":"allow"}`)))
+	rec := httptest.NewRecorder()
+	srv.server.Handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%q, want 200", rec.Code, rec.Body.String())
+	}
+	var resp rulePersistenceResponse
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatal(err)
+	}
+	if len(resp.Rules) != 1 || resp.Rules[0].Action != "chain:fallback" {
+		t.Fatalf("created rules = %+v, want chain:fallback", resp.Rules)
+	}
+}
+
+func TestCreateRuleFromConnectionSupportsCIDRAndSuffixScopes(t *testing.T) {
+	tests := []struct {
+		name     string
+		target   string
+		host     string
+		body     string
+		wantCIDR string
+		wantSuf  string
+	}{
+		{
+			name:     "ip auto cidr",
+			target:   "203.0.113.9:443",
+			host:     "203.0.113.9",
+			body:     `{"conn_id":"c1","action":"block","scope":"auto"}`,
+			wantCIDR: "203.0.113.9/32",
+		},
+		{
+			name:    "domain suffix",
+			target:  "api.example.com:443",
+			host:    "api.example.com",
+			body:    `{"conn_id":"c1","action":"block","scope":"domain_suffix"}`,
+			wantSuf: "example.com",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "clambhook.toml")
+			cfg := testRuleCreateConfig()
+			if _, err := config.WriteAtomicWithBackup(path, cfg); err != nil {
+				t.Fatalf("write initial config: %v", err)
+			}
+			store := newRuleConnectionStore(t)
+			store.ApplyEvent(events.Event{TsNs: 1, Type: events.TypeConnectionOpened, Data: events.ConnectionOpenedData{
+				ConnID:  "c1",
+				Profile: "A",
+			}})
+			store.ApplyEvent(events.Event{TsNs: 2, Type: events.TypeRuleMatched, Data: events.RuleDecisionData{
+				ConnID:     "c1",
+				Profile:    "A",
+				Action:     "chain",
+				ChainName:  "proxy",
+				Target:     tc.target,
+				TargetHost: tc.host,
+			}})
+			srv := NewWithOptions(engine.New(cfg, nil), nil, Options{ConfigPath: path, TrafficStore: store})
+
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/rules/from-connection", bytes.NewReader([]byte(tc.body)))
+			rec := httptest.NewRecorder()
+			srv.server.Handler.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status = %d body=%q, want 200", rec.Code, rec.Body.String())
+			}
+			var resp rulePersistenceResponse
+			if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+				t.Fatal(err)
+			}
+			if tc.wantCIDR != "" && (len(resp.Rules) != 1 || len(resp.Rules[0].CIDRs) != 1 || resp.Rules[0].CIDRs[0] != tc.wantCIDR) {
+				t.Fatalf("created rules = %+v, want cidr %s", resp.Rules, tc.wantCIDR)
+			}
+			if tc.wantSuf != "" && (len(resp.Rules) != 1 || len(resp.Rules[0].DomainSuffixes) != 1 || resp.Rules[0].DomainSuffixes[0] != tc.wantSuf) {
+				t.Fatalf("created rules = %+v, want suffix %s", resp.Rules, tc.wantSuf)
+			}
+		})
+	}
+}
+
+func TestCreateRuleFromConnectionErrors(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "clambhook.toml")
+	cfg := testRuleCreateConfig()
+	if _, err := config.WriteAtomicWithBackup(path, cfg); err != nil {
+		t.Fatalf("write initial config: %v", err)
+	}
+	store := newRuleConnectionStore(t)
+	store.ApplyEvent(events.Event{TsNs: 1, Type: events.TypeConnectionOpened, Data: events.ConnectionOpenedData{
+		ConnID:  "c1",
+		Profile: "A",
+	}})
+	store.ApplyEvent(events.Event{TsNs: 2, Type: events.TypeRuleMatched, Data: events.RuleDecisionData{
+		ConnID:     "c1",
+		Profile:    "A",
+		Action:     "chain",
+		ChainName:  "proxy",
+		Target:     "api.example.com:443",
+		TargetHost: "api.example.com",
+	}})
+
+	tests := []struct {
+		name string
+		srv  *Server
+		body string
+		want int
+	}{
+		{
+			name: "missing config path",
+			srv:  NewWithOptions(engine.New(cfg, nil), nil, Options{TrafficStore: store}),
+			body: `{"conn_id":"c1"}`,
+			want: http.StatusConflict,
+		},
+		{
+			name: "missing connection",
+			srv:  NewWithOptions(engine.New(cfg, nil), nil, Options{ConfigPath: path, TrafficStore: store}),
+			body: `{"conn_id":"missing"}`,
+			want: http.StatusNotFound,
+		},
+		{
+			name: "invalid action",
+			srv:  NewWithOptions(engine.New(cfg, nil), nil, Options{ConfigPath: path, TrafficStore: store}),
+			body: `{"conn_id":"c1","action":"drop"}`,
+			want: http.StatusBadRequest,
+		},
+		{
+			name: "invalid cidr scope for domain",
+			srv:  NewWithOptions(engine.New(cfg, nil), nil, Options{ConfigPath: path, TrafficStore: store}),
+			body: `{"conn_id":"c1","scope":"cidr"}`,
+			want: http.StatusBadRequest,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/rules/from-connection", bytes.NewReader([]byte(tc.body)))
+			rec := httptest.NewRecorder()
+			tc.srv.server.Handler.ServeHTTP(rec, req)
+			if rec.Code != tc.want {
+				t.Fatalf("status = %d body=%q, want %d", rec.Code, rec.Body.String(), tc.want)
+			}
+		})
+	}
+}
+
 func TestReplaceRulesPersistsOrderedConfigWithBackupAndReloads(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "clambhook.toml")
 	cfg := testRuleCreateConfig()
@@ -520,4 +743,18 @@ func testRuleCreateConfig() *config.Config {
 		}},
 		Traffic: config.DefaultTrafficConfig(),
 	}
+}
+
+func newRuleConnectionStore(t *testing.T) *traffic.Store {
+	t.Helper()
+	store, err := traffic.NewStore(config.TrafficConfig{
+		Enabled:       true,
+		HistoryLimit:  10,
+		HistoryMaxAge: config.Duration(time.Hour),
+		HistoryPath:   filepath.Join(t.TempDir(), "traffic-history.json"),
+	}, nil)
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	return store
 }

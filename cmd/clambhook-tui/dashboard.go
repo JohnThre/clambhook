@@ -79,7 +79,7 @@ type model struct {
 	selectedSuggestion int
 	suggestionFocus    bool
 	selectedDeveloper  int
-	pendingRule        *rulePayload
+	pendingRule        *pendingRule
 	width              int
 	height             int
 
@@ -102,6 +102,13 @@ type bandwidthSample struct {
 
 type bandwidthSeries struct {
 	Samples []bandwidthSample
+}
+
+type pendingRule struct {
+	rulePayload
+	ConnID  string
+	Profile string
+	Scope   string
 }
 
 type dashboardLoadedMsg struct {
@@ -270,9 +277,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				case "y":
 					rule := *m.pendingRule
 					m.pendingRule = nil
-					return m, m.actionCmd(func() error {
-						return m.client.createRule(rule)
-					})
+					return m, m.savePendingRuleCmd(rule)
+				case "a":
+					if m.pendingRule.ConnID == "" {
+						m.errText = "allow is only available for connection-derived rules"
+						return m, nil
+					}
+					m.pendingRule.Action = "allow"
+					return m, nil
 				case "b":
 					m.pendingRule.Action = "block"
 					return m, nil
@@ -280,8 +292,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.pendingRule.Action = "direct"
 					return m, nil
 				case "p":
-					if conn, ok := m.selectedConnection(); ok && conn.ChainName != "" {
-						m.pendingRule.Action = "chain:" + conn.ChainName
+					if conn, ok := m.selectedConnection(); ok {
+						if conn.GroupName != "" {
+							m.pendingRule.Action = "group:" + conn.GroupName
+						} else if conn.ChainName != "" {
+							m.pendingRule.Action = "chain:" + conn.ChainName
+						}
 					}
 					return m, nil
 				}
@@ -1135,8 +1151,12 @@ func (m model) pendingRuleLine(width int) string {
 	if rule == nil {
 		return ""
 	}
-	match := ruleMatchText(*rule)
-	return selectedLineStyle.Render(truncate(fmt.Sprintf("  New rule: %s  %s  %s  (y save, b/d/p action, esc cancel)", rule.Name, rule.Action, match), width))
+	match := ruleMatchText(rule.rulePayload)
+	keys := "y save, b/d/p action, esc cancel"
+	if rule.ConnID != "" {
+		keys = "y save, a allow, b/d/p action, esc cancel"
+	}
+	return selectedLineStyle.Render(truncate(fmt.Sprintf("  New rule: %s  %s  %s  (%s)", rule.Name, rule.Action, match, keys), width))
 }
 
 func ruleMatchText(rule rulePayload) string {
@@ -1459,21 +1479,21 @@ func sortRuleHits(hits []ruleHit) {
 	})
 }
 
-func (m model) ruleDraftFromSelected() (rulePayload, bool) {
+func (m model) ruleDraftFromSelected() (pendingRule, bool) {
 	if m.suggestionFocus {
 		suggestion, ok := m.selectedRuleSuggestion()
 		if !ok {
-			return rulePayload{}, false
+			return pendingRule{}, false
 		}
-		return suggestion.DraftRule, true
+		return pendingRule{rulePayload: suggestion.DraftRule}, true
 	}
 	conn, ok := m.selectedConnection()
 	if !ok {
-		return rulePayload{}, false
+		return pendingRule{}, false
 	}
 	host := connectionHost(conn)
 	if host == "" {
-		return rulePayload{}, false
+		return pendingRule{}, false
 	}
 	rule := rulePayload{
 		Name:   ruleNameForHost(host, actionFamily(conn)),
@@ -1488,7 +1508,12 @@ func (m model) ruleDraftFromSelected() (rulePayload, bool) {
 	} else {
 		rule.Domains = []string{host}
 	}
-	return rule, true
+	return pendingRule{
+		rulePayload: rule,
+		ConnID:      conn.ConnID,
+		Profile:     conn.Profile,
+		Scope:       "auto",
+	}, true
 }
 
 func connectionHost(conn trafficConnectionPayload) string {
@@ -1511,6 +1536,13 @@ func ruleActionForConnection(conn trafficConnectionPayload) string {
 		if conn.ChainName != "" {
 			return "chain:" + conn.ChainName
 		}
+	case "group":
+		if conn.GroupName != "" {
+			return "group:" + conn.GroupName
+		}
+	}
+	if conn.GroupName != "" {
+		return "group:" + conn.GroupName
 	}
 	if conn.ChainName != "" {
 		return "chain:" + conn.ChainName
@@ -1600,6 +1632,20 @@ func (m model) actionCmd(fn func() error) tea.Cmd {
 	return func() tea.Msg {
 		return actionDoneMsg{Err: fn()}
 	}
+}
+
+func (m model) savePendingRuleCmd(rule pendingRule) tea.Cmd {
+	return m.actionCmd(func() error {
+		if rule.ConnID != "" {
+			return m.client.createRuleFromConnection(createRuleFromConnectionRequest{
+				ConnID:  rule.ConnID,
+				Profile: rule.Profile,
+				Action:  rule.Action,
+				Scope:   rule.Scope,
+			})
+		}
+		return m.client.createRule(rule.rulePayload)
+	})
 }
 
 func (m model) ruleTestCmd(network, target string) tea.Cmd {
