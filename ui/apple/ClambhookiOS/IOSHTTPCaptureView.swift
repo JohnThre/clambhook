@@ -9,7 +9,7 @@ struct IOSHTTPCaptureView: View {
     var body: some View {
         List {
             Section("Status") {
-                IOSCaptureReadinessView(entries: entries, groups: groupedEntries)
+                IOSCaptureReadinessView(entries: entries, groups: groupedEntries, pinnedIDs: pinnedIDs)
             }
 
             Section {
@@ -36,7 +36,15 @@ struct IOSHTTPCaptureView: View {
                             NavigationLink {
                                 IOSHTTPCaptureDetailView(model: model, entry: entry)
                             } label: {
-                                IOSHTTPCaptureRow(entry: entry)
+                                IOSHTTPCaptureRow(entry: entry, pinned: isPinned(entry))
+                            }
+                            .swipeActions(edge: .leading) {
+                                Button {
+                                    togglePinned(entry)
+                                } label: {
+                                    Label(isPinned(entry) ? "Unpin" : "Pin", systemImage: isPinned(entry) ? "pin.slash" : "pin")
+                                }
+                                .tint(.yellow)
                             }
                         }
                     } header: {
@@ -71,11 +79,29 @@ struct IOSHTTPCaptureView: View {
     }
 
     private var filteredEntries: [CaptureEntryPayload] {
-        CaptureSupport.filteredEntries(entries, filter: filter, query: searchText)
+        CaptureSupport.filteredEntries(entries, filter: filter, query: searchText, pinnedIDs: pinnedIDs)
     }
 
     private var groupedEntries: [CaptureGroupPayload] {
-        CaptureSupport.groupEntriesByHost(filteredEntries)
+        CaptureSupport.groupEntriesByHost(filteredEntries, pinnedIDs: pinnedIDs)
+    }
+
+    private var pinnedIDs: Set<String> {
+        model.pinnedConnectionIDs
+    }
+
+    private func isPinned(_ entry: CaptureMetadataEntryPayload) -> Bool {
+        pinnedIDs.contains(entry.pinID)
+    }
+
+    private func togglePinned(_ entry: CaptureMetadataEntryPayload) {
+        var ids = pinnedIDs
+        if ids.contains(entry.pinID) {
+            ids.remove(entry.pinID)
+        } else {
+            ids.insert(entry.pinID)
+        }
+        model.settingsStore.settings.pinnedConnectionIDs = ids.sorted()
     }
 
     private func title(for filter: CaptureFilterKind) -> String {
@@ -83,6 +109,7 @@ struct IOSHTTPCaptureView: View {
         case .all: return "All"
         case .http: return "HTTP"
         case .https: return "HTTPS"
+        case .pinned: return "Pinned"
         }
     }
 }
@@ -90,12 +117,14 @@ struct IOSHTTPCaptureView: View {
 private struct IOSCaptureReadinessView: View {
     var entries: [CaptureEntryPayload]
     var groups: [CaptureGroupPayload]
+    var pinnedIDs: Set<String>
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             IOSMetricsGrid(metrics: [
                 IOSMetric(title: "Requests", value: "\(entries.count)", systemImage: "list.bullet.rectangle"),
                 IOSMetric(title: "Hosts", value: "\(groups.count)", systemImage: "rectangle.stack"),
+                IOSMetric(title: "Pinned", value: "\(entries.filter { pinnedIDs.contains($0.pinID) }.count)", systemImage: "pin"),
                 IOSMetric(title: "HTTP", value: "\(entries.filter { $0.scheme.lowercased() == "http" }.count)", systemImage: "globe"),
                 IOSMetric(title: "HTTPS", value: "\(entries.filter { $0.scheme.lowercased() == "https" }.count)", systemImage: "lock"),
             ])
@@ -128,6 +157,7 @@ private struct IOSHTTPCaptureGroupHeader: View {
 
 private struct IOSHTTPCaptureRow: View {
     var entry: CaptureMetadataEntryPayload
+    var pinned: Bool
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -146,6 +176,11 @@ private struct IOSHTTPCaptureRow: View {
 
             VStack(alignment: .leading, spacing: 4) {
                 HStack(alignment: .firstTextBaseline) {
+                    if pinned {
+                        Image(systemName: "pin.fill")
+                            .font(.caption)
+                            .foregroundStyle(.yellow)
+                    }
                     Text(emptyDash(entry.displayTarget))
                         .font(.body.weight(.medium))
                         .lineLimit(1)
@@ -174,6 +209,13 @@ private struct IOSHTTPCaptureDetailView: View {
 
     var body: some View {
         List {
+            Section("Connection") {
+                LabeledContent("ID", value: emptyDash(entry.pinID))
+                LabeledContent("Pinned", value: pinned ? "Yes" : "No")
+                LabeledContent("Started", value: captureDateTimeLabel(entry.startedAtNs))
+                LabeledContent("Updated", value: captureDateTimeLabel(entry.updatedAtNs))
+            }
+
             Section("Request") {
                 LabeledContent("Method", value: emptyDash(entry.method))
                 LabeledContent("Scheme", value: emptyDash(entry.scheme))
@@ -212,6 +254,11 @@ private struct IOSHTTPCaptureDetailView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
+                Button {
+                    togglePinned()
+                } label: {
+                    Image(systemName: pinned ? "pin.slash.fill" : "pin.fill")
+                }
                 ShareLink(
                     item: CaptureSupport.exportString(
                         traffic: model.dashboard.traffic,
@@ -224,6 +271,20 @@ private struct IOSHTTPCaptureDetailView: View {
                 }
             }
         }
+    }
+
+    private var pinned: Bool {
+        model.pinnedConnectionIDs.contains(entry.pinID)
+    }
+
+    private func togglePinned() {
+        var ids = model.pinnedConnectionIDs
+        if ids.contains(entry.pinID) {
+            ids.remove(entry.pinID)
+        } else {
+            ids.insert(entry.pinID)
+        }
+        model.settingsStore.settings.pinnedConnectionIDs = ids.sorted()
     }
 }
 
@@ -270,4 +331,12 @@ private extension CaptureMetadataEntryPayload {
         }
         return value
     }
+}
+
+private func captureDateTimeLabel(_ tsNs: Int64) -> String {
+    guard tsNs > 0 else {
+        return "--"
+    }
+    return Date(timeIntervalSince1970: Double(tsNs) / 1_000_000_000)
+        .formatted(date: .abbreviated, time: .standard)
 }

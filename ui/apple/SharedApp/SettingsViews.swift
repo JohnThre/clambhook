@@ -75,9 +75,9 @@ struct AppSettingsView: View {
             }
             #if os(iOS)
             Section("Inspection Privacy") {
-                Toggle("Require \(biometricStatus.label) for Activity", isOn: $model.settingsStore.settings.inspectionLockEnabled)
+                Toggle("Require \(biometricStatus.label) for Inspection", isOn: $model.settingsStore.settings.inspectionLockEnabled)
                     .disabled(!biometricStatus.isAvailable)
-                Text(biometricStatus.isAvailable ? "Connection details stay hidden until biometric authentication succeeds." : biometricStatus.reason)
+                Text(biometricStatus.isAvailable ? "Activity and capture details stay hidden until biometric authentication succeeds." : biometricStatus.reason)
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
