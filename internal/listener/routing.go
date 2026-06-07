@@ -33,6 +33,7 @@ type RoutePlan struct {
 	Host       string
 	Port       string
 	Network    string
+	Source     string
 	Default    bool
 	ElapsedNs  int64
 	Hops       []events.HopInfo
@@ -46,4 +47,18 @@ type RoutePlan struct {
 type RoutePlanner interface {
 	Plan(ctx context.Context, network, target string) (RoutePlan, error)
 	DefaultChainName() string
+}
+
+// SourceRoutePlanner is implemented by planners that can use the client/source
+// address as part of a routing decision.
+type SourceRoutePlanner interface {
+	RoutePlanner
+	PlanWithSource(ctx context.Context, network, target, source string) (RoutePlan, error)
+}
+
+func PlanRoute(ctx context.Context, planner RoutePlanner, network, target, source string) (RoutePlan, error) {
+	if sourcePlanner, ok := planner.(SourceRoutePlanner); ok {
+		return sourcePlanner.PlanWithSource(ctx, network, target, source)
+	}
+	return planner.Plan(ctx, network, target)
 }

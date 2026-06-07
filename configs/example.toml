@@ -62,6 +62,22 @@ name = "local"
   timeout = "5s"
   # Rules can route through smart groups with action = "group:<name>".
 
+  [[profile.policy_group]]
+  name = "manual"
+  type = "select"
+  chains = ["default", "backup"]
+  selected = "default"
+  # Manual select groups persist their selected chain in this file and can be
+  # changed through the API or UI.
+
+  [[profile.rule_set]]
+  name = "example-trackers"
+  domain_suffixes = ["tracker.example.invalid"]
+  cidrs = ["203.0.113.0/24"]
+  disabled = false
+  # Rule sets are reusable destination matchers. A set may also point at a
+  # remote list with url/format; disabled remote sets keep inline entries only.
+
   [[profile.rule]]
   name = "example-blocklist"
   action = "block"
@@ -76,6 +92,12 @@ name = "local"
   [[profile.rule]]
   name = "example-auto"
   action = "group:auto"
+
+  [[profile.rule]]
+  name = "example-guest-trackers"
+  action = "group:manual"
+  rule_sets = ["example-trackers"]
+  source_cidrs = ["10.10.0.0/16"]
 
   [[profile.rule_subscription]]
   name = "example-ads"

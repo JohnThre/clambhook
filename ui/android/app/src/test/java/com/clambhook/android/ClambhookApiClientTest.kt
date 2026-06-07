@@ -72,7 +72,7 @@ class ClambhookApiClientTest {
         assertEquals("Bearer secret-token", request.header("Authorization"))
         assertEquals("application/json", request.header("Content-Type"))
         assertEquals(
-            """{"rule":{"name":"block-example-com","action":"block","domains":["example.com"],"domain_suffixes":[],"domain_keywords":[],"cidrs":[],"ports":[],"networks":[]},"position":"append"}""",
+            """{"rule":{"name":"block-example-com","action":"block","rule_sets":[],"domains":["example.com"],"domain_suffixes":[],"domain_keywords":[],"cidrs":[],"source_cidrs":[],"ports":[],"networks":[]},"position":"append"}""",
             requireNotNull(request.body).bodyToString()
         )
         assertEquals("A", response.profile)

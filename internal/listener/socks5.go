@@ -380,7 +380,7 @@ func (s *SOCKSv5) handleConnect(ctx context.Context, client net.Conn, req reques
 	dialCtx = ce.attach(dialCtx)
 
 	target := req.target()
-	plan, err := s.plan(dialCtx, "tcp", target)
+	plan, err := s.plan(dialCtx, "tcp", target, client.RemoteAddr().String())
 	if err != nil {
 		log.Printf("socks5: route plan %s failed: %v", target, err)
 		_ = writeReply(client, repGeneralFailure, "")
@@ -416,9 +416,9 @@ func (s *SOCKSv5) handleConnect(ctx context.Context, client net.Conn, req reques
 	return relay(client, remote, ce.rxCounter(), ce.txCounter())
 }
 
-func (s *SOCKSv5) plan(ctx context.Context, network, target string) (RoutePlan, error) {
+func (s *SOCKSv5) plan(ctx context.Context, network, target, source string) (RoutePlan, error) {
 	if s.planner != nil {
-		return s.planner.Plan(ctx, network, target)
+		return PlanRoute(ctx, s.planner, network, target, source)
 	}
 	plan := RoutePlan{
 		Profile:   s.opts.ProfileName,
@@ -426,6 +426,7 @@ func (s *SOCKSv5) plan(ctx context.Context, network, target string) (RoutePlan, 
 		ChainName: s.chainName,
 		Target:    target,
 		Network:   network,
+		Source:    source,
 		Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
 			return s.dial(ctx, network, address)
 		},

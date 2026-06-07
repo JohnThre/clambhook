@@ -18,7 +18,12 @@ interface ClambhookApi {
     suspend fun profiles(): ProfilesPayload
     suspend fun servers(): ServersPayload
     suspend fun policyGroups(): PolicyGroupsPayload
+    suspend fun selectPolicyGroup(profile: String = "", group: String, chain: String): PolicyGroupsPayload
     suspend fun rules(): RulesPayload
+    suspend fun ruleSets(): RuleSetsPayload
+    suspend fun replaceRuleSets(profile: String, ruleSets: List<RuleSetPayload>): RuleSetsPayload
+    suspend fun refreshRuleSets(profile: String = "", names: List<String> = emptyList()): RuleSetsPayload
+    suspend fun explainRoute(profile: String = "", network: String, target: String, source: String = ""): RuleTestResponse
     suspend fun traffic(): TrafficSnapshotPayload
     suspend fun connect()
     suspend fun disconnect()
@@ -56,8 +61,31 @@ class ClambhookApiClient(
     override suspend fun policyGroups(): PolicyGroupsPayload =
         ApiJson.decodeFromString(send("GET", "/api/v1/policy-groups"))
 
+    override suspend fun selectPolicyGroup(profile: String, group: String, chain: String): PolicyGroupsPayload =
+        ApiJson.decodeFromString(
+            send("PUT", "/api/v1/policy-groups/selection", ApiJson.encodeToString(SelectPolicyGroupRequest(profile, group, chain)))
+        )
+
     override suspend fun rules(): RulesPayload =
         ApiJson.decodeFromString(send("GET", "/api/v1/rules"))
+
+    override suspend fun ruleSets(): RuleSetsPayload =
+        ApiJson.decodeFromString(send("GET", "/api/v1/rule-sets"))
+
+    override suspend fun replaceRuleSets(profile: String, ruleSets: List<RuleSetPayload>): RuleSetsPayload =
+        ApiJson.decodeFromString(
+            send("PUT", "/api/v1/rule-sets", ApiJson.encodeToString(ReplaceRuleSetsRequest(profile, ruleSets)))
+        )
+
+    override suspend fun refreshRuleSets(profile: String, names: List<String>): RuleSetsPayload =
+        ApiJson.decodeFromString(
+            send("POST", "/api/v1/rule-sets/refresh", ApiJson.encodeToString(RefreshRuleSetsRequest(profile, names)))
+        )
+
+    override suspend fun explainRoute(profile: String, network: String, target: String, source: String): RuleTestResponse =
+        ApiJson.decodeFromString(
+            send("POST", "/api/v1/routes/explain", ApiJson.encodeToString(RouteExplainRequest(profile, network, target, source)))
+        )
 
     override suspend fun traffic(): TrafficSnapshotPayload =
         ApiJson.decodeFromString(send("GET", "/api/v1/traffic?limit=200"))

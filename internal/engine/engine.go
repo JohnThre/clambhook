@@ -18,6 +18,7 @@ import (
 	"github.com/JohnThre/clambhook/internal/policy"
 	"github.com/JohnThre/clambhook/internal/protocol"
 	"github.com/JohnThre/clambhook/internal/rules"
+	"github.com/JohnThre/clambhook/internal/ruleset"
 	"github.com/JohnThre/clambhook/internal/subscription"
 )
 
@@ -212,7 +213,7 @@ func (e *Engine) startLocked() error {
 	// without their ctx cancellation tearing listeners down.
 	ctx, cancel := context.WithCancel(context.Background())
 
-	listeners, chains, policies, err := buildListenersWithInspector(&effectiveProfile, e.bus, e.inspector)
+	listeners, chains, policies, err := buildListenersWithInspectorAndPath(&effectiveProfile, e.cfg.Path, e.bus, e.inspector)
 	if err != nil {
 		cancel()
 		return fmt.Errorf("start engine: %w", err)
@@ -491,8 +492,12 @@ func buildListeners(profile *config.Profile, bus *events.Bus) (listeners []liste
 }
 
 func buildListenersWithInspector(profile *config.Profile, bus *events.Bus, inspector listener.HTTPInspector) (listeners []listener.Listener, chains []*chain.Chain, policies *policy.Manager, err error) {
+	return buildListenersWithInspectorAndPath(profile, "", bus, inspector)
+}
+
+func buildListenersWithInspectorAndPath(profile *config.Profile, configPath string, bus *events.Bus, inspector listener.HTTPInspector) (listeners []listener.Listener, chains []*chain.Chain, policies *policy.Manager, err error) {
 	var out []listener.Listener
-	resolver := newChainResolver(profile)
+	resolver := newChainResolver(profile, configPath)
 	defer func() {
 		if err != nil {
 			if policies != nil {
@@ -609,6 +614,10 @@ func buildListenersWithInspector(profile *config.Profile, bus *events.Bus, inspe
 // BuildPacketStack constructs a platform-neutral packet stack for the active
 // profile's TUN configuration. The caller owns Start/Stop and chain cleanup.
 func BuildPacketStack(profile *config.Profile, bus *events.Bus, writer listener.PacketWriter) (*listener.PacketStack, []*chain.Chain, error) {
+	return buildPacketStackWithConfigPath(profile, "", bus, writer)
+}
+
+func buildPacketStackWithConfigPath(profile *config.Profile, configPath string, bus *events.Bus, writer listener.PacketWriter) (*listener.PacketStack, []*chain.Chain, error) {
 	if profile == nil {
 		return nil, nil, errors.New("nil profile")
 	}
@@ -616,7 +625,7 @@ func BuildPacketStack(profile *config.Profile, bus *events.Bus, writer listener.
 	if tunCfg == nil || !tunCfg.Enabled {
 		return nil, nil, errors.New("tun: packet tunnel is not enabled in active profile")
 	}
-	resolver := newChainResolver(profile)
+	resolver := newChainResolver(profile, configPath)
 	if err := resolver.ensureBuilt(); err != nil {
 		return nil, nil, err
 	}
@@ -671,17 +680,18 @@ func BuildPacketStackForConfig(cfg *config.Config, bus *events.Bus, writer liste
 		return nil, nil, err
 	}
 	effectiveProfile := subscription.ProfileWithCachedRules(cfg.Path, profile)
-	return BuildPacketStack(&effectiveProfile, bus, writer)
+	return buildPacketStackWithConfigPath(&effectiveProfile, cfg.Path, bus, writer)
 }
 
 type chainResolver struct {
-	profile *config.Profile
-	chains  []*chain.Chain
-	byName  map[string]*chain.Chain
+	profile    *config.Profile
+	configPath string
+	chains     []*chain.Chain
+	byName     map[string]*chain.Chain
 }
 
-func newChainResolver(profile *config.Profile) *chainResolver {
-	return &chainResolver{profile: profile}
+func newChainResolver(profile *config.Profile, configPath string) *chainResolver {
+	return &chainResolver{profile: profile, configPath: configPath}
 }
 
 // resolve picks the chain a listener should route through. An empty name
@@ -739,15 +749,18 @@ func (r *chainResolver) routePlanner(defaultChainName string, policies *policy.M
 		ruleSet = append(ruleSet, rules.Rule{
 			Name:           rule.Name,
 			Action:         rule.Action,
+			RuleSets:       rule.RuleSets,
 			Domains:        rule.Domains,
 			DomainSuffixes: rule.DomainSuffixes,
 			DomainKeywords: rule.DomainKeywords,
 			CIDRs:          rule.CIDRs,
+			SourceCIDRs:    rule.SourceCIDRs,
 			Ports:          rule.Ports,
 			Networks:       rule.Networks,
 		})
 	}
-	engine, err := rules.Compile(ruleSet, defaultChainName, known, knownGroups)
+	ruleSets, _ := ruleset.Resolve(r.configPath, r.profile)
+	engine, err := rules.CompileWithRuleSets(ruleSet, defaultChainName, known, knownGroups, ruleSets)
 	if err != nil {
 		return nil, err
 	}
@@ -771,10 +784,14 @@ func (p *routePlanner) DefaultChainName() string {
 }
 
 func (p *routePlanner) Plan(ctx context.Context, network, target string) (listener.RoutePlan, error) {
+	return p.PlanWithSource(ctx, network, target, "")
+}
+
+func (p *routePlanner) PlanWithSource(ctx context.Context, network, target, source string) (listener.RoutePlan, error) {
 	if p == nil || p.rules == nil {
 		return listener.RoutePlan{}, errors.New("nil route planner")
 	}
-	decision := p.rules.Decide(network, target)
+	decision := p.rules.DecideWithSource(network, target, source)
 	plan := listener.RoutePlan{
 		Profile:   p.profileName,
 		RuleName:  decision.RuleName,
@@ -785,6 +802,7 @@ func (p *routePlanner) Plan(ctx context.Context, network, target string) (listen
 		Host:      decision.Host,
 		Port:      decision.Port,
 		Network:   decision.Network,
+		Source:    decision.Source,
 		Default:   decision.Default,
 		ElapsedNs: decision.ElapsedNs,
 	}

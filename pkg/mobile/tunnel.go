@@ -20,6 +20,7 @@ import (
 	"github.com/JohnThre/clambhook/internal/listener"
 	"github.com/JohnThre/clambhook/internal/policy"
 	"github.com/JohnThre/clambhook/internal/protocol"
+	"github.com/JohnThre/clambhook/internal/ruleset"
 	"github.com/JohnThre/clambhook/internal/subscription"
 	"github.com/JohnThre/clambhook/internal/traffic"
 )
@@ -505,6 +506,7 @@ func (r *TunnelRuntime) DashboardJSON() (string, error) {
 		Servers:           serversForConfig(cfg, geoReader),
 		Rules:             rulesForConfig(cfg),
 		PolicyGroups:      policyGroupsForRuntime(cfg, stack),
+		RuleSets:          ruleSetsForConfig(cfg),
 		RuleSubscriptions: ruleSubscriptionsForConfig(cfg),
 		Traffic:           trafficSnapshot,
 	}
@@ -642,8 +644,15 @@ type dashboardPayload struct {
 	Servers           serversPayload             `json:"servers"`
 	Rules             rulesPayload               `json:"rules"`
 	PolicyGroups      policy.Snapshot            `json:"policy_groups"`
+	RuleSets          ruleSetsPayload            `json:"rule_sets"`
 	RuleSubscriptions subscription.StatusPayload `json:"rule_subscriptions"`
 	Traffic           traffic.Snapshot           `json:"traffic"`
+}
+
+type ruleSetsPayload struct {
+	Profile  string                 `json:"profile"`
+	RuleSets []config.RuleSetConfig `json:"rule_sets"`
+	Statuses []ruleset.Status       `json:"statuses"`
 }
 
 type tunnelNetworkSettings struct {
@@ -766,6 +775,25 @@ func policyGroupsForConfig(cfg *config.Config) policy.Snapshot {
 		return policy.Snapshot{}
 	}
 	return policy.ConfigSnapshot(profile.Name, profile.PolicyGroups)
+}
+
+func ruleSetsForConfig(cfg *config.Config) ruleSetsPayload {
+	if cfg == nil {
+		return ruleSetsPayload{}
+	}
+	profile, err := cfg.ActiveProfile()
+	if err != nil {
+		return ruleSetsPayload{}
+	}
+	statusesPayload, err := ruleset.StatusPayloadForProfile(cfg, "")
+	if err != nil {
+		return ruleSetsPayload{}
+	}
+	return ruleSetsPayload{
+		Profile:  profile.Name,
+		RuleSets: append([]config.RuleSetConfig(nil), profile.RuleSets...),
+		Statuses: statusesPayload.RuleSets,
+	}
 }
 
 func policyGroupsForRuntime(cfg *config.Config, stack *listener.PacketStack) policy.Snapshot {

@@ -24,12 +24,22 @@ const (
 type Rule struct {
 	Name           string
 	Action         string
+	RuleSets       []string
 	Domains        []string
 	DomainSuffixes []string
 	DomainKeywords []string
 	CIDRs          []string
+	SourceCIDRs    []string
 	Ports          []int
 	Networks       []string
+}
+
+// RuleSet is a reusable destination matcher referenced by Rule.RuleSets.
+type RuleSet struct {
+	Domains        []string
+	DomainSuffixes []string
+	DomainKeywords []string
+	CIDRs          []string
 }
 
 // Decision is the result of evaluating a target against the rule set.
@@ -43,6 +53,7 @@ type Decision struct {
 	Host       string `json:"target_host,omitempty"`
 	Port       string `json:"target_port,omitempty"`
 	Network    string `json:"network,omitempty"`
+	Source     string `json:"source,omitempty"`
 	Default    bool   `json:"default,omitempty"`
 	ElapsedNs  int64  `json:"elapsed_ns,omitempty"`
 }
@@ -62,12 +73,28 @@ type compiledRule struct {
 	domainSuffixes map[string]struct{}
 	domainKeywords []string
 	cidrs          []netip.Prefix
+	sourceCIDRs    []netip.Prefix
 	ports          map[int]struct{}
 	networks       map[string]struct{}
+	ruleSets       []compiledRuleSet
+}
+
+type compiledRuleSet struct {
+	name           string
+	domains        map[string]struct{}
+	domainSuffixes map[string]struct{}
+	domainKeywords []string
+	cidrs          []netip.Prefix
 }
 
 // Compile validates and prepares rules for efficient matching.
 func Compile(in []Rule, defaultChain string, knownChains, knownGroups map[string]struct{}) (*Engine, error) {
+	return CompileWithRuleSets(in, defaultChain, knownChains, knownGroups, nil)
+}
+
+// CompileWithRuleSets validates and prepares rules plus named rule-set
+// references for efficient matching.
+func CompileWithRuleSets(in []Rule, defaultChain string, knownChains, knownGroups map[string]struct{}, knownRuleSets map[string]RuleSet) (*Engine, error) {
 	defaultChain = strings.TrimSpace(defaultChain)
 	if defaultChain == "" {
 		return nil, fmt.Errorf("rules: default chain is required")
@@ -77,7 +104,7 @@ func Compile(in []Rule, defaultChain string, knownChains, knownGroups map[string
 	}
 	out := &Engine{defaultChain: defaultChain, rules: make([]compiledRule, 0, len(in))}
 	for i, rule := range in {
-		cr, err := compileRule(rule, knownChains, knownGroups)
+		cr, err := compileRule(rule, knownChains, knownGroups, knownRuleSets)
 		if err != nil {
 			return nil, fmt.Errorf("rule %d: %w", i, err)
 		}
@@ -86,7 +113,7 @@ func Compile(in []Rule, defaultChain string, knownChains, knownGroups map[string
 	return out, nil
 }
 
-func compileRule(rule Rule, knownChains, knownGroups map[string]struct{}) (compiledRule, error) {
+func compileRule(rule Rule, knownChains, knownGroups map[string]struct{}, knownRuleSets map[string]RuleSet) (compiledRule, error) {
 	name := strings.TrimSpace(rule.Name)
 	if name == "" {
 		name = "unnamed"
@@ -126,6 +153,9 @@ func compileRule(rule Rule, knownChains, knownGroups map[string]struct{}) (compi
 		ports:          makePortSet(rule.Ports),
 		networks:       makeStringSet(normalizeStrings(rule.Networks)),
 	}
+	if len(rule.RuleSets) > 0 && (len(rule.Domains) > 0 || len(rule.DomainSuffixes) > 0 || len(rule.DomainKeywords) > 0 || len(rule.CIDRs) > 0) {
+		return compiledRule{}, fmt.Errorf("rule_sets cannot be combined with destination matchers")
+	}
 	for _, raw := range rule.CIDRs {
 		prefix, err := netip.ParsePrefix(strings.TrimSpace(raw))
 		if err != nil {
@@ -133,7 +163,51 @@ func compileRule(rule Rule, knownChains, knownGroups map[string]struct{}) (compi
 		}
 		cr.cidrs = append(cr.cidrs, prefix)
 	}
+	for _, raw := range rule.SourceCIDRs {
+		prefix, err := netip.ParsePrefix(strings.TrimSpace(raw))
+		if err != nil {
+			return compiledRule{}, fmt.Errorf("source cidr %q: %w", raw, err)
+		}
+		cr.sourceCIDRs = append(cr.sourceCIDRs, prefix)
+	}
+	seenRuleSets := make(map[string]struct{}, len(rule.RuleSets))
+	for _, raw := range rule.RuleSets {
+		name := strings.TrimSpace(raw)
+		if name == "" {
+			continue
+		}
+		if _, seen := seenRuleSets[name]; seen {
+			continue
+		}
+		seenRuleSets[name] = struct{}{}
+		set, ok := knownRuleSets[name]
+		if !ok {
+			return compiledRule{}, fmt.Errorf("rule set %q not found", name)
+		}
+		compiled, err := compileRuleSet(name, set)
+		if err != nil {
+			return compiledRule{}, err
+		}
+		cr.ruleSets = append(cr.ruleSets, compiled)
+	}
 	return cr, nil
+}
+
+func compileRuleSet(name string, set RuleSet) (compiledRuleSet, error) {
+	out := compiledRuleSet{
+		name:           name,
+		domains:        makeStringSet(normalizeStrings(set.Domains)),
+		domainSuffixes: makeStringSet(normalizeSuffixes(set.DomainSuffixes)),
+		domainKeywords: normalizeStrings(set.DomainKeywords),
+	}
+	for _, raw := range set.CIDRs {
+		prefix, err := netip.ParsePrefix(strings.TrimSpace(raw))
+		if err != nil {
+			return compiledRuleSet{}, fmt.Errorf("rule set %q cidr %q: %w", name, raw, err)
+		}
+		out.cidrs = append(out.cidrs, prefix)
+	}
+	return out, nil
 }
 
 func parseAction(raw string) (action, chainName string, err error) {
@@ -165,11 +239,17 @@ func parseAction(raw string) (action, chainName string, err error) {
 
 // Decide returns the first matching rule decision, or the default chain.
 func (e *Engine) Decide(network, target string) Decision {
+	return e.DecideWithSource(network, target, "")
+}
+
+// DecideWithSource returns the first matching rule decision, including
+// optional source/client-address matchers.
+func (e *Engine) DecideWithSource(network, target, source string) Decision {
 	start := time.Now()
 	host, port := SplitTarget(target)
 	network = strings.ToLower(strings.TrimSpace(network))
 	for i, rule := range e.rules {
-		if !rule.match(network, host, port) {
+		if !rule.match(network, host, port, source) {
 			continue
 		}
 		return Decision{
@@ -182,6 +262,7 @@ func (e *Engine) Decide(network, target string) Decision {
 			Host:       host,
 			Port:       port,
 			Network:    network,
+			Source:     source,
 			ElapsedNs:  time.Since(start).Nanoseconds(),
 		}
 	}
@@ -193,12 +274,13 @@ func (e *Engine) Decide(network, target string) Decision {
 		Host:       host,
 		Port:       port,
 		Network:    network,
+		Source:     source,
 		Default:    true,
 		ElapsedNs:  time.Since(start).Nanoseconds(),
 	}
 }
 
-func (r compiledRule) match(network, host, port string) bool {
+func (r compiledRule) match(network, host, port, source string) bool {
 	if len(r.networks) > 0 {
 		if _, ok := r.networks[network]; !ok {
 			return false
@@ -213,10 +295,16 @@ func (r compiledRule) match(network, host, port string) bool {
 			return false
 		}
 	}
+	if len(r.sourceCIDRs) > 0 && !matchCIDRList(r.sourceCIDRs, source) {
+		return false
+	}
 	if r.hasDomainMatchers() && !r.matchDomain(host) {
 		return false
 	}
-	if len(r.cidrs) > 0 && !r.matchCIDR(host) {
+	if len(r.cidrs) > 0 && !matchCIDRList(r.cidrs, host) {
+		return false
+	}
+	if len(r.ruleSets) > 0 && !r.matchRuleSets(host) {
 		return false
 	}
 	return true
@@ -255,12 +343,35 @@ func (r compiledRule) matchDomain(host string) bool {
 	return false
 }
 
-func (r compiledRule) matchCIDR(host string) bool {
+func (r compiledRule) matchRuleSets(host string) bool {
+	for _, set := range r.ruleSets {
+		if set.match(host) {
+			return true
+		}
+	}
+	return false
+}
+
+func (s compiledRuleSet) match(host string) bool {
+	if len(s.domains) == 0 && len(s.domainSuffixes) == 0 && len(s.domainKeywords) == 0 && len(s.cidrs) == 0 {
+		return false
+	}
+	if len(s.domains) > 0 || len(s.domainSuffixes) > 0 || len(s.domainKeywords) > 0 {
+		r := compiledRule{domains: s.domains, domainSuffixes: s.domainSuffixes, domainKeywords: s.domainKeywords}
+		if r.matchDomain(host) {
+			return true
+		}
+	}
+	return matchCIDRList(s.cidrs, host)
+}
+
+func matchCIDRList(prefixes []netip.Prefix, host string) bool {
+	host, _ = SplitTarget(host)
 	ip, err := netip.ParseAddr(strings.Trim(host, "[]"))
 	if err != nil {
 		return false
 	}
-	for _, prefix := range r.cidrs {
+	for _, prefix := range prefixes {
 		if prefix.Contains(ip) {
 			return true
 		}

@@ -80,3 +80,57 @@ func TestCompileRejectsUnknownPolicyGroup(t *testing.T) {
 		t.Fatal("expected error")
 	}
 }
+
+func TestDecideRuleSetMatch(t *testing.T) {
+	engine, err := CompileWithRuleSets([]Rule{
+		{Name: "ads", Action: ActionBlock, RuleSets: []string{"ads"}},
+	}, "default", map[string]struct{}{"default": {}}, nil, map[string]RuleSet{
+		"ads": {
+			DomainSuffixes: []string{"ads.example.com"},
+			CIDRs:          []string{"203.0.113.0/24"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got := engine.Decide("tcp", "cdn.ads.example.com:443")
+	if got.RuleName != "ads" || got.Action != ActionBlock {
+		t.Fatalf("decision = %+v, want ads block", got)
+	}
+	got = engine.Decide("tcp", "203.0.113.10:443")
+	if got.RuleName != "ads" || got.Action != ActionBlock {
+		t.Fatalf("decision = %+v, want ads CIDR block", got)
+	}
+	got = engine.Decide("tcp", "example.org:443")
+	if !got.Default {
+		t.Fatalf("decision = %+v, want default", got)
+	}
+}
+
+func TestDecideSourceCIDRMatch(t *testing.T) {
+	engine, err := Compile([]Rule{
+		{Name: "guest", Action: ActionBlock, Domains: []string{"internal.example.com"}, SourceCIDRs: []string{"10.10.0.0/16"}},
+	}, "default", map[string]struct{}{"default": {}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got := engine.DecideWithSource("tcp", "internal.example.com:443", "10.10.2.3:51512")
+	if got.RuleName != "guest" || got.Source != "10.10.2.3:51512" || got.Action != ActionBlock {
+		t.Fatalf("decision = %+v, want source-scoped block", got)
+	}
+	got = engine.DecideWithSource("tcp", "internal.example.com:443", "10.20.2.3:51512")
+	if !got.Default {
+		t.Fatalf("decision = %+v, want default outside source CIDR", got)
+	}
+}
+
+func TestCompileRejectsRuleSetWithInlineDestinationMatchers(t *testing.T) {
+	_, err := CompileWithRuleSets([]Rule{
+		{Name: "ambiguous", Action: ActionBlock, RuleSets: []string{"ads"}, Domains: []string{"example.com"}},
+	}, "default", map[string]struct{}{"default": {}}, nil, map[string]RuleSet{"ads": {Domains: []string{"ads.example.com"}}})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+}

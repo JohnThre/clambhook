@@ -44,7 +44,59 @@ data class ServersPayload(
 @Serializable
 data class RulesPayload(
     val profile: String = "",
-    val rules: List<RulePayload> = emptyList()
+    val rules: List<RulePayload> = emptyList(),
+    @SerialName("generated_rules")
+    val generatedRules: List<RulePayload> = emptyList(),
+    @SerialName("effective_rules")
+    val effectiveRules: List<RulePayload> = emptyList(),
+    @SerialName("rule_sets")
+    val ruleSets: List<RuleSetStatusPayload> = emptyList()
+)
+
+@Serializable
+data class RuleSetsPayload(
+    val profile: String = "",
+    @SerialName("rule_sets")
+    val ruleSets: List<RuleSetPayload> = emptyList(),
+    val statuses: List<RuleSetStatusPayload> = emptyList()
+)
+
+@Serializable
+data class RuleSetPayload(
+    val name: String = "",
+    val domains: List<String> = emptyList(),
+    @SerialName("domain_suffixes")
+    val domainSuffixes: List<String> = emptyList(),
+    @SerialName("domain_keywords")
+    val domainKeywords: List<String> = emptyList(),
+    val cidrs: List<String> = emptyList(),
+    val url: String = "",
+    val format: String = "",
+    val disabled: Boolean = false
+)
+
+@Serializable
+data class RuleSetStatusPayload(
+    val name: String = "",
+    val url: String = "",
+    val format: String = "",
+    val disabled: Boolean = false,
+    val cached: Boolean = false,
+    @SerialName("fetched_ts_ns")
+    val fetchedTsNs: Long = 0,
+    @SerialName("inline_domain_count")
+    val inlineDomainCount: Int = 0,
+    @SerialName("inline_cidr_count")
+    val inlineCidrCount: Int = 0,
+    @SerialName("domain_count")
+    val domainCount: Int = 0,
+    @SerialName("cidr_count")
+    val cidrCount: Int = 0,
+    val skipped: Int = 0,
+    @SerialName("cache_error")
+    val cacheError: String = "",
+    @SerialName("last_error")
+    val lastError: String = ""
 )
 
 @Serializable
@@ -64,6 +116,9 @@ data class PolicyGroupPayload(
     val timeout: String = "",
     @SerialName("selected_chain")
     val selectedChain: String = "",
+    val selected: String = "",
+    @SerialName("selection_mode")
+    val selectionMode: String = "",
     @SerialName("updated_ts_ns")
     val updatedTsNs: Long = 0,
     val results: List<PolicyProbeResultPayload> = emptyList()
@@ -87,12 +142,16 @@ data class PolicyProbeResultPayload(
 data class RulePayload(
     val name: String = "",
     val action: String = "",
+    @SerialName("rule_sets")
+    val ruleSets: List<String> = emptyList(),
     val domains: List<String> = emptyList(),
     @SerialName("domain_suffixes")
     val domainSuffixes: List<String> = emptyList(),
     @SerialName("domain_keywords")
     val domainKeywords: List<String> = emptyList(),
     val cidrs: List<String> = emptyList(),
+    @SerialName("source_cidrs")
+    val sourceCidrs: List<String> = emptyList(),
     val ports: List<Int> = emptyList(),
     val networks: List<String> = emptyList()
 )
@@ -107,6 +166,73 @@ data class CreateRuleRequest(
 data class ReplaceRulesRequest(
     val profile: String = "",
     val rules: List<RulePayload> = emptyList()
+)
+
+@Serializable
+data class ReplaceRuleSetsRequest(
+    val profile: String = "",
+    @SerialName("rule_sets")
+    val ruleSets: List<RuleSetPayload> = emptyList()
+)
+
+@Serializable
+data class RefreshRuleSetsRequest(
+    val profile: String = "",
+    val names: List<String> = emptyList()
+)
+
+@Serializable
+data class SelectPolicyGroupRequest(
+    val profile: String = "",
+    val group: String = "",
+    val chain: String = ""
+)
+
+@Serializable
+data class RouteExplainRequest(
+    val profile: String = "",
+    val network: String = "",
+    val target: String = "",
+    val source: String = ""
+)
+
+@Serializable
+data class RuleTestResponse(
+    val profile: String = "",
+    val decision: RuleTestDecisionPayload = RuleTestDecisionPayload(),
+    val chain: RuleTestChainPayload? = null,
+    val hops: List<ServerPayload> = emptyList()
+)
+
+@Serializable
+data class RuleTestDecisionPayload(
+    @SerialName("rule_name")
+    val ruleName: String = "",
+    @SerialName("rule_number")
+    val ruleNumber: Int = 0,
+    val action: String = "",
+    @SerialName("chain_name")
+    val chainName: String = "",
+    @SerialName("group_name")
+    val groupName: String = "",
+    val target: String = "",
+    @SerialName("target_host")
+    val targetHost: String = "",
+    @SerialName("target_port")
+    val targetPort: String = "",
+    val network: String = "",
+    val source: String = "",
+    @SerialName("default")
+    val isDefault: Boolean = false,
+    @SerialName("elapsed_ns")
+    val elapsedNs: Long = 0
+)
+
+@Serializable
+data class RuleTestChainPayload(
+    val name: String = "",
+    @SerialName("hop_count")
+    val hopCount: Int = 0
 )
 
 @Serializable
@@ -163,7 +289,28 @@ data class TrafficSnapshotPayload(
     @SerialName("cleanup_suggestions")
     val cleanupSuggestions: List<TrafficCleanupSuggestionPayload> = emptyList(),
     @SerialName("rule_suggestions")
-    val ruleSuggestions: List<TrafficRuleSuggestionPayload> = emptyList()
+    val ruleSuggestions: List<TrafficRuleSuggestionPayload> = emptyList(),
+    val breakdowns: TrafficBreakdownsPayload = TrafficBreakdownsPayload()
+)
+
+@Serializable
+data class TrafficBreakdownsPayload(
+    val profiles: List<TrafficBreakdownRowPayload> = emptyList(),
+    val chains: List<TrafficBreakdownRowPayload> = emptyList(),
+    val rules: List<TrafficBreakdownRowPayload> = emptyList(),
+    val actions: List<TrafficBreakdownRowPayload> = emptyList(),
+    val networks: List<TrafficBreakdownRowPayload> = emptyList()
+)
+
+@Serializable
+data class TrafficBreakdownRowPayload(
+    val key: String = "",
+    val label: String = "",
+    val count: Int = 0,
+    @SerialName("rx_total")
+    val rxTotal: Long = 0,
+    @SerialName("tx_total")
+    val txTotal: Long = 0
 )
 
 @Serializable
@@ -287,6 +434,8 @@ data class TrafficConnectionPayload(
     val clientAddr: String = "",
     @SerialName("chain_name")
     val chainName: String = "",
+    @SerialName("group_name")
+    val groupName: String = "",
     @SerialName("rule_name")
     val ruleName: String = "",
     @SerialName("rule_action")
@@ -301,6 +450,7 @@ data class TrafficConnectionPayload(
     @SerialName("target_port")
     val targetPort: String = "",
     val network: String = "",
+    val source: String = "",
     val application: String = "",
     val hops: List<TrafficHopPayload> = emptyList(),
     val timeline: List<TrafficTimelinePayload> = emptyList(),

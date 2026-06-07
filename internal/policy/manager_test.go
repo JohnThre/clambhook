@@ -140,6 +140,62 @@ func TestManagerReturnsUDPErrorWhenNoMemberSupportsUDP(t *testing.T) {
 	}
 }
 
+func TestManagerSelectGroupUsesConfiguredSelection(t *testing.T) {
+	chains := map[string]*chain.Chain{
+		"tcp": {
+			Name: "tcp",
+			Nodes: []protocol.Server{{
+				Name:     "tcp-server",
+				Address:  "127.0.0.1:1",
+				Protocol: "policy_test_tcp",
+			}},
+		},
+		"udp": {
+			Name: "udp",
+			Nodes: []protocol.Server{{
+				Name:     "udp-server",
+				Address:  "127.0.0.1:1",
+				Protocol: "policy_test_udp",
+			}},
+		},
+	}
+	t.Cleanup(func() {
+		for _, ch := range chains {
+			_ = ch.Close()
+		}
+	})
+	m, err := New([]config.PolicyGroupConfig{{
+		Name:     "manual",
+		Type:     TypeSelect,
+		Chains:   []string{"tcp", "udp"},
+		Selected: "udp",
+	}}, chains)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	_, selected, err := m.Select("manual", "tcp")
+	if err != nil {
+		t.Fatalf("Select tcp: %v", err)
+	}
+	if selected != "udp" {
+		t.Fatalf("selected = %q, want udp", selected)
+	}
+	if err := m.SetSelection("manual", "tcp"); err != nil {
+		t.Fatalf("SetSelection: %v", err)
+	}
+	_, selected, err = m.Select("manual", "tcp")
+	if err != nil {
+		t.Fatalf("Select after SetSelection: %v", err)
+	}
+	if selected != "tcp" {
+		t.Fatalf("selected = %q, want tcp", selected)
+	}
+	if _, _, err := m.Select("manual", "udp"); err == nil {
+		t.Fatal("Select udp error = nil, want selected chain capability error")
+	}
+}
+
 func TestManagerStartRunsInitialProbe(t *testing.T) {
 	probed := make(chan string, 1)
 	m := newTestManager(t, []string{"first"}, map[string]string{

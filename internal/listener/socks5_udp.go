@@ -211,7 +211,7 @@ func (s *SOCKSv5) handleUDPAssociate(ctx context.Context, control net.Conn, ce *
 				continue
 			}
 			targetAddr := net.JoinHostPort(hdr.addr, strconv.Itoa(int(hdr.port)))
-			plan, err := s.plan(udpCtx, "udp", targetAddr)
+			plan, err := s.plan(udpCtx, "udp", targetAddr, src.String())
 			if err != nil {
 				log.Printf("socks5 udp: route plan %s failed: %v", targetAddr, err)
 				continue

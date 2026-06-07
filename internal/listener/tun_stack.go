@@ -365,7 +365,8 @@ func (s *PacketStack) handleTCPFlow(ctx context.Context, local *gonet.TCPConn, i
 		return
 	}
 
-	plan, err := s.plan(dialCtx, "tcp", target)
+	source := idClientAddr(id)
+	plan, err := s.planWithSource(dialCtx, "tcp", target, source)
 	if err != nil {
 		log.Printf("tun tcp: route plan %s failed: %v", target, err)
 		ce.emitClosed(events.ReasonError)
@@ -450,7 +451,8 @@ func (s *PacketStack) handleUDPFlow(ctx context.Context, local *gonet.UDPConn, i
 		return
 	}
 
-	plan, err := s.plan(dialCtx, "udp", target)
+	source := idClientAddr(id)
+	plan, err := s.planWithSource(dialCtx, "udp", target, source)
 	if err != nil {
 		log.Printf("tun udp: route plan %s failed: %v", target, err)
 		ce.emitClosed(events.ReasonError)
@@ -630,8 +632,12 @@ func (s *PacketStack) handleDNSTCPFlow(ctx context.Context, local *gonet.TCPConn
 }
 
 func (s *PacketStack) plan(ctx context.Context, network, target string) (RoutePlan, error) {
+	return s.planWithSource(ctx, network, target, "")
+}
+
+func (s *PacketStack) planWithSource(ctx context.Context, network, target, source string) (RoutePlan, error) {
 	if s.planner != nil {
-		return s.planner.Plan(ctx, network, target)
+		return PlanRoute(ctx, s.planner, network, target, source)
 	}
 	plan := RoutePlan{
 		Profile:   s.opts.ProfileName,
@@ -639,6 +645,7 @@ func (s *PacketStack) plan(ctx context.Context, network, target string) (RoutePl
 		ChainName: s.opts.ChainName,
 		Target:    target,
 		Network:   network,
+		Source:    source,
 		Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
 			return s.ch.Dial(ctx, network, address)
 		},

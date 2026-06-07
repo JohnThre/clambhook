@@ -83,6 +83,7 @@ type ConnectionDialingData struct {
 	TargetHost  string         `json:"target_host,omitempty"`
 	TargetPort  string         `json:"target_port,omitempty"`
 	Network     string         `json:"network,omitempty"`
+	Source      string         `json:"source,omitempty"`
 	Application string         `json:"application,omitempty"`
 	RuleName    string         `json:"rule_name,omitempty"`
 	RuleAction  string         `json:"rule_action,omitempty"`
@@ -127,6 +128,7 @@ type RuleDecisionData struct {
 	TargetHost string `json:"target_host,omitempty"`
 	TargetPort string `json:"target_port,omitempty"`
 	Network    string `json:"network,omitempty"`
+	Source     string `json:"source,omitempty"`
 	Default    bool   `json:"default,omitempty"`
 	ElapsedNs  int64  `json:"elapsed_ns,omitempty"`
 }

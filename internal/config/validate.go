@@ -79,8 +79,12 @@ func validateProfile(p *Profile) []error {
 	for i := range p.PolicyGroups {
 		errs = append(errs, validatePolicyGroup(profileName, i, &p.PolicyGroups[i], chainNames, groupNames)...)
 	}
+	ruleSetNames := make(map[string]struct{}, len(p.RuleSets))
+	for i := range p.RuleSets {
+		errs = append(errs, validateRuleSet(profileName, i, &p.RuleSets[i], ruleSetNames)...)
+	}
 	for i := range p.Rules {
-		errs = append(errs, validateRule(profileName, i, &p.Rules[i], chainNames, groupNames)...)
+		errs = append(errs, validateRule(profileName, i, &p.Rules[i], chainNames, groupNames, ruleSetNames)...)
 	}
 	subscriptionNames := make(map[string]struct{}, len(p.RuleSubscriptions))
 	for i := range p.RuleSubscriptions {
@@ -158,8 +162,8 @@ func validatePolicyGroup(profileName string, idx int, group *PolicyGroupConfig, 
 		errs = append(errs, fmt.Errorf("%s: type is required", label))
 	} else if groupType != group.Type {
 		errs = append(errs, fmt.Errorf("%s type %q must be lowercase without surrounding whitespace", label, group.Type))
-	} else if groupType != "url-test" {
-		errs = append(errs, fmt.Errorf("%s type %q must be url-test", label, group.Type))
+	} else if groupType != "url-test" && groupType != "select" {
+		errs = append(errs, fmt.Errorf("%s type %q must be select or url-test", label, group.Type))
 	}
 
 	if len(group.Chains) == 0 {
@@ -186,6 +190,17 @@ func validatePolicyGroup(profileName string, idx int, group *PolicyGroupConfig, 
 		}
 		seenChains[name] = struct{}{}
 	}
+	selected := strings.TrimSpace(group.Selected)
+	if selected != "" {
+		if selected != group.Selected {
+			errs = append(errs, fmt.Errorf("%s selected %q must not have surrounding whitespace", label, group.Selected))
+		} else if _, ok := seenChains[selected]; !ok {
+			errs = append(errs, fmt.Errorf("%s selected %q must be one of chains", label, selected))
+		}
+	}
+	if groupType == "select" && selected == "" && len(group.Chains) == 0 {
+		errs = append(errs, fmt.Errorf("%s selected requires at least one chain", label))
+	}
 
 	if group.TestURL != "" {
 		rawURL := strings.TrimSpace(group.TestURL)
@@ -205,6 +220,78 @@ func validatePolicyGroup(profileName string, idx int, group *PolicyGroupConfig, 
 	}
 	if group.Timeout < 0 {
 		errs = append(errs, fmt.Errorf("%s timeout must be >= 0", label))
+	}
+	return errs
+}
+
+func validateRuleSet(profileName string, idx int, set *RuleSetConfig, names map[string]struct{}) []error {
+	var errs []error
+	label := fmt.Sprintf("%s rule_set %d", profileName, idx)
+	name := strings.TrimSpace(set.Name)
+	if name == "" {
+		errs = append(errs, fmt.Errorf("%s: name is required", label))
+	} else if name != set.Name {
+		errs = append(errs, fmt.Errorf("%s name %q must not have surrounding whitespace", label, set.Name))
+	} else if _, exists := names[name]; exists {
+		errs = append(errs, fmt.Errorf("%s name %q: duplicate rule set name", label, name))
+	} else {
+		names[name] = struct{}{}
+	}
+
+	for _, field := range []struct {
+		name string
+		vals []string
+	}{
+		{name: "domains", vals: set.Domains},
+		{name: "domain_suffixes", vals: set.DomainSuffixes},
+		{name: "domain_keywords", vals: set.DomainKeywords},
+	} {
+		for j, raw := range field.vals {
+			if strings.TrimSpace(raw) == "" {
+				errs = append(errs, fmt.Errorf("%s %s[%d] must not be empty", label, field.name, j))
+			} else if strings.TrimSpace(raw) != raw {
+				errs = append(errs, fmt.Errorf("%s %s[%d] %q must not have surrounding whitespace", label, field.name, j, raw))
+			}
+		}
+	}
+	for j, raw := range set.CIDRs {
+		if strings.TrimSpace(raw) != raw {
+			errs = append(errs, fmt.Errorf("%s cidrs[%d] %q must not have surrounding whitespace", label, j, raw))
+			continue
+		}
+		if _, err := netip.ParsePrefix(raw); err != nil {
+			errs = append(errs, fmt.Errorf("%s cidrs[%d] %q: %w", label, j, raw, err))
+		}
+	}
+
+	rawURL := strings.TrimSpace(set.URL)
+	if rawURL != "" {
+		if rawURL != set.URL {
+			errs = append(errs, fmt.Errorf("%s url %q must not have surrounding whitespace", label, set.URL))
+		} else {
+			parsed, err := url.Parse(rawURL)
+			if err != nil || parsed.Host == "" {
+				errs = append(errs, fmt.Errorf("%s url %q must be a valid http or https URL", label, rawURL))
+			} else if parsed.Scheme != "http" && parsed.Scheme != "https" {
+				errs = append(errs, fmt.Errorf("%s url %q must use http or https", label, rawURL))
+			}
+		}
+	}
+
+	format := strings.ToLower(strings.TrimSpace(set.Format))
+	if format != set.Format && set.Format != "" {
+		errs = append(errs, fmt.Errorf("%s format %q must be lowercase without surrounding whitespace", label, set.Format))
+	} else {
+		switch format {
+		case "", "auto", "plain", "hosts", "adblock":
+		default:
+			errs = append(errs, fmt.Errorf("%s format %q must be auto, plain, hosts, or adblock", label, set.Format))
+		}
+	}
+
+	hasInline := len(set.Domains)+len(set.DomainSuffixes)+len(set.DomainKeywords)+len(set.CIDRs) > 0
+	if !hasInline && rawURL == "" {
+		errs = append(errs, fmt.Errorf("%s: at least one inline matcher or url is required", label))
 	}
 	return errs
 }
@@ -406,7 +493,7 @@ func validateRuleSubscription(profileName string, idx int, sub *RuleSubscription
 	return errs
 }
 
-func validateRule(profileName string, idx int, rule *RuleConfig, chainNames, groupNames map[string]struct{}) []error {
+func validateRule(profileName string, idx int, rule *RuleConfig, chainNames, groupNames, ruleSetNames map[string]struct{}) []error {
 	var errs []error
 	label := fmt.Sprintf("%s rule %d", profileName, idx)
 	if strings.TrimSpace(rule.Name) == "" {
@@ -449,6 +536,7 @@ func validateRule(profileName string, idx int, rule *RuleConfig, chainNames, gro
 		{name: "domain_suffixes", vals: rule.DomainSuffixes},
 		{name: "domain_keywords", vals: rule.DomainKeywords},
 		{name: "networks", vals: rule.Networks},
+		{name: "rule_sets", vals: rule.RuleSets},
 	} {
 		for j, raw := range field.vals {
 			if strings.TrimSpace(raw) == "" {
@@ -456,6 +544,18 @@ func validateRule(profileName string, idx int, rule *RuleConfig, chainNames, gro
 			} else if strings.TrimSpace(raw) != raw {
 				errs = append(errs, fmt.Errorf("%s %s[%d] %q must not have surrounding whitespace", label, field.name, j, raw))
 			}
+		}
+	}
+	if len(rule.RuleSets) > 0 && (len(rule.Domains) > 0 || len(rule.DomainSuffixes) > 0 || len(rule.DomainKeywords) > 0 || len(rule.CIDRs) > 0) {
+		errs = append(errs, fmt.Errorf("%s rule_sets cannot be combined with domains, domain_suffixes, domain_keywords, or cidrs", label))
+	}
+	for j, raw := range rule.RuleSets {
+		name := strings.TrimSpace(raw)
+		if name == "" || name != raw {
+			continue
+		}
+		if _, ok := ruleSetNames[name]; !ok {
+			errs = append(errs, fmt.Errorf("%s rule_sets[%d] references unknown rule set %q", label, j, name))
 		}
 	}
 	for j, raw := range rule.Networks {
@@ -472,6 +572,15 @@ func validateRule(profileName string, idx int, rule *RuleConfig, chainNames, gro
 		}
 		if _, err := netip.ParsePrefix(raw); err != nil {
 			errs = append(errs, fmt.Errorf("%s cidrs[%d] %q: %w", label, j, raw, err))
+		}
+	}
+	for j, raw := range rule.SourceCIDRs {
+		if strings.TrimSpace(raw) != raw {
+			errs = append(errs, fmt.Errorf("%s source_cidrs[%d] %q must not have surrounding whitespace", label, j, raw))
+			continue
+		}
+		if _, err := netip.ParsePrefix(raw); err != nil {
+			errs = append(errs, fmt.Errorf("%s source_cidrs[%d] %q: %w", label, j, raw, err))
 		}
 	}
 	for j, port := range rule.Ports {

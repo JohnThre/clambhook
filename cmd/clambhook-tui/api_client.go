@@ -82,6 +82,7 @@ type trafficSnapshotPayload struct {
 	BlockDecisions     []blockDecisionPayload     `json:"block_decisions,omitempty"`
 	CleanupSuggestions []cleanupSuggestionPayload `json:"cleanup_suggestions,omitempty"`
 	RuleSuggestions    []ruleSuggestionPayload    `json:"rule_suggestions,omitempty"`
+	Breakdowns         trafficBreakdownsPayload   `json:"breakdowns,omitempty"`
 }
 
 type trafficSummaryPayload struct {
@@ -106,6 +107,7 @@ type trafficConnectionPayload struct {
 	Listener    listenerInfo    `json:"listener"`
 	ClientAddr  string          `json:"client_addr,omitempty"`
 	ChainName   string          `json:"chain_name,omitempty"`
+	GroupName   string          `json:"group_name,omitempty"`
 	RuleName    string          `json:"rule_name,omitempty"`
 	RuleAction  string          `json:"rule_action,omitempty"`
 	Default     bool            `json:"default,omitempty"`
@@ -114,6 +116,7 @@ type trafficConnectionPayload struct {
 	TargetHost  string          `json:"target_host,omitempty"`
 	TargetPort  string          `json:"target_port,omitempty"`
 	Network     string          `json:"network,omitempty"`
+	Source      string          `json:"source,omitempty"`
 	Application string          `json:"application,omitempty"`
 	Hops        []trafficHop    `json:"hops,omitempty"`
 	Timeline    []timelineEvent `json:"timeline,omitempty"`
@@ -132,6 +135,22 @@ type trafficConnectionPayload struct {
 type profileContextPayload struct {
 	Active   string   `json:"active,omitempty"`
 	Profiles []string `json:"profiles,omitempty"`
+}
+
+type trafficBreakdownsPayload struct {
+	Profiles []breakdownRowPayload `json:"profiles,omitempty"`
+	Chains   []breakdownRowPayload `json:"chains,omitempty"`
+	Rules    []breakdownRowPayload `json:"rules,omitempty"`
+	Actions  []breakdownRowPayload `json:"actions,omitempty"`
+	Networks []breakdownRowPayload `json:"networks,omitempty"`
+}
+
+type breakdownRowPayload struct {
+	Key     string `json:"key"`
+	Label   string `json:"label"`
+	Count   int    `json:"count"`
+	RxTotal uint64 `json:"rx_total"`
+	TxTotal uint64 `json:"tx_total"`
 }
 
 type quickFilterPayload struct {
@@ -242,10 +261,12 @@ type developerBodyPayload struct {
 type rulePayload struct {
 	Name           string   `json:"name"`
 	Action         string   `json:"action"`
+	RuleSets       []string `json:"rule_sets,omitempty"`
 	Domains        []string `json:"domains,omitempty"`
 	DomainSuffixes []string `json:"domain_suffixes,omitempty"`
 	DomainKeywords []string `json:"domain_keywords,omitempty"`
 	CIDRs          []string `json:"cidrs,omitempty"`
+	SourceCIDRs    []string `json:"source_cidrs,omitempty"`
 	Ports          []int    `json:"ports,omitempty"`
 	Networks       []string `json:"networks,omitempty"`
 }
@@ -273,10 +294,12 @@ type ruleTestDecisionPayload struct {
 	RuleName  string `json:"rule_name,omitempty"`
 	Action    string `json:"action"`
 	ChainName string `json:"chain_name,omitempty"`
+	GroupName string `json:"group_name,omitempty"`
 	Target    string `json:"target"`
 	Host      string `json:"target_host,omitempty"`
 	Port      string `json:"target_port,omitempty"`
 	Network   string `json:"network,omitempty"`
+	Source    string `json:"source,omitempty"`
 	Default   bool   `json:"default,omitempty"`
 	ElapsedNs int64  `json:"elapsed_ns,omitempty"`
 }

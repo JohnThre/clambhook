@@ -417,6 +417,93 @@ func TestRuleSubscriptionRefreshGeneratesEffectiveRules(t *testing.T) {
 	}
 }
 
+func TestRuleSetRefreshFeedsRouteExplain(t *testing.T) {
+	source := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("||ads.example.com^\n203.0.113.0/24\n"))
+	}))
+	defer source.Close()
+
+	path := filepath.Join(t.TempDir(), "clambhook.toml")
+	cfg := testRuleCreateConfig()
+	cfg.Profiles[0].RuleSets = []config.RuleSetConfig{{
+		Name:   "ads",
+		URL:    source.URL,
+		Format: "auto",
+	}}
+	cfg.Profiles[0].Rules = []config.RuleConfig{{
+		Name:        "guest-ads",
+		Action:      "block",
+		RuleSets:    []string{"ads"},
+		SourceCIDRs: []string{"10.10.0.0/16"},
+	}}
+	if _, err := config.WriteAtomicWithBackup(path, cfg); err != nil {
+		t.Fatalf("write initial config: %v", err)
+	}
+	srv := NewWithOptions(engine.New(cfg, nil), nil, Options{ConfigPath: path})
+
+	refreshReq := httptest.NewRequest(http.MethodPost, "/api/v1/rule-sets/refresh", bytes.NewReader([]byte(`{}`)))
+	refreshRec := httptest.NewRecorder()
+	srv.server.Handler.ServeHTTP(refreshRec, refreshReq)
+	if refreshRec.Code != http.StatusOK {
+		t.Fatalf("refresh status = %d body=%q, want 200", refreshRec.Code, refreshRec.Body.String())
+	}
+	var refreshResp struct {
+		Profile  string                 `json:"profile"`
+		RuleSets []config.RuleSetConfig `json:"rule_sets"`
+		Statuses []struct {
+			Name        string `json:"name"`
+			DomainCount int    `json:"domain_count"`
+			CIDRCount   int    `json:"cidr_count"`
+			LastError   string `json:"last_error"`
+		} `json:"statuses"`
+	}
+	if err := json.NewDecoder(refreshRec.Body).Decode(&refreshResp); err != nil {
+		t.Fatal(err)
+	}
+	if refreshResp.Profile != "A" || len(refreshResp.RuleSets) != 1 || len(refreshResp.Statuses) != 1 || refreshResp.Statuses[0].DomainCount != 1 || refreshResp.Statuses[0].CIDRCount != 1 || refreshResp.Statuses[0].LastError != "" {
+		t.Fatalf("refresh response = %+v", refreshResp)
+	}
+
+	explainReq := httptest.NewRequest(http.MethodPost, "/api/v1/routes/explain", bytes.NewReader([]byte(`{"network":"tcp","target":"cdn.ads.example.com:443","source":"10.10.1.2:52000"}`)))
+	explainRec := httptest.NewRecorder()
+	srv.server.Handler.ServeHTTP(explainRec, explainReq)
+	if explainRec.Code != http.StatusOK {
+		t.Fatalf("explain status = %d body=%q, want 200", explainRec.Code, explainRec.Body.String())
+	}
+	var explainResp struct {
+		Decision struct {
+			RuleName string `json:"rule_name"`
+			Action   string `json:"action"`
+			Source   string `json:"source"`
+		} `json:"decision"`
+	}
+	if err := json.NewDecoder(explainRec.Body).Decode(&explainResp); err != nil {
+		t.Fatal(err)
+	}
+	if explainResp.Decision.RuleName != "guest-ads" || explainResp.Decision.Action != "block" || explainResp.Decision.Source != "10.10.1.2:52000" {
+		t.Fatalf("explain response = %+v", explainResp.Decision)
+	}
+
+	missReq := httptest.NewRequest(http.MethodPost, "/api/v1/routes/explain", bytes.NewReader([]byte(`{"network":"tcp","target":"cdn.ads.example.com:443","source":"10.20.1.2:52000"}`)))
+	missRec := httptest.NewRecorder()
+	srv.server.Handler.ServeHTTP(missRec, missReq)
+	if missRec.Code != http.StatusOK {
+		t.Fatalf("miss explain status = %d body=%q, want 200", missRec.Code, missRec.Body.String())
+	}
+	var missResp struct {
+		Decision struct {
+			RuleName string `json:"rule_name"`
+			Default  bool   `json:"default"`
+		} `json:"decision"`
+	}
+	if err := json.NewDecoder(missRec.Body).Decode(&missResp); err != nil {
+		t.Fatal(err)
+	}
+	if missResp.Decision.RuleName != "" || !missResp.Decision.Default {
+		t.Fatalf("miss explain response = %+v", missResp.Decision)
+	}
+}
+
 func testRuleCreateConfig() *config.Config {
 	return &config.Config{
 		Active: "A",

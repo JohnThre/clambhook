@@ -64,6 +64,7 @@ public struct TunnelDashboardPayload: Codable, Equatable, Sendable {
     public var servers: ServersPayload
     public var rules: RulesPayload
     public var policyGroups: PolicyGroupsPayload
+    public var ruleSets: RuleSetsPayload
     public var ruleSubscriptions: RuleSubscriptionsPayload
     public var traffic: TrafficSnapshotPayload
 
@@ -73,6 +74,7 @@ public struct TunnelDashboardPayload: Codable, Equatable, Sendable {
         case servers
         case rules
         case policyGroups = "policy_groups"
+        case ruleSets = "rule_sets"
         case ruleSubscriptions = "rule_subscriptions"
         case traffic
     }
@@ -83,6 +85,7 @@ public struct TunnelDashboardPayload: Codable, Equatable, Sendable {
         servers: ServersPayload = ServersPayload(),
         rules: RulesPayload = RulesPayload(),
         policyGroups: PolicyGroupsPayload = PolicyGroupsPayload(),
+        ruleSets: RuleSetsPayload = RuleSetsPayload(),
         ruleSubscriptions: RuleSubscriptionsPayload = RuleSubscriptionsPayload(),
         traffic: TrafficSnapshotPayload = TrafficSnapshotPayload()
     ) {
@@ -91,6 +94,7 @@ public struct TunnelDashboardPayload: Codable, Equatable, Sendable {
         self.servers = servers
         self.rules = rules
         self.policyGroups = policyGroups
+        self.ruleSets = ruleSets
         self.ruleSubscriptions = ruleSubscriptions
         self.traffic = traffic
     }
@@ -102,6 +106,7 @@ public struct TunnelDashboardPayload: Codable, Equatable, Sendable {
         self.servers = try container.decodeIfPresent(ServersPayload.self, forKey: .servers) ?? ServersPayload()
         self.rules = try container.decodeIfPresent(RulesPayload.self, forKey: .rules) ?? RulesPayload()
         self.policyGroups = try container.decodeIfPresent(PolicyGroupsPayload.self, forKey: .policyGroups) ?? PolicyGroupsPayload()
+        self.ruleSets = try container.decodeIfPresent(RuleSetsPayload.self, forKey: .ruleSets) ?? RuleSetsPayload()
         self.ruleSubscriptions = try container.decodeIfPresent(RuleSubscriptionsPayload.self, forKey: .ruleSubscriptions) ?? RuleSubscriptionsPayload()
         self.traffic = try container.decodeIfPresent(TrafficSnapshotPayload.self, forKey: .traffic) ?? TrafficSnapshotPayload()
     }

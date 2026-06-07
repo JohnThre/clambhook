@@ -19,6 +19,7 @@ import (
 
 const (
 	TypeURLTest    = "url-test"
+	TypeSelect     = "select"
 	DefaultTestURL = "https://www.gstatic.com/generate_204"
 )
 
@@ -57,10 +58,12 @@ type GroupSnapshot struct {
 	Name          string        `json:"name"`
 	Type          string        `json:"type"`
 	Chains        []string      `json:"chains"`
+	Selected      string        `json:"selected,omitempty"`
 	TestURL       string        `json:"test_url"`
 	Interval      string        `json:"interval"`
 	Timeout       string        `json:"timeout"`
 	SelectedChain string        `json:"selected_chain,omitempty"`
+	SelectionMode string        `json:"selection_mode,omitempty"`
 	UpdatedTsNs   int64         `json:"updated_ts_ns,omitempty"`
 	Results       []ProbeResult `json:"results"`
 }
@@ -119,15 +122,31 @@ func New(groups []config.PolicyGroupConfig, chains map[string]*chain.Chain, opts
 }
 
 func newGroupState(cfg config.PolicyGroupConfig, chains map[string]*chain.Chain) (*groupState, error) {
-	if strings.ToLower(strings.TrimSpace(cfg.Type)) != TypeURLTest {
+	groupType := strings.ToLower(strings.TrimSpace(cfg.Type))
+	if groupType == "" {
+		groupType = TypeURLTest
+	}
+	if groupType != TypeURLTest && groupType != TypeSelect {
 		return nil, fmt.Errorf("policy group %q: unsupported type %q", cfg.Name, cfg.Type)
 	}
 	testURL := strings.TrimSpace(cfg.TestURL)
 	if testURL == "" {
 		testURL = DefaultTestURL
 	}
-	if parsed, err := url.Parse(testURL); err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
-		return nil, fmt.Errorf("policy group %q: invalid test_url %q", cfg.Name, testURL)
+	if groupType == TypeURLTest {
+		if parsed, err := url.Parse(testURL); err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+			return nil, fmt.Errorf("policy group %q: invalid test_url %q", cfg.Name, testURL)
+		}
+	}
+	selected := strings.TrimSpace(cfg.Selected)
+	if selected == "" {
+		selected = firstString(cfg.Chains)
+	}
+	if selected != "" && !containsString(cfg.Chains, selected) {
+		return nil, fmt.Errorf("policy group %q: selected chain %q is not a member", cfg.Name, selected)
+	}
+	if groupType == TypeSelect && selected == "" {
+		return nil, fmt.Errorf("policy group %q: select group requires at least one chain", cfg.Name)
 	}
 	interval := cfg.Interval.Std()
 	if interval <= 0 {
@@ -139,7 +158,7 @@ func newGroupState(cfg config.PolicyGroupConfig, chains map[string]*chain.Chain)
 	}
 	gs := &groupState{
 		name:          cfg.Name,
-		groupType:     TypeURLTest,
+		groupType:     groupType,
 		chainNames:    append([]string(nil), cfg.Chains...),
 		chains:        make(map[string]*chain.Chain, len(cfg.Chains)),
 		udpCapable:    make(map[string]bool, len(cfg.Chains)),
@@ -148,7 +167,7 @@ func newGroupState(cfg config.PolicyGroupConfig, chains map[string]*chain.Chain)
 		interval:      interval,
 		timeout:       timeout,
 		results:       make(map[string]ProbeResult, len(cfg.Chains)),
-		selectedChain: firstString(cfg.Chains),
+		selectedChain: selected,
 	}
 	for _, name := range cfg.Chains {
 		ch := chains[name]
@@ -182,9 +201,21 @@ func (m *Manager) Start(parent context.Context) {
 	m.mu.Unlock()
 
 	for _, name := range names {
+		if m.groupType(name) != TypeURLTest {
+			continue
+		}
 		m.wg.Add(1)
 		go m.probeLoop(ctx, name)
 	}
+}
+
+func (m *Manager) groupType(groupName string) string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if gs := m.groups[groupName]; gs != nil {
+		return gs.groupType
+	}
+	return ""
 }
 
 func (m *Manager) probeLoop(ctx context.Context, groupName string) {
@@ -263,6 +294,15 @@ func (m *Manager) refreshGroup(ctx context.Context, groupName string) error {
 		m.mu.RUnlock()
 		return fmt.Errorf("policy group %q not found", groupName)
 	}
+	if gs.groupType == TypeSelect {
+		m.mu.RUnlock()
+		m.mu.Lock()
+		if current := m.groups[groupName]; current != nil {
+			current.updatedTsNs = time.Now().UnixNano()
+		}
+		m.mu.Unlock()
+		return nil
+	}
 	chainNames := append([]string(nil), gs.chainNames...)
 	chains := make(map[string]*chain.Chain, len(gs.chains))
 	for name, ch := range gs.chains {
@@ -332,12 +372,50 @@ func (m *Manager) Select(groupName, network string) (*chain.Chain, string, error
 			return nil, "", fmt.Errorf("policy group %q has no UDP-capable member chains", groupName)
 		}
 	}
-	selected := selectBestChain(gs, eligible)
+	selected := ""
+	if gs.groupType == TypeSelect {
+		selected = gs.selectedChain
+		if selected == "" {
+			selected = firstString(gs.chainNames)
+		}
+		if eligible != nil && !eligible[selected] {
+			if reason := gs.udpErrors[selected]; reason != "" {
+				return nil, "", fmt.Errorf("policy group %q selected chain %q is not UDP-capable: %s", groupName, selected, reason)
+			}
+			return nil, "", fmt.Errorf("policy group %q selected chain %q is not UDP-capable", groupName, selected)
+		}
+	} else {
+		selected = selectBestChain(gs, eligible)
+	}
 	ch := gs.chains[selected]
 	if ch == nil {
 		return nil, "", fmt.Errorf("policy group %q selected missing chain %q", groupName, selected)
 	}
 	return ch, selected, nil
+}
+
+// SetSelection updates a select group's current member chain in memory.
+func (m *Manager) SetSelection(groupName, chainName string) error {
+	if m == nil {
+		return errors.New("policy manager is nil")
+	}
+	groupName = strings.TrimSpace(groupName)
+	chainName = strings.TrimSpace(chainName)
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	gs := m.groups[groupName]
+	if gs == nil {
+		return fmt.Errorf("policy group %q not found", groupName)
+	}
+	if gs.groupType != TypeSelect {
+		return fmt.Errorf("policy group %q is %s, not select", groupName, gs.groupType)
+	}
+	if _, ok := gs.chains[chainName]; !ok {
+		return fmt.Errorf("policy group %q has no member chain %q", groupName, chainName)
+	}
+	gs.selectedChain = chainName
+	gs.updatedTsNs = time.Now().UnixNano()
+	return nil
 }
 
 // Snapshot returns a copy of current policy group state.
@@ -377,12 +455,14 @@ func ConfigSnapshot(profile string, groups []config.PolicyGroupConfig) Snapshot 
 		}
 		snap.Groups = append(snap.Groups, GroupSnapshot{
 			Name:          group.Name,
-			Type:          TypeURLTest,
+			Type:          groupTypeForConfig(group),
 			Chains:        append([]string(nil), group.Chains...),
+			Selected:      selectedForConfig(group),
 			TestURL:       testURL,
 			Interval:      interval.String(),
 			Timeout:       timeout.String(),
-			SelectedChain: firstString(group.Chains),
+			SelectedChain: selectedForConfig(group),
+			SelectionMode: selectionModeForType(groupTypeForConfig(group)),
 			Results:       []ProbeResult{},
 		})
 	}
@@ -403,10 +483,12 @@ func snapshotGroupLocked(gs *groupState) GroupSnapshot {
 		Name:          gs.name,
 		Type:          gs.groupType,
 		Chains:        append([]string(nil), gs.chainNames...),
+		Selected:      gs.selectedChain,
 		TestURL:       gs.testURL,
 		Interval:      gs.interval.String(),
 		Timeout:       gs.timeout.String(),
 		SelectedChain: gs.selectedChain,
+		SelectionMode: selectionModeForType(gs.groupType),
 		UpdatedTsNs:   gs.updatedTsNs,
 		Results:       results,
 	}
@@ -480,6 +562,38 @@ func firstString(in []string) string {
 		return ""
 	}
 	return in[0]
+}
+
+func containsString(in []string, target string) bool {
+	for _, v := range in {
+		if v == target {
+			return true
+		}
+	}
+	return false
+}
+
+func groupTypeForConfig(group config.PolicyGroupConfig) string {
+	groupType := strings.ToLower(strings.TrimSpace(group.Type))
+	if groupType == "" {
+		return TypeURLTest
+	}
+	return groupType
+}
+
+func selectedForConfig(group config.PolicyGroupConfig) string {
+	selected := strings.TrimSpace(group.Selected)
+	if selected != "" {
+		return selected
+	}
+	return firstString(group.Chains)
+}
+
+func selectionModeForType(groupType string) string {
+	if groupType == TypeSelect {
+		return "manual"
+	}
+	return "auto"
 }
 
 func chainIndex(chains []string, target string) int {

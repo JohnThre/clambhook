@@ -179,6 +179,7 @@ private class FakeApi(
     private val servers: ServersPayload = ServersPayload(profile = "A"),
     private val policyGroups: PolicyGroupsPayload = PolicyGroupsPayload(profile = "A"),
     private var rules: RulesPayload = RulesPayload(profile = "A"),
+    private var ruleSets: RuleSetsPayload = RuleSetsPayload(profile = "A"),
     private val traffic: TrafficSnapshotPayload = TrafficSnapshotPayload(),
     private val error: Throwable? = null
 ) : ClambhookApi {
@@ -188,6 +189,7 @@ private class FakeApi(
     var serverCalls = 0
     var policyGroupCalls = 0
     var ruleCalls = 0
+    var ruleSetCalls = 0
     var trafficCalls = 0
 
     override suspend fun status(): StatusPayload {
@@ -214,11 +216,36 @@ private class FakeApi(
         return policyGroups
     }
 
+    override suspend fun selectPolicyGroup(profile: String, group: String, chain: String): PolicyGroupsPayload {
+        actions += "policy:$profile:$group:$chain"
+        return policyGroups
+    }
+
     override suspend fun rules(): RulesPayload {
         ruleCalls += 1
         error?.let { throw it }
         return rules
     }
+
+    override suspend fun ruleSets(): RuleSetsPayload {
+        ruleSetCalls += 1
+        error?.let { throw it }
+        return ruleSets
+    }
+
+    override suspend fun replaceRuleSets(profile: String, ruleSets: List<RuleSetPayload>): RuleSetsPayload {
+        actions += "rule-sets:$profile"
+        this.ruleSets = RuleSetsPayload(profile = profile, ruleSets = ruleSets)
+        return this.ruleSets
+    }
+
+    override suspend fun refreshRuleSets(profile: String, names: List<String>): RuleSetsPayload {
+        actions += "rule-sets-refresh:$profile"
+        return ruleSets
+    }
+
+    override suspend fun explainRoute(profile: String, network: String, target: String, source: String): RuleTestResponse =
+        RuleTestResponse(profile = profile)
 
     override suspend fun traffic(): TrafficSnapshotPayload {
         trafficCalls += 1
