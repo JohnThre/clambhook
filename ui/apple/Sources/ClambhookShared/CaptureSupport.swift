@@ -4,6 +4,7 @@ public enum CaptureFilterKind: String, CaseIterable, Identifiable, Sendable {
     case all
     case http
     case https
+    case pinned
 
     public var id: Self { self }
 }
@@ -157,6 +158,10 @@ public struct CaptureMetadataEntryPayload: Codable, Equatable, Identifiable, Sen
         self.durationNs = durationNs
         self.timeline = timeline
     }
+
+    public var pinID: String {
+        connectionID.isEmpty ? id : connectionID
+    }
 }
 
 public struct CaptureEntryPayload: Codable, Equatable, Identifiable, Sendable {
@@ -266,6 +271,10 @@ public struct CaptureEntryPayload: Codable, Equatable, Identifiable, Sendable {
     public var hasBodyPreview: Bool {
         requestBody.available || responseBody.available
     }
+
+    public var pinID: String {
+        connectionID.isEmpty ? id : connectionID
+    }
 }
 
 public struct CaptureBodyPayload: Codable, Equatable, Sendable {
@@ -328,7 +337,8 @@ public enum CaptureSupport {
     public static func filteredEntries(
         _ entries: [CaptureEntryPayload],
         filter: CaptureFilterKind,
-        query: String = ""
+        query: String = "",
+        pinnedIDs: Set<String> = []
     ) -> [CaptureEntryPayload] {
         let normalizedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         return entries.filter { entry in
@@ -339,6 +349,8 @@ public enum CaptureSupport {
                 guard entry.scheme.lowercased() == "http" else { return false }
             case .https:
                 guard entry.scheme.lowercased() == "https" else { return false }
+            case .pinned:
+                guard pinnedIDs.contains(entry.pinID) else { return false }
             }
             guard !normalizedQuery.isEmpty else { return true }
             return [
@@ -356,8 +368,11 @@ public enum CaptureSupport {
         }
     }
 
-    public static func groupEntriesByHost(_ entries: [CaptureEntryPayload]) -> [CaptureGroupPayload] {
-        groupMetadataEntriesByHost(entries.map(metadataEntry))
+    public static func groupEntriesByHost(
+        _ entries: [CaptureEntryPayload],
+        pinnedIDs: Set<String> = []
+    ) -> [CaptureGroupPayload] {
+        groupMetadataEntriesByHost(entries.map(metadataEntry), pinnedIDs: pinnedIDs)
     }
 
     public static func exportString(
@@ -442,11 +457,14 @@ public enum CaptureSupport {
         )
     }
 
-    private static func groupMetadataEntriesByHost(_ entries: [CaptureMetadataEntryPayload]) -> [CaptureGroupPayload] {
-        let sortedEntries = entries.sorted { $0.updatedAtNs > $1.updatedAtNs }
+    private static func groupMetadataEntriesByHost(
+        _ entries: [CaptureMetadataEntryPayload],
+        pinnedIDs: Set<String> = []
+    ) -> [CaptureGroupPayload] {
+        let sortedEntries = sortedMetadataEntries(entries, pinnedIDs: pinnedIDs)
         let grouped = Dictionary(grouping: sortedEntries) { normalizedHost($0.host) }
         return grouped.map { key, rows in
-            let orderedRows = rows.sorted { $0.updatedAtNs > $1.updatedAtNs }
+            let orderedRows = sortedMetadataEntries(rows, pinnedIDs: pinnedIDs)
             let schemes = Array(Set(orderedRows.map { $0.scheme.lowercased() }.filter { !$0.isEmpty })).sorted()
             return CaptureGroupPayload(
                 key: key,
@@ -458,11 +476,37 @@ public enum CaptureSupport {
             )
         }
         .sorted {
+            let lhsPinned = containsPinnedEntry($0, pinnedIDs: pinnedIDs)
+            let rhsPinned = containsPinnedEntry($1, pinnedIDs: pinnedIDs)
+            if lhsPinned != rhsPinned {
+                return lhsPinned
+            }
             if $0.latestUpdatedAtNs == $1.latestUpdatedAtNs {
                 return $0.host < $1.host
             }
             return $0.latestUpdatedAtNs > $1.latestUpdatedAtNs
         }
+    }
+
+    private static func sortedMetadataEntries(
+        _ entries: [CaptureMetadataEntryPayload],
+        pinnedIDs: Set<String>
+    ) -> [CaptureMetadataEntryPayload] {
+        entries.sorted {
+            let lhsPinned = pinnedIDs.contains($0.pinID)
+            let rhsPinned = pinnedIDs.contains($1.pinID)
+            if lhsPinned != rhsPinned {
+                return lhsPinned
+            }
+            if $0.updatedAtNs == $1.updatedAtNs {
+                return $0.id < $1.id
+            }
+            return $0.updatedAtNs > $1.updatedAtNs
+        }
+    }
+
+    private static func containsPinnedEntry(_ group: CaptureGroupPayload, pinnedIDs: Set<String>) -> Bool {
+        group.entries.contains { pinnedIDs.contains($0.pinID) }
     }
 
     private static func normalizedHost(_ host: String) -> String {

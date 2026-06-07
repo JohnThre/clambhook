@@ -211,9 +211,9 @@ private struct IOSInspectionLockOverlay: View {
                     .font(.system(size: 52, weight: .semibold))
                     .foregroundStyle(.tint)
                 VStack(spacing: 6) {
-                    Text("Activity Locked")
+                    Text("Inspection Locked")
                         .font(.title2.weight(.semibold))
-                    Text("Use \(state.status.label) to view local inspection details.")
+                    Text("Use \(state.status.label) to view local activity and capture details.")
                         .font(.body)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)

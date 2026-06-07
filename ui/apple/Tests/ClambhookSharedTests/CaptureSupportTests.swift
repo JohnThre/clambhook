@@ -84,10 +84,15 @@ final class CaptureSupportTests: XCTestCase {
 
         XCTAssertEqual(CaptureSupport.filteredEntries(entries, filter: .https).map(\.id), ["b"])
         XCTAssertEqual(CaptureSupport.filteredEntries(entries, filter: .all, query: "beta").map(\.id), ["b"])
+        XCTAssertEqual(CaptureSupport.filteredEntries(entries, filter: .pinned, pinnedIDs: ["c"]).map(\.id), ["c"])
 
         let groups = CaptureSupport.groupEntriesByHost(entries)
         XCTAssertEqual(groups.map(\.key), ["beta.example", "alpha.example"])
         XCTAssertEqual(groups.first { $0.key == "alpha.example" }?.count, 2)
+
+        let pinnedGroups = CaptureSupport.groupEntriesByHost(entries, pinnedIDs: ["c"])
+        XCTAssertEqual(pinnedGroups.map(\.key), ["alpha.example", "beta.example"])
+        XCTAssertEqual(pinnedGroups.first?.entries.map(\.id), ["c", "a"])
 
         let export = CaptureSupport.exportString(traffic: TrafficSnapshotPayload(), entries: entries, generatedAt: Date(timeIntervalSince1970: 0))
         XCTAssertTrue(export.contains(#""groups""#))
@@ -99,6 +104,7 @@ final class CaptureSupportTests: XCTestCase {
         XCTAssertFalse(export.contains("preview"))
         XCTAssertFalse(export.contains("certificate"))
         XCTAssertFalse(export.contains("HAR export"))
+        XCTAssertFalse(export.lowercased().contains("pinned"))
 
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
