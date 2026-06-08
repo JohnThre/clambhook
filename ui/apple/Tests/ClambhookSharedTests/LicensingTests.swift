@@ -217,6 +217,46 @@ final class LicensingTests: XCTestCase {
         XCTAssertTrue(decision.canUseFeature(.widgets))
     }
 
+    func testMultiplePaidUpdateYearsGateFeaturesByReleaseDate() {
+        let lifetimeDate = mobileLicenseUTCDate(year: 2026, month: 6, day: 3)
+        let featureUpdate2028ID = "\(MobilePurchaseCatalog.featureUpdatePrefix)2028"
+        let snapshot = MobileLicenseSnapshot(
+            transactions: [
+                MobileLicenseTransaction(productID: MobilePurchaseCatalog.lifetimeUnlockID, purchaseDate: lifetimeDate),
+                MobileLicenseTransaction(productID: MobilePurchaseCatalog.featureUpdate2027ID, purchaseDate: mobileLicenseUTCDate(year: 2027, month: 8, day: 1)),
+                MobileLicenseTransaction(productID: featureUpdate2028ID, purchaseDate: mobileLicenseUTCDate(year: 2028, month: 8, day: 15)),
+            ],
+            lastVerifiedAt: mobileLicenseUTCDate(year: 2028, month: 8, day: 15)
+        )
+        let firstPaidYearFeature = MobileLicenseFeature(
+            id: .widgets,
+            displayName: "First Paid Year Widgets",
+            releaseDate: mobileLicenseUTCDate(year: 2028, month: 8, day: 1)
+        )
+        let finalCutoffFeature = MobileLicenseFeature(
+            id: .routingRules,
+            displayName: "Final Cutoff Rules",
+            releaseDate: mobileLicenseUTCDate(year: 2029, month: 8, day: 15)
+        )
+        let laterFeature = MobileLicenseFeature(
+            id: .activityInspection,
+            displayName: "Later Inspection",
+            releaseDate: mobileLicenseUTCDate(year: 2029, month: 8, day: 16)
+        )
+
+        let decision = MobileLicenseEvaluator.evaluate(
+            snapshot: snapshot,
+            features: [firstPaidYearFeature, finalCutoffFeature, laterFeature],
+            now: mobileLicenseUTCDate(year: 2028, month: 8, day: 16)
+        )
+
+        XCTAssertEqual(decision.reason, .lifetime)
+        XCTAssertEqual(decision.updateCutoffDate, mobileLicenseUTCDate(year: 2029, month: 8, day: 15))
+        XCTAssertTrue(decision.canUseFeature(.widgets))
+        XCTAssertTrue(decision.canUseFeature(.routingRules))
+        XCTAssertFalse(decision.canUseFeature(.activityInspection))
+    }
+
     func testRefundedPaidUpdateDoesNotExtendFeatureWindow() {
         let lifetimeDate = mobileLicenseUTCDate(year: 2026, month: 6, day: 3)
         let snapshot = MobileLicenseSnapshot(
