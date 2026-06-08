@@ -13,6 +13,7 @@ public final class DashboardStore: ObservableObject {
     @Published public private(set) var ruleSets = RuleSetsPayload()
     @Published public private(set) var ruleSubscriptions = RuleSubscriptionsPayload()
     @Published public private(set) var traffic = TrafficSnapshotPayload()
+    @Published public private(set) var networkSettings = TunnelNetworkSettingsPayload()
     @Published public private(set) var bandwidthSamples: [BandwidthSample] = []
     @Published public private(set) var logs: [String] = []
     @Published public private(set) var apiOnline = false
@@ -82,6 +83,7 @@ public final class DashboardStore: ObservableObject {
         ruleSets = dashboard.ruleSets
         ruleSubscriptions = dashboard.ruleSubscriptions
         traffic = dashboard.traffic
+        networkSettings = dashboard.networkSettings
     }
 
     public func refreshStatus() async {

@@ -24,6 +24,63 @@ struct IOSMetricsGrid: View {
     }
 }
 
+struct IOSBandwidthGraphView: View {
+    var samples: [BandwidthSample]
+    var downTint: Color = .green
+    var upTint: Color = .blue
+
+    var body: some View {
+        Canvas { context, size in
+            drawGrid(in: &context, size: size)
+            let maxRate = max(
+                samples.map { max($0.rxBps, $0.txBps) }.max() ?? 0,
+                1
+            )
+            let downPath = linePath(size: size, maxRate: maxRate) { $0.rxBps }
+            let upPath = linePath(size: size, maxRate: maxRate) { $0.txBps }
+            context.stroke(downPath, with: .color(downTint), style: StrokeStyle(lineWidth: 2.5, lineCap: .round, lineJoin: .round))
+            context.stroke(upPath, with: .color(upTint), style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
+        }
+        .frame(height: 104)
+        .accessibilityLabel("Live bandwidth graph")
+    }
+
+    private func drawGrid(in context: inout GraphicsContext, size: CGSize) {
+        var grid = Path()
+        for step in 0...3 {
+            let y = size.height * CGFloat(step) / 3
+            grid.move(to: CGPoint(x: 0, y: y))
+            grid.addLine(to: CGPoint(x: size.width, y: y))
+        }
+        context.stroke(grid, with: .color(Color.secondary.opacity(0.16)), lineWidth: 1)
+    }
+
+    private func linePath(size: CGSize, maxRate: Double, value: (BandwidthSample) -> Double) -> Path {
+        let points = graphSamples
+        var path = Path()
+        guard !points.isEmpty else { return path }
+        for index in points.indices {
+            let x = points.count == 1 ? 0 : size.width * CGFloat(index) / CGFloat(points.count - 1)
+            let normalized = min(max(value(points[index]) / maxRate, 0), 1)
+            let y = size.height - (size.height * CGFloat(normalized))
+            let point = CGPoint(x: x, y: y)
+            if index == points.startIndex {
+                path.move(to: point)
+            } else {
+                path.addLine(to: point)
+            }
+        }
+        return path
+    }
+
+    private var graphSamples: [BandwidthSample] {
+        if samples.isEmpty {
+            return [BandwidthSample()]
+        }
+        return samples
+    }
+}
+
 private struct IOSMetricTile: View {
     var metric: IOSMetric
 

@@ -509,6 +509,7 @@ func (r *TunnelRuntime) DashboardJSON() (string, error) {
 		RuleSets:          ruleSetsForConfig(cfg),
 		RuleSubscriptions: ruleSubscriptionsForConfig(cfg),
 		Traffic:           trafficSnapshot,
+		NetworkSettings:   networkSettingsForConfig(cfg),
 	}
 	return marshalString(payload)
 }
@@ -647,6 +648,7 @@ type dashboardPayload struct {
 	RuleSets          ruleSetsPayload            `json:"rule_sets"`
 	RuleSubscriptions subscription.StatusPayload `json:"rule_subscriptions"`
 	Traffic           traffic.Snapshot           `json:"traffic"`
+	NetworkSettings   tunnelNetworkSettings      `json:"network_settings"`
 }
 
 type ruleSetsPayload struct {
@@ -862,6 +864,17 @@ func networkSettingsForProfile(profile *config.Profile) tunnelNetworkSettings {
 		settings.HTTPSProxy = proxy
 	}
 	return settings
+}
+
+func networkSettingsForConfig(cfg *config.Config) tunnelNetworkSettings {
+	if cfg == nil {
+		return tunnelNetworkSettings{}
+	}
+	profile, err := cfg.ActiveProfile()
+	if err != nil {
+		return tunnelNetworkSettings{}
+	}
+	return networkSettingsForProfile(profile)
 }
 
 func proxySettingForListenAddr(raw string) *proxySetting {
