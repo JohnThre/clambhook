@@ -54,6 +54,42 @@ final class LicensingTests: XCTestCase {
         XCTAssertTrue(decision.canUseFeature(.tunnelRouting))
     }
 
+    func testRecentVerificationFailureUsesOfflineGraceForCachedLifetime() {
+        let purchaseDate = mobileLicenseUTCDate(year: 2026, month: 6, day: 3)
+        let failedAt = mobileLicenseUTCDate(year: 2026, month: 7, day: 2)
+        let includedFeature = MobileLicenseFeature(
+            id: .widgets,
+            displayName: "Included Widgets",
+            releaseDate: mobileLicenseUTCDate(year: 2027, month: 6, day: 3)
+        )
+        let laterFeature = MobileLicenseFeature(
+            id: .activityInspection,
+            displayName: "Later Inspection",
+            releaseDate: mobileLicenseUTCDate(year: 2027, month: 6, day: 4)
+        )
+        let snapshot = MobileLicenseSnapshot(
+            transactions: [
+                MobileLicenseTransaction(productID: MobilePurchaseCatalog.lifetimeUnlockID, purchaseDate: purchaseDate),
+            ],
+            lastVerifiedAt: mobileLicenseUTCDate(year: 2026, month: 7, day: 1),
+            lastVerificationFailedAt: failedAt
+        )
+
+        let decision = MobileLicenseEvaluator.evaluate(
+            snapshot: snapshot,
+            features: [includedFeature, laterFeature],
+            now: mobileLicenseUTCDate(year: 2026, month: 7, day: 5)
+        )
+
+        XCTAssertEqual(decision.reason, .offlineGrace)
+        XCTAssertTrue(decision.canUseApp)
+        XCTAssertTrue(decision.isOfflineGraceActive)
+        XCTAssertEqual(decision.offlineGraceEndsAt, mobileLicenseUTCDate(year: 2026, month: 7, day: 9))
+        XCTAssertEqual(decision.updateCutoffDate, mobileLicenseUTCDate(year: 2027, month: 6, day: 3))
+        XCTAssertTrue(decision.canUseFeature(.widgets))
+        XCTAssertFalse(decision.canUseFeature(.activityInspection))
+    }
+
     func testOfflinePaidUseKeepsPurchasedFeatureReleasesEnabled() {
         let purchaseDate = mobileLicenseUTCDate(year: 2026, month: 6, day: 3)
         let includedFeature = MobileLicenseFeature(
@@ -82,6 +118,7 @@ final class LicensingTests: XCTestCase {
         XCTAssertEqual(decision.reason, .lifetime)
         XCTAssertTrue(decision.canUseApp)
         XCTAssertFalse(decision.isOfflineGraceActive)
+        XCTAssertNil(decision.offlineGraceEndsAt)
         XCTAssertTrue(decision.canUseFeature(.widgets))
         XCTAssertFalse(decision.canUseFeature(.activityInspection))
     }
