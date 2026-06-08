@@ -354,14 +354,28 @@ private struct IOSNetworkSummaryPanel: View {
     }
 
     private var dnsTitle: String {
-        settings.dnsServers.isEmpty ? "System DNS" : "\(settings.dnsServers.count) tunnel DNS"
+        if model.dashboard.dns.enabled {
+            return model.dashboard.dns.upstreams.isEmpty ? "Encrypted DNS" : "\(model.dashboard.dns.upstreams.count) upstream DNS"
+        }
+        return settings.dnsServers.isEmpty ? "System DNS" : "\(settings.dnsServers.count) tunnel DNS"
     }
 
     private var dnsDetail: String {
-        if settings.dnsServers.isEmpty {
-            return "No tunnel DNS override"
+        let dns = model.dashboard.dns
+        if dns.enabled {
+            var parts: [String] = []
+            parts.append(dns.strategy.isEmpty ? "encrypted" : dns.strategy)
+            if dns.interceptsPort53 {
+                parts.append("intercepts port 53")
+            }
+            if let route = dns.upstreamRoutes.first {
+                parts.append(dnsRouteSummary(route))
+            } else if let upstream = dns.upstreams.first {
+                parts.append(upstream.targetDescription)
+            }
+            return parts.joined(separator: " / ")
         }
-        return settings.dnsServers.prefix(2).joined(separator: ", ")
+        return settings.dnsServers.isEmpty ? "No tunnel DNS override" : settings.dnsServers.prefix(2).joined(separator: ", ")
     }
 
     private var routingTitle: String {
@@ -400,6 +414,16 @@ private struct IOSNetworkSummaryPanel: View {
     private var isFullTunnel: Bool {
         settings.includedRoutes.contains("0.0.0.0/0") || settings.includedRoutes.contains("::/0")
     }
+}
+
+private func dnsRouteSummary(_ route: DNSUpstreamRoutePayload) -> String {
+    if !route.error.isEmpty {
+        return route.error
+    }
+    if !route.chainName.isEmpty {
+        return route.groupName.isEmpty ? route.chainName : "\(route.groupName) -> \(route.chainName)"
+    }
+    return route.action.isEmpty ? route.target : route.action
 }
 
 private struct IOSRecentDecisionsPanel: View {

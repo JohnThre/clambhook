@@ -13,6 +13,7 @@ public final class DashboardStore: ObservableObject {
     @Published public private(set) var ruleSets = RuleSetsPayload()
     @Published public private(set) var ruleSubscriptions = RuleSubscriptionsPayload()
     @Published public private(set) var traffic = TrafficSnapshotPayload()
+    @Published public private(set) var dns = DNSPayload()
     @Published public private(set) var networkSettings = TunnelNetworkSettingsPayload()
     @Published public private(set) var bandwidthSamples: [BandwidthSample] = []
     @Published public private(set) var logs: [String] = []
@@ -53,6 +54,7 @@ public final class DashboardStore: ObservableObject {
                 let servers = try await api.servers()
                 let policyGroups = try await api.policyGroups()
                 let rules = try await api.rules()
+                let dns = try await api.dns()
                 let traffic = try await api.traffic()
                 apply(dashboard: TunnelDashboardPayload(
                     status: status,
@@ -61,7 +63,8 @@ public final class DashboardStore: ObservableObject {
                     rules: rules,
                     policyGroups: policyGroups,
                     ruleSets: RuleSetsPayload(profile: rules.profile, statuses: rules.ruleSets),
-                    traffic: traffic
+                    traffic: traffic,
+                    dns: dns
                 ))
             }
             self.apiOnline = true
@@ -83,6 +86,7 @@ public final class DashboardStore: ObservableObject {
         ruleSets = dashboard.ruleSets
         ruleSubscriptions = dashboard.ruleSubscriptions
         traffic = dashboard.traffic
+        dns = dashboard.dns
         networkSettings = dashboard.networkSettings
     }
 

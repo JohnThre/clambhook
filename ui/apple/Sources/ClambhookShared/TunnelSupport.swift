@@ -72,6 +72,7 @@ public struct TunnelDashboardPayload: Codable, Equatable, Sendable {
     public var ruleSets: RuleSetsPayload
     public var ruleSubscriptions: RuleSubscriptionsPayload
     public var traffic: TrafficSnapshotPayload
+    public var dns: DNSPayload
     public var networkSettings: TunnelNetworkSettingsPayload
 
     enum CodingKeys: String, CodingKey {
@@ -83,6 +84,7 @@ public struct TunnelDashboardPayload: Codable, Equatable, Sendable {
         case ruleSets = "rule_sets"
         case ruleSubscriptions = "rule_subscriptions"
         case traffic
+        case dns
         case networkSettings = "network_settings"
     }
 
@@ -95,6 +97,7 @@ public struct TunnelDashboardPayload: Codable, Equatable, Sendable {
         ruleSets: RuleSetsPayload = RuleSetsPayload(),
         ruleSubscriptions: RuleSubscriptionsPayload = RuleSubscriptionsPayload(),
         traffic: TrafficSnapshotPayload = TrafficSnapshotPayload(),
+        dns: DNSPayload = DNSPayload(),
         networkSettings: TunnelNetworkSettingsPayload = TunnelNetworkSettingsPayload()
     ) {
         self.status = status
@@ -105,6 +108,7 @@ public struct TunnelDashboardPayload: Codable, Equatable, Sendable {
         self.ruleSets = ruleSets
         self.ruleSubscriptions = ruleSubscriptions
         self.traffic = traffic
+        self.dns = dns
         self.networkSettings = networkSettings
     }
 
@@ -118,6 +122,7 @@ public struct TunnelDashboardPayload: Codable, Equatable, Sendable {
         self.ruleSets = try container.decodeIfPresent(RuleSetsPayload.self, forKey: .ruleSets) ?? RuleSetsPayload()
         self.ruleSubscriptions = try container.decodeIfPresent(RuleSubscriptionsPayload.self, forKey: .ruleSubscriptions) ?? RuleSubscriptionsPayload()
         self.traffic = try container.decodeIfPresent(TrafficSnapshotPayload.self, forKey: .traffic) ?? TrafficSnapshotPayload()
+        self.dns = try container.decodeIfPresent(DNSPayload.self, forKey: .dns) ?? DNSPayload()
         self.networkSettings = try container.decodeIfPresent(TunnelNetworkSettingsPayload.self, forKey: .networkSettings) ?? TunnelNetworkSettingsPayload()
     }
 }

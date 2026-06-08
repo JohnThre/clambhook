@@ -118,6 +118,52 @@ final class APIClientTests: XCTestCase {
         XCTAssertEqual(traffic.connections.first?.isDefault, true)
     }
 
+    func testDNSRequestDecodesUpstreamRoute() async throws {
+        MockURLProtocol.responseData = Data("""
+        {
+          "profile": "Work",
+          "strategy": "encrypted",
+          "enabled": true,
+          "timeout": "5s",
+          "intercepts_port_53": true,
+          "upstreams": [{"name": "cf", "protocol": "doh", "url": "https://cloudflare-dns.com/dns-query"}],
+          "upstream_routes": [{"name": "cf", "protocol": "doh", "target": "cloudflare-dns.com:443", "network": "tcp", "action": "group", "group_name": "manual", "chain_name": "proxy"}]
+        }
+        """.utf8)
+        let client = ClambhookAPIClient(
+            baseURL: URL(string: "http://127.0.0.1:9090")!,
+            session: mockSession()
+        )
+
+        let dns = try await client.dns()
+
+        XCTAssertEqual(MockURLProtocol.lastRequest?.url?.absoluteString, "http://127.0.0.1:9090/api/v1/dns")
+        XCTAssertTrue(dns.enabled)
+        XCTAssertEqual(dns.upstreams.first?.name, "cf")
+        XCTAssertEqual(dns.upstreamRoutes.first?.groupName, "manual")
+        XCTAssertEqual(dns.upstreamRoutes.first?.chainName, "proxy")
+    }
+
+    func testRefreshRuleSubscriptionsSendsSelectedNames() async throws {
+        MockURLProtocol.responseData = Data("""
+        {"profile":"Work","subscriptions":[{"name":"ads","url":"https://lists.example.invalid/ads.txt","format":"auto","action":"block","cached":true,"domain_count":1}]}
+        """.utf8)
+        let client = ClambhookAPIClient(
+            baseURL: URL(string: "http://127.0.0.1:9090")!,
+            session: mockSession()
+        )
+
+        let response = try await client.refreshRuleSubscriptions(names: ["ads"], profile: "Work")
+
+        XCTAssertEqual(response.subscriptions.first?.name, "ads")
+        XCTAssertEqual(MockURLProtocol.lastRequest?.httpMethod, "POST")
+        XCTAssertEqual(MockURLProtocol.lastRequest?.url?.absoluteString, "http://127.0.0.1:9090/api/v1/rule-subscriptions/refresh")
+        let body = try XCTUnwrap(MockURLProtocol.lastBody)
+        let decoded = try JSONDecoder().decode(RefreshRuleSubscriptionsRequestBody.self, from: body)
+        XCTAssertEqual(decoded.profile, "Work")
+        XCTAssertEqual(decoded.names, ["ads"])
+    }
+
     func testCreateRuleFromConnectionSendsAppendRequest() async throws {
         MockURLProtocol.responseData = Data("""
         {"profile":"Work","rules":[{"name":"api","action":"chain:proxy","domains":["api.example.com"]}]}
@@ -225,6 +271,11 @@ private struct CleanupRuleRequestBody: Decodable {
         case targetRuleName = "target_rule_name"
         case operation
     }
+}
+
+private struct RefreshRuleSubscriptionsRequestBody: Decodable {
+    var profile: String
+    var names: [String]
 }
 
 private func mockSession() -> URLSession {

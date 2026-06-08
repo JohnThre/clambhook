@@ -14,17 +14,17 @@ import (
 
 const defaultDNSProxyTimeout = 5 * time.Second
 
-type dnsPayload struct {
+type DNSPayload struct {
 	Profile          string                     `json:"profile"`
 	Strategy         string                     `json:"strategy"`
 	Enabled          bool                       `json:"enabled"`
 	Timeout          string                     `json:"timeout,omitempty"`
 	Upstreams        []config.DNSUpstreamConfig `json:"upstreams"`
 	InterceptsPort53 bool                       `json:"intercepts_port_53"`
-	UpstreamRoutes   []dnsUpstreamRoutePayload  `json:"upstream_routes,omitempty"`
+	UpstreamRoutes   []DNSUpstreamRoutePayload  `json:"upstream_routes,omitempty"`
 }
 
-type dnsUpstreamRoutePayload struct {
+type DNSUpstreamRoutePayload struct {
 	Name      string `json:"name,omitempty"`
 	Protocol  string `json:"protocol"`
 	Target    string `json:"target"`
@@ -44,11 +44,17 @@ func (s *Server) handleDNS(w http.ResponseWriter, r *http.Request) {
 		writeProfileSelectionError(w, err)
 		return
 	}
-	writeJSON(w, dnsSnapshot(cfg, profile))
+	writeJSON(w, DNSSnapshot(cfg, profile))
 }
 
-func dnsSnapshot(cfg *config.Config, profile *config.Profile) dnsPayload {
-	payload := dnsPayload{
+func DNSSnapshot(cfg *config.Config, profile *config.Profile) DNSPayload {
+	if profile == nil {
+		return DNSPayload{
+			Strategy:  "route",
+			Upstreams: []config.DNSUpstreamConfig{},
+		}
+	}
+	payload := DNSPayload{
 		Profile:   profile.Name,
 		Strategy:  "route",
 		Upstreams: []config.DNSUpstreamConfig{},
@@ -69,19 +75,19 @@ func dnsSnapshot(cfg *config.Config, profile *config.Profile) dnsPayload {
 	return payload
 }
 
-func dnsUpstreamRoutes(cfg *config.Config, profile *config.Profile) []dnsUpstreamRoutePayload {
+func dnsUpstreamRoutes(cfg *config.Config, profile *config.Profile) []DNSUpstreamRoutePayload {
 	if cfg == nil || profile == nil || len(profile.Chains) == 0 {
 		return nil
 	}
 	effectiveProfile := subscription.ProfileWithCachedRules(cfg.Path, profile)
 	engine, err := compileProfileRules(cfg.Path, &effectiveProfile, profile.Chains[0].Name)
 	if err != nil {
-		return []dnsUpstreamRoutePayload{{Error: err.Error()}}
+		return []DNSUpstreamRoutePayload{{Error: err.Error()}}
 	}
-	rows := make([]dnsUpstreamRoutePayload, 0, len(profile.DNS.Upstreams))
+	rows := make([]DNSUpstreamRoutePayload, 0, len(profile.DNS.Upstreams))
 	for _, upstream := range profile.DNS.Upstreams {
 		target, network, err := dnsUpstreamTarget(upstream)
-		row := dnsUpstreamRoutePayload{
+		row := DNSUpstreamRoutePayload{
 			Name:     upstream.Name,
 			Protocol: upstream.Protocol,
 			Target:   target,

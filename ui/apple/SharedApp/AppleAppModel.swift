@@ -628,6 +628,76 @@ final class AppleAppModel: ObservableObject {
         #endif
     }
 
+    func refreshActiveProfileRuleSets() {
+        guard canUseLicensedFeature(.routingRules) else {
+            daemonMessage = AppleAppModelError.licenseLocked.errorDescription ?? ""
+            return
+        }
+        Task {
+            do {
+                #if os(iOS)
+                #if canImport(ClambhookMobile)
+                _ = try mobileString {
+                    MobileRefreshRuleSetsJSON(
+                        TunnelConfigStore.configURL(groupIdentifier: settingsStore.settings.appGroupIdentifier).path,
+                        dashboard.activeProfile,
+                        "[]",
+                        $0
+                    )
+                }
+                reloadTunnelConfiguration()
+                #else
+                throw AppleAppModelError.mobileConfigEditorUnavailable
+                #endif
+                #else
+                guard let apiClient else {
+                    throw APIClientError.invalidURL("missing API client")
+                }
+                _ = try await apiClient.refreshRuleSets(profile: dashboard.activeProfile)
+                await dashboard.refreshDashboard()
+                #endif
+                daemonMessage = "rule sets refreshed"
+            } catch {
+                daemonMessage = error.localizedDescription
+            }
+        }
+    }
+
+    func refreshActiveProfileRuleSubscriptions() {
+        guard canUseLicensedFeature(.routingRules) else {
+            daemonMessage = AppleAppModelError.licenseLocked.errorDescription ?? ""
+            return
+        }
+        Task {
+            do {
+                #if os(iOS)
+                #if canImport(ClambhookMobile)
+                _ = try mobileString {
+                    MobileRefreshRuleSubscriptionsJSON(
+                        TunnelConfigStore.configURL(groupIdentifier: settingsStore.settings.appGroupIdentifier).path,
+                        dashboard.activeProfile,
+                        "[]",
+                        $0
+                    )
+                }
+                reloadTunnelConfiguration()
+                #else
+                throw AppleAppModelError.mobileConfigEditorUnavailable
+                #endif
+                #else
+                guard let apiClient else {
+                    throw APIClientError.invalidURL("missing API client")
+                }
+                _ = try await apiClient.refreshRuleSubscriptions(profile: dashboard.activeProfile)
+                await dashboard.refreshDashboard()
+                #endif
+                daemonMessage = "subscriptions refreshed"
+            } catch {
+                daemonMessage = error.localizedDescription
+            }
+        }
+    }
+
     func tunnelOnboardingReadinessMessage() -> String? {
         do {
             let text = try TunnelConfigStore.loadOrCreateConfig(groupIdentifier: settingsStore.settings.appGroupIdentifier)

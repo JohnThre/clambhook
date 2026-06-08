@@ -67,6 +67,40 @@ func TestDNSEndpointUsesDefaultTimeoutWhenEnabled(t *testing.T) {
 	}
 }
 
+func TestDNSEndpointExplainsUpstreamRouteDecision(t *testing.T) {
+	cfg := testServersConfig("A")
+	cfg.Profiles[0].DNS = config.DNSConfig{
+		Enabled: true,
+		Upstreams: []config.DNSUpstreamConfig{{
+			Name:     "cloudflare",
+			Protocol: "doh",
+			URL:      "https://cloudflare-dns.com/dns-query",
+		}},
+	}
+	cfg.Profiles[0].PolicyGroups = []config.PolicyGroupConfig{{
+		Name:     "manual",
+		Type:     "select",
+		Chains:   []string{"a-default"},
+		Selected: "a-default",
+	}}
+	cfg.Profiles[0].Rules = []config.RuleConfig{{
+		Name:    "dns-through-manual",
+		Action:  "group:manual",
+		Domains: []string{"cloudflare-dns.com"},
+	}}
+	srv := New(engine.New(cfg, nil), nil)
+
+	resp := getDNS(t, srv, "/api/v1/dns")
+
+	if len(resp.UpstreamRoutes) != 1 {
+		t.Fatalf("upstream routes = %+v, want one row", resp.UpstreamRoutes)
+	}
+	route := resp.UpstreamRoutes[0]
+	if route.Target != "cloudflare-dns.com:443" || route.Network != "tcp" || route.GroupName != "manual" || route.ChainName != "a-default" {
+		t.Fatalf("route = %+v, want cloudflare via manual/a-default", route)
+	}
+}
+
 func TestDNSEndpointRejectsMissingProfile(t *testing.T) {
 	srv := New(engine.New(testServersConfig("A"), nil), nil)
 
@@ -86,6 +120,7 @@ type dnsAPIResponse struct {
 	Timeout          string                     `json:"timeout"`
 	Upstreams        []config.DNSUpstreamConfig `json:"upstreams"`
 	InterceptsPort53 bool                       `json:"intercepts_port_53"`
+	UpstreamRoutes   []DNSUpstreamRoutePayload  `json:"upstream_routes"`
 }
 
 func getDNS(t *testing.T, srv *Server, path string) dnsAPIResponse {

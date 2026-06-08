@@ -376,6 +376,10 @@ final class TunnelDashboardClient: ClambhookDashboardProviding, DeveloperCapture
         try await controller.dashboard().rules
     }
 
+    func dns() async throws -> DNSPayload {
+        try await controller.dashboard().dns
+    }
+
     func testRule(network: String, target: String, profile: String = "") async throws -> RuleTestResponse {
         let dashboard = try await controller.dashboard()
         return try RuleTester.test(
