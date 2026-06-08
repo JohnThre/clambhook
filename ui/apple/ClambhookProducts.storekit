@@ -4,7 +4,7 @@
   "products": [
     {
       "displayPrice": "99.99",
-      "familyShareable": false,
+      "familyShareable": true,
       "internalID": "CLAMBHOOK_LIFETIME_UNLOCK",
       "localizations": [
         {
@@ -19,7 +19,7 @@
     },
     {
       "displayPrice": "8.99",
-      "familyShareable": false,
+      "familyShareable": true,
       "internalID": "CLAMBHOOK_FEATURE_UPDATE_2027",
       "localizations": [
         {

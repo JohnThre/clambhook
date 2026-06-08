@@ -20,6 +20,8 @@ Pricing and In-App Purchases:
 - Lifetime unlock: `org.jpfchang.clambhook.unlock.lifetime`, USD 99.99.
 - 2027 feature update: `org.jpfchang.clambhook.feature_update.2027`, USD 8.99.
 - Future paid feature update products use `org.jpfchang.clambhook.feature_update.YYYY`.
+- Lifetime unlock includes features released through the purchase date plus one year. Each paid feature update extends that feature-release cutoff by one year.
+- Existing purchased features remain enabled forever. Only features released after the user's paid window require the USD 8.99 feature update. Bug fixes and security fixes remain included.
 
 Demo profile for App Review:
 

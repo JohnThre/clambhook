@@ -18,6 +18,8 @@ ClambHook's end-user iPhone release is distributed only through the Apple App St
 
 Future paid feature update products use `org.jpfchang.clambhook.feature_update.YYYY`.
 
+The lifetime unlock includes features released through the purchase date plus one year. Each paid feature update extends that feature-release cutoff by one year. Existing purchased features remain enabled forever; only features released after the user's paid window require a USD 8.99 feature update. Bug fixes and security fixes remain included.
+
 ## GitHub Release Rule
 
 Do not release end-user installers or package artifacts on GitHub. This includes `.dmg`, `.pkg`, `.apk`, `.aab`, `.ipa`, Homebrew formula releases, Debian packages, and macOS installer artifacts.

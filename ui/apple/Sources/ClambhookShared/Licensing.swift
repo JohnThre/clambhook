@@ -44,15 +44,27 @@ public enum MobileLicenseProductKind: Equatable, Sendable {
     case unknown
 }
 
+public enum MobileLicenseTransactionOwnership: String, Codable, Equatable, Sendable {
+    case purchased
+    case familyShared
+}
+
 public struct MobileLicenseTransaction: Codable, Equatable, Sendable {
     public var productID: String
     public var purchaseDate: Date
     public var revocationDate: Date?
+    public var ownershipType: MobileLicenseTransactionOwnership
 
-    public init(productID: String, purchaseDate: Date, revocationDate: Date? = nil) {
+    public init(
+        productID: String,
+        purchaseDate: Date,
+        revocationDate: Date? = nil,
+        ownershipType: MobileLicenseTransactionOwnership = .purchased
+    ) {
         self.productID = productID
         self.purchaseDate = purchaseDate
         self.revocationDate = revocationDate
+        self.ownershipType = ownershipType
     }
 
     public var productKind: MobileLicenseProductKind {
@@ -61,6 +73,21 @@ public struct MobileLicenseTransaction: Codable, Equatable, Sendable {
 
     public var isActive: Bool {
         revocationDate == nil
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case productID
+        case purchaseDate
+        case revocationDate
+        case ownershipType
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.productID = try container.decode(String.self, forKey: .productID)
+        self.purchaseDate = try container.decode(Date.self, forKey: .purchaseDate)
+        self.revocationDate = try container.decodeIfPresent(Date.self, forKey: .revocationDate)
+        self.ownershipType = try container.decodeIfPresent(MobileLicenseTransactionOwnership.self, forKey: .ownershipType) ?? .purchased
     }
 }
 
@@ -225,6 +252,46 @@ public enum MobileLicenseEvaluator {
             cutoff = nextCutoff
         }
         return cutoff
+    }
+}
+
+public enum MobileLicenseTrialStore {
+    public static let trialAccount = "trial-start-date"
+
+    public static func resolvedSnapshot(
+        snapshot: MobileLicenseSnapshot,
+        credentialStore: CredentialStoring,
+        now: Date = Date()
+    ) -> MobileLicenseSnapshot {
+        var next = snapshot
+        if let stored = try? credentialStore.readToken(account: trialAccount),
+           let date = dateFormatter.date(from: stored) {
+            next.trialStartDate = date
+        } else if let existing = snapshot.trialStartDate {
+            try? credentialStore.saveToken(dateFormatter.string(from: existing), account: trialAccount)
+            next.trialStartDate = existing
+        } else {
+            try? credentialStore.saveToken(dateFormatter.string(from: now), account: trialAccount)
+            next.trialStartDate = now
+        }
+        next.cachedAt = now
+        return next
+    }
+
+    public static func formattedTrialStartDate(_ date: Date) -> String {
+        dateFormatter.string(from: date)
+    }
+
+    private static let dateFormatter: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+}
+
+public enum MobileLicenseCopy {
+    public static func paidUpdatePolicy(cutoffDate: Date) -> String {
+        "One-time unlock includes features released through \(cutoffDate.formatted(date: .abbreviated, time: .omitted)). Paid updates unlock later feature releases. Bug fixes/security fixes remain included."
     }
 }
 

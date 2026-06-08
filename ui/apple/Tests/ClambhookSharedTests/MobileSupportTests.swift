@@ -66,7 +66,7 @@ final class MobileSupportTests: XCTestCase {
         let product = try XCTUnwrap(product)
         XCTAssertEqual(product["type"] as? String, "NonConsumable")
         XCTAssertEqual(product["displayPrice"] as? String, displayPrice)
-        XCTAssertEqual(product["familyShareable"] as? Bool, false)
+        XCTAssertEqual(product["familyShareable"] as? Bool, true)
 
         let localizations = try XCTUnwrap(product["localizations"] as? [[String: Any]])
         let englishLocalization = try XCTUnwrap(localizations.first { $0["locale"] as? String == "en_US" })

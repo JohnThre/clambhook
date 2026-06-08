@@ -17,6 +17,10 @@ Create only these non-consumable In-App Purchases before submitting the build. E
 
 Future paid feature update products use the pattern `org.jpfchang.clambhook.feature_update.YYYY`.
 
+The lifetime unlock includes features released through the purchase date plus one year. Each paid feature update extends that feature-release cutoff by one year. Existing purchased features remain enabled forever; only features released after the user's paid window require a USD 8.99 feature update. Bug fixes and security fixes remain included.
+
+Purchase UI copy must include: "One-time unlock includes features released through DATE. Paid updates unlock later feature releases. Bug fixes/security fixes remain included."
+
 ## URLs
 
 - Support URL: https://jpfchang.org/clambhook/support

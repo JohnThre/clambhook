@@ -105,7 +105,7 @@ private struct LicenseStatusView: View {
             return "Free use is active."
         case .lifetime:
             if let cutoff = decision.updateCutoffDate {
-                return "Features released through \(cutoff.formatted(date: .abbreviated, time: .omitted)) are unlocked."
+                return MobileLicenseCopy.paidUpdatePolicy(cutoffDate: cutoff)
             }
             return "Purchased features are unlocked."
         case .offlineGrace:
