@@ -77,6 +77,8 @@ fun DashboardScreen(
     onProfileSelected: (String) -> Unit,
     onOpenSettings: () -> Unit,
     onCreateRule: (RulePayload) -> Unit,
+    onCreateRuleFromConnection: (TrafficConnectionPayload, RulePayload) -> Unit,
+    onCleanupRule: (TrafficCleanupSuggestionPayload) -> Unit,
     modifier: Modifier = Modifier
 ) {
     LazyColumn(
@@ -103,7 +105,7 @@ fun DashboardScreen(
             }
 
             DashboardDestination.Logbook -> {
-                item { TrafficCard(state, onCreateRule) }
+                item { TrafficCard(state, onCreateRule, onCreateRuleFromConnection, onCleanupRule) }
                 item { DeveloperCaptureCard(state) }
                 item { LogsCard(state) }
             }
@@ -546,11 +548,18 @@ private fun LatestConnectionRow(connection: TrafficConnectionPayload) {
 }
 
 @Composable
-private fun TrafficCard(state: DashboardState, onCreateRule: (RulePayload) -> Unit) {
+private fun TrafficCard(
+    state: DashboardState,
+    onCreateRule: (RulePayload) -> Unit,
+    onCreateRuleFromConnection: (TrafficConnectionPayload, RulePayload) -> Unit,
+    onCleanupRule: (TrafficCleanupSuggestionPayload) -> Unit
+) {
     val traffic = state.traffic
     var filter by remember { mutableStateOf("all") }
     var search by remember { mutableStateOf("") }
     var draftRule by remember { mutableStateOf<RulePayload?>(null) }
+    var draftConnection by remember { mutableStateOf<TrafficConnectionPayload?>(null) }
+    var pendingCleanup by remember { mutableStateOf<TrafficCleanupSuggestionPayload?>(null) }
     val counts = traffic.actionCounts()
     val visibleConnections = traffic.connections.filter { connection ->
         (filter == "all" || connection.actionFamily() == filter) &&
@@ -630,15 +639,14 @@ private fun TrafficCard(state: DashboardState, onCreateRule: (RulePayload) -> Un
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-            traffic.cleanupSuggestions.take(2).forEach { suggestion ->
-                Text(
-                    "Cleanup ${suggestion.ruleName}: ${suggestion.message}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+            traffic.cleanupSuggestions.take(4).forEach { suggestion ->
+                CleanupSuggestionRow(suggestion, onApply = { pendingCleanup = suggestion })
             }
             traffic.ruleSuggestions.take(4).forEach { suggestion ->
-                RuleSuggestionRow(suggestion, onCreateRule = { draftRule = suggestion.draftRule })
+                RuleSuggestionRow(suggestion, onCreateRule = {
+                    draftConnection = null
+                    draftRule = suggestion.draftRule
+                })
             }
             if (traffic.summary.persistError.isNotBlank()) {
                 Text(traffic.summary.persistError, color = MaterialTheme.colorScheme.error)
@@ -647,7 +655,10 @@ private fun TrafficCard(state: DashboardState, onCreateRule: (RulePayload) -> Un
                 EmptyState("No matching activity", "Connection decisions appear here when traffic passes through clambhook.")
             } else {
                 visibleConnections.take(8).forEach { connection ->
-                    ConnectionRow(connection, onCreateRule = { draftRule = connection.ruleDraft() })
+                    ConnectionRow(connection, onCreateRule = {
+                        draftConnection = connection
+                        draftRule = connection.ruleDraft()
+                    })
                 }
             }
         }
@@ -656,12 +667,70 @@ private fun TrafficCard(state: DashboardState, onCreateRule: (RulePayload) -> Un
         RuleCreateDialog(
             initialRule = rule,
             chains = state.servers.chains.map { it.name },
-            onDismiss = { draftRule = null },
-            onSave = {
-                onCreateRule(it)
+            onDismiss = {
                 draftRule = null
+                draftConnection = null
+            },
+            onSave = {
+                val connection = draftConnection
+                if (connection != null) {
+                    onCreateRuleFromConnection(connection, it)
+                } else {
+                    onCreateRule(it)
+                }
+                draftRule = null
+                draftConnection = null
             }
         )
+    }
+    pendingCleanup?.let { suggestion ->
+        AlertDialog(
+            onDismissRequest = { pendingCleanup = null },
+            title = { Text("Apply rule cleanup?") },
+            text = { Text(suggestion.message) },
+            confirmButton = {
+                TextButton(onClick = {
+                    onCleanupRule(suggestion)
+                    pendingCleanup = null
+                }) {
+                    Text(cleanupActionTitle(suggestion))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingCleanup = null }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+}
+
+@Composable
+private fun CleanupSuggestionRow(suggestion: TrafficCleanupSuggestionPayload, onApply: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(
+                cleanupTargetName(suggestion).ifBlank { suggestion.ruleName.ifBlank { "Rule cleanup" } },
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                suggestion.message,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        Spacer(Modifier.width(12.dp))
+        OutlinedButton(onClick = onApply, enabled = suggestion.operation.isNotBlank()) {
+            Text(cleanupActionTitle(suggestion))
+        }
     }
 }
 
@@ -735,7 +804,7 @@ private fun ConnectionRow(connection: TrafficConnectionPayload, onCreateRule: ()
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
         OutlinedButton(onClick = onCreateRule, enabled = connection.ruleDraft() != null) {
-            Text("Create rule")
+            Text("Create rule from connection")
         }
     }
 }
@@ -784,6 +853,12 @@ private fun suggestionMatchText(rule: RulePayload): String =
         rule.domainKeywords.isNotEmpty() -> rule.domainKeywords.joinToString(", ") { "contains $it" }
         else -> ""
     }
+
+private fun cleanupTargetName(suggestion: TrafficCleanupSuggestionPayload): String =
+    suggestion.targetRuleName.ifBlank { suggestion.ruleName }
+
+private fun cleanupActionTitle(suggestion: TrafficCleanupSuggestionPayload): String =
+    if (suggestion.operation == "move_rule_to_end") "Move to end" else "Delete"
 
 @Composable
 private fun ProfilesCard(state: DashboardState, onProfileSelected: (String) -> Unit) {

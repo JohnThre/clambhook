@@ -33,6 +33,7 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/rules", s.handleRules)
 	mux.HandleFunc("GET /api/v1/dns", s.handleDNS)
 	mux.HandleFunc("POST /api/v1/rules", s.handleCreateRule)
+	mux.HandleFunc("POST /api/v1/rules/cleanup", s.handleCleanupRule)
 	mux.HandleFunc("POST /api/v1/rules/from-connection", s.handleCreateRuleFromConnection)
 	mux.HandleFunc("PUT /api/v1/rules", s.handleReplaceRules)
 	mux.HandleFunc("POST /api/v1/rules/test", s.handleTestRule)
@@ -576,6 +577,12 @@ type rulePersistenceError struct {
 func (e rulePersistenceError) Error() string { return e.err.Error() }
 
 func (s *Server) persistRules(profileName string, nextRules func([]config.RuleConfig) []config.RuleConfig) (rulePersistenceResponse, error) {
+	return s.persistRulesWithError(profileName, func(_ string, existing []config.RuleConfig) ([]config.RuleConfig, error) {
+		return nextRules(existing), nil
+	})
+}
+
+func (s *Server) persistRulesWithError(profileName string, nextRules func(string, []config.RuleConfig) ([]config.RuleConfig, error)) (rulePersistenceResponse, error) {
 	cfg, err := config.Load(s.configPath)
 	if err != nil {
 		return rulePersistenceResponse{}, rulePersistenceError{status: http.StatusInternalServerError, err: err}
@@ -593,7 +600,11 @@ func (s *Server) persistRules(profileName string, nextRules func([]config.RuleCo
 	if !ok {
 		return rulePersistenceResponse{}, rulePersistenceError{status: http.StatusNotFound, err: fmt.Errorf("profile not found")}
 	}
-	profile.Rules = nextRules(profile.Rules)
+	rules, err := nextRules(profile.Name, append([]config.RuleConfig(nil), profile.Rules...))
+	if err != nil {
+		return rulePersistenceResponse{}, err
+	}
+	profile.Rules = rules
 
 	if err := engine.ValidateConfig(cfg); err != nil {
 		return rulePersistenceResponse{}, rulePersistenceError{status: http.StatusBadRequest, err: err}

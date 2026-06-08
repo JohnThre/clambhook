@@ -185,13 +185,15 @@ type blockDecisionPayload struct {
 }
 
 type cleanupSuggestionPayload struct {
-	Kind        string `json:"kind"`
-	Profile     string `json:"profile,omitempty"`
-	RuleName    string `json:"rule_name"`
-	Action      string `json:"action,omitempty"`
-	Message     string `json:"message"`
-	Count       int    `json:"count,omitempty"`
-	LastHitTsNs int64  `json:"last_hit_ts_ns,omitempty"`
+	Kind           string `json:"kind"`
+	Profile        string `json:"profile,omitempty"`
+	RuleName       string `json:"rule_name"`
+	TargetRuleName string `json:"target_rule_name,omitempty"`
+	Operation      string `json:"operation,omitempty"`
+	Action         string `json:"action,omitempty"`
+	Message        string `json:"message"`
+	Count          int    `json:"count,omitempty"`
+	LastHitTsNs    int64  `json:"last_hit_ts_ns,omitempty"`
 }
 
 type ruleSuggestionPayload struct {
@@ -280,9 +282,18 @@ type createRuleRequest struct {
 type createRuleFromConnectionRequest struct {
 	ConnID   string `json:"conn_id"`
 	Profile  string `json:"profile,omitempty"`
+	Name     string `json:"name,omitempty"`
 	Action   string `json:"action,omitempty"`
 	Scope    string `json:"scope,omitempty"`
 	Position string `json:"position,omitempty"`
+}
+
+type cleanupRuleRequest struct {
+	Profile        string `json:"profile,omitempty"`
+	Kind           string `json:"kind"`
+	RuleName       string `json:"rule_name"`
+	TargetRuleName string `json:"target_rule_name"`
+	Operation      string `json:"operation"`
 }
 
 type ruleTestRequest struct {
@@ -477,6 +488,14 @@ func (c apiClient) createRuleFromConnection(req createRuleFromConnectionRequest)
 		return err
 	}
 	return c.doNoBody(http.MethodPost, "/api/v1/rules/from-connection", bytes.NewReader(body))
+}
+
+func (c apiClient) cleanupRule(req cleanupRuleRequest) error {
+	body, err := json.Marshal(req)
+	if err != nil {
+		return err
+	}
+	return c.doNoBody(http.MethodPost, "/api/v1/rules/cleanup", bytes.NewReader(body))
 }
 
 func (c apiClient) testRule(network, target string) (ruleTestResponse, error) {

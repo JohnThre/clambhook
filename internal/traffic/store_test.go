@@ -339,6 +339,27 @@ func TestCleanupSuggestionsRespectRuleScope(t *testing.T) {
 	if !hasCleanupKindForRule(suggestions, "shadowed_exact_match", "scoped-suffix") {
 		t.Fatalf("cleanup suggestions = %+v, want scoped suffix shadow suggestion", suggestions)
 	}
+	shadow := cleanupForRule(suggestions, "shadowed_exact_match", "scoped-suffix")
+	if shadow == nil || shadow.Operation != "delete_rule" || shadow.TargetRuleName != "scoped-exact" {
+		t.Fatalf("shadow cleanup = %+v, want delete scoped-exact", shadow)
+	}
+}
+
+func TestCleanupSuggestionsMoveBroadFirstRuleToEnd(t *testing.T) {
+	rules := []config.RuleConfig{
+		{Name: "final", Action: "direct"},
+		{Name: "ads", Action: "block", Domains: []string{"ads.example.com"}},
+	}
+
+	suggestions := buildCleanupSuggestions("Work", rules, nil)
+
+	broad := cleanupForRule(suggestions, "broad_match", "final")
+	if broad == nil || broad.Operation != "move_rule_to_end" || broad.TargetRuleName != "final" {
+		t.Fatalf("broad cleanup = %+v, want move final to end", broad)
+	}
+	if hasCleanupKindForRule(suggestions, "unused_in_history", "final") {
+		t.Fatalf("cleanup suggestions = %+v, first broad rule should not get delete suggestion", suggestions)
+	}
 }
 
 func TestStoreReconfigureDisabledStopsRecording(t *testing.T) {
@@ -361,12 +382,16 @@ func TestStoreReconfigureDisabledStopsRecording(t *testing.T) {
 }
 
 func hasCleanupKindForRule(suggestions []CleanupSuggestion, kind, ruleName string) bool {
+	return cleanupForRule(suggestions, kind, ruleName) != nil
+}
+
+func cleanupForRule(suggestions []CleanupSuggestion, kind, ruleName string) *CleanupSuggestion {
 	for _, suggestion := range suggestions {
 		if suggestion.Kind == kind && suggestion.RuleName == ruleName {
-			return true
+			return &suggestion
 		}
 	}
-	return false
+	return nil
 }
 
 func TestManagerEnablesAndDisablesStoreOnReconfigure(t *testing.T) {

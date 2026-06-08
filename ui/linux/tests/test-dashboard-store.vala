@@ -44,6 +44,17 @@ namespace Clambhook.Tests {
             rules_payload.rules.add(rule);
             return rules_payload;
         }
+
+        public async RulesPayload create_rule_from_connection(TrafficConnectionPayload connection, RulePayload rule) throws Error {
+            actions.add("connection-rule:%s:%s".printf(connection.conn_id, rule.name));
+            rules_payload.rules.add(rule);
+            return rules_payload;
+        }
+
+        public async RulesPayload cleanup_rule(TrafficCleanupSuggestionPayload suggestion) throws Error {
+            actions.add("cleanup:%s:%s".printf(suggestion.operation, suggestion.target_rule_name));
+            return rules_payload;
+        }
     }
 
     public void add_dashboard_store_tests() {

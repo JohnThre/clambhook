@@ -3,6 +3,7 @@ import SwiftUI
 
 struct DashboardContentView: View {
     @ObservedObject var model: AppleAppModel
+    @State private var pendingCleanup: TrafficCleanupSuggestionPayload?
 
     var body: some View {
         List {
@@ -91,12 +92,19 @@ struct DashboardContentView: View {
             if !model.dashboard.traffic.cleanupSuggestions.isEmpty {
                 Section("Rule Cleanup") {
                     ForEach(model.dashboard.traffic.cleanupSuggestions.prefix(5)) { suggestion in
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(suggestion.ruleName)
-                                .fontWeight(.medium)
-                            Text(suggestion.message)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                        HStack(alignment: .top, spacing: 12) {
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(dashboardCleanupTargetName(suggestion))
+                                    .fontWeight(.medium)
+                                Text(suggestion.message)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer(minLength: 8)
+                            Button(dashboardCleanupActionTitle(suggestion)) {
+                                pendingCleanup = suggestion
+                            }
+                            .disabled(suggestion.operation.isEmpty)
                         }
                     }
                 }
@@ -117,7 +125,30 @@ struct DashboardContentView: View {
         .task {
             model.refresh()
         }
+        .confirmationDialog(
+            "Apply Rule Cleanup",
+            isPresented: Binding(
+                get: { pendingCleanup != nil },
+                set: { if !$0 { pendingCleanup = nil } }
+            ),
+            presenting: pendingCleanup
+        ) { suggestion in
+            Button(dashboardCleanupActionTitle(suggestion), role: suggestion.operation == "delete_rule" ? .destructive : nil) {
+                model.applyCleanupSuggestion(suggestion)
+                pendingCleanup = nil
+            }
+        } message: { suggestion in
+            Text(suggestion.message)
+        }
     }
+}
+
+private func dashboardCleanupTargetName(_ suggestion: TrafficCleanupSuggestionPayload) -> String {
+    suggestion.targetRuleName.isEmpty ? suggestion.ruleName : suggestion.targetRuleName
+}
+
+private func dashboardCleanupActionTitle(_ suggestion: TrafficCleanupSuggestionPayload) -> String {
+    suggestion.operation == "move_rule_to_end" ? "Move to End" : "Delete"
 }
 
 struct TrafficSummaryView: View {

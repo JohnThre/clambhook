@@ -76,6 +76,16 @@ namespace Clambhook.Tests {
                 {
                   "updated_ts_ns": 99,
                   "summary": { "active_connections": 1 },
+                  "cleanup_suggestions": [
+                    {
+                      "kind": "unused_in_history",
+                      "profile": "Work",
+                      "rule_name": "old",
+                      "target_rule_name": "old",
+                      "operation": "delete_rule",
+                      "message": "No recent traffic-history entries matched this rule."
+                    }
+                  ],
                   "rule_suggestions": [
                     {
                       "id": "domain_suffix:block:example.com",
@@ -94,11 +104,14 @@ namespace Clambhook.Tests {
                     }
                   ],
                   "connections": [
-                    { "conn_id": "c1", "state": "closed", "target_host": "api.example.com" }
+                    { "conn_id": "c1", "profile": "Work", "state": "closed", "target_host": "api.example.com" }
                   ]
                 }
             """);
 
+            assert_cmpint(traffic.cleanup_suggestions.size, CompareOperator.EQ, 1);
+            assert_cmpstr(traffic.cleanup_suggestions[0].target_rule_name, CompareOperator.EQ, "old");
+            assert_cmpstr(traffic.cleanup_suggestions[0].operation, CompareOperator.EQ, "delete_rule");
             assert_cmpint(traffic.rule_suggestions.size, CompareOperator.EQ, 1);
             var suggestion = traffic.rule_suggestions[0];
             assert_cmpstr(suggestion.kind, CompareOperator.EQ, "domain_suffix");
@@ -106,6 +119,7 @@ namespace Clambhook.Tests {
             assert_cmpstr(suggestion.draft_rule.domain_suffixes[0], CompareOperator.EQ, "example.com");
             assert_cmpint(suggestion.draft_rule.ports[0], CompareOperator.EQ, 443);
             assert_cmpstr(suggestion.draft_rule.networks[0], CompareOperator.EQ, "tcp");
+            assert_cmpstr(traffic.connections[0].profile, CompareOperator.EQ, "Work");
         });
     }
 }

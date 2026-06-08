@@ -181,6 +181,8 @@ fun ClambhookApp(
                         onProfileSelected = viewModel::setActiveProfile,
                         onOpenSettings = { selectedTab = AppTab.Settings },
                         onCreateRule = viewModel::createRule,
+                        onCreateRuleFromConnection = viewModel::createRuleFromConnection,
+                        onCleanupRule = viewModel::cleanupRule,
                         modifier = Modifier.padding(padding)
                     )
 
@@ -193,6 +195,8 @@ fun ClambhookApp(
                         onProfileSelected = viewModel::setActiveProfile,
                         onOpenSettings = { selectedTab = AppTab.Settings },
                         onCreateRule = viewModel::createRule,
+                        onCreateRuleFromConnection = viewModel::createRuleFromConnection,
+                        onCleanupRule = viewModel::cleanupRule,
                         modifier = Modifier.padding(padding)
                     )
 
@@ -205,6 +209,8 @@ fun ClambhookApp(
                         onProfileSelected = viewModel::setActiveProfile,
                         onOpenSettings = { selectedTab = AppTab.Settings },
                         onCreateRule = viewModel::createRule,
+                        onCreateRuleFromConnection = viewModel::createRuleFromConnection,
+                        onCleanupRule = viewModel::cleanupRule,
                         modifier = Modifier.padding(padding)
                     )
 
@@ -217,6 +223,8 @@ fun ClambhookApp(
                         onProfileSelected = viewModel::setActiveProfile,
                         onOpenSettings = { selectedTab = AppTab.Settings },
                         onCreateRule = viewModel::createRule,
+                        onCreateRuleFromConnection = viewModel::createRuleFromConnection,
+                        onCleanupRule = viewModel::cleanupRule,
                         modifier = Modifier.padding(padding)
                     )
 

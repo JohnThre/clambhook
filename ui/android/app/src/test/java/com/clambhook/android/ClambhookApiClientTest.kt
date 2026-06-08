@@ -80,6 +80,55 @@ class ClambhookApiClientTest {
     }
 
     @Test
+    fun createRuleFromConnectionSendsAppendRequest() = runBlocking {
+        val interceptor = CapturingInterceptor("""{"profile":"Work","rules":[{"name":"api","action":"chain:proxy","domains":["api.example.com"]}]}""")
+        val client = ClambhookApiClient(
+            baseUrl = "http://127.0.0.1:9090",
+            okHttpClient = OkHttpClient.Builder().addInterceptor(interceptor).build()
+        )
+
+        val response = client.createRuleFromConnection(
+            TrafficConnectionPayload(connId = "c1", profile = "Work"),
+            RulePayload(name = "api", action = "chain:proxy")
+        )
+
+        val request = interceptor.requests.single()
+        assertEquals("POST", request.method)
+        assertEquals("/api/v1/rules/from-connection", request.url.encodedPath)
+        assertEquals(
+            """{"conn_id":"c1","profile":"Work","name":"api","action":"chain:proxy","scope":"auto","position":"append"}""",
+            requireNotNull(request.body).bodyToString()
+        )
+        assertEquals("Work", response.profile)
+    }
+
+    @Test
+    fun cleanupRuleSendsSuggestionIdentity() = runBlocking {
+        val interceptor = CapturingInterceptor("""{"profile":"Work","rules":[{"name":"keep","action":"direct","domains":["keep.example.com"]}]}""")
+        val client = ClambhookApiClient(
+            baseUrl = "http://127.0.0.1:9090",
+            okHttpClient = OkHttpClient.Builder().addInterceptor(interceptor).build()
+        )
+
+        val response = client.cleanupRule(TrafficCleanupSuggestionPayload(
+            kind = "unused_in_history",
+            profile = "Work",
+            ruleName = "old",
+            targetRuleName = "old",
+            operation = "delete_rule"
+        ))
+
+        val request = interceptor.requests.single()
+        assertEquals("POST", request.method)
+        assertEquals("/api/v1/rules/cleanup", request.url.encodedPath)
+        assertEquals(
+            """{"profile":"Work","kind":"unused_in_history","rule_name":"old","target_rule_name":"old","operation":"delete_rule"}""",
+            requireNotNull(request.body).bodyToString()
+        )
+        assertEquals("Work", response.profile)
+    }
+
+    @Test
     fun policyGroupsUsesPolicyGroupsEndpoint() = runBlocking {
         val interceptor = CapturingInterceptor("""{"profile":"A","groups":[{"name":"auto","selected_chain":"proxy"}]}""")
         val client = ClambhookApiClient(

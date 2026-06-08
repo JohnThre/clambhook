@@ -163,6 +163,28 @@ data class CreateRuleRequest(
 )
 
 @Serializable
+data class CreateRuleFromConnectionRequest(
+    @SerialName("conn_id")
+    val connId: String,
+    val profile: String = "",
+    val name: String = "",
+    val action: String = "",
+    val scope: String = "auto",
+    val position: String = "append"
+)
+
+@Serializable
+data class CleanupRuleRequest(
+    val profile: String = "",
+    val kind: String,
+    @SerialName("rule_name")
+    val ruleName: String,
+    @SerialName("target_rule_name")
+    val targetRuleName: String,
+    val operation: String
+)
+
+@Serializable
 data class ReplaceRulesRequest(
     val profile: String = "",
     val rules: List<RulePayload> = emptyList()
@@ -371,6 +393,9 @@ data class TrafficCleanupSuggestionPayload(
     val profile: String = "",
     @SerialName("rule_name")
     val ruleName: String = "",
+    @SerialName("target_rule_name")
+    val targetRuleName: String = "",
+    val operation: String = "",
     val action: String = "",
     val message: String = "",
     val count: Int = 0,

@@ -393,6 +393,7 @@ namespace Clambhook {
 
     public class TrafficConnectionPayload : Object {
         public string conn_id { get; set; default = ""; }
+        public string profile { get; set; default = ""; }
         public string state { get; set; default = ""; }
         public int64 start_ts_ns { get; set; default = 0; }
         public int64 updated_ts_ns { get; set; default = 0; }
@@ -418,6 +419,28 @@ namespace Clambhook {
         public uint64 tx_total { get; set; default = 0; }
         public int64 duration_ns { get; set; default = 0; }
         public string close_reason { get; set; default = ""; }
+    }
+
+    public class TrafficCleanupSuggestionPayload : Object {
+        public string kind { get; set; default = ""; }
+        public string profile { get; set; default = ""; }
+        public string rule_name { get; set; default = ""; }
+        public string target_rule_name { get; set; default = ""; }
+        public string operation { get; set; default = ""; }
+        public string action { get; set; default = ""; }
+        public string message { get; set; default = ""; }
+
+        public static TrafficCleanupSuggestionPayload from_object(Json.Object object) {
+            var suggestion = new TrafficCleanupSuggestionPayload();
+            suggestion.kind = JsonReader.string_member(object, "kind");
+            suggestion.profile = JsonReader.string_member(object, "profile");
+            suggestion.rule_name = JsonReader.string_member(object, "rule_name");
+            suggestion.target_rule_name = JsonReader.string_member(object, "target_rule_name");
+            suggestion.operation = JsonReader.string_member(object, "operation");
+            suggestion.action = JsonReader.string_member(object, "action");
+            suggestion.message = JsonReader.string_member(object, "message");
+            return suggestion;
+        }
     }
 
     public class TrafficRuleSuggestionPayload : Object {
@@ -459,6 +482,7 @@ namespace Clambhook {
         public int64 updated_ts_ns { get; set; default = 0; }
         public TrafficSummaryPayload summary { get; set; default = new TrafficSummaryPayload(); }
         public Gee.ArrayList<TrafficConnectionPayload> connections { get; private set; default = new Gee.ArrayList<TrafficConnectionPayload>(); }
+        public Gee.ArrayList<TrafficCleanupSuggestionPayload> cleanup_suggestions { get; private set; default = new Gee.ArrayList<TrafficCleanupSuggestionPayload>(); }
         public Gee.ArrayList<TrafficRuleSuggestionPayload> rule_suggestions { get; private set; default = new Gee.ArrayList<TrafficRuleSuggestionPayload>(); }
 
         public static TrafficSnapshotPayload from_json(string json) {
@@ -479,6 +503,12 @@ namespace Clambhook {
                 var connections = object.get_array_member("connections");
                 for (uint i = 0; i < connections.get_length(); i++) {
                     payload.connections.add(connection_from_object(connections.get_object_element(i)));
+                }
+            }
+            if (JsonReader.has_array(object, "cleanup_suggestions")) {
+                var cleanups = object.get_array_member("cleanup_suggestions");
+                for (uint i = 0; i < cleanups.get_length(); i++) {
+                    payload.cleanup_suggestions.add(TrafficCleanupSuggestionPayload.from_object(cleanups.get_object_element(i)));
                 }
             }
             if (JsonReader.has_array(object, "rule_suggestions")) {
@@ -507,6 +537,7 @@ namespace Clambhook {
         private static TrafficConnectionPayload connection_from_object(Json.Object object) {
             var connection = new TrafficConnectionPayload();
             connection.conn_id = JsonReader.string_member(object, "conn_id");
+            connection.profile = JsonReader.string_member(object, "profile");
             connection.state = JsonReader.string_member(object, "state");
             connection.start_ts_ns = JsonReader.int64_member(object, "start_ts_ns");
             connection.updated_ts_ns = JsonReader.int64_member(object, "updated_ts_ns");

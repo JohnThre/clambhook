@@ -348,6 +348,43 @@ func TestCreateRuleFromConnectionAllowBlockedUsesListenerDefaultChain(t *testing
 	}
 }
 
+func TestCreateRuleFromConnectionUsesRequestedName(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "clambhook.toml")
+	cfg := testRuleCreateConfig()
+	if _, err := config.WriteAtomicWithBackup(path, cfg); err != nil {
+		t.Fatalf("write initial config: %v", err)
+	}
+	store := newRuleConnectionStore(t)
+	store.ApplyEvent(events.Event{TsNs: 1, Type: events.TypeConnectionOpened, Data: events.ConnectionOpenedData{
+		ConnID:  "c1",
+		Profile: "A",
+	}})
+	store.ApplyEvent(events.Event{TsNs: 2, Type: events.TypeRuleMatched, Data: events.RuleDecisionData{
+		ConnID:     "c1",
+		Profile:    "A",
+		Action:     "chain",
+		ChainName:  "proxy",
+		Target:     "api.example.com:443",
+		TargetHost: "api.example.com",
+	}})
+	srv := NewWithOptions(engine.New(cfg, nil), nil, Options{ConfigPath: path, TrafficStore: store})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/rules/from-connection", bytes.NewReader([]byte(`{"conn_id":"c1","action":"allow","name":"custom-api"}`)))
+	rec := httptest.NewRecorder()
+	srv.server.Handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%q, want 200", rec.Code, rec.Body.String())
+	}
+	var resp rulePersistenceResponse
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatal(err)
+	}
+	if len(resp.Rules) != 1 || resp.Rules[0].Name != "custom-api" {
+		t.Fatalf("created rules = %+v, want custom-api", resp.Rules)
+	}
+}
+
 func TestCreateRuleFromConnectionSupportsCIDRAndSuffixScopes(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -557,6 +594,158 @@ func TestCreateRuleRejectsInvalidRule(t *testing.T) {
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d body=%q, want 400", rec.Code, rec.Body.String())
+	}
+}
+
+func TestCleanupRuleDeletesUnusedRule(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "clambhook.toml")
+	cfg := testRuleCreateConfig()
+	cfg.Profiles[0].Rules = []config.RuleConfig{
+		{Name: "old", Action: "block", Domains: []string{"old.example.com"}},
+		{Name: "keep", Action: "direct", Domains: []string{"keep.example.com"}},
+	}
+	if _, err := config.WriteAtomicWithBackup(path, cfg); err != nil {
+		t.Fatalf("write initial config: %v", err)
+	}
+	store := newRuleConnectionStore(t)
+	srv := NewWithOptions(engine.New(cfg, nil), nil, Options{ConfigPath: path, TrafficStore: store})
+	body := []byte(`{"kind":"unused_in_history","rule_name":"old","target_rule_name":"old","operation":"delete_rule"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/rules/cleanup", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+
+	srv.server.Handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%q, want 200", rec.Code, rec.Body.String())
+	}
+	var resp rulePersistenceResponse
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatal(err)
+	}
+	if len(resp.Rules) != 1 || resp.Rules[0].Name != "keep" {
+		t.Fatalf("rules = %+v, want only keep", resp.Rules)
+	}
+}
+
+func TestCleanupRuleDeletesShadowedExactTarget(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "clambhook.toml")
+	cfg := testRuleCreateConfig()
+	cfg.Profiles[0].Rules = []config.RuleConfig{
+		{Name: "exact", Action: "block", Domains: []string{"api.example.com"}, Networks: []string{"tcp"}, Ports: []int{443}},
+		{Name: "suffix", Action: "block", DomainSuffixes: []string{"example.com"}, Networks: []string{"tcp"}, Ports: []int{443}},
+	}
+	if _, err := config.WriteAtomicWithBackup(path, cfg); err != nil {
+		t.Fatalf("write initial config: %v", err)
+	}
+	store := newRuleConnectionStore(t)
+	srv := NewWithOptions(engine.New(cfg, nil), nil, Options{ConfigPath: path, TrafficStore: store})
+	body := []byte(`{"kind":"shadowed_exact_match","rule_name":"suffix","target_rule_name":"exact","operation":"delete_rule"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/rules/cleanup", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+
+	srv.server.Handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%q, want 200", rec.Code, rec.Body.String())
+	}
+	var resp rulePersistenceResponse
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatal(err)
+	}
+	if len(resp.Rules) != 1 || resp.Rules[0].Name != "suffix" {
+		t.Fatalf("rules = %+v, want only suffix", resp.Rules)
+	}
+}
+
+func TestCleanupRuleDeletesDuplicateMatcher(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "clambhook.toml")
+	cfg := testRuleCreateConfig()
+	cfg.Profiles[0].Rules = []config.RuleConfig{
+		{Name: "first", Action: "block", Domains: []string{"api.example.com"}},
+		{Name: "duplicate", Action: "block", Domains: []string{"api.example.com"}},
+	}
+	if _, err := config.WriteAtomicWithBackup(path, cfg); err != nil {
+		t.Fatalf("write initial config: %v", err)
+	}
+	store := newRuleConnectionStore(t)
+	srv := NewWithOptions(engine.New(cfg, nil), nil, Options{ConfigPath: path, TrafficStore: store})
+	body := []byte(`{"kind":"duplicate_matcher","rule_name":"duplicate","target_rule_name":"duplicate","operation":"delete_rule"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/rules/cleanup", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+
+	srv.server.Handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%q, want 200", rec.Code, rec.Body.String())
+	}
+	var resp rulePersistenceResponse
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatal(err)
+	}
+	if len(resp.Rules) != 1 || resp.Rules[0].Name != "first" {
+		t.Fatalf("rules = %+v, want only first", resp.Rules)
+	}
+}
+
+func TestCleanupRuleMovesBroadRuleToEnd(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "clambhook.toml")
+	cfg := testRuleCreateConfig()
+	cfg.Profiles[0].Rules = []config.RuleConfig{
+		{Name: "final", Action: "direct"},
+		{Name: "ads", Action: "block", Domains: []string{"ads.example.com"}},
+	}
+	if _, err := config.WriteAtomicWithBackup(path, cfg); err != nil {
+		t.Fatalf("write initial config: %v", err)
+	}
+	store := newRuleConnectionStore(t)
+	srv := NewWithOptions(engine.New(cfg, nil), nil, Options{ConfigPath: path, TrafficStore: store})
+	body := []byte(`{"kind":"broad_match","rule_name":"final","target_rule_name":"final","operation":"move_rule_to_end"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/rules/cleanup", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+
+	srv.server.Handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%q, want 200", rec.Code, rec.Body.String())
+	}
+	var resp rulePersistenceResponse
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatal(err)
+	}
+	if len(resp.Rules) != 2 || resp.Rules[0].Name != "ads" || resp.Rules[1].Name != "final" {
+		t.Fatalf("rules = %+v, want ads then final", resp.Rules)
+	}
+}
+
+func TestCleanupRuleRejectsStaleSuggestion(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "clambhook.toml")
+	cfg := testRuleCreateConfig()
+	cfg.Profiles[0].Rules = []config.RuleConfig{{Name: "old", Action: "block", Domains: []string{"old.example.com"}}}
+	if _, err := config.WriteAtomicWithBackup(path, cfg); err != nil {
+		t.Fatalf("write initial config: %v", err)
+	}
+	store := newRuleConnectionStore(t)
+	store.ApplyEvent(events.Event{TsNs: 1, Type: events.TypeConnectionOpened, Data: events.ConnectionOpenedData{
+		ConnID:  "c1",
+		Profile: "A",
+	}})
+	store.ApplyEvent(events.Event{TsNs: 2, Type: events.TypeRuleMatched, Data: events.RuleDecisionData{
+		ConnID:     "c1",
+		Profile:    "A",
+		RuleName:   "old",
+		Action:     "block",
+		Target:     "old.example.com:443",
+		TargetHost: "old.example.com",
+	}})
+	srv := NewWithOptions(engine.New(cfg, nil), nil, Options{ConfigPath: path, TrafficStore: store})
+	body := []byte(`{"kind":"unused_in_history","rule_name":"old","target_rule_name":"old","operation":"delete_rule"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/rules/cleanup", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+
+	srv.server.Handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d body=%q, want 409", rec.Code, rec.Body.String())
 	}
 }
 

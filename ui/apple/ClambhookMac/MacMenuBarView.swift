@@ -9,6 +9,7 @@ struct MacMenuBarView: View {
     @State private var trafficFilter = "all"
     @State private var trafficSearch = ""
     @State private var draftRule: RulePayload?
+    @State private var sourceConnection: TrafficConnectionPayload?
     @State private var showLogbook = false
     @State private var showAnytime = false
     @State private var routeTestNetwork = "tcp"
@@ -52,7 +53,7 @@ struct MacMenuBarView: View {
             footer
         }
         .sheet(item: $draftRule) { rule in
-            MacRuleCreateSheet(model: model, initialRule: rule)
+            MacRuleCreateSheet(model: model, initialRule: rule, sourceConnection: sourceConnection)
         }
     }
 
@@ -302,9 +303,10 @@ struct MacMenuBarView: View {
                                 .foregroundStyle(.secondary)
                                 .lineLimit(1)
                             Button {
+                                sourceConnection = connection
                                 draftRule = connection.ruleDraft()
                             } label: {
-                                Label("Create Rule", systemImage: "plus.circle")
+                                Label("Create Rule from Connection", systemImage: "plus.circle")
                             }
                             .buttonStyle(.plain)
                             .font(.caption)
@@ -535,9 +537,11 @@ private struct MacRuleCreateSheet: View {
     @ObservedObject var model: AppleAppModel
     @Environment(\.dismiss) private var dismiss
     @State private var rule: RulePayload
+    var sourceConnection: TrafficConnectionPayload?
 
-    init(model: AppleAppModel, initialRule: RulePayload) {
+    init(model: AppleAppModel, initialRule: RulePayload, sourceConnection: TrafficConnectionPayload? = nil) {
         self.model = model
+        self.sourceConnection = sourceConnection
         self._rule = State(initialValue: initialRule)
     }
 
@@ -561,7 +565,11 @@ private struct MacRuleCreateSheet: View {
                 Spacer()
                 Button("Cancel") { dismiss() }
                 Button("Save") {
-                    model.createRule(rule)
+                    if let sourceConnection {
+                        model.createRuleFromConnection(sourceConnection, rule: rule)
+                    } else {
+                        model.createRule(rule)
+                    }
                     dismiss()
                 }
                 .buttonStyle(.borderedProminent)
