@@ -1,5 +1,7 @@
 import ClambhookShared
+import Foundation
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct IOSRulesView: View {
     @ObservedObject var model: AppleAppModel
@@ -11,6 +13,7 @@ struct IOSRulesView: View {
     @State private var routeTestTarget = "example.com:443"
     @State private var routeTestResult: RuleTestResponse?
     @State private var routeTestError = ""
+    @State private var draggedRuleID: RuleEditorRow.ID?
 
     var body: some View {
         ScrollView {
@@ -28,7 +31,7 @@ struct IOSRulesView: View {
                         IOSConsoleMetricStrip(metrics: [
                             IOSConsoleMetric(title: "Manual", value: "\(model.dashboard.rules.rules.count)"),
                             IOSConsoleMetric(title: "Effective", value: "\(model.dashboard.rules.routeTestRules.count)"),
-                            IOSConsoleMetric(title: "Rule sets", value: "\(ruleSetRows.count)"),
+                            IOSConsoleMetric(title: "Rule sets", value: "\(ruleSetStatusCount)"),
                             IOSConsoleMetric(title: "Chains", value: "\(chainNames.count)"),
                         ])
                     }
@@ -51,27 +54,45 @@ struct IOSRulesView: View {
                                         row: row,
                                         order: index + 1,
                                         error: firstError(for: row.id),
-                                        canMoveUp: index > 0,
-                                        canMoveDown: index < editableRows.count - 1,
-                                        onMoveUp: { moveEditableRow(at: index, by: -1) },
-                                        onMoveDown: { moveEditableRow(at: index, by: 1) },
+                                        routeTestResult: routeTestMatchForManualRow(order: index + 1),
+                                        manualRuleCount: model.dashboard.rules.rules.count,
+                                        effectiveRuleCount: model.dashboard.rules.routeTestRules.count,
+                                        isDraggable: true,
                                         onDelete: { deleteEditableRows(at: IndexSet(integer: index)) }
                                     )
                                 }
                                 .buttonStyle(.plain)
+                                .onDrag {
+                                    draggedRuleID = row.id
+                                    return NSItemProvider(object: row.id.uuidString as NSString)
+                                }
+                                .onDrop(
+                                    of: [UTType.text],
+                                    delegate: IOSRuleDropDelegate(
+                                        rowID: row.id,
+                                        draggedRuleID: $draggedRuleID,
+                                        rows: $rows,
+                                        validationErrors: $validationErrors,
+                                        routeTestResult: $routeTestResult,
+                                        chainNames: chainNames
+                                    )
+                                )
                             }
                         }
                     }
                 }
 
-            if !ruleSetRows.isEmpty || !generatedRows.isEmpty {
-                    IOSConsoleSection("Rule Sets", detail: "\(ruleSetRows.count) subscriptions") {
-                    if ruleSetRows.isEmpty {
+            if ruleSetStatusCount > 0 || !generatedRows.isEmpty {
+                    IOSConsoleSection("Rule Sets", detail: ruleSetStatusDetail) {
+                    if staticRuleSetRows.isEmpty && subscriptionRuleSetRows.isEmpty {
                         IOSInlineEmptyState(text: "No rule-set status.", systemImage: "tray")
                     } else {
                             VStack(spacing: 8) {
-                                ForEach(ruleSetRows) { subscription in
-                                    IOSRuleSetRow(subscription: subscription)
+                                ForEach(staticRuleSetRows) { ruleSet in
+                                    IOSImportedRuleSetRow(ruleSet: ruleSet)
+                                }
+                                ForEach(subscriptionRuleSetRows) { subscription in
+                                    IOSRuleSubscriptionRow(subscription: subscription)
                                 }
                             }
                         }
@@ -85,7 +106,10 @@ struct IOSRulesView: View {
                                 IOSRuleDraftRow(
                                     row: row,
                                     order: model.dashboard.rules.rules.count + index + 1,
-                                    error: nil
+                                    error: nil,
+                                    routeTestResult: routeTestMatchForGeneratedRow(index: index),
+                                    manualRuleCount: model.dashboard.rules.rules.count,
+                                    effectiveRuleCount: model.dashboard.rules.routeTestRules.count
                                 )
                             }
                         }
@@ -104,7 +128,10 @@ struct IOSRulesView: View {
                         IOSRuleDraftRow(
                             row: virtualFinalRow,
                             order: model.dashboard.rules.routeTestRules.count + 1,
-                            error: firstError(for: virtualFinalRow.id)
+                            error: firstError(for: virtualFinalRow.id),
+                            routeTestResult: routeTestMatchForFinalRow(),
+                            manualRuleCount: model.dashboard.rules.rules.count,
+                            effectiveRuleCount: model.dashboard.rules.routeTestRules.count
                         )
                     }
                         .buttonStyle(.plain)
@@ -136,8 +163,8 @@ struct IOSRulesView: View {
                     Text(routeTestError)
                         .font(.footnote)
                         .foregroundStyle(.red)
-                } else if let routeTestResult {
-                    IOSRouteTestResultView(
+                } else if let routeTestResult, !routeTestHasInlineMatch {
+                    IOSInlineRouteTestResultView(
                         response: routeTestResult,
                         manualRuleCount: model.dashboard.rules.rules.count,
                         effectiveRuleCount: model.dashboard.rules.routeTestRules.count
@@ -200,8 +227,42 @@ struct IOSRulesView: View {
         RuleEditor.rows(from: model.dashboard.rules.generatedRules, source: .generated)
     }
 
-    private var ruleSetRows: [RuleSubscriptionPayload] {
+    private var staticRuleSetRows: [RuleSetStatusPayload] {
+        model.dashboard.ruleSets.statuses
+    }
+
+    private var subscriptionRuleSetRows: [RuleSubscriptionPayload] {
         model.dashboard.ruleSubscriptions.subscriptions
+    }
+
+    private var ruleSetStatusCount: Int {
+        staticRuleSetRows.count + subscriptionRuleSetRows.count
+    }
+
+    private var ruleSetStatusDetail: String {
+        var parts: [String] = []
+        if !staticRuleSetRows.isEmpty {
+            parts.append("\(staticRuleSetRows.count) imported")
+        }
+        if !subscriptionRuleSetRows.isEmpty {
+            parts.append("\(subscriptionRuleSetRows.count) subscriptions")
+        }
+        return parts.isEmpty ? "none" : parts.joined(separator: " / ")
+    }
+
+    private var routeTestHasInlineMatch: Bool {
+        guard let decision = routeTestResult?.decision else {
+            return false
+        }
+        if decision.isDefault {
+            return virtualFinalRow != nil
+        }
+        if decision.ruleNumber > 0 && decision.ruleNumber <= editableRows.count {
+            return true
+        }
+        let firstGenerated = model.dashboard.rules.rules.count + 1
+        let lastGenerated = model.dashboard.rules.rules.count + generatedRows.count
+        return decision.ruleNumber >= firstGenerated && decision.ruleNumber <= lastGenerated
     }
 
     private func binding(for id: RuleEditorRow.ID) -> Binding<RuleEditorRow> {
@@ -211,6 +272,7 @@ struct IOSRulesView: View {
             if let index = rows.firstIndex(where: { $0.id == id }) {
                 rows[index] = next
                 validationErrors = []
+                routeTestResult = nil
             }
         }
     }
@@ -230,6 +292,32 @@ struct IOSRulesView: View {
         return validationErrors.first { $0.rowIndex == index }
     }
 
+    private func routeTestMatchForManualRow(order: Int) -> RuleTestResponse? {
+        guard let routeTestResult,
+              !routeTestResult.decision.isDefault,
+              routeTestResult.decision.ruleNumber == order else {
+            return nil
+        }
+        return routeTestResult
+    }
+
+    private func routeTestMatchForGeneratedRow(index: Int) -> RuleTestResponse? {
+        let order = model.dashboard.rules.rules.count + index + 1
+        guard let routeTestResult,
+              !routeTestResult.decision.isDefault,
+              routeTestResult.decision.ruleNumber == order else {
+            return nil
+        }
+        return routeTestResult
+    }
+
+    private func routeTestMatchForFinalRow() -> RuleTestResponse? {
+        guard let routeTestResult, routeTestResult.decision.isDefault else {
+            return nil
+        }
+        return routeTestResult
+    }
+
     private func loadRowsFromDashboard() {
         rows = RuleEditor.rows(
             from: model.dashboard.rules.rules,
@@ -237,6 +325,7 @@ struct IOSRulesView: View {
             includeVirtualFinal: true
         )
         validationErrors = []
+        routeTestResult = nil
     }
 
     private func saveRules() {
@@ -245,6 +334,7 @@ struct IOSRulesView: View {
             try model.replaceActiveProfileRules(nextRules)
             rows = RuleEditor.rows(from: nextRules, defaultChainName: defaultChainName, includeVirtualFinal: true)
             validationErrors = []
+            routeTestResult = nil
             message = "Applied rules."
         } catch let failure as RuleEditorValidationFailure {
             validationErrors = failure.errors
@@ -268,6 +358,7 @@ struct IOSRulesView: View {
             rows.append(row)
         }
         validationErrors = []
+        routeTestResult = nil
     }
 
     private func deleteEditableRows(at offsets: IndexSet) {
@@ -280,31 +371,7 @@ struct IOSRulesView: View {
         }
         rows.removeAll { ids.contains($0.id) }
         appendVirtualFinalIfNeeded()
-    }
-
-    private func moveEditableRows(from offsets: IndexSet, to destination: Int) {
-        var editable = editableRows
-        editable.move(fromOffsets: offsets, toOffset: destination)
-        if let virtualFinalRow {
-            rows = editable + [virtualFinalRow]
-        } else {
-            rows = editable
-        }
-    }
-
-    private func moveEditableRow(at index: Int, by delta: Int) {
-        let target = index + delta
-        guard editableRows.indices.contains(index), editableRows.indices.contains(target) else {
-            return
-        }
-        var editable = editableRows
-        editable.swapAt(index, target)
-        if let virtualFinalRow {
-            rows = editable + [virtualFinalRow]
-        } else {
-            rows = editable
-        }
-        validationErrors = RuleEditor.validate(rows: rows, chainNames: chainNames)
+        routeTestResult = nil
     }
 
     private func appendVirtualFinalIfNeeded() {
@@ -327,87 +394,205 @@ struct IOSRulesView: View {
     }
 }
 
+private struct IOSRuleDropDelegate: DropDelegate {
+    var rowID: RuleEditorRow.ID
+    @Binding var draggedRuleID: RuleEditorRow.ID?
+    @Binding var rows: [RuleEditorRow]
+    @Binding var validationErrors: [RuleEditorValidationError]
+    @Binding var routeTestResult: RuleTestResponse?
+    var chainNames: [String]
+
+    func dropEntered(info: DropInfo) {
+        guard let draggedRuleID,
+              draggedRuleID != rowID else {
+            return
+        }
+        var editable = rows.filter { !$0.isVirtualFinal }
+        guard let from = editable.firstIndex(where: { $0.id == draggedRuleID }),
+              let to = editable.firstIndex(where: { $0.id == rowID }) else {
+            return
+        }
+        withAnimation(.snappy) {
+            editable.move(fromOffsets: IndexSet(integer: from), toOffset: to > from ? to + 1 : to)
+            if let final = rows.first(where: { $0.isVirtualFinal }) {
+                rows = editable + [final]
+            } else {
+                rows = editable
+            }
+            validationErrors = RuleEditor.validate(rows: rows, chainNames: chainNames)
+            routeTestResult = nil
+        }
+    }
+
+    func performDrop(info: DropInfo) -> Bool {
+        draggedRuleID = nil
+        return true
+    }
+}
+
 private struct IOSRuleDraftRow: View {
     var row: RuleEditorRow
     var order: Int
     var error: RuleEditorValidationError?
-    var canMoveUp = false
-    var canMoveDown = false
-    var onMoveUp: (() -> Void)?
-    var onMoveDown: (() -> Void)?
+    var routeTestResult: RuleTestResponse?
+    var manualRuleCount = 0
+    var effectiveRuleCount = 0
+    var isDraggable = false
     var onDelete: (() -> Void)?
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            Text("\(order)")
-                .font(.caption.monospacedDigit().weight(.semibold))
-                .foregroundStyle(.secondary)
-                .frame(width: 24, alignment: .trailing)
-                .padding(.top, 3)
-
-            IOSActionChip(action: row.encodedAction)
-
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 6) {
-                    Text(emptyDash(row.name))
-                        .font(.body.weight(.medium))
-                        .lineLimit(1)
-                    if row.isGenerated {
-                        Text("Rule set")
-                            .font(.caption2.weight(.semibold))
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(Color.secondary.opacity(0.14), in: Capsule())
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .top, spacing: 12) {
+                VStack(spacing: 6) {
+                    Text("\(order)")
+                        .font(.caption.monospacedDigit().weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 24, alignment: .trailing)
+                    if isDraggable {
+                        Image(systemName: "line.3.horizontal")
+                            .font(.caption.weight(.semibold))
                             .foregroundStyle(.secondary)
-                    } else if row.isVirtualFinal {
-                        Text("Virtual")
-                            .font(.caption2.weight(.semibold))
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(Color.secondary.opacity(0.14), in: Capsule())
-                            .foregroundStyle(.secondary)
+                            .accessibilityHidden(true)
                     }
                 }
-                Text(rowSubtitle)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-                if let error {
-                    Label(error.message, systemImage: "exclamationmark.triangle.fill")
+
+                IOSActionChip(action: row.encodedAction)
+
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 6) {
+                        Text(rowTitle)
+                            .font(.body.weight(.medium))
+                            .lineLimit(1)
+                        IOSRuleSourceBadge(row: row)
+                    }
+                    IOSRuleMatcherChips(row: row)
+                    Text(rowSubtitle)
                         .font(.caption)
-                        .foregroundStyle(.red)
+                        .foregroundStyle(.secondary)
                         .lineLimit(2)
+                    if let error {
+                        Label(error.message, systemImage: "exclamationmark.triangle.fill")
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                            .lineLimit(2)
+                    }
+                }
+                Spacer(minLength: 8)
+                if let onDelete {
+                    IOSConsoleIconButton("trash", title: "Delete rule", role: .destructive, action: onDelete)
                 }
             }
-            Spacer(minLength: 8)
-            if onMoveUp != nil || onMoveDown != nil || onDelete != nil {
-                VStack(spacing: 6) {
-                    if let onMoveUp {
-                        IOSConsoleIconButton("chevron.up", title: "Move rule up", action: onMoveUp)
-                            .disabled(!canMoveUp)
-                    }
-                    if let onMoveDown {
-                        IOSConsoleIconButton("chevron.down", title: "Move rule down", action: onMoveDown)
-                            .disabled(!canMoveDown)
-                    }
-                    if let onDelete {
-                        IOSConsoleIconButton("trash", title: "Delete rule", role: .destructive, action: onDelete)
-                    }
-                }
+            if let routeTestResult {
+                IOSInlineRouteTestResultView(
+                    response: routeTestResult,
+                    manualRuleCount: manualRuleCount,
+                    effectiveRuleCount: effectiveRuleCount
+                )
             }
         }
         .padding(10)
-        .background(Color(.tertiarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+        .background(rowBackground, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+        .overlay {
+            if routeTestResult != nil {
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .stroke(Color.accentColor.opacity(0.45), lineWidth: 1)
+            }
+        }
+        .accessibilityHint(isDraggable ? "Drag to reorder manual rules." : "")
     }
 
     private var rowSubtitle: String {
-        [row.matcherKind.displayName, row.matcherSummary, row.policySummary]
+        [row.policySummary, row.isVirtualFinal ? "Fallback when no earlier rule matches" : ""]
             .filter { !$0.isEmpty }
             .joined(separator: " / ")
     }
+
+    private var rowTitle: String {
+        row.isVirtualFinal ? "FINAL" : emptyDash(row.name)
+    }
+
+    private var rowBackground: Color {
+        if routeTestResult != nil {
+            return Color.accentColor.opacity(0.10)
+        }
+        if row.isVirtualFinal {
+            return Color.orange.opacity(0.10)
+        }
+        return Color(.tertiarySystemGroupedBackground)
+    }
 }
 
-private struct IOSRuleSetRow: View {
+private struct IOSRuleSourceBadge: View {
+    var row: RuleEditorRow
+
+    var body: some View {
+        if !title.isEmpty {
+            Text(title)
+                .font(.caption2.weight(.semibold))
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(Color.secondary.opacity(0.14), in: Capsule())
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private var title: String {
+        if row.isGenerated {
+            return "Rule set"
+        }
+        if row.isVirtualFinal {
+            return "Fallback"
+        }
+        return ""
+    }
+}
+
+private struct IOSRuleMatcherChips: View {
+    var row: RuleEditorRow
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 5) {
+                ForEach(chips) { chip in
+                    IOSRuleMatcherChip(chip: chip)
+                }
+            }
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    private var chips: [IOSRuleMatcherChipData] {
+        [
+            IOSRuleMatcherChipData(
+                kind: row.matcherKind.displayName,
+                value: row.matcherSummary
+            )
+        ]
+    }
+}
+
+private struct IOSRuleMatcherChipData: Identifiable {
+    var kind: String
+    var value: String
+
+    var id: String { "\(kind)-\(value)" }
+}
+
+private struct IOSRuleMatcherChip: View {
+    var chip: IOSRuleMatcherChipData
+
+    var body: some View {
+        Text("\(chip.kind) \(chip.value)")
+            .font(.caption2.weight(.semibold))
+            .lineLimit(1)
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 3)
+            .background(Color.secondary.opacity(0.11), in: Capsule())
+    }
+}
+
+private struct IOSRuleSubscriptionRow: View {
     var subscription: RuleSubscriptionPayload
 
     var body: some View {
@@ -424,7 +609,7 @@ private struct IOSRuleSetRow: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
-            Text(countText)
+            Text("Subscription / \(formatText) / \(countText)")
                 .font(.caption)
                 .foregroundStyle(.secondary)
             if !subscription.generatedRules.isEmpty {
@@ -473,9 +658,82 @@ private struct IOSRuleSetRow: View {
         }
         return parts.joined(separator: " / ")
     }
+
+    private var formatText: String {
+        subscription.format.isEmpty ? "default" : subscription.format
+    }
 }
 
-private struct IOSRouteTestResultView: View {
+private struct IOSImportedRuleSetRow: View {
+    var ruleSet: RuleSetStatusPayload
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack {
+                Text(emptyDash(ruleSet.name))
+                    .font(.body.weight(.medium))
+                Spacer()
+                Text(statusText)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(statusColor)
+            }
+            if !ruleSet.url.isEmpty {
+                Text(ruleSet.url)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            Text("Imported / \(formatText) / \(countText)")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            if !ruleSet.cacheError.isEmpty || !ruleSet.lastError.isEmpty {
+                Text([ruleSet.cacheError, ruleSet.lastError].filter { !$0.isEmpty }.joined(separator: " / "))
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .lineLimit(2)
+            }
+        }
+        .padding(.vertical, 2)
+    }
+
+    private var statusText: String {
+        if ruleSet.disabled {
+            return "Disabled"
+        }
+        if !ruleSet.cacheError.isEmpty || !ruleSet.lastError.isEmpty {
+            return "Error"
+        }
+        return ruleSet.cached ? "Cached" : "Inline"
+    }
+
+    private var statusColor: Color {
+        if ruleSet.disabled {
+            return .secondary
+        }
+        if !ruleSet.cacheError.isEmpty || !ruleSet.lastError.isEmpty {
+            return .red
+        }
+        return ruleSet.cached ? .green : .secondary
+    }
+
+    private var countText: String {
+        [
+            "\(ruleSet.domainCount) DOMAIN-SUFFIX",
+            "\(ruleSet.cidrCount) IP-CIDR",
+            "\(ruleSet.inlineDomainCount) inline domains",
+            "\(ruleSet.inlineCIDRCount) inline CIDRs",
+            ruleSet.skipped > 0 ? "\(ruleSet.skipped) skipped" : "",
+        ]
+        .filter { !$0.isEmpty }
+        .joined(separator: " / ")
+    }
+
+    private var formatText: String {
+        ruleSet.format.isEmpty ? "default" : ruleSet.format
+    }
+}
+
+private struct IOSInlineRouteTestResultView: View {
     var response: RuleTestResponse
     var manualRuleCount: Int
     var effectiveRuleCount: Int
@@ -496,6 +754,9 @@ private struct IOSRouteTestResultView: View {
             LabeledContent("Network", value: emptyDash(decision.network).uppercased())
             if !decision.chainName.isEmpty {
                 LabeledContent("Chain", value: decision.chainName)
+            }
+            if !decision.groupName.isEmpty {
+                LabeledContent("Group", value: decision.groupName)
             }
             if let chain = response.chain {
                 LabeledContent("Hops", value: "\(chain.hopCount)")
