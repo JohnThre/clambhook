@@ -191,9 +191,14 @@ public enum MobileLicenseEvaluator {
         let cutoffDate = lifetime.flatMap {
             updateCutoffDate(lifetimePurchaseDate: $0.purchaseDate, transactions: activeTransactions, calendar: calendar)
         }
+        let activeOfflineGraceEndsAt = offlineGraceEndDate(snapshot: snapshot, calendar: calendar).flatMap { endsAt in
+            now < endsAt ? endsAt : nil
+        }
         let reason: MobileLicenseAccessReason
         if trialActive {
             reason = .trial
+        } else if lifetime != nil, activeOfflineGraceEndsAt != nil {
+            reason = .offlineGrace
         } else if lifetime != nil {
             reason = .lifetime
         } else {
@@ -222,9 +227,22 @@ public enum MobileLicenseEvaluator {
             trialDaysRemaining: trialDaysRemaining,
             hasLifetimeUnlock: lifetime != nil,
             updateCutoffDate: cutoffDate,
-            offlineGraceEndsAt: nil,
+            offlineGraceEndsAt: reason == .offlineGrace ? activeOfflineGraceEndsAt : nil,
             unlockedFeatureIDs: unlocked
         )
+    }
+
+    private static func offlineGraceEndDate(
+        snapshot: MobileLicenseSnapshot,
+        calendar: Calendar
+    ) -> Date? {
+        guard let failedAt = snapshot.lastVerificationFailedAt else {
+            return nil
+        }
+        if let verifiedAt = snapshot.lastVerifiedAt, failedAt < verifiedAt {
+            return nil
+        }
+        return calendar.date(byAdding: .day, value: mobileLicenseOfflineGraceDays, to: failedAt)
     }
 
     public static func updateCutoffDate(
