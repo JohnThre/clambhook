@@ -159,6 +159,17 @@ public struct CaptureMetadataEntryPayload: Codable, Equatable, Identifiable, Sen
         self.timeline = timeline
     }
 
+    public var displayTarget: String {
+        var value = host
+        if !port.isEmpty {
+            value += ":\(port)"
+        }
+        if !path.isEmpty {
+            value += path
+        }
+        return value
+    }
+
     public var pinID: String {
         connectionID.isEmpty ? id : connectionID
     }

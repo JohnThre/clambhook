@@ -8,6 +8,8 @@ struct MacMenuBarView: View {
     @Environment(\.openSettings) private var openSettings
     @State private var trafficFilter = "all"
     @State private var trafficSearch = ""
+    @State private var captureFilter: CaptureFilterKind = .all
+    @State private var captureSearch = ""
     @State private var draftRule: RulePayload?
     @State private var sourceConnection: TrafficConnectionPayload?
     @State private var showLogbook = false
@@ -319,19 +321,86 @@ struct MacMenuBarView: View {
     }
 
     private var developerCapturePanel: some View {
-        MacSection(title: "HTTP Capture") {
+        let entries = filteredCaptureEntries
+        let groups = CaptureSupport.groupEntriesByHost(entries, pinnedIDs: model.pinnedConnectionIDs)
+        return MacSection(title: "HTTP Capture") {
             VStack(alignment: .leading, spacing: 8) {
-                MacStatusPill(
-                    text: model.developerStatus.enabled ? "\(model.developerEntries.count) body captures" : "Metadata by default",
-                    systemImage: model.developerStatus.mitmEnabled ? "lock.open" : "lock",
-                    tint: model.developerStatus.enabled ? .blue : .secondary
-                )
-                Text("HTTPS entries remain CONNECT metadata unless opt-in HTTPS Body Capture is enabled in developer config.")
+                HStack(spacing: 8) {
+                    MacStatusPill(
+                        text: "\(captureEntries.count) metadata requests",
+                        systemImage: "list.bullet.rectangle",
+                        tint: captureEntries.isEmpty ? .secondary : .blue
+                    )
+                    MacStatusPill(
+                        text: "\(groups.count) hosts",
+                        systemImage: "rectangle.stack",
+                        tint: groups.isEmpty ? .secondary : .green
+                    )
+                    Spacer()
+                    ShareLink(
+                        item: CaptureSupport.exportString(
+                            traffic: model.dashboard.traffic,
+                            entries: entries
+                        ),
+                        subject: Text("ClambHook HTTP metadata export"),
+                        message: Text("Local metadata-only JSON export.")
+                    ) {
+                        Image(systemName: "square.and.arrow.up")
+                    }
+                    .disabled(entries.isEmpty)
+                }
+                Picker("Capture", selection: $captureFilter) {
+                    Text("All").tag(CaptureFilterKind.all)
+                    Text("HTTP").tag(CaptureFilterKind.http)
+                    Text("HTTPS").tag(CaptureFilterKind.https)
+                    Text("Pinned").tag(CaptureFilterKind.pinned)
+                }
+                .labelsHidden()
+                .pickerStyle(.segmented)
+                TextField("Search method, host, path, rule", text: $captureSearch)
+                    .textFieldStyle(.roundedBorder)
+                if groups.isEmpty {
+                    MacEmptyRow(text: "No HTTP metadata")
+                } else {
+                    VStack(alignment: .leading, spacing: 10) {
+                        ForEach(groups.prefix(4)) { group in
+                            MacCaptureGroupView(
+                                group: group,
+                                pinnedIDs: model.pinnedConnectionIDs,
+                                onTogglePin: toggleCapturePin
+                            )
+                        }
+                    }
+                }
+                Text("HTTPS rows remain CONNECT metadata unless opt-in HTTPS Body Capture is enabled in developer config.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                    .lineLimit(3)
+                    .lineLimit(2)
             }
         }
+    }
+
+    private var captureEntries: [CaptureEntryPayload] {
+        CaptureSupport.captureEntries(from: model.dashboard.traffic)
+    }
+
+    private var filteredCaptureEntries: [CaptureEntryPayload] {
+        CaptureSupport.filteredEntries(
+            captureEntries,
+            filter: captureFilter,
+            query: captureSearch,
+            pinnedIDs: model.pinnedConnectionIDs
+        )
+    }
+
+    private func toggleCapturePin(_ entry: CaptureMetadataEntryPayload) {
+        var ids = model.pinnedConnectionIDs
+        if ids.contains(entry.pinID) {
+            ids.remove(entry.pinID)
+        } else {
+            ids.insert(entry.pinID)
+        }
+        model.settingsStore.settings.pinnedConnectionIDs = ids.sorted()
     }
 
     private var filteredTraffic: [TrafficConnectionPayload] {
@@ -530,6 +599,84 @@ private struct MacEmptyRow: View {
             .font(.caption)
             .foregroundStyle(.secondary)
             .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private struct MacCaptureGroupView: View {
+    var group: CaptureGroupPayload
+    var pinnedIDs: Set<String>
+    var onTogglePin: (CaptureMetadataEntryPayload) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text(emptyDash(group.host))
+                    .font(.caption.weight(.semibold))
+                    .lineLimit(1)
+                Spacer()
+                Text(groupSubtitle)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            ForEach(group.entries.prefix(3)) { entry in
+                MacCaptureEntryRow(
+                    entry: entry,
+                    pinned: pinnedIDs.contains(entry.pinID),
+                    onTogglePin: { onTogglePin(entry) }
+                )
+            }
+        }
+    }
+
+    private var groupSubtitle: String {
+        let schemes = group.schemes.map { $0.uppercased() }.joined(separator: ", ")
+        if schemes.isEmpty {
+            return "\(group.count)"
+        }
+        return "\(group.count) / \(schemes)"
+    }
+}
+
+private struct MacCaptureEntryRow: View {
+    var entry: CaptureMetadataEntryPayload
+    var pinned: Bool
+    var onTogglePin: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text(entry.method.isEmpty ? "--" : entry.method)
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(entry.scheme.lowercased() == "https" ? .blue : .green)
+                    .frame(minWidth: 46, alignment: .leading)
+                Text(emptyDash(entry.displayTarget))
+                    .font(.caption.weight(.medium))
+                    .lineLimit(1)
+                Spacer(minLength: 6)
+                Button(action: onTogglePin) {
+                    Image(systemName: pinned ? "pin.slash.fill" : "pin.fill")
+                        .font(.caption)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(pinned ? "Unpin metadata row" : "Pin metadata row")
+            }
+            Text([entry.ruleName, entry.chainName, entry.ruleAction].filter { !$0.isEmpty }.joined(separator: " / "))
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+            Text("\(formatBytes(entry.rxTotal)) down / \(formatBytes(entry.txTotal)) up / \(entry.sslState.replacingOccurrences(of: "_", with: " "))")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+            if let event = entry.timeline.last {
+                Text("Last \(emptyDash(event.title)) \(event.detail)")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+        }
+        .padding(.vertical, 4)
     }
 }
 
