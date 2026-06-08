@@ -634,6 +634,12 @@ func TestTrafficMonitorRendersBackendAnalytics(t *testing.T) {
 	m.viewMode = viewModeActivity
 	m.width = 120
 	m.traffic.ProfileContext = profileContextPayload{Active: "Work", Profiles: []string{"Work", "Home"}}
+	m.traffic.QuickFilters = []quickFilterPayload{
+		{Key: "all", Label: "All", Count: 9},
+		{Key: "proxy", Label: "Proxy", Count: 4},
+		{Key: "direct", Label: "Direct", Count: 2},
+		{Key: "block", Label: "Block", Count: 3},
+	}
 	m.traffic.RuleHits = []ruleHitPayload{{RuleName: "ads", Action: "block", Count: 3}}
 	m.traffic.BlockDecisions = []blockDecisionPayload{{TargetHost: "ads.example.com", RuleName: "ads", Action: "block"}}
 	m.traffic.CleanupSuggestions = []cleanupSuggestionPayload{{RuleName: "old-rule", TargetRuleName: "old-rule", Operation: "delete_rule", Message: "No recent traffic-history entries matched this rule."}}
@@ -644,6 +650,11 @@ func TestTrafficMonitorRendersBackendAnalytics(t *testing.T) {
 		DraftRule: rulePayload{Name: "block-api", Action: "block", Domains: []string{"api.example.com"}},
 		Reason:    "Observed 2 matching connections.",
 	}}
+	m.traffic.Breakdowns = trafficBreakdownsPayload{
+		Actions: []breakdownRowPayload{{Key: "block", Label: "Block", Count: 3}},
+		Chains:  []breakdownRowPayload{{Key: "proxy", Label: "proxy", Count: 4}},
+		Rules:   []breakdownRowPayload{{Key: "ads", Label: "ads", Count: 3}},
+	}
 	m.traffic.Connections = []trafficConnectionPayload{{
 		ConnID:     "c1",
 		Profile:    "Work",
@@ -654,7 +665,7 @@ func TestTrafficMonitorRendersBackendAnalytics(t *testing.T) {
 	}}
 
 	view := m.View()
-	for _, want := range []string{"profile Work", "Rule hits", "ads/block 3", "Recent blocks", "Rule cleanup", "Delete", "Action enter/n create rule from connection", "Suggested rules", "api.example.com"} {
+	for _, want := range []string{"profile Work", "all 9", "proxy 4", "direct 2", "block 3", "Routes", "Top chains", "Top rules", "Rule hits", "ads/block 3", "Recent blocks", "Rule cleanup", "Delete", "Action enter/n create rule from connection", "Suggested rules", "api.example.com"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("view missing %q:\n%s", want, view)
 		}
