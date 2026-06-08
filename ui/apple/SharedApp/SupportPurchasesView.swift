@@ -9,7 +9,7 @@ struct PremiumPurchasesSection: View {
 
     var body: some View {
         Section("Purchases") {
-            LicenseStatusView(decision: manager.decision)
+            ProductStatePanel(decision: manager.decision)
 
             ForEach(manager.products, id: \.id) { product in
                 Button {
@@ -68,76 +68,58 @@ struct PremiumPurchasesSection: View {
     }
 }
 
-private struct LicenseStatusView: View {
+private struct ProductStatePanel: View {
     var decision: MobileLicenseDecision
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Label(title, systemImage: systemImage)
-                .font(.body.weight(.semibold))
+        VStack(alignment: .leading, spacing: 10) {
+            ForEach(MobileLicenseProductStateBuilder.states(for: decision)) { state in
+                ProductStateRow(state: state)
+            }
+        }
+    }
+}
+
+private struct ProductStateRow: View {
+    var state: MobileLicenseProductState
+
+    var body: some View {
+        Label {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(state.title)
+                    .font(.body.weight(.semibold))
+                Text(state.detail)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        } icon: {
+            Image(systemName: systemImage)
                 .foregroundStyle(tint)
-            Text(detail)
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-    }
-
-    private var title: String {
-        switch decision.reason {
-        case .trial:
-            return "Trial active"
-        case .lifetime:
-            return "Lifetime unlock active"
-        case .offlineGrace:
-            return "Offline grace active"
-        case .locked:
-            return "Purchase required"
-        }
-    }
-
-    private var detail: String {
-        switch decision.reason {
-        case .trial:
-            if let trialEndsAt = decision.trialEndsAt {
-                return "Free use ends \(trialEndsAt.formatted(date: .abbreviated, time: .omitted))."
-            }
-            return "Free use is active."
-        case .lifetime:
-            if let cutoff = decision.updateCutoffDate {
-                return MobileLicenseCopy.paidUpdatePolicy(cutoffDate: cutoff)
-            }
-            return "Purchased features are unlocked."
-        case .offlineGrace:
-            if let grace = decision.offlineGraceEndsAt {
-                return "Cached purchase access is available until \(grace.formatted(date: .abbreviated, time: .omitted))."
-            }
-            return "Cached purchase access is available while offline."
-        case .locked:
-            return "The trial has ended. Purchase or restore the lifetime unlock to keep using clambhook."
         }
     }
 
     private var systemImage: String {
-        switch decision.reason {
+        switch state.kind {
         case .trial:
             return "clock"
-        case .lifetime:
+        case .lifetimeUnlocked:
             return "checkmark.seal.fill"
-        case .offlineGrace:
-            return "wifi.slash"
-        case .locked:
+        case .paidUpdateWindow:
+            return "calendar"
+        case .newFeaturesLocked:
             return "lock.fill"
         }
     }
 
     private var tint: Color {
-        switch decision.reason {
-        case .trial, .lifetime:
-            return .green
-        case .offlineGrace:
-            return .orange
-        case .locked:
+        if state.isActive {
+            return state.kind == .newFeaturesLocked ? .orange : .green
+        }
+        switch state.kind {
+        case .trial, .lifetimeUnlocked, .paidUpdateWindow:
+            return .secondary
+        case .newFeaturesLocked:
             return .red
         }
     }
