@@ -245,6 +245,55 @@ func (r *TunnelRuntime) SetActiveProfile(name string) error {
 	return r.restartWithConfig(&next)
 }
 
+// SelectPolicyGroup updates a select policy group's selected chain and restarts
+// the live packet stack against the new routing plan.
+func (r *TunnelRuntime) SelectPolicyGroup(profileName, groupName, chainName string) error {
+	r.mu.Lock()
+	cfg := r.cfg
+	r.mu.Unlock()
+	if cfg == nil {
+		return errors.New("tunnel: runtime is not running")
+	}
+	next := *cfg
+	profile := selectProfileForEdit(&next, profileName)
+	if profile == nil {
+		return fmt.Errorf("profile %q not found", profileName)
+	}
+	groupName = strings.TrimSpace(groupName)
+	chainName = strings.TrimSpace(chainName)
+	if groupName == "" || chainName == "" {
+		return fmt.Errorf("group and chain are required")
+	}
+	var group *config.PolicyGroupConfig
+	for i := range profile.PolicyGroups {
+		if profile.PolicyGroups[i].Name == groupName {
+			group = &profile.PolicyGroups[i]
+			break
+		}
+	}
+	if group == nil {
+		return fmt.Errorf("policy group %q not found", groupName)
+	}
+	if strings.TrimSpace(group.Type) != "select" {
+		return fmt.Errorf("policy group %q is %s, not select", groupName, group.Type)
+	}
+	member := false
+	for _, chain := range group.Chains {
+		if chain == chainName {
+			member = true
+			break
+		}
+	}
+	if !member {
+		return fmt.Errorf("policy group %q has no member chain %q", groupName, chainName)
+	}
+	group.Selected = chainName
+	if err := engine.ValidateConfig(&next); err != nil {
+		return err
+	}
+	return r.restartWithConfig(&next)
+}
+
 func (r *TunnelRuntime) restartWithConfig(cfg *config.Config) error {
 	r.mu.Lock()
 	r.cfg = cfg

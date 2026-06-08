@@ -134,10 +134,11 @@ func (s *Server) handlePolicyGroupSelection(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	writeJSON(w, map[string]any{
-		"profile":     snap.Profile,
-		"groups":      snap.Groups,
-		"group":       groupName,
-		"chain":       chainName,
-		"backup_path": result.BackupPath,
+		"profile":       snap.Profile,
+		"groups":        snap.Groups,
+		"policy_groups": snap,
+		"group":         groupName,
+		"chain":         chainName,
+		"backup_path":   result.BackupPath,
 	})
 }

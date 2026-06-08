@@ -118,6 +118,55 @@ func ReplaceTunnelRulesJSON(configPath, profileName, rulesJSON string) error {
 	return writeTunnelConfig(configPath, cfg)
 }
 
+// SelectPolicyGroupJSON updates a select policy group's selected chain and
+// writes the tunnel config atomically.
+func SelectPolicyGroupJSON(configPath, profileName, groupName, chainName string) (string, error) {
+	cfg, err := loadTunnelConfig(configPath)
+	if err != nil {
+		return "", err
+	}
+	profile := selectProfileForEdit(cfg, profileName)
+	if profile == nil {
+		return "", fmt.Errorf("profile %q not found", profileName)
+	}
+	groupName = strings.TrimSpace(groupName)
+	chainName = strings.TrimSpace(chainName)
+	if groupName == "" || chainName == "" {
+		return "", fmt.Errorf("group and chain are required")
+	}
+	var group *config.PolicyGroupConfig
+	for i := range profile.PolicyGroups {
+		if profile.PolicyGroups[i].Name == groupName {
+			group = &profile.PolicyGroups[i]
+			break
+		}
+	}
+	if group == nil {
+		return "", fmt.Errorf("policy group %q not found", groupName)
+	}
+	if strings.TrimSpace(group.Type) != "select" {
+		return "", fmt.Errorf("policy group %q is %s, not select", groupName, group.Type)
+	}
+	member := false
+	for _, chain := range group.Chains {
+		if chain == chainName {
+			member = true
+			break
+		}
+	}
+	if !member {
+		return "", fmt.Errorf("policy group %q has no member chain %q", groupName, chainName)
+	}
+	group.Selected = chainName
+	if err := engine.ValidateConfig(cfg); err != nil {
+		return "", err
+	}
+	if err := writeTunnelConfig(configPath, cfg); err != nil {
+		return "", err
+	}
+	return marshalString(policyGroupsForConfig(cfg))
+}
+
 // RuleSetsJSON returns rule-set cache status for a profile.
 func RuleSetsJSON(configPath, profileName string) (string, error) {
 	cfg, err := loadTunnelConfig(configPath)

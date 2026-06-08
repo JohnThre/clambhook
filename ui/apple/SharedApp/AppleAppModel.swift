@@ -218,6 +218,17 @@ final class AppleAppModel: ObservableObject {
         }
     }
 
+    func selectPolicyGroup(group: String, chain: String) {
+        guard canUseLicensedFeature(.profileManagement) else {
+            daemonMessage = AppleAppModelError.licenseLocked.errorDescription ?? ""
+            return
+        }
+        Task {
+            await dashboard.selectPolicyGroup(profile: dashboard.activeProfile, group: group, chain: chain)
+            syncProfileRecoveryIssue()
+        }
+    }
+
     @discardableResult
     func syncProfileRecoveryIssue(now: Date = Date()) -> Bool {
         let profile = dashboard.activeProfile

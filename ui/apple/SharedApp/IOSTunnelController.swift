@@ -106,6 +106,21 @@ final class IOSTunnelController: ObservableObject {
         _ = try await send(.init(action: .setActiveProfile, profile: name))
     }
 
+    func selectPolicyGroup(profile: String, group: String, chain: String) async throws -> PolicyGroupsPayload {
+        if canSendProviderMessage {
+            let data = try await send(.init(action: .selectPolicyGroup, profile: profile, group: group, chain: chain))
+            return try decoder.decode(TunnelDashboardPayload.self, from: data).policyGroups
+        }
+        _ = try TunnelConfigStore.loadOrCreateConfig()
+        try updateTunnelPolicyGroupSelection(
+            configPath: TunnelConfigStore.configURL().path,
+            profileName: profile,
+            groupName: group,
+            chainName: chain
+        )
+        return try disconnectedDashboard().policyGroups
+    }
+
     func dashboard() async throws -> TunnelDashboardPayload {
         let manager = try await configuredManager()
         updateStatus(from: manager)
@@ -387,6 +402,10 @@ final class TunnelDashboardClient: ClambhookDashboardProviding, DeveloperCapture
 
     func setActiveProfile(_ name: String) async throws {
         try await controller.setActiveProfile(name)
+    }
+
+    func selectPolicyGroup(profile: String, group: String, chain: String) async throws -> PolicyGroupsPayload {
+        try await controller.selectPolicyGroup(profile: profile, group: group, chain: chain)
     }
 
     func developerStatus() async throws -> DeveloperStatusPayload {

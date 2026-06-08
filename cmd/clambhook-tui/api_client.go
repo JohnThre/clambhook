@@ -41,6 +41,43 @@ type serversPayload struct {
 	Chains  []chainPayload `json:"chains"`
 }
 
+type policyGroupsPayload struct {
+	Profile string               `json:"profile"`
+	Groups  []policyGroupPayload `json:"groups"`
+}
+
+type policyGroupPayload struct {
+	Name          string                     `json:"name"`
+	Type          string                     `json:"type"`
+	Chains        []string                   `json:"chains"`
+	Selected      string                     `json:"selected,omitempty"`
+	TestURL       string                     `json:"test_url"`
+	Interval      string                     `json:"interval"`
+	Timeout       string                     `json:"timeout"`
+	SelectedChain string                     `json:"selected_chain,omitempty"`
+	SelectionMode string                     `json:"selection_mode,omitempty"`
+	UpdatedTsNs   int64                      `json:"updated_ts_ns,omitempty"`
+	Results       []policyProbeResultPayload `json:"results"`
+}
+
+type policyProbeResultPayload struct {
+	ChainName    string `json:"chain_name"`
+	Healthy      bool   `json:"healthy"`
+	LatencyNs    int64  `json:"latency_ns,omitempty"`
+	StatusCode   int    `json:"status_code,omitempty"`
+	Error        string `json:"error,omitempty"`
+	LastTestTsNs int64  `json:"last_test_ts_ns,omitempty"`
+}
+
+type policyGroupSelectionPayload struct {
+	Profile      string               `json:"profile"`
+	Groups       []policyGroupPayload `json:"groups"`
+	PolicyGroups policyGroupsPayload  `json:"policy_groups"`
+	Group        string               `json:"group"`
+	Chain        string               `json:"chain"`
+	BackupPath   string               `json:"backup_path"`
+}
+
 type chainPayload struct {
 	Name         string                      `json:"name"`
 	HopCount     int                         `json:"hop_count"`
@@ -403,6 +440,12 @@ func (c apiClient) servers() (serversPayload, error) {
 	return out, err
 }
 
+func (c apiClient) policyGroups() (policyGroupsPayload, error) {
+	var out policyGroupsPayload
+	err := c.getJSON("/api/v1/policy-groups", &out)
+	return out, err
+}
+
 func (c apiClient) traffic() (trafficSnapshotPayload, error) {
 	var out trafficSnapshotPayload
 	err := c.getJSON("/api/v1/traffic?limit=200", &out)
@@ -468,6 +511,31 @@ func (c apiClient) setActiveProfile(name string) error {
 		return err
 	}
 	return c.doNoBody(http.MethodPut, "/api/v1/profiles/active", bytes.NewReader(body))
+}
+
+func (c apiClient) testPolicyGroup(group string) (policyGroupsPayload, error) {
+	body, err := json.Marshal(map[string]string{"group": group})
+	if err != nil {
+		return policyGroupsPayload{}, err
+	}
+	var out policyGroupsPayload
+	err = c.doJSON(http.MethodPost, "/api/v1/policy-groups/test", bytes.NewReader(body), &out)
+	return out, err
+}
+
+func (c apiClient) selectPolicyGroup(profile, group, chain string) (policyGroupsPayload, error) {
+	body, err := json.Marshal(map[string]string{"profile": profile, "group": group, "chain": chain})
+	if err != nil {
+		return policyGroupsPayload{}, err
+	}
+	var out policyGroupSelectionPayload
+	if err := c.doJSON(http.MethodPut, "/api/v1/policy-groups/selection", bytes.NewReader(body), &out); err != nil {
+		return policyGroupsPayload{}, err
+	}
+	if len(out.PolicyGroups.Groups) > 0 || out.PolicyGroups.Profile != "" {
+		return out.PolicyGroups, nil
+	}
+	return policyGroupsPayload{Profile: out.Profile, Groups: out.Groups}, nil
 }
 
 func (c apiClient) createRule(rule rulePayload) error {

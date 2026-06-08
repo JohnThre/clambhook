@@ -11,6 +11,7 @@ public protocol ClambhookAPIProviding: AnyObject {
     func connect() async throws
     func disconnect() async throws
     func setActiveProfile(_ name: String) async throws
+    func selectPolicyGroup(profile: String, group: String, chain: String) async throws -> PolicyGroupsPayload
 }
 
 public protocol ClambhookRuleEditing: AnyObject {
@@ -239,10 +240,21 @@ public final class ClambhookAPIClient: ClambhookAPIProviding, ClambhookRuleEditi
             var chain: String
         }
         struct SelectPolicyGroupResponse: Decodable {
+            var profile: String
+            var groups: [PolicyGroupPayload]
             var policyGroups: PolicyGroupsPayload
 
             enum CodingKeys: String, CodingKey {
+                case profile
+                case groups
                 case policyGroups = "policy_groups"
+            }
+
+            init(from decoder: Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.profile = try container.decodeIfPresent(String.self, forKey: .profile) ?? ""
+                self.groups = try container.decodeIfPresent([PolicyGroupPayload].self, forKey: .groups) ?? []
+                self.policyGroups = try container.decodeIfPresent(PolicyGroupsPayload.self, forKey: .policyGroups) ?? PolicyGroupsPayload(profile: profile, groups: groups)
             }
         }
         let body = try encoder.encode(SelectPolicyGroupRequest(profile: profile, group: group, chain: chain))

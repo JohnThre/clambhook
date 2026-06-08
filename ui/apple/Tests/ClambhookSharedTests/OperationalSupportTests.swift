@@ -302,4 +302,5 @@ private final class FakeOperationalAPIClient: ClambhookAPIProviding {
     func connect() async throws {}
     func disconnect() async throws {}
     func setActiveProfile(_ name: String) async throws {}
+    func selectPolicyGroup(profile: String, group: String, chain: String) async throws -> PolicyGroupsPayload { policyGroupsResult }
 }

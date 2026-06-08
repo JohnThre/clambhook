@@ -52,7 +52,13 @@ struct DashboardContentView: View {
                 }
             }
             Section("Policy") {
-                CompactPolicySelectorView(summary: model.dashboard.policySelectorSummary)
+                CompactPolicySelectorView(
+                    summary: model.dashboard.policySelectorSummary,
+                    groups: model.dashboard.policyGroups.groups,
+                    onSelect: { group, chain in
+                        model.selectPolicyGroup(group: group, chain: chain)
+                    }
+                )
             }
             Section("Servers") {
                 ServerListView(servers: model.dashboard.servers)
@@ -210,6 +216,8 @@ struct TrafficListView: View {
 
 struct CompactPolicySelectorView: View {
     var summary: PolicySelectorSummary
+    var groups: [PolicyGroupPayload] = []
+    var onSelect: ((String, String) -> Void)?
     var routeLimit = 4
 
     var body: some View {
@@ -223,10 +231,14 @@ struct CompactPolicySelectorView: View {
                 }
             }
 
-            if summary.routes.isEmpty {
+            if groups.isEmpty && summary.routes.isEmpty {
                 Label("No route selected", systemImage: "arrow.triangle.branch")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
+            } else if !groups.isEmpty {
+                ForEach(Array(groups.prefix(routeLimit))) { group in
+                    CompactPolicyGroupRow(group: group, onSelect: onSelect)
+                }
             } else {
                 ForEach(Array(summary.routes.prefix(routeLimit))) { route in
                     CompactPolicyRouteRow(route: route)
@@ -263,6 +275,103 @@ struct CompactPolicySelectorView: View {
             CompactPolicyCountPill(title: "Direct", count: summary.directCount, systemImage: "arrow.up.right", tint: .blue)
             CompactPolicyCountPill(title: "Block/Reject", count: summary.blockCount, systemImage: "hand.raised.fill", tint: .red)
         }
+    }
+}
+
+private struct CompactPolicyGroupRow: View {
+    var group: PolicyGroupPayload
+    var onSelect: ((String, String) -> Void)?
+
+    private var selected: String {
+        if !group.selectedChain.isEmpty {
+            return group.selectedChain
+        }
+        if !group.selected.isEmpty {
+            return group.selected
+        }
+        return group.chains.first ?? ""
+    }
+
+    private var isManual: Bool {
+        group.type.caseInsensitiveCompare("select") == .orderedSame ||
+            group.selectionMode.caseInsensitiveCompare("manual") == .orderedSame
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: "point.3.connected.trianglepath.dotted")
+                    .foregroundStyle(.secondary)
+                    .frame(width: 22)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(group.name.isEmpty ? "Policy group" : group.name)
+                        .font(.subheadline.weight(.medium))
+                        .lineLimit(1)
+                    Text([policyModeText(group), "selected \(selected.isEmpty ? "No chain selected" : selected)"].joined(separator: " / "))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+
+                Spacer(minLength: 8)
+
+                CompactPolicyGroupHealthBadge(group: group)
+            }
+
+            ForEach(group.chains, id: \.self) { chain in
+                Button {
+                    if isManual {
+                        onSelect?(group.name, chain)
+                    }
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: chain == selected ? "checkmark.circle.fill" : policyMemberIcon(group: group, chain: chain))
+                            .foregroundStyle(policyMemberTint(group: group, chain: chain, selected: selected))
+                            .frame(width: 18)
+                        Text(chain)
+                            .lineLimit(1)
+                        Spacer(minLength: 8)
+                        Text(policyMemberText(group: group, chain: chain))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                    .font(.caption)
+                }
+                .buttonStyle(.plain)
+                .disabled(!isManual)
+            }
+        }
+        .padding(.vertical, 2)
+    }
+}
+
+private struct CompactPolicyGroupHealthBadge: View {
+    var group: PolicyGroupPayload
+
+    var body: some View {
+        Label(policyGroupHealthText(group), systemImage: icon)
+            .font(.caption.weight(.medium))
+            .lineLimit(1)
+            .foregroundStyle(tint)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(tint.opacity(0.12), in: Capsule())
+    }
+
+    private var tint: Color {
+        if group.results.isEmpty {
+            return .secondary
+        }
+        return policyGroupFallback(group) ? .orange : .green
+    }
+
+    private var icon: String {
+        if group.results.isEmpty {
+            return "arrow.clockwise"
+        }
+        return policyGroupFallback(group) ? "exclamationmark.triangle.fill" : "checkmark.circle.fill"
     }
 }
 
@@ -351,6 +460,57 @@ private struct CompactPolicyHealthBadge: View {
             return .orange
         }
     }
+}
+
+private func policyModeText(_ group: PolicyGroupPayload) -> String {
+    let value = group.selectionMode.isEmpty ? group.type : group.selectionMode
+    return value.isEmpty ? "policy" : value.replacingOccurrences(of: "-", with: " ")
+}
+
+private func policyMemberText(group: PolicyGroupPayload, chain: String) -> String {
+    guard let result = group.results.first(where: { $0.chainName == chain }) else {
+        return "pending"
+    }
+    if result.healthy {
+        return result.latencyNs > 0 ? formatDurationNs(result.latencyNs) : "healthy"
+    }
+    return result.error.isEmpty ? "unhealthy" : result.error
+}
+
+private func policyMemberIcon(group: PolicyGroupPayload, chain: String) -> String {
+    guard let result = group.results.first(where: { $0.chainName == chain }) else {
+        return "clock"
+    }
+    return result.healthy ? "checkmark.circle" : "exclamationmark.triangle"
+}
+
+private func policyMemberTint(group: PolicyGroupPayload, chain: String, selected: String) -> Color {
+    if chain == selected {
+        return .green
+    }
+    guard let result = group.results.first(where: { $0.chainName == chain }) else {
+        return .secondary
+    }
+    return result.healthy ? .green : .orange
+}
+
+private func policyGroupHealthText(_ group: PolicyGroupPayload) -> String {
+    guard !group.results.isEmpty else {
+        return "Pending health"
+    }
+    let healthy = group.results.filter(\.healthy).count
+    if policyGroupFallback(group) {
+        return "Fallback / \(healthy)/\(group.results.count) healthy"
+    }
+    return "Healthy / \(healthy)/\(group.results.count)"
+}
+
+private func policyGroupFallback(_ group: PolicyGroupPayload) -> Bool {
+    guard !group.results.isEmpty else {
+        return false
+    }
+    let selected = group.selectedChain.isEmpty ? (group.selected.isEmpty ? (group.chains.first ?? "") : group.selected) : group.selectedChain
+    return group.results.first(where: { $0.chainName == selected })?.healthy != true
 }
 
 private struct CompactPolicyActionDot: View {

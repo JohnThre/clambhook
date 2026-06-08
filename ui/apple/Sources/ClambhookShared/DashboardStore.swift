@@ -114,6 +114,15 @@ public final class DashboardStore: ObservableObject {
         await performAction { try await api.setActiveProfile(name) }
     }
 
+    public func selectPolicyGroup(profile: String = "", group: String, chain: String) async {
+        await performAction {
+            let next = try await api.selectPolicyGroup(profile: profile, group: group, chain: chain)
+            await MainActor.run {
+                self.policyGroups = next
+            }
+        }
+    }
+
     public func startEventStream(from client: ClambhookAPIClient, reconnectDelay: Duration = .seconds(2)) {
         eventTask?.cancel()
         eventTask = Task { [weak self] in
