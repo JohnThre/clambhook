@@ -346,7 +346,7 @@ private struct IOSProfileDetailView: View {
     }
 }
 
-private struct IOSProfileCreateView: View {
+struct IOSProfileCreateView: View {
     @ObservedObject var model: AppleAppModel
     var onCreated: (String) -> Void
     @Environment(\.dismiss) private var dismiss

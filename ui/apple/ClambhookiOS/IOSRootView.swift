@@ -1,4 +1,5 @@
 import ClambhookShared
+import StoreKit
 import SwiftUI
 import UniformTypeIdentifiers
 import UIKit
@@ -246,24 +247,28 @@ private struct IOSInspectionLockOverlay: View {
 
 private struct IOSLicenseGateView: View {
     @ObservedObject var model: AppleAppModel
+    @Environment(\.openURL) private var openURL
 
     var body: some View {
         NavigationStack {
             Form {
                 Section {
-                    VStack(alignment: .leading, spacing: 10) {
-                        Label("Purchase required", systemImage: "lock.fill")
-                            .font(.headline)
-                            .foregroundStyle(.red)
-                        Text(licenseDetail)
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
+                    if let recoveryState = model.licenseRecoveryState {
+                        IOSRecoveryStateView(state: recoveryState, onAction: handleLicenseRecoveryAction)
+                    } else {
+                        ProgressView()
                     }
+                }
+                .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+                .listRowBackground(Color.clear)
+
+                PremiumPurchasesSection(manager: model.licenseManager)
+
+                Section("Support") {
                     Link("Support", destination: defaultSupportURL)
                     Link("Privacy Policy", destination: defaultPrivacyPolicyURL)
                 }
-                PremiumPurchasesSection(manager: model.licenseManager)
+
                 Section("Settings") {
                     NavigationLink {
                         AppSettingsView(model: model)
@@ -277,12 +282,34 @@ private struct IOSLicenseGateView: View {
         }
     }
 
-    private var licenseDetail: String {
-        let decision = model.mobileLicenseDecision
-        if let trialEndsAt = decision.trialEndsAt {
-            return "The free trial ended \(trialEndsAt.formatted(date: .abbreviated, time: .omitted)). Purchase or restore the lifetime unlock to continue."
+    private func handleLicenseRecoveryAction(_ action: AppRecoveryStateAction) {
+        switch action {
+        case .purchaseLifetime:
+            Task {
+                if let product = model.licenseManager.products.first(where: { $0.id == MobilePurchaseCatalog.lifetimeUnlockID }) {
+                    await model.licenseManager.purchase(product)
+                } else {
+                    await model.licenseManager.refreshProducts()
+                }
+            }
+        case .restorePurchases:
+            Task { await model.licenseManager.restorePurchases() }
+        case .repairPurchaseHistory:
+            Task { await model.licenseManager.repairPurchaseHistory() }
+        case .refresh:
+            Task {
+                await model.licenseManager.refreshProducts()
+                await model.licenseManager.refreshCurrentEntitlements()
+            }
+        case .openAppSettings:
+            model.performRecoveryAction(.openAppSettings)
+        case .support:
+            openURL(defaultSupportURL)
+        case .privacy:
+            openURL(defaultPrivacyPolicyURL)
+        case .createProfile, .importProfile, .openProfiles, .retry, .rebuildVPNProfile:
+            break
         }
-        return "Purchase or restore the lifetime unlock to continue."
     }
 }
 

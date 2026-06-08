@@ -371,6 +371,23 @@ final class AppleAppModel: ObservableObject {
         #endif
     }
 
+    #if os(iOS)
+    var licenseRecoveryState: AppRecoveryState? {
+        AppRecoveryStateBuilder.expiredTrial(
+            decision: mobileLicenseDecision,
+            storeKitAvailability: licenseManager.purchaseAvailability
+        )
+    }
+
+    var dashboardBlockingRecoveryState: AppRecoveryState? {
+        if let issue = dashboard.recoveryIssue,
+           let state = AppRecoveryStateBuilder.invalidVPNEntitlementOrProfile(issue: issue) {
+            return state
+        }
+        return AppRecoveryStateBuilder.missingProfile(readinessMessage: tunnelOnboardingReadinessMessage() ?? "")
+    }
+    #endif
+
     func canUseLicensedFeature(_ featureID: MobileLicenseFeatureID) -> Bool {
         mobileLicenseDecision.canUseFeature(featureID)
     }
