@@ -85,6 +85,12 @@ final class DashboardStoreTests: XCTestCase {
             traffic: TrafficSnapshotPayload(
                 summary: TrafficSummaryPayload(activeConnections: 2, rxBps: 4096, txBps: 1024),
                 connections: [TrafficConnectionPayload(connID: "c1", state: "active", target: "example.com:443")]
+            ),
+            networkSettings: TunnelNetworkSettingsPayload(
+                mtu: 1400,
+                dnsServers: ["198.18.0.1"],
+                includedRoutes: ["0.0.0.0/0"],
+                excludedRoutes: ["127.0.0.0/8"]
             )
         )
         let store = DashboardStore(api: api, snapshotStore: snapshotStore)
@@ -106,6 +112,8 @@ final class DashboardStoreTests: XCTestCase {
         XCTAssertEqual(store.policyGroups.groups.first?.selectedChain, "proxy")
         XCTAssertEqual(store.ruleSubscriptions.subscriptions.first?.generatedRules, ["subscription:ads:domains"])
         XCTAssertEqual(store.traffic.summary.rxBps, 4096)
+        XCTAssertEqual(store.networkSettings.dnsServers, ["198.18.0.1"])
+        XCTAssertEqual(store.networkSettings.includedRoutes, ["0.0.0.0/0"])
         let snapshot = try await snapshotStore.load()
         XCTAssertTrue(snapshot.apiOnline)
         XCTAssertEqual(snapshot.profile, "phone")
@@ -127,7 +135,40 @@ final class DashboardStoreTests: XCTestCase {
 
         XCTAssertEqual(payload.policyGroups, PolicyGroupsPayload())
         XCTAssertEqual(payload.ruleSubscriptions, RuleSubscriptionsPayload())
+        XCTAssertEqual(payload.networkSettings, TunnelNetworkSettingsPayload())
         XCTAssertEqual(payload.status.profile, "A")
+    }
+
+    func testDashboardPayloadDecodesNetworkSettingsWhenPresent() throws {
+        let data = Data("""
+        {
+          "status": {"running": true, "profile": "A", "listeners": []},
+          "profiles": {"profiles": ["A"], "active": "A"},
+          "servers": {"profile": "A", "chains": []},
+          "rules": {"profile": "A", "rules": []},
+          "traffic": {"summary": {"active_connections": 0}, "connections": []},
+          "network_settings": {
+            "mtu": 1400,
+            "remote_address": "example.invalid",
+            "ipv4": [{"address": "198.18.0.1", "prefix_len": 30}],
+            "ipv6": [],
+            "dns_servers": ["198.18.0.1"],
+            "included_routes": ["0.0.0.0/0"],
+            "excluded_routes": ["127.0.0.0/8"],
+            "http_proxy": {"host": "127.0.0.1", "port": 18080}
+          }
+        }
+        """.utf8)
+
+        let payload = try JSONDecoder().decode(TunnelDashboardPayload.self, from: data)
+
+        XCTAssertEqual(payload.networkSettings.mtu, 1400)
+        XCTAssertEqual(payload.networkSettings.remoteAddress, "example.invalid")
+        XCTAssertEqual(payload.networkSettings.ipv4.first?.address, "198.18.0.1")
+        XCTAssertEqual(payload.networkSettings.dnsServers, ["198.18.0.1"])
+        XCTAssertEqual(payload.networkSettings.includedRoutes, ["0.0.0.0/0"])
+        XCTAssertEqual(payload.networkSettings.excludedRoutes, ["127.0.0.0/8"])
+        XCTAssertEqual(payload.networkSettings.httpProxy, TunnelProxyPayload(host: "127.0.0.1", port: 18080))
     }
 
     func testApplyConnectionBytesKeepsLatestSamplesAndSnapshotRates() async throws {

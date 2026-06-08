@@ -67,6 +67,7 @@ public struct TunnelDashboardPayload: Codable, Equatable, Sendable {
     public var ruleSets: RuleSetsPayload
     public var ruleSubscriptions: RuleSubscriptionsPayload
     public var traffic: TrafficSnapshotPayload
+    public var networkSettings: TunnelNetworkSettingsPayload
 
     enum CodingKeys: String, CodingKey {
         case status
@@ -77,6 +78,7 @@ public struct TunnelDashboardPayload: Codable, Equatable, Sendable {
         case ruleSets = "rule_sets"
         case ruleSubscriptions = "rule_subscriptions"
         case traffic
+        case networkSettings = "network_settings"
     }
 
     public init(
@@ -87,7 +89,8 @@ public struct TunnelDashboardPayload: Codable, Equatable, Sendable {
         policyGroups: PolicyGroupsPayload = PolicyGroupsPayload(),
         ruleSets: RuleSetsPayload = RuleSetsPayload(),
         ruleSubscriptions: RuleSubscriptionsPayload = RuleSubscriptionsPayload(),
-        traffic: TrafficSnapshotPayload = TrafficSnapshotPayload()
+        traffic: TrafficSnapshotPayload = TrafficSnapshotPayload(),
+        networkSettings: TunnelNetworkSettingsPayload = TunnelNetworkSettingsPayload()
     ) {
         self.status = status
         self.profiles = profiles
@@ -97,6 +100,7 @@ public struct TunnelDashboardPayload: Codable, Equatable, Sendable {
         self.ruleSets = ruleSets
         self.ruleSubscriptions = ruleSubscriptions
         self.traffic = traffic
+        self.networkSettings = networkSettings
     }
 
     public init(from decoder: Decoder) throws {
@@ -109,6 +113,7 @@ public struct TunnelDashboardPayload: Codable, Equatable, Sendable {
         self.ruleSets = try container.decodeIfPresent(RuleSetsPayload.self, forKey: .ruleSets) ?? RuleSetsPayload()
         self.ruleSubscriptions = try container.decodeIfPresent(RuleSubscriptionsPayload.self, forKey: .ruleSubscriptions) ?? RuleSubscriptionsPayload()
         self.traffic = try container.decodeIfPresent(TrafficSnapshotPayload.self, forKey: .traffic) ?? TrafficSnapshotPayload()
+        self.networkSettings = try container.decodeIfPresent(TunnelNetworkSettingsPayload.self, forKey: .networkSettings) ?? TunnelNetworkSettingsPayload()
     }
 }
 

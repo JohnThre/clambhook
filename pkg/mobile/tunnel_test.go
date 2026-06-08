@@ -244,6 +244,74 @@ name = "default"
 	}
 }
 
+func TestTunnelConfigDashboardJSONIncludesNetworkSettings(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "clambhook.toml")
+	if err := os.WriteFile(path, []byte(`
+active = "default"
+
+[[profile]]
+name = "default"
+
+  [profile.listen]
+  http = "127.0.0.1:18080"
+  http_chain = "proxy"
+
+  [profile.listen.tun]
+  enabled = true
+  mtu = 1400
+  routes = ["10.0.0.0/8"]
+  exclude_cidrs = ["10.1.0.0/16"]
+
+  [profile.dns]
+  enabled = true
+
+    [[profile.dns.upstream]]
+    name = "cloudflare"
+    protocol = "doh"
+    url = "https://cloudflare-dns.com/dns-query"
+
+  [[profile.chain]]
+  name = "proxy"
+
+    [[profile.chain.server]]
+    name = "example"
+    address = "example.invalid:443"
+    protocol = "shadowsocks"
+
+      [profile.chain.server.settings]
+      method = "chacha20-ietf-poly1305"
+      password = "secret"
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	rawDashboard, err := TunnelConfigDashboardJSON(path)
+	if err != nil {
+		t.Fatalf("TunnelConfigDashboardJSON: %v", err)
+	}
+	var payload dashboardPayload
+	if err := json.Unmarshal([]byte(rawDashboard), &payload); err != nil {
+		t.Fatal(err)
+	}
+	settings := payload.NetworkSettings
+	if settings.MTU != 1400 {
+		t.Fatalf("MTU = %d, want 1400", settings.MTU)
+	}
+	if len(settings.DNSServers) != 2 || settings.DNSServers[0] != "198.18.0.1" || settings.DNSServers[1] != "fd7a:636c:616d::1" {
+		t.Fatalf("dns servers = %#v, want tunnel addresses", settings.DNSServers)
+	}
+	if len(settings.IncludedRoutes) != 1 || settings.IncludedRoutes[0] != "10.0.0.0/8" {
+		t.Fatalf("included routes = %#v, want 10.0.0.0/8", settings.IncludedRoutes)
+	}
+	if len(settings.ExcludedRoutes) != 1 || settings.ExcludedRoutes[0] != "10.1.0.0/16" {
+		t.Fatalf("excluded routes = %#v, want 10.1.0.0/16", settings.ExcludedRoutes)
+	}
+	if settings.HTTPProxy == nil || settings.HTTPProxy.Host != "127.0.0.1" || settings.HTTPProxy.Port != 18080 {
+		t.Fatalf("http proxy = %#v, want 127.0.0.1:18080", settings.HTTPProxy)
+	}
+}
+
 func TestTunnelConfigDashboardAndRuleReplacement(t *testing.T) {
 	path := writeTunnelTestConfig(t)
 
