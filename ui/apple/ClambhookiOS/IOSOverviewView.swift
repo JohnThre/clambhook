@@ -4,10 +4,15 @@ import SwiftUI
 struct IOSStatusView: View {
     @ObservedObject var model: AppleAppModel
     var onRecoveryAction: ((TunnelRecoveryAction) -> Void)? = nil
+    @State private var showingCreateProfile = false
+    @State private var showingProfileImports = false
 
     var body: some View {
         ScrollView {
             VStack(spacing: 12) {
+                if let recoveryState = model.dashboardBlockingRecoveryState {
+                    IOSRecoveryStateView(state: recoveryState, onAction: handleAppRecoveryAction)
+                }
                 IOSConnectionHeader(model: model, onRecoveryAction: onRecoveryAction)
                 IOSBandwidthPanel(model: model)
                 IOSPolicyControlPanel(model: model)
@@ -21,6 +26,37 @@ struct IOSStatusView: View {
         .background(Color(.systemGroupedBackground))
         .refreshable {
             await model.refreshNow()
+        }
+        .sheet(isPresented: $showingCreateProfile) {
+            IOSProfileCreateView(model: model) { _ in
+                model.refresh()
+            }
+        }
+        .sheet(isPresented: $showingProfileImports) {
+            NavigationStack {
+                IOSProfileImportsView(model: model)
+            }
+        }
+    }
+
+    private func handleAppRecoveryAction(_ action: AppRecoveryStateAction) {
+        switch action {
+        case .createProfile:
+            showingCreateProfile = true
+        case .importProfile:
+            showingProfileImports = true
+        case .openProfiles:
+            onRecoveryAction?(.openProfiles)
+        case .retry:
+            model.performRecoveryAction(.retry)
+        case .refresh:
+            model.refresh()
+        case .rebuildVPNProfile:
+            model.performRecoveryAction(.rebuildVPNProfile)
+        case .openAppSettings:
+            model.performRecoveryAction(.openAppSettings)
+        case .purchaseLifetime, .restorePurchases, .repairPurchaseHistory, .support, .privacy:
+            break
         }
     }
 }
@@ -73,7 +109,7 @@ private struct IOSConnectionHeader: View {
                     Spacer(minLength: 0)
                 }
 
-                if let issue = model.dashboard.recoveryIssue {
+                if let issue = model.dashboard.recoveryIssue, issue.kind != .invalidEntitlementOrProfile {
                     IOSRecoveryBanner(issue: issue) { action in
                         if let onRecoveryAction {
                             onRecoveryAction(action)

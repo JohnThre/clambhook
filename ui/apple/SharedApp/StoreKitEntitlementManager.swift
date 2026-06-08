@@ -13,6 +13,7 @@ final class StoreKitEntitlementManager: ObservableObject {
     @Published private(set) var isLoading = false
     @Published private(set) var statusMessage = ""
     @Published private(set) var purchasingProductIDs: Set<String> = []
+    @Published private(set) var purchaseAvailability: StoreKitAvailability = .unknown
 
     private let defaults: UserDefaults
     private let credentialStore: CredentialStoring
@@ -57,6 +58,7 @@ final class StoreKitEntitlementManager: ObservableObject {
 
     func refreshProducts() async {
         isLoading = true
+        purchaseAvailability = .loading
         defer { isLoading = false }
         do {
             let fetched = try await Product.products(for: MobilePurchaseCatalog.productIDs)
@@ -64,10 +66,16 @@ final class StoreKitEntitlementManager: ObservableObject {
                 fetched.first { $0.id == id }
             }
             if products.isEmpty {
-                statusMessage = "Purchases are not available yet."
+                let message = "Purchases are not available yet."
+                statusMessage = message
+                purchaseAvailability = .unavailable(message)
+            } else {
+                purchaseAvailability = .available
             }
         } catch {
+            let message = error.localizedDescription
             markVerificationFailure(error)
+            purchaseAvailability = .unavailable(message)
         }
     }
 
