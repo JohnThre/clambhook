@@ -8,6 +8,7 @@ ClambHook's end-user iPhone release is distributed only through the Apple App St
 - Premium access and paid feature updates are sold through non-consumable In-App Purchases.
 - Family Sharing is enabled for premium In-App Purchases in App Store Connect.
 - GitHub is source-only for end users.
+- App Store Release builds require privacy-preserving server license validation using App Attest and StoreKit 2 transaction JWS values; see `docs/license-validation.md`.
 
 ## In-App Purchase Products
 

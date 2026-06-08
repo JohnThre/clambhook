@@ -25,6 +25,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
     public var appGroupIdentifier: String
     public var inspectionLockEnabled: Bool
     public var pinnedConnectionIDs: [String]
+    public var licenseValidationEndpoint: URL
 
     public init(
         apiEndpoint: URL = defaultAPIEndpoint,
@@ -38,7 +39,8 @@ public struct AppSettings: Codable, Equatable, Sendable {
         logRetention: Int = maxLogLines,
         appGroupIdentifier: String = defaultAppGroupIdentifier,
         inspectionLockEnabled: Bool = false,
-        pinnedConnectionIDs: [String] = []
+        pinnedConnectionIDs: [String] = [],
+        licenseValidationEndpoint: URL = defaultLicenseValidationURL
     ) {
         self.apiEndpoint = apiEndpoint
         self.daemonBinaryPath = daemonBinaryPath
@@ -52,6 +54,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
         self.appGroupIdentifier = appGroupIdentifier
         self.inspectionLockEnabled = inspectionLockEnabled
         self.pinnedConnectionIDs = pinnedConnectionIDs
+        self.licenseValidationEndpoint = licenseValidationEndpoint
     }
 
     enum CodingKeys: String, CodingKey {
@@ -67,6 +70,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
         case appGroupIdentifier
         case inspectionLockEnabled
         case pinnedConnectionIDs
+        case licenseValidationEndpoint
     }
 
     public init(from decoder: Decoder) throws {
@@ -83,6 +87,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
         self.appGroupIdentifier = try container.decodeIfPresent(String.self, forKey: .appGroupIdentifier) ?? defaultAppGroupIdentifier
         self.inspectionLockEnabled = try container.decodeIfPresent(Bool.self, forKey: .inspectionLockEnabled) ?? false
         self.pinnedConnectionIDs = try container.decodeIfPresent([String].self, forKey: .pinnedConnectionIDs) ?? []
+        self.licenseValidationEndpoint = try container.decodeIfPresent(URL.self, forKey: .licenseValidationEndpoint) ?? defaultLicenseValidationURL
     }
 
     public func normalized() -> AppSettings {
@@ -96,6 +101,9 @@ public struct AppSettings: Codable, Equatable, Sendable {
         copy.logRetention = min(max(copy.logRetention, minLogRetention), maxLogRetention)
         if copy.appGroupIdentifier.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             copy.appGroupIdentifier = defaultAppGroupIdentifier
+        }
+        if !Self.isSupportedAPIEndpoint(copy.licenseValidationEndpoint) {
+            copy.licenseValidationEndpoint = defaultLicenseValidationURL
         }
         copy.pinnedConnectionIDs = Array(Set(copy.pinnedConnectionIDs.map {
             $0.trimmingCharacters(in: .whitespacesAndNewlines)

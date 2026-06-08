@@ -1,4 +1,4 @@
-.PHONY: all build build-clib build-daemon build-tui install install-linux prepare-apple-runtime generate-apple build-apple archive-iphone build-iphone release-macos release-check app-review-release-check package-smoke test-apple test-android build-android-mobile-aar build-ios-mobile-xcframework build-android build-android-release build-android-play-release check-linux-ui-deps test-linux build-linux test e2e e2e-release lint clean
+.PHONY: all build build-clib build-daemon build-tui build-license-server install install-linux prepare-apple-runtime generate-apple build-apple archive-iphone build-iphone release-macos release-check app-review-release-check package-smoke test-apple test-android build-android-mobile-aar build-ios-mobile-xcframework build-android build-android-release build-android-play-release check-linux-ui-deps test-linux build-linux test e2e e2e-release lint clean
 
 export CGO_ENABLED=1
 PREFIX ?= /usr/local
@@ -28,7 +28,11 @@ build-tui: build-clib
 	mkdir -p bin
 	go build -ldflags "$(GO_LDFLAGS)" -o bin/clambhook-tui ./cmd/clambhook-tui
 
-build: build-daemon build-tui
+build-license-server:
+	mkdir -p bin
+	go build -ldflags "$(GO_LDFLAGS)" -o bin/clambhook-license-server ./cmd/clambhook-license-server
+
+build: build-daemon build-tui build-license-server
 
 install: build
 	install -d "$(DESTDIR)$(PREFIX)/bin"
