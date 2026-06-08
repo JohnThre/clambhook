@@ -75,6 +75,7 @@ fun DashboardScreen(
     onConnect: () -> Unit,
     onDisconnect: () -> Unit,
     onProfileSelected: (String) -> Unit,
+    onPolicyGroupSelected: (String, String) -> Unit,
     onOpenSettings: () -> Unit,
     onCreateRule: (RulePayload) -> Unit,
     onCreateRuleFromConnection: (TrafficConnectionPayload, RulePayload) -> Unit,
@@ -95,7 +96,7 @@ fun DashboardScreen(
 
             DashboardDestination.Today -> {
                 item { StatusCard(state, onRefresh, onConnect, onDisconnect) }
-                item { PolicySelectorCard(state) }
+                item { PolicySelectorCard(state, onPolicyGroupSelected) }
                 item { NowActivityCard(state) }
             }
 
@@ -300,7 +301,10 @@ private fun StatusCard(
 }
 
 @Composable
-private fun PolicySelectorCard(state: DashboardState) {
+private fun PolicySelectorCard(
+    state: DashboardState,
+    onPolicyGroupSelected: (String, String) -> Unit
+) {
     val summary = policySelectorSummary(state.policyGroups, state.servers, state.traffic)
     Card(shape = RoundedCornerShape(8.dp)) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -326,8 +330,12 @@ private fun PolicySelectorCard(state: DashboardState) {
                 PolicyCountPill("Block/Reject", summary.blockCount, Icons.Rounded.Stop, MaterialTheme.colorScheme.error)
             }
 
-            if (summary.routes.isEmpty()) {
+            if (state.policyGroups.groups.isEmpty() && summary.routes.isEmpty()) {
                 EmptyState("No route selected", "Add a chain or policy group in Settings.")
+            } else if (state.policyGroups.groups.isNotEmpty()) {
+                state.policyGroups.groups.take(4).forEach { group ->
+                    PolicyGroupSelectorRow(group, onPolicyGroupSelected)
+                }
             } else {
                 summary.routes.take(4).forEach { route ->
                     PolicyRouteRow(route)
@@ -368,6 +376,71 @@ private fun PolicySelectorCard(state: DashboardState) {
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PolicyGroupSelectorRow(
+    group: PolicyGroupPayload,
+    onPolicyGroupSelected: (String, String) -> Unit
+) {
+    val selected = group.selectedChain.ifBlank { group.selected.ifBlank { group.chains.firstOrNull().orEmpty() } }
+    val manual = group.type.equals("select", ignoreCase = true) || group.selectionMode.equals("manual", ignoreCase = true)
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.Top
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(
+                    group.name.ifBlank { "Policy group" },
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    listOf(policyModeText(group), "selected ${selected.ifBlank { "--" }}")
+                        .filter { it.isNotBlank() }
+                        .joinToString(" · "),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            Spacer(Modifier.width(10.dp))
+            PolicyGroupHealthPill(group)
+        }
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            group.chains.forEach { chain ->
+                val result = group.results.firstOrNull { it.chainName == chain }
+                val isSelected = chain == selected
+                AssistChip(
+                    onClick = { if (manual) onPolicyGroupSelected(group.name, chain) },
+                    enabled = manual,
+                    leadingIcon = {
+                        Icon(
+                            when {
+                                isSelected -> Icons.Rounded.CheckCircle
+                                result?.healthy == true -> Icons.Rounded.PlayArrow
+                                result == null -> Icons.Rounded.Refresh
+                                else -> Icons.Rounded.Stop
+                            },
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    },
+                    label = {
+                        Text(
+                            "$chain · ${policyResultText(result)}",
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                )
             }
         }
     }
@@ -466,6 +539,72 @@ private fun PolicyHealthPill(route: PolicySelectorRouteSummary) {
             )
         }
     }
+}
+
+@Composable
+private fun PolicyGroupHealthPill(group: PolicyGroupPayload) {
+    val fallback = policyGroupFallback(group)
+    val tint = when {
+        group.results.isEmpty() -> MaterialTheme.colorScheme.onSurfaceVariant
+        fallback -> MaterialTheme.colorScheme.error
+        else -> MaterialTheme.colorScheme.primary
+    }
+    val icon = when {
+        group.results.isEmpty() -> Icons.Rounded.Refresh
+        fallback -> Icons.Rounded.Stop
+        else -> Icons.Rounded.CheckCircle
+    }
+    Surface(
+        modifier = Modifier.widthIn(max = 180.dp),
+        shape = RoundedCornerShape(999.dp),
+        color = tint.copy(alpha = 0.12f),
+        contentColor = tint
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(icon, contentDescription = null, modifier = Modifier.size(15.dp))
+            Spacer(Modifier.width(6.dp))
+            Text(
+                policyGroupHealthText(group),
+                style = MaterialTheme.typography.labelMedium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+private fun policyModeText(group: PolicyGroupPayload): String =
+    group.selectionMode.ifBlank { group.type }
+        .replace("-", " ")
+        .ifBlank { "policy" }
+
+private fun policyResultText(result: PolicyProbeResultPayload?): String =
+    when {
+        result == null -> "pending"
+        result.healthy && result.latencyNs > 0 -> formatDurationNs(result.latencyNs)
+        result.healthy -> "healthy"
+        result.error.isNotBlank() -> result.error
+        else -> "unhealthy"
+    }
+
+private fun policyGroupHealthText(group: PolicyGroupPayload): String {
+    if (group.results.isEmpty()) return "Pending health"
+    val healthy = group.results.count { it.healthy }
+    val total = group.results.size
+    return if (policyGroupFallback(group)) {
+        "Fallback / $healthy/$total healthy"
+    } else {
+        "Healthy / $healthy/$total"
+    }
+}
+
+private fun policyGroupFallback(group: PolicyGroupPayload): Boolean {
+    if (group.results.isEmpty()) return false
+    val selected = group.selectedChain.ifBlank { group.selected.ifBlank { group.chains.firstOrNull().orEmpty() } }
+    return group.results.firstOrNull { it.chainName == selected }?.healthy != true
 }
 
 @Composable

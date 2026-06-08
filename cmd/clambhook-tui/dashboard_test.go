@@ -236,6 +236,82 @@ func TestLibraryViewShowsPolicyUDPCapability(t *testing.T) {
 	}
 }
 
+func TestLibraryViewShowsPolicyGroupHealthAndFallback(t *testing.T) {
+	m := newModel("127.0.0.1:9090")
+	m.viewMode = viewModeLibrary
+	m.policies = policyGroupsPayload{
+		Profile: "A",
+		Groups: []policyGroupPayload{{
+			Name:          "auto",
+			Type:          "url-test",
+			Chains:        []string{"proxy", "backup"},
+			SelectedChain: "proxy",
+			Results: []policyProbeResultPayload{
+				{ChainName: "proxy", Healthy: false, Error: "timeout"},
+				{ChainName: "backup", Healthy: true, LatencyNs: int64(30 * time.Millisecond), StatusCode: 204},
+			},
+		}},
+	}
+
+	view := m.View()
+	for _, want := range []string{"Policy Groups", "auto", "selected proxy", "Fallback / 1/2 healthy", "backup", "30ms", "timeout"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("library view missing %q:\n%s", want, view)
+		}
+	}
+}
+
+func TestLibraryPolicySelectionSendsSelectionRequest(t *testing.T) {
+	var got struct {
+		Profile string `json:"profile"`
+		Group   string `json:"group"`
+		Chain   string `json:"chain"`
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/policy-groups/selection" || r.Method != http.MethodPut {
+			t.Fatalf("request = %s %s, want PUT policy selection", r.Method, r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		_, _ = w.Write([]byte(`{"policy_groups":{"profile":"A","groups":[{"name":"manual","type":"select","chains":["proxy","backup"],"selected_chain":"backup","selection_mode":"manual"}]}}`))
+	}))
+	defer srv.Close()
+
+	m := newModel("127.0.0.1:9090")
+	m.client = newAPIClientFromBaseURL(srv.URL)
+	m.viewMode = viewModeLibrary
+	m.profiles = profilesPayload{Active: "A"}
+	m.policyFocus = true
+	m.selectedPolicyMember = 1
+	m.policies = policyGroupsPayload{Profile: "A", Groups: []policyGroupPayload{{
+		Name:          "manual",
+		Type:          "select",
+		Chains:        []string{"proxy", "backup"},
+		SelectedChain: "proxy",
+		SelectionMode: "manual",
+	}}}
+
+	_, cmd := m.Update(keyMsg("enter"))
+	if cmd == nil {
+		t.Fatal("enter returned nil command")
+	}
+	msg := cmd()
+	done, ok := msg.(policyGroupsDoneMsg)
+	if !ok {
+		t.Fatalf("message = %T, want policyGroupsDoneMsg", msg)
+	}
+	if done.Err != nil {
+		t.Fatalf("selection error: %v", done.Err)
+	}
+	if got.Profile != "A" || got.Group != "manual" || got.Chain != "backup" {
+		t.Fatalf("request = %+v", got)
+	}
+	if len(done.Policies.Groups) != 1 || done.Policies.Groups[0].SelectedChain != "backup" {
+		t.Fatalf("policies = %+v", done.Policies)
+	}
+}
+
 func TestWindowSizeLimitsRenderedLogLines(t *testing.T) {
 	m := newModel("127.0.0.1:9090")
 	m.viewMode = viewModeActivity

@@ -139,11 +139,12 @@ func TestPolicyGroupSelectionPersistsSelectGroup(t *testing.T) {
 		t.Fatalf("status = %d body=%q, want 200", rec.Code, rec.Body.String())
 	}
 	var resp struct {
-		Profile    string                 `json:"profile"`
-		Group      string                 `json:"group"`
-		Chain      string                 `json:"chain"`
-		BackupPath string                 `json:"backup_path"`
-		Groups     []policy.GroupSnapshot `json:"groups"`
+		Profile      string                 `json:"profile"`
+		Group        string                 `json:"group"`
+		Chain        string                 `json:"chain"`
+		BackupPath   string                 `json:"backup_path"`
+		Groups       []policy.GroupSnapshot `json:"groups"`
+		PolicyGroups policy.Snapshot        `json:"policy_groups"`
 	}
 	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
 		t.Fatal(err)
@@ -153,6 +154,9 @@ func TestPolicyGroupSelectionPersistsSelectGroup(t *testing.T) {
 	}
 	if len(resp.Groups) != 1 || resp.Groups[0].SelectedChain != "backup" || resp.Groups[0].SelectionMode != "manual" {
 		t.Fatalf("policy groups = %+v", resp.Groups)
+	}
+	if resp.PolicyGroups.Profile != "A" || len(resp.PolicyGroups.Groups) != 1 || resp.PolicyGroups.Groups[0].SelectedChain != "backup" {
+		t.Fatalf("nested policy groups = %+v", resp.PolicyGroups)
 	}
 	reloaded, err := config.Load(path)
 	if err != nil {

@@ -40,6 +40,10 @@ class DashboardViewModel(
         viewModelScope.launch { repository.setActiveProfile(name) }
     }
 
+    fun selectPolicyGroup(group: String, chain: String) {
+        viewModelScope.launch { repository.selectPolicyGroup(state.value.activeProfile, group, chain) }
+    }
+
     fun createRule(rule: RulePayload) {
         viewModelScope.launch { repository.createRule(rule) }
     }

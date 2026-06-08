@@ -62,29 +62,33 @@ type model struct {
 	status   statusPayload
 	profiles profilesPayload
 	servers  serversPayload
+	policies policyGroupsPayload
 	traffic  trafficSnapshotPayload
 	dev      developerStatusPayload
 	devRows  []developerEntryPayload
 
-	selectedProfile    int
-	viewMode           viewMode
-	trafficFilter      string
-	searchText         string
-	searchEditing      bool
-	ruleTestInput      string
-	ruleTestEditing    bool
-	ruleTestResult     *ruleTestResponse
-	ruleTestErr        string
-	selectedTraffic    int
-	selectedSuggestion int
-	selectedCleanup    int
-	suggestionFocus    bool
-	cleanupFocus       bool
-	selectedDeveloper  int
-	pendingRule        *pendingRule
-	pendingCleanup     *cleanupSuggestionPayload
-	width              int
-	height             int
+	selectedProfile      int
+	viewMode             viewMode
+	trafficFilter        string
+	searchText           string
+	searchEditing        bool
+	ruleTestInput        string
+	ruleTestEditing      bool
+	ruleTestResult       *ruleTestResponse
+	ruleTestErr          string
+	selectedTraffic      int
+	selectedSuggestion   int
+	selectedCleanup      int
+	suggestionFocus      bool
+	cleanupFocus         bool
+	selectedDeveloper    int
+	selectedPolicyGroup  int
+	selectedPolicyMember int
+	policyFocus          bool
+	pendingRule          *pendingRule
+	pendingCleanup       *cleanupSuggestionPayload
+	width                int
+	height               int
 
 	bandwidth bandwidthSeries
 	logs      []string
@@ -118,6 +122,7 @@ type dashboardLoadedMsg struct {
 	Status    statusPayload
 	Profiles  profilesPayload
 	Servers   serversPayload
+	Policies  policyGroupsPayload
 	Traffic   trafficSnapshotPayload
 	Developer developerStatusPayload
 	DevRows   []developerEntryPayload
@@ -125,9 +130,10 @@ type dashboardLoadedMsg struct {
 }
 
 type statusLoadedMsg struct {
-	Status  statusPayload
-	Traffic trafficSnapshotPayload
-	Err     error
+	Status   statusPayload
+	Policies policyGroupsPayload
+	Traffic  trafficSnapshotPayload
+	Err      error
 }
 
 type developerLoadedMsg struct {
@@ -148,6 +154,11 @@ type actionDoneMsg struct {
 type ruleTestDoneMsg struct {
 	Result ruleTestResponse
 	Err    error
+}
+
+type policyGroupsDoneMsg struct {
+	Policies policyGroupsPayload
+	Err      error
 }
 
 type eventMsg struct {
@@ -441,30 +452,48 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, m.actionCmd(m.client.disconnect)
 		case "[":
-			if m.viewMode != viewModeLibrary {
+			if m.viewMode != viewModeLibrary || m.policyFocus {
 				return m, nil
 			}
 			return m, m.switchProfileCmd(-1)
 		case "]":
-			if m.viewMode != viewModeLibrary {
+			if m.viewMode != viewModeLibrary || m.policyFocus {
 				return m, nil
 			}
 			return m, m.switchProfileCmd(1)
+		case "tab":
+			if m.viewMode != viewModeLibrary {
+				return m, nil
+			}
+			m.policyFocus = !m.policyFocus
+			m.clampPolicySelection()
+			return m, nil
 		case "up", "k":
 			if m.viewMode != viewModeLibrary {
 				return m, nil
 			}
-			m.moveProfileSelection(-1)
+			if m.policyFocus {
+				m.movePolicyMemberSelection(-1)
+			} else {
+				m.moveProfileSelection(-1)
+			}
 			return m, nil
 		case "down", "j":
 			if m.viewMode != viewModeLibrary {
 				return m, nil
 			}
-			m.moveProfileSelection(1)
+			if m.policyFocus {
+				m.movePolicyMemberSelection(1)
+			} else {
+				m.moveProfileSelection(1)
+			}
 			return m, nil
 		case "enter":
 			if m.viewMode != viewModeLibrary {
 				return m, nil
+			}
+			if m.policyFocus {
+				return m, m.applySelectedPolicyCmd()
 			}
 			return m, m.switchSelectedProfileCmd()
 		case "r":
@@ -481,10 +510,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.status = msg.Status
 		m.profiles = msg.Profiles
 		m.servers = msg.Servers
+		m.policies = msg.Policies
 		m.traffic = msg.Traffic
 		m.dev = msg.Developer
 		m.devRows = msg.DevRows
 		m.syncSelectedProfile()
+		m.clampPolicySelection()
 		m.clampTrafficSelection()
 		m.clampCleanupSelection()
 		m.clampSuggestionSelection()
@@ -499,8 +530,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.apiOnline = true
 		m.errText = ""
 		m.status = msg.Status
+		m.policies = msg.Policies
 		m.traffic = msg.Traffic
 		m.syncSelectedProfile()
+		m.clampPolicySelection()
 		m.clampTrafficSelection()
 		m.clampCleanupSelection()
 		m.clampSuggestionSelection()
@@ -538,6 +571,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.ruleTestResult = &msg.Result
 		m.ruleTestErr = ""
+		return m, nil
+	case policyGroupsDoneMsg:
+		if msg.Err != nil {
+			m.errText = msg.Err.Error()
+			return m, nil
+		}
+		m.errText = ""
+		m.policies = msg.Policies
+		m.clampPolicySelection()
 		return m, nil
 	case eventMsg:
 		needsRefresh := m.applyEvent(msg.Event)
@@ -632,10 +674,11 @@ func (m model) libraryView() string {
 	}
 	sections = append(sections,
 		m.renderProfileListenerSections(width),
+		m.renderPolicyGroupsSection(width),
 		m.renderServersSection(width),
 		m.renderFooter(
-			"Keys: [ prev profile  ] next profile  enter switch  r refresh  1 now  2 activity  5 developer  q quit",
-			"Keys: [/] profile  enter  r  1 now  2 activity  5 dev  q",
+			"Keys: tab policy focus  [ prev profile  ] next profile  up/down select  enter apply/test  r refresh  1 now  2 activity  5 developer  q quit",
+			"Keys: tab focus  [/] profile  up/down  enter  r  1 now  2 activity  q",
 		),
 	)
 	return joinSections(sections)
@@ -933,6 +976,55 @@ func (m model) renderServersSection(width int) string {
 	return renderSection("Proxy Policies", m.serverLines(width))
 }
 
+func (m model) renderPolicyGroupsSection(width int) string {
+	return renderSection("Policy Groups", m.policyGroupLines(width))
+}
+
+func (m model) policyGroupLines(width int) []string {
+	if len(m.policies.Groups) == 0 {
+		return emptyStateLines("No policy groups", "Routes use static chains in this profile.", width)
+	}
+	lines := make([]string, 0)
+	for gi, group := range m.policies.Groups {
+		selected := selectedPolicyChain(group)
+		prefix := " "
+		if m.policyFocus && gi == m.selectedPolicyGroup {
+			prefix = "›"
+		}
+		header := fmt.Sprintf("%s %s  %s  selected %s  %s",
+			prefix,
+			group.Name,
+			policyModeText(group),
+			emptyDash(selected),
+			policyGroupHealthText(group),
+		)
+		if m.policyFocus && gi == m.selectedPolicyGroup {
+			lines = append(lines, selectedLineStyle.Render(truncate(header, width)))
+		} else {
+			lines = append(lines, tableHeaderStyle.Render(truncate(header, width)))
+		}
+		for mi, chainName := range group.Chains {
+			marker := " "
+			if chainName == selected {
+				marker = "*"
+			}
+			if m.policyFocus && gi == m.selectedPolicyGroup && mi == m.selectedPolicyMember {
+				marker = ">"
+			}
+			result, ok := policyResultFor(group, chainName)
+			line := fmt.Sprintf("  %s %-18s %s", marker, chainName, policyResultText(result, ok))
+			if m.policyFocus && gi == m.selectedPolicyGroup && mi == m.selectedPolicyMember {
+				lines = append(lines, activeLineStyle.Render(truncate(line, width)))
+			} else if !ok || !result.Healthy {
+				lines = append(lines, subtleStyle.Render(truncate(line, width)))
+			} else {
+				lines = append(lines, truncate(line, width))
+			}
+		}
+	}
+	return lines
+}
+
 func (m model) serverLines(width int) []string {
 	if len(m.servers.Chains) == 0 {
 		return emptyStateLines("No servers in this profile", "Add a chain and server to the active profile.", width)
@@ -992,6 +1084,76 @@ func udpSummary(caps protocolCapabilitiesPayload) string {
 		return "UDP unsupported: " + caps.UDPReason
 	}
 	return "UDP unsupported"
+}
+
+func policyModeText(group policyGroupPayload) string {
+	mode := strings.TrimSpace(group.SelectionMode)
+	if mode == "" {
+		mode = strings.TrimSpace(group.Type)
+	}
+	if mode == "" {
+		return "policy"
+	}
+	return strings.ReplaceAll(mode, "-", " ")
+}
+
+func selectedPolicyChain(group policyGroupPayload) string {
+	if strings.TrimSpace(group.SelectedChain) != "" {
+		return group.SelectedChain
+	}
+	if strings.TrimSpace(group.Selected) != "" {
+		return group.Selected
+	}
+	if len(group.Chains) > 0 {
+		return group.Chains[0]
+	}
+	return ""
+}
+
+func policyResultFor(group policyGroupPayload, chainName string) (policyProbeResultPayload, bool) {
+	for _, result := range group.Results {
+		if result.ChainName == chainName {
+			return result, true
+		}
+	}
+	return policyProbeResultPayload{}, false
+}
+
+func policyGroupHealthText(group policyGroupPayload) string {
+	if len(group.Results) == 0 {
+		return "Pending health"
+	}
+	selected := selectedPolicyChain(group)
+	healthy := 0
+	for _, result := range group.Results {
+		if result.Healthy {
+			healthy++
+		}
+	}
+	if result, ok := policyResultFor(group, selected); ok && result.Healthy {
+		return fmt.Sprintf("Healthy / %d/%d", healthy, len(group.Results))
+	}
+	return fmt.Sprintf("Fallback / %d/%d healthy", healthy, len(group.Results))
+}
+
+func policyResultText(result policyProbeResultPayload, ok bool) string {
+	if !ok {
+		return "pending"
+	}
+	if result.Healthy {
+		parts := []string{"healthy"}
+		if result.LatencyNs > 0 {
+			parts = append(parts, formatDurationNs(result.LatencyNs))
+		}
+		if result.StatusCode > 0 {
+			parts = append(parts, fmt.Sprintf("HTTP %d", result.StatusCode))
+		}
+		return strings.Join(parts, "  ")
+	}
+	if result.Error != "" {
+		return "error  " + result.Error
+	}
+	return "unhealthy"
 }
 
 func (m model) renderBandwidthSection(width int) string {
@@ -1770,6 +1932,10 @@ func (m model) loadDashboardCmd() tea.Cmd {
 		if err != nil {
 			return dashboardLoadedMsg{Err: err}
 		}
+		policies, err := client.policyGroups()
+		if err != nil {
+			return dashboardLoadedMsg{Err: err}
+		}
 		traffic, err := client.traffic()
 		if err != nil {
 			return dashboardLoadedMsg{Err: err}
@@ -1778,7 +1944,7 @@ func (m model) loadDashboardCmd() tea.Cmd {
 		if err != nil {
 			return dashboardLoadedMsg{Err: err}
 		}
-		return dashboardLoadedMsg{Status: status, Profiles: profiles, Servers: servers, Traffic: traffic, Developer: dev, DevRows: devRows}
+		return dashboardLoadedMsg{Status: status, Profiles: profiles, Servers: servers, Policies: policies, Traffic: traffic, Developer: dev, DevRows: devRows}
 	}
 }
 
@@ -1789,8 +1955,12 @@ func (m model) loadStatusCmd() tea.Cmd {
 		if err != nil {
 			return statusLoadedMsg{Err: err}
 		}
+		policies, err := client.policyGroups()
+		if err != nil {
+			return statusLoadedMsg{Err: err}
+		}
 		traffic, err := client.traffic()
-		return statusLoadedMsg{Status: status, Traffic: traffic, Err: err}
+		return statusLoadedMsg{Status: status, Policies: policies, Traffic: traffic, Err: err}
 	}
 }
 
@@ -1832,6 +2002,25 @@ func (m model) ruleTestCmd(network, target string) tea.Cmd {
 	return func() tea.Msg {
 		result, err := client.testRule(network, target)
 		return ruleTestDoneMsg{Result: result, Err: err}
+	}
+}
+
+func (m model) applySelectedPolicyCmd() tea.Cmd {
+	group, chainName, ok := m.selectedPolicyChainName()
+	if !ok {
+		return nil
+	}
+	client := m.client
+	profile := m.activeProfile()
+	if strings.EqualFold(group.Type, "select") || strings.EqualFold(group.SelectionMode, "manual") {
+		return func() tea.Msg {
+			policies, err := client.selectPolicyGroup(profile, group.Name, chainName)
+			return policyGroupsDoneMsg{Policies: policies, Err: err}
+		}
+	}
+	return func() tea.Msg {
+		policies, err := client.testPolicyGroup(group.Name)
+		return policyGroupsDoneMsg{Policies: policies, Err: err}
 	}
 }
 
@@ -1917,6 +2106,70 @@ func (m *model) moveProfileSelection(delta int) {
 		return
 	}
 	m.selectedProfile = (m.selectedProfile + delta + len(m.profiles.Profiles)) % len(m.profiles.Profiles)
+}
+
+func (m *model) movePolicyMemberSelection(delta int) {
+	group, ok := m.selectedPolicyGroupPayload()
+	if !ok || len(group.Chains) == 0 {
+		m.selectedPolicyMember = 0
+		return
+	}
+	m.selectedPolicyMember = (m.selectedPolicyMember + delta + len(group.Chains)) % len(group.Chains)
+}
+
+func (m *model) clampPolicySelection() {
+	if len(m.policies.Groups) == 0 {
+		m.selectedPolicyGroup = 0
+		m.selectedPolicyMember = 0
+		m.policyFocus = false
+		return
+	}
+	if m.selectedPolicyGroup < 0 {
+		m.selectedPolicyGroup = 0
+	}
+	if m.selectedPolicyGroup >= len(m.policies.Groups) {
+		m.selectedPolicyGroup = len(m.policies.Groups) - 1
+	}
+	group := m.policies.Groups[m.selectedPolicyGroup]
+	if len(group.Chains) == 0 {
+		m.selectedPolicyMember = 0
+		return
+	}
+	if m.selectedPolicyMember < 0 {
+		m.selectedPolicyMember = 0
+	}
+	if m.selectedPolicyMember >= len(group.Chains) {
+		m.selectedPolicyMember = len(group.Chains) - 1
+	}
+}
+
+func (m model) selectedPolicyGroupPayload() (policyGroupPayload, bool) {
+	if len(m.policies.Groups) == 0 {
+		return policyGroupPayload{}, false
+	}
+	idx := m.selectedPolicyGroup
+	if idx < 0 {
+		idx = 0
+	}
+	if idx >= len(m.policies.Groups) {
+		idx = len(m.policies.Groups) - 1
+	}
+	return m.policies.Groups[idx], true
+}
+
+func (m model) selectedPolicyChainName() (policyGroupPayload, string, bool) {
+	group, ok := m.selectedPolicyGroupPayload()
+	if !ok || len(group.Chains) == 0 {
+		return policyGroupPayload{}, "", false
+	}
+	idx := m.selectedPolicyMember
+	if idx < 0 {
+		idx = 0
+	}
+	if idx >= len(group.Chains) {
+		idx = len(group.Chains) - 1
+	}
+	return group, group.Chains[idx], true
 }
 
 func (m model) activeProfile() string {

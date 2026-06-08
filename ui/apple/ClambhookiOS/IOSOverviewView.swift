@@ -527,7 +527,13 @@ private struct IOSRouteStatusPanel: View {
                 IOSStatusBadge(text: "\(model.dashboard.rules.rules.count) rules", systemImage: "slider.horizontal.3", tint: .blue)
             }
 
-            CompactPolicySelectorView(summary: model.dashboard.policySelectorSummary)
+            CompactPolicySelectorView(
+                summary: model.dashboard.policySelectorSummary,
+                groups: model.dashboard.policyGroups.groups,
+                onSelect: { group, chain in
+                    model.selectPolicyGroup(group: group, chain: chain)
+                }
+            )
         }
     }
 

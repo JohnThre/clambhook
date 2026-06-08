@@ -171,6 +171,33 @@ final class DashboardStoreTests: XCTestCase {
         XCTAssertEqual(payload.networkSettings.httpProxy, TunnelProxyPayload(host: "127.0.0.1", port: 18080))
     }
 
+    func testTunnelPolicyGroupSelectionEditorUpdatesManualGroup() throws {
+        let url = temporaryURL("policy-selection.toml")
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try """
+        active = "A"
+
+        [[profile]]
+        name = "A"
+
+          [[profile.policy_group]]
+          name = "manual"
+          type = "select"
+          chains = ["proxy", "backup"]
+          selected = "proxy"
+        """.write(to: url, atomically: true, encoding: .utf8)
+
+        try updateTunnelPolicyGroupSelection(
+            configPath: url.path,
+            profileName: "A",
+            groupName: "manual",
+            chainName: "backup"
+        )
+
+        let text = try String(contentsOf: url, encoding: .utf8)
+        XCTAssertTrue(text.contains(#"selected = "backup""#))
+    }
+
     func testApplyConnectionBytesKeepsLatestSamplesAndSnapshotRates() async throws {
         let snapshotURL = temporaryURL("bandwidth-snapshot.json")
         let snapshotStore = FileSnapshotStore(fileURL: snapshotURL)
@@ -281,6 +308,7 @@ private class FakeAPIClient: ClambhookAPIProviding {
     private(set) var connectCalls = 0
     private(set) var disconnectCalls = 0
     private(set) var selectedProfiles: [String] = []
+    private(set) var selectedPolicyGroups: [(profile: String, group: String, chain: String)] = []
     private(set) var statusCalls = 0
     private(set) var profilesCalls = 0
     private(set) var serversCalls = 0
@@ -332,6 +360,11 @@ private class FakeAPIClient: ClambhookAPIProviding {
 
     func setActiveProfile(_ name: String) async throws {
         selectedProfiles.append(name)
+    }
+
+    func selectPolicyGroup(profile: String, group: String, chain: String) async throws -> PolicyGroupsPayload {
+        selectedPolicyGroups.append((profile, group, chain))
+        return policyGroupsResult
     }
 }
 

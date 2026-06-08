@@ -114,6 +114,18 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                     try runtime.setActiveProfile(profile)
                 }
                 json = try mobileString { runtime.dashboardJSON($0) }
+            case .selectPolicyGroup:
+                if let group = command.group, let chain = command.chain {
+                    let configPath = tunnelConfigPath(options: nil)
+                    try updateTunnelPolicyGroupSelection(
+                        configPath: configPath,
+                        profileName: command.profile ?? "",
+                        groupName: group,
+                        chainName: chain
+                    )
+                    try runtime.reload(configPath)
+                }
+                json = try mobileString { runtime.dashboardJSON($0) }
             case .developerStatus:
                 json = #"{"enabled":false}"#
             case .developerEntries:
