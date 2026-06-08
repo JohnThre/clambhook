@@ -143,6 +143,7 @@ reject_text "$DEMO_TEMPLATE" "hunter2" "demo profile template"
 reject_text "$DEMO_TEMPLATE" "secret-token" "demo profile template"
 
 require_text "$ROOT_DIR/docs/app-store/metadata-en-US.md" "premium access and paid feature updates" "App Store metadata"
+require_text "$ROOT_DIR/docs/app-store/metadata-en-US.md" "One-time unlock includes features released through DATE. Paid updates unlock later feature releases. Bug fixes/security fixes remain included." "App Store metadata"
 require_text "$ROOT_DIR/docs/app-store/metadata-en-US.md" "v1 inspection is metadata-only" "App Store metadata"
 require_text "$ROOT_DIR/docs/app-store/metadata-en-US.md" "United States only" "App Store metadata"
 reject_text "$ROOT_DIR/docs/app-store/metadata-en-US.md" "support purchases do not unlock features" "App Store metadata"
@@ -150,12 +151,14 @@ reject_text "$ROOT_DIR/docs/app-store/metadata-en-US.md" "Support purchases do n
 
 require_text "$ROOT_DIR/docs/app-store/review-notes.md" "ClambHook does not sell, use, or disclose VPN traffic data to third parties." "App Review notes"
 require_text "$ROOT_DIR/docs/app-store/review-notes.md" "v1 inspection is metadata-only" "App Review notes"
+require_text "$ROOT_DIR/docs/app-store/review-notes.md" "Existing purchased features remain enabled forever." "App Review notes"
 require_text "$ROOT_DIR/docs/app-store/review-notes.md" "Territory plan: \`docs/app-store/territory-plan.md\`" "App Review notes"
 reject_text "$ROOT_DIR/docs/app-store/review-notes.md" "support purchases do not unlock features" "App Review notes"
 
 require_text "$ROOT_DIR/docs/app-store/privacy.md" "does not sell, use, or disclose VPN traffic data to third parties" "privacy policy"
 require_text "$ROOT_DIR/docs/app-store/territory-plan.md" "United States only" "territory plan"
 require_text "$ROOT_DIR/docs/distribution.md" "Premium access and paid feature updates are sold through non-consumable In-App Purchases." "distribution policy"
+require_text "$ROOT_DIR/docs/distribution.md" "Existing purchased features remain enabled forever" "distribution policy"
 
 verify_source_entitlements "iOS app" "$ROOT_DIR/ui/apple/ClambhookiOS/ClambhookiOS.entitlements"
 verify_source_entitlements "packet tunnel" "$ROOT_DIR/ui/apple/ClambhookPacketTunnel/ClambhookPacketTunnel.entitlements"

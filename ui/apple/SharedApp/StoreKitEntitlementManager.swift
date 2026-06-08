@@ -16,7 +16,6 @@ final class StoreKitEntitlementManager: ObservableObject {
 
     private let defaults: UserDefaults
     private let credentialStore: CredentialStoring
-    private let trialAccount = "trial-start-date"
     private var transactionUpdatesTask: Task<Void, Never>?
     private var started = false
 
@@ -158,19 +157,7 @@ final class StoreKitEntitlementManager: ObservableObject {
     }
 
     private func ensureTrialStarted(now: Date = Date()) {
-        var next = snapshot
-        if let stored = try? credentialStore.readToken(account: trialAccount),
-           let date = Self.dateFormatter.date(from: stored) {
-            next.trialStartDate = date
-        } else if let existing = snapshot.trialStartDate {
-            try? credentialStore.saveToken(Self.dateFormatter.string(from: existing), account: trialAccount)
-            next.trialStartDate = existing
-        } else {
-            try? credentialStore.saveToken(Self.dateFormatter.string(from: now), account: trialAccount)
-            next.trialStartDate = now
-        }
-        next.cachedAt = now
-        save(next)
+        save(MobileLicenseTrialStore.resolvedSnapshot(snapshot: snapshot, credentialStore: credentialStore, now: now))
     }
 
     private func applyVerifiedTransactions(_ transactions: [MobileLicenseTransaction], message: String) {
@@ -219,14 +206,9 @@ final class StoreKitEntitlementManager: ObservableObject {
         MobileLicenseTransaction(
             productID: transaction.productID,
             purchaseDate: transaction.purchaseDate,
-            revocationDate: transaction.revocationDate
+            revocationDate: transaction.revocationDate,
+            ownershipType: transaction.ownershipType == .familyShared ? .familyShared : .purchased
         )
     }
-
-    private static let dateFormatter: ISO8601DateFormatter = {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return formatter
-    }()
 }
 #endif
