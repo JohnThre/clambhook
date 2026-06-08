@@ -16,16 +16,23 @@ final class StoreKitEntitlementManager: ObservableObject {
 
     private let defaults: UserDefaults
     private let credentialStore: CredentialStoring
+    private let licenseClient: LicenseValidationClient
     private var transactionUpdatesTask: Task<Void, Never>?
     private var started = false
 
     init(
         defaults: UserDefaults = UserDefaults(suiteName: defaultAppGroupIdentifier) ?? .standard,
-        credentialStore: CredentialStoring = KeychainCredentialStore(service: "org.jpfchang.clambhook.license")
+        credentialStore: CredentialStoring = KeychainCredentialStore(service: "org.jpfchang.clambhook.license"),
+        licenseValidationEndpoint: URL = defaultLicenseValidationURL
     ) {
         self.defaults = defaults
         self.credentialStore = credentialStore
-        let initialSnapshot = MobileLicenseSnapshotStore.load(defaults: defaults)
+        self.licenseClient = LicenseValidationClient(
+            endpoint: licenseValidationEndpoint,
+            defaults: defaults,
+            credentialStore: credentialStore
+        )
+        let initialSnapshot = Self.initialSnapshot(defaults: defaults)
         self.snapshot = initialSnapshot
         self.decision = MobileLicenseEvaluator.evaluate(snapshot: initialSnapshot)
     }
@@ -40,7 +47,7 @@ final class StoreKitEntitlementManager: ObservableObject {
             return
         }
         started = true
-        ensureTrialStarted()
+        ensureLocalTrialStartedForDebugBuilds()
         observeTransactionUpdates()
         Task {
             await refreshProducts()
@@ -67,12 +74,14 @@ final class StoreKitEntitlementManager: ObservableObject {
     func refreshCurrentEntitlements() async {
         do {
             var transactions: [MobileLicenseTransaction] = []
+            var transactionJWS: [String] = []
             for await result in Transaction.currentEntitlements {
                 if let transaction = verifiedTransaction(from: result) {
                     transactions.append(licenseTransaction(from: transaction))
+                    transactionJWS.append(result.jwsRepresentation)
                 }
             }
-            applyVerifiedTransactions(transactions, message: "Purchases refreshed.")
+            await applyServerValidation(localTransactions: transactions, transactionJWS: transactionJWS, message: "Purchases refreshed.")
         } catch {
             markVerificationFailure(error)
         }
@@ -83,7 +92,7 @@ final class StoreKitEntitlementManager: ObservableObject {
         statusMessage = ""
         defer { purchasingProductIDs.remove(product.id) }
         do {
-            let result = try await product.purchase()
+            let result = try await product.purchase(options: licenseClient.purchaseOptions())
             switch result {
             case .success(let verification):
                 guard let transaction = verifiedTransaction(from: verification) else {
@@ -121,13 +130,15 @@ final class StoreKitEntitlementManager: ObservableObject {
         defer { isLoading = false }
         do {
             var transactions: [MobileLicenseTransaction] = []
+            var transactionJWS: [String] = []
             for await result in Transaction.all {
                 if let transaction = verifiedTransaction(from: result),
                    MobilePurchaseCatalog.productKind(for: transaction.productID) != .unknown {
                     transactions.append(licenseTransaction(from: transaction))
+                    transactionJWS.append(result.jwsRepresentation)
                 }
             }
-            applyVerifiedTransactions(transactions, message: "Purchase history repaired.")
+            await applyServerValidation(localTransactions: transactions, transactionJWS: transactionJWS, message: "Purchase history repaired.")
         } catch {
             markVerificationFailure(error)
         }
@@ -156,8 +167,34 @@ final class StoreKitEntitlementManager: ObservableObject {
         await repairPurchaseHistory()
     }
 
-    private func ensureTrialStarted(now: Date = Date()) {
+    private func ensureLocalTrialStartedForDebugBuilds(now: Date = Date()) {
+        #if DEBUG
         save(MobileLicenseTrialStore.resolvedSnapshot(snapshot: snapshot, credentialStore: credentialStore, now: now))
+        #endif
+    }
+
+    private func applyServerValidation(localTransactions transactions: [MobileLicenseTransaction], transactionJWS: [String], message: String) async {
+        do {
+            let response = try await licenseClient.refreshGrant(transactionJWS: transactionJWS)
+            MobileServerLicenseGrantStore.save(response.grant, defaults: defaults)
+            var next = response.snapshot.licenseSnapshot
+            if next.transactions.isEmpty, !transactions.isEmpty {
+                next.transactions = transactions
+            }
+            let now = Date()
+            next.lastVerifiedAt = now
+            next.lastVerificationFailedAt = nil
+            next.cachedAt = now
+            save(next)
+            statusMessage = message
+            return
+        } catch {
+            #if DEBUG
+            applyVerifiedTransactions(transactions, message: "\(message) Local debug license fallback is active.")
+            #else
+            markVerificationFailure(error)
+            #endif
+        }
     }
 
     private func applyVerifiedTransactions(_ transactions: [MobileLicenseTransaction], message: String) {
@@ -209,6 +246,19 @@ final class StoreKitEntitlementManager: ObservableObject {
             revocationDate: transaction.revocationDate,
             ownershipType: transaction.ownershipType == .familyShared ? .familyShared : .purchased
         )
+    }
+
+    private static func initialSnapshot(defaults: UserDefaults) -> MobileLicenseSnapshot {
+        if let grant = MobileServerLicenseGrantStore.load(defaults: defaults), grant.expiresAt > Date() {
+            return MobileLicenseSnapshot(
+                trialStartDate: grant.trialStartDate,
+                transactions: grant.transactions,
+                lastVerifiedAt: grant.issuedAt,
+                lastVerificationFailedAt: nil,
+                cachedAt: grant.issuedAt
+            )
+        }
+        return MobileLicenseSnapshotStore.load(defaults: defaults)
     }
 }
 #endif

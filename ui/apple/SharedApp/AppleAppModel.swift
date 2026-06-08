@@ -87,7 +87,8 @@ final class AppleAppModel: ObservableObject {
         #if os(iOS)
         self.licenseManager = StoreKitEntitlementManager(
             defaults: UserDefaults(suiteName: settingsStore.settings.appGroupIdentifier) ?? .standard,
-            credentialStore: KeychainCredentialStore(service: "org.jpfchang.clambhook.license")
+            credentialStore: KeychainCredentialStore(service: "org.jpfchang.clambhook.license"),
+            licenseValidationEndpoint: settingsStore.settings.licenseValidationEndpoint
         )
         #endif
         let initialToken = (try? credentialStore.readToken(account: settingsStore.settings.apiEndpoint.absoluteString)) ?? ""
