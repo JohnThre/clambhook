@@ -11,13 +11,14 @@ struct IOSActivityView: View {
     @State private var pendingCleanup: TrafficCleanupSuggestionPayload?
 
     var body: some View {
-        List {
-            Section(logbookOnly ? "History" : "Now") {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 12) {
+            IOSConsoleSection(logbookOnly ? "History" : "Now") {
                 IOSTrafficSummaryView(traffic: model.dashboard.traffic)
-                    .listRowInsets(EdgeInsets(top: 10, leading: 16, bottom: 10, trailing: 16))
             }
 
-            Section {
+                IOSConsoleSection("Filters", detail: mode.title) {
+                    VStack(spacing: 8) {
                 Picker("Activity", selection: $mode) {
                     ForEach(IOSActivityMode.allCases) { mode in
                         Text(mode.title).tag(mode)
@@ -41,9 +42,10 @@ struct IOSActivityView: View {
                     .pickerStyle(.segmented)
                 }
             }
+                }
 
             if mode == .connections {
-                Section("Connections") {
+                    IOSConsoleSection("Connections", detail: "\(filteredConnections.count) rows") {
                     if filteredConnections.isEmpty {
                         ContentUnavailableView(
                             "No matching activity",
@@ -51,73 +53,89 @@ struct IOSActivityView: View {
                             description: Text("Connection decisions appear here.")
                         )
                     } else {
-                        ForEach(filteredConnections) { connection in
-                            NavigationLink {
-                                IOSActivityConnectionDetailView(model: model, connection: connection)
-                            } label: {
-                                IOSActivityConnectionRow(connection: connection, pinned: model.isConnectionPinned(connection))
-                            }
-                            .swipeActions(edge: .leading) {
-                                Button {
-                                    model.togglePinned(connection)
-                                } label: {
-                                    Label(model.isConnectionPinned(connection) ? "Unpin" : "Pin", systemImage: model.isConnectionPinned(connection) ? "pin.slash" : "pin")
+                            VStack(spacing: 8) {
+                                ForEach(filteredConnections) { connection in
+                                    NavigationLink {
+                                        IOSActivityConnectionDetailView(model: model, connection: connection)
+                                    } label: {
+                                        IOSActivityConnectionRow(
+                                            connection: connection,
+                                            pinned: model.isConnectionPinned(connection),
+                                            onTogglePin: { model.togglePinned(connection) }
+                                        )
+                                    }
+                                    .buttonStyle(.plain)
                                 }
-                                .tint(.yellow)
                             }
                         }
                     }
-                }
                 if !model.dashboard.ruleHitSummaries.isEmpty {
-                    Section("Rule Hits") {
-                        ForEach(model.dashboard.ruleHitSummaries.prefix(8)) { hit in
-                            HStack {
-                                IOSActionChip(action: hit.action)
-                                Text(hit.ruleName.isEmpty ? "Default" : hit.ruleName)
-                                Spacer()
-                                Text("\(hit.count)")
-                                    .foregroundStyle(.secondary)
+                        IOSConsoleSection("Rule Hits", detail: "\(model.dashboard.ruleHitSummaries.count) rules") {
+                            VStack(spacing: 6) {
+                                ForEach(model.dashboard.ruleHitSummaries.prefix(8)) { hit in
+                                    HStack {
+                                        IOSActionChip(action: hit.action)
+                                        Text(hit.ruleName.isEmpty ? "Default" : hit.ruleName)
+                                            .font(.caption.weight(.semibold))
+                                            .lineLimit(1)
+                                        Spacer()
+                                        Text("\(hit.count)")
+                                            .font(.caption.monospacedDigit())
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
                             }
                         }
                     }
-                }
                 if !model.dashboard.traffic.blockDecisions.isEmpty {
-                    Section("Blocked") {
-                        ForEach(model.dashboard.traffic.blockDecisions.prefix(8)) { decision in
-                            HStack {
-                                IOSActionChip(action: decision.action)
-                                VStack(alignment: .leading) {
-                                    Text(emptyDash(decision.targetHost.isEmpty ? decision.target : decision.targetHost))
-                                    Text([decision.profile, decision.ruleName, decision.network].filter { !$0.isEmpty }.joined(separator: " / "))
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
+                        IOSConsoleSection("Blocked", detail: "\(model.dashboard.traffic.blockDecisions.count) recent") {
+                            VStack(spacing: 6) {
+                                ForEach(model.dashboard.traffic.blockDecisions.prefix(8)) { decision in
+                                    HStack(alignment: .top, spacing: 10) {
+                                        IOSActionChip(action: decision.action)
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(emptyDash(decision.targetHost.isEmpty ? decision.target : decision.targetHost))
+                                                .font(.caption.weight(.semibold))
+                                                .lineLimit(1)
+                                            Text([decision.profile, decision.ruleName, decision.network].filter { !$0.isEmpty }.joined(separator: " / "))
+                                                .font(.caption2)
+                                                .foregroundStyle(.secondary)
+                                                .lineLimit(1)
+                                        }
+                                        Spacer(minLength: 0)
+                                    }
                                 }
                             }
                         }
                     }
-                }
                 if !model.dashboard.traffic.cleanupSuggestions.isEmpty {
-                    Section("Rule Cleanup") {
-                        ForEach(model.dashboard.traffic.cleanupSuggestions.prefix(6)) { suggestion in
-                            HStack(alignment: .top, spacing: 12) {
-                                VStack(alignment: .leading, spacing: 3) {
-                                    Text(cleanupTargetName(suggestion))
-                                        .fontWeight(.medium)
-                                    Text(suggestion.message)
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
+                        IOSConsoleSection("Rule Cleanup", detail: "\(model.dashboard.traffic.cleanupSuggestions.count) suggestions") {
+                            VStack(spacing: 8) {
+                                ForEach(model.dashboard.traffic.cleanupSuggestions.prefix(6)) { suggestion in
+                                    HStack(alignment: .top, spacing: 10) {
+                                        VStack(alignment: .leading, spacing: 3) {
+                                            Text(cleanupTargetName(suggestion))
+                                                .font(.caption.weight(.semibold))
+                                                .lineLimit(1)
+                                            Text(suggestion.message)
+                                                .font(.caption2)
+                                                .foregroundStyle(.secondary)
+                                                .lineLimit(2)
+                                        }
+                                        Spacer(minLength: 8)
+                                        Button(cleanupActionTitle(suggestion)) {
+                                            pendingCleanup = suggestion
+                                        }
+                                        .buttonStyle(.bordered)
+                                        .controlSize(.small)
+                                        .disabled(suggestion.operation.isEmpty)
+                                    }
                                 }
-                                Spacer(minLength: 8)
-                                Button(cleanupActionTitle(suggestion)) {
-                                    pendingCleanup = suggestion
-                                }
-                                .disabled(suggestion.operation.isEmpty)
                             }
                         }
                     }
-                }
             } else {
-                Section("Logs") {
+                    IOSConsoleSection("Logs", detail: "\(filteredLogs.count) lines") {
                     if filteredLogs.isEmpty {
                         ContentUnavailableView(
                             "No matching logs",
@@ -125,14 +143,19 @@ struct IOSActivityView: View {
                             description: Text("Recent events appear here.")
                         )
                     } else {
-                        ForEach(Array(filteredLogs.enumerated()), id: \.offset) { _, line in
-                            IOSActivityLogLineRow(line: line)
+                            VStack(spacing: 6) {
+                                ForEach(Array(filteredLogs.enumerated()), id: \.offset) { _, line in
+                                    IOSActivityLogLineRow(line: line)
+                                }
+                            }
                         }
                     }
                 }
             }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
         }
-        .listStyle(.insetGrouped)
+        .background(Color(.systemGroupedBackground))
         .searchable(text: $searchText, prompt: mode.searchPrompt)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
@@ -323,6 +346,7 @@ private func cleanupActionTitle(_ suggestion: TrafficCleanupSuggestionPayload) -
 private struct IOSActivityConnectionRow: View {
     var connection: TrafficConnectionPayload
     var pinned: Bool
+    var onTogglePin: () -> Void
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -351,8 +375,17 @@ private struct IOSActivityConnectionRow: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
+            Spacer(minLength: 8)
+            Button(action: onTogglePin) {
+                Image(systemName: pinned ? "pin.slash.fill" : "pin.fill")
+                    .frame(width: 28, height: 28)
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .accessibilityLabel(pinned ? "Unpin connection" : "Pin connection")
         }
-        .padding(.vertical, 2)
+        .padding(10)
+        .background(Color(.tertiarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
     }
 }
 

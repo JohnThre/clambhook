@@ -13,9 +13,10 @@ struct IOSRulesView: View {
     @State private var routeTestError = ""
 
     var body: some View {
-        List {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 12) {
             if model.dashboard.activeProfile.isEmpty {
-                Section {
+                IOSConsoleSection("Profile") {
                     ContentUnavailableView(
                         "No active profile",
                         systemImage: "person.crop.rectangle.stack",
@@ -23,81 +24,76 @@ struct IOSRulesView: View {
                     )
                 }
             } else {
-                Section("Profile") {
-                    Text(model.dashboard.activeProfile)
-                        .font(.body.weight(.medium))
+                    IOSConsoleSection("Profile", detail: model.dashboard.activeProfile) {
+                        IOSConsoleMetricStrip(metrics: [
+                            IOSConsoleMetric(title: "Manual", value: "\(model.dashboard.rules.rules.count)"),
+                            IOSConsoleMetric(title: "Effective", value: "\(model.dashboard.rules.routeTestRules.count)"),
+                            IOSConsoleMetric(title: "Rule sets", value: "\(ruleSetRows.count)"),
+                            IOSConsoleMetric(title: "Chains", value: "\(chainNames.count)"),
+                        ])
+                    }
                 }
-            }
 
-            Section("Order") {
-                Label("Top to bottom", systemImage: "arrow.down")
-                Label("First match wins", systemImage: "checkmark.seal")
-                Label("FINAL catches unmatched traffic", systemImage: "flag.checkered")
-            }
-
-            Section("Matchers") {
-                Text("DOMAIN / DOMAIN-SUFFIX / DOMAIN-KEYWORD / IP-CIDR / NETWORK")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                LabeledContent("GEOIP", value: "Unavailable")
-            }
-
-            Section("Rules") {
+                IOSConsoleSection("Rules", detail: "\(editableRows.count) editable") {
                 if editableRows.isEmpty {
                     IOSInlineEmptyState(text: "No manual routing rules.", systemImage: "checklist")
                 } else {
-                    ForEach(Array(editableRows.enumerated()), id: \.element.id) { index, row in
-                        NavigationLink {
-                            IOSRuleFormView(
-                                row: binding(for: row.id),
-                                chainNames: chainNames,
-                                rowNumber: index + 1
-                            )
-                        } label: {
-                            IOSRuleDraftRow(
-                                row: row,
-                                order: index + 1,
-                                error: firstError(for: row.id)
-                            )
+                        VStack(spacing: 8) {
+                            ForEach(Array(editableRows.enumerated()), id: \.element.id) { index, row in
+                                NavigationLink {
+                                    IOSRuleFormView(
+                                        row: binding(for: row.id),
+                                        chainNames: chainNames,
+                                        rowNumber: index + 1
+                                    )
+                                } label: {
+                                    IOSRuleDraftRow(
+                                        row: row,
+                                        order: index + 1,
+                                        error: firstError(for: row.id),
+                                        canMoveUp: index > 0,
+                                        canMoveDown: index < editableRows.count - 1,
+                                        onMoveUp: { moveEditableRow(at: index, by: -1) },
+                                        onMoveDown: { moveEditableRow(at: index, by: 1) },
+                                        onDelete: { deleteEditableRows(at: IndexSet(integer: index)) }
+                                    )
+                                }
+                                .buttonStyle(.plain)
+                            }
                         }
                     }
-                    .onDelete { offsets in
-                        deleteEditableRows(at: offsets)
-                        validationErrors = []
-                    }
-                    .onMove { offsets, destination in
-                        moveEditableRows(from: offsets, to: destination)
-                        validationErrors = RuleEditor.validate(rows: rows, chainNames: chainNames)
-                    }
                 }
-            }
 
             if !ruleSetRows.isEmpty || !generatedRows.isEmpty {
-                Section("Rule Sets") {
+                    IOSConsoleSection("Rule Sets", detail: "\(ruleSetRows.count) subscriptions") {
                     if ruleSetRows.isEmpty {
                         IOSInlineEmptyState(text: "No rule-set status.", systemImage: "tray")
                     } else {
-                        ForEach(ruleSetRows) { subscription in
-                            IOSRuleSetRow(subscription: subscription)
+                            VStack(spacing: 8) {
+                                ForEach(ruleSetRows) { subscription in
+                                    IOSRuleSetRow(subscription: subscription)
+                                }
+                            }
                         }
                     }
                 }
-            }
 
             if !generatedRows.isEmpty {
-                Section("Rule Set Rules") {
-                    ForEach(Array(generatedRows.enumerated()), id: \.offset) { index, row in
-                        IOSRuleDraftRow(
-                            row: row,
-                            order: model.dashboard.rules.rules.count + index + 1,
-                            error: nil
-                        )
+                    IOSConsoleSection("Rule Set Rules", detail: "\(generatedRows.count) generated") {
+                        VStack(spacing: 8) {
+                            ForEach(Array(generatedRows.enumerated()), id: \.offset) { index, row in
+                                IOSRuleDraftRow(
+                                    row: row,
+                                    order: model.dashboard.rules.rules.count + index + 1,
+                                    error: nil
+                                )
+                            }
+                        }
                     }
                 }
-            }
 
             if let virtualFinalRow {
-                Section("Final") {
+                    IOSConsoleSection("Final", detail: "fallback") {
                     NavigationLink {
                         IOSRuleFormView(
                             row: binding(for: virtualFinalRow.id),
@@ -111,23 +107,31 @@ struct IOSRulesView: View {
                             error: firstError(for: virtualFinalRow.id)
                         )
                     }
+                        .buttonStyle(.plain)
                 }
             }
 
-            Section("Test Route") {
-                Picker("Network", selection: $routeTestNetwork) {
-                    Text("TCP").tag("tcp")
-                    Text("UDP").tag("udp")
-                }
-                .pickerStyle(.segmented)
-                TextField("host:port", text: $routeTestTarget)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                Button {
-                    runRouteTest()
-                } label: {
-                    Label("Test Route", systemImage: "checkmark.circle")
-                }
+                IOSConsoleSection("Test Route", detail: "first match wins") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Picker("Network", selection: $routeTestNetwork) {
+                            Text("TCP").tag("tcp")
+                            Text("UDP").tag("udp")
+                        }
+                        .pickerStyle(.segmented)
+                        HStack(spacing: 8) {
+                            TextField("host:port", text: $routeTestTarget)
+                                .textInputAutocapitalization(.never)
+                                .autocorrectionDisabled()
+                                .textFieldStyle(.roundedBorder)
+                            Button {
+                                runRouteTest()
+                            } label: {
+                                Image(systemName: "checkmark.circle")
+                                    .frame(width: 30, height: 30)
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .accessibilityLabel("Test Route")
+                        }
                 if !routeTestError.isEmpty {
                     Text(routeTestError)
                         .font(.footnote)
@@ -140,16 +144,20 @@ struct IOSRulesView: View {
                     )
                 }
             }
+                }
 
             if !message.isEmpty {
-                Section("Status") {
+                    IOSConsoleSection("Status") {
                     Text(message)
                         .font(.footnote)
                         .foregroundColor(validationErrors.isEmpty ? Color.secondary : Color.red)
                 }
             }
         }
-        .listStyle(.insetGrouped)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+        }
+        .background(Color(.systemGroupedBackground))
         .navigationTitle("Rules")
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
@@ -165,11 +173,6 @@ struct IOSRulesView: View {
                     Image(systemName: "plus")
                 }
                 .disabled(model.dashboard.activeProfile.isEmpty)
-            }
-            ToolbarItem(placement: .topBarTrailing) {
-                if !editableRows.isEmpty {
-                    EditButton()
-                }
             }
         }
         .onAppear {
@@ -289,6 +292,21 @@ struct IOSRulesView: View {
         }
     }
 
+    private func moveEditableRow(at index: Int, by delta: Int) {
+        let target = index + delta
+        guard editableRows.indices.contains(index), editableRows.indices.contains(target) else {
+            return
+        }
+        var editable = editableRows
+        editable.swapAt(index, target)
+        if let virtualFinalRow {
+            rows = editable + [virtualFinalRow]
+        } else {
+            rows = editable
+        }
+        validationErrors = RuleEditor.validate(rows: rows, chainNames: chainNames)
+    }
+
     private func appendVirtualFinalIfNeeded() {
         guard !rows.contains(where: { $0.matcherKind == .allTraffic }) else {
             return
@@ -313,6 +331,11 @@ private struct IOSRuleDraftRow: View {
     var row: RuleEditorRow
     var order: Int
     var error: RuleEditorValidationError?
+    var canMoveUp = false
+    var canMoveDown = false
+    var onMoveUp: (() -> Void)?
+    var onMoveDown: (() -> Void)?
+    var onDelete: (() -> Void)?
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -356,8 +379,25 @@ private struct IOSRuleDraftRow: View {
                         .lineLimit(2)
                 }
             }
+            Spacer(minLength: 8)
+            if onMoveUp != nil || onMoveDown != nil || onDelete != nil {
+                VStack(spacing: 6) {
+                    if let onMoveUp {
+                        IOSConsoleIconButton("chevron.up", title: "Move rule up", action: onMoveUp)
+                            .disabled(!canMoveUp)
+                    }
+                    if let onMoveDown {
+                        IOSConsoleIconButton("chevron.down", title: "Move rule down", action: onMoveDown)
+                            .disabled(!canMoveDown)
+                    }
+                    if let onDelete {
+                        IOSConsoleIconButton("trash", title: "Delete rule", role: .destructive, action: onDelete)
+                    }
+                }
+            }
         }
-        .padding(.vertical, 2)
+        .padding(10)
+        .background(Color(.tertiarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
     }
 
     private var rowSubtitle: String {
