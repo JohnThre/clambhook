@@ -299,3 +299,129 @@ func iosListenerDescription(_ listener: TrafficListenerPayload) -> String {
     }
     return "\(protocolText) / \(listener.addr)"
 }
+
+struct IOSConsolePanel<Content: View>: View {
+    var content: Content
+
+    init(@ViewBuilder content: () -> Content) {
+        self.content = content()
+    }
+
+    var body: some View {
+        content
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+    }
+}
+
+struct IOSConsoleSection<Content: View>: View {
+    var title: String
+    var detail: String
+    var content: Content
+
+    init(_ title: String, detail: String = "", @ViewBuilder content: () -> Content) {
+        self.title = title
+        self.detail = detail
+        self.content = content()
+    }
+
+    var body: some View {
+        IOSConsolePanel {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text(title.uppercased())
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    Spacer(minLength: 8)
+                    if !detail.isEmpty {
+                        Text(detail)
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                }
+                content
+            }
+        }
+    }
+}
+
+struct IOSConsoleMetric: Identifiable {
+    var id: String { title }
+    var title: String
+    var value: String
+    var tint: Color = .secondary
+}
+
+struct IOSConsoleMetricStrip: View {
+    var metrics: [IOSConsoleMetric]
+
+    var body: some View {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 92), spacing: 8)], alignment: .leading, spacing: 8) {
+            ForEach(metrics) { metric in
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(metric.title.uppercased())
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    Text(metric.value)
+                        .font(.caption.weight(.semibold))
+                        .monospacedDigit()
+                        .foregroundStyle(metric.tint)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.75)
+                }
+                .padding(.horizontal, 9)
+                .padding(.vertical, 7)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color(.tertiarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+            }
+        }
+    }
+}
+
+struct IOSConsoleKeyValueRow: View {
+    var label: String
+    var value: String
+    var valueColor: Color = .primary
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Text(label.uppercased())
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .frame(width: 72, alignment: .leading)
+            Text(value.isEmpty ? "--" : value)
+                .font(.caption.monospaced())
+                .foregroundStyle(valueColor)
+                .lineLimit(2)
+                .textSelection(.enabled)
+            Spacer(minLength: 0)
+        }
+    }
+}
+
+struct IOSConsoleIconButton: View {
+    var systemImage: String
+    var title: String
+    var role: ButtonRole?
+    var action: () -> Void
+
+    init(_ systemImage: String, title: String, role: ButtonRole? = nil, action: @escaping () -> Void) {
+        self.systemImage = systemImage
+        self.title = title
+        self.role = role
+        self.action = action
+    }
+
+    var body: some View {
+        Button(role: role, action: action) {
+            Image(systemName: systemImage)
+                .font(.caption.weight(.semibold))
+                .frame(width: 28, height: 28)
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.small)
+        .accessibilityLabel(title)
+    }
+}

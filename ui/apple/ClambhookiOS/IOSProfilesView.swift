@@ -8,90 +8,98 @@ struct IOSProfilesView: View {
     @State private var message = ""
 
     var body: some View {
-        List {
-            if !message.isEmpty {
-                Section {
-                    Text(message)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 12) {
+                if !message.isEmpty {
+                    IOSConsoleSection("Status") {
+                        Text(message)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
                 }
-            }
 
-            Section {
-                if filteredProfiles.isEmpty {
-                    ContentUnavailableView(
-                        searchText.isEmpty ? "No profiles" : "No matching profiles",
-                        systemImage: "person.crop.rectangle.stack",
-                        description: Text("Create or import a profile to connect.")
-                    )
-                } else {
-                    ForEach(filteredProfiles, id: \.self) { profile in
+                IOSConsoleSection("Profiles", detail: "\(filteredProfiles.count)/\(model.dashboard.profiles.profiles.count)") {
+                    if filteredProfiles.isEmpty {
+                        ContentUnavailableView(
+                            searchText.isEmpty ? "No profiles" : "No matching profiles",
+                            systemImage: "person.crop.rectangle.stack",
+                            description: Text("Create or import a profile to connect.")
+                        )
+                    } else {
+                        VStack(spacing: 8) {
+                            IOSConsoleMetricStrip(metrics: [
+                                IOSConsoleMetric(title: "Active", value: emptyDash(model.dashboard.activeProfile), tint: .green),
+                                IOSConsoleMetric(title: "Profiles", value: "\(model.dashboard.profiles.profiles.count)"),
+                                IOSConsoleMetric(title: "Routes", value: "\(activeRouteCount(for: model.dashboard.activeProfile))"),
+                                IOSConsoleMetric(title: "Tags", value: "\(model.profileMetadata.state.profiles.values.reduce(0) { $0 + $1.tags.count })"),
+                            ])
+                            ForEach(filteredProfiles, id: \.self) { profile in
+                                NavigationLink {
+                                    IOSProfileDetailView(model: model, profile: profile)
+                                } label: {
+                                    IOSProfileRow(
+                                        profile: profile,
+                                        isActive: profile == model.dashboard.activeProfile,
+                                        routeCount: activeRouteCount(for: profile),
+                                        tags: model.profileMetadata.tags(for: profile)
+                                    ) {
+                                        model.selectProfile(profile)
+                                    }
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                    }
+                }
+
+                IOSConsoleSection("Import", detail: "\(model.attention.state.inbox.count) staged") {
+                    VStack(spacing: 8) {
                         NavigationLink {
-                            IOSProfileDetailView(model: model, profile: profile)
+                            IOSProfileImportsView(model: model)
                         } label: {
-                            IOSProfileRow(
-                                profile: profile,
-                                isActive: profile == model.dashboard.activeProfile,
-                                routeCount: activeRouteCount(for: profile),
-                                tags: model.profileMetadata.tags(for: profile)
+                            IOSConsoleNavRow(
+                                title: "Profile Imports",
+                                detail: "Review staged configs and QR scans",
+                                systemImage: "tray.and.arrow.down"
                             )
                         }
-                        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                            if profile != model.dashboard.activeProfile {
-                                Button("Use") {
-                                    model.selectProfile(profile)
-                                }
-                                .tint(.blue)
+                        .buttonStyle(.plain)
+
+                        IOSConsoleKeyValueRow(
+                            label: "Staged",
+                            value: "\(model.attention.state.inbox.count) profile\(model.attention.state.inbox.count == 1 ? "" : "s")"
+                        )
+                    }
+                }
+
+                IOSConsoleSection("Rules", detail: "\(model.dashboard.rules.rules.count) manual") {
+                    VStack(spacing: 8) {
+                        NavigationLink {
+                            IOSRulesView(model: model)
+                        } label: {
+                            IOSConsoleNavRow(
+                                title: "Edit Routing Rules",
+                                detail: model.dashboard.activeProfile.isEmpty ? "Choose a profile first" : model.dashboard.activeProfile,
+                                systemImage: "slider.horizontal.3"
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(model.dashboard.activeProfile.isEmpty)
+
+                        if model.dashboard.rules.rules.isEmpty {
+                            IOSInlineEmptyState(text: "No active-profile rules.", systemImage: "checklist")
+                        } else {
+                            ForEach(Array(model.dashboard.rules.rules.prefix(6).enumerated()), id: \.element.id) { index, rule in
+                                IOSProfileRulePreviewRow(rule: rule, order: index + 1)
                             }
                         }
                     }
                 }
             }
-
-            Section("Import") {
-                NavigationLink {
-                    IOSProfileImportsView(model: model)
-                } label: {
-                    Label("Profile Imports", systemImage: "tray.and.arrow.down")
-                }
-
-                if !model.attention.state.inbox.isEmpty {
-                    LabeledContent(
-                        "Staged",
-                        value: "\(model.attention.state.inbox.count) profile\(model.attention.state.inbox.count == 1 ? "" : "s")"
-                    )
-                }
-            }
-
-            Section("Rules") {
-                NavigationLink {
-                    IOSRulesView(model: model)
-                } label: {
-                    Label("Edit Routing Rules", systemImage: "slider.horizontal.3")
-                }
-                .disabled(model.dashboard.activeProfile.isEmpty)
-
-                if model.dashboard.rules.rules.isEmpty {
-                    IOSInlineEmptyState(text: "No active-profile rules.", systemImage: "checklist")
-                } else {
-                    ForEach(model.dashboard.rules.rules.prefix(5)) { rule in
-                        HStack(alignment: .top, spacing: 12) {
-                            IOSActionChip(action: rule.action)
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(emptyDash(rule.name))
-                                    .font(.body.weight(.medium))
-                                    .lineLimit(1)
-                                Text(iosRuleSummary(rule))
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                    .lineLimit(2)
-                            }
-                        }
-                    }
-                }
-            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
         }
-        .listStyle(.insetGrouped)
+        .background(Color(.systemGroupedBackground))
         .searchable(text: $searchText, prompt: "Search profiles")
         .refreshable {
             await model.refreshNow()
@@ -130,6 +138,82 @@ struct IOSProfilesView: View {
     }
 }
 
+private struct IOSConsoleNavRow: View {
+    var title: String
+    var detail: String
+    var systemImage: String
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: systemImage)
+                .foregroundStyle(.secondary)
+                .frame(width: 22)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
+                Text(detail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 8)
+            Image(systemName: "chevron.right")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.tertiary)
+        }
+        .padding(.vertical, 4)
+    }
+}
+
+private struct IOSProfileRulePreviewRow: View {
+    var rule: RulePayload
+    var order: Int
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Text("\(order)")
+                .font(.caption.monospacedDigit().weight(.semibold))
+                .foregroundStyle(.secondary)
+                .frame(width: 22, alignment: .trailing)
+            IOSActionChip(action: rule.action)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(emptyDash(rule.name))
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
+                Text(iosRuleSummary(rule))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, 2)
+    }
+}
+
+private struct IOSProfileUseButton: View {
+    var isActive: Bool
+    var action: () -> Void
+
+    var body: some View {
+        if isActive {
+            Image(systemName: "checkmark.circle.fill")
+                .foregroundStyle(.green)
+                .frame(width: 30, height: 30)
+                .accessibilityLabel("Active profile")
+        } else {
+            Button(action: action) {
+                Image(systemName: "arrow.right.circle")
+                    .frame(width: 30, height: 30)
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .accessibilityLabel("Use profile")
+        }
+    }
+}
+
 private func iosRuleSummary(_ rule: RulePayload) -> String {
     var parts: [String] = []
     if !rule.domains.isEmpty {
@@ -158,13 +242,10 @@ private struct IOSProfileRow: View {
     var isActive: Bool
     var routeCount: Int
     var tags: [String]
+    var onUse: () -> Void
 
     var body: some View {
         HStack(spacing: 12) {
-            Image(systemName: isActive ? "checkmark.circle.fill" : "circle")
-                .foregroundStyle(isActive ? Color.green : Color.secondary)
-                .frame(width: 24)
-
             VStack(alignment: .leading, spacing: 3) {
                 Text(emptyDash(profile))
                     .font(.body.weight(.medium))
@@ -180,8 +261,11 @@ private struct IOSProfileRow: View {
                         .lineLimit(1)
                 }
             }
+            Spacer(minLength: 8)
+            IOSProfileUseButton(isActive: isActive, action: onUse)
         }
-        .padding(.vertical, 2)
+        .padding(10)
+        .background(Color(.tertiarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
     }
 
     private var subtitle: String {

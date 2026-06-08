@@ -7,12 +7,13 @@ struct IOSHTTPCaptureView: View {
     @State private var searchText = ""
 
     var body: some View {
-        List {
-            Section("Status") {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 12) {
+            IOSConsoleSection("Status", detail: "\(entries.count) requests") {
                 IOSCaptureReadinessView(entries: entries, groups: groupedEntries, pinnedIDs: pinnedIDs)
             }
 
-            Section {
+                IOSConsoleSection("Filters", detail: title(for: filter)) {
                 Picker("Metadata Filter", selection: $filter) {
                     ForEach(CaptureFilterKind.allCases) { filter in
                         Text(title(for: filter)).tag(filter)
@@ -22,7 +23,7 @@ struct IOSHTTPCaptureView: View {
             }
 
             if groupedEntries.isEmpty {
-                Section("HTTP Metadata") {
+                    IOSConsoleSection("HTTP Metadata") {
                     ContentUnavailableView(
                         "No matching HTTP metadata",
                         systemImage: "network",
@@ -31,29 +32,29 @@ struct IOSHTTPCaptureView: View {
                 }
             } else {
                 ForEach(groupedEntries) { group in
-                    Section {
-                        ForEach(group.entries) { entry in
-                            NavigationLink {
-                                IOSHTTPCaptureDetailView(model: model, entry: entry)
-                            } label: {
-                                IOSHTTPCaptureRow(entry: entry, pinned: isPinned(entry))
-                            }
-                            .swipeActions(edge: .leading) {
-                                Button {
-                                    togglePinned(entry)
-                                } label: {
-                                    Label(isPinned(entry) ? "Unpin" : "Pin", systemImage: isPinned(entry) ? "pin.slash" : "pin")
+                        IOSConsoleSection(emptyDash(group.host), detail: groupSubtitle(group)) {
+                            VStack(spacing: 8) {
+                                ForEach(group.entries) { entry in
+                                    NavigationLink {
+                                        IOSHTTPCaptureDetailView(model: model, entry: entry)
+                                    } label: {
+                                        IOSHTTPCaptureRow(
+                                            entry: entry,
+                                            pinned: isPinned(entry),
+                                            onTogglePin: { togglePinned(entry) }
+                                        )
+                                    }
+                                    .buttonStyle(.plain)
                                 }
-                                .tint(.yellow)
                             }
                         }
-                    } header: {
-                        IOSHTTPCaptureGroupHeader(group: group)
-                    }
                 }
             }
         }
-        .listStyle(.insetGrouped)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+        }
+        .background(Color(.systemGroupedBackground))
         .searchable(text: $searchText, prompt: "Search host, path, method, rule")
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
@@ -104,6 +105,14 @@ struct IOSHTTPCaptureView: View {
         model.settingsStore.settings.pinnedConnectionIDs = ids.sorted()
     }
 
+    private func groupSubtitle(_ group: CaptureGroupPayload) -> String {
+        let schemes = group.schemes.map { $0.uppercased() }.joined(separator: ", ")
+        if schemes.isEmpty {
+            return "\(group.count)"
+        }
+        return "\(group.count) / \(schemes)"
+    }
+
     private func title(for filter: CaptureFilterKind) -> String {
         switch filter {
         case .all: return "All"
@@ -135,29 +144,10 @@ private struct IOSCaptureReadinessView: View {
     }
 }
 
-private struct IOSHTTPCaptureGroupHeader: View {
-    var group: CaptureGroupPayload
-
-    var body: some View {
-        HStack {
-            Text(emptyDash(group.host))
-            Spacer()
-            Text(groupSubtitle)
-        }
-    }
-
-    private var groupSubtitle: String {
-        let schemes = group.schemes.map { $0.uppercased() }.joined(separator: ", ")
-        if schemes.isEmpty {
-            return "\(group.count)"
-        }
-        return "\(group.count) / \(schemes)"
-    }
-}
-
 private struct IOSHTTPCaptureRow: View {
     var entry: CaptureMetadataEntryPayload
     var pinned: Bool
+    var onTogglePin: () -> Void
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -198,8 +188,17 @@ private struct IOSHTTPCaptureRow: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
+            Spacer(minLength: 8)
+            Button(action: onTogglePin) {
+                Image(systemName: pinned ? "pin.slash.fill" : "pin.fill")
+                    .frame(width: 28, height: 28)
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .accessibilityLabel(pinned ? "Unpin metadata row" : "Pin metadata row")
         }
-        .padding(.vertical, 2)
+        .padding(10)
+        .background(Color(.tertiarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
     }
 }
 
