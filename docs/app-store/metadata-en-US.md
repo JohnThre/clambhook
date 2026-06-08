@@ -28,7 +28,7 @@ Purchase UI copy must include: "One-time unlock includes features released throu
 
 ## Compatibility
 
-- Requires iOS 26 or later.
+- Requires iOS 17.0 or later.
 
 ## Description
 
