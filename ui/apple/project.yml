@@ -2,7 +2,7 @@ name: Clambhook
 options:
   deploymentTarget:
     macOS: "26.0"
-    iOS: "26.0"
+    iOS: "17.0"
     tvOS: "26.0"
     visionOS: "26.0"
   createIntermediateGroups: true
