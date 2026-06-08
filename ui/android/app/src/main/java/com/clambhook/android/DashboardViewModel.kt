@@ -44,6 +44,14 @@ class DashboardViewModel(
         viewModelScope.launch { repository.createRule(rule) }
     }
 
+    fun createRuleFromConnection(connection: TrafficConnectionPayload, rule: RulePayload) {
+        viewModelScope.launch { repository.createRuleFromConnection(connection, rule) }
+    }
+
+    fun cleanupRule(suggestion: TrafficCleanupSuggestionPayload) {
+        viewModelScope.launch { repository.cleanupRule(suggestion) }
+    }
+
     fun replaceRules(profile: String, rules: List<RulePayload>) {
         viewModelScope.launch { repository.replaceRules(profile, rules) }
     }

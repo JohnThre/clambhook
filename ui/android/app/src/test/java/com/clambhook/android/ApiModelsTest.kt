@@ -132,7 +132,7 @@ class ApiModelsTest {
               "quick_filters": [{"key": "block", "label": "Block", "count": 2}],
               "rule_hits": [{"profile": "Work", "rule_name": "ads", "action": "block", "count": 2, "last_target": "ads.example.com:443"}],
               "block_decisions": [{"conn_id": "c1", "profile": "Work", "rule_name": "ads", "action": "block", "target_host": "ads.example.com", "ts_ns": 88}],
-              "cleanup_suggestions": [{"kind": "unused_in_history", "profile": "Work", "rule_name": "old", "message": "No recent traffic-history entries matched this rule."}],
+              "cleanup_suggestions": [{"kind": "unused_in_history", "profile": "Work", "rule_name": "old", "target_rule_name": "old", "operation": "delete_rule", "message": "No recent traffic-history entries matched this rule."}],
               "rule_suggestions": [{"id": "exact_host:block:api.example.com", "kind": "exact_host", "profile": "Work", "action": "block", "draft_rule": {"name": "block-api", "action": "block", "domains": ["api.example.com"], "ports": [443], "networks": ["tcp"]}, "count": 2, "reason": "Observed 2 matching connections."}],
               "connections": [{"conn_id": "c1", "profile": "Work", "state": "closed", "rule_action": "block", "default": true, "target_host": "ads.example.com"}]
             }
@@ -144,6 +144,8 @@ class ApiModelsTest {
         assertEquals("ads", traffic.ruleHits.single().ruleName)
         assertEquals("ads.example.com", traffic.blockDecisions.single().targetHost)
         assertEquals("old", traffic.cleanupSuggestions.single().ruleName)
+        assertEquals("old", traffic.cleanupSuggestions.single().targetRuleName)
+        assertEquals("delete_rule", traffic.cleanupSuggestions.single().operation)
         assertEquals("block-api", traffic.ruleSuggestions.single().draftRule.name)
         assertEquals(443, traffic.ruleSuggestions.single().draftRule.ports.single())
         assertEquals("Work", traffic.connections.single().profile)

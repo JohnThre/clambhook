@@ -77,9 +77,12 @@ type model struct {
 	ruleTestErr        string
 	selectedTraffic    int
 	selectedSuggestion int
+	selectedCleanup    int
 	suggestionFocus    bool
+	cleanupFocus       bool
 	selectedDeveloper  int
 	pendingRule        *pendingRule
+	pendingCleanup     *cleanupSuggestionPayload
 	width              int
 	height             int
 
@@ -302,6 +305,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 			}
+			if m.pendingCleanup != nil {
+				switch msg.String() {
+				case "esc":
+					m.pendingCleanup = nil
+					return m, nil
+				case "y":
+					cleanup := *m.pendingCleanup
+					m.pendingCleanup = nil
+					return m, m.cleanupRuleCmd(cleanup)
+				}
+			}
 			switch msg.String() {
 			case "r":
 				return m, m.loadDashboardCmd()
@@ -312,50 +326,86 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.searchText = ""
 				m.trafficFilter = ""
 				m.suggestionFocus = false
+				m.cleanupFocus = false
 				m.clampTrafficSelection()
 				m.clampSuggestionSelection()
+				m.clampCleanupSelection()
 				return m, nil
 			case "a":
 				m.trafficFilter = ""
 				m.suggestionFocus = false
+				m.cleanupFocus = false
 				m.clampTrafficSelection()
 				return m, nil
 			case "b":
 				m.trafficFilter = "block"
 				m.suggestionFocus = false
+				m.cleanupFocus = false
 				m.clampTrafficSelection()
 				return m, nil
 			case "d":
 				m.trafficFilter = "direct"
 				m.suggestionFocus = false
+				m.cleanupFocus = false
 				m.clampTrafficSelection()
 				return m, nil
 			case "p":
 				m.trafficFilter = "proxy"
 				m.suggestionFocus = false
+				m.cleanupFocus = false
 				m.clampTrafficSelection()
 				return m, nil
 			case "tab":
-				if len(m.traffic.RuleSuggestions) > 0 {
-					m.suggestionFocus = !m.suggestionFocus
-					m.clampSuggestionSelection()
-				}
+				m.advanceActivityFocus()
 				return m, nil
 			case "up", "k":
-				if m.suggestionFocus {
+				if m.cleanupFocus {
+					m.moveCleanupSelection(-1)
+				} else if m.suggestionFocus {
 					m.moveSuggestionSelection(-1)
 				} else {
 					m.moveTrafficSelection(-1)
 				}
 				return m, nil
 			case "down", "j":
-				if m.suggestionFocus {
+				if m.cleanupFocus {
+					m.moveCleanupSelection(1)
+				} else if m.suggestionFocus {
 					m.moveSuggestionSelection(1)
 				} else {
 					m.moveTrafficSelection(1)
 				}
 				return m, nil
+			case "c":
+				cleanup, ok := m.selectedCleanupSuggestion()
+				if !ok {
+					m.errText = "select a cleanup suggestion before applying cleanup"
+					return m, nil
+				}
+				m.pendingCleanup = &cleanup
+				return m, nil
+			case "enter":
+				if m.cleanupFocus {
+					cleanup, ok := m.selectedCleanupSuggestion()
+					if !ok {
+						m.errText = "select a cleanup suggestion before applying cleanup"
+						return m, nil
+					}
+					m.pendingCleanup = &cleanup
+					return m, nil
+				}
+				rule, ok := m.ruleDraftFromSelected()
+				if !ok {
+					m.errText = "select a connection with a host before creating a rule"
+					return m, nil
+				}
+				m.pendingRule = &rule
+				return m, nil
 			case "n":
+				if m.cleanupFocus {
+					m.errText = "use c to apply the selected cleanup suggestion"
+					return m, nil
+				}
 				rule, ok := m.ruleDraftFromSelected()
 				if !ok {
 					m.errText = "select a connection with a host before creating a rule"
@@ -436,6 +486,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.devRows = msg.DevRows
 		m.syncSelectedProfile()
 		m.clampTrafficSelection()
+		m.clampCleanupSelection()
 		m.clampSuggestionSelection()
 		m.clampDeveloperSelection()
 		return m, nil
@@ -451,6 +502,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.traffic = msg.Traffic
 		m.syncSelectedProfile()
 		m.clampTrafficSelection()
+		m.clampCleanupSelection()
 		m.clampSuggestionSelection()
 		return m, nil
 	case developerLoadedMsg:
@@ -550,8 +602,8 @@ func (m model) activityView() string {
 		m.renderTrafficDetailSection(width),
 		m.renderLogsSection(width),
 		m.renderFooter(
-			"Keys: a all  b block  d direct  p proxy  / search  x test route  tab suggestions  up/down select  n new rule  r refresh  1 now  3 library  q quit",
-			"Keys: a/b/d/p  / search  x test  tab  up/down  n rule  r  1 now  3 lib  q",
+			"Keys: a all  b block  d direct  p proxy  / search  x test route  tab focus  up/down select  enter/n rule  c cleanup  r refresh  1 now  3 library  q quit",
+			"Keys: a/b/d/p  / search  x test  tab  up/down  enter/n rule  c clean  r  1 now  3 lib  q",
 		),
 	)
 	return joinSections(sections)
@@ -983,6 +1035,9 @@ func (m model) renderTrafficDetailSection(width int) string {
 	if m.pendingRule != nil {
 		lines = append(lines, m.pendingRuleLine(width))
 	}
+	if m.pendingCleanup != nil {
+		lines = append(lines, m.pendingCleanupLine(width))
+	}
 	rows := m.filteredTrafficConnections()
 	if len(rows) == 0 {
 		lines = append(lines, "")
@@ -1111,10 +1166,23 @@ func (m model) cleanupSuggestionLines(width int) []string {
 	if len(m.traffic.CleanupSuggestions) == 0 {
 		return nil
 	}
-	limit := minInt(2, len(m.traffic.CleanupSuggestions))
-	lines := make([]string, 0, limit)
-	for _, suggestion := range m.traffic.CleanupSuggestions[:limit] {
-		lines = append(lines, subtleStyle.Render(truncate(fmt.Sprintf("  Cleanup %s: %s", emptyDash(suggestion.RuleName), suggestion.Message), width)))
+	limit := minInt(4, len(m.traffic.CleanupSuggestions))
+	lines := []string{tableHeaderStyle.Render(truncate("  Rule cleanup", width))}
+	for i, suggestion := range m.traffic.CleanupSuggestions[:limit] {
+		prefix := " "
+		if m.cleanupFocus && i == m.selectedCleanup {
+			prefix = "›"
+		}
+		target := cleanupTarget(suggestion)
+		lines = append(lines, subtleStyle.Render(truncate(fmt.Sprintf("%s %s  %s  %s",
+			prefix,
+			cleanupActionText(suggestion),
+			emptyDash(target),
+			suggestion.Message,
+		), width)))
+	}
+	if len(m.traffic.CleanupSuggestions) > limit {
+		lines = append(lines, subtleStyle.Render(fmt.Sprintf("  +%d more cleanup suggestions", len(m.traffic.CleanupSuggestions)-limit)))
 	}
 	return lines
 }
@@ -1157,6 +1225,33 @@ func (m model) pendingRuleLine(width int) string {
 		keys = "y save, a allow, b/d/p action, esc cancel"
 	}
 	return selectedLineStyle.Render(truncate(fmt.Sprintf("  New rule: %s  %s  %s  (%s)", rule.Name, rule.Action, match, keys), width))
+}
+
+func (m model) pendingCleanupLine(width int) string {
+	cleanup := m.pendingCleanup
+	if cleanup == nil {
+		return ""
+	}
+	return selectedLineStyle.Render(truncate(fmt.Sprintf("  Cleanup: %s %s  (y apply, esc cancel)",
+		strings.ToLower(cleanupActionText(*cleanup)),
+		emptyDash(cleanupTarget(*cleanup)),
+	), width))
+}
+
+func cleanupTarget(suggestion cleanupSuggestionPayload) string {
+	if suggestion.TargetRuleName != "" {
+		return suggestion.TargetRuleName
+	}
+	return suggestion.RuleName
+}
+
+func cleanupActionText(suggestion cleanupSuggestionPayload) string {
+	switch suggestion.Operation {
+	case "move_rule_to_end":
+		return "Move to end"
+	default:
+		return "Delete"
+	}
 }
 
 func ruleMatchText(rule rulePayload) string {
@@ -1270,6 +1365,51 @@ func (m model) selectedRuleSuggestion() (ruleSuggestionPayload, bool) {
 	return m.traffic.RuleSuggestions[idx], true
 }
 
+func (m model) selectedCleanupSuggestion() (cleanupSuggestionPayload, bool) {
+	if len(m.traffic.CleanupSuggestions) == 0 {
+		return cleanupSuggestionPayload{}, false
+	}
+	idx := m.selectedCleanup
+	if idx < 0 {
+		idx = 0
+	}
+	if idx >= len(m.traffic.CleanupSuggestions) {
+		idx = len(m.traffic.CleanupSuggestions) - 1
+	}
+	return m.traffic.CleanupSuggestions[idx], true
+}
+
+func (m *model) advanceActivityFocus() {
+	hasCleanup := len(m.traffic.CleanupSuggestions) > 0
+	hasSuggestions := len(m.traffic.RuleSuggestions) > 0
+	switch {
+	case !m.cleanupFocus && !m.suggestionFocus:
+		if hasCleanup {
+			m.cleanupFocus = true
+			m.suggestionFocus = false
+			m.clampCleanupSelection()
+			return
+		}
+		if hasSuggestions {
+			m.cleanupFocus = false
+			m.suggestionFocus = true
+			m.clampSuggestionSelection()
+			return
+		}
+	case m.cleanupFocus:
+		m.cleanupFocus = false
+		if hasSuggestions {
+			m.suggestionFocus = true
+			m.clampSuggestionSelection()
+			return
+		}
+	case m.suggestionFocus:
+		m.suggestionFocus = false
+	}
+	m.cleanupFocus = false
+	m.suggestionFocus = false
+}
+
 func (m *model) moveTrafficSelection(delta int) {
 	rows := m.filteredTrafficConnections()
 	if len(rows) == 0 {
@@ -1286,6 +1426,15 @@ func (m *model) moveSuggestionSelection(delta int) {
 		return
 	}
 	m.selectedSuggestion = (m.selectedSuggestion + delta + len(m.traffic.RuleSuggestions)) % len(m.traffic.RuleSuggestions)
+}
+
+func (m *model) moveCleanupSelection(delta int) {
+	if len(m.traffic.CleanupSuggestions) == 0 {
+		m.selectedCleanup = 0
+		m.cleanupFocus = false
+		return
+	}
+	m.selectedCleanup = (m.selectedCleanup + delta + len(m.traffic.CleanupSuggestions)) % len(m.traffic.CleanupSuggestions)
 }
 
 func (m *model) clampTrafficSelection() {
@@ -1316,6 +1465,20 @@ func (m *model) clampSuggestionSelection() {
 	}
 }
 
+func (m *model) clampCleanupSelection() {
+	if len(m.traffic.CleanupSuggestions) == 0 {
+		m.selectedCleanup = 0
+		m.cleanupFocus = false
+		return
+	}
+	if m.selectedCleanup < 0 {
+		m.selectedCleanup = 0
+	}
+	if m.selectedCleanup >= len(m.traffic.CleanupSuggestions) {
+		m.selectedCleanup = len(m.traffic.CleanupSuggestions) - 1
+	}
+}
+
 func (m model) selectedConnectionDetailLines(width int) []string {
 	conn, ok := m.selectedConnection()
 	if !ok {
@@ -1327,6 +1490,9 @@ func (m model) selectedConnectionDetailLines(width int) []string {
 		truncate(fmt.Sprintf("  Host %s  Action %s  Rule %s  Chain %s  Profile %s", emptyDash(host), actionChip(conn), emptyDash(conn.RuleName), emptyDash(conn.ChainName), emptyDash(conn.Profile)), width),
 		truncate(fmt.Sprintf("  Target %s  Network %s  App %s  Listener %s %s", emptyDash(conn.Target), emptyDash(conn.Network), emptyDash(conn.Application), conn.Listener.Protocol, conn.Listener.Addr), width),
 		truncate(fmt.Sprintf("  Bytes %s down / %s up  Duration %s  Decision %s", formatBytes(conn.RxTotal), formatBytes(conn.TxTotal), formatDurationNs(conn.DurationNs), formatDurationNs(conn.DecisionNs)), width),
+	}
+	if host != "" {
+		lines = append(lines, selectedLineStyle.Render(truncate("  Action enter/n create rule from connection", width)))
 	}
 	if conn.Geo.CountryCode != "" || conn.Geo.Country != "" || conn.Geo.City != "" {
 		lines = append(lines, truncate(fmt.Sprintf("  Location %s %s %s", countryFlag(conn.Geo.CountryCode), conn.Geo.Country, conn.Geo.City), width))
@@ -1640,11 +1806,24 @@ func (m model) savePendingRuleCmd(rule pendingRule) tea.Cmd {
 			return m.client.createRuleFromConnection(createRuleFromConnectionRequest{
 				ConnID:  rule.ConnID,
 				Profile: rule.Profile,
+				Name:    rule.Name,
 				Action:  rule.Action,
 				Scope:   rule.Scope,
 			})
 		}
 		return m.client.createRule(rule.rulePayload)
+	})
+}
+
+func (m model) cleanupRuleCmd(cleanup cleanupSuggestionPayload) tea.Cmd {
+	return m.actionCmd(func() error {
+		return m.client.cleanupRule(cleanupRuleRequest{
+			Profile:        cleanup.Profile,
+			Kind:           cleanup.Kind,
+			RuleName:       cleanup.RuleName,
+			TargetRuleName: cleanupTarget(cleanup),
+			Operation:      cleanup.Operation,
+		})
 	})
 }
 

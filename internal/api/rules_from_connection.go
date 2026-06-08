@@ -16,6 +16,7 @@ import (
 type createRuleFromConnectionRequest struct {
 	ConnID   string `json:"conn_id"`
 	Profile  string `json:"profile"`
+	Name     string `json:"name"`
 	Action   string `json:"action"`
 	Scope    string `json:"scope"`
 	Position string `json:"position"`
@@ -67,6 +68,9 @@ func (s *Server) handleCreateRuleFromConnection(w http.ResponseWriter, r *http.R
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
+	}
+	if name := strings.TrimSpace(req.Name); name != "" {
+		rule.Name = name
 	}
 
 	resp, err := s.persistRules(profile.Name, func(existing []config.RuleConfig) []config.RuleConfig {

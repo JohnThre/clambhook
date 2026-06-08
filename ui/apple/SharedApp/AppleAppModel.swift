@@ -287,6 +287,63 @@ final class AppleAppModel: ObservableObject {
         }
     }
 
+    func createRuleFromConnection(_ connection: TrafficConnectionPayload, rule: RulePayload) {
+        guard canUseLicensedFeature(.routingRules) else {
+            daemonMessage = AppleAppModelError.licenseLocked.errorDescription ?? ""
+            return
+        }
+        Task {
+            do {
+                #if os(iOS)
+                try replaceActiveProfileRules(dashboard.rules.rules + [rule])
+                #else
+                guard let apiClient else {
+                    throw APIClientError.invalidURL("missing API client")
+                }
+                if connection.connID.isEmpty {
+                    _ = try await apiClient.createRule(rule)
+                } else {
+                    _ = try await apiClient.createRuleFromConnection(
+                        connID: connection.connID,
+                        profile: connection.profile,
+                        name: rule.name,
+                        action: rule.action,
+                        scope: "auto"
+                    )
+                }
+                #endif
+                await dashboard.refreshDashboard()
+                daemonMessage = "rule created"
+            } catch {
+                daemonMessage = error.localizedDescription
+            }
+        }
+    }
+
+    func applyCleanupSuggestion(_ suggestion: TrafficCleanupSuggestionPayload) {
+        guard canUseLicensedFeature(.routingRules) else {
+            daemonMessage = AppleAppModelError.licenseLocked.errorDescription ?? ""
+            return
+        }
+        Task {
+            do {
+                #if os(iOS)
+                let nextRules = try rulesApplyingCleanupSuggestion(dashboard.rules.rules, suggestion: suggestion)
+                try replaceActiveProfileRules(nextRules)
+                #else
+                guard let apiClient else {
+                    throw APIClientError.invalidURL("missing API client")
+                }
+                _ = try await apiClient.cleanupRule(suggestion)
+                #endif
+                await dashboard.refreshDashboard()
+                daemonMessage = "rule cleanup applied"
+            } catch {
+                daemonMessage = error.localizedDescription
+            }
+        }
+    }
+
     func testRule(network: String, target: String) async throws -> RuleTestResponse {
         guard canUseLicensedFeature(.routingRules) else {
             throw AppleAppModelError.licenseLocked
@@ -764,6 +821,26 @@ enum AppleAppModelError: Error, LocalizedError {
         case .licenseLocked:
             return "The trial has ended. Purchase or restore the lifetime unlock to keep using clambhook."
         }
+    }
+}
+
+private func rulesApplyingCleanupSuggestion(_ rules: [RulePayload], suggestion: TrafficCleanupSuggestionPayload) throws -> [RulePayload] {
+    let target = suggestion.targetRuleName.isEmpty ? suggestion.ruleName : suggestion.targetRuleName
+    guard !target.isEmpty, let index = rules.firstIndex(where: { $0.name == target }) else {
+        throw AppleAppModelError.invalidRules
+    }
+    switch suggestion.operation {
+    case "delete_rule":
+        var next = rules
+        next.remove(at: index)
+        return next
+    case "move_rule_to_end":
+        var next = rules
+        let rule = next.remove(at: index)
+        next.append(rule)
+        return next
+    default:
+        throw AppleAppModelError.invalidRules
     }
 }
 

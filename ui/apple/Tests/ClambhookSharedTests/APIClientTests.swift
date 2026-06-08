@@ -96,7 +96,7 @@ final class APIClientTests: XCTestCase {
           "quick_filters": [{"key": "block", "label": "Block", "count": 2}],
           "rule_hits": [{"profile": "Work", "rule_name": "ads", "action": "block", "count": 2, "last_target": "ads.example.com:443"}],
           "block_decisions": [{"conn_id": "c1", "profile": "Work", "rule_name": "ads", "action": "block", "target_host": "ads.example.com", "ts_ns": 88}],
-          "cleanup_suggestions": [{"kind": "unused_in_history", "profile": "Work", "rule_name": "old", "message": "No recent traffic-history entries matched this rule."}],
+          "cleanup_suggestions": [{"kind": "unused_in_history", "profile": "Work", "rule_name": "old", "target_rule_name": "old", "operation": "delete_rule", "message": "No recent traffic-history entries matched this rule."}],
           "connections": [{"conn_id": "c1", "profile": "Work", "state": "closed", "rule_action": "block", "default": true, "target_host": "ads.example.com"}]
         }
         """.utf8)
@@ -112,8 +112,61 @@ final class APIClientTests: XCTestCase {
         XCTAssertEqual(traffic.ruleHits.first?.ruleName, "ads")
         XCTAssertEqual(traffic.blockDecisions.first?.targetHost, "ads.example.com")
         XCTAssertEqual(traffic.cleanupSuggestions.first?.ruleName, "old")
+        XCTAssertEqual(traffic.cleanupSuggestions.first?.targetRuleName, "old")
+        XCTAssertEqual(traffic.cleanupSuggestions.first?.operation, "delete_rule")
         XCTAssertEqual(traffic.connections.first?.profile, "Work")
         XCTAssertEqual(traffic.connections.first?.isDefault, true)
+    }
+
+    func testCreateRuleFromConnectionSendsAppendRequest() async throws {
+        MockURLProtocol.responseData = Data("""
+        {"profile":"Work","rules":[{"name":"api","action":"chain:proxy","domains":["api.example.com"]}]}
+        """.utf8)
+        let client = ClambhookAPIClient(
+            baseURL: URL(string: "http://127.0.0.1:9090")!,
+            session: mockSession()
+        )
+
+        _ = try await client.createRuleFromConnection(connID: "c1", profile: "Work", name: "api", action: "chain:proxy")
+
+        XCTAssertEqual(MockURLProtocol.lastRequest?.httpMethod, "POST")
+        XCTAssertEqual(MockURLProtocol.lastRequest?.url?.absoluteString, "http://127.0.0.1:9090/api/v1/rules/from-connection")
+        let body = try XCTUnwrap(MockURLProtocol.lastBody)
+        let decoded = try JSONDecoder().decode(CreateRuleFromConnectionRequestBody.self, from: body)
+        XCTAssertEqual(decoded.connID, "c1")
+        XCTAssertEqual(decoded.profile, "Work")
+        XCTAssertEqual(decoded.name, "api")
+        XCTAssertEqual(decoded.action, "chain:proxy")
+        XCTAssertEqual(decoded.scope, "auto")
+        XCTAssertEqual(decoded.position, "append")
+    }
+
+    func testCleanupRuleSendsSuggestionIdentity() async throws {
+        MockURLProtocol.responseData = Data("""
+        {"profile":"Work","rules":[{"name":"keep","action":"direct","domains":["keep.example.com"]}]}
+        """.utf8)
+        let client = ClambhookAPIClient(
+            baseURL: URL(string: "http://127.0.0.1:9090")!,
+            session: mockSession()
+        )
+
+        _ = try await client.cleanupRule(TrafficCleanupSuggestionPayload(
+            kind: "unused_in_history",
+            profile: "Work",
+            ruleName: "old",
+            targetRuleName: "old",
+            operation: "delete_rule"
+        ))
+
+        XCTAssertEqual(MockURLProtocol.lastRequest?.httpMethod, "POST")
+        XCTAssertEqual(MockURLProtocol.lastRequest?.url?.absoluteString, "http://127.0.0.1:9090/api/v1/rules/cleanup")
+        let body = try XCTUnwrap(MockURLProtocol.lastBody)
+        let decoded = try JSONDecoder().decode(CleanupRuleRequestBody.self, from: body)
+        XCTAssertEqual(decoded.profile, "Work")
+        XCTAssertEqual(decoded.kind, "unused_in_history")
+        XCTAssertEqual(decoded.ruleName, "old")
+        XCTAssertEqual(decoded.targetRuleName, "old")
+        XCTAssertEqual(decoded.operation, "delete_rule")
     }
 
     func testHTTPErrorIncludesResponseBody() async {
@@ -138,6 +191,40 @@ final class APIClientTests: XCTestCase {
 private struct CreateRuleRequestBody: Decodable {
     var rule: RulePayload
     var position: String
+}
+
+private struct CreateRuleFromConnectionRequestBody: Decodable {
+    var connID: String
+    var profile: String
+    var name: String
+    var action: String
+    var scope: String
+    var position: String
+
+    enum CodingKeys: String, CodingKey {
+        case connID = "conn_id"
+        case profile
+        case name
+        case action
+        case scope
+        case position
+    }
+}
+
+private struct CleanupRuleRequestBody: Decodable {
+    var profile: String
+    var kind: String
+    var ruleName: String
+    var targetRuleName: String
+    var operation: String
+
+    enum CodingKeys: String, CodingKey {
+        case profile
+        case kind
+        case ruleName = "rule_name"
+        case targetRuleName = "target_rule_name"
+        case operation
+    }
 }
 
 private func mockSession() -> URLSession {

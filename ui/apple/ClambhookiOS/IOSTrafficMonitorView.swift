@@ -8,6 +8,7 @@ struct IOSActivityView: View {
     @State private var connectionFilter: IOSTrafficFilter = .all
     @State private var logFilter: IOSActivityLogFilter = .all
     @State private var searchText = ""
+    @State private var pendingCleanup: TrafficCleanupSuggestionPayload?
 
     var body: some View {
         List {
@@ -98,11 +99,19 @@ struct IOSActivityView: View {
                 if !model.dashboard.traffic.cleanupSuggestions.isEmpty {
                     Section("Rule Cleanup") {
                         ForEach(model.dashboard.traffic.cleanupSuggestions.prefix(6)) { suggestion in
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text(suggestion.ruleName)
-                                Text(suggestion.message)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
+                            HStack(alignment: .top, spacing: 12) {
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(cleanupTargetName(suggestion))
+                                        .fontWeight(.medium)
+                                    Text(suggestion.message)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Spacer(minLength: 8)
+                                Button(cleanupActionTitle(suggestion)) {
+                                    pendingCleanup = suggestion
+                                }
+                                .disabled(suggestion.operation.isEmpty)
                             }
                         }
                     }
@@ -138,6 +147,21 @@ struct IOSActivityView: View {
         }
         .refreshable {
             await model.refreshNow()
+        }
+        .confirmationDialog(
+            "Apply Rule Cleanup",
+            isPresented: Binding(
+                get: { pendingCleanup != nil },
+                set: { if !$0 { pendingCleanup = nil } }
+            ),
+            presenting: pendingCleanup
+        ) { suggestion in
+            Button(cleanupActionTitle(suggestion), role: suggestion.operation == "delete_rule" ? .destructive : nil) {
+                model.applyCleanupSuggestion(suggestion)
+                pendingCleanup = nil
+            }
+        } message: { suggestion in
+            Text(suggestion.message)
         }
     }
 
@@ -288,6 +312,14 @@ private struct IOSTrafficSummaryView: View {
     }
 }
 
+private func cleanupTargetName(_ suggestion: TrafficCleanupSuggestionPayload) -> String {
+    suggestion.targetRuleName.isEmpty ? suggestion.ruleName : suggestion.targetRuleName
+}
+
+private func cleanupActionTitle(_ suggestion: TrafficCleanupSuggestionPayload) -> String {
+    suggestion.operation == "move_rule_to_end" ? "Move to End" : "Delete"
+}
+
 private struct IOSActivityConnectionRow: View {
     var connection: TrafficConnectionPayload
     var pinned: Bool
@@ -328,9 +360,20 @@ private struct IOSActivityConnectionDetailView: View {
     @ObservedObject var model: AppleAppModel
     var connection: TrafficConnectionPayload
     @State private var draftRule: RulePayload?
+    @State private var sourceConnection: TrafficConnectionPayload?
 
     var body: some View {
         List {
+            Section("Actions") {
+                Button {
+                    sourceConnection = connection
+                    draftRule = connection.ruleDraft()
+                } label: {
+                    Label("Create Rule from Connection", systemImage: "plus.circle")
+                }
+                .disabled(connection.ruleDraft() == nil)
+            }
+
             Section("Connection") {
                 LabeledContent("ID", value: emptyDash(connection.connID))
                 LabeledContent("Target", value: emptyDash(connection.target))
@@ -349,12 +392,6 @@ private struct IOSActivityConnectionDetailView: View {
                 LabeledContent("Chain", value: emptyDash(connection.chainName))
                 LabeledContent("Default", value: connection.isDefault ? "Yes" : "No")
                 LabeledContent("Decision time", value: formatDurationNs(connection.decisionNs))
-                Button {
-                    draftRule = connection.ruleDraft()
-                } label: {
-                    Label("Create Rule", systemImage: "plus.circle")
-                }
-                .disabled(connection.ruleDraft() == nil)
             }
 
             if let visibility = connection.visibility {
@@ -440,7 +477,7 @@ private struct IOSActivityConnectionDetailView: View {
             }
         }
         .sheet(item: $draftRule) { rule in
-            IOSRuleCreateSheet(model: model, initialRule: rule)
+            IOSRuleCreateSheet(model: model, initialRule: rule, sourceConnection: sourceConnection)
         }
     }
 
@@ -456,9 +493,11 @@ private struct IOSRuleCreateSheet: View {
     @ObservedObject var model: AppleAppModel
     @Environment(\.dismiss) private var dismiss
     @State private var rule: RulePayload
+    var sourceConnection: TrafficConnectionPayload?
 
-    init(model: AppleAppModel, initialRule: RulePayload) {
+    init(model: AppleAppModel, initialRule: RulePayload, sourceConnection: TrafficConnectionPayload? = nil) {
         self.model = model
+        self.sourceConnection = sourceConnection
         self._rule = State(initialValue: initialRule)
     }
 
@@ -482,7 +521,11 @@ private struct IOSRuleCreateSheet: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {
-                        model.createRule(rule)
+                        if let sourceConnection {
+                            model.createRuleFromConnection(sourceConnection, rule: rule)
+                        } else {
+                            model.createRule(rule)
+                        }
                         dismiss()
                     }
                     .disabled(rule.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)

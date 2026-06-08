@@ -271,6 +271,17 @@ private class FakeApi(
         return rules
     }
 
+    override suspend fun createRuleFromConnection(connection: TrafficConnectionPayload, rule: RulePayload): RulesPayload {
+        actions += "connection-rule:${connection.connId}:${rule.name}"
+        rules = RulesPayload(profile = connection.profile, rules = listOf(rule))
+        return rules
+    }
+
+    override suspend fun cleanupRule(suggestion: TrafficCleanupSuggestionPayload): RulesPayload {
+        actions += "cleanup:${suggestion.operation}:${suggestion.targetRuleName.ifBlank { suggestion.ruleName }}"
+        return rules
+    }
+
     override suspend fun replaceRules(profile: String, rules: List<RulePayload>): RulesPayload {
         actions += "replace:$profile"
         this.rules = RulesPayload(profile = profile, rules = rules)

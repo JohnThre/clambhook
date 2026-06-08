@@ -224,15 +224,17 @@ type BlockDecision struct {
 	CloseReason string `json:"close_reason,omitempty"`
 }
 
-// CleanupSuggestion is advisory; the daemon never changes rules from it.
+// CleanupSuggestion describes a rule cleanup action the user can confirm.
 type CleanupSuggestion struct {
-	Kind        string `json:"kind"`
-	Profile     string `json:"profile,omitempty"`
-	RuleName    string `json:"rule_name"`
-	Action      string `json:"action,omitempty"`
-	Message     string `json:"message"`
-	Count       int    `json:"count,omitempty"`
-	LastHitTsNs int64  `json:"last_hit_ts_ns,omitempty"`
+	Kind           string `json:"kind"`
+	Profile        string `json:"profile,omitempty"`
+	RuleName       string `json:"rule_name"`
+	TargetRuleName string `json:"target_rule_name,omitempty"`
+	Operation      string `json:"operation,omitempty"`
+	Action         string `json:"action,omitempty"`
+	Message        string `json:"message"`
+	Count          int    `json:"count,omitempty"`
+	LastHitTsNs    int64  `json:"last_hit_ts_ns,omitempty"`
 }
 
 // RuleSuggestion is a draft allow/block rule derived from observed traffic.
@@ -766,24 +768,29 @@ func buildCleanupSuggestions(profile string, rules []config.RuleConfig, conns []
 		if name == "" {
 			name = "unnamed"
 		}
-		if _, ok := hits[name]; !ok {
+		isFirstBroadRule := i == 0 && ruleHasNoMatchers(rule)
+		if _, ok := hits[name]; !ok && !isFirstBroadRule {
 			out = append(out, CleanupSuggestion{
-				Kind:     "unused_in_history",
-				Profile:  profile,
-				RuleName: name,
-				Action:   action,
-				Message:  "No recent traffic-history entries matched this rule.",
+				Kind:           "unused_in_history",
+				Profile:        profile,
+				RuleName:       name,
+				TargetRuleName: name,
+				Operation:      "delete_rule",
+				Action:         action,
+				Message:        "No recent traffic-history entries matched this rule.",
 			})
 		}
 		key := ruleMatcherKey(rule)
 		if key != "" {
 			if prev, ok := seen[key]; ok {
 				out = append(out, CleanupSuggestion{
-					Kind:     "duplicate_matcher",
-					Profile:  profile,
-					RuleName: name,
-					Action:   action,
-					Message:  fmt.Sprintf("Matches the same traffic as rule %q.", prev),
+					Kind:           "duplicate_matcher",
+					Profile:        profile,
+					RuleName:       name,
+					TargetRuleName: name,
+					Operation:      "delete_rule",
+					Action:         action,
+					Message:        fmt.Sprintf("Matches the same traffic as rule %q.", prev),
 				})
 			} else {
 				seen[key] = name
@@ -812,24 +819,28 @@ func buildCleanupSuggestions(profile string, rules []config.RuleConfig, conns []
 					}
 					if prev, ok := matchingShadowDescriptor(previous, descriptor); ok {
 						out = append(out, CleanupSuggestion{
-							Kind:     "shadowed_exact_match",
-							Profile:  profile,
-							RuleName: name,
-							Action:   action,
-							Message:  fmt.Sprintf("May make earlier exact-domain rule %q redundant.", prev.name),
+							Kind:           "shadowed_exact_match",
+							Profile:        profile,
+							RuleName:       name,
+							TargetRuleName: prev.name,
+							Operation:      "delete_rule",
+							Action:         action,
+							Message:        fmt.Sprintf("May make earlier exact-domain rule %q redundant.", prev.name),
 						})
 						break
 					}
 				}
 			}
 		}
-		if i == 0 && ruleHasNoMatchers(rule) {
+		if isFirstBroadRule {
 			out = append(out, CleanupSuggestion{
-				Kind:     "broad_match",
-				Profile:  profile,
-				RuleName: name,
-				Action:   action,
-				Message:  "First rule has no matchers and may shadow every later rule.",
+				Kind:           "broad_match",
+				Profile:        profile,
+				RuleName:       name,
+				TargetRuleName: name,
+				Operation:      "move_rule_to_end",
+				Action:         action,
+				Message:        "First rule has no matchers and may shadow every later rule.",
 			})
 		}
 	}

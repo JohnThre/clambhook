@@ -16,6 +16,8 @@ namespace Clambhook {
         public abstract async void disconnect() throws Error;
         public abstract async void set_active_profile(string name) throws Error;
         public abstract async RulesPayload create_rule(RulePayload rule) throws Error;
+        public abstract async RulesPayload create_rule_from_connection(TrafficConnectionPayload connection, RulePayload rule) throws Error;
+        public abstract async RulesPayload cleanup_rule(TrafficCleanupSuggestionPayload suggestion) throws Error;
     }
 
     public class ClambhookApiClient : Object, ClambhookApiProviding {
@@ -69,6 +71,14 @@ namespace Clambhook {
             return RulesPayload.from_json(yield send("POST", "/api/v1/rules", create_rule_body(rule)));
         }
 
+        public async RulesPayload create_rule_from_connection(TrafficConnectionPayload connection, RulePayload rule) throws Error {
+            return RulesPayload.from_json(yield send("POST", "/api/v1/rules/from-connection", create_rule_from_connection_body(connection, rule)));
+        }
+
+        public async RulesPayload cleanup_rule(TrafficCleanupSuggestionPayload suggestion) throws Error {
+            return RulesPayload.from_json(yield send("POST", "/api/v1/rules/cleanup", cleanup_rule_body(suggestion)));
+        }
+
         public string build_uri(string path) {
             var normalized_path = path.has_prefix("/") ? path : "/" + path;
             return base_url + normalized_path;
@@ -106,6 +116,49 @@ namespace Clambhook {
             rule.to_json(builder);
             builder.set_member_name("position");
             builder.add_string_value("append");
+            builder.end_object();
+
+            var generator = new Json.Generator();
+            generator.set_root(builder.get_root());
+            return generator.to_data(null);
+        }
+
+        public static string create_rule_from_connection_body(TrafficConnectionPayload connection, RulePayload rule) {
+            var builder = new Json.Builder();
+            builder.begin_object();
+            builder.set_member_name("conn_id");
+            builder.add_string_value(connection.conn_id);
+            builder.set_member_name("profile");
+            builder.add_string_value(connection.profile);
+            builder.set_member_name("name");
+            builder.add_string_value(rule.name);
+            builder.set_member_name("action");
+            builder.add_string_value(rule.action);
+            builder.set_member_name("scope");
+            builder.add_string_value("auto");
+            builder.set_member_name("position");
+            builder.add_string_value("append");
+            builder.end_object();
+
+            var generator = new Json.Generator();
+            generator.set_root(builder.get_root());
+            return generator.to_data(null);
+        }
+
+        public static string cleanup_rule_body(TrafficCleanupSuggestionPayload suggestion) {
+            var target = suggestion.target_rule_name == "" ? suggestion.rule_name : suggestion.target_rule_name;
+            var builder = new Json.Builder();
+            builder.begin_object();
+            builder.set_member_name("profile");
+            builder.add_string_value(suggestion.profile);
+            builder.set_member_name("kind");
+            builder.add_string_value(suggestion.kind);
+            builder.set_member_name("rule_name");
+            builder.add_string_value(suggestion.rule_name);
+            builder.set_member_name("target_rule_name");
+            builder.add_string_value(target);
+            builder.set_member_name("operation");
+            builder.add_string_value(suggestion.operation);
             builder.end_object();
 
             var generator = new Json.Generator();

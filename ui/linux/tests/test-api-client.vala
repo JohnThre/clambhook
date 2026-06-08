@@ -32,5 +32,33 @@ namespace Clambhook.Tests {
                 "{\"rule\":{\"name\":\"block-example-com\",\"action\":\"block\",\"domain_suffixes\":[\"example.com\"],\"ports\":[443],\"networks\":[\"tcp\"]},\"position\":\"append\"}"
             );
         });
+
+        Test.add_func("/linux/api-client/encodes-create-rule-from-connection-body", () => {
+            var connection = new TrafficConnectionPayload();
+            connection.conn_id = "c1";
+            connection.profile = "Work";
+            var rule = new RulePayload();
+            rule.name = "api";
+            rule.action = "chain:proxy";
+            assert_cmpstr(
+                ClambhookApiClient.create_rule_from_connection_body(connection, rule),
+                CompareOperator.EQ,
+                "{\"conn_id\":\"c1\",\"profile\":\"Work\",\"name\":\"api\",\"action\":\"chain:proxy\",\"scope\":\"auto\",\"position\":\"append\"}"
+            );
+        });
+
+        Test.add_func("/linux/api-client/encodes-cleanup-rule-body", () => {
+            var suggestion = new TrafficCleanupSuggestionPayload();
+            suggestion.profile = "Work";
+            suggestion.kind = "unused_in_history";
+            suggestion.rule_name = "old";
+            suggestion.target_rule_name = "old";
+            suggestion.operation = "delete_rule";
+            assert_cmpstr(
+                ClambhookApiClient.cleanup_rule_body(suggestion),
+                CompareOperator.EQ,
+                "{\"profile\":\"Work\",\"kind\":\"unused_in_history\",\"rule_name\":\"old\",\"target_rule_name\":\"old\",\"operation\":\"delete_rule\"}"
+            );
+        });
     }
 }

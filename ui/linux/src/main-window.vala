@@ -398,9 +398,10 @@ namespace Clambhook {
 
         private void render_traffic() {
             clear_list(traffic_list);
+            append_cleanup_suggestions();
             append_rule_suggestions();
             if (store.traffic.connections.size == 0) {
-                if (store.traffic.rule_suggestions.size > 0) {
+                if (store.traffic.rule_suggestions.size > 0 || store.traffic.cleanup_suggestions.size > 0) {
                     return;
                 }
                 traffic_list.append(empty_state_row("No activity yet", "Recent connection decisions will appear here."));
@@ -421,6 +422,17 @@ namespace Clambhook {
             }
             if (rendered == 0) {
                 traffic_list.append(empty_state_row("No matching activity", "Connection decisions appear here when traffic passes through clambhook."));
+            }
+        }
+
+        private void append_cleanup_suggestions() {
+            var limit = store.traffic.cleanup_suggestions.size < 4 ? store.traffic.cleanup_suggestions.size : 4;
+            if (limit == 0) {
+                return;
+            }
+            traffic_list.append(detail_row("Rule cleanup", "Apply reviewed cleanup actions to manual rules.", "edit-clear-symbolic"));
+            for (int i = 0; i < limit; i++) {
+                traffic_list.append(cleanup_suggestion_row(store.traffic.cleanup_suggestions[i]));
             }
         }
 
@@ -481,6 +493,36 @@ namespace Clambhook {
             var button = new Button.with_label("Rule");
             button.sensitive = rule_draft_from_connection(connection) != null;
             button.clicked.connect(() => show_rule_dialog(connection));
+            outer.append(button);
+
+            var row = new ListBoxRow();
+            row.set_child(outer);
+            return row;
+        }
+
+        private ListBoxRow cleanup_suggestion_row(TrafficCleanupSuggestionPayload suggestion) {
+            var outer = new Box(Orientation.HORIZONTAL, 10);
+            outer.margin_top = 8;
+            outer.margin_bottom = 8;
+            outer.margin_start = 10;
+            outer.margin_end = 10;
+
+            var text = new Box(Orientation.VERTICAL, 2);
+            text.hexpand = true;
+            var title = new Label("%s  %s".printf(cleanup_action_title(suggestion), cleanup_target_name(suggestion)));
+            title.xalign = 0;
+            title.wrap = true;
+            text.append(title);
+            var secondary = new Label(suggestion.message);
+            secondary.xalign = 0;
+            secondary.wrap = true;
+            secondary.add_css_class("dim-label");
+            text.append(secondary);
+            outer.append(text);
+
+            var button = new Button.with_label(cleanup_action_title(suggestion));
+            button.sensitive = suggestion.operation != "";
+            button.clicked.connect(() => show_cleanup_dialog(suggestion));
             outer.append(button);
 
             var row = new ListBoxRow();
@@ -592,10 +634,10 @@ namespace Clambhook {
             if (draft == null) {
                 return;
             }
-            show_rule_dialog_for_draft(draft);
+            show_rule_dialog_for_draft(draft, connection);
         }
 
-        private void show_rule_dialog_for_draft(RulePayload draft) {
+        private void show_rule_dialog_for_draft(RulePayload draft, TrafficConnectionPayload? source_connection = null) {
             var win = new Window();
             win.title = "Create Rule";
             win.transient_for = this;
@@ -636,11 +678,52 @@ namespace Clambhook {
                 if (action.selected != Gtk.INVALID_LIST_POSITION && (int) action.selected < action_values.size) {
                     draft.action = action_values[(int) action.selected];
                 }
-                store.create_rule.begin(draft);
+                if (source_connection != null) {
+                    store.create_rule_from_connection.begin(source_connection, draft);
+                } else {
+                    store.create_rule.begin(draft);
+                }
                 win.close();
             });
             buttons.append(cancel);
             buttons.append(save);
+            root.append(buttons);
+            win.set_child(root);
+            win.present();
+        }
+
+        private void show_cleanup_dialog(TrafficCleanupSuggestionPayload suggestion) {
+            var win = new Window();
+            win.title = "Apply Rule Cleanup";
+            win.transient_for = this;
+            win.modal = true;
+            win.default_width = 420;
+            var root = new Box(Orientation.VERTICAL, 12);
+            root.margin_top = 18;
+            root.margin_bottom = 18;
+            root.margin_start = 18;
+            root.margin_end = 18;
+            var title = new Label("%s %s".printf(cleanup_action_title(suggestion), cleanup_target_name(suggestion)));
+            title.xalign = 0;
+            title.wrap = true;
+            root.append(title);
+            var message = new Label(suggestion.message);
+            message.xalign = 0;
+            message.wrap = true;
+            message.add_css_class("dim-label");
+            root.append(message);
+            var buttons = new Box(Orientation.HORIZONTAL, 8);
+            buttons.halign = Align.END;
+            var cancel = new Button.with_label("Cancel");
+            cancel.clicked.connect(() => win.close());
+            var apply = new Button.with_label(cleanup_action_title(suggestion));
+            apply.add_css_class("destructive-action");
+            apply.clicked.connect(() => {
+                store.cleanup_rule.begin(suggestion);
+                win.close();
+            });
+            buttons.append(cancel);
+            buttons.append(apply);
             root.append(buttons);
             win.set_child(root);
             win.present();
@@ -664,6 +747,14 @@ namespace Clambhook {
                 return "contains %s".printf(string.joinv(", ", rule.domain_keywords.to_array()));
             }
             return "any";
+        }
+
+        private static string cleanup_target_name(TrafficCleanupSuggestionPayload suggestion) {
+            return suggestion.target_rule_name == "" ? suggestion.rule_name : suggestion.target_rule_name;
+        }
+
+        private static string cleanup_action_title(TrafficCleanupSuggestionPayload suggestion) {
+            return suggestion.operation == "move_rule_to_end" ? "Move to end" : "Delete";
         }
 
         private static Widget field_label(string label_text, Widget control) {

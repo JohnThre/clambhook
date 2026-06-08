@@ -446,7 +446,54 @@ func TestTrafficMonitorSavesConnectionRuleFromConnectionEndpoint(t *testing.T) {
 	if len(requests) != 1 || requests[0] != "POST /api/v1/rules/from-connection" {
 		t.Fatalf("requests = %v, want rules/from-connection", requests)
 	}
-	if gotReq.ConnID != "c1" || gotReq.Profile != "Work" || gotReq.Action != "allow" || gotReq.Scope != "auto" || gotReq.Position != "append" {
+	if gotReq.ConnID != "c1" || gotReq.Profile != "Work" || gotReq.Name != "block-ads-example-com" || gotReq.Action != "allow" || gotReq.Scope != "auto" || gotReq.Position != "append" {
+		t.Fatalf("request = %+v", gotReq)
+	}
+}
+
+func TestTrafficMonitorAppliesCleanupSuggestion(t *testing.T) {
+	var requests []string
+	var gotReq cleanupRuleRequest
+	var decodeErr error
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests = append(requests, r.Method+" "+r.URL.Path)
+		if r.URL.Path == "/api/v1/rules/cleanup" {
+			decodeErr = json.NewDecoder(r.Body).Decode(&gotReq)
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	m := newModel("127.0.0.1:9090")
+	m.client = newAPIClientFromBaseURL(srv.URL)
+	m.viewMode = viewModeActivity
+	m.traffic.CleanupSuggestions = []cleanupSuggestionPayload{{
+		Kind:           "unused_in_history",
+		Profile:        "Work",
+		RuleName:       "old-rule",
+		TargetRuleName: "old-rule",
+		Operation:      "delete_rule",
+		Message:        "No recent traffic-history entries matched this rule.",
+	}}
+
+	updated, _ := m.Update(keyMsg("c"))
+	m = updated.(model)
+	if m.pendingCleanup == nil || m.pendingCleanup.RuleName != "old-rule" {
+		t.Fatalf("pending cleanup = %+v", m.pendingCleanup)
+	}
+	_, cmd := m.Update(keyMsg("y"))
+	if cmd == nil {
+		t.Fatal("cleanup returned nil command")
+	}
+	_ = cmd()
+
+	if decodeErr != nil {
+		t.Fatalf("decode request: %v", decodeErr)
+	}
+	if len(requests) != 1 || requests[0] != "POST /api/v1/rules/cleanup" {
+		t.Fatalf("requests = %v, want cleanup endpoint", requests)
+	}
+	if gotReq.Profile != "Work" || gotReq.Kind != "unused_in_history" || gotReq.RuleName != "old-rule" || gotReq.TargetRuleName != "old-rule" || gotReq.Operation != "delete_rule" {
 		t.Fatalf("request = %+v", gotReq)
 	}
 }
@@ -513,7 +560,7 @@ func TestTrafficMonitorRendersBackendAnalytics(t *testing.T) {
 	m.traffic.ProfileContext = profileContextPayload{Active: "Work", Profiles: []string{"Work", "Home"}}
 	m.traffic.RuleHits = []ruleHitPayload{{RuleName: "ads", Action: "block", Count: 3}}
 	m.traffic.BlockDecisions = []blockDecisionPayload{{TargetHost: "ads.example.com", RuleName: "ads", Action: "block"}}
-	m.traffic.CleanupSuggestions = []cleanupSuggestionPayload{{RuleName: "old-rule", Message: "No recent traffic-history entries matched this rule."}}
+	m.traffic.CleanupSuggestions = []cleanupSuggestionPayload{{RuleName: "old-rule", TargetRuleName: "old-rule", Operation: "delete_rule", Message: "No recent traffic-history entries matched this rule."}}
 	m.traffic.RuleSuggestions = []ruleSuggestionPayload{{
 		Kind:      "exact_host",
 		Action:    "block",
@@ -531,7 +578,7 @@ func TestTrafficMonitorRendersBackendAnalytics(t *testing.T) {
 	}}
 
 	view := m.View()
-	for _, want := range []string{"profile Work", "Rule hits", "ads/block 3", "Recent blocks", "Cleanup old-rule", "Suggested rules", "api.example.com"} {
+	for _, want := range []string{"profile Work", "Rule hits", "ads/block 3", "Recent blocks", "Rule cleanup", "Delete", "Action enter/n create rule from connection", "Suggested rules", "api.example.com"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("view missing %q:\n%s", want, view)
 		}

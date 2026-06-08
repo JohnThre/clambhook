@@ -29,6 +29,8 @@ interface ClambhookApi {
     suspend fun disconnect()
     suspend fun setActiveProfile(name: String)
     suspend fun createRule(rule: RulePayload): RulesPayload
+    suspend fun createRuleFromConnection(connection: TrafficConnectionPayload, rule: RulePayload): RulesPayload
+    suspend fun cleanupRule(suggestion: TrafficCleanupSuggestionPayload): RulesPayload
     suspend fun replaceRules(profile: String, rules: List<RulePayload>): RulesPayload
     suspend fun developerStatus(): DeveloperStatusPayload
     suspend fun developerEntries(): DeveloperEntriesPayload
@@ -105,6 +107,39 @@ class ClambhookApiClient(
     override suspend fun createRule(rule: RulePayload): RulesPayload =
         ApiJson.decodeFromString(
             send("POST", "/api/v1/rules", ApiJson.encodeToString(CreateRuleRequest(rule)))
+        )
+
+    override suspend fun createRuleFromConnection(connection: TrafficConnectionPayload, rule: RulePayload): RulesPayload =
+        ApiJson.decodeFromString(
+            send(
+                "POST",
+                "/api/v1/rules/from-connection",
+                ApiJson.encodeToString(
+                    CreateRuleFromConnectionRequest(
+                        connId = connection.connId,
+                        profile = connection.profile,
+                        name = rule.name,
+                        action = rule.action
+                    )
+                )
+            )
+        )
+
+    override suspend fun cleanupRule(suggestion: TrafficCleanupSuggestionPayload): RulesPayload =
+        ApiJson.decodeFromString(
+            send(
+                "POST",
+                "/api/v1/rules/cleanup",
+                ApiJson.encodeToString(
+                    CleanupRuleRequest(
+                        profile = suggestion.profile,
+                        kind = suggestion.kind,
+                        ruleName = suggestion.ruleName,
+                        targetRuleName = suggestion.targetRuleName.ifBlank { suggestion.ruleName },
+                        operation = suggestion.operation
+                    )
+                )
+            )
         )
 
     override suspend fun replaceRules(profile: String, rules: List<RulePayload>): RulesPayload =

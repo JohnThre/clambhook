@@ -1094,10 +1094,12 @@ public struct TrafficBlockDecisionPayload: Codable, Equatable, Identifiable, Sen
 }
 
 public struct TrafficCleanupSuggestionPayload: Codable, Equatable, Identifiable, Sendable {
-    public var id: String { "\(kind)-\(profile)-\(ruleName)-\(message)" }
+    public var id: String { "\(kind)-\(profile)-\(ruleName)-\(targetRuleName)-\(operation)-\(message)" }
     public var kind: String
     public var profile: String
     public var ruleName: String
+    public var targetRuleName: String
+    public var operation: String
     public var action: String
     public var message: String
     public var count: Int
@@ -1107,16 +1109,20 @@ public struct TrafficCleanupSuggestionPayload: Codable, Equatable, Identifiable,
         case kind
         case profile
         case ruleName = "rule_name"
+        case targetRuleName = "target_rule_name"
+        case operation
         case action
         case message
         case count
         case lastHitTsNs = "last_hit_ts_ns"
     }
 
-    public init(kind: String = "", profile: String = "", ruleName: String = "", action: String = "", message: String = "", count: Int = 0, lastHitTsNs: Int64 = 0) {
+    public init(kind: String = "", profile: String = "", ruleName: String = "", targetRuleName: String = "", operation: String = "", action: String = "", message: String = "", count: Int = 0, lastHitTsNs: Int64 = 0) {
         self.kind = kind
         self.profile = profile
         self.ruleName = ruleName
+        self.targetRuleName = targetRuleName
+        self.operation = operation
         self.action = action
         self.message = message
         self.count = count
@@ -1128,6 +1134,8 @@ public struct TrafficCleanupSuggestionPayload: Codable, Equatable, Identifiable,
         self.kind = try container.decodeIfPresent(String.self, forKey: .kind) ?? ""
         self.profile = try container.decodeIfPresent(String.self, forKey: .profile) ?? ""
         self.ruleName = try container.decodeIfPresent(String.self, forKey: .ruleName) ?? ""
+        self.targetRuleName = try container.decodeIfPresent(String.self, forKey: .targetRuleName) ?? ""
+        self.operation = try container.decodeIfPresent(String.self, forKey: .operation) ?? ""
         self.action = try container.decodeIfPresent(String.self, forKey: .action) ?? ""
         self.message = try container.decodeIfPresent(String.self, forKey: .message) ?? ""
         self.count = try container.decodeIfPresent(Int.self, forKey: .count) ?? 0

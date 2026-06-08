@@ -118,6 +118,28 @@ namespace Clambhook {
             }
         }
 
+        public async void create_rule_from_connection(TrafficConnectionPayload connection, RulePayload rule) {
+            try {
+                rules = yield api.create_rule_from_connection(connection, rule);
+                yield refresh_dashboard();
+            } catch (Error err) {
+                api_online = false;
+                error_text = err.message;
+                changed();
+            }
+        }
+
+        public async void cleanup_rule(TrafficCleanupSuggestionPayload suggestion) {
+            try {
+                rules = yield api.cleanup_rule(suggestion);
+                yield refresh_dashboard();
+            } catch (Error err) {
+                api_online = false;
+                error_text = err.message;
+                changed();
+            }
+        }
+
         public void apply_event(DaemonEvent event) {
             switch (event.event_type) {
             case "connection.bytes":

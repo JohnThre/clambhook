@@ -105,6 +105,64 @@ public final class ClambhookAPIClient: ClambhookAPIProviding, ClambhookRuleEditi
         return try decoder.decode(RulesPayload.self, from: data)
     }
 
+    public func createRuleFromConnection(connID: String, profile: String = "", name: String = "", action: String = "", scope: String = "auto") async throws -> RulesPayload {
+        struct CreateRuleFromConnectionRequest: Encodable {
+            var connID: String
+            var profile: String
+            var name: String
+            var action: String
+            var scope: String
+            var position: String
+
+            enum CodingKeys: String, CodingKey {
+                case connID = "conn_id"
+                case profile
+                case name
+                case action
+                case scope
+                case position
+            }
+        }
+        let body = try encoder.encode(CreateRuleFromConnectionRequest(
+            connID: connID,
+            profile: profile,
+            name: name,
+            action: action,
+            scope: scope,
+            position: "append"
+        ))
+        let data = try await send(method: "POST", path: "/api/v1/rules/from-connection", body: body)
+        return try decoder.decode(RulesPayload.self, from: data)
+    }
+
+    public func cleanupRule(_ suggestion: TrafficCleanupSuggestionPayload) async throws -> RulesPayload {
+        struct CleanupRuleRequest: Encodable {
+            var profile: String
+            var kind: String
+            var ruleName: String
+            var targetRuleName: String
+            var operation: String
+
+            enum CodingKeys: String, CodingKey {
+                case profile
+                case kind
+                case ruleName = "rule_name"
+                case targetRuleName = "target_rule_name"
+                case operation
+            }
+        }
+        let target = suggestion.targetRuleName.isEmpty ? suggestion.ruleName : suggestion.targetRuleName
+        let body = try encoder.encode(CleanupRuleRequest(
+            profile: suggestion.profile,
+            kind: suggestion.kind,
+            ruleName: suggestion.ruleName,
+            targetRuleName: target,
+            operation: suggestion.operation
+        ))
+        let data = try await send(method: "POST", path: "/api/v1/rules/cleanup", body: body)
+        return try decoder.decode(RulesPayload.self, from: data)
+    }
+
     public func replaceRules(_ rules: [RulePayload], profile: String = "") async throws -> RulesPayload {
         struct ReplaceRulesRequest: Encodable {
             var profile: String
