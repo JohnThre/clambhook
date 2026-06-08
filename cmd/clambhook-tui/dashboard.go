@@ -1187,6 +1187,7 @@ func (m model) renderTrafficDetailSection(width int) string {
 		lines = append(lines, errorStyle.Render(truncate("  History: "+m.traffic.Summary.PersistError, width)))
 	}
 	lines = append(lines, m.monitorFilterLine(width))
+	lines = append(lines, m.trafficBreakdownLines(width)...)
 	if line := m.ruleTestLine(width); line != "" {
 		lines = append(lines, line)
 	}
@@ -1246,16 +1247,47 @@ func (m model) monitorFilterLine(width int) string {
 	if active == "" {
 		active = m.activeProfile()
 	}
+	all := m.quickFilterCount("all", len(m.traffic.Connections))
 	return truncate(fmt.Sprintf("  [%s] profile %s  all %d  proxy %d  direct %d  block %d  %s %q",
 		filter,
 		emptyDash(active),
-		len(m.traffic.Connections),
+		all,
 		counts["proxy"],
 		counts["direct"],
 		counts["block"],
 		prompt,
 		search,
 	), width)
+}
+
+func (m model) trafficBreakdownLines(width int) []string {
+	var lines []string
+	if line := breakdownSummaryLine("  Routes", m.traffic.Breakdowns.Actions, width); line != "" {
+		lines = append(lines, line)
+	}
+	if line := breakdownSummaryLine("  Top chains", m.traffic.Breakdowns.Chains, width); line != "" {
+		lines = append(lines, line)
+	}
+	if line := breakdownSummaryLine("  Top rules", m.traffic.Breakdowns.Rules, width); line != "" {
+		lines = append(lines, line)
+	}
+	return lines
+}
+
+func breakdownSummaryLine(label string, rows []breakdownRowPayload, width int) string {
+	if len(rows) == 0 {
+		return ""
+	}
+	limit := minInt(4, len(rows))
+	parts := make([]string, 0, limit)
+	for _, row := range rows[:limit] {
+		name := row.Label
+		if name == "" {
+			name = row.Key
+		}
+		parts = append(parts, fmt.Sprintf("%s %d", emptyDash(name), row.Count))
+	}
+	return truncate(label+"  "+strings.Join(parts, "  "), width)
 }
 
 func (m model) ruleTestLine(width int) string {
@@ -1649,7 +1681,7 @@ func (m model) selectedConnectionDetailLines(width int) []string {
 	host := connectionHost(conn)
 	lines := []string{
 		tableHeaderStyle.Render(truncate("  Host Detail", width)),
-		truncate(fmt.Sprintf("  Host %s  Action %s  Rule %s  Chain %s  Profile %s", emptyDash(host), actionChip(conn), emptyDash(conn.RuleName), emptyDash(conn.ChainName), emptyDash(conn.Profile)), width),
+		truncate(fmt.Sprintf("  Host %s  Decision %s  Rule %s  Route %s  Profile %s", emptyDash(host), actionChip(conn), ruleLabel(conn), routeLabel(conn), emptyDash(conn.Profile)), width),
 		truncate(fmt.Sprintf("  Target %s  Network %s  App %s  Listener %s %s", emptyDash(conn.Target), emptyDash(conn.Network), emptyDash(conn.Application), conn.Listener.Protocol, conn.Listener.Addr), width),
 		truncate(fmt.Sprintf("  Bytes %s down / %s up  Duration %s  Decision %s", formatBytes(conn.RxTotal), formatBytes(conn.TxTotal), formatDurationNs(conn.DurationNs), formatDurationNs(conn.DecisionNs)), width),
 	}
@@ -1712,10 +1744,25 @@ func (m model) ruleHits() []ruleHit {
 
 func (m model) actionCounts() map[string]int {
 	counts := map[string]int{"proxy": 0, "direct": 0, "block": 0}
+	if len(m.traffic.QuickFilters) > 0 {
+		for _, key := range []string{"proxy", "direct", "block"} {
+			counts[key] = m.quickFilterCount(key, 0)
+		}
+		return counts
+	}
 	for _, conn := range m.traffic.Connections {
 		counts[actionFamily(conn)]++
 	}
 	return counts
+}
+
+func (m model) quickFilterCount(key string, fallback int) int {
+	for _, filter := range m.traffic.QuickFilters {
+		if filter.Key == key {
+			return filter.Count
+		}
+	}
+	return fallback
 }
 
 func connectionMatchesSearch(conn trafficConnectionPayload, query string) bool {
@@ -1755,6 +1802,33 @@ func actionChip(conn trafficConnectionPayload) string {
 		return "BLOCK"
 	default:
 		return "PROXY"
+	}
+}
+
+func ruleLabel(conn trafficConnectionPayload) string {
+	if conn.RuleName != "" {
+		return conn.RuleName
+	}
+	if conn.Default {
+		return "default"
+	}
+	return emptyDash("")
+}
+
+func routeLabel(conn trafficConnectionPayload) string {
+	switch {
+	case conn.GroupName != "" && conn.ChainName != "":
+		return conn.GroupName + " -> " + conn.ChainName
+	case conn.GroupName != "":
+		return conn.GroupName
+	case conn.ChainName != "":
+		return conn.ChainName
+	case actionFamily(conn) == "direct":
+		return "direct"
+	case actionFamily(conn) == "block":
+		return "blocked"
+	default:
+		return emptyDash("")
 	}
 }
 

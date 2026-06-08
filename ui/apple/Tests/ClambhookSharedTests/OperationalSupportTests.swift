@@ -158,27 +158,45 @@ final class OperationalSupportTests: XCTestCase {
                 ServerPayload(name: "exit", address: "203.0.113.10:443", protocol: "trojan"),
             ]),
         ])
-        api.trafficResult = TrafficSnapshotPayload(connections: [
-            TrafficConnectionPayload(
-                connID: "c1",
-                state: "closed",
-                updatedTsNs: 10,
-                chainName: "proxy",
-                ruleName: "ads",
-                ruleAction: "block",
-                target: "ads.example.com:443",
-                hops: [
-                    TrafficHopPayload(index: 0, name: "exit", protocol: "trojan", address: "203.0.113.10:443", state: "connected", elapsedNs: 25_000_000),
-                ]
-            ),
-            TrafficConnectionPayload(
-                connID: "c2",
-                state: "closed",
-                updatedTsNs: 11,
-                chainName: "proxy",
-                target: "default.example.com:443"
-            ),
-        ])
+        api.trafficResult = TrafficSnapshotPayload(
+            connections: [
+                TrafficConnectionPayload(
+                    connID: "c1",
+                    state: "closed",
+                    updatedTsNs: 10,
+                    chainName: "proxy",
+                    ruleName: "ads",
+                    ruleAction: "block",
+                    target: "ads.example.com:443",
+                    hops: [
+                        TrafficHopPayload(index: 0, name: "exit", protocol: "trojan", address: "203.0.113.10:443", state: "connected", elapsedNs: 25_000_000),
+                    ]
+                ),
+                TrafficConnectionPayload(
+                    connID: "c2",
+                    state: "closed",
+                    updatedTsNs: 11,
+                    chainName: "proxy",
+                    target: "default.example.com:443"
+                ),
+            ],
+            quickFilters: [
+                TrafficQuickFilterPayload(key: "proxy", label: "Proxy", count: 7),
+                TrafficQuickFilterPayload(key: "direct", label: "Direct", count: 2),
+                TrafficQuickFilterPayload(key: "block", label: "Block", count: 5),
+            ],
+            ruleSuggestions: [
+                TrafficRuleSuggestionPayload(
+                    id: "exact_host-block-api.example.com",
+                    kind: "exact_host",
+                    action: "block",
+                    draftRule: RulePayload(name: "block-api", action: "block", domains: ["api.example.com"]),
+                    count: 3,
+                    confidence: "high",
+                    reason: "Observed 3 matching connections."
+                ),
+            ]
+        )
         let store = DashboardStore(api: api, snapshotStore: .inMemory)
 
         await store.refreshDashboard()
@@ -186,6 +204,9 @@ final class OperationalSupportTests: XCTestCase {
         XCTAssertEqual(store.recentDecisions.first?.target, "default.example.com:443")
         XCTAssertEqual(store.recentDecisions.dropFirst().first?.ruleName, "ads")
         XCTAssertEqual(store.ruleHitSummaries.first?.count, 1)
+        XCTAssertEqual(store.monitorActionCounts["proxy"], 7)
+        XCTAssertEqual(store.monitorActionCounts["block"], 5)
+        XCTAssertEqual(store.ruleSuggestionSummaries.first?.match, "api.example.com")
         let serverID = api.serversResult.chains[0].servers[0].id
         XCTAssertEqual(store.passiveServerHealth[serverID]?.state, "healthy")
         XCTAssertEqual(store.passiveServerHealth[serverID]?.latencyNs, 25_000_000)

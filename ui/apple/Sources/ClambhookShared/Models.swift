@@ -1017,6 +1017,7 @@ public struct TrafficSnapshotPayload: Codable, Equatable, Sendable {
     public var ruleHits: [TrafficRuleHitPayload]
     public var blockDecisions: [TrafficBlockDecisionPayload]
     public var cleanupSuggestions: [TrafficCleanupSuggestionPayload]
+    public var ruleSuggestions: [TrafficRuleSuggestionPayload]
     public var breakdowns: TrafficBreakdownsPayload
 
     enum CodingKeys: String, CodingKey {
@@ -1028,10 +1029,11 @@ public struct TrafficSnapshotPayload: Codable, Equatable, Sendable {
         case ruleHits = "rule_hits"
         case blockDecisions = "block_decisions"
         case cleanupSuggestions = "cleanup_suggestions"
+        case ruleSuggestions = "rule_suggestions"
         case breakdowns
     }
 
-    public init(updatedTsNs: Int64 = 0, summary: TrafficSummaryPayload = TrafficSummaryPayload(), connections: [TrafficConnectionPayload] = [], profileContext: TrafficProfileContextPayload = TrafficProfileContextPayload(), quickFilters: [TrafficQuickFilterPayload] = [], ruleHits: [TrafficRuleHitPayload] = [], blockDecisions: [TrafficBlockDecisionPayload] = [], cleanupSuggestions: [TrafficCleanupSuggestionPayload] = [], breakdowns: TrafficBreakdownsPayload = TrafficBreakdownsPayload()) {
+    public init(updatedTsNs: Int64 = 0, summary: TrafficSummaryPayload = TrafficSummaryPayload(), connections: [TrafficConnectionPayload] = [], profileContext: TrafficProfileContextPayload = TrafficProfileContextPayload(), quickFilters: [TrafficQuickFilterPayload] = [], ruleHits: [TrafficRuleHitPayload] = [], blockDecisions: [TrafficBlockDecisionPayload] = [], cleanupSuggestions: [TrafficCleanupSuggestionPayload] = [], ruleSuggestions: [TrafficRuleSuggestionPayload] = [], breakdowns: TrafficBreakdownsPayload = TrafficBreakdownsPayload()) {
         self.updatedTsNs = updatedTsNs
         self.summary = summary
         self.connections = connections
@@ -1040,6 +1042,7 @@ public struct TrafficSnapshotPayload: Codable, Equatable, Sendable {
         self.ruleHits = ruleHits
         self.blockDecisions = blockDecisions
         self.cleanupSuggestions = cleanupSuggestions
+        self.ruleSuggestions = ruleSuggestions
         self.breakdowns = breakdowns
     }
 
@@ -1053,6 +1056,7 @@ public struct TrafficSnapshotPayload: Codable, Equatable, Sendable {
         self.ruleHits = try container.decodeIfPresent([TrafficRuleHitPayload].self, forKey: .ruleHits) ?? []
         self.blockDecisions = try container.decodeIfPresent([TrafficBlockDecisionPayload].self, forKey: .blockDecisions) ?? []
         self.cleanupSuggestions = try container.decodeIfPresent([TrafficCleanupSuggestionPayload].self, forKey: .cleanupSuggestions) ?? []
+        self.ruleSuggestions = try container.decodeIfPresent([TrafficRuleSuggestionPayload].self, forKey: .ruleSuggestions) ?? []
         self.breakdowns = try container.decodeIfPresent(TrafficBreakdownsPayload.self, forKey: .breakdowns) ?? TrafficBreakdownsPayload()
     }
 }
@@ -1303,6 +1307,59 @@ public struct TrafficCleanupSuggestionPayload: Codable, Equatable, Identifiable,
         self.message = try container.decodeIfPresent(String.self, forKey: .message) ?? ""
         self.count = try container.decodeIfPresent(Int.self, forKey: .count) ?? 0
         self.lastHitTsNs = try container.decodeIfPresent(Int64.self, forKey: .lastHitTsNs) ?? 0
+    }
+}
+
+public struct TrafficRuleSuggestionPayload: Codable, Equatable, Identifiable, Sendable {
+    public var id: String
+    public var kind: String
+    public var profile: String
+    public var action: String
+    public var draftRule: RulePayload
+    public var count: Int
+    public var lastSeenTsNs: Int64
+    public var sampleTargets: [String]
+    public var confidence: String
+    public var reason: String
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case kind
+        case profile
+        case action
+        case draftRule = "draft_rule"
+        case count
+        case lastSeenTsNs = "last_seen_ts_ns"
+        case sampleTargets = "sample_targets"
+        case confidence
+        case reason
+    }
+
+    public init(id: String = "", kind: String = "", profile: String = "", action: String = "", draftRule: RulePayload = RulePayload(), count: Int = 0, lastSeenTsNs: Int64 = 0, sampleTargets: [String] = [], confidence: String = "", reason: String = "") {
+        self.id = id
+        self.kind = kind
+        self.profile = profile
+        self.action = action
+        self.draftRule = draftRule
+        self.count = count
+        self.lastSeenTsNs = lastSeenTsNs
+        self.sampleTargets = sampleTargets
+        self.confidence = confidence
+        self.reason = reason
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try container.decodeIfPresent(String.self, forKey: .id) ?? ""
+        self.kind = try container.decodeIfPresent(String.self, forKey: .kind) ?? ""
+        self.profile = try container.decodeIfPresent(String.self, forKey: .profile) ?? ""
+        self.action = try container.decodeIfPresent(String.self, forKey: .action) ?? ""
+        self.draftRule = try container.decodeIfPresent(RulePayload.self, forKey: .draftRule) ?? RulePayload()
+        self.count = try container.decodeIfPresent(Int.self, forKey: .count) ?? 0
+        self.lastSeenTsNs = try container.decodeIfPresent(Int64.self, forKey: .lastSeenTsNs) ?? 0
+        self.sampleTargets = try container.decodeIfPresent([String].self, forKey: .sampleTargets) ?? []
+        self.confidence = try container.decodeIfPresent(String.self, forKey: .confidence) ?? ""
+        self.reason = try container.decodeIfPresent(String.self, forKey: .reason) ?? ""
     }
 }
 

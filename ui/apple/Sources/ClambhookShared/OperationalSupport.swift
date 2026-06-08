@@ -595,6 +595,28 @@ public struct RuleHitSummary: Identifiable, Equatable, Sendable {
     public var count: Int
 }
 
+public struct RuleSuggestionSummary: Identifiable, Equatable, Sendable {
+    public var id: String
+    public var kind: String
+    public var action: String
+    public var match: String
+    public var count: Int
+    public var confidence: String
+    public var reason: String
+    public var draftRule: RulePayload
+
+    public init(id: String = "", kind: String = "", action: String = "", match: String = "", count: Int = 0, confidence: String = "", reason: String = "", draftRule: RulePayload = RulePayload()) {
+        self.id = id
+        self.kind = kind
+        self.action = action
+        self.match = match
+        self.count = count
+        self.confidence = confidence
+        self.reason = reason
+        self.draftRule = draftRule
+    }
+}
+
 public enum PolicySelectorHealthState: String, Equatable, Sendable {
     case staticRoute
     case pending
@@ -691,6 +713,10 @@ public extension DashboardStore {
 
     var monitorActionCounts: [String: Int] {
         actionCounts(from: traffic)
+    }
+
+    var ruleSuggestionSummaries: [RuleSuggestionSummary] {
+        traffic.ruleSuggestions.map(\.summary)
     }
 
     var policySelectorSummary: PolicySelectorSummary {
@@ -800,6 +826,39 @@ public extension TrafficConnectionPayload {
     }
 }
 
+public extension TrafficRuleSuggestionPayload {
+    var summary: RuleSuggestionSummary {
+        RuleSuggestionSummary(
+            id: id.isEmpty ? "\(kind)-\(action)-\(draftRule.name)" : id,
+            kind: kind,
+            action: action.isEmpty ? draftRule.action : action,
+            match: draftRule.displayMatch,
+            count: count,
+            confidence: confidence,
+            reason: reason,
+            draftRule: draftRule
+        )
+    }
+}
+
+public extension RulePayload {
+    var displayMatch: String {
+        if !domains.isEmpty {
+            return domains.joined(separator: ",")
+        }
+        if !domainSuffixes.isEmpty {
+            return domainSuffixes.map { "*.\($0)" }.joined(separator: ",")
+        }
+        if !cidrs.isEmpty {
+            return cidrs.joined(separator: ",")
+        }
+        if !domainKeywords.isEmpty {
+            return "contains \(domainKeywords.joined(separator: ","))"
+        }
+        return "any"
+    }
+}
+
 public extension TunnelConfigStore {
     static func isPlaceholderConfigText(_ text: String) -> Bool {
         let lower = text.lowercased()
@@ -813,6 +872,14 @@ private func hopMatchesServer(_ hop: TrafficHopPayload, server: ServerPayload) -
 
 private func actionCounts(from traffic: TrafficSnapshotPayload) -> [String: Int] {
     var counts = ["proxy": 0, "direct": 0, "block": 0]
+    if !traffic.quickFilters.isEmpty {
+        for filter in traffic.quickFilters {
+            if counts.keys.contains(filter.key) {
+                counts[filter.key] = filter.count
+            }
+        }
+        return counts
+    }
     for connection in traffic.connections {
         counts[connection.actionFamily, default: 0] += 1
     }

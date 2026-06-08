@@ -97,6 +97,8 @@ final class APIClientTests: XCTestCase {
           "rule_hits": [{"profile": "Work", "rule_name": "ads", "action": "block", "count": 2, "last_target": "ads.example.com:443"}],
           "block_decisions": [{"conn_id": "c1", "profile": "Work", "rule_name": "ads", "action": "block", "target_host": "ads.example.com", "ts_ns": 88}],
           "cleanup_suggestions": [{"kind": "unused_in_history", "profile": "Work", "rule_name": "old", "target_rule_name": "old", "operation": "delete_rule", "message": "No recent traffic-history entries matched this rule."}],
+          "rule_suggestions": [{"id": "exact_host:block:api.example.com", "kind": "exact_host", "profile": "Work", "action": "block", "draft_rule": {"name": "block-api-example-com", "action": "block", "domains": ["api.example.com"]}, "count": 3, "confidence": "high", "reason": "Observed 3 matching connections."}],
+          "breakdowns": {"actions": [{"key": "block", "label": "Block", "count": 2, "rx_total": 10, "tx_total": 5}]},
           "connections": [{"conn_id": "c1", "profile": "Work", "state": "closed", "rule_action": "block", "default": true, "target_host": "ads.example.com"}]
         }
         """.utf8)
@@ -114,6 +116,9 @@ final class APIClientTests: XCTestCase {
         XCTAssertEqual(traffic.cleanupSuggestions.first?.ruleName, "old")
         XCTAssertEqual(traffic.cleanupSuggestions.first?.targetRuleName, "old")
         XCTAssertEqual(traffic.cleanupSuggestions.first?.operation, "delete_rule")
+        XCTAssertEqual(traffic.ruleSuggestions.first?.draftRule.domains, ["api.example.com"])
+        XCTAssertEqual(traffic.ruleSuggestions.first?.summary.match, "api.example.com")
+        XCTAssertEqual(traffic.breakdowns.actions.first?.label, "Block")
         XCTAssertEqual(traffic.connections.first?.profile, "Work")
         XCTAssertEqual(traffic.connections.first?.isDefault, true)
     }

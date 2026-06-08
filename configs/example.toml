@@ -14,6 +14,13 @@ body_limit_bytes = 65536
 header_value_limit_bytes = 8192
 redact_headers = ["authorization", "proxy-authorization", "cookie", "set-cookie"]
 
+[traffic]
+enabled = true
+history_limit = 500
+history_max_age = "168h"
+# history_path may be set to an absolute local path. Empty uses the OS cache
+# directory and stores metadata only: targets, decisions, timings, and bytes.
+
 [[profile]]
 name = "local"
 
