@@ -254,6 +254,119 @@ final class LicensingTests: XCTestCase {
         XCTAssertTrue(copy.contains("Bug fixes/security fixes remain included."))
     }
 
+    func testProductStatesShowActiveTrial() throws {
+        let snapshot = MobileLicenseSnapshot(trialStartDate: mobileLicenseUTCDate(year: 2026, month: 6, day: 3))
+        let decision = MobileLicenseEvaluator.evaluate(
+            snapshot: snapshot,
+            now: mobileLicenseUTCDate(year: 2026, month: 7, day: 1)
+        )
+
+        let states = MobileLicenseProductStateBuilder.states(for: decision)
+        let trial = try XCTUnwrap(states.first { $0.kind == .trial })
+
+        XCTAssertEqual(trial.title, "Trial")
+        XCTAssertTrue(trial.isActive)
+        XCTAssertTrue(trial.detail.contains("Free use ends"))
+        XCTAssertTrue(trial.detail.contains("2026"))
+    }
+
+    func testProductStatesShowLifetimeDuringActiveTrial() throws {
+        let snapshot = MobileLicenseSnapshot(
+            trialStartDate: mobileLicenseUTCDate(year: 2026, month: 6, day: 3),
+            transactions: [
+                MobileLicenseTransaction(
+                    productID: MobilePurchaseCatalog.lifetimeUnlockID,
+                    purchaseDate: mobileLicenseUTCDate(year: 2026, month: 6, day: 10)
+                ),
+            ]
+        )
+        let decision = MobileLicenseEvaluator.evaluate(
+            snapshot: snapshot,
+            now: mobileLicenseUTCDate(year: 2026, month: 7, day: 1)
+        )
+
+        let states = MobileLicenseProductStateBuilder.states(for: decision)
+        let trial = try XCTUnwrap(states.first { $0.kind == .trial })
+        let lifetime = try XCTUnwrap(states.first { $0.kind == .lifetimeUnlocked })
+
+        XCTAssertEqual(decision.reason, .trial)
+        XCTAssertTrue(trial.isActive)
+        XCTAssertTrue(lifetime.isActive)
+        XCTAssertEqual(lifetime.title, "Lifetime unlocked")
+    }
+
+    func testProductStatesShowPaidUpdateWindowDate() throws {
+        let snapshot = MobileLicenseSnapshot(
+            transactions: [
+                MobileLicenseTransaction(
+                    productID: MobilePurchaseCatalog.lifetimeUnlockID,
+                    purchaseDate: mobileLicenseUTCDate(year: 2026, month: 6, day: 3)
+                ),
+            ]
+        )
+        let decision = MobileLicenseEvaluator.evaluate(
+            snapshot: snapshot,
+            now: mobileLicenseUTCDate(year: 2026, month: 7, day: 1)
+        )
+
+        let states = MobileLicenseProductStateBuilder.states(for: decision)
+        let paidUpdateWindow = try XCTUnwrap(states.first { $0.kind == .paidUpdateWindow })
+
+        XCTAssertTrue(paidUpdateWindow.isActive)
+        XCTAssertTrue(paidUpdateWindow.title.hasPrefix("Paid-update window through "))
+        XCTAssertTrue(paidUpdateWindow.title.contains("2027"))
+        XCTAssertTrue(paidUpdateWindow.detail.contains("Features released on or before this date are included."))
+    }
+
+    func testProductStatesAlwaysShowNewFeaturesLockedPolicyRow() throws {
+        let snapshot = MobileLicenseSnapshot(
+            transactions: [
+                MobileLicenseTransaction(
+                    productID: MobilePurchaseCatalog.lifetimeUnlockID,
+                    purchaseDate: mobileLicenseUTCDate(year: 2026, month: 6, day: 3)
+                ),
+            ]
+        )
+        let decision = MobileLicenseEvaluator.evaluate(
+            snapshot: snapshot,
+            now: mobileLicenseUTCDate(year: 2026, month: 7, day: 1)
+        )
+
+        let states = MobileLicenseProductStateBuilder.states(for: decision)
+        let locked = try XCTUnwrap(states.first { $0.kind == .newFeaturesLocked })
+
+        XCTAssertEqual(locked.title, "New features locked until update")
+        XCTAssertFalse(locked.isActive)
+        XCTAssertTrue(locked.detail.contains("Feature releases after the paid-update window require a paid update."))
+        XCTAssertTrue(locked.detail.contains("Bug fixes/security fixes remain included."))
+    }
+
+    func testProductStatesMarkFutureFeaturesLockedAfterPaidWindow() throws {
+        let snapshot = MobileLicenseSnapshot(
+            transactions: [
+                MobileLicenseTransaction(
+                    productID: MobilePurchaseCatalog.lifetimeUnlockID,
+                    purchaseDate: mobileLicenseUTCDate(year: 2026, month: 6, day: 3)
+                ),
+            ]
+        )
+        let decision = MobileLicenseEvaluator.evaluate(
+            snapshot: snapshot,
+            now: mobileLicenseUTCDate(year: 2026, month: 7, day: 1)
+        )
+        let futureFeature = MobileLicenseFeature(
+            id: .widgets,
+            displayName: "Future Widgets",
+            releaseDate: mobileLicenseUTCDate(year: 2027, month: 6, day: 4)
+        )
+
+        let states = MobileLicenseProductStateBuilder.states(for: decision, features: [futureFeature])
+        let locked = try XCTUnwrap(states.first { $0.kind == .newFeaturesLocked })
+
+        XCTAssertTrue(locked.isActive)
+        XCTAssertTrue(locked.detail.contains("Future Widgets"))
+    }
+
     func testCachedTransactionsDecodeWithPurchasedOwnershipDefault() throws {
         let json = """
         {

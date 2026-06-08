@@ -295,6 +295,98 @@ public enum MobileLicenseCopy {
     }
 }
 
+public enum MobileLicenseProductStateKind: String, Codable, Equatable, Sendable {
+    case trial
+    case lifetimeUnlocked
+    case paidUpdateWindow
+    case newFeaturesLocked
+}
+
+public struct MobileLicenseProductState: Identifiable, Equatable, Sendable {
+    public var kind: MobileLicenseProductStateKind
+    public var title: String
+    public var detail: String
+    public var isActive: Bool
+
+    public var id: MobileLicenseProductStateKind { kind }
+
+    public init(kind: MobileLicenseProductStateKind, title: String, detail: String, isActive: Bool) {
+        self.kind = kind
+        self.title = title
+        self.detail = detail
+        self.isActive = isActive
+    }
+}
+
+public enum MobileLicenseProductStateBuilder {
+    public static func states(
+        for decision: MobileLicenseDecision,
+        features: [MobileLicenseFeature] = MobileLicenseFeatureCatalog.features
+    ) -> [MobileLicenseProductState] {
+        var states: [MobileLicenseProductState] = []
+
+        if let trialEndsAt = decision.trialEndsAt {
+            states.append(MobileLicenseProductState(
+                kind: .trial,
+                title: "Trial",
+                detail: decision.isTrialActive
+                    ? "Free use ends \(trialEndsAt.formatted(date: .abbreviated, time: .omitted))."
+                    : "Free trial ended \(trialEndsAt.formatted(date: .abbreviated, time: .omitted)).",
+                isActive: decision.isTrialActive
+            ))
+        } else {
+            states.append(MobileLicenseProductState(
+                kind: .trial,
+                title: "Trial",
+                detail: "Free trial starts the first time this app records a trial date.",
+                isActive: false
+            ))
+        }
+
+        states.append(MobileLicenseProductState(
+            kind: .lifetimeUnlocked,
+            title: "Lifetime unlocked",
+            detail: decision.hasLifetimeUnlock
+                ? "Purchased features remain enabled forever."
+                : "Purchase or restore the lifetime unlock to keep using clambhook after trial.",
+            isActive: decision.hasLifetimeUnlock
+        ))
+
+        if let cutoffDate = decision.updateCutoffDate {
+            states.append(MobileLicenseProductState(
+                kind: .paidUpdateWindow,
+                title: "Paid-update window through \(cutoffDate.formatted(date: .abbreviated, time: .omitted))",
+                detail: "Features released on or before this date are included.",
+                isActive: decision.hasLifetimeUnlock
+            ))
+        } else {
+            states.append(MobileLicenseProductState(
+                kind: .paidUpdateWindow,
+                title: "Paid-update window through DATE",
+                detail: "A lifetime unlock sets this date to the purchase date plus one year.",
+                isActive: false
+            ))
+        }
+
+        let lockedFeatures: [MobileLicenseFeature]
+        if let cutoffDate = decision.updateCutoffDate {
+            lockedFeatures = features.filter { $0.releaseDate > cutoffDate }
+        } else {
+            lockedFeatures = []
+        }
+        states.append(MobileLicenseProductState(
+            kind: .newFeaturesLocked,
+            title: "New features locked until update",
+            detail: lockedFeatures.isEmpty
+                ? "Feature releases after the paid-update window require a paid update. Bug fixes/security fixes remain included."
+                : "Locked feature releases: \(lockedFeatures.map(\.displayName).joined(separator: ", ")).",
+            isActive: !lockedFeatures.isEmpty
+        ))
+
+        return states
+    }
+}
+
 public enum MobileLicenseSnapshotStore {
     public static func load(
         defaults: UserDefaults = UserDefaults(suiteName: defaultAppGroupIdentifier) ?? .standard,
