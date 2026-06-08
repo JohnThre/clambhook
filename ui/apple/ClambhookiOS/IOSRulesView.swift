@@ -88,6 +88,26 @@ struct IOSRulesView: View {
                         IOSInlineEmptyState(text: "No rule-set status.", systemImage: "tray")
                     } else {
                             VStack(spacing: 8) {
+                                HStack(spacing: 8) {
+                                    if !staticRuleSetRows.isEmpty {
+                                        Button {
+                                            model.refreshActiveProfileRuleSets()
+                                        } label: {
+                                            Label("Refresh Sets", systemImage: "arrow.clockwise")
+                                        }
+                                        .buttonStyle(.bordered)
+                                        .controlSize(.small)
+                                    }
+                                    if !subscriptionRuleSetRows.isEmpty {
+                                        Button {
+                                            model.refreshActiveProfileRuleSubscriptions()
+                                        } label: {
+                                            Label("Refresh Subscriptions", systemImage: "arrow.clockwise.circle")
+                                        }
+                                        .buttonStyle(.bordered)
+                                        .controlSize(.small)
+                                    }
+                                }
                                 ForEach(staticRuleSetRows) { ruleSet in
                                     IOSImportedRuleSetRow(ruleSet: ruleSet)
                                 }

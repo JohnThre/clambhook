@@ -6,6 +6,7 @@ public protocol ClambhookAPIProviding: AnyObject {
     func servers() async throws -> ServersPayload
     func policyGroups() async throws -> PolicyGroupsPayload
     func rules() async throws -> RulesPayload
+    func dns() async throws -> DNSPayload
     func testRule(network: String, target: String, profile: String) async throws -> RuleTestResponse
     func traffic() async throws -> TrafficSnapshotPayload
     func connect() async throws
@@ -86,6 +87,10 @@ public final class ClambhookAPIClient: ClambhookAPIProviding, ClambhookRuleEditi
 
     public func rules() async throws -> RulesPayload {
         try await getJSON("/api/v1/rules")
+    }
+
+    public func dns() async throws -> DNSPayload {
+        try await getJSON("/api/v1/dns")
     }
 
     public func ruleSets() async throws -> RuleSetsPayload {
@@ -197,6 +202,21 @@ public final class ClambhookAPIClient: ClambhookAPIProviding, ClambhookRuleEditi
         let body = try encoder.encode(RefreshRuleSetsRequest(profile: profile, names: names))
         let data = try await send(method: "POST", path: "/api/v1/rule-sets/refresh", body: body)
         return try decoder.decode(RuleSetsPayload.self, from: data)
+    }
+
+    public func ruleSubscriptions(profile: String = "") async throws -> RuleSubscriptionsPayload {
+        let query = profile.isEmpty ? "" : "?profile=\(profile.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? profile)"
+        return try await getJSON("/api/v1/rule-subscriptions\(query)")
+    }
+
+    public func refreshRuleSubscriptions(names: [String] = [], profile: String = "") async throws -> RuleSubscriptionsPayload {
+        struct RefreshRuleSubscriptionsRequest: Encodable {
+            var profile: String
+            var names: [String]
+        }
+        let body = try encoder.encode(RefreshRuleSubscriptionsRequest(profile: profile, names: names))
+        let data = try await send(method: "POST", path: "/api/v1/rule-subscriptions/refresh", body: body)
+        return try decoder.decode(RuleSubscriptionsPayload.self, from: data)
     }
 
     public func developerStatus() async throws -> DeveloperStatusPayload {

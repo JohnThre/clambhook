@@ -310,6 +310,12 @@ name = "default"
 	if settings.HTTPProxy == nil || settings.HTTPProxy.Host != "127.0.0.1" || settings.HTTPProxy.Port != 18080 {
 		t.Fatalf("http proxy = %#v, want 127.0.0.1:18080", settings.HTTPProxy)
 	}
+	if !payload.DNS.Enabled || payload.DNS.Strategy != "encrypted" || len(payload.DNS.Upstreams) != 1 {
+		t.Fatalf("dns = %+v, want encrypted DNS snapshot", payload.DNS)
+	}
+	if len(payload.DNS.UpstreamRoutes) != 1 || payload.DNS.UpstreamRoutes[0].Target != "cloudflare-dns.com:443" {
+		t.Fatalf("dns upstream routes = %+v, want cloudflare target", payload.DNS.UpstreamRoutes)
+	}
 }
 
 func TestTunnelConfigDashboardAndRuleReplacement(t *testing.T) {

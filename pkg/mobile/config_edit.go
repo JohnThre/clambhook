@@ -91,6 +91,7 @@ func TunnelConfigDashboardJSON(configPath string) (string, error) {
 		RuleSets:          ruleSetsForConfig(cfg),
 		RuleSubscriptions: ruleSubscriptionsForConfig(cfg),
 		Traffic:           empty.Snapshot("all", 200),
+		DNS:               dnsForConfig(cfg),
 		NetworkSettings:   networkSettingsForConfig(cfg),
 	}
 	return marshalString(payload)

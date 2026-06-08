@@ -86,6 +86,15 @@ final class DashboardStoreTests: XCTestCase {
                 summary: TrafficSummaryPayload(activeConnections: 2, rxBps: 4096, txBps: 1024),
                 connections: [TrafficConnectionPayload(connID: "c1", state: "active", target: "example.com:443")]
             ),
+            dns: DNSPayload(
+                profile: "phone",
+                strategy: "encrypted",
+                enabled: true,
+                timeout: "5s",
+                upstreams: [DNSUpstreamPayload(name: "cf", protocol: "doh", url: "https://cloudflare-dns.com/dns-query")],
+                interceptsPort53: true,
+                upstreamRoutes: [DNSUpstreamRoutePayload(name: "cf", protocol: "doh", target: "cloudflare-dns.com:443", network: "tcp", action: "chain", chainName: "proxy")]
+            ),
             networkSettings: TunnelNetworkSettingsPayload(
                 mtu: 1400,
                 dnsServers: ["198.18.0.1"],
@@ -112,6 +121,9 @@ final class DashboardStoreTests: XCTestCase {
         XCTAssertEqual(store.policyGroups.groups.first?.selectedChain, "proxy")
         XCTAssertEqual(store.ruleSubscriptions.subscriptions.first?.generatedRules, ["subscription:ads:domains"])
         XCTAssertEqual(store.traffic.summary.rxBps, 4096)
+        XCTAssertEqual(store.dns.strategy, "encrypted")
+        XCTAssertEqual(store.dns.upstreams.first?.name, "cf")
+        XCTAssertEqual(store.dns.upstreamRoutes.first?.chainName, "proxy")
         XCTAssertEqual(store.networkSettings.dnsServers, ["198.18.0.1"])
         XCTAssertEqual(store.networkSettings.includedRoutes, ["0.0.0.0/0"])
         let snapshot = try await snapshotStore.load()
@@ -135,8 +147,37 @@ final class DashboardStoreTests: XCTestCase {
 
         XCTAssertEqual(payload.policyGroups, PolicyGroupsPayload())
         XCTAssertEqual(payload.ruleSubscriptions, RuleSubscriptionsPayload())
+        XCTAssertEqual(payload.dns, DNSPayload())
         XCTAssertEqual(payload.networkSettings, TunnelNetworkSettingsPayload())
         XCTAssertEqual(payload.status.profile, "A")
+    }
+
+    func testDashboardPayloadDecodesDNSWhenPresent() throws {
+        let data = Data("""
+        {
+          "status": {"running": true, "profile": "A", "listeners": []},
+          "profiles": {"profiles": ["A"], "active": "A"},
+          "servers": {"profile": "A", "chains": []},
+          "rules": {"profile": "A", "rules": []},
+          "traffic": {"summary": {"active_connections": 0}, "connections": []},
+          "dns": {
+            "profile": "A",
+            "strategy": "encrypted",
+            "enabled": true,
+            "timeout": "5s",
+            "intercepts_port_53": true,
+            "upstreams": [{"name": "cf", "protocol": "doh", "url": "https://cloudflare-dns.com/dns-query"}],
+            "upstream_routes": [{"name": "cf", "protocol": "doh", "target": "cloudflare-dns.com:443", "network": "tcp", "action": "chain", "chain_name": "proxy"}]
+          }
+        }
+        """.utf8)
+
+        let payload = try JSONDecoder().decode(TunnelDashboardPayload.self, from: data)
+
+        XCTAssertTrue(payload.dns.enabled)
+        XCTAssertEqual(payload.dns.strategy, "encrypted")
+        XCTAssertEqual(payload.dns.upstreams.first?.targetDescription, "https://cloudflare-dns.com/dns-query")
+        XCTAssertEqual(payload.dns.upstreamRoutes.first?.chainName, "proxy")
     }
 
     func testDashboardPayloadDecodesNetworkSettingsWhenPresent() throws {
@@ -304,6 +345,7 @@ private class FakeAPIClient: ClambhookAPIProviding {
     var policyGroupsResult = PolicyGroupsPayload()
     var rulesResult = RulesPayload(profile: "", rules: [])
     var trafficResult = TrafficSnapshotPayload()
+    var dnsResult = DNSPayload()
     var ruleTestResult = RuleTestResponse()
     private(set) var connectCalls = 0
     private(set) var disconnectCalls = 0
@@ -315,6 +357,7 @@ private class FakeAPIClient: ClambhookAPIProviding {
     private(set) var policyGroupCalls = 0
     private(set) var rulesCalls = 0
     private(set) var trafficCalls = 0
+    private(set) var dnsCalls = 0
 
     func status() async throws -> StatusPayload {
         statusCalls += 1
@@ -339,6 +382,11 @@ private class FakeAPIClient: ClambhookAPIProviding {
     func rules() async throws -> RulesPayload {
         rulesCalls += 1
         return rulesResult
+    }
+
+    func dns() async throws -> DNSPayload {
+        dnsCalls += 1
+        return dnsResult
     }
 
     func testRule(network: String, target: String, profile: String) async throws -> RuleTestResponse {

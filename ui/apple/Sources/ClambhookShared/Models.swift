@@ -251,6 +251,169 @@ public struct RuleSubscriptionsPayload: Codable, Equatable, Sendable {
     }
 }
 
+public struct DNSPayload: Codable, Equatable, Sendable {
+    public var profile: String
+    public var strategy: String
+    public var enabled: Bool
+    public var timeout: String
+    public var upstreams: [DNSUpstreamPayload]
+    public var interceptsPort53: Bool
+    public var upstreamRoutes: [DNSUpstreamRoutePayload]
+
+    enum CodingKeys: String, CodingKey {
+        case profile
+        case strategy
+        case enabled
+        case timeout
+        case upstreams
+        case interceptsPort53 = "intercepts_port_53"
+        case upstreamRoutes = "upstream_routes"
+    }
+
+    public init(
+        profile: String = "",
+        strategy: String = "route",
+        enabled: Bool = false,
+        timeout: String = "",
+        upstreams: [DNSUpstreamPayload] = [],
+        interceptsPort53: Bool = false,
+        upstreamRoutes: [DNSUpstreamRoutePayload] = []
+    ) {
+        self.profile = profile
+        self.strategy = strategy
+        self.enabled = enabled
+        self.timeout = timeout
+        self.upstreams = upstreams
+        self.interceptsPort53 = interceptsPort53
+        self.upstreamRoutes = upstreamRoutes
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.profile = try container.decodeIfPresent(String.self, forKey: .profile) ?? ""
+        self.strategy = try container.decodeIfPresent(String.self, forKey: .strategy) ?? "route"
+        self.enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? false
+        self.timeout = try container.decodeIfPresent(String.self, forKey: .timeout) ?? ""
+        self.upstreams = try container.decodeIfPresent([DNSUpstreamPayload].self, forKey: .upstreams) ?? []
+        self.interceptsPort53 = try container.decodeIfPresent(Bool.self, forKey: .interceptsPort53) ?? false
+        self.upstreamRoutes = try container.decodeIfPresent([DNSUpstreamRoutePayload].self, forKey: .upstreamRoutes) ?? []
+    }
+}
+
+public struct DNSUpstreamPayload: Codable, Equatable, Identifiable, Sendable {
+    public var id: String { name.isEmpty ? "\(self.protocol)-\(targetDescription)" : name }
+    public var name: String
+    public var `protocol`: String
+    public var url: String
+    public var address: String
+    public var serverName: String
+    public var bootstrapIPs: [String]
+
+    enum CodingKeys: String, CodingKey {
+        case name
+        case `protocol`
+        case url
+        case address
+        case serverName = "server_name"
+        case bootstrapIPs = "bootstrap_ips"
+    }
+
+    public init(
+        name: String = "",
+        protocol: String = "",
+        url: String = "",
+        address: String = "",
+        serverName: String = "",
+        bootstrapIPs: [String] = []
+    ) {
+        self.name = name
+        self.protocol = `protocol`
+        self.url = url
+        self.address = address
+        self.serverName = serverName
+        self.bootstrapIPs = bootstrapIPs
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.name = try container.decodeIfPresent(String.self, forKey: .name) ?? ""
+        self.protocol = try container.decodeIfPresent(String.self, forKey: .protocol) ?? ""
+        self.url = try container.decodeIfPresent(String.self, forKey: .url) ?? ""
+        self.address = try container.decodeIfPresent(String.self, forKey: .address) ?? ""
+        self.serverName = try container.decodeIfPresent(String.self, forKey: .serverName) ?? ""
+        self.bootstrapIPs = try container.decodeIfPresent([String].self, forKey: .bootstrapIPs) ?? []
+    }
+
+    public var targetDescription: String {
+        url.isEmpty ? address : url
+    }
+}
+
+public struct DNSUpstreamRoutePayload: Codable, Equatable, Identifiable, Sendable {
+    public var id: String { [name, `protocol`, target, network].joined(separator: "|") }
+    public var name: String
+    public var `protocol`: String
+    public var target: String
+    public var network: String
+    public var action: String
+    public var chainName: String
+    public var groupName: String
+    public var ruleName: String
+    public var isDefault: Bool
+    public var error: String
+
+    enum CodingKeys: String, CodingKey {
+        case name
+        case `protocol`
+        case target
+        case network
+        case action
+        case chainName = "chain_name"
+        case groupName = "group_name"
+        case ruleName = "rule_name"
+        case isDefault = "default"
+        case error
+    }
+
+    public init(
+        name: String = "",
+        protocol: String = "",
+        target: String = "",
+        network: String = "",
+        action: String = "",
+        chainName: String = "",
+        groupName: String = "",
+        ruleName: String = "",
+        isDefault: Bool = false,
+        error: String = ""
+    ) {
+        self.name = name
+        self.protocol = `protocol`
+        self.target = target
+        self.network = network
+        self.action = action
+        self.chainName = chainName
+        self.groupName = groupName
+        self.ruleName = ruleName
+        self.isDefault = isDefault
+        self.error = error
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.name = try container.decodeIfPresent(String.self, forKey: .name) ?? ""
+        self.protocol = try container.decodeIfPresent(String.self, forKey: .protocol) ?? ""
+        self.target = try container.decodeIfPresent(String.self, forKey: .target) ?? ""
+        self.network = try container.decodeIfPresent(String.self, forKey: .network) ?? ""
+        self.action = try container.decodeIfPresent(String.self, forKey: .action) ?? ""
+        self.chainName = try container.decodeIfPresent(String.self, forKey: .chainName) ?? ""
+        self.groupName = try container.decodeIfPresent(String.self, forKey: .groupName) ?? ""
+        self.ruleName = try container.decodeIfPresent(String.self, forKey: .ruleName) ?? ""
+        self.isDefault = try container.decodeIfPresent(Bool.self, forKey: .isDefault) ?? false
+        self.error = try container.decodeIfPresent(String.self, forKey: .error) ?? ""
+    }
+}
+
 public struct RuleSubscriptionPayload: Codable, Equatable, Identifiable, Sendable {
     public var id: String { name }
     public var name: String

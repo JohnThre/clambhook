@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 
+	api "github.com/JohnThre/clambhook/internal/api"
 	"github.com/JohnThre/clambhook/internal/chain"
 	"github.com/JohnThre/clambhook/internal/config"
 	"github.com/JohnThre/clambhook/internal/developer"
@@ -558,6 +559,7 @@ func (r *TunnelRuntime) DashboardJSON() (string, error) {
 		RuleSets:          ruleSetsForConfig(cfg),
 		RuleSubscriptions: ruleSubscriptionsForConfig(cfg),
 		Traffic:           trafficSnapshot,
+		DNS:               dnsForConfig(cfg),
 		NetworkSettings:   networkSettingsForConfig(cfg),
 	}
 	return marshalString(payload)
@@ -697,6 +699,7 @@ type dashboardPayload struct {
 	RuleSets          ruleSetsPayload            `json:"rule_sets"`
 	RuleSubscriptions subscription.StatusPayload `json:"rule_subscriptions"`
 	Traffic           traffic.Snapshot           `json:"traffic"`
+	DNS               api.DNSPayload             `json:"dns"`
 	NetworkSettings   tunnelNetworkSettings      `json:"network_settings"`
 }
 
@@ -867,6 +870,17 @@ func ruleSubscriptionsForConfig(cfg *config.Config) subscription.StatusPayload {
 		return subscription.StatusPayload{}
 	}
 	return payload
+}
+
+func dnsForConfig(cfg *config.Config) api.DNSPayload {
+	if cfg == nil {
+		return api.DNSPayload{}
+	}
+	profile, err := cfg.ActiveProfile()
+	if err != nil {
+		return api.DNSPayload{}
+	}
+	return api.DNSSnapshot(cfg, profile)
 }
 
 func networkSettingsForProfile(profile *config.Profile) tunnelNetworkSettings {

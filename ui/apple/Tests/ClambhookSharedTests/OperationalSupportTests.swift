@@ -289,6 +289,7 @@ private final class FakeOperationalAPIClient: ClambhookAPIProviding {
     var serversResult = ServersPayload()
     var policyGroupsResult = PolicyGroupsPayload()
     var rulesResult = RulesPayload()
+    var dnsResult = DNSPayload()
     var trafficResult = TrafficSnapshotPayload()
     var ruleTestResult = RuleTestResponse()
 
@@ -297,6 +298,7 @@ private final class FakeOperationalAPIClient: ClambhookAPIProviding {
     func servers() async throws -> ServersPayload { serversResult }
     func policyGroups() async throws -> PolicyGroupsPayload { policyGroupsResult }
     func rules() async throws -> RulesPayload { rulesResult }
+    func dns() async throws -> DNSPayload { dnsResult }
     func testRule(network: String, target: String, profile: String) async throws -> RuleTestResponse { ruleTestResult }
     func traffic() async throws -> TrafficSnapshotPayload { trafficResult }
     func connect() async throws {}
