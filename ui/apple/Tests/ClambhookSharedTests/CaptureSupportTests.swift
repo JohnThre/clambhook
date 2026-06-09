@@ -56,43 +56,53 @@ final class CaptureSupportTests: XCTestCase {
             CaptureEntryPayload(
                 id: "a",
                 updatedAtNs: 20,
+                state: "closed",
                 method: "GET",
                 scheme: "http",
                 host: "alpha.example",
                 path: "/index",
                 sslState: "not_tls",
+                ruleAction: "direct",
                 timeline: [TrafficTimelinePayload(tsNs: 20, type: "connection.closed", title: "Closed", detail: "client_eof")]
             ),
             CaptureEntryPayload(
                 id: "b",
                 updatedAtNs: 30,
+                state: "active",
                 method: "CONNECT",
                 scheme: "https",
                 host: "beta.example",
-                sslState: "metadata_only"
+                sslState: "metadata_only",
+                ruleAction: "block"
             ),
             CaptureEntryPayload(
                 id: "c",
                 updatedAtNs: 10,
+                state: "closed",
                 method: "GET",
                 scheme: "http",
                 host: "ALPHA.example.",
                 sslState: "not_tls",
+                ruleAction: "chain:work",
                 requestBody: CaptureBodyPayload(available: true, preview: "hello")
             ),
         ]
 
+        XCTAssertEqual(CaptureSupport.filteredEntries(entries, filter: .active).map(\.id), ["b"])
         XCTAssertEqual(CaptureSupport.filteredEntries(entries, filter: .https).map(\.id), ["b"])
+        XCTAssertEqual(CaptureSupport.filteredEntries(entries, filter: .direct).map(\.id), ["a"])
+        XCTAssertEqual(CaptureSupport.filteredEntries(entries, filter: .block).map(\.id), ["b"])
+        XCTAssertEqual(CaptureSupport.filteredEntries(entries, filter: .proxy).map(\.id), ["c"])
         XCTAssertEqual(CaptureSupport.filteredEntries(entries, filter: .all, query: "beta").map(\.id), ["b"])
         XCTAssertEqual(CaptureSupport.filteredEntries(entries, filter: .pinned, pinnedIDs: ["c"]).map(\.id), ["c"])
 
         let groups = CaptureSupport.groupEntriesByHost(entries)
-        XCTAssertEqual(groups.map(\.key), ["beta.example", "alpha.example"])
+        XCTAssertEqual(groups.map { $0.key }, ["beta.example", "alpha.example"])
         XCTAssertEqual(groups.first { $0.key == "alpha.example" }?.count, 2)
 
         let pinnedGroups = CaptureSupport.groupEntriesByHost(entries, pinnedIDs: ["c"])
-        XCTAssertEqual(pinnedGroups.map(\.key), ["alpha.example", "beta.example"])
-        XCTAssertEqual(pinnedGroups.first?.entries.map(\.id), ["c", "a"])
+        XCTAssertEqual(pinnedGroups.map { $0.key }, ["alpha.example", "beta.example"])
+        XCTAssertEqual(pinnedGroups.first?.entries.map { $0.id }, ["c", "a"])
 
         let export = CaptureSupport.exportString(traffic: TrafficSnapshotPayload(), entries: entries, generatedAt: Date(timeIntervalSince1970: 0))
         XCTAssertTrue(export.contains(#""groups""#))
@@ -103,6 +113,8 @@ final class CaptureSupportTests: XCTestCase {
         XCTAssertFalse(export.contains("response_body"))
         XCTAssertFalse(export.contains("preview"))
         XCTAssertFalse(export.contains("certificate"))
+        XCTAssertFalse(export.lowercased().contains("mitm"))
+        XCTAssertFalse(export.lowercased().contains("\"har\""))
         XCTAssertFalse(export.contains("HAR export"))
         XCTAssertFalse(export.lowercased().contains("pinned"))
 

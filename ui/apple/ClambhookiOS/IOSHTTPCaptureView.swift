@@ -3,10 +3,41 @@ import SwiftUI
 
 struct IOSHTTPCaptureView: View {
     @ObservedObject var model: AppleAppModel
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var filter: CaptureFilterKind = .all
     @State private var searchText = ""
+    @State private var selectedEntryID: String?
 
     var body: some View {
+        Group {
+            if horizontalSizeClass == .regular {
+                regularMetadataLayout
+            } else {
+                compactMetadataLayout
+            }
+        }
+        .background(Color(.systemGroupedBackground))
+        .searchable(text: $searchText, prompt: "Search host, path, method, rule")
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                ShareLink(
+                    item: CaptureSupport.exportString(
+                        traffic: model.dashboard.traffic,
+                        entries: filteredEntries
+                    ),
+                    subject: Text("ClambHook HTTP metadata export"),
+                    message: Text("Local metadata-only export.")
+                ) {
+                    Image(systemName: "square.and.arrow.up")
+                }
+            }
+        }
+        .refreshable {
+            await model.refreshNow()
+        }
+    }
+
+    private var compactMetadataLayout: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 12) {
             IOSConsoleSection("Status", detail: "\(entries.count) requests") {
@@ -19,7 +50,7 @@ struct IOSHTTPCaptureView: View {
                         Text(title(for: filter)).tag(filter)
                     }
                 }
-                .pickerStyle(.segmented)
+                .pickerStyle(.menu)
             }
 
             if groupedEntries.isEmpty {
@@ -54,24 +85,72 @@ struct IOSHTTPCaptureView: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
         }
-        .background(Color(.systemGroupedBackground))
-        .searchable(text: $searchText, prompt: "Search host, path, method, rule")
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                ShareLink(
-                    item: CaptureSupport.exportString(
-                        traffic: model.dashboard.traffic,
-                        entries: filteredEntries
-                    ),
-                    subject: Text("ClambHook HTTP metadata export"),
-                    message: Text("Local metadata-only export.")
-                ) {
-                    Image(systemName: "square.and.arrow.up")
+    }
+
+    private var regularMetadataLayout: some View {
+        HStack(spacing: 0) {
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 12) {
+                    IOSConsoleSection("Status", detail: "\(entries.count) requests") {
+                        IOSCaptureReadinessView(entries: entries, groups: groupedEntries, pinnedIDs: pinnedIDs)
+                    }
+
+                    IOSConsoleSection("Filters", detail: title(for: filter)) {
+                        Picker("Metadata Filter", selection: $filter) {
+                            ForEach(CaptureFilterKind.allCases) { filter in
+                                Text(title(for: filter)).tag(filter)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                    }
+
+                    if groupedEntries.isEmpty {
+                        IOSConsoleSection("HTTP Metadata") {
+                            ContentUnavailableView(
+                                "No matching HTTP metadata",
+                                systemImage: "network",
+                                description: Text("HTTP and HTTPS CONNECT metadata appears here when traffic exposes HTTP visibility.")
+                            )
+                        }
+                    } else {
+                        ForEach(groupedEntries) { group in
+                            IOSConsoleSection(emptyDash(group.host), detail: groupSubtitle(group)) {
+                                VStack(spacing: 8) {
+                                    ForEach(group.entries) { entry in
+                                        IOSHTTPCaptureRow(
+                                            entry: entry,
+                                            pinned: isPinned(entry),
+                                            selected: selectedEntry?.id == entry.id,
+                                            onTogglePin: { togglePinned(entry) }
+                                        )
+                                        .contentShape(Rectangle())
+                                        .onTapGesture {
+                                            selectedEntryID = entry.id
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+            }
+            .frame(minWidth: 340, idealWidth: 400, maxWidth: 460)
+
+            Divider()
+
+            NavigationStack {
+                if let selectedEntry {
+                    IOSHTTPCaptureDetailView(model: model, entry: selectedEntry)
+                } else {
+                    IOSInspectionPlaceholderView(
+                        title: "Select Metadata",
+                        message: "HTTP and HTTPS CONNECT metadata appears here.",
+                        systemImage: "network"
+                    )
                 }
             }
-        }
-        .refreshable {
-            await model.refreshNow()
         }
     }
 
@@ -89,6 +168,15 @@ struct IOSHTTPCaptureView: View {
 
     private var pinnedIDs: Set<String> {
         model.pinnedConnectionIDs
+    }
+
+    private var selectedEntry: CaptureMetadataEntryPayload? {
+        let entries = groupedEntries.flatMap(\.entries)
+        if let selectedEntryID,
+           let entry = entries.first(where: { $0.id == selectedEntryID }) {
+            return entry
+        }
+        return entries.first
     }
 
     private func isPinned(_ entry: CaptureMetadataEntryPayload) -> Bool {
@@ -116,9 +204,13 @@ struct IOSHTTPCaptureView: View {
     private func title(for filter: CaptureFilterKind) -> String {
         switch filter {
         case .all: return "All"
+        case .active: return "Active"
         case .http: return "HTTP"
         case .https: return "HTTPS"
         case .pinned: return "Pinned"
+        case .proxy: return "Proxy"
+        case .direct: return "Direct"
+        case .block: return "Block"
         }
     }
 }
@@ -147,6 +239,7 @@ private struct IOSCaptureReadinessView: View {
 private struct IOSHTTPCaptureRow: View {
     var entry: CaptureMetadataEntryPayload
     var pinned: Bool
+    var selected = false
     var onTogglePin: () -> Void
 
     var body: some View {
@@ -198,7 +291,11 @@ private struct IOSHTTPCaptureRow: View {
             .accessibilityLabel(pinned ? "Unpin metadata row" : "Pin metadata row")
         }
         .padding(10)
-        .background(Color(.tertiarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+        .background(selected ? Color.accentColor.opacity(0.14) : Color(.tertiarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                .stroke(selected ? Color.accentColor.opacity(0.45) : Color.clear, lineWidth: 1)
+        )
     }
 }
 

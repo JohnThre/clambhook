@@ -532,7 +532,7 @@ private struct IOSLogbookView: View {
                     IOSHTTPCaptureView(model: model)
                 } label: {
                     IOSLibraryRow(
-                        title: "HTTP Capture",
+                        title: "HTTP Metadata",
                         detail: "\(CaptureSupport.captureEntries(from: model.dashboard.traffic).count) metadata requests",
                         systemImage: "network"
                     )

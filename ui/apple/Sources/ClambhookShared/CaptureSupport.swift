@@ -2,9 +2,13 @@ import Foundation
 
 public enum CaptureFilterKind: String, CaseIterable, Identifiable, Sendable {
     case all
+    case active
     case http
     case https
     case pinned
+    case proxy
+    case direct
+    case block
 
     public var id: Self { self }
 }
@@ -323,7 +327,7 @@ public struct CaptureBodyPayload: Codable, Equatable, Sendable {
 }
 
 public enum CaptureSupport {
-    public static let captureNote = "Metadata-only export. HTTP rows include method, host, path, route, byte counts, timing, and connection timeline. HTTPS rows contain CONNECT metadata only. Payload bodies, headers, local CA data, TLS MITM data, and HAR fields are not collected or exported in v1."
+    public static let captureNote = "Metadata-only export. HTTP rows include method, host, path, route, byte counts, timing, and connection timeline. HTTPS rows contain CONNECT metadata only. Payload bodies, headers, local CA data, TLS interception data, and HAR fields are not collected or exported in v1."
 
     public static func snapshot(
         traffic: TrafficSnapshotPayload,
@@ -356,12 +360,16 @@ public enum CaptureSupport {
             switch filter {
             case .all:
                 break
+            case .active:
+                guard entry.state.lowercased() == "active" else { return false }
             case .http:
                 guard entry.scheme.lowercased() == "http" else { return false }
             case .https:
                 guard entry.scheme.lowercased() == "https" else { return false }
             case .pinned:
                 guard pinnedIDs.contains(entry.pinID) else { return false }
+            case .proxy, .direct, .block:
+                guard actionFamily(for: entry.ruleAction) == filter.rawValue else { return false }
             }
             guard !normalizedQuery.isEmpty else { return true }
             return [
@@ -406,6 +414,17 @@ public enum CaptureSupport {
             return "{}"
         }
         return String(data: data, encoding: .utf8) ?? "{}"
+    }
+
+    private static func actionFamily(for action: String) -> String {
+        switch action.lowercased() {
+        case "direct":
+            return "direct"
+        case "block", "reject":
+            return "block"
+        default:
+            return "proxy"
+        }
     }
 
     private static func captureEntry(_ connection: TrafficConnectionPayload) -> CaptureEntryPayload? {
