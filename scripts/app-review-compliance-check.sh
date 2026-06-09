@@ -15,10 +15,11 @@ usage() {
     cat <<USAGE
 Usage: scripts/app-review-compliance-check.sh [--require-demo-secret]
 
-Checks App Review compliance files, source entitlements, and the non-secret
-demo profile template. When --require-demo-secret is set, the script also
-requires CLAMBHOOK_APP_REVIEW_DEMO_PASSWORD and validates a temp-rendered demo
-profile without writing the secret into the repository.
+Checks App Review compliance files, commercial StoreKit products, source
+entitlements, and the non-secret demo profile template. When
+--require-demo-secret is set, the script also requires
+CLAMBHOOK_APP_REVIEW_DEMO_PASSWORD and validates a temp-rendered demo profile
+without writing the secret into the repository.
 USAGE
 }
 
@@ -127,7 +128,68 @@ run_go_demo_validation() {
     CLAMBHOOK_APP_REVIEW_DEMO_CONFIG="$config_path" go test ./pkg/mobile -run TestValidateAppReviewDemoProfile -count=1
 }
 
+verify_storekit_catalog() {
+    local path="$ROOT_DIR/ui/apple/ClambhookProducts.storekit"
+
+    require_file "$path"
+    python3 - "$path" <<'PY'
+import json
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+config = json.loads(path.read_text(encoding="utf-8"))
+expected = [
+    {
+        "productID": "org.jpfchang.clambhook.unlock.lifetime",
+        "type": "NonConsumable",
+        "displayPrice": "99.99",
+        "familyShareable": True,
+        "displayName": "ClambHook Lifetime Unlock",
+        "description": "Unlocks lifetime mobile access for ClambHook.",
+    },
+    {
+        "productID": "org.jpfchang.clambhook.feature_update.2027",
+        "type": "NonConsumable",
+        "displayPrice": "8.99",
+        "familyShareable": True,
+        "displayName": "ClambHook 2027 Feature Update",
+        "description": "Unlocks ClambHook mobile features released in the 2027 update cycle.",
+    },
+]
+
+products = config.get("products")
+if not isinstance(products, list):
+    raise SystemExit("StoreKit configuration must contain a products array.")
+
+actual_ids = [product.get("productID") for product in products]
+expected_ids = [product["productID"] for product in expected]
+if actual_ids != expected_ids:
+    raise SystemExit(f"StoreKit products must be exactly {expected_ids}, got {actual_ids}.")
+
+if config.get("nonRenewingSubscriptions") != []:
+    raise SystemExit("StoreKit configuration must not contain non-renewing subscriptions.")
+if config.get("subscriptionGroups") != []:
+    raise SystemExit("StoreKit configuration must not contain subscription groups.")
+
+for product, want in zip(products, expected):
+    for key in ("productID", "type", "displayPrice", "familyShareable"):
+        if product.get(key) != want[key]:
+            raise SystemExit(f"{want['productID']} has {key}={product.get(key)!r}, expected {want[key]!r}.")
+
+    localizations = product.get("localizations") or []
+    english = next((item for item in localizations if item.get("locale") == "en_US"), None)
+    if english is None:
+        raise SystemExit(f"{want['productID']} is missing en_US localization.")
+    if english.get("displayName") != want["displayName"]:
+        raise SystemExit(f"{want['productID']} displayName mismatch.")
+    if english.get("description") != want["description"]:
+        raise SystemExit(f"{want['productID']} description mismatch.")
+PY
+}
+
 require_command grep
+require_command python3
 require_command sed
 
 if [[ ! -x "$PLIST_BUDDY" ]]; then
@@ -135,6 +197,7 @@ if [[ ! -x "$PLIST_BUDDY" ]]; then
 fi
 
 require_file "$DEMO_TEMPLATE"
+verify_storekit_catalog
 require_text "$DEMO_TEMPLATE" "name = \"App Review Demo\"" "demo profile template"
 require_text "$DEMO_TEMPLATE" "address = \"review-vpn.jpfchang.org:443\"" "demo profile template"
 require_text "$DEMO_TEMPLATE" "protocol = \"clambback\"" "demo profile template"
