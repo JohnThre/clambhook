@@ -67,7 +67,7 @@ func TestManagerSelectsLowestLatencyHealthyChain(t *testing.T) {
 	if _, err := m.Refresh(context.Background(), "auto"); err != nil {
 		t.Fatalf("Refresh: %v", err)
 	}
-	_, selected, err := m.Select("auto", "tcp")
+	_, selected, err := m.Select("auto", SelectionContext{Network: "tcp"})
 	if err != nil {
 		t.Fatalf("Select: %v", err)
 	}
@@ -91,7 +91,7 @@ func TestManagerFailsOpenToFirstChainWhenNoProbeIsHealthy(t *testing.T) {
 	if _, err := m.Refresh(context.Background(), "auto"); err != nil {
 		t.Fatalf("Refresh: %v", err)
 	}
-	_, selected, err := m.Select("auto", "tcp")
+	_, selected, err := m.Select("auto", SelectionContext{Network: "tcp"})
 	if err != nil {
 		t.Fatalf("Select: %v", err)
 	}
@@ -114,14 +114,14 @@ func TestManagerFiltersUDPIncapableChains(t *testing.T) {
 	if _, err := m.Refresh(context.Background(), "auto"); err != nil {
 		t.Fatalf("Refresh: %v", err)
 	}
-	_, selected, err := m.Select("auto", "tcp")
+	_, selected, err := m.Select("auto", SelectionContext{Network: "tcp"})
 	if err != nil {
 		t.Fatalf("Select tcp: %v", err)
 	}
 	if selected != "tcp" {
 		t.Fatalf("tcp selected = %q, want tcp", selected)
 	}
-	_, selected, err = m.Select("auto", "udp")
+	_, selected, err = m.Select("auto", SelectionContext{Network: "udp"})
 	if err != nil {
 		t.Fatalf("Select udp: %v", err)
 	}
@@ -135,7 +135,7 @@ func TestManagerReturnsUDPErrorWhenNoMemberSupportsUDP(t *testing.T) {
 		"first": "policy_test_tcp",
 	}, nil)
 
-	if _, _, err := m.Select("auto", "udp"); err == nil {
+	if _, _, err := m.Select("auto", SelectionContext{Network: "udp"}); err == nil {
 		t.Fatal("Select udp error = nil, want capability error")
 	}
 }
@@ -174,7 +174,7 @@ func TestManagerSelectGroupUsesConfiguredSelection(t *testing.T) {
 		t.Fatalf("New: %v", err)
 	}
 
-	_, selected, err := m.Select("manual", "tcp")
+	_, selected, err := m.Select("manual", SelectionContext{Network: "tcp"})
 	if err != nil {
 		t.Fatalf("Select tcp: %v", err)
 	}
@@ -184,14 +184,14 @@ func TestManagerSelectGroupUsesConfiguredSelection(t *testing.T) {
 	if err := m.SetSelection("manual", "tcp"); err != nil {
 		t.Fatalf("SetSelection: %v", err)
 	}
-	_, selected, err = m.Select("manual", "tcp")
+	_, selected, err = m.Select("manual", SelectionContext{Network: "tcp"})
 	if err != nil {
 		t.Fatalf("Select after SetSelection: %v", err)
 	}
 	if selected != "tcp" {
 		t.Fatalf("selected = %q, want tcp", selected)
 	}
-	if _, _, err := m.Select("manual", "udp"); err == nil {
+	if _, _, err := m.Select("manual", SelectionContext{Network: "udp"}); err == nil {
 		t.Fatal("Select udp error = nil, want selected chain capability error")
 	}
 }
@@ -222,7 +222,93 @@ func TestManagerStartRunsInitialProbe(t *testing.T) {
 	}
 }
 
+func TestManagerFallbackSelectsFirstHealthyChain(t *testing.T) {
+	m := newTestManagerWithType(t, TypeFallback, []string{"first", "second"}, map[string]string{
+		"first":  "policy_test_tcp",
+		"second": "policy_test_tcp",
+	}, func(_ context.Context, ch *chain.Chain, _ string) ProbeResult {
+		return ProbeResult{Healthy: ch.Name == "second", LatencyNs: int64(10 * time.Millisecond)}
+	})
+
+	if _, err := m.Refresh(context.Background(), "auto"); err != nil {
+		t.Fatalf("Refresh: %v", err)
+	}
+	_, selected, err := m.Select("auto", SelectionContext{Network: "tcp"})
+	if err != nil {
+		t.Fatalf("Select: %v", err)
+	}
+	if selected != "second" {
+		t.Fatalf("selected = %q, want second", selected)
+	}
+}
+
+func TestManagerLoadBalanceUsesStableHash(t *testing.T) {
+	m := newTestManagerWithType(t, TypeLoadBalance, []string{"a", "b", "c"}, map[string]string{
+		"a": "policy_test_tcp",
+		"b": "policy_test_tcp",
+		"c": "policy_test_tcp",
+	}, func(_ context.Context, _ *chain.Chain, _ string) ProbeResult {
+		return ProbeResult{Healthy: true, LatencyNs: int64(time.Millisecond)}
+	})
+
+	if _, err := m.Refresh(context.Background(), "auto"); err != nil {
+		t.Fatalf("Refresh: %v", err)
+	}
+	_, first, err := m.Select("auto", SelectionContext{Network: "tcp", Target: "example.com:443", Source: "10.0.0.2:50000"})
+	if err != nil {
+		t.Fatalf("Select first: %v", err)
+	}
+	for i := 0; i < 5; i++ {
+		_, selected, err := m.Select("auto", SelectionContext{Network: "tcp", Target: "example.com:443", Source: "10.0.0.2:50000"})
+		if err != nil {
+			t.Fatalf("Select repeat: %v", err)
+		}
+		if selected != first {
+			t.Fatalf("selected changed from %q to %q", first, selected)
+		}
+	}
+}
+
+func TestManagerSmartSticksToHealthyChain(t *testing.T) {
+	m := newTestManagerWithType(t, TypeSmart, []string{"current", "slightly-faster"}, map[string]string{
+		"current":         "policy_test_tcp",
+		"slightly-faster": "policy_test_tcp",
+	}, func(_ context.Context, ch *chain.Chain, _ string) ProbeResult {
+		if ch.Name == "slightly-faster" {
+			return ProbeResult{Healthy: true, LatencyNs: int64(90 * time.Millisecond)}
+		}
+		return ProbeResult{Healthy: true, LatencyNs: int64(100 * time.Millisecond)}
+	})
+
+	if _, err := m.Refresh(context.Background(), "auto"); err != nil {
+		t.Fatalf("Refresh: %v", err)
+	}
+	_, selected, err := m.Select("auto", SelectionContext{Network: "tcp"})
+	if err != nil {
+		t.Fatalf("Select: %v", err)
+	}
+	if selected != "current" {
+		t.Fatalf("selected = %q, want current", selected)
+	}
+}
+
+func TestConfigSnapshotIncludesHiddenPolicyGroups(t *testing.T) {
+	snap := ConfigSnapshot("default", []config.PolicyGroupConfig{{
+		Name:   "internal",
+		Type:   TypeFallback,
+		Chains: []string{"proxy"},
+		Hidden: true,
+	}})
+	if len(snap.Groups) != 1 || !snap.Groups[0].Hidden || snap.Groups[0].SelectionMode != "fallback" {
+		t.Fatalf("snapshot = %+v", snap)
+	}
+}
+
 func newTestManager(t *testing.T, groupChains []string, protocols map[string]string, probe ProbeFunc) *Manager {
+	return newTestManagerWithType(t, TypeURLTest, groupChains, protocols, probe)
+}
+
+func newTestManagerWithType(t *testing.T, groupType string, groupChains []string, protocols map[string]string, probe ProbeFunc) *Manager {
 	t.Helper()
 	chains := make(map[string]*chain.Chain, len(protocols))
 	for name, proto := range protocols {
@@ -242,7 +328,7 @@ func newTestManager(t *testing.T, groupChains []string, protocols map[string]str
 	}
 	m, err := New([]config.PolicyGroupConfig{{
 		Name:    "auto",
-		Type:    TypeURLTest,
+		Type:    groupType,
 		Chains:  groupChains,
 		TestURL: "https://probe.example/generate_204",
 	}}, chains, opts...)

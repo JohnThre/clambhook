@@ -3,6 +3,9 @@ import SwiftUI
 
 struct IOSPolicyGroupsView: View {
     @ObservedObject var model: AppleAppModel
+    @State private var draftGroups: [PolicyGroupPayload] = []
+    @State private var loaded = false
+    @State private var message = ""
 
     var body: some View {
         ScrollView {
@@ -17,7 +20,7 @@ struct IOSPolicyGroupsView: View {
                 }
 
                 IOSSurfaceSection("Policy Groups", detail: policyGroupDetail) {
-                    if model.dashboard.policyGroups.groups.isEmpty {
+                    if draftGroups.filter({ !$0.hidden }).isEmpty {
                         ContentUnavailableView(
                             "No policy groups",
                             systemImage: "point.3.connected.trianglepath.dotted",
@@ -25,9 +28,30 @@ struct IOSPolicyGroupsView: View {
                         )
                     } else {
                         VStack(spacing: 10) {
-                            ForEach(model.dashboard.policyGroups.groups) { group in
+                            ForEach(draftGroups.filter { !$0.hidden }) { group in
                                 IOSPolicyGroupCard(group: group) { chain in
                                     model.selectPolicyGroup(group: group.name, chain: chain)
+                                } onDelete: {
+                                    deleteGroup(group)
+                                } destination: {
+                                    IOSPolicyGroupFormView(group: binding(for: group.id), chainNames: chainNames)
+                                }
+                            }
+                        }
+                    }
+                }
+
+                let hiddenGroups = draftGroups.filter(\.hidden)
+                if !hiddenGroups.isEmpty {
+                    IOSSurfaceSection("Hidden Groups", detail: "\(hiddenGroups.count)") {
+                        VStack(spacing: 10) {
+                            ForEach(hiddenGroups) { group in
+                                IOSPolicyGroupCard(group: group) { chain in
+                                    model.selectPolicyGroup(group: group.name, chain: chain)
+                                } onDelete: {
+                                    deleteGroup(group)
+                                } destination: {
+                                    IOSPolicyGroupFormView(group: binding(for: group.id), chainNames: chainNames)
                                 }
                             }
                         }
@@ -46,7 +70,7 @@ struct IOSPolicyGroupsView: View {
                     }
                 }
 
-                if !summary.topRuleHits.isEmpty {
+            if !summary.topRuleHits.isEmpty {
                     IOSSurfaceSection("Rule Hits", detail: "\(summary.topRuleHits.count)") {
                         VStack(spacing: 8) {
                             ForEach(summary.topRuleHits) { hit in
@@ -64,14 +88,49 @@ struct IOSPolicyGroupsView: View {
                             }
                         }
                     }
-                }
             }
+
+                if !message.isEmpty {
+                    IOSSurfaceSection("Status") {
+                        Text(message)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+        }
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
         }
         .background(Color(.systemGroupedBackground))
+        .navigationTitle("Policy Groups")
+        .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                Button("Apply") {
+                    applyGroups()
+                }
+                .disabled(model.dashboard.activeProfile.isEmpty)
+            }
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    addGroup()
+                } label: {
+                    Image(systemName: "plus")
+                }
+                .disabled(model.dashboard.activeProfile.isEmpty || chainNames.isEmpty)
+            }
+        }
         .refreshable {
             await model.refreshNow()
+            loadDraftGroups()
+        }
+        .onAppear {
+            if !loaded {
+                loadDraftGroups()
+                loaded = true
+            }
+        }
+        .onChange(of: model.dashboard.policyGroups.groups) { _, _ in
+            loadDraftGroups()
         }
     }
 
@@ -84,14 +143,69 @@ struct IOSPolicyGroupsView: View {
     }
 
     private var policyGroupDetail: String {
-        let count = model.dashboard.policyGroups.groups.count
+        let count = draftGroups.count
         return count == 1 ? "1 group" : "\(count) groups"
+    }
+
+    private var chainNames: [String] {
+        model.dashboard.servers.chains.map(\.name)
+    }
+
+    private func loadDraftGroups() {
+        draftGroups = model.dashboard.policyGroups.groups
+    }
+
+    private func binding(for id: PolicyGroupPayload.ID) -> Binding<PolicyGroupPayload> {
+        Binding {
+            draftGroups.first(where: { $0.id == id }) ?? PolicyGroupPayload()
+        } set: { next in
+            if let index = draftGroups.firstIndex(where: { $0.id == id }) {
+                draftGroups[index] = next
+                message = ""
+            }
+        }
+    }
+
+    private func addGroup() {
+        let base = "group"
+        var name = base
+        var index = 1
+        let existing = Set(draftGroups.map(\.name))
+        while existing.contains(name) {
+            index += 1
+            name = "\(base)-\(index)"
+        }
+        draftGroups.append(PolicyGroupPayload(
+            name: name,
+            type: "select",
+            chains: Array(chainNames.prefix(1)),
+            selectedChain: chainNames.first ?? "",
+            selected: chainNames.first ?? "",
+            selectionMode: "manual",
+            selectionReason: "manual"
+        ))
+    }
+
+    private func deleteGroup(_ group: PolicyGroupPayload) {
+        draftGroups.removeAll { $0.id == group.id }
+        message = ""
+    }
+
+    private func applyGroups() {
+        do {
+            try model.replaceActiveProfilePolicyGroups(draftGroups)
+            message = "Applied policy groups."
+        } catch {
+            message = error.localizedDescription
+        }
     }
 }
 
 private struct IOSPolicyGroupCard: View {
     var group: PolicyGroupPayload
     var onSelect: (String) -> Void
+    var onDelete: () -> Void
+    var destination: () -> IOSPolicyGroupFormView
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -113,6 +227,13 @@ private struct IOSPolicyGroupCard: View {
                 Spacer(minLength: 8)
 
                 IOSStatusBadge(text: healthText, systemImage: healthIcon, tint: healthTint)
+                NavigationLink {
+                    destination()
+                } label: {
+                    Image(systemName: "slider.horizontal.3")
+                        .frame(width: 28, height: 28)
+                }
+                .buttonStyle(.plain)
             }
 
             if group.chains.isEmpty {
@@ -136,6 +257,18 @@ private struct IOSPolicyGroupCard: View {
                         .disabled(!isManual || chain == selectedChain)
                     }
                 }
+            }
+
+            HStack {
+                Text(group.selectionReason.isEmpty ? modeText : group.selectionReason.replacingOccurrences(of: "_", with: " "))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Button(role: .destructive, action: onDelete) {
+                    Image(systemName: "trash")
+                }
+                .buttonStyle(.borderless)
+                .accessibilityLabel("Delete policy group")
             }
         }
         .padding(12)
@@ -309,6 +442,108 @@ private struct IOSPolicyRouteRow: View {
             return .green
         case .fallback:
             return .orange
+        }
+    }
+}
+
+private struct IOSPolicyGroupFormView: View {
+    @Binding var group: PolicyGroupPayload
+    var chainNames: [String]
+
+    private let groupTypes = ["select", "url-test", "fallback", "load-balance", "smart"]
+
+    var body: some View {
+        Form {
+            Section("Group") {
+                TextField("Name", text: $group.name)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                Picker("Type", selection: $group.type) {
+                    ForEach(groupTypes, id: \.self) { type in
+                        Text(type.replacingOccurrences(of: "-", with: " ")).tag(type)
+                    }
+                }
+                Toggle("Hidden", isOn: $group.hidden)
+            }
+
+            Section("Members") {
+                TextField("Chains", text: chainsTextBinding)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                if !chainNames.isEmpty {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            ForEach(chainNames, id: \.self) { chain in
+                                Button {
+                                    toggleChain(chain)
+                                } label: {
+                                    Label(chain, systemImage: group.chains.contains(chain) ? "checkmark.circle.fill" : "circle")
+                                }
+                                .buttonStyle(.bordered)
+                                .controlSize(.small)
+                            }
+                        }
+                    }
+                }
+                if group.type == "select" {
+                    Picker("Selected", selection: selectedBinding) {
+                        ForEach(group.chains, id: \.self) { chain in
+                            Text(chain).tag(chain)
+                        }
+                    }
+                    .disabled(group.chains.isEmpty)
+                }
+            }
+
+            Section("Health Test") {
+                TextField("Test URL", text: $group.testURL)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                TextField("Interval", text: $group.interval)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                TextField("Timeout", text: $group.timeout)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+            }
+        }
+        .navigationTitle(group.name.isEmpty ? "Policy Group" : group.name)
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private var chainsTextBinding: Binding<String> {
+        Binding {
+            group.chains.joined(separator: ", ")
+        } set: { raw in
+            group.chains = raw
+                .split(separator: ",")
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+            if !group.chains.contains(group.selectedChain) {
+                group.selectedChain = group.chains.first ?? ""
+                group.selected = group.selectedChain
+            }
+        }
+    }
+
+    private var selectedBinding: Binding<String> {
+        Binding {
+            group.selectedChain.isEmpty ? group.selected : group.selectedChain
+        } set: { next in
+            group.selectedChain = next
+            group.selected = next
+        }
+    }
+
+    private func toggleChain(_ chain: String) {
+        if group.chains.contains(chain) {
+            group.chains.removeAll { $0 == chain }
+        } else {
+            group.chains.append(chain)
+        }
+        if !group.chains.contains(group.selectedChain) {
+            group.selectedChain = group.chains.first ?? ""
+            group.selected = group.selectedChain
         }
     }
 }

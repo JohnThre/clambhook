@@ -829,6 +829,46 @@ func TestRuleSubscriptionRefreshGeneratesEffectiveRules(t *testing.T) {
 	}
 }
 
+func TestRuleSubscriptionReplacementPersistsConfig(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "clambhook.toml")
+	cfg := testRuleCreateConfig()
+	if _, err := config.WriteAtomicWithBackup(path, cfg); err != nil {
+		t.Fatalf("write initial config: %v", err)
+	}
+	srv := NewWithOptions(engine.New(cfg, nil), nil, Options{ConfigPath: path})
+	body := []byte(`{"subscriptions":[{"name":"ads","url":"https://lists.example.invalid/ads.txt","format":"auto","action":"reject","networks":["tcp"],"disabled":true}]}`)
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/rule-subscriptions", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+
+	srv.server.Handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%q, want 200", rec.Code, rec.Body.String())
+	}
+	var resp struct {
+		Profile       string                          `json:"profile"`
+		Subscriptions []config.RuleSubscriptionConfig `json:"subscriptions"`
+		BackupPath    string                          `json:"backup_path"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp.Profile != "A" || len(resp.Subscriptions) != 1 || resp.Subscriptions[0].Action != "reject" || !resp.Subscriptions[0].Disabled || resp.BackupPath == "" {
+		t.Fatalf("response = %+v", resp)
+	}
+	reloaded, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("load persisted config: %v", err)
+	}
+	profile, err := reloaded.ActiveProfile()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(profile.RuleSubscriptions) != 1 || profile.RuleSubscriptions[0].Name != "ads" || !profile.RuleSubscriptions[0].Disabled {
+		t.Fatalf("persisted subscriptions = %+v", profile.RuleSubscriptions)
+	}
+}
+
 func TestRuleSetRefreshFeedsRouteExplain(t *testing.T) {
 	source := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte("||ads.example.com^\n203.0.113.0/24\n"))

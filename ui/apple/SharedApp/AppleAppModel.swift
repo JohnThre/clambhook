@@ -663,6 +663,82 @@ final class AppleAppModel: ObservableObject {
         }
     }
 
+    func replaceActiveProfilePolicyGroups(_ groups: [PolicyGroupPayload]) throws {
+        guard canUseLicensedFeature(.routingRules) else {
+            throw AppleAppModelError.licenseLocked
+        }
+        #if os(iOS)
+        #if canImport(ClambhookMobile)
+        let data = try JSONEncoder().encode(groups)
+        guard let raw = String(data: data, encoding: .utf8) else {
+            throw AppleAppModelError.invalidRules
+        }
+        try mobileBool {
+            MobileReplaceTunnelPolicyGroupsJSON(
+                TunnelConfigStore.configURL(groupIdentifier: settingsStore.settings.appGroupIdentifier).path,
+                dashboard.activeProfile,
+                raw,
+                $0
+            )
+        }
+        applySettings()
+        reloadTunnelConfiguration()
+        #else
+        throw AppleAppModelError.mobileConfigEditorUnavailable
+        #endif
+        #else
+        Task {
+            do {
+                guard let apiClient else {
+                    throw APIClientError.invalidURL("missing API client")
+                }
+                _ = try await apiClient.replacePolicyGroups(groups, profile: dashboard.activeProfile)
+                await dashboard.refreshDashboard()
+            } catch {
+                daemonMessage = error.localizedDescription
+            }
+        }
+        #endif
+    }
+
+    func replaceActiveProfileRuleSubscriptions(_ subscriptions: [RuleSubscriptionPayload]) throws {
+        guard canUseLicensedFeature(.routingRules) else {
+            throw AppleAppModelError.licenseLocked
+        }
+        #if os(iOS)
+        #if canImport(ClambhookMobile)
+        let data = try JSONEncoder().encode(subscriptions)
+        guard let raw = String(data: data, encoding: .utf8) else {
+            throw AppleAppModelError.invalidRules
+        }
+        try mobileBool {
+            MobileReplaceTunnelRuleSubscriptionsJSON(
+                TunnelConfigStore.configURL(groupIdentifier: settingsStore.settings.appGroupIdentifier).path,
+                dashboard.activeProfile,
+                raw,
+                $0
+            )
+        }
+        applySettings()
+        reloadTunnelConfiguration()
+        #else
+        throw AppleAppModelError.mobileConfigEditorUnavailable
+        #endif
+        #else
+        Task {
+            do {
+                guard let apiClient else {
+                    throw APIClientError.invalidURL("missing API client")
+                }
+                _ = try await apiClient.replaceRuleSubscriptions(subscriptions, profile: dashboard.activeProfile)
+                await dashboard.refreshDashboard()
+            } catch {
+                daemonMessage = error.localizedDescription
+            }
+        }
+        #endif
+    }
+
     func refreshActiveProfileRuleSubscriptions() {
         guard canUseLicensedFeature(.routingRules) else {
             daemonMessage = AppleAppModelError.licenseLocked.errorDescription ?? ""

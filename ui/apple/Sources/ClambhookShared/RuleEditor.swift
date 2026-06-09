@@ -83,6 +83,7 @@ public enum RuleMatcherKind: String, CaseIterable, Identifiable, Sendable {
 
 public enum RulePolicyKind: String, CaseIterable, Identifiable, Sendable {
     case proxy
+    case group
     case direct
     case block
     case reject
@@ -93,6 +94,8 @@ public enum RulePolicyKind: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .proxy:
             return "Proxy"
+        case .group:
+            return "Group"
         case .direct:
             return "Direct"
         case .block:
@@ -115,6 +118,9 @@ public enum RulePolicyKind: String, CaseIterable, Identifiable, Sendable {
         default:
             if lower.hasPrefix("chain:") {
                 return (.proxy, String(trimmed.dropFirst("chain:".count)).ruleEditorTrimmed)
+            }
+            if lower.hasPrefix("group:") {
+                return (.group, String(trimmed.dropFirst("group:".count)).ruleEditorTrimmed)
             }
             return (.proxy, trimmed)
         }
@@ -165,6 +171,8 @@ public struct RuleEditorRow: Identifiable, Equatable, Sendable {
         switch policyKind {
         case .proxy:
             return "chain:\(chainName.ruleEditorTrimmed)"
+        case .group:
+            return "group:\(chainName.ruleEditorTrimmed)"
         case .direct:
             return "direct"
         case .block:
@@ -179,6 +187,9 @@ public struct RuleEditorRow: Identifiable, Equatable, Sendable {
         case .proxy:
             let chain = chainName.ruleEditorTrimmed
             return chain.isEmpty ? "Proxy" : "Proxy: \(chain)"
+        case .group:
+            let group = chainName.ruleEditorTrimmed
+            return group.isEmpty ? "Group" : "Group: \(group)"
         default:
             return policyKind.displayName
         }
@@ -255,8 +266,8 @@ public enum RuleEditor {
         return out
     }
 
-    public static func rules(from rows: [RuleEditorRow], chainNames: [String], defaultChainName: String = "") throws -> [RulePayload] {
-        let errors = validate(rows: rows, chainNames: chainNames, defaultChainName: defaultChainName)
+    public static func rules(from rows: [RuleEditorRow], chainNames: [String], policyGroupNames: [String] = [], defaultChainName: String = "") throws -> [RulePayload] {
+        let errors = validate(rows: rows, chainNames: chainNames, policyGroupNames: policyGroupNames, defaultChainName: defaultChainName)
         if !errors.isEmpty {
             throw RuleEditorValidationFailure(errors: errors)
         }
@@ -268,9 +279,10 @@ public enum RuleEditor {
         }
     }
 
-    public static func validate(rows: [RuleEditorRow], chainNames: [String], defaultChainName: String = "") -> [RuleEditorValidationError] {
+    public static func validate(rows: [RuleEditorRow], chainNames: [String], policyGroupNames: [String] = [], defaultChainName: String = "") -> [RuleEditorValidationError] {
         var errors: [RuleEditorValidationError] = []
         let knownChains = Set(chainNames)
+        let knownPolicyGroups = Set(policyGroupNames)
         for (index, row) in rows.enumerated() {
             if row.isGenerated {
                 continue
@@ -290,7 +302,7 @@ public enum RuleEditor {
             }
 
             validateMatcher(row: row, rowIndex: index, errors: &errors)
-            validatePolicy(row: row, rowIndex: index, knownChains: knownChains, errors: &errors)
+            validatePolicy(row: row, rowIndex: index, knownChains: knownChains, knownPolicyGroups: knownPolicyGroups, errors: &errors)
         }
         return errors
     }
@@ -417,18 +429,30 @@ public enum RuleEditor {
         row: RuleEditorRow,
         rowIndex: Int,
         knownChains: Set<String>,
+        knownPolicyGroups: Set<String>,
         errors: inout [RuleEditorValidationError]
     ) {
-        guard row.policyKind == .proxy else {
+        switch row.policyKind {
+        case .proxy:
+            let chain = row.chainName.ruleEditorTrimmed
+            if chain.isEmpty {
+                errors.append(.init(rowIndex: rowIndex, message: "proxy chain is required"))
+            } else if chain != row.chainName {
+                errors.append(.init(rowIndex: rowIndex, message: "proxy chain must not have surrounding whitespace"))
+            } else if !knownChains.contains(chain) {
+                errors.append(.init(rowIndex: rowIndex, message: "proxy chain \(chain) was not found"))
+            }
+        case .group:
+            let group = row.chainName.ruleEditorTrimmed
+            if group.isEmpty {
+                errors.append(.init(rowIndex: rowIndex, message: "policy group is required"))
+            } else if group != row.chainName {
+                errors.append(.init(rowIndex: rowIndex, message: "policy group must not have surrounding whitespace"))
+            } else if !knownPolicyGroups.contains(group) {
+                errors.append(.init(rowIndex: rowIndex, message: "policy group \(group) was not found"))
+            }
+        case .direct, .block, .reject:
             return
-        }
-        let chain = row.chainName.ruleEditorTrimmed
-        if chain.isEmpty {
-            errors.append(.init(rowIndex: rowIndex, message: "proxy chain is required"))
-        } else if chain != row.chainName {
-            errors.append(.init(rowIndex: rowIndex, message: "proxy chain must not have surrounding whitespace"))
-        } else if !knownChains.contains(chain) {
-            errors.append(.init(rowIndex: rowIndex, message: "proxy chain \(chain) was not found"))
         }
     }
 

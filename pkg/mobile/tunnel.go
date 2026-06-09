@@ -275,7 +275,7 @@ func (r *TunnelRuntime) SelectPolicyGroup(profileName, groupName, chainName stri
 	if group == nil {
 		return fmt.Errorf("policy group %q not found", groupName)
 	}
-	if strings.TrimSpace(group.Type) != "select" {
+	if !strings.EqualFold(strings.TrimSpace(group.Type), "select") {
 		return fmt.Errorf("policy group %q is %s, not select", groupName, group.Type)
 	}
 	member := false

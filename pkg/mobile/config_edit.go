@@ -145,7 +145,7 @@ func SelectPolicyGroupJSON(configPath, profileName, groupName, chainName string)
 	if group == nil {
 		return "", fmt.Errorf("policy group %q not found", groupName)
 	}
-	if strings.TrimSpace(group.Type) != "select" {
+	if !strings.EqualFold(strings.TrimSpace(group.Type), "select") {
 		return "", fmt.Errorf("policy group %q is %s, not select", groupName, group.Type)
 	}
 	member := false
@@ -166,6 +166,29 @@ func SelectPolicyGroupJSON(configPath, profileName, groupName, chainName string)
 		return "", err
 	}
 	return marshalString(policyGroupsForConfig(cfg))
+}
+
+// ReplaceTunnelPolicyGroupsJSON replaces the active profile's policy groups
+// and writes the config atomically. policyGroupsJSON must encode
+// []config.PolicyGroupConfig.
+func ReplaceTunnelPolicyGroupsJSON(configPath, profileName, policyGroupsJSON string) error {
+	cfg, err := loadTunnelConfig(configPath)
+	if err != nil {
+		return err
+	}
+	var groups []config.PolicyGroupConfig
+	if err := json.Unmarshal([]byte(policyGroupsJSON), &groups); err != nil {
+		return fmt.Errorf("parse policy groups: %w", err)
+	}
+	profile := selectProfileForEdit(cfg, profileName)
+	if profile == nil {
+		return fmt.Errorf("profile %q not found", profileName)
+	}
+	profile.PolicyGroups = groups
+	if err := engine.ValidateConfig(cfg); err != nil {
+		return err
+	}
+	return writeTunnelConfig(configPath, cfg)
 }
 
 // RuleSetsJSON returns rule-set cache status for a profile.
@@ -259,6 +282,29 @@ func RuleSubscriptionsJSON(configPath, profileName string) (string, error) {
 		return "", err
 	}
 	return marshalString(payload)
+}
+
+// ReplaceTunnelRuleSubscriptionsJSON replaces the active profile's rule
+// subscriptions and writes the config atomically. subscriptionsJSON must encode
+// []config.RuleSubscriptionConfig.
+func ReplaceTunnelRuleSubscriptionsJSON(configPath, profileName, subscriptionsJSON string) error {
+	cfg, err := loadTunnelConfig(configPath)
+	if err != nil {
+		return err
+	}
+	var subscriptions []config.RuleSubscriptionConfig
+	if err := json.Unmarshal([]byte(subscriptionsJSON), &subscriptions); err != nil {
+		return fmt.Errorf("parse rule subscriptions: %w", err)
+	}
+	profile := selectProfileForEdit(cfg, profileName)
+	if profile == nil {
+		return fmt.Errorf("profile %q not found", profileName)
+	}
+	profile.RuleSubscriptions = subscriptions
+	if err := engine.ValidateConfig(cfg); err != nil {
+		return err
+	}
+	return writeTunnelConfig(configPath, cfg)
 }
 
 // RefreshRuleSubscriptionsJSON refreshes selected enabled rule subscriptions.

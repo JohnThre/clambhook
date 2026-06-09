@@ -194,6 +194,46 @@ public final class ClambhookAPIClient: ClambhookAPIProviding, ClambhookRuleEditi
         return try decoder.decode(RuleSetsPayload.self, from: data)
     }
 
+    public func replacePolicyGroups(_ groups: [PolicyGroupPayload], profile: String = "") async throws -> PolicyGroupsPayload {
+        struct ReplacePolicyGroupsRequest: Encodable {
+            var profile: String
+            var policyGroups: [PolicyGroupPayload]
+
+            enum CodingKeys: String, CodingKey {
+                case profile
+                case policyGroups = "policy_groups"
+            }
+        }
+        struct ReplacePolicyGroupsResponse: Decodable {
+            var profile: String
+            var groups: [PolicyGroupPayload]
+
+            enum CodingKeys: String, CodingKey {
+                case profile
+                case groups = "policy_groups"
+            }
+        }
+        let body = try encoder.encode(ReplacePolicyGroupsRequest(profile: profile, policyGroups: groups))
+        let data = try await send(method: "PUT", path: "/api/v1/policy-groups", body: body)
+        let decoded = try decoder.decode(ReplacePolicyGroupsResponse.self, from: data)
+        return PolicyGroupsPayload(profile: decoded.profile, groups: decoded.groups)
+    }
+
+    public func replaceRuleSubscriptions(_ subscriptions: [RuleSubscriptionPayload], profile: String = "") async throws -> RuleSubscriptionsPayload {
+        struct ReplaceRuleSubscriptionsRequest: Encodable {
+            var profile: String
+            var subscriptions: [RuleSubscriptionPayload]
+        }
+        struct ReplaceRuleSubscriptionsResponse: Decodable {
+            var profile: String
+            var subscriptions: [RuleSubscriptionPayload]
+        }
+        let body = try encoder.encode(ReplaceRuleSubscriptionsRequest(profile: profile, subscriptions: subscriptions))
+        let data = try await send(method: "PUT", path: "/api/v1/rule-subscriptions", body: body)
+        let decoded = try decoder.decode(ReplaceRuleSubscriptionsResponse.self, from: data)
+        return RuleSubscriptionsPayload(profile: decoded.profile, subscriptions: decoded.subscriptions)
+    }
+
     public func refreshRuleSets(names: [String] = [], profile: String = "") async throws -> RuleSetsPayload {
         struct RefreshRuleSetsRequest: Encodable {
             var profile: String

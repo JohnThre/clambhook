@@ -441,9 +441,9 @@ func TestValidateRejectsBadPolicyGroupConfig(t *testing.T) {
 		{
 			name: "bad type",
 			edit: func(cfg *Config) {
-				cfg.Profiles[0].PolicyGroups = []PolicyGroupConfig{{Name: "auto", Type: "fallback", Chains: []string{"default"}}}
+				cfg.Profiles[0].PolicyGroups = []PolicyGroupConfig{{Name: "auto", Type: "round-robin", Chains: []string{"default"}}}
 			},
-			want: "must be select or url-test",
+			want: "must be select, url-test, fallback, load-balance, or smart",
 		},
 		{
 			name: "missing chain",

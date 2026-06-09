@@ -119,13 +119,13 @@ type ChainConfig struct {
 	Servers []ServerConfig `toml:"server"`
 }
 
-// PolicyGroupConfig defines a smart routing group. V1 supports url-test
-// groups, which select the currently lowest-latency healthy member chain.
+// PolicyGroupConfig defines a routing policy group.
 type PolicyGroupConfig struct {
 	Name     string   `toml:"name" json:"name"`
 	Type     string   `toml:"type" json:"type"`
 	Chains   []string `toml:"chains" json:"chains"`
 	Selected string   `toml:"selected" json:"selected,omitempty"`
+	Hidden   bool     `toml:"hidden" json:"hidden,omitempty"`
 	TestURL  string   `toml:"test_url" json:"test_url,omitempty"`
 	Interval Duration `toml:"interval" json:"interval,omitempty"`
 	Timeout  Duration `toml:"timeout" json:"timeout,omitempty"`

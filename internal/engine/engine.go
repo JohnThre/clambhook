@@ -425,7 +425,7 @@ func (e *Engine) RefreshPolicyGroups(ctx context.Context, groupName string) (pol
 
 // SelectedPolicyChain returns the currently selected concrete chain for a
 // group on the active running profile. ok is false when no manager is active.
-func (e *Engine) SelectedPolicyChain(groupName, network string) (name string, ok bool, err error) {
+func (e *Engine) SelectedPolicyChain(groupName string, sel policy.SelectionContext) (name string, ok bool, err error) {
 	e.mu.RLock()
 	manager := e.policies
 	running := e.running
@@ -433,7 +433,7 @@ func (e *Engine) SelectedPolicyChain(groupName, network string) (name string, ok
 	if !running || manager == nil {
 		return "", false, nil
 	}
-	_, selected, err := manager.Select(groupName, network)
+	_, selected, err := manager.Select(groupName, sel)
 	if err != nil {
 		return "", true, err
 	}
@@ -823,7 +823,11 @@ func (p *routePlanner) PlanWithSource(ctx context.Context, network, target, sour
 		if p.policies == nil {
 			return plan, fmt.Errorf("policy group %q: manager is not configured", decision.GroupName)
 		}
-		ch, selected, err := p.policies.Select(decision.GroupName, decision.Network)
+		ch, selected, err := p.policies.Select(decision.GroupName, policy.SelectionContext{
+			Network: decision.Network,
+			Target:  decision.Target,
+			Source:  decision.Source,
+		})
 		if err != nil {
 			return plan, err
 		}
