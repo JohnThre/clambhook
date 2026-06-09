@@ -141,6 +141,36 @@ public final class ClambhookAPIClient: ClambhookAPIProviding, ClambhookRuleEditi
         return try decoder.decode(RulesPayload.self, from: data)
     }
 
+    public func createTemporaryRuleFromConnection(connID: String, profile: String = "", name: String = "", action: String = "", scope: String = "auto", ttlSeconds: Int = 900) async throws -> TemporaryRuleCreateResponsePayload {
+        struct CreateTemporaryRuleFromConnectionRequest: Encodable {
+            var connID: String
+            var profile: String
+            var name: String
+            var action: String
+            var scope: String
+            var ttlSeconds: Int
+
+            enum CodingKeys: String, CodingKey {
+                case connID = "conn_id"
+                case profile
+                case name
+                case action
+                case scope
+                case ttlSeconds = "ttl_seconds"
+            }
+        }
+        let body = try encoder.encode(CreateTemporaryRuleFromConnectionRequest(
+            connID: connID,
+            profile: profile,
+            name: name,
+            action: action,
+            scope: scope,
+            ttlSeconds: ttlSeconds
+        ))
+        let data = try await send(method: "POST", path: "/api/v1/rules/temporary/from-connection", body: body)
+        return try decoder.decode(TemporaryRuleCreateResponsePayload.self, from: data)
+    }
+
     public func cleanupRule(_ suggestion: TrafficCleanupSuggestionPayload) async throws -> RulesPayload {
         struct CleanupRuleRequest: Encodable {
             var profile: String

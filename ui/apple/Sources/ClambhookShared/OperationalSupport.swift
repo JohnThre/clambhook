@@ -809,6 +809,23 @@ public extension TrafficConnectionPayload {
         return rule
     }
 
+    var temporaryAllowAction: String {
+        let action = ruleAction.lowercased()
+        if action == "direct" {
+            return "direct"
+        }
+        if action == "group", !groupName.isEmpty {
+            return "group:\(groupName)"
+        }
+        if !groupName.isEmpty {
+            return "group:\(groupName)"
+        }
+        if !chainName.isEmpty {
+            return "chain:\(chainName)"
+        }
+        return "direct"
+    }
+
     var displayVisibility: String {
         guard let visibility else {
             return application.isEmpty ? network.uppercased() : application

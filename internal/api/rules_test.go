@@ -298,6 +298,96 @@ func TestCreateRuleFromConnectionPreservesObservedRoute(t *testing.T) {
 	}
 }
 
+func TestTemporaryRuleFromConnectionAffectsRouteExplainUntilDeleted(t *testing.T) {
+	cfg := testRuleCreateConfig()
+	store := newRuleConnectionStore(t)
+	store.ApplyEvent(events.Event{TsNs: 1, Type: events.TypeConnectionOpened, Data: events.ConnectionOpenedData{
+		ConnID:  "c1",
+		Profile: "A",
+	}})
+	store.ApplyEvent(events.Event{TsNs: 2, Type: events.TypeRuleMatched, Data: events.RuleDecisionData{
+		ConnID:     "c1",
+		Profile:    "A",
+		Action:     "chain",
+		ChainName:  "proxy",
+		Target:     "api.example.com:443",
+		TargetHost: "api.example.com",
+		TargetPort: "443",
+		Network:    "tcp",
+	}})
+	srv := NewWithOptions(engine.New(cfg, nil), nil, Options{TrafficStore: store})
+
+	createReq := httptest.NewRequest(http.MethodPost, "/api/v1/rules/temporary/from-connection", bytes.NewReader([]byte(`{"conn_id":"c1","action":"block","ttl_seconds":60}`)))
+	createRec := httptest.NewRecorder()
+	srv.server.Handler.ServeHTTP(createRec, createReq)
+	if createRec.Code != http.StatusOK {
+		t.Fatalf("create status = %d body=%q, want 200", createRec.Code, createRec.Body.String())
+	}
+	var createResp struct {
+		TemporaryRule struct {
+			ID   string            `json:"id"`
+			Rule config.RuleConfig `json:"rule"`
+		} `json:"temporary_rule"`
+		TemporaryRules []struct {
+			ID string `json:"id"`
+		} `json:"temporary_rules"`
+	}
+	if err := json.NewDecoder(createRec.Body).Decode(&createResp); err != nil {
+		t.Fatal(err)
+	}
+	if createResp.TemporaryRule.ID == "" || createResp.TemporaryRule.Rule.Action != "block" || len(createResp.TemporaryRules) != 1 {
+		t.Fatalf("create response = %+v", createResp)
+	}
+
+	explainReq := httptest.NewRequest(http.MethodPost, "/api/v1/routes/explain", bytes.NewReader([]byte(`{"network":"tcp","target":"api.example.com:443"}`)))
+	explainRec := httptest.NewRecorder()
+	srv.server.Handler.ServeHTTP(explainRec, explainReq)
+	if explainRec.Code != http.StatusOK {
+		t.Fatalf("explain status = %d body=%q, want 200", explainRec.Code, explainRec.Body.String())
+	}
+	var explainResp struct {
+		Decision struct {
+			RuleName    string `json:"rule_name"`
+			Action      string `json:"action"`
+			Explanation struct {
+				Source string `json:"source"`
+			} `json:"explanation"`
+		} `json:"decision"`
+	}
+	if err := json.NewDecoder(explainRec.Body).Decode(&explainResp); err != nil {
+		t.Fatal(err)
+	}
+	if explainResp.Decision.Action != "block" || explainResp.Decision.RuleName != "block-api-example-com" || explainResp.Decision.Explanation.Source != "temporary_rule" {
+		t.Fatalf("explain response = %+v", explainResp.Decision)
+	}
+
+	deleteReq := httptest.NewRequest(http.MethodDelete, "/api/v1/rules/temporary/"+createResp.TemporaryRule.ID, nil)
+	deleteRec := httptest.NewRecorder()
+	srv.server.Handler.ServeHTTP(deleteRec, deleteReq)
+	if deleteRec.Code != http.StatusOK {
+		t.Fatalf("delete status = %d body=%q, want 200", deleteRec.Code, deleteRec.Body.String())
+	}
+
+	afterReq := httptest.NewRequest(http.MethodPost, "/api/v1/routes/explain", bytes.NewReader([]byte(`{"network":"tcp","target":"api.example.com:443"}`)))
+	afterRec := httptest.NewRecorder()
+	srv.server.Handler.ServeHTTP(afterRec, afterReq)
+	if afterRec.Code != http.StatusOK {
+		t.Fatalf("after explain status = %d body=%q, want 200", afterRec.Code, afterRec.Body.String())
+	}
+	var afterResp struct {
+		Decision struct {
+			Action  string `json:"action"`
+			Default bool   `json:"default"`
+		} `json:"decision"`
+	}
+	if err := json.NewDecoder(afterRec.Body).Decode(&afterResp); err != nil {
+		t.Fatal(err)
+	}
+	if afterResp.Decision.Action != "chain" || !afterResp.Decision.Default {
+		t.Fatalf("after explain response = %+v", afterResp.Decision)
+	}
+}
+
 func TestCreateRuleFromConnectionAllowBlockedUsesListenerDefaultChain(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "clambhook.toml")
 	cfg := testRuleCreateConfig()

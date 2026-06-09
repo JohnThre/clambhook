@@ -24,20 +24,21 @@ var (
 // RoutePlan is the listener-facing form of a routing decision. The planner
 // owns the concrete chain/direct dialers; listeners only execute the plan.
 type RoutePlan struct {
-	Profile    string
-	RuleName   string
-	Action     string
-	ChainName  string
-	GroupName  string
-	Target     string
-	Host       string
-	Port       string
-	Network    string
-	Source     string
-	Default    bool
-	ElapsedNs  int64
-	Hops       []events.HopInfo
-	Visibility events.VisibilityInfo
+	Profile     string
+	RuleName    string
+	Action      string
+	ChainName   string
+	GroupName   string
+	Target      string
+	Host        string
+	Port        string
+	Network     string
+	Source      string
+	Default     bool
+	ElapsedNs   int64
+	Hops        []events.HopInfo
+	Visibility  events.VisibilityInfo
+	Explanation events.RouteExplanation
 
 	Dial       func(context.Context, string, string) (net.Conn, error)
 	DialPacket func(context.Context, string) (net.PacketConn, error)

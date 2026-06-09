@@ -77,22 +77,23 @@ type ConnectionOpenedData struct {
 
 // ConnectionDialingData is emitted before the chain dial begins.
 type ConnectionDialingData struct {
-	ConnID      string         `json:"conn_id"`
-	Profile     string         `json:"profile,omitempty"`
-	Target      string         `json:"target"`
-	TargetHost  string         `json:"target_host,omitempty"`
-	TargetPort  string         `json:"target_port,omitempty"`
-	Network     string         `json:"network,omitempty"`
-	Source      string         `json:"source,omitempty"`
-	Application string         `json:"application,omitempty"`
-	RuleName    string         `json:"rule_name,omitempty"`
-	RuleAction  string         `json:"rule_action,omitempty"`
-	ChainName   string         `json:"chain_name,omitempty"`
-	GroupName   string         `json:"group_name,omitempty"`
-	Default     bool           `json:"default,omitempty"`
-	DecisionNs  int64          `json:"decision_ns,omitempty"`
-	Hops        []HopInfo      `json:"hops"`
-	Visibility  VisibilityInfo `json:"visibility,omitempty"`
+	ConnID      string           `json:"conn_id"`
+	Profile     string           `json:"profile,omitempty"`
+	Target      string           `json:"target"`
+	TargetHost  string           `json:"target_host,omitempty"`
+	TargetPort  string           `json:"target_port,omitempty"`
+	Network     string           `json:"network,omitempty"`
+	Source      string           `json:"source,omitempty"`
+	Application string           `json:"application,omitempty"`
+	RuleName    string           `json:"rule_name,omitempty"`
+	RuleAction  string           `json:"rule_action,omitempty"`
+	ChainName   string           `json:"chain_name,omitempty"`
+	GroupName   string           `json:"group_name,omitempty"`
+	Default     bool             `json:"default,omitempty"`
+	DecisionNs  int64            `json:"decision_ns,omitempty"`
+	Hops        []HopInfo        `json:"hops"`
+	Visibility  VisibilityInfo   `json:"visibility,omitempty"`
+	Explanation RouteExplanation `json:"explanation,omitempty"`
 }
 
 // VisibilityInfo carries metadata-only DNS/HTTP visibility for UI inspection.
@@ -118,19 +119,34 @@ type ConnectionVisibilityData struct {
 
 // RuleDecisionData records the routing decision made for a connection.
 type RuleDecisionData struct {
-	ConnID     string `json:"conn_id"`
-	Profile    string `json:"profile,omitempty"`
-	RuleName   string `json:"rule_name,omitempty"`
-	Action     string `json:"action"`
-	ChainName  string `json:"chain_name,omitempty"`
-	GroupName  string `json:"group_name,omitempty"`
-	Target     string `json:"target"`
-	TargetHost string `json:"target_host,omitempty"`
-	TargetPort string `json:"target_port,omitempty"`
-	Network    string `json:"network,omitempty"`
-	Source     string `json:"source,omitempty"`
-	Default    bool   `json:"default,omitempty"`
-	ElapsedNs  int64  `json:"elapsed_ns,omitempty"`
+	ConnID      string           `json:"conn_id"`
+	Profile     string           `json:"profile,omitempty"`
+	RuleName    string           `json:"rule_name,omitempty"`
+	Action      string           `json:"action"`
+	ChainName   string           `json:"chain_name,omitempty"`
+	GroupName   string           `json:"group_name,omitempty"`
+	Target      string           `json:"target"`
+	TargetHost  string           `json:"target_host,omitempty"`
+	TargetPort  string           `json:"target_port,omitempty"`
+	Network     string           `json:"network,omitempty"`
+	Source      string           `json:"source,omitempty"`
+	Default     bool             `json:"default,omitempty"`
+	ElapsedNs   int64            `json:"elapsed_ns,omitempty"`
+	Explanation RouteExplanation `json:"explanation,omitempty"`
+}
+
+// RouteExplanation describes why a connection used its action/route.
+type RouteExplanation struct {
+	Source        string `json:"source,omitempty"`
+	RuleName      string `json:"rule_name,omitempty"`
+	RuleNumber    int    `json:"rule_number,omitempty"`
+	MatcherKind   string `json:"matcher_kind,omitempty"`
+	MatcherValue  string `json:"matcher_value,omitempty"`
+	DefaultChain  string `json:"default_chain,omitempty"`
+	PolicyGroup   string `json:"policy_group,omitempty"`
+	SelectedChain string `json:"selected_chain,omitempty"`
+	FinalChain    string `json:"final_chain,omitempty"`
+	Summary       string `json:"summary,omitempty"`
 }
 
 // HopDialingData is emitted per hop as the chain dial progresses.

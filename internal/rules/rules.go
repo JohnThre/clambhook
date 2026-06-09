@@ -44,18 +44,33 @@ type RuleSet struct {
 
 // Decision is the result of evaluating a target against the rule set.
 type Decision struct {
-	RuleName   string `json:"rule_name,omitempty"`
-	RuleNumber int    `json:"rule_number,omitempty"`
-	Action     string `json:"action"`
-	ChainName  string `json:"chain_name,omitempty"`
-	GroupName  string `json:"group_name,omitempty"`
-	Target     string `json:"target"`
-	Host       string `json:"target_host,omitempty"`
-	Port       string `json:"target_port,omitempty"`
-	Network    string `json:"network,omitempty"`
-	Source     string `json:"source,omitempty"`
-	Default    bool   `json:"default,omitempty"`
-	ElapsedNs  int64  `json:"elapsed_ns,omitempty"`
+	RuleName    string      `json:"rule_name,omitempty"`
+	RuleNumber  int         `json:"rule_number,omitempty"`
+	Action      string      `json:"action"`
+	ChainName   string      `json:"chain_name,omitempty"`
+	GroupName   string      `json:"group_name,omitempty"`
+	Target      string      `json:"target"`
+	Host        string      `json:"target_host,omitempty"`
+	Port        string      `json:"target_port,omitempty"`
+	Network     string      `json:"network,omitempty"`
+	Source      string      `json:"source,omitempty"`
+	Default     bool        `json:"default,omitempty"`
+	ElapsedNs   int64       `json:"elapsed_ns,omitempty"`
+	Explanation Explanation `json:"explanation,omitempty"`
+}
+
+// Explanation is a compact account of why a route decision was selected.
+type Explanation struct {
+	Source        string `json:"source,omitempty"`
+	RuleName      string `json:"rule_name,omitempty"`
+	RuleNumber    int    `json:"rule_number,omitempty"`
+	MatcherKind   string `json:"matcher_kind,omitempty"`
+	MatcherValue  string `json:"matcher_value,omitempty"`
+	DefaultChain  string `json:"default_chain,omitempty"`
+	PolicyGroup   string `json:"policy_group,omitempty"`
+	SelectedChain string `json:"selected_chain,omitempty"`
+	FinalChain    string `json:"final_chain,omitempty"`
+	Summary       string `json:"summary,omitempty"`
 }
 
 // Engine evaluates ordered rules and falls back to a default chain.
@@ -249,7 +264,8 @@ func (e *Engine) DecideWithSource(network, target, source string) Decision {
 	host, port := SplitTarget(target)
 	network = strings.ToLower(strings.TrimSpace(network))
 	for i, rule := range e.rules {
-		if !rule.match(network, host, port, source) {
+		match, ok := rule.match(network, host, port, source)
+		if !ok {
 			continue
 		}
 		return Decision{
@@ -264,6 +280,16 @@ func (e *Engine) DecideWithSource(network, target, source string) Decision {
 			Network:    network,
 			Source:     source,
 			ElapsedNs:  time.Since(start).Nanoseconds(),
+			Explanation: Explanation{
+				Source:       "profile_rule",
+				RuleName:     rule.name,
+				RuleNumber:   i + 1,
+				MatcherKind:  match.Kind,
+				MatcherValue: match.Value,
+				PolicyGroup:  rule.groupName,
+				FinalChain:   rule.chainName,
+				Summary:      explainMatchedRule(rule.name, match),
+			},
 		}
 	}
 	return Decision{
@@ -277,57 +303,92 @@ func (e *Engine) DecideWithSource(network, target, source string) Decision {
 		Source:     source,
 		Default:    true,
 		ElapsedNs:  time.Since(start).Nanoseconds(),
+		Explanation: Explanation{
+			Source:       "default",
+			RuleNumber:   len(e.rules) + 1,
+			DefaultChain: e.defaultChain,
+			FinalChain:   e.defaultChain,
+			Summary:      "No rule matched; used the default chain.",
+		},
 	}
 }
 
-func (r compiledRule) match(network, host, port, source string) bool {
+type matchInfo struct {
+	Kind  string
+	Value string
+}
+
+func (r compiledRule) match(network, host, port, source string) (matchInfo, bool) {
+	var first matchInfo
 	if len(r.networks) > 0 {
 		if _, ok := r.networks[network]; !ok {
-			return false
+			return matchInfo{}, false
 		}
+		first = firstMatch(first, "network", network)
 	}
 	if len(r.ports) > 0 {
 		n, err := strconv.Atoi(port)
 		if err != nil {
-			return false
+			return matchInfo{}, false
 		}
 		if _, ok := r.ports[n]; !ok {
-			return false
+			return matchInfo{}, false
 		}
+		first = firstMatch(first, "port", port)
 	}
-	if len(r.sourceCIDRs) > 0 && !matchCIDRList(r.sourceCIDRs, source) {
-		return false
+	if len(r.sourceCIDRs) > 0 {
+		sourceMatch, ok := matchCIDRListInfo(r.sourceCIDRs, source)
+		if !ok {
+			return matchInfo{}, false
+		}
+		first = firstMatch(first, "source_cidr", sourceMatch)
 	}
-	if r.hasDomainMatchers() && !r.matchDomain(host) {
-		return false
+	if r.hasDomainMatchers() {
+		domainMatch, ok := r.matchDomain(host)
+		if !ok {
+			return matchInfo{}, false
+		}
+		first = firstMatch(first, domainMatch.Kind, domainMatch.Value)
 	}
-	if len(r.cidrs) > 0 && !matchCIDRList(r.cidrs, host) {
-		return false
+	if len(r.cidrs) > 0 {
+		cidrMatch, ok := matchCIDRListInfo(r.cidrs, host)
+		if !ok {
+			return matchInfo{}, false
+		}
+		first = firstMatch(first, "cidr", cidrMatch)
 	}
-	if len(r.ruleSets) > 0 && !r.matchRuleSets(host) {
-		return false
+	if len(r.ruleSets) > 0 {
+		setMatch, ok := r.matchRuleSets(host)
+		if !ok {
+			return matchInfo{}, false
+		}
+		first = firstMatch(first, setMatch.Kind, setMatch.Value)
 	}
-	return true
+	if first.Kind == "" {
+		first = matchInfo{Kind: "all_traffic", Value: "*"}
+	}
+	return first, true
 }
 
 func (r compiledRule) hasDomainMatchers() bool {
 	return len(r.domains) > 0 || len(r.domainSuffixes) > 0 || len(r.domainKeywords) > 0
 }
 
-func (r compiledRule) matchDomain(host string) bool {
+func (r compiledRule) matchDomain(host string) (matchInfo, bool) {
 	host = normalizeHost(host)
 	if host == "" {
-		return false
+		return matchInfo{}, false
 	}
 	if _, ok := r.domains[host]; ok {
-		return true
+		return matchInfo{Kind: "domain", Value: host}, true
 	}
 	if _, ok := r.domainSuffixes[host]; ok {
-		return true
+		return matchInfo{Kind: "domain_suffix", Value: host}, true
 	}
 	for i := strings.IndexByte(host, '.'); i >= 0 && i < len(host)-1; {
-		if _, ok := r.domainSuffixes[host[i+1:]]; ok {
-			return true
+		suffix := host[i+1:]
+		if _, ok := r.domainSuffixes[suffix]; ok {
+			return matchInfo{Kind: "domain_suffix", Value: suffix}, true
 		}
 		next := strings.IndexByte(host[i+1:], '.')
 		if next < 0 {
@@ -337,46 +398,78 @@ func (r compiledRule) matchDomain(host string) bool {
 	}
 	for _, keyword := range r.domainKeywords {
 		if strings.Contains(host, keyword) {
-			return true
+			return matchInfo{Kind: "domain_keyword", Value: keyword}, true
 		}
 	}
-	return false
+	return matchInfo{}, false
 }
 
-func (r compiledRule) matchRuleSets(host string) bool {
+func (r compiledRule) matchRuleSets(host string) (matchInfo, bool) {
 	for _, set := range r.ruleSets {
-		if set.match(host) {
-			return true
+		if match, ok := set.match(host); ok {
+			if match.Value == "" {
+				match.Value = set.name
+			} else {
+				match.Value = set.name + ":" + match.Value
+			}
+			match.Kind = "rule_set_" + match.Kind
+			return match, true
 		}
 	}
-	return false
+	return matchInfo{}, false
 }
 
-func (s compiledRuleSet) match(host string) bool {
+func (s compiledRuleSet) match(host string) (matchInfo, bool) {
 	if len(s.domains) == 0 && len(s.domainSuffixes) == 0 && len(s.domainKeywords) == 0 && len(s.cidrs) == 0 {
-		return false
+		return matchInfo{}, false
 	}
 	if len(s.domains) > 0 || len(s.domainSuffixes) > 0 || len(s.domainKeywords) > 0 {
 		r := compiledRule{domains: s.domains, domainSuffixes: s.domainSuffixes, domainKeywords: s.domainKeywords}
-		if r.matchDomain(host) {
-			return true
+		if match, ok := r.matchDomain(host); ok {
+			return match, true
 		}
 	}
-	return matchCIDRList(s.cidrs, host)
+	cidr, ok := matchCIDRListInfo(s.cidrs, host)
+	return matchInfo{Kind: "cidr", Value: cidr}, ok
 }
 
 func matchCIDRList(prefixes []netip.Prefix, host string) bool {
+	_, ok := matchCIDRListInfo(prefixes, host)
+	return ok
+}
+
+func matchCIDRListInfo(prefixes []netip.Prefix, host string) (string, bool) {
 	host, _ = SplitTarget(host)
 	ip, err := netip.ParseAddr(strings.Trim(host, "[]"))
 	if err != nil {
-		return false
+		return "", false
 	}
 	for _, prefix := range prefixes {
 		if prefix.Contains(ip) {
-			return true
+			return prefix.String(), true
 		}
 	}
-	return false
+	return "", false
+}
+
+func firstMatch(current matchInfo, kind, value string) matchInfo {
+	if current.Kind != "" {
+		return current
+	}
+	return matchInfo{Kind: kind, Value: value}
+}
+
+func explainMatchedRule(name string, match matchInfo) string {
+	if name == "" {
+		name = "unnamed"
+	}
+	if match.Kind == "" {
+		return fmt.Sprintf("Rule %q matched.", name)
+	}
+	if match.Value == "" {
+		return fmt.Sprintf("Rule %q matched %s.", name, match.Kind)
+	}
+	return fmt.Sprintf("Rule %q matched %s %q.", name, match.Kind, match.Value)
 }
 
 // SplitTarget splits host:port targets while tolerating bare hosts.

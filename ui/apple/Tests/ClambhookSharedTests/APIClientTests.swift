@@ -94,12 +94,14 @@ final class APIClientTests: XCTestCase {
           "summary": {"active_connections": 1},
           "profile_context": {"active": "Work", "profiles": ["Work", "Home"]},
           "quick_filters": [{"key": "block", "label": "Block", "count": 2}],
-          "rule_hits": [{"profile": "Work", "rule_name": "ads", "action": "block", "count": 2, "last_target": "ads.example.com:443"}],
+          "temporary_rules": [{"id": "tmp1", "profile": "Work", "rule": {"name": "block-api", "action": "block", "domains": ["api.example.com"]}, "created_ts_ns": 10, "expires_ts_ns": 20, "source_conn_id": "c1"}],
+          "rule_hits": [{"profile": "Work", "rule_name": "ads", "action": "block", "count": 2, "last_target": "ads.example.com:443", "temporary": true}],
           "block_decisions": [{"conn_id": "c1", "profile": "Work", "rule_name": "ads", "action": "block", "target_host": "ads.example.com", "ts_ns": 88}],
+          "destination_groups": [{"key": "domain:example.com", "display_host": "api.example.com", "domain_suffix": "example.com", "count": 3, "actions": ["proxy"], "profiles": ["Work"], "top_rule_name": "default", "top_chain_name": "proxy"}],
           "cleanup_suggestions": [{"kind": "unused_in_history", "profile": "Work", "rule_name": "old", "target_rule_name": "old", "operation": "delete_rule", "message": "No recent traffic-history entries matched this rule."}],
           "rule_suggestions": [{"id": "exact_host:block:api.example.com", "kind": "exact_host", "profile": "Work", "action": "block", "draft_rule": {"name": "block-api-example-com", "action": "block", "domains": ["api.example.com"]}, "count": 3, "confidence": "high", "reason": "Observed 3 matching connections."}],
           "breakdowns": {"actions": [{"key": "block", "label": "Block", "count": 2, "rx_total": 10, "tx_total": 5}]},
-          "connections": [{"conn_id": "c1", "profile": "Work", "state": "closed", "rule_action": "block", "default": true, "target_host": "ads.example.com"}]
+          "connections": [{"conn_id": "c1", "profile": "Work", "state": "closed", "rule_action": "block", "default": true, "target_host": "ads.example.com", "explanation": {"source": "temporary_rule", "summary": "Rule matched."}}]
         }
         """.utf8)
         let client = ClambhookAPIClient(
@@ -111,8 +113,11 @@ final class APIClientTests: XCTestCase {
 
         XCTAssertEqual(traffic.profileContext.active, "Work")
         XCTAssertEqual(traffic.quickFilters.first?.key, "block")
+        XCTAssertEqual(traffic.temporaryRules.first?.id, "tmp1")
         XCTAssertEqual(traffic.ruleHits.first?.ruleName, "ads")
+        XCTAssertEqual(traffic.ruleHits.first?.temporary, true)
         XCTAssertEqual(traffic.blockDecisions.first?.targetHost, "ads.example.com")
+        XCTAssertEqual(traffic.destinationGroups.first?.domainSuffix, "example.com")
         XCTAssertEqual(traffic.cleanupSuggestions.first?.ruleName, "old")
         XCTAssertEqual(traffic.cleanupSuggestions.first?.targetRuleName, "old")
         XCTAssertEqual(traffic.cleanupSuggestions.first?.operation, "delete_rule")
@@ -121,6 +126,7 @@ final class APIClientTests: XCTestCase {
         XCTAssertEqual(traffic.breakdowns.actions.first?.label, "Block")
         XCTAssertEqual(traffic.connections.first?.profile, "Work")
         XCTAssertEqual(traffic.connections.first?.isDefault, true)
+        XCTAssertEqual(traffic.connections.first?.explanation?.source, "temporary_rule")
     }
 
     func testDNSRequestDecodesUpstreamRoute() async throws {
@@ -192,6 +198,36 @@ final class APIClientTests: XCTestCase {
         XCTAssertEqual(decoded.position, "append")
     }
 
+    func testCreateTemporaryRuleFromConnectionSendsTTLRequest() async throws {
+        MockURLProtocol.responseData = Data("""
+        {"temporary_rule":{"id":"tmp1","profile":"Work","rule":{"name":"api","action":"block","domains":["api.example.com"]}},"temporary_rules":[]}
+        """.utf8)
+        let client = ClambhookAPIClient(
+            baseURL: URL(string: "http://127.0.0.1:9090")!,
+            session: mockSession()
+        )
+
+        let response = try await client.createTemporaryRuleFromConnection(
+            connID: "c1",
+            profile: "Work",
+            name: "api",
+            action: "block",
+            ttlSeconds: 60
+        )
+
+        XCTAssertEqual(response.temporaryRule.id, "tmp1")
+        XCTAssertEqual(MockURLProtocol.lastRequest?.httpMethod, "POST")
+        XCTAssertEqual(MockURLProtocol.lastRequest?.url?.absoluteString, "http://127.0.0.1:9090/api/v1/rules/temporary/from-connection")
+        let body = try XCTUnwrap(MockURLProtocol.lastBody)
+        let decoded = try JSONDecoder().decode(CreateTemporaryRuleFromConnectionRequestBody.self, from: body)
+        XCTAssertEqual(decoded.connID, "c1")
+        XCTAssertEqual(decoded.profile, "Work")
+        XCTAssertEqual(decoded.name, "api")
+        XCTAssertEqual(decoded.action, "block")
+        XCTAssertEqual(decoded.scope, "auto")
+        XCTAssertEqual(decoded.ttlSeconds, 60)
+    }
+
     func testCleanupRuleSendsSuggestionIdentity() async throws {
         MockURLProtocol.responseData = Data("""
         {"profile":"Work","rules":[{"name":"keep","action":"direct","domains":["keep.example.com"]}]}
@@ -259,6 +295,24 @@ private struct CreateRuleFromConnectionRequestBody: Decodable {
         case action
         case scope
         case position
+    }
+}
+
+private struct CreateTemporaryRuleFromConnectionRequestBody: Decodable {
+    var connID: String
+    var profile: String
+    var name: String
+    var action: String
+    var scope: String
+    var ttlSeconds: Int
+
+    enum CodingKeys: String, CodingKey {
+        case connID = "conn_id"
+        case profile
+        case name
+        case action
+        case scope
+        case ttlSeconds = "ttl_seconds"
     }
 }
 

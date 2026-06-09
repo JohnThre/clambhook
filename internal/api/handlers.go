@@ -37,6 +37,9 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/rules", s.handleCreateRule)
 	mux.HandleFunc("POST /api/v1/rules/cleanup", s.handleCleanupRule)
 	mux.HandleFunc("POST /api/v1/rules/from-connection", s.handleCreateRuleFromConnection)
+	mux.HandleFunc("GET /api/v1/rules/temporary", s.handleTemporaryRules)
+	mux.HandleFunc("POST /api/v1/rules/temporary/from-connection", s.handleCreateTemporaryRuleFromConnection)
+	mux.HandleFunc("DELETE /api/v1/rules/temporary/{id}", s.handleDeleteTemporaryRule)
 	mux.HandleFunc("PUT /api/v1/rules", s.handleReplaceRules)
 	mux.HandleFunc("POST /api/v1/rules/test", s.handleTestRule)
 	mux.HandleFunc("POST /api/v1/routes/explain", s.handleExplainRoute)
@@ -404,11 +407,24 @@ func writeProfileSelectionError(w http.ResponseWriter, err error) {
 }
 
 func (s *Server) explainRouteForProfile(cfg *config.Config, profile, effectiveProfile *config.Profile, network, target, source string) (testRuleResponse, error) {
-	ruleEngine, err := compileProfileRules(cfg.Path, effectiveProfile, profile.Chains[0].Name)
-	if err != nil {
-		return testRuleResponse{}, err
+	defaultChainName := profile.Chains[0].Name
+	var decision rules.Decision
+	if manager := s.temporaryRules(); manager != nil {
+		tempDecision, ok, err := manager.Decide(profile.Name, defaultChainName, network, target, source, knownChainNames(profile), knownPolicyGroupNames(profile))
+		if err != nil {
+			return testRuleResponse{}, err
+		}
+		if ok {
+			decision = tempDecision
+		}
 	}
-	decision := ruleEngine.DecideWithSource(network, target, source)
+	if decision.Action == "" {
+		ruleEngine, err := compileProfileRules(cfg.Path, effectiveProfile, defaultChainName)
+		if err != nil {
+			return testRuleResponse{}, err
+		}
+		decision = ruleEngine.DecideWithSource(network, target, source)
+	}
 	resp := testRuleResponse{
 		Profile:  profile.Name,
 		Decision: decision,
@@ -440,6 +456,22 @@ func (s *Server) explainRouteForProfile(cfg *config.Config, profile, effectivePr
 		populateRuleTestChain(profile, selected, &resp)
 	}
 	return resp, nil
+}
+
+func knownChainNames(profile *config.Profile) map[string]struct{} {
+	known := make(map[string]struct{}, len(profile.Chains))
+	for _, ch := range profile.Chains {
+		known[ch.Name] = struct{}{}
+	}
+	return known
+}
+
+func knownPolicyGroupNames(profile *config.Profile) map[string]struct{} {
+	known := make(map[string]struct{}, len(profile.PolicyGroups))
+	for _, group := range profile.PolicyGroups {
+		known[group.Name] = struct{}{}
+	}
+	return known
 }
 
 func compileProfileRules(configPath string, profile *config.Profile, defaultChainName string) (*rules.Engine, error) {
@@ -946,6 +978,9 @@ func (s *Server) handleTraffic(w http.ResponseWriter, r *http.Request) {
 		Profiles:       profileNames,
 		Rules:          activeRules,
 		EffectiveRules: activeEffectiveRules,
+	}
+	if manager := s.temporaryRules(); manager != nil {
+		opts.TemporaryRules = manager.Snapshot(activeProfile)
 	}
 	store := s.trafficStore()
 	if store == nil {

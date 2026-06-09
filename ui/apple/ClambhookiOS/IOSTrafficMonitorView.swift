@@ -108,6 +108,51 @@ struct IOSActivityView: View {
                             }
                         }
                     }
+                if !model.dashboard.traffic.temporaryRules.isEmpty {
+                        IOSSurfaceSection("Temporary Rules", detail: "\(model.dashboard.traffic.temporaryRules.count) active") {
+                            VStack(spacing: 6) {
+                                ForEach(model.dashboard.traffic.temporaryRules.prefix(6)) { rule in
+                                    HStack(alignment: .top, spacing: 10) {
+                                        IOSActionChip(action: rule.rule.action)
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(rule.rule.name.isEmpty ? "Temporary rule" : rule.rule.name)
+                                                .font(.caption.weight(.semibold))
+                                                .lineLimit(1)
+                                            Text([rule.profile, rule.sourceTargetHost, rule.rule.displayMatch].filter { !$0.isEmpty }.joined(separator: " / "))
+                                                .font(.caption2)
+                                                .foregroundStyle(.secondary)
+                                                .lineLimit(1)
+                                        }
+                                        Spacer(minLength: 0)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                if !model.dashboard.traffic.destinationGroups.isEmpty {
+                        IOSSurfaceSection("Noisy Domains", detail: "\(model.dashboard.traffic.destinationGroups.count) groups") {
+                            VStack(spacing: 6) {
+                                ForEach(model.dashboard.traffic.destinationGroups.prefix(8)) { group in
+                                    HStack(alignment: .top, spacing: 10) {
+                                        Text("\(group.count)")
+                                            .font(.caption.monospacedDigit().weight(.semibold))
+                                            .foregroundStyle(.secondary)
+                                            .frame(width: 34, alignment: .trailing)
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(group.domainSuffix.isEmpty ? group.displayHost : group.domainSuffix)
+                                                .font(.caption.weight(.semibold))
+                                                .lineLimit(1)
+                                            Text([group.actions.joined(separator: ","), group.topRuleName, group.topChainName].filter { !$0.isEmpty }.joined(separator: " / "))
+                                                .font(.caption2)
+                                                .foregroundStyle(.secondary)
+                                                .lineLimit(1)
+                                        }
+                                        Spacer(minLength: 0)
+                                    }
+                                }
+                            }
+                        }
+                    }
                 if !model.dashboard.traffic.cleanupSuggestions.isEmpty {
                         IOSSurfaceSection("Rule Cleanup", detail: "\(model.dashboard.traffic.cleanupSuggestions.count) suggestions") {
                             VStack(spacing: 8) {
@@ -400,6 +445,36 @@ private struct IOSActivityConnectionDetailView: View {
             Section("Actions") {
                 Button {
                     sourceConnection = connection
+                    draftRule = connection.ruleDraft(actionOverride: "proxy")
+                } label: {
+                    Label("Allow Permanently", systemImage: "checkmark.circle")
+                }
+                .disabled(connection.ruleDraft(actionOverride: "proxy") == nil)
+
+                Button(role: .destructive) {
+                    sourceConnection = connection
+                    draftRule = connection.ruleDraft(actionOverride: "block")
+                } label: {
+                    Label("Block Permanently", systemImage: "hand.raised")
+                }
+                .disabled(connection.ruleDraft(actionOverride: "block") == nil)
+
+                Button {
+                    model.createTemporaryRuleFromConnection(connection, action: connection.temporaryAllowAction)
+                } label: {
+                    Label("Allow Temporarily", systemImage: "timer")
+                }
+                .disabled(connection.connID.isEmpty)
+
+                Button(role: .destructive) {
+                    model.createTemporaryRuleFromConnection(connection, action: "block")
+                } label: {
+                    Label("Block Temporarily", systemImage: "timer")
+                }
+                .disabled(connection.connID.isEmpty)
+
+                Button {
+                    sourceConnection = connection
                     draftRule = connection.ruleDraft()
                 } label: {
                     Label("Create Rule from Connection", systemImage: "plus.circle")
@@ -425,6 +500,26 @@ private struct IOSActivityConnectionDetailView: View {
                 LabeledContent("Chain", value: emptyDash(connection.chainName))
                 LabeledContent("Default", value: connection.isDefault ? "Yes" : "No")
                 LabeledContent("Decision time", value: formatDurationNs(connection.decisionNs))
+            }
+
+            if let explanation = connection.explanation {
+                Section("Why This Route") {
+                    if !explanation.summary.isEmpty {
+                        Text(explanation.summary)
+                    }
+                    LabeledContent("Source", value: emptyDash(explanation.source.replacingOccurrences(of: "_", with: " ").capitalized))
+                    if !explanation.matcherKind.isEmpty || !explanation.matcherValue.isEmpty {
+                        LabeledContent("Match", value: [explanation.matcherKind, explanation.matcherValue].filter { !$0.isEmpty }.joined(separator: " "))
+                    }
+                    if !explanation.policyGroup.isEmpty {
+                        LabeledContent("Group", value: explanation.policyGroup)
+                    }
+                    if !explanation.finalChain.isEmpty {
+                        LabeledContent("Route", value: explanation.finalChain)
+                    } else if !explanation.defaultChain.isEmpty {
+                        LabeledContent("Route", value: explanation.defaultChain)
+                    }
+                }
             }
 
             if let visibility = connection.visibility {
