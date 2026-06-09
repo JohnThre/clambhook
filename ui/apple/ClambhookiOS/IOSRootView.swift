@@ -8,8 +8,7 @@ struct IOSRootView: View {
     @ObservedObject var model: AppleAppModel
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.scenePhase) private var scenePhase
-    @State private var selectedDestination: IOSAppDestination = .dashboard
-    @State private var compactPath: [IOSAppDestination] = []
+    @State private var selectedDestination: IOSAppDestination = .start
     @State private var showingOnboarding = false
     @AppStorage("org.jpfchang.clambhook.onboardingComplete") private var onboardingComplete = false
     @StateObject private var inspectionLock = InspectionLockState()
@@ -73,34 +72,13 @@ struct IOSRootView: View {
     }
 
     private var compactNavigationView: some View {
-        NavigationStack(path: $compactPath) {
-            IOSStatusView(model: model, onRecoveryAction: handleRecoveryAction)
-                .navigationTitle(IOSAppDestination.dashboard.title)
-                .navigationDestination(for: IOSAppDestination.self) { destination in
-                    destinationView(destination)
-                        .navigationTitle(destination.title)
-                }
-                .toolbar {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        Menu {
-                            ForEach(IOSAppDestination.shellCases) { destination in
-                                Button {
-                                    if destination == .dashboard {
-                                        compactPath.removeAll()
-                                    } else {
-                                        compactPath = [destination]
-                                    }
-                                } label: {
-                                    Label(destination.title, systemImage: destination.systemImage)
-                                }
-                            }
-                        } label: {
-                            Image(systemName: "ellipsis.circle")
-                        }
-                        .accessibilityLabel("Navigate")
-                    }
-                }
-            }
+        IOSTabShell(
+            selectedDestination: $selectedDestination,
+            destinations: IOSAppDestination.shellCases,
+            badgeCount: badgeCount
+        ) { destination in
+            destinationView(destination)
+        }
     }
 
     private var splitView: some View {
@@ -136,8 +114,10 @@ struct IOSRootView: View {
     @ViewBuilder
     private func destinationView(_ destination: IOSAppDestination) -> some View {
         switch destination {
-        case .dashboard:
+        case .start:
             IOSStatusView(model: model, onRecoveryAction: handleRecoveryAction)
+        case .policy:
+            IOSPolicyGroupsView(model: model)
         case .profiles:
             IOSProfilesView(model: model)
         case .rules:
@@ -151,8 +131,10 @@ struct IOSRootView: View {
 
     private func badgeCount(for destination: IOSAppDestination) -> Int? {
         switch destination {
-        case .dashboard:
+        case .start:
             return model.attention.dueScheduledItems().count + todayIncidentCount
+        case .policy:
+            return model.dashboard.policyGroups.groups.count
         case .profiles:
             return model.dashboard.profiles.profiles.count
         case .rules:
@@ -189,7 +171,6 @@ struct IOSRootView: View {
     private func handleRecoveryAction(_ action: TunnelRecoveryAction) {
         if action == .openProfiles || action == .importProfile {
             selectedDestination = .profiles
-            compactPath = [selectedDestination]
         }
         model.performRecoveryAction(action)
     }
@@ -331,8 +312,86 @@ private struct IOSDestinationRow: View {
     }
 }
 
+private struct IOSTabShell<Content: View>: View {
+    @Binding var selectedDestination: IOSAppDestination
+    var destinations: [IOSAppDestination]
+    var badgeCount: (IOSAppDestination) -> Int?
+    var content: (IOSAppDestination) -> Content
+
+    var body: some View {
+        VStack(spacing: 0) {
+            NavigationStack {
+                content(selectedDestination)
+                    .navigationTitle(selectedDestination.title)
+            }
+
+            Divider()
+
+            HStack(spacing: 0) {
+                ForEach(destinations) { destination in
+                    Button {
+                        selectedDestination = destination
+                    } label: {
+                        IOSTabItem(
+                            destination: destination,
+                            isSelected: destination == selectedDestination,
+                            count: badgeCount(destination)
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .frame(maxWidth: .infinity)
+                    .accessibilityLabel(destination.title)
+                }
+            }
+            .padding(.horizontal, 6)
+            .padding(.top, 7)
+            .padding(.bottom, 8)
+            .background(.bar)
+        }
+    }
+}
+
+private struct IOSTabItem: View {
+    var destination: IOSAppDestination
+    var isSelected: Bool
+    var count: Int?
+
+    var body: some View {
+        VStack(spacing: 3) {
+            ZStack(alignment: .topTrailing) {
+                Image(systemName: isSelected ? destination.selectedSystemImage : destination.systemImage)
+                    .font(.system(size: 18, weight: isSelected ? .semibold : .regular))
+                    .frame(width: 30, height: 22)
+
+                if let count, count > 0 {
+                    Text(count > 99 ? "99+" : "\(count)")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(.white)
+                        .monospacedDigit()
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                        .padding(.horizontal, 4)
+                        .frame(minWidth: 15, minHeight: 15)
+                        .background(Color.red, in: Capsule())
+                        .offset(x: 9, y: -5)
+                        .accessibilityHidden(true)
+                }
+            }
+
+            Text(destination.title)
+                .font(.system(size: 10, weight: isSelected ? .semibold : .regular))
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+        }
+        .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+        .frame(maxWidth: .infinity)
+        .contentShape(Rectangle())
+    }
+}
+
 private enum IOSAppDestination: String, CaseIterable, Identifiable, Hashable {
-    case dashboard
+    case start
+    case policy
     case profiles
     case rules
     case activity
@@ -341,13 +400,15 @@ private enum IOSAppDestination: String, CaseIterable, Identifiable, Hashable {
     var id: Self { self }
 
     static var shellCases: [IOSAppDestination] {
-        [.dashboard, .profiles, .rules, .activity, .settings]
+        [.start, .policy, .profiles, .rules, .activity, .settings]
     }
 
     var title: String {
         switch self {
-        case .dashboard:
-            return "Dashboard"
+        case .start:
+            return "Start"
+        case .policy:
+            return "Policy"
         case .profiles:
             return "Profiles"
         case .rules:
@@ -361,8 +422,10 @@ private enum IOSAppDestination: String, CaseIterable, Identifiable, Hashable {
 
     var systemImage: String {
         switch self {
-        case .dashboard:
-            return "network"
+        case .start:
+            return "power.circle"
+        case .policy:
+            return "point.3.connected.trianglepath.dotted"
         case .profiles:
             return "person.crop.rectangle.stack"
         case .rules:
@@ -371,6 +434,23 @@ private enum IOSAppDestination: String, CaseIterable, Identifiable, Hashable {
             return "clock.arrow.circlepath"
         case .settings:
             return "gearshape"
+        }
+    }
+
+    var selectedSystemImage: String {
+        switch self {
+        case .start:
+            return "power.circle.fill"
+        case .policy:
+            return "point.3.connected.trianglepath.dotted"
+        case .profiles:
+            return "person.crop.rectangle.stack.fill"
+        case .rules:
+            return "slider.horizontal.3"
+        case .activity:
+            return "clock.arrow.circlepath"
+        case .settings:
+            return "gearshape.fill"
         }
     }
 }

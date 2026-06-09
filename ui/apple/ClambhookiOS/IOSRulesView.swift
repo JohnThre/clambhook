@@ -19,7 +19,7 @@ struct IOSRulesView: View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 12) {
             if model.dashboard.activeProfile.isEmpty {
-                IOSConsoleSection("Profile") {
+                IOSSurfaceSection("Profile") {
                     ContentUnavailableView(
                         "No active profile",
                         systemImage: "person.crop.rectangle.stack",
@@ -27,7 +27,7 @@ struct IOSRulesView: View {
                     )
                 }
             } else {
-                    IOSConsoleSection("Profile", detail: model.dashboard.activeProfile) {
+                    IOSSurfaceSection("Profile", detail: model.dashboard.activeProfile) {
                         IOSConsoleMetricStrip(metrics: [
                             IOSConsoleMetric(title: "Manual", value: "\(model.dashboard.rules.rules.count)"),
                             IOSConsoleMetric(title: "Effective", value: "\(model.dashboard.rules.routeTestRules.count)"),
@@ -37,7 +37,11 @@ struct IOSRulesView: View {
                     }
                 }
 
-                IOSConsoleSection("Rules", detail: "\(editableRows.count) editable") {
+                IOSSurfaceSection("Test Route", detail: "first match wins") {
+                    routeTestControls
+                }
+
+                IOSSurfaceSection("Rules", detail: "\(editableRows.count) editable") {
                 if editableRows.isEmpty {
                     IOSInlineEmptyState(text: "No manual routing rules.", systemImage: "checklist")
                 } else {
@@ -83,7 +87,7 @@ struct IOSRulesView: View {
                 }
 
             if ruleSetStatusCount > 0 || !generatedRows.isEmpty {
-                    IOSConsoleSection("Rule Sets", detail: ruleSetStatusDetail) {
+                    IOSSurfaceSection("Rule Sets", detail: ruleSetStatusDetail) {
                     if staticRuleSetRows.isEmpty && subscriptionRuleSetRows.isEmpty {
                         IOSInlineEmptyState(text: "No rule-set status.", systemImage: "tray")
                     } else {
@@ -120,7 +124,7 @@ struct IOSRulesView: View {
                 }
 
             if !generatedRows.isEmpty {
-                    IOSConsoleSection("Rule Set Rules", detail: "\(generatedRows.count) generated") {
+                    IOSSurfaceSection("Rule Set Rules", detail: "\(generatedRows.count) generated") {
                         VStack(spacing: 8) {
                             ForEach(Array(generatedRows.enumerated()), id: \.offset) { index, row in
                                 IOSRuleDraftRow(
@@ -137,7 +141,7 @@ struct IOSRulesView: View {
                 }
 
             if let virtualFinalRow {
-                    IOSConsoleSection("Final", detail: "fallback") {
+                    IOSSurfaceSection("Final", detail: "fallback") {
                     NavigationLink {
                         IOSRuleFormView(
                             row: binding(for: virtualFinalRow.id),
@@ -158,43 +162,8 @@ struct IOSRulesView: View {
                 }
             }
 
-                IOSConsoleSection("Test Route", detail: "first match wins") {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Picker("Network", selection: $routeTestNetwork) {
-                            Text("TCP").tag("tcp")
-                            Text("UDP").tag("udp")
-                        }
-                        .pickerStyle(.segmented)
-                        HStack(spacing: 8) {
-                            TextField("host:port", text: $routeTestTarget)
-                                .textInputAutocapitalization(.never)
-                                .autocorrectionDisabled()
-                                .textFieldStyle(.roundedBorder)
-                            Button {
-                                runRouteTest()
-                            } label: {
-                                Image(systemName: "checkmark.circle")
-                                    .frame(width: 30, height: 30)
-                            }
-                            .buttonStyle(.borderedProminent)
-                            .accessibilityLabel("Test Route")
-                        }
-                if !routeTestError.isEmpty {
-                    Text(routeTestError)
-                        .font(.footnote)
-                        .foregroundStyle(.red)
-                } else if let routeTestResult, !routeTestHasInlineMatch {
-                    IOSInlineRouteTestResultView(
-                        response: routeTestResult,
-                        manualRuleCount: model.dashboard.rules.rules.count,
-                        effectiveRuleCount: model.dashboard.rules.routeTestRules.count
-                    )
-                }
-            }
-                }
-
             if !message.isEmpty {
-                    IOSConsoleSection("Status") {
+                    IOSSurfaceSection("Status") {
                     Text(message)
                         .font(.footnote)
                         .foregroundColor(validationErrors.isEmpty ? Color.secondary : Color.red)
@@ -232,6 +201,42 @@ struct IOSRulesView: View {
             loadRowsFromDashboard()
             loaded = true
             message = ""
+        }
+    }
+
+    private var routeTestControls: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Picker("Network", selection: $routeTestNetwork) {
+                Text("TCP").tag("tcp")
+                Text("UDP").tag("udp")
+            }
+            .pickerStyle(.segmented)
+            HStack(spacing: 8) {
+                TextField("host:port", text: $routeTestTarget)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .textFieldStyle(.roundedBorder)
+                Button {
+                    runRouteTest()
+                } label: {
+                    Image(systemName: "checkmark.circle")
+                        .frame(width: 30, height: 30)
+                }
+                .buttonStyle(.borderedProminent)
+                .accessibilityLabel("Test Route")
+                .disabled(model.dashboard.activeProfile.isEmpty)
+            }
+            if !routeTestError.isEmpty {
+                Text(routeTestError)
+                    .font(.footnote)
+                    .foregroundStyle(.red)
+            } else if let routeTestResult, !routeTestHasInlineMatch {
+                IOSInlineRouteTestResultView(
+                    response: routeTestResult,
+                    manualRuleCount: model.dashboard.rules.rules.count,
+                    effectiveRuleCount: model.dashboard.rules.routeTestRules.count
+                )
+            }
         }
     }
 

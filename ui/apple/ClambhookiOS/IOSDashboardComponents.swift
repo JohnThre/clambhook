@@ -412,6 +412,53 @@ struct IOSConsolePanel<Content: View>: View {
     }
 }
 
+struct IOSSurfacePanel<Content: View>: View {
+    var content: Content
+
+    init(@ViewBuilder content: () -> Content) {
+        self.content = content()
+    }
+
+    var body: some View {
+        content
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+    }
+}
+
+struct IOSSurfaceSection<Content: View>: View {
+    var title: String
+    var detail: String
+    var content: Content
+
+    init(_ title: String, detail: String = "", @ViewBuilder content: () -> Content) {
+        self.title = title
+        self.detail = detail
+        self.content = content()
+    }
+
+    var body: some View {
+        IOSSurfacePanel {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text(title)
+                        .font(.headline)
+                    Spacer(minLength: 8)
+                    if !detail.isEmpty {
+                        Text(detail)
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
+                    }
+                }
+                content
+            }
+        }
+    }
+}
+
 struct IOSConsoleSection<Content: View>: View {
     var title: String
     var detail: String

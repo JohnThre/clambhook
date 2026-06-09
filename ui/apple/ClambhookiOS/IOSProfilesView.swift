@@ -11,14 +11,14 @@ struct IOSProfilesView: View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 12) {
                 if !message.isEmpty {
-                    IOSConsoleSection("Status") {
+                    IOSSurfaceSection("Status") {
                         Text(message)
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                     }
                 }
 
-                IOSConsoleSection("Profiles", detail: "\(filteredProfiles.count)/\(model.dashboard.profiles.profiles.count)") {
+                IOSSurfaceSection("Profiles", detail: "\(filteredProfiles.count)/\(model.dashboard.profiles.profiles.count)") {
                     if filteredProfiles.isEmpty {
                         ContentUnavailableView(
                             searchText.isEmpty ? "No profiles" : "No matching profiles",
@@ -52,7 +52,7 @@ struct IOSProfilesView: View {
                     }
                 }
 
-                IOSConsoleSection("Import", detail: "\(model.attention.state.inbox.count) staged") {
+                IOSSurfaceSection("Import", detail: "\(model.attention.state.inbox.count) staged") {
                     VStack(spacing: 8) {
                         NavigationLink {
                             IOSProfileImportsView(model: model)
@@ -72,7 +72,7 @@ struct IOSProfilesView: View {
                     }
                 }
 
-                IOSConsoleSection("Rules", detail: "\(model.dashboard.rules.rules.count) manual") {
+                IOSSurfaceSection("Rules", detail: "\(model.dashboard.rules.rules.count) manual") {
                     VStack(spacing: 8) {
                         NavigationLink {
                             IOSRulesView(model: model)
