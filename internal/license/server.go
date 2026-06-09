@@ -164,7 +164,7 @@ func (s *Server) handleAttest(w http.ResponseWriter, r *http.Request) {
 		result.Receipt = assessment.Receipt
 	}
 	if assessment.Metric != nil && *assessment.Metric > s.cfg.MaxAttestations30d {
-		writeError(w, http.StatusForbidden, "app attest receipt risk metric exceeds trial policy")
+		writeError(w, http.StatusForbidden, "app attest receipt risk metric exceeds free access policy")
 		return
 	}
 	count, err := s.store.CountRecentAttestations(installHash, now.AddDate(0, 0, -30))

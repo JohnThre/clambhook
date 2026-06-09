@@ -29,8 +29,10 @@ final class AppRecoveryStateTests: XCTestCase {
         let state = try XCTUnwrap(AppRecoveryStateBuilder.expiredTrial(decision: decision, storeKitAvailability: .available))
 
         XCTAssertEqual(state.kind, .expiredTrial)
+        XCTAssertEqual(state.title, "Free access ended")
         XCTAssertEqual(state.primaryAction, .purchaseLifetime)
         XCTAssertTrue(state.secondaryActions.contains(.restorePurchases))
+        XCTAssertTrue(state.message.contains("Server-controlled free access ended"))
         XCTAssertTrue(state.message.contains("2026"))
     }
 

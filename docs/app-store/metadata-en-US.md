@@ -5,6 +5,7 @@
 - App price: Free.
 - Paid Apps Agreement, tax, and banking must be complete in App Store Connect before review.
 - ClambHook uses non-consumable In-App Purchases for premium access and paid feature updates. It does not use subscriptions.
+- Initial 2-month access is server-controlled free access enforced by the license server. It does not use Apple's auto-renewable subscription introductory-offer mechanism, and the app must not be described as a time-limited evaluation build.
 - Commercial setup checklist: `docs/app-store/commercial-setup.md`
 
 ## In-App Purchases
@@ -52,7 +53,7 @@ VPN,proxy,WireGuard,OpenVPN,Shadowsocks,Tor,Trojan,network,privacy,tunnel
 - Demo credentials: paste only in the App Review Notes field in App Store Connect; do not commit them.
 - Demo profile template: `docs/app-store/app-review-demo-profile.toml.template`; render only with secret values during `make app-review-release-check` or the manual App Review Compliance workflow.
 - Territory availability: v1 is United States only. In App Store Connect, select `Specific Countries or Regions` and select only `United States`; do not select `All Countries or Regions` or automatic future-country availability for v1.
-- Notes: ClambHook creates a local VPN configuration through Network Extension and routes traffic according to user-managed profiles and rules. v1 inspection is metadata-only; the app does not install a certificate authority, perform TLS MITM, store request or response bodies, or export HAR files. The app is free to download and uses non-consumable In-App Purchases for premium access and paid feature updates. Family Sharing is enabled for these purchases. No territories requiring VPN license information are selected for the v1 submission.
+- Notes: ClambHook creates a local VPN configuration through Network Extension and routes traffic according to user-managed profiles and rules. v1 inspection is metadata-only; the app does not install a certificate authority, perform TLS MITM, store request or response bodies, or export HAR files. The app is free to download and uses non-consumable In-App Purchases for premium access and paid feature updates. Family Sharing is enabled for these purchases. Initial 2-month access is granted and enforced by the license server, not Apple's auto-renewable subscription introductory-offer mechanism. No territories requiring VPN license information are selected for the v1 submission.
 
 ## Screenshots
 
