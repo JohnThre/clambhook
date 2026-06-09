@@ -8,6 +8,8 @@ public enum InspectionFilterKind: String, CaseIterable, Sendable {
     case all
     case active
     case pinned
+    case http
+    case https
     case proxy
     case direct
     case block
@@ -28,6 +30,11 @@ public extension TrafficSnapshotPayload {
                 guard connection.state.lowercased() == "active" else { return false }
             case .pinned:
                 guard pinnedIDs.contains(connection.connID) else { return false }
+            case .http:
+                guard connection.visibility?.kind.lowercased() == "http" else { return false }
+            case .https:
+                guard connection.visibility?.kind.lowercased() == "http_connect" ||
+                    connection.visibility?.scheme.lowercased() == "https" else { return false }
             case .proxy, .direct, .block:
                 guard connection.actionFamily == filter.rawValue else { return false }
             }

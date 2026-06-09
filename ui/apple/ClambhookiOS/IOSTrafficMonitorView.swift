@@ -4,13 +4,56 @@ import SwiftUI
 struct IOSActivityView: View {
     @ObservedObject var model: AppleAppModel
     var logbookOnly = false
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var mode: IOSActivityMode = .connections
     @State private var connectionFilter: IOSTrafficFilter = .all
     @State private var logFilter: IOSActivityLogFilter = .all
     @State private var searchText = ""
     @State private var pendingCleanup: TrafficCleanupSuggestionPayload?
+    @State private var selectedConnectionID: String?
 
     var body: some View {
+        Group {
+            if horizontalSizeClass == .regular, mode == .connections {
+                regularConnectionLayout
+            } else {
+                compactActivityLayout
+            }
+        }
+        .background(Color(.systemGroupedBackground))
+        .searchable(text: $searchText, prompt: mode.searchPrompt)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                ShareLink(
+                    item: activityExportString,
+                    subject: Text("ClambHook inspection export"),
+                    message: Text("Redacted metadata-only JSON export.")
+                ) {
+                    Label("Export", systemImage: "square.and.arrow.up")
+                }
+            }
+        }
+        .refreshable {
+            await model.refreshNow()
+        }
+        .confirmationDialog(
+            "Apply Rule Cleanup",
+            isPresented: Binding(
+                get: { pendingCleanup != nil },
+                set: { if !$0 { pendingCleanup = nil } }
+            ),
+            presenting: pendingCleanup
+        ) { suggestion in
+            Button(cleanupActionTitle(suggestion), role: suggestion.operation == "delete_rule" ? .destructive : nil) {
+                model.applyCleanupSuggestion(suggestion)
+                pendingCleanup = nil
+            }
+        } message: { suggestion in
+            Text(suggestion.message)
+        }
+    }
+
+    private var compactActivityLayout: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 12) {
             IOSSurfaceSection(logbookOnly ? "History" : "Now") {
@@ -32,7 +75,7 @@ struct IOSActivityView: View {
                             Text(filter.title).tag(filter)
                         }
                     }
-                    .pickerStyle(.segmented)
+                    .pickerStyle(.menu)
                 } else {
                     Picker("Log Filter", selection: $logFilter) {
                         ForEach(IOSActivityLogFilter.allCases) { filter in
@@ -200,36 +243,77 @@ struct IOSActivityView: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
         }
-        .background(Color(.systemGroupedBackground))
-        .searchable(text: $searchText, prompt: mode.searchPrompt)
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                ShareLink(
-                    item: activityExportString,
-                    subject: Text("ClambHook inspection export"),
-                    message: Text("Redacted metadata-only JSON export.")
-                ) {
-                    Label("Export", systemImage: "square.and.arrow.up")
+    }
+
+    private var regularConnectionLayout: some View {
+        HStack(spacing: 0) {
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 12) {
+                    IOSSurfaceSection(logbookOnly ? "History" : "Now") {
+                        IOSTrafficSummaryView(traffic: model.dashboard.traffic)
+                    }
+
+                    IOSSurfaceSection("Filters", detail: connectionFilter.title) {
+                        VStack(spacing: 8) {
+                            Picker("Activity", selection: $mode) {
+                                ForEach(IOSActivityMode.allCases) { mode in
+                                    Text(mode.title).tag(mode)
+                                }
+                            }
+                            .pickerStyle(.segmented)
+
+                            Picker("Connection Filter", selection: $connectionFilter) {
+                                ForEach(IOSTrafficFilter.cases(logbookOnly: logbookOnly)) { filter in
+                                    Text(filter.title).tag(filter)
+                                }
+                            }
+                            .pickerStyle(.menu)
+                        }
+                    }
+
+                    IOSSurfaceSection("Connections", detail: "\(filteredConnections.count) rows") {
+                        if filteredConnections.isEmpty {
+                            ContentUnavailableView(
+                                "No matching activity",
+                                systemImage: "waveform.path.ecg",
+                                description: Text("Connection decisions appear here.")
+                            )
+                        } else {
+                            VStack(spacing: 8) {
+                                ForEach(filteredConnections) { connection in
+                                    IOSActivityConnectionRow(
+                                        connection: connection,
+                                        pinned: model.isConnectionPinned(connection),
+                                        selected: selectedConnection?.connID == connection.connID,
+                                        onTogglePin: { model.togglePinned(connection) }
+                                    )
+                                    .contentShape(Rectangle())
+                                    .onTapGesture {
+                                        selectedConnectionID = connection.connID
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+            }
+            .frame(minWidth: 340, idealWidth: 400, maxWidth: 460)
+
+            Divider()
+
+            NavigationStack {
+                if let connection = selectedConnection {
+                    IOSActivityConnectionDetailView(model: model, connection: connection)
+                } else {
+                    IOSInspectionPlaceholderView(
+                        title: "Select a Connection",
+                        message: "Connection route metadata appears here.",
+                        systemImage: "waveform.path.ecg"
+                    )
                 }
             }
-        }
-        .refreshable {
-            await model.refreshNow()
-        }
-        .confirmationDialog(
-            "Apply Rule Cleanup",
-            isPresented: Binding(
-                get: { pendingCleanup != nil },
-                set: { if !$0 { pendingCleanup = nil } }
-            ),
-            presenting: pendingCleanup
-        ) { suggestion in
-            Button(cleanupActionTitle(suggestion), role: suggestion.operation == "delete_rule" ? .destructive : nil) {
-                model.applyCleanupSuggestion(suggestion)
-                pendingCleanup = nil
-            }
-        } message: { suggestion in
-            Text(suggestion.message)
         }
     }
 
@@ -243,6 +327,14 @@ struct IOSActivityView: View {
             return rows
         }
         return rows.filter { $0.state.lowercased() == "closed" }
+    }
+
+    private var selectedConnection: TrafficConnectionPayload? {
+        if let selectedConnectionID,
+           let connection = filteredConnections.first(where: { $0.connID == selectedConnectionID }) {
+            return connection
+        }
+        return filteredConnections.first
     }
 
     private var filteredLogs: [String] {
@@ -391,6 +483,7 @@ private func cleanupActionTitle(_ suggestion: TrafficCleanupSuggestionPayload) -
 private struct IOSActivityConnectionRow: View {
     var connection: TrafficConnectionPayload
     var pinned: Bool
+    var selected = false
     var onTogglePin: () -> Void
 
     var body: some View {
@@ -430,7 +523,11 @@ private struct IOSActivityConnectionRow: View {
             .accessibilityLabel(pinned ? "Unpin connection" : "Pin connection")
         }
         .padding(10)
-        .background(Color(.tertiarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+        .background(selected ? Color.accentColor.opacity(0.14) : Color(.tertiarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                .stroke(selected ? Color.accentColor.opacity(0.45) : Color.clear, lineWidth: 1)
+        )
     }
 }
 
@@ -617,6 +714,21 @@ private struct IOSActivityConnectionDetailView: View {
     }
 }
 
+struct IOSInspectionPlaceholderView: View {
+    var title: String
+    var message: String
+    var systemImage: String
+
+    var body: some View {
+        ContentUnavailableView {
+            Label(title, systemImage: systemImage)
+        } description: {
+            Text(message)
+        }
+        .navigationTitle("Details")
+    }
+}
+
 private struct IOSRuleCreateSheet: View {
     @ObservedObject var model: AppleAppModel
     @Environment(\.dismiss) private var dismiss
@@ -736,6 +848,8 @@ private enum IOSTrafficFilter: String, CaseIterable, Identifiable {
     case all
     case active
     case pinned
+    case http
+    case https
     case blocked
     case direct
     case proxy
@@ -751,6 +865,8 @@ private enum IOSTrafficFilter: String, CaseIterable, Identifiable {
         case .all: return "All"
         case .active: return "Active"
         case .pinned: return "Pinned"
+        case .http: return "HTTP"
+        case .https: return "HTTPS"
         case .blocked: return "Block"
         case .direct: return "Direct"
         case .proxy: return "Proxy"
@@ -765,6 +881,10 @@ private enum IOSTrafficFilter: String, CaseIterable, Identifiable {
             return .active
         case .pinned:
             return .pinned
+        case .http:
+            return .http
+        case .https:
+            return .https
         case .blocked:
             return .block
         case .direct:

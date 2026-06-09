@@ -5,8 +5,20 @@ import XCTest
 final class InspectionSupportTests: XCTestCase {
     func testInspectionConnectionsFiltersAndPinsFirst() {
         let traffic = TrafficSnapshotPayload(connections: [
-            TrafficConnectionPayload(connID: "a", state: "closed", ruleAction: "direct", target: "alpha.example:443"),
-            TrafficConnectionPayload(connID: "b", state: "active", ruleAction: "block", target: "beta.example:443"),
+            TrafficConnectionPayload(
+                connID: "a",
+                state: "closed",
+                ruleAction: "direct",
+                target: "alpha.example:80",
+                visibility: TrafficVisibilityPayload(kind: "http", method: "GET", scheme: "http", host: "alpha.example", path: "/")
+            ),
+            TrafficConnectionPayload(
+                connID: "b",
+                state: "active",
+                ruleAction: "block",
+                target: "beta.example:443",
+                visibility: TrafficVisibilityPayload(kind: "http_connect", method: "CONNECT", scheme: "https", host: "beta.example", port: "443")
+            ),
             TrafficConnectionPayload(connID: "c", state: "active", chainName: "proxy", target: "gamma.example:443"),
         ])
 
@@ -21,6 +33,14 @@ final class InspectionSupportTests: XCTestCase {
         XCTAssertEqual(
             traffic.inspectionConnections(filter: InspectionFilterKind.pinned, pinnedIDs: ["c"]).map(\.connID),
             ["c"]
+        )
+        XCTAssertEqual(
+            traffic.inspectionConnections(filter: InspectionFilterKind.http, pinnedIDs: ["c"]).map(\.connID),
+            ["a"]
+        )
+        XCTAssertEqual(
+            traffic.inspectionConnections(filter: InspectionFilterKind.https, pinnedIDs: ["c"]).map(\.connID),
+            ["b"]
         )
         XCTAssertEqual(
             traffic.inspectionConnections(filter: InspectionFilterKind.block, query: "beta", pinnedIDs: ["c"]).map(\.connID),
