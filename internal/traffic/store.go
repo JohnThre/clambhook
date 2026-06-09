@@ -18,6 +18,7 @@ import (
 	"github.com/JohnThre/clambhook/internal/config"
 	"github.com/JohnThre/clambhook/internal/events"
 	"github.com/JohnThre/clambhook/internal/geo"
+	"github.com/JohnThre/clambhook/internal/temprules"
 )
 
 const (
@@ -88,31 +89,32 @@ type Visibility struct {
 // Connection is the API model exposed to end-user UIs. It intentionally
 // contains connection metadata and counters only; payload bytes are not stored.
 type Connection struct {
-	ConnID      string          `json:"conn_id"`
-	Profile     string          `json:"profile,omitempty"`
-	State       string          `json:"state"`
-	StartTsNs   int64           `json:"start_ts_ns"`
-	UpdatedTsNs int64           `json:"updated_ts_ns"`
-	EndTsNs     int64           `json:"end_ts_ns,omitempty"`
-	Listener    Listener        `json:"listener"`
-	ClientAddr  string          `json:"client_addr,omitempty"`
-	ChainName   string          `json:"chain_name,omitempty"`
-	GroupName   string          `json:"group_name,omitempty"`
-	RuleName    string          `json:"rule_name,omitempty"`
-	RuleAction  string          `json:"rule_action,omitempty"`
-	Default     bool            `json:"default,omitempty"`
-	DecisionNs  int64           `json:"decision_ns,omitempty"`
-	Target      string          `json:"target,omitempty"`
-	TargetHost  string          `json:"target_host,omitempty"`
-	TargetPort  string          `json:"target_port,omitempty"`
-	Network     string          `json:"network,omitempty"`
-	Source      string          `json:"source,omitempty"`
-	Application string          `json:"application,omitempty"`
-	Hops        []Hop           `json:"hops,omitempty"`
-	Timeline    []TimelineEvent `json:"timeline,omitempty"`
-	Visibility  *Visibility     `json:"visibility,omitempty"`
-	Geo         geo.Location    `json:"geo"`
-	GeoError    string          `json:"geo_error,omitempty"`
+	ConnID      string            `json:"conn_id"`
+	Profile     string            `json:"profile,omitempty"`
+	State       string            `json:"state"`
+	StartTsNs   int64             `json:"start_ts_ns"`
+	UpdatedTsNs int64             `json:"updated_ts_ns"`
+	EndTsNs     int64             `json:"end_ts_ns,omitempty"`
+	Listener    Listener          `json:"listener"`
+	ClientAddr  string            `json:"client_addr,omitempty"`
+	ChainName   string            `json:"chain_name,omitempty"`
+	GroupName   string            `json:"group_name,omitempty"`
+	RuleName    string            `json:"rule_name,omitempty"`
+	RuleAction  string            `json:"rule_action,omitempty"`
+	Default     bool              `json:"default,omitempty"`
+	DecisionNs  int64             `json:"decision_ns,omitempty"`
+	Target      string            `json:"target,omitempty"`
+	TargetHost  string            `json:"target_host,omitempty"`
+	TargetPort  string            `json:"target_port,omitempty"`
+	Network     string            `json:"network,omitempty"`
+	Source      string            `json:"source,omitempty"`
+	Application string            `json:"application,omitempty"`
+	Hops        []Hop             `json:"hops,omitempty"`
+	Timeline    []TimelineEvent   `json:"timeline,omitempty"`
+	Visibility  *Visibility       `json:"visibility,omitempty"`
+	Explanation *RouteExplanation `json:"explanation,omitempty"`
+	Geo         geo.Location      `json:"geo"`
+	GeoError    string            `json:"geo_error,omitempty"`
 
 	TotalDialNs int64   `json:"total_dial_ns,omitempty"`
 	RxBps       float64 `json:"rx_bps"`
@@ -141,10 +143,12 @@ type Snapshot struct {
 	UpdatedTsNs        int64               `json:"updated_ts_ns"`
 	Summary            Summary             `json:"summary"`
 	Connections        []Connection        `json:"connections"`
+	TemporaryRules     []temprules.Rule    `json:"temporary_rules,omitempty"`
 	ProfileContext     ProfileContext      `json:"profile_context,omitempty"`
 	QuickFilters       []QuickFilter       `json:"quick_filters,omitempty"`
 	RuleHits           []RuleHit           `json:"rule_hits,omitempty"`
 	BlockDecisions     []BlockDecision     `json:"block_decisions,omitempty"`
+	DestinationGroups  []DestinationGroup  `json:"destination_groups,omitempty"`
 	CleanupSuggestions []CleanupSuggestion `json:"cleanup_suggestions,omitempty"`
 	RuleSuggestions    []RuleSuggestion    `json:"rule_suggestions,omitempty"`
 	Breakdowns         TrafficBreakdowns   `json:"breakdowns,omitempty"`
@@ -182,6 +186,21 @@ type SnapshotOptions struct {
 	Profiles       []string
 	Rules          []config.RuleConfig
 	EffectiveRules []config.RuleConfig
+	TemporaryRules []temprules.Rule
+}
+
+// RouteExplanation explains why a connection used its selected route.
+type RouteExplanation struct {
+	Source        string `json:"source,omitempty"`
+	RuleName      string `json:"rule_name,omitempty"`
+	RuleNumber    int    `json:"rule_number,omitempty"`
+	MatcherKind   string `json:"matcher_kind,omitempty"`
+	MatcherValue  string `json:"matcher_value,omitempty"`
+	DefaultChain  string `json:"default_chain,omitempty"`
+	PolicyGroup   string `json:"policy_group,omitempty"`
+	SelectedChain string `json:"selected_chain,omitempty"`
+	FinalChain    string `json:"final_chain,omitempty"`
+	Summary       string `json:"summary,omitempty"`
 }
 
 // ProfileContext names the active profile and available profile choices.
@@ -208,6 +227,25 @@ type RuleHit struct {
 	TxTotal     uint64 `json:"tx_total"`
 	LastTarget  string `json:"last_target,omitempty"`
 	Default     bool   `json:"default,omitempty"`
+	Temporary   bool   `json:"temporary,omitempty"`
+}
+
+// DestinationGroup summarizes repeated destinations under a normalized group
+// key so noisy domains can be collapsed in activity views.
+type DestinationGroup struct {
+	Key           string   `json:"key"`
+	Profile       string   `json:"profile,omitempty"`
+	DisplayHost   string   `json:"display_host,omitempty"`
+	DomainSuffix  string   `json:"domain_suffix,omitempty"`
+	Count         int      `json:"count"`
+	Actions       []string `json:"actions,omitempty"`
+	Profiles      []string `json:"profiles,omitempty"`
+	LastSeenTsNs  int64    `json:"last_seen_ts_ns,omitempty"`
+	SampleTargets []string `json:"sample_targets,omitempty"`
+	TopRuleName   string   `json:"top_rule_name,omitempty"`
+	TopChainName  string   `json:"top_chain_name,omitempty"`
+	RxTotal       uint64   `json:"rx_total"`
+	TxTotal       uint64   `json:"tx_total"`
 }
 
 // BlockDecision is a compact recent block/reject decision row.
@@ -504,10 +542,12 @@ func (s *Store) SnapshotWithOptions(opts SnapshotOptions) Snapshot {
 		UpdatedTsNs:        time.Now().UnixNano(),
 		Summary:            summary,
 		Connections:        limited,
+		TemporaryRules:     append([]temprules.Rule(nil), opts.TemporaryRules...),
 		ProfileContext:     ProfileContext{Active: opts.ActiveProfile, Profiles: append([]string(nil), opts.Profiles...)},
 		QuickFilters:       buildQuickFilters(all),
 		RuleHits:           buildRuleHits(all),
 		BlockDecisions:     buildBlockDecisions(all, 12),
+		DestinationGroups:  buildDestinationGroups(all, 12),
 		CleanupSuggestions: buildCleanupSuggestions(opts.ActiveProfile, opts.Rules, all),
 		RuleSuggestions:    buildRuleSuggestions(opts.ActiveProfile, suggestionCoverageRules(opts), all, 12),
 		Breakdowns:         buildBreakdowns(all),
@@ -694,7 +734,7 @@ func buildRuleHits(conns []Connection) []RuleHit {
 		key := conn.Profile + "\x00" + name + "\x00" + action
 		hit := index[key]
 		if hit == nil {
-			hit = &RuleHit{Profile: conn.Profile, RuleName: name, Action: action, Default: conn.Default}
+			hit = &RuleHit{Profile: conn.Profile, RuleName: name, Action: action, Default: conn.Default, Temporary: conn.Explanation != nil && conn.Explanation.Source == "temporary_rule"}
 			index[key] = hit
 		}
 		hit.Count++
@@ -719,6 +759,131 @@ func buildRuleHits(conns []Connection) []RuleHit {
 		return out[i].Count > out[j].Count
 	})
 	return out
+}
+
+type destinationAccumulator struct {
+	row      DestinationGroup
+	actions  map[string]int
+	profiles map[string]int
+	rules    map[string]int
+	chains   map[string]int
+}
+
+func buildDestinationGroups(conns []Connection, limit int) []DestinationGroup {
+	index := map[string]*destinationAccumulator{}
+	for _, conn := range conns {
+		host := suggestionHost(conn)
+		if host == "" {
+			continue
+		}
+		key, suffix := destinationGroupKey(host)
+		if key == "" {
+			continue
+		}
+		acc := index[key]
+		if acc == nil {
+			acc = &destinationAccumulator{
+				row: DestinationGroup{
+					Key:          key,
+					DisplayHost:  host,
+					DomainSuffix: suffix,
+				},
+				actions:  map[string]int{},
+				profiles: map[string]int{},
+				rules:    map[string]int{},
+				chains:   map[string]int{},
+			}
+			index[key] = acc
+		}
+		acc.row.Count++
+		acc.row.RxTotal += conn.RxTotal
+		acc.row.TxTotal += conn.TxTotal
+		if conn.UpdatedTsNs > acc.row.LastSeenTsNs {
+			acc.row.LastSeenTsNs = conn.UpdatedTsNs
+			acc.row.DisplayHost = host
+		}
+		if conn.Target != "" && !containsString(acc.row.SampleTargets, conn.Target) {
+			acc.row.SampleTargets = append(acc.row.SampleTargets, conn.Target)
+			if len(acc.row.SampleTargets) > 3 {
+				acc.row.SampleTargets = acc.row.SampleTargets[:3]
+			}
+		}
+		action := actionFamily(conn.RuleAction)
+		acc.actions[action]++
+		if conn.Profile != "" {
+			acc.profiles[conn.Profile]++
+		}
+		if conn.RuleName != "" {
+			acc.rules[conn.RuleName]++
+		}
+		if conn.ChainName != "" {
+			acc.chains[conn.ChainName]++
+		}
+	}
+	out := make([]DestinationGroup, 0, len(index))
+	for _, acc := range index {
+		acc.row.Actions = sortedKeys(acc.actions)
+		acc.row.Profiles = sortedKeys(acc.profiles)
+		acc.row.TopRuleName = topCounterKey(acc.rules)
+		acc.row.TopChainName = topCounterKey(acc.chains)
+		if len(acc.row.Profiles) == 1 {
+			acc.row.Profile = acc.row.Profiles[0]
+		}
+		out = append(out, acc.row)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Count == out[j].Count {
+			if out[i].LastSeenTsNs == out[j].LastSeenTsNs {
+				return out[i].Key < out[j].Key
+			}
+			return out[i].LastSeenTsNs > out[j].LastSeenTsNs
+		}
+		return out[i].Count > out[j].Count
+	})
+	if limit > 0 && len(out) > limit {
+		out = out[:limit]
+	}
+	return out
+}
+
+func destinationGroupKey(host string) (key, suffix string) {
+	host = strings.ToLower(strings.Trim(strings.TrimSpace(host), "[]"))
+	if host == "" {
+		return "", ""
+	}
+	if looksLikeIP(host) {
+		return "ip:" + host, ""
+	}
+	parts := strings.Split(host, ".")
+	if len(parts) < 2 {
+		return "host:" + host, host
+	}
+	suffix = strings.Join(parts[len(parts)-2:], ".")
+	if broadSuffix(suffix) && len(parts) >= 3 {
+		suffix = strings.Join(parts[len(parts)-3:], ".")
+	}
+	return "domain:" + suffix, suffix
+}
+
+func sortedKeys(counts map[string]int) []string {
+	keys := make([]string, 0, len(counts))
+	for key := range counts {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func topCounterKey(counts map[string]int) string {
+	bestKey := ""
+	bestCount := 0
+	for key, count := range counts {
+		if count > bestCount || (count == bestCount && (bestKey == "" || key < bestKey)) {
+			bestKey = key
+			bestCount = count
+		}
+	}
+	return bestKey
 }
 
 func buildBlockDecisions(conns []Connection, limit int) []BlockDecision {
@@ -1407,6 +1572,7 @@ func (s *Store) applyDialingLocked(ev events.Event) {
 	c.GroupName = data.GroupName
 	c.Default = data.Default
 	c.DecisionNs = data.DecisionNs
+	applyExplanation(c, data.Explanation)
 	applyVisibility(c, data.Visibility)
 	if data.ChainName != "" {
 		c.ChainName = data.ChainName
@@ -1461,6 +1627,7 @@ func (s *Store) applyRuleDecisionLocked(ev events.Event) {
 	c.GroupName = data.GroupName
 	c.Default = data.Default
 	c.DecisionNs = data.ElapsedNs
+	applyExplanation(c, data.Explanation)
 	if data.Profile != "" {
 		c.Profile = data.Profile
 	}
@@ -1726,6 +1893,10 @@ func cloneConnection(in Connection) Connection {
 		visibility := *in.Visibility
 		in.Visibility = &visibility
 	}
+	if in.Explanation != nil {
+		explanation := *in.Explanation
+		in.Explanation = &explanation
+	}
 	return in
 }
 
@@ -1764,6 +1935,24 @@ func applyVisibility(c *Connection, info events.VisibilityInfo) {
 		case "http_connect":
 			c.Application = "HTTPS"
 		}
+	}
+}
+
+func applyExplanation(c *Connection, info events.RouteExplanation) {
+	if c == nil || (info.Source == "" && info.RuleName == "" && info.RuleNumber == 0 && info.MatcherKind == "" && info.MatcherValue == "" && info.DefaultChain == "" && info.PolicyGroup == "" && info.SelectedChain == "" && info.FinalChain == "" && info.Summary == "") {
+		return
+	}
+	c.Explanation = &RouteExplanation{
+		Source:        info.Source,
+		RuleName:      info.RuleName,
+		RuleNumber:    info.RuleNumber,
+		MatcherKind:   info.MatcherKind,
+		MatcherValue:  info.MatcherValue,
+		DefaultChain:  info.DefaultChain,
+		PolicyGroup:   info.PolicyGroup,
+		SelectedChain: info.SelectedChain,
+		FinalChain:    info.FinalChain,
+		Summary:       info.Summary,
 	}
 }
 

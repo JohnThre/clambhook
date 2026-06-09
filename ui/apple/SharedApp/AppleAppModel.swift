@@ -332,6 +332,38 @@ final class AppleAppModel: ObservableObject {
         }
     }
 
+    func createTemporaryRuleFromConnection(_ connection: TrafficConnectionPayload, action: String, ttlSeconds: Int = 900) {
+        guard canUseLicensedFeature(.routingRules) else {
+            daemonMessage = AppleAppModelError.licenseLocked.errorDescription ?? ""
+            return
+        }
+        Task {
+            do {
+                #if os(iOS)
+                throw APIClientError.invalidURL("temporary rules require daemon API")
+                #else
+                guard let apiClient else {
+                    throw APIClientError.invalidURL("missing API client")
+                }
+                guard !connection.connID.isEmpty else {
+                    throw APIClientError.invalidURL("missing connection id")
+                }
+                _ = try await apiClient.createTemporaryRuleFromConnection(
+                    connID: connection.connID,
+                    profile: connection.profile,
+                    action: action,
+                    scope: "auto",
+                    ttlSeconds: ttlSeconds
+                )
+                #endif
+                await dashboard.refreshDashboard()
+                daemonMessage = "temporary rule created"
+            } catch {
+                daemonMessage = error.localizedDescription
+            }
+        }
+    }
+
     func applyCleanupSuggestion(_ suggestion: TrafficCleanupSuggestionPayload) {
         guard canUseLicensedFeature(.routingRules) else {
             daemonMessage = AppleAppModelError.licenseLocked.errorDescription ?? ""

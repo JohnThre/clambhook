@@ -113,6 +113,7 @@ func (c *connEvents) emitDialingPlan(plan RoutePlan) {
 		DecisionNs:  plan.ElapsedNs,
 		Hops:        plan.Hops,
 		Visibility:  plan.Visibility,
+		Explanation: plan.Explanation,
 	})
 }
 
@@ -145,19 +146,20 @@ func (c *connEvents) emitRuleDecision(plan RoutePlan) {
 		host, port = splitTrafficTarget(plan.Target)
 	}
 	c.emitter.Emit(eventType, events.RuleDecisionData{
-		ConnID:     c.connID,
-		Profile:    nonEmpty(plan.Profile, c.profileName),
-		RuleName:   plan.RuleName,
-		Action:     plan.Action,
-		ChainName:  plan.ChainName,
-		GroupName:  plan.GroupName,
-		Target:     plan.Target,
-		TargetHost: host,
-		TargetPort: port,
-		Network:    plan.Network,
-		Source:     plan.Source,
-		Default:    plan.Default,
-		ElapsedNs:  plan.ElapsedNs,
+		ConnID:      c.connID,
+		Profile:     nonEmpty(plan.Profile, c.profileName),
+		RuleName:    plan.RuleName,
+		Action:      plan.Action,
+		ChainName:   plan.ChainName,
+		GroupName:   plan.GroupName,
+		Target:      plan.Target,
+		TargetHost:  host,
+		TargetPort:  port,
+		Network:     plan.Network,
+		Source:      plan.Source,
+		Default:     plan.Default,
+		ElapsedNs:   plan.ElapsedNs,
+		Explanation: plan.Explanation,
 	})
 }
 

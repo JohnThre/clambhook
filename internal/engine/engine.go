@@ -20,6 +20,7 @@ import (
 	"github.com/JohnThre/clambhook/internal/rules"
 	"github.com/JohnThre/clambhook/internal/ruleset"
 	"github.com/JohnThre/clambhook/internal/subscription"
+	"github.com/JohnThre/clambhook/internal/temprules"
 )
 
 // defaultSOCKS5MaxConns is the default concurrent-handler ceiling when the
@@ -60,6 +61,7 @@ type Engine struct {
 	geoReader *geo.Reader
 	bus       *events.Bus
 	inspector listener.HTTPInspector
+	tempRules *temprules.Manager
 }
 
 // New creates a new engine with the given configuration and (optional)
@@ -71,7 +73,7 @@ type Engine struct {
 // and geo stays disabled — a bad geo path must never prevent the daemon
 // from starting.
 func New(cfg *config.Config, bus *events.Bus) *Engine {
-	e := &Engine{cfg: cfg, bus: bus}
+	e := &Engine{cfg: cfg, bus: bus, tempRules: temprules.New()}
 	if r, err := geo.Open(cfg.Geo.Database); err != nil {
 		log.Printf("geo: %v; continuing without geo lookups", err)
 	} else if r != nil {
@@ -83,6 +85,9 @@ func New(cfg *config.Config, bus *events.Bus) *Engine {
 
 // Bus returns the engine's event bus (may be nil).
 func (e *Engine) Bus() *events.Bus { return e.bus }
+
+// TemporaryRules returns the in-memory temporary-rule manager.
+func (e *Engine) TemporaryRules() *temprules.Manager { return e.tempRules }
 
 // SetHTTPInspector wires the optional developer-mode HTTP inspector. Callers
 // should set it before Start or before a Reload-triggered listener rebuild.
@@ -213,7 +218,7 @@ func (e *Engine) startLocked() error {
 	// without their ctx cancellation tearing listeners down.
 	ctx, cancel := context.WithCancel(context.Background())
 
-	listeners, chains, policies, err := buildListenersWithInspectorAndPath(&effectiveProfile, e.cfg.Path, e.bus, e.inspector)
+	listeners, chains, policies, err := buildListenersWithInspectorAndPath(&effectiveProfile, e.cfg.Path, e.bus, e.inspector, e.tempRules)
 	if err != nil {
 		cancel()
 		return fmt.Errorf("start engine: %w", err)
@@ -492,12 +497,12 @@ func buildListeners(profile *config.Profile, bus *events.Bus) (listeners []liste
 }
 
 func buildListenersWithInspector(profile *config.Profile, bus *events.Bus, inspector listener.HTTPInspector) (listeners []listener.Listener, chains []*chain.Chain, policies *policy.Manager, err error) {
-	return buildListenersWithInspectorAndPath(profile, "", bus, inspector)
+	return buildListenersWithInspectorAndPath(profile, "", bus, inspector, nil)
 }
 
-func buildListenersWithInspectorAndPath(profile *config.Profile, configPath string, bus *events.Bus, inspector listener.HTTPInspector) (listeners []listener.Listener, chains []*chain.Chain, policies *policy.Manager, err error) {
+func buildListenersWithInspectorAndPath(profile *config.Profile, configPath string, bus *events.Bus, inspector listener.HTTPInspector, tempRules *temprules.Manager) (listeners []listener.Listener, chains []*chain.Chain, policies *policy.Manager, err error) {
 	var out []listener.Listener
-	resolver := newChainResolver(profile, configPath)
+	resolver := newChainResolver(profile, configPath, tempRules)
 	defer func() {
 		if err != nil {
 			if policies != nil {
@@ -625,7 +630,7 @@ func buildPacketStackWithConfigPath(profile *config.Profile, configPath string, 
 	if tunCfg == nil || !tunCfg.Enabled {
 		return nil, nil, errors.New("tun: packet tunnel is not enabled in active profile")
 	}
-	resolver := newChainResolver(profile, configPath)
+	resolver := newChainResolver(profile, configPath, nil)
 	if err := resolver.ensureBuilt(); err != nil {
 		return nil, nil, err
 	}
@@ -686,12 +691,13 @@ func BuildPacketStackForConfig(cfg *config.Config, bus *events.Bus, writer liste
 type chainResolver struct {
 	profile    *config.Profile
 	configPath string
+	tempRules  *temprules.Manager
 	chains     []*chain.Chain
 	byName     map[string]*chain.Chain
 }
 
-func newChainResolver(profile *config.Profile, configPath string) *chainResolver {
-	return &chainResolver{profile: profile, configPath: configPath}
+func newChainResolver(profile *config.Profile, configPath string, tempRules *temprules.Manager) *chainResolver {
+	return &chainResolver{profile: profile, configPath: configPath, tempRules: tempRules}
 }
 
 // resolve picks the chain a listener should route through. An empty name
@@ -764,7 +770,7 @@ func (r *chainResolver) routePlanner(defaultChainName string, policies *policy.M
 	if err != nil {
 		return nil, err
 	}
-	return &routePlanner{profileName: r.profile.Name, rules: engine, chains: r.byName, policies: policies, defaultChainName: defaultChainName}, nil
+	return &routePlanner{profileName: r.profile.Name, rules: engine, chains: r.byName, policies: policies, defaultChainName: defaultChainName, tempRules: r.tempRules}, nil
 }
 
 type routePlanner struct {
@@ -773,6 +779,7 @@ type routePlanner struct {
 	chains           map[string]*chain.Chain
 	policies         *policy.Manager
 	defaultChainName string
+	tempRules        *temprules.Manager
 	dialer           net.Dialer
 }
 
@@ -791,7 +798,10 @@ func (p *routePlanner) PlanWithSource(ctx context.Context, network, target, sour
 	if p == nil || p.rules == nil {
 		return listener.RoutePlan{}, errors.New("nil route planner")
 	}
-	decision := p.rules.DecideWithSource(network, target, source)
+	decision, err := p.decide(network, target, source)
+	if err != nil {
+		return listener.RoutePlan{}, err
+	}
 	plan := listener.RoutePlan{
 		Profile:   p.profileName,
 		RuleName:  decision.RuleName,
@@ -805,6 +815,18 @@ func (p *routePlanner) PlanWithSource(ctx context.Context, network, target, sour
 		Source:    decision.Source,
 		Default:   decision.Default,
 		ElapsedNs: decision.ElapsedNs,
+		Explanation: events.RouteExplanation{
+			Source:        decision.Explanation.Source,
+			RuleName:      decision.Explanation.RuleName,
+			RuleNumber:    decision.Explanation.RuleNumber,
+			MatcherKind:   decision.Explanation.MatcherKind,
+			MatcherValue:  decision.Explanation.MatcherValue,
+			DefaultChain:  decision.Explanation.DefaultChain,
+			PolicyGroup:   decision.Explanation.PolicyGroup,
+			SelectedChain: decision.Explanation.SelectedChain,
+			FinalChain:    decision.Explanation.FinalChain,
+			Summary:       decision.Explanation.Summary,
+		},
 	}
 	switch decision.Action {
 	case rules.ActionChain:
@@ -813,6 +835,7 @@ func (p *routePlanner) PlanWithSource(ctx context.Context, network, target, sour
 			return plan, fmt.Errorf("chain %q not found", decision.ChainName)
 		}
 		plan.Hops = ch.HopInfo()
+		plan.Explanation.FinalChain = decision.ChainName
 		plan.Dial = func(ctx context.Context, network, address string) (net.Conn, error) {
 			return ch.Dial(ctx, network, address)
 		}
@@ -832,6 +855,8 @@ func (p *routePlanner) PlanWithSource(ctx context.Context, network, target, sour
 			return plan, err
 		}
 		plan.ChainName = selected
+		plan.Explanation.SelectedChain = selected
+		plan.Explanation.FinalChain = selected
 		plan.Hops = ch.HopInfo()
 		plan.Dial = func(ctx context.Context, network, address string) (net.Conn, error) {
 			return ch.Dial(ctx, network, address)
@@ -852,6 +877,29 @@ func (p *routePlanner) PlanWithSource(ctx context.Context, network, target, sour
 		return plan, fmt.Errorf("unknown route action %q", decision.Action)
 	}
 	return plan, nil
+}
+
+func (p *routePlanner) decide(network, target, source string) (rules.Decision, error) {
+	knownChains := make(map[string]struct{}, len(p.chains))
+	for name := range p.chains {
+		knownChains[name] = struct{}{}
+	}
+	knownGroups := map[string]struct{}{}
+	if p.policies != nil {
+		for _, group := range p.policies.Snapshot(p.profileName).Groups {
+			knownGroups[group.Name] = struct{}{}
+		}
+	}
+	if p.tempRules != nil {
+		decision, ok, err := p.tempRules.Decide(p.profileName, p.defaultChainName, network, target, source, knownChains, knownGroups)
+		if err != nil {
+			return rules.Decision{}, err
+		}
+		if ok {
+			return decision, nil
+		}
+	}
+	return p.rules.DecideWithSource(network, target, source), nil
 }
 
 type directPacketConn struct {

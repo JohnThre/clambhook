@@ -498,7 +498,7 @@ func TestRoutePlannerResolvesPolicyGroupSelection(t *testing.T) {
 		Action: "group:auto",
 	}}
 
-	resolver := newChainResolver(&profile, "")
+	resolver := newChainResolver(&profile, "", nil)
 	if err := resolver.ensureBuilt(); err != nil {
 		t.Fatalf("ensureBuilt: %v", err)
 	}
