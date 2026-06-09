@@ -13,11 +13,11 @@ struct IOSActivityView: View {
     var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 12) {
-            IOSConsoleSection(logbookOnly ? "History" : "Now") {
+            IOSSurfaceSection(logbookOnly ? "History" : "Now") {
                 IOSTrafficSummaryView(traffic: model.dashboard.traffic)
             }
 
-                IOSConsoleSection("Filters", detail: mode.title) {
+                IOSSurfaceSection("Filters", detail: mode.title) {
                     VStack(spacing: 8) {
                 Picker("Activity", selection: $mode) {
                     ForEach(IOSActivityMode.allCases) { mode in
@@ -45,7 +45,7 @@ struct IOSActivityView: View {
                 }
 
             if mode == .connections {
-                    IOSConsoleSection("Connections", detail: "\(filteredConnections.count) rows") {
+                    IOSSurfaceSection("Connections", detail: "\(filteredConnections.count) rows") {
                     if filteredConnections.isEmpty {
                         ContentUnavailableView(
                             "No matching activity",
@@ -70,7 +70,7 @@ struct IOSActivityView: View {
                         }
                     }
                 if !model.dashboard.ruleHitSummaries.isEmpty {
-                        IOSConsoleSection("Rule Hits", detail: "\(model.dashboard.ruleHitSummaries.count) rules") {
+                        IOSSurfaceSection("Rule Hits", detail: "\(model.dashboard.ruleHitSummaries.count) rules") {
                             VStack(spacing: 6) {
                                 ForEach(model.dashboard.ruleHitSummaries.prefix(8)) { hit in
                                     HStack {
@@ -88,7 +88,7 @@ struct IOSActivityView: View {
                         }
                     }
                 if !model.dashboard.traffic.blockDecisions.isEmpty {
-                        IOSConsoleSection("Blocked", detail: "\(model.dashboard.traffic.blockDecisions.count) recent") {
+                        IOSSurfaceSection("Blocked", detail: "\(model.dashboard.traffic.blockDecisions.count) recent") {
                             VStack(spacing: 6) {
                                 ForEach(model.dashboard.traffic.blockDecisions.prefix(8)) { decision in
                                     HStack(alignment: .top, spacing: 10) {
@@ -109,7 +109,7 @@ struct IOSActivityView: View {
                         }
                     }
                 if !model.dashboard.traffic.cleanupSuggestions.isEmpty {
-                        IOSConsoleSection("Rule Cleanup", detail: "\(model.dashboard.traffic.cleanupSuggestions.count) suggestions") {
+                        IOSSurfaceSection("Rule Cleanup", detail: "\(model.dashboard.traffic.cleanupSuggestions.count) suggestions") {
                             VStack(spacing: 8) {
                                 ForEach(model.dashboard.traffic.cleanupSuggestions.prefix(6)) { suggestion in
                                     HStack(alignment: .top, spacing: 10) {
@@ -135,7 +135,7 @@ struct IOSActivityView: View {
                         }
                     }
             } else {
-                    IOSConsoleSection("Logs", detail: "\(filteredLogs.count) lines") {
+                    IOSSurfaceSection("Logs", detail: "\(filteredLogs.count) lines") {
                     if filteredLogs.isEmpty {
                         ContentUnavailableView(
                             "No matching logs",
