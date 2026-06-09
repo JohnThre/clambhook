@@ -388,7 +388,8 @@ final class TunnelDashboardClient: ClambhookDashboardProviding, DeveloperCapture
             profile: profile.isEmpty ? dashboard.profiles.active : profile,
             rules: dashboard.rules.rules,
             effectiveRules: dashboard.rules.effectiveRules,
-            chains: dashboard.servers.chains
+            chains: dashboard.servers.chains,
+            policyGroups: dashboard.policyGroups.groups
         )
     }
 

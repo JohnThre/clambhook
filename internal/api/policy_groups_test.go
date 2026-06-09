@@ -171,6 +171,46 @@ func TestPolicyGroupSelectionPersistsSelectGroup(t *testing.T) {
 	}
 }
 
+func TestPolicyGroupReplacementPersistsGroups(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "clambhook.toml")
+	cfg := testPolicyGroupConfig("https://probe.example/generate_204")
+	if _, err := config.WriteAtomicWithBackup(path, cfg); err != nil {
+		t.Fatalf("write initial config: %v", err)
+	}
+	srv := NewWithOptions(engine.New(cfg, nil), nil, Options{ConfigPath: path})
+	body := []byte(`{"policy_groups":[{"name":"balanced","type":"load-balance","chains":["primary","backup"],"hidden":true}]}`)
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/policy-groups", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+
+	srv.server.Handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%q, want 200", rec.Code, rec.Body.String())
+	}
+	var resp struct {
+		Profile      string                     `json:"profile"`
+		PolicyGroups []config.PolicyGroupConfig `json:"policy_groups"`
+		BackupPath   string                     `json:"backup_path"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp.Profile != "A" || len(resp.PolicyGroups) != 1 || resp.PolicyGroups[0].Type != policy.TypeLoadBalance || !resp.PolicyGroups[0].Hidden || resp.BackupPath == "" {
+		t.Fatalf("response = %+v", resp)
+	}
+	reloaded, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("load persisted config: %v", err)
+	}
+	profile, err := reloaded.ActiveProfile()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(profile.PolicyGroups) != 1 || profile.PolicyGroups[0].Name != "balanced" || !profile.PolicyGroups[0].Hidden {
+		t.Fatalf("persisted groups = %+v", profile.PolicyGroups)
+	}
+}
+
 func TestPolicyGroupManualTestRequiresRunningEngine(t *testing.T) {
 	cfg := testPolicyGroupConfig("https://probe.example/generate_204")
 	srv := New(engine.New(cfg, nil), nil)

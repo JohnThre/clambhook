@@ -51,6 +51,7 @@ struct IOSRulesView: View {
                                     IOSRuleFormView(
                                         row: binding(for: row.id),
                                         chainNames: chainNames,
+                                        policyGroupNames: policyGroupNames,
                                         rowNumber: index + 1
                                     )
                                 } label: {
@@ -78,7 +79,8 @@ struct IOSRulesView: View {
                                         rows: $rows,
                                         validationErrors: $validationErrors,
                                         routeTestResult: $routeTestResult,
-                                        chainNames: chainNames
+                                        chainNames: chainNames,
+                                        policyGroupNames: policyGroupNames
                                     )
                                 )
                             }
@@ -146,6 +148,7 @@ struct IOSRulesView: View {
                         IOSRuleFormView(
                             row: binding(for: virtualFinalRow.id),
                             chainNames: chainNames,
+                            policyGroupNames: policyGroupNames,
                             rowNumber: model.dashboard.rules.routeTestRules.count + 1
                         )
                     } label: {
@@ -246,6 +249,10 @@ struct IOSRulesView: View {
 
     private var defaultChainName: String {
         chainNames.first ?? ""
+    }
+
+    private var policyGroupNames: [String] {
+        model.dashboard.policyGroups.groups.map(\.name)
     }
 
     private var generatedRows: [RuleEditorRow] {
@@ -355,7 +362,7 @@ struct IOSRulesView: View {
 
     private func saveRules() {
         do {
-            let nextRules = try RuleEditor.rules(from: rows, chainNames: chainNames, defaultChainName: defaultChainName)
+            let nextRules = try RuleEditor.rules(from: rows, chainNames: chainNames, policyGroupNames: policyGroupNames, defaultChainName: defaultChainName)
             try model.replaceActiveProfileRules(nextRules)
             rows = RuleEditor.rows(from: nextRules, defaultChainName: defaultChainName, includeVirtualFinal: true)
             validationErrors = []
@@ -426,6 +433,7 @@ private struct IOSRuleDropDelegate: DropDelegate {
     @Binding var validationErrors: [RuleEditorValidationError]
     @Binding var routeTestResult: RuleTestResponse?
     var chainNames: [String]
+    var policyGroupNames: [String]
 
     func dropEntered(info: DropInfo) {
         guard let draggedRuleID,
@@ -444,7 +452,7 @@ private struct IOSRuleDropDelegate: DropDelegate {
             } else {
                 rows = editable
             }
-            validationErrors = RuleEditor.validate(rows: rows, chainNames: chainNames)
+            validationErrors = RuleEditor.validate(rows: rows, chainNames: chainNames, policyGroupNames: policyGroupNames)
             routeTestResult = nil
         }
     }
@@ -812,6 +820,7 @@ private struct IOSInlineRouteTestResultView: View {
 private struct IOSRuleFormView: View {
     @Binding var row: RuleEditorRow
     var chainNames: [String]
+    var policyGroupNames: [String]
     var rowNumber: Int
 
     var body: some View {
@@ -850,6 +859,17 @@ private struct IOSRuleFormView: View {
                         }
                     }
                     .disabled(chainNames.isEmpty)
+                }
+                if row.policyKind == .group {
+                    Picker("Policy Group", selection: $row.chainName) {
+                        if policyGroupNames.isEmpty {
+                            Text("No groups").tag("")
+                        }
+                        ForEach(policyGroupNames, id: \.self) { group in
+                            Text(group).tag(group)
+                        }
+                    }
+                    .disabled(policyGroupNames.isEmpty)
                 }
             }
         }

@@ -13,7 +13,8 @@ import (
 )
 
 type testPolicyGroupRequest struct {
-	Group string `json:"group"`
+	Profile string `json:"profile"`
+	Group   string `json:"group"`
 }
 
 type selectPolicyGroupRequest struct {
@@ -29,6 +30,25 @@ func (s *Server) handlePolicyGroups(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, snap)
+}
+
+func (s *Server) handleReplacePolicyGroups(w http.ResponseWriter, r *http.Request) {
+	if strings.TrimSpace(s.configPath) == "" {
+		http.Error(w, "policy group persistence requires daemon config path", http.StatusConflict)
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxJSONRequestBytes)
+	var req replacePolicyGroupsRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	resp, err := s.persistPolicyGroups(req.Profile, req.PolicyGroups)
+	if err != nil {
+		writeRulePersistenceError(w, err)
+		return
+	}
+	writeJSON(w, resp)
 }
 
 func (s *Server) handlePolicyGroupTest(w http.ResponseWriter, r *http.Request) {
@@ -99,7 +119,7 @@ func (s *Server) handlePolicyGroupSelection(w http.ResponseWriter, r *http.Reque
 		http.Error(w, fmt.Sprintf("policy group %q not found", groupName), http.StatusNotFound)
 		return
 	}
-	if found.Type != "select" {
+	if !strings.EqualFold(strings.TrimSpace(found.Type), "select") {
 		http.Error(w, fmt.Sprintf("policy group %q is %s, not select", groupName, found.Type), http.StatusBadRequest)
 		return
 	}

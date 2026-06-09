@@ -526,6 +526,8 @@ public struct PolicyGroupPayload: Codable, Equatable, Identifiable, Sendable {
     public var selectedChain: String
     public var selected: String
     public var selectionMode: String
+    public var selectionReason: String
+    public var hidden: Bool
     public var updatedTsNs: Int64
     public var results: [PolicyProbeResultPayload]
 
@@ -539,11 +541,13 @@ public struct PolicyGroupPayload: Codable, Equatable, Identifiable, Sendable {
         case selectedChain = "selected_chain"
         case selected
         case selectionMode = "selection_mode"
+        case selectionReason = "selection_reason"
+        case hidden
         case updatedTsNs = "updated_ts_ns"
         case results
     }
 
-    public init(name: String = "", type: String = "", chains: [String] = [], testURL: String = "", interval: String = "", timeout: String = "", selectedChain: String = "", selected: String = "", selectionMode: String = "", updatedTsNs: Int64 = 0, results: [PolicyProbeResultPayload] = []) {
+    public init(name: String = "", type: String = "", chains: [String] = [], testURL: String = "", interval: String = "", timeout: String = "", selectedChain: String = "", selected: String = "", selectionMode: String = "", selectionReason: String = "", hidden: Bool = false, updatedTsNs: Int64 = 0, results: [PolicyProbeResultPayload] = []) {
         self.name = name
         self.type = type
         self.chains = chains
@@ -553,6 +557,8 @@ public struct PolicyGroupPayload: Codable, Equatable, Identifiable, Sendable {
         self.selectedChain = selectedChain
         self.selected = selected
         self.selectionMode = selectionMode
+        self.selectionReason = selectionReason
+        self.hidden = hidden
         self.updatedTsNs = updatedTsNs
         self.results = results
     }
@@ -568,6 +574,8 @@ public struct PolicyGroupPayload: Codable, Equatable, Identifiable, Sendable {
         self.selectedChain = try container.decodeIfPresent(String.self, forKey: .selectedChain) ?? ""
         self.selected = try container.decodeIfPresent(String.self, forKey: .selected) ?? ""
         self.selectionMode = try container.decodeIfPresent(String.self, forKey: .selectionMode) ?? ""
+        self.selectionReason = try container.decodeIfPresent(String.self, forKey: .selectionReason) ?? ""
+        self.hidden = try container.decodeIfPresent(Bool.self, forKey: .hidden) ?? false
         self.updatedTsNs = try container.decodeIfPresent(Int64.self, forKey: .updatedTsNs) ?? 0
         self.results = try container.decodeIfPresent([PolicyProbeResultPayload].self, forKey: .results) ?? []
     }
@@ -581,6 +589,8 @@ public struct PolicyProbeResultPayload: Codable, Equatable, Identifiable, Sendab
     public var statusCode: Int
     public var error: String
     public var lastTestTsNs: Int64
+    public var udpCapable: Bool
+    public var udpError: String
 
     enum CodingKeys: String, CodingKey {
         case chainName = "chain_name"
@@ -589,15 +599,19 @@ public struct PolicyProbeResultPayload: Codable, Equatable, Identifiable, Sendab
         case statusCode = "status_code"
         case error
         case lastTestTsNs = "last_test_ts_ns"
+        case udpCapable = "udp_capable"
+        case udpError = "udp_error"
     }
 
-    public init(chainName: String = "", healthy: Bool = false, latencyNs: Int64 = 0, statusCode: Int = 0, error: String = "", lastTestTsNs: Int64 = 0) {
+    public init(chainName: String = "", healthy: Bool = false, latencyNs: Int64 = 0, statusCode: Int = 0, error: String = "", lastTestTsNs: Int64 = 0, udpCapable: Bool = false, udpError: String = "") {
         self.chainName = chainName
         self.healthy = healthy
         self.latencyNs = latencyNs
         self.statusCode = statusCode
         self.error = error
         self.lastTestTsNs = lastTestTsNs
+        self.udpCapable = udpCapable
+        self.udpError = udpError
     }
 
     public init(from decoder: Decoder) throws {
@@ -608,6 +622,8 @@ public struct PolicyProbeResultPayload: Codable, Equatable, Identifiable, Sendab
         self.statusCode = try container.decodeIfPresent(Int.self, forKey: .statusCode) ?? 0
         self.error = try container.decodeIfPresent(String.self, forKey: .error) ?? ""
         self.lastTestTsNs = try container.decodeIfPresent(Int64.self, forKey: .lastTestTsNs) ?? 0
+        self.udpCapable = try container.decodeIfPresent(Bool.self, forKey: .udpCapable) ?? false
+        self.udpError = try container.decodeIfPresent(String.self, forKey: .udpError) ?? ""
     }
 }
 

@@ -25,7 +25,8 @@ public enum RuleTester {
         profile: String,
         rules: [RulePayload],
         effectiveRules: [RulePayload] = [],
-        chains: [ChainPayload]
+        chains: [ChainPayload],
+        policyGroups: [PolicyGroupPayload] = []
     ) throws -> RuleTestResponse {
         let network = rawNetwork.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard network == "tcp" || network == "udp" else {
@@ -43,13 +44,15 @@ public enum RuleTester {
         let routeRules = effectiveRules.isEmpty ? rules : effectiveRules
         for (index, rule) in routeRules.enumerated() where matches(rule: rule, network: network, host: split.host, port: port) {
             let parsed = parseAction(rule.action)
+            let selectedChain = selectedChainName(action: parsed.action, targetName: parsed.chainName, network: network, target: target, groups: policyGroups, chains: chains)
             return response(
                 profile: profile,
                 decision: RuleTestDecisionPayload(
                     ruleName: rule.name.isEmpty ? "unnamed" : rule.name,
                     ruleNumber: index + 1,
                     action: parsed.action,
-                    chainName: parsed.chainName,
+                    chainName: selectedChain,
+                    groupName: parsed.action == "group" ? parsed.chainName : "",
                     target: target,
                     targetHost: split.host,
                     targetPort: String(port),
@@ -76,7 +79,7 @@ public enum RuleTester {
     }
 
     private static func response(profile: String, decision: RuleTestDecisionPayload, chains: [ChainPayload]) -> RuleTestResponse {
-        guard decision.action == "chain",
+        guard (decision.action == "chain" || decision.action == "group"),
               let chain = chains.first(where: { $0.name == decision.chainName }) else {
             return RuleTestResponse(profile: profile, decision: decision)
         }
@@ -173,7 +176,54 @@ public enum RuleTester {
         if lower.hasPrefix("chain:") {
             return ("chain", String(action.dropFirst("chain:".count)).trimmingCharacters(in: .whitespacesAndNewlines))
         }
+        if lower.hasPrefix("group:") {
+            return ("group", String(action.dropFirst("group:".count)).trimmingCharacters(in: .whitespacesAndNewlines))
+        }
         return ("chain", action)
+    }
+
+    private static func selectedChainName(action: String, targetName: String, network: String, target: String, groups: [PolicyGroupPayload], chains: [ChainPayload]) -> String {
+        guard action == "group", let group = groups.first(where: { $0.name == targetName }) else {
+            return targetName
+        }
+        let eligible = group.chains.filter { chainName in
+            guard network == "udp" else { return true }
+            return chains.first(where: { $0.name == chainName })?.capabilities.udp == true
+        }
+        guard !eligible.isEmpty else {
+            return group.selectedChain.isEmpty ? (group.selected.isEmpty ? (group.chains.first ?? "") : group.selected) : group.selectedChain
+        }
+        if group.type.caseInsensitiveCompare("select") == .orderedSame {
+            let selected = group.selectedChain.isEmpty ? (group.selected.isEmpty ? eligible[0] : group.selected) : group.selectedChain
+            return eligible.contains(selected) ? selected : eligible[0]
+        }
+        let healthy = eligible.filter { chainName in
+            group.results.first(where: { $0.chainName == chainName })?.healthy == true
+        }
+        switch group.type.lowercased() {
+        case "fallback":
+            return healthy.first ?? eligible[0]
+        case "load-balance":
+            guard !healthy.isEmpty else { return eligible[0] }
+            return healthy[stableIndex(for: target, count: healthy.count)]
+        default:
+            let candidates = healthy.isEmpty ? eligible : healthy
+            return candidates.min { lhs, rhs in
+                let l = group.results.first(where: { $0.chainName == lhs })?.latencyNs ?? Int64.max
+                let r = group.results.first(where: { $0.chainName == rhs })?.latencyNs ?? Int64.max
+                return l < r
+            } ?? eligible[0]
+        }
+    }
+
+    private static func stableIndex(for value: String, count: Int) -> Int {
+        guard count > 0 else { return 0 }
+        var hash: UInt64 = 14_695_981_039_346_656_037
+        for byte in value.utf8 {
+            hash ^= UInt64(byte)
+            hash &*= 1_099_511_628_211
+        }
+        return Int(hash % UInt64(count))
     }
 
     private static func splitTarget(_ target: String) -> (host: String, port: String) {

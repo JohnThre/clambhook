@@ -162,8 +162,8 @@ func validatePolicyGroup(profileName string, idx int, group *PolicyGroupConfig, 
 		errs = append(errs, fmt.Errorf("%s: type is required", label))
 	} else if groupType != group.Type {
 		errs = append(errs, fmt.Errorf("%s type %q must be lowercase without surrounding whitespace", label, group.Type))
-	} else if groupType != "url-test" && groupType != "select" {
-		errs = append(errs, fmt.Errorf("%s type %q must be select or url-test", label, group.Type))
+	} else if !validPolicyGroupType(groupType) {
+		errs = append(errs, fmt.Errorf("%s type %q must be select, url-test, fallback, load-balance, or smart", label, group.Type))
 	}
 
 	if len(group.Chains) == 0 {
@@ -222,6 +222,15 @@ func validatePolicyGroup(profileName string, idx int, group *PolicyGroupConfig, 
 		errs = append(errs, fmt.Errorf("%s timeout must be >= 0", label))
 	}
 	return errs
+}
+
+func validPolicyGroupType(groupType string) bool {
+	switch groupType {
+	case "select", "url-test", "fallback", "load-balance", "smart":
+		return true
+	default:
+		return false
+	}
 }
 
 func validateRuleSet(profileName string, idx int, set *RuleSetConfig, names map[string]struct{}) []error {
