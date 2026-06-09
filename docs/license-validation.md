@@ -1,9 +1,9 @@
 # License Validation
 
-The iOS App Store build uses server-backed license validation for trials and
-premium purchases. Local StoreKit verification remains useful for UI state, but
-Release builds must receive a server grant before the trial is considered
-active.
+The iOS App Store build uses server-backed license validation for
+server-controlled free access and premium purchases. Local StoreKit verification
+remains useful for UI state, but Release builds must receive a server grant
+before free access is considered active.
 
 ## Server
 
@@ -45,8 +45,8 @@ data, or raw stable device identifiers.
 
 - `POST /v1/license/challenge` returns a one-time challenge for attestation or
   assertion validation.
-- `POST /v1/license/attest` validates an App Attest object and starts the server
-  trial when policy allows it.
+- `POST /v1/license/attest` validates an App Attest object and starts
+  server-controlled free access when policy allows it.
 - `POST /v1/license/validate` validates an App Attest assertion plus StoreKit 2
   transaction JWS values and returns a signed license grant.
 

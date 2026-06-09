@@ -341,9 +341,9 @@ final class LicensingTests: XCTestCase {
         let states = MobileLicenseProductStateBuilder.states(for: decision)
         let trial = try XCTUnwrap(states.first { $0.kind == .trial })
 
-        XCTAssertEqual(trial.title, "Trial")
+        XCTAssertEqual(trial.title, "Free access")
         XCTAssertTrue(trial.isActive)
-        XCTAssertTrue(trial.detail.contains("Free use ends"))
+        XCTAssertTrue(trial.detail.contains("Server-controlled free access ends"))
         XCTAssertTrue(trial.detail.contains("2026"))
     }
 

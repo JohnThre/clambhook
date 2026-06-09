@@ -17,6 +17,7 @@ Pricing and In-App Purchases:
 
 - App Store price: Free.
 - In-App Purchase products are non-consumable and Family Sharing is enabled.
+- Initial 2-month access is server-controlled free access granted and enforced by the license server. It does not use Apple's auto-renewable subscription introductory-offer mechanism, and ClambHook is not submitted as a time-limited evaluation build.
 - Commercial setup checklist: `docs/app-store/commercial-setup.md`
 - Lifetime unlock: `org.jpfchang.clambhook.unlock.lifetime`, USD 99.99.
 - 2027 feature update: `org.jpfchang.clambhook.feature_update.2027`, USD 8.99.

@@ -209,14 +209,37 @@ require_text "$ROOT_DIR/docs/app-store/metadata-en-US.md" "premium access and pa
 require_text "$ROOT_DIR/docs/app-store/metadata-en-US.md" "One-time unlock includes features released through DATE. Paid updates unlock later feature releases. Bug fixes/security fixes remain included." "App Store metadata"
 require_text "$ROOT_DIR/docs/app-store/metadata-en-US.md" "v1 inspection is metadata-only" "App Store metadata"
 require_text "$ROOT_DIR/docs/app-store/metadata-en-US.md" "United States only" "App Store metadata"
+require_text "$ROOT_DIR/docs/app-store/metadata-en-US.md" "server-controlled free access" "App Store metadata"
+require_text "$ROOT_DIR/docs/app-store/metadata-en-US.md" "not Apple's auto-renewable subscription introductory-offer mechanism" "App Store metadata"
 reject_text "$ROOT_DIR/docs/app-store/metadata-en-US.md" "support purchases do not unlock features" "App Store metadata"
 reject_text "$ROOT_DIR/docs/app-store/metadata-en-US.md" "Support purchases do not unlock features" "App Store metadata"
+reject_text "$ROOT_DIR/docs/app-store/metadata-en-US.md" "free trial" "App Store metadata"
+reject_text "$ROOT_DIR/docs/app-store/metadata-en-US.md" "trial version" "App Store metadata"
+reject_text "$ROOT_DIR/docs/app-store/metadata-en-US.md" "demo version" "App Store metadata"
+reject_text "$ROOT_DIR/docs/app-store/metadata-en-US.md" "beta version" "App Store metadata"
 
 require_text "$ROOT_DIR/docs/app-store/review-notes.md" "ClambHook does not sell, use, or disclose VPN traffic data to third parties." "App Review notes"
 require_text "$ROOT_DIR/docs/app-store/review-notes.md" "v1 inspection is metadata-only" "App Review notes"
 require_text "$ROOT_DIR/docs/app-store/review-notes.md" "Existing purchased features remain enabled forever." "App Review notes"
+require_text "$ROOT_DIR/docs/app-store/review-notes.md" "server-controlled free access" "App Review notes"
+require_text "$ROOT_DIR/docs/app-store/review-notes.md" "does not use Apple's auto-renewable subscription introductory-offer mechanism" "App Review notes"
 require_text "$ROOT_DIR/docs/app-store/review-notes.md" "Territory plan: \`docs/app-store/territory-plan.md\`" "App Review notes"
 reject_text "$ROOT_DIR/docs/app-store/review-notes.md" "support purchases do not unlock features" "App Review notes"
+reject_text "$ROOT_DIR/docs/app-store/review-notes.md" "free trial" "App Review notes"
+reject_text "$ROOT_DIR/docs/app-store/review-notes.md" "trial version" "App Review notes"
+reject_text "$ROOT_DIR/docs/app-store/review-notes.md" "demo version" "App Review notes"
+reject_text "$ROOT_DIR/docs/app-store/review-notes.md" "beta version" "App Review notes"
+
+for ui_copy_file in \
+    "$ROOT_DIR/ui/apple/Sources/ClambhookShared/Licensing.swift" \
+    "$ROOT_DIR/ui/apple/Sources/ClambhookShared/AppRecoveryState.swift" \
+    "$ROOT_DIR/ui/apple/SharedApp/AppleAppModel.swift"; do
+    reject_text "$ui_copy_file" "free trial" "Apple purchase UI copy"
+    reject_text "$ui_copy_file" "title: \"Trial\"" "Apple purchase UI copy"
+    reject_text "$ui_copy_file" "Trial ended" "Apple purchase UI copy"
+    reject_text "$ui_copy_file" "The trial has ended" "Apple purchase UI copy"
+    reject_text "$ui_copy_file" "after trial" "Apple purchase UI copy"
+done
 
 require_text "$ROOT_DIR/docs/app-store/privacy.md" "does not sell, use, or disclose VPN traffic data to third parties" "privacy policy"
 require_text "$ROOT_DIR/docs/app-store/territory-plan.md" "United States only" "territory plan"

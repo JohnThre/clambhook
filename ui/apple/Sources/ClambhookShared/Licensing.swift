@@ -346,17 +346,17 @@ public enum MobileLicenseProductStateBuilder {
         if let trialEndsAt = decision.trialEndsAt {
             states.append(MobileLicenseProductState(
                 kind: .trial,
-                title: "Trial",
+                title: "Free access",
                 detail: decision.isTrialActive
-                    ? "Free use ends \(trialEndsAt.formatted(date: .abbreviated, time: .omitted))."
-                    : "Free trial ended \(trialEndsAt.formatted(date: .abbreviated, time: .omitted)).",
+                    ? "Server-controlled free access ends \(trialEndsAt.formatted(date: .abbreviated, time: .omitted))."
+                    : "Free access ended \(trialEndsAt.formatted(date: .abbreviated, time: .omitted)).",
                 isActive: decision.isTrialActive
             ))
         } else {
             states.append(MobileLicenseProductState(
                 kind: .trial,
-                title: "Trial",
-                detail: "Free trial starts the first time this app records a trial date.",
+                title: "Free access",
+                detail: "Server-controlled free access starts the first time this app records an access date.",
                 isActive: false
             ))
         }
@@ -366,7 +366,7 @@ public enum MobileLicenseProductStateBuilder {
             title: "Lifetime unlocked",
             detail: decision.hasLifetimeUnlock
                 ? "Purchased features remain enabled forever."
-                : "Purchase or restore the lifetime unlock to keep using clambhook after trial.",
+                : "Purchase or restore the lifetime unlock to keep using clambhook after free access.",
             isActive: decision.hasLifetimeUnlock
         ))
 
@@ -436,7 +436,7 @@ public enum MobileLicenseRuntimeError: Error, LocalizedError {
     public var errorDescription: String? {
         switch self {
         case .locked:
-            return "The trial has ended. Purchase or restore the lifetime unlock to keep using clambhook."
+            return "Free access has ended. Purchase or restore the lifetime unlock to keep using clambhook."
         }
     }
 }
