@@ -17,6 +17,7 @@ Pricing and In-App Purchases:
 
 - App Store price: Free.
 - In-App Purchase products are non-consumable and Family Sharing is enabled.
+- Commercial setup checklist: `docs/app-store/commercial-setup.md`
 - Lifetime unlock: `org.jpfchang.clambhook.unlock.lifetime`, USD 99.99.
 - 2027 feature update: `org.jpfchang.clambhook.feature_update.2027`, USD 8.99.
 - Future paid feature update products use `org.jpfchang.clambhook.feature_update.YYYY`.

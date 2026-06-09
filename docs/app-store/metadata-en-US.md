@@ -5,6 +5,7 @@
 - App price: Free.
 - Paid Apps Agreement, tax, and banking must be complete in App Store Connect before review.
 - ClambHook uses non-consumable In-App Purchases for premium access and paid feature updates. It does not use subscriptions.
+- Commercial setup checklist: `docs/app-store/commercial-setup.md`
 
 ## In-App Purchases
 
