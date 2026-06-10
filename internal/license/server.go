@@ -28,9 +28,6 @@ func NewServer(
 	storeKit TransactionValidator,
 	receiptRisk ReceiptRiskAssessor,
 ) (*Server, error) {
-	if cfg.TrialDuration == 0 {
-		cfg.TrialDuration = 62 * 24 * time.Hour
-	}
 	if cfg.OfflineGrace == 0 {
 		cfg.OfflineGrace = 7 * 24 * time.Hour
 	}
@@ -178,7 +175,7 @@ func (s *Server) handleAttest(w http.ResponseWriter, r *http.Request) {
 	}
 
 	trialStart := now
-	trialEnd := now.Add(s.cfg.TrialDuration)
+	trialEnd := trialEndDate(trialStart)
 	dev := DeviceRecord{
 		InstallHash:      installHash,
 		KeyHash:          keyHash,

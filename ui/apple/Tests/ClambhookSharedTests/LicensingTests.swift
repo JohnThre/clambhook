@@ -2,7 +2,7 @@ import XCTest
 @testable import ClambhookShared
 
 final class LicensingTests: XCTestCase {
-    func testTrialLastsTwoCalendarMonths() {
+    func testTrialUsesTwoCalendarMonths() {
         let start = mobileLicenseUTCDate(year: 2026, month: 1, day: 31)
         let snapshot = MobileLicenseSnapshot(trialStartDate: start)
 
@@ -11,14 +11,26 @@ final class LicensingTests: XCTestCase {
             now: mobileLicenseUTCDate(year: 2026, month: 3, day: 30)
         )
         XCTAssertEqual(beforeExpiry.reason, .trial)
+        XCTAssertEqual(beforeExpiry.trialEndsAt, mobileLicenseUTCDate(year: 2026, month: 3, day: 31))
         XCTAssertTrue(beforeExpiry.canUseFeature(.tunnelRouting))
 
-        let afterExpiry = MobileLicenseEvaluator.evaluate(
+        let atExpiry = MobileLicenseEvaluator.evaluate(
             snapshot: snapshot,
-            now: mobileLicenseUTCDate(year: 2026, month: 4, day: 1)
+            now: mobileLicenseUTCDate(year: 2026, month: 3, day: 31)
         )
-        XCTAssertEqual(afterExpiry.reason, .locked)
-        XCTAssertFalse(afterExpiry.canUseApp)
+        XCTAssertEqual(atExpiry.reason, .locked)
+        XCTAssertFalse(atExpiry.canUseApp)
+    }
+
+    func testTrialEndDateClampsToTargetMonthLastDay() {
+        XCTAssertEqual(
+            mobileLicenseTrialEndDate(start: mobileLicenseUTCDate(year: 2025, month: 12, day: 31)),
+            mobileLicenseUTCDate(year: 2026, month: 2, day: 28)
+        )
+        XCTAssertEqual(
+            mobileLicenseTrialEndDate(start: mobileLicenseUTCDate(year: 2023, month: 12, day: 31)),
+            mobileLicenseUTCDate(year: 2024, month: 2, day: 29)
+        )
     }
 
     func testExpiredTrialLocksPremiumFeaturesWithoutPurchase() {

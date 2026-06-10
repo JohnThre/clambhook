@@ -114,6 +114,22 @@ func isFeatureUpdateProduct(productID string) bool {
 	return err == nil
 }
 
+func trialEndDate(start time.Time) time.Time {
+	return addMonthsClampedUTC(start, TrialMonths)
+}
+
+func addMonthsClampedUTC(start time.Time, months int) time.Time {
+	start = start.UTC()
+	year, month, day := start.Date()
+	hour, minute, second := start.Clock()
+	targetFirst := time.Date(year, month+time.Month(months), 1, hour, minute, second, start.Nanosecond(), time.UTC)
+	targetLastDay := targetFirst.AddDate(0, 1, -1).Day()
+	if day > targetLastDay {
+		day = targetLastDay
+	}
+	return time.Date(targetFirst.Year(), targetFirst.Month(), day, hour, minute, second, start.Nanosecond(), time.UTC)
+}
+
 func buildSignedGrant(dev DeviceRecord, snapshot GrantSnapshot, now time.Time, cfg Config) (LicenseGrant, error) {
 	expires := now.Add(cfg.OfflineGrace)
 	grant := LicenseGrant{
