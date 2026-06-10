@@ -29,6 +29,34 @@ public enum MobilePurchaseCatalog {
         }
     }
 
+    public static func purchaseOfferIDs(
+        for decision: MobileLicenseDecision,
+        features: [MobileLicenseFeature] = MobileLicenseFeatureCatalog.features,
+        productIDs: [String] = MobilePurchaseCatalog.productIDs
+    ) -> [String] {
+        let hasLockedPostCutoffFeatures = !lockedPostCutoffFeatures(for: decision, features: features).isEmpty
+        return orderedIDs(productIDs).filter { id in
+            switch productKind(for: id) {
+            case .lifetimeUnlock:
+                return !decision.hasLifetimeUnlock
+            case .paidUpdate:
+                return hasLockedPostCutoffFeatures
+            case .unknown:
+                return false
+            }
+        }
+    }
+
+    public static func lockedPostCutoffFeatures(
+        for decision: MobileLicenseDecision,
+        features: [MobileLicenseFeature] = MobileLicenseFeatureCatalog.features
+    ) -> [MobileLicenseFeature] {
+        guard decision.hasLifetimeUnlock, let cutoffDate = decision.updateCutoffDate else {
+            return []
+        }
+        return features.filter { $0.releaseDate > cutoffDate }
+    }
+
     public static func productKind(for id: String) -> MobileLicenseProductKind {
         if id == lifetimeUnlockID {
             return .lifetimeUnlock

@@ -21,6 +21,58 @@ final class MobileSupportTests: XCTestCase {
         )
     }
 
+    func testPurchaseOffersShowLifetimeFirstBeforeUnlock() {
+        let decision = MobileLicenseEvaluator.evaluate(
+            snapshot: MobileLicenseSnapshot(trialStartDate: mobileLicenseUTCDate(year: 2026, month: 6, day: 3)),
+            now: mobileLicenseUTCDate(year: 2026, month: 7, day: 1)
+        )
+
+        XCTAssertEqual(
+            MobilePurchaseCatalog.purchaseOfferIDs(for: decision),
+            [MobilePurchaseCatalog.lifetimeUnlockID]
+        )
+    }
+
+    func testPurchaseOffersHidePaidUpdateWhenLifetimeHasNoLockedFeatures() {
+        let decision = MobileLicenseEvaluator.evaluate(
+            snapshot: MobileLicenseSnapshot(
+                transactions: [
+                    MobileLicenseTransaction(
+                        productID: MobilePurchaseCatalog.lifetimeUnlockID,
+                        purchaseDate: mobileLicenseUTCDate(year: 2026, month: 6, day: 3)
+                    ),
+                ]
+            ),
+            now: mobileLicenseUTCDate(year: 2026, month: 7, day: 1)
+        )
+
+        XCTAssertEqual(MobilePurchaseCatalog.purchaseOfferIDs(for: decision), [])
+    }
+
+    func testPurchaseOffersShowPaidUpdateOnlyForLifetimeWithLockedPostCutoffFeatures() {
+        let decision = MobileLicenseEvaluator.evaluate(
+            snapshot: MobileLicenseSnapshot(
+                transactions: [
+                    MobileLicenseTransaction(
+                        productID: MobilePurchaseCatalog.lifetimeUnlockID,
+                        purchaseDate: mobileLicenseUTCDate(year: 2026, month: 6, day: 3)
+                    ),
+                ]
+            ),
+            now: mobileLicenseUTCDate(year: 2026, month: 7, day: 1)
+        )
+        let futureFeature = MobileLicenseFeature(
+            id: .widgets,
+            displayName: "Future Widgets",
+            releaseDate: mobileLicenseUTCDate(year: 2027, month: 6, day: 4)
+        )
+
+        XCTAssertEqual(
+            MobilePurchaseCatalog.purchaseOfferIDs(for: decision, features: [futureFeature]),
+            [MobilePurchaseCatalog.featureUpdate2027ID]
+        )
+    }
+
     func testLocalStoreKitConfigurationMatchesPurchaseCatalog() throws {
         let configURL = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()

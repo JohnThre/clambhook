@@ -21,6 +21,11 @@ final class StoreKitEntitlementManager: ObservableObject {
     private var transactionUpdatesTask: Task<Void, Never>?
     private var started = false
 
+    var purchaseOfferProducts: [Product] {
+        let offerIDs = Set(MobilePurchaseCatalog.purchaseOfferIDs(for: decision))
+        return products.filter { offerIDs.contains($0.id) }
+    }
+
     init(
         defaults: UserDefaults = UserDefaults(suiteName: defaultAppGroupIdentifier) ?? .standard,
         credentialStore: CredentialStoring = KeychainCredentialStore(service: "org.jpfchang.clambhook.license"),
