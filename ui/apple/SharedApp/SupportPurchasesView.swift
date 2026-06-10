@@ -11,7 +11,7 @@ struct PremiumPurchasesSection: View {
         Section("Purchases") {
             ProductStatePanel(decision: manager.decision)
 
-            ForEach(manager.products, id: \.id) { product in
+            ForEach(manager.purchaseOfferProducts, id: \.id) { product in
                 Button {
                     Task { await manager.purchase(product) }
                 } label: {
