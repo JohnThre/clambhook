@@ -33,11 +33,47 @@ func TestServerAttestationStartsTrialAndRejectsReplay(t *testing.T) {
 	if grant.Snapshot.Reason != AccessReasonTrial {
 		t.Fatalf("reason = %q, want trial", grant.Snapshot.Reason)
 	}
-	if grant.Snapshot.TrialEndsAt == nil || !grant.Snapshot.TrialEndsAt.Equal(now.Add(62*24*time.Hour)) {
+	if grant.Snapshot.TrialEndsAt == nil || !grant.Snapshot.TrialEndsAt.Equal(time.Date(2026, 8, 3, 0, 0, 0, 0, time.UTC)) {
 		t.Fatalf("trial end = %v", grant.Snapshot.TrialEndsAt)
 	}
 
 	postJSON[map[string]string](t, server, "/v1/license/attest", req, http.StatusConflict)
+}
+
+func TestTrialEndDateUsesTwoCalendarMonthsClampedToTargetMonth(t *testing.T) {
+	tests := []struct {
+		name  string
+		start time.Time
+		want  time.Time
+	}{
+		{
+			name:  "same day when target month has day",
+			start: time.Date(2026, 6, 3, 12, 30, 5, 9, time.UTC),
+			want:  time.Date(2026, 8, 3, 12, 30, 5, 9, time.UTC),
+		},
+		{
+			name:  "end of month preserved when possible",
+			start: time.Date(2026, 1, 31, 0, 0, 0, 0, time.UTC),
+			want:  time.Date(2026, 3, 31, 0, 0, 0, 0, time.UTC),
+		},
+		{
+			name:  "target month clamps in common year",
+			start: time.Date(2025, 12, 31, 0, 0, 0, 0, time.UTC),
+			want:  time.Date(2026, 2, 28, 0, 0, 0, 0, time.UTC),
+		},
+		{
+			name:  "target month clamps in leap year",
+			start: time.Date(2023, 12, 31, 0, 0, 0, 0, time.UTC),
+			want:  time.Date(2024, 2, 29, 0, 0, 0, 0, time.UTC),
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := trialEndDate(tt.start); !got.Equal(tt.want) {
+				t.Fatalf("trialEndDate(%v) = %v, want %v", tt.start, got, tt.want)
+			}
+		})
+	}
 }
 
 func TestServerValidationReturnsLifetimeGrant(t *testing.T) {
@@ -103,7 +139,6 @@ func newTestServer(t *testing.T, now time.Time, tx LicenseTransaction) *Server {
 		Environment:        "development",
 		HMACSecret:         []byte("0123456789abcdef0123456789abcdef"),
 		GrantSigningSecret: []byte("abcdef0123456789abcdef0123456789"),
-		TrialDuration:      62 * 24 * time.Hour,
 		OfflineGrace:       7 * 24 * time.Hour,
 		Now:                func() time.Time { return now },
 	}

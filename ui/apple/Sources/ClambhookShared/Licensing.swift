@@ -174,9 +174,7 @@ public enum MobileLicenseEvaluator {
         now: Date = Date(),
         calendar: Calendar = mobileLicenseCalendar
     ) -> MobileLicenseDecision {
-        let trialEndsAt = snapshot.trialStartDate.flatMap {
-            calendar.date(byAdding: .month, value: mobileLicenseTrialMonths, to: $0)
-        }
+        let trialEndsAt = snapshot.trialStartDate.flatMap { mobileLicenseTrialEndDate(start: $0, calendar: calendar) }
         let trialActive = trialEndsAt.map { now < $0 } ?? false
         let trialDaysRemaining = trialEndsAt.map {
             max(0, calendar.dateComponents([.day], from: calendar.startOfDay(for: now), to: calendar.startOfDay(for: $0)).day ?? 0)
@@ -478,6 +476,10 @@ public let mobileLicenseCalendar: Calendar = {
     calendar.timeZone = TimeZone(secondsFromGMT: 0) ?? .gmt
     return calendar
 }()
+
+public func mobileLicenseTrialEndDate(start: Date, calendar: Calendar = mobileLicenseCalendar) -> Date? {
+    calendar.date(byAdding: .month, value: mobileLicenseTrialMonths, to: start)
+}
 
 public func mobileLicenseUTCDate(year: Int, month: Int, day: Int) -> Date {
     DateComponents(calendar: mobileLicenseCalendar, timeZone: mobileLicenseCalendar.timeZone, year: year, month: month, day: day).date!

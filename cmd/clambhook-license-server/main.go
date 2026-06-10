@@ -7,7 +7,6 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"time"
 
 	"github.com/JohnThre/clambhook/internal/license"
 )
@@ -42,8 +41,6 @@ func main() {
 		HMACSecret:         hmacSecret,
 		GrantSigningSecret: grantSecret,
 		AppleRootsPEM:      appleRoots,
-		TrialDuration:      62 * 24 * time.Hour,
-		OfflineGrace:       7 * 24 * time.Hour,
 		MaxAttestations30d: envInt("CLAMBHOOK_LICENSE_MAX_ATTESTATIONS_30D", 3),
 	}
 	var receiptRisk license.ReceiptRiskAssessor = license.NoopReceiptRiskAssessor{}

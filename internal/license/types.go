@@ -8,6 +8,7 @@ import (
 const (
 	LifetimeUnlockProductID = "org.jpfchang.clambhook.unlock.lifetime"
 	FeatureUpdatePrefix     = "org.jpfchang.clambhook.feature_update."
+	TrialMonths             = 2
 
 	AccessReasonTrial        = "trial"
 	AccessReasonLifetime     = "lifetime"
@@ -24,7 +25,6 @@ type Config struct {
 	HMACSecret         []byte
 	GrantSigningSecret []byte
 	AppleRootsPEM      []byte
-	TrialDuration      time.Duration
 	OfflineGrace       time.Duration
 	MaxAttestations30d int
 	Now                func() time.Time
