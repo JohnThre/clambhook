@@ -31,12 +31,24 @@ ui/windows/AppPackages/
 *.so
 *.dylib
 
-# AI coding tool local files
+# AI coding tool local files and history
+#
+# Keep these on the developer machine only. Do not commit repository-local
+# prompts, memories, transcripts, MCP configs, agent instructions, or tool
+# workspaces to the public/remote repository.
 AGENTS.md
+AGENT.md
 CLAUDE.md
+ANTHROPIC.md
 GEMINI.md
+CODEX.md
+OPENAI.md
+DROID.md
+FACTORY.md
 .claude/
+.anthropic/
 .codex/
+.openai/
 .cursor/
 .cursorignore
 .cursorrules
@@ -52,9 +64,30 @@ GEMINI.md
 .kiro/
 .amazonq/
 .gemini/
-.openai/
 .codeium/
+.droid/
+.droidrc
+droid.json
+droid.toml
+droid.yaml
+droid.yml
+.factory/
+.factoryai/
+factory.json
+factory.toml
+factory.yaml
+factory.yml
+.augment/
+.crush/
+CRUSH.md
+.goose/
+.qodo/
+.sourcegraph/
+.tabnine/
+.replit/ai/
 .github/copilot-instructions.md
 .github/instructions/
 .superpowers/
 docs/superpowers/
+.ai-local/
+.ai-history/
