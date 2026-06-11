@@ -127,10 +127,11 @@ func TestNowViewIncludesStatusAndGraph(t *testing.T) {
 	m.policies = policyGroupsPayload{
 		Profile: "B",
 		Groups: []policyGroupPayload{{
-			Name:          "auto",
-			Type:          "url-test",
-			Chains:        []string{"default", "backup"},
-			SelectedChain: "default",
+			Name:            "auto",
+			Type:            "url-test",
+			Chains:          []string{"default", "backup"},
+			SelectedChain:   "default",
+			SelectionReason: "lowest_latency",
 			Results: []policyProbeResultPayload{{
 				ChainName:  "default",
 				Healthy:    true,
@@ -154,14 +155,24 @@ func TestNowViewIncludesStatusAndGraph(t *testing.T) {
 			RuleAction: "group",
 			GroupName:  "auto",
 			ChainName:  "default",
-			RxTotal:    4096,
-			TxTotal:    2048,
+			RouteControl: routeControlPayload{
+				Mode:            "rule",
+				Decision:        "proxy",
+				Source:          "profile_rule",
+				RuleName:        "web",
+				RuleNumber:      1,
+				PolicyGroup:     "auto",
+				SelectedChain:   "default",
+				SelectionReason: "lowest_latency",
+			},
+			RxTotal: 4096,
+			TxTotal: 2048,
 		}},
 	}
 	m.bandwidth.add(bandwidthSample{RxBps: 2048, TxBps: 1024})
 
 	view := m.View()
-	for _, want := range []string{"Now", "Connection", "RUNNING", "B", "Policy", "auto", "url test", "Selected default", "Live Traffic", "Rx", "Tx", "Recent Decisions", "PROXY", "example.com", "web", "auto -> default"} {
+	for _, want := range []string{"Now", "Connection", "RUNNING", "B", "Route Control", "Mode Rule", "Proxy 1", "Direct 0", "Block 0", "auto", "url test", "Selected default", "Fallback No", "Live Traffic", "Rx", "Tx", "Recent Decisions", "PROXY", "example.com", "web", "auto -> default"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("view missing %q:\n%s", want, view)
 		}
@@ -191,7 +202,7 @@ func TestNowViewShowsStaticPolicySummaryWithoutPolicyGroups(t *testing.T) {
 	}
 
 	view := m.View()
-	for _, want := range []string{"Policy", "Static route", "Selected default", "1 route"} {
+	for _, want := range []string{"Route Control", "Mode Rule", "Static route", "Selected default", "Fallback No", "1 route"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("view missing %q:\n%s", want, view)
 		}
@@ -713,10 +724,17 @@ func TestTrafficMonitorRendersBackendAnalytics(t *testing.T) {
 		TargetHost: "ads.example.com",
 		RuleAction: "block",
 		RuleName:   "ads",
+		RouteControl: routeControlPayload{
+			Mode:       "rule",
+			Decision:   "block",
+			Source:     "profile_rule",
+			RuleName:   "ads",
+			RuleNumber: 1,
+		},
 	}}
 
 	view := m.View()
-	for _, want := range []string{"profile Work", "all 9", "proxy 4", "direct 2", "block 3", "Routes", "Top chains", "Top rules", "Rule hits", "ads/block 3", "Recent blocks", "Rule cleanup", "Delete", "Action enter/n create rule from connection", "Suggested rules", "api.example.com"} {
+	for _, want := range []string{"profile Work", "all 9", "proxy 4", "direct 2", "block 3", "Routes", "Top chains", "Top rules", "Rule hits", "ads/block 3", "Recent blocks", "Route Control", "Mode Rule", "Decision BLOCK", "Source profile rule", "Fallback No", "Rule cleanup", "Delete", "Action enter/n create rule from connection", "Suggested rules", "api.example.com"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("view missing %q:\n%s", want, view)
 		}

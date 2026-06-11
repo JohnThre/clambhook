@@ -828,6 +828,7 @@ func (p *routePlanner) PlanWithSource(ctx context.Context, network, target, sour
 			Summary:       decision.Explanation.Summary,
 		},
 	}
+	plan.RouteControl = routeControlForDecision(decision, "", "")
 	switch decision.Action {
 	case rules.ActionChain:
 		ch := p.chains[decision.ChainName]
@@ -846,7 +847,7 @@ func (p *routePlanner) PlanWithSource(ctx context.Context, network, target, sour
 		if p.policies == nil {
 			return plan, fmt.Errorf("policy group %q: manager is not configured", decision.GroupName)
 		}
-		ch, selected, err := p.policies.Select(decision.GroupName, policy.SelectionContext{
+		ch, selected, reason, err := p.policies.SelectWithReason(decision.GroupName, policy.SelectionContext{
 			Network: decision.Network,
 			Target:  decision.Target,
 			Source:  decision.Source,
@@ -857,6 +858,7 @@ func (p *routePlanner) PlanWithSource(ctx context.Context, network, target, sour
 		plan.ChainName = selected
 		plan.Explanation.SelectedChain = selected
 		plan.Explanation.FinalChain = selected
+		plan.RouteControl = routeControlForDecision(decision, selected, reason)
 		plan.Hops = ch.HopInfo()
 		plan.Dial = func(ctx context.Context, network, address string) (net.Conn, error) {
 			return ch.Dial(ctx, network, address)
@@ -877,6 +879,47 @@ func (p *routePlanner) PlanWithSource(ctx context.Context, network, target, sour
 		return plan, fmt.Errorf("unknown route action %q", decision.Action)
 	}
 	return plan, nil
+}
+
+func routeControlForDecision(decision rules.Decision, selectedChain, selectionReason string) events.RouteControl {
+	source := strings.TrimSpace(decision.Explanation.Source)
+	if source == "" {
+		if decision.Default {
+			source = "default"
+		} else {
+			source = "profile_rule"
+		}
+	}
+	if selectedChain == "" {
+		selectedChain = strings.TrimSpace(decision.ChainName)
+	}
+	policyGroup := strings.TrimSpace(decision.GroupName)
+	if policyGroup == "" {
+		policyGroup = strings.TrimSpace(decision.Explanation.PolicyGroup)
+	}
+	return events.RouteControl{
+		Mode:            "rule",
+		Decision:        routeControlDecision(decision.Action),
+		Source:          source,
+		RuleName:        decision.RuleName,
+		RuleNumber:      decision.RuleNumber,
+		PolicyGroup:     policyGroup,
+		SelectedChain:   selectedChain,
+		SelectionReason: selectionReason,
+		Fallback:        selectionReason == "no_healthy_fallback",
+		Default:         decision.Default,
+	}
+}
+
+func routeControlDecision(action string) string {
+	switch strings.ToLower(strings.TrimSpace(action)) {
+	case rules.ActionDirect:
+		return "direct"
+	case rules.ActionBlock, rules.ActionReject:
+		return "block"
+	default:
+		return "proxy"
+	}
 }
 
 func (p *routePlanner) decide(network, target, source string) (rules.Decision, error) {

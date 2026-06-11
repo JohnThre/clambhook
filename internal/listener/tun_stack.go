@@ -506,13 +506,14 @@ func (s *PacketStack) shouldProxyDNS(network, target string) bool {
 func (s *PacketStack) dnsPlan(network, target string) RoutePlan {
 	host, port := splitTrafficTarget(target)
 	return RoutePlan{
-		Profile:    s.opts.ProfileName,
-		Action:     RouteActionDirect,
-		Target:     target,
-		Host:       host,
-		Port:       port,
-		Network:    network,
-		Visibility: events.VisibilityInfo{Kind: "dns", Host: host, Port: port},
+		Profile:      s.opts.ProfileName,
+		Action:       RouteActionDirect,
+		Target:       target,
+		Host:         host,
+		Port:         port,
+		Network:      network,
+		Visibility:   events.VisibilityInfo{Kind: "dns", Host: host, Port: port},
+		RouteControl: staticRouteControl(RouteActionDirect, ""),
 	}
 }
 
@@ -640,12 +641,13 @@ func (s *PacketStack) planWithSource(ctx context.Context, network, target, sourc
 		return PlanRoute(ctx, s.planner, network, target, source)
 	}
 	plan := RoutePlan{
-		Profile:   s.opts.ProfileName,
-		Action:    RouteActionChain,
-		ChainName: s.opts.ChainName,
-		Target:    target,
-		Network:   network,
-		Source:    source,
+		Profile:      s.opts.ProfileName,
+		Action:       RouteActionChain,
+		ChainName:    s.opts.ChainName,
+		Target:       target,
+		Network:      network,
+		Source:       source,
+		RouteControl: staticRouteControl(RouteActionChain, s.opts.ChainName),
 		Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
 			return s.ch.Dial(ctx, network, address)
 		},

@@ -385,14 +385,21 @@ func (m *Manager) refreshGroup(ctx context.Context, groupName string) error {
 // Select returns the concrete runtime chain for a policy group and route
 // context.
 func (m *Manager) Select(groupName string, sel SelectionContext) (*chain.Chain, string, error) {
+	ch, selected, _, err := m.SelectWithReason(groupName, sel)
+	return ch, selected, err
+}
+
+// SelectWithReason returns the concrete runtime chain plus the policy
+// selection reason for one policy group and route context.
+func (m *Manager) SelectWithReason(groupName string, sel SelectionContext) (*chain.Chain, string, string, error) {
 	if m == nil {
-		return nil, "", errors.New("policy manager is nil")
+		return nil, "", "", errors.New("policy manager is nil")
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	gs := m.groups[groupName]
 	if gs == nil {
-		return nil, "", fmt.Errorf("policy group %q not found", groupName)
+		return nil, "", "", fmt.Errorf("policy group %q not found", groupName)
 	}
 	eligible := map[string]bool(nil)
 	if strings.EqualFold(strings.TrimSpace(sel.Network), "udp") {
@@ -403,24 +410,24 @@ func (m *Manager) Select(groupName string, sel SelectionContext) (*chain.Chain, 
 			}
 		}
 		if len(eligible) == 0 {
-			return nil, "", fmt.Errorf("policy group %q has no UDP-capable member chains", groupName)
+			return nil, "", "", fmt.Errorf("policy group %q has no UDP-capable member chains", groupName)
 		}
 	}
 	selected, reason := selectChainLocked(gs, sel, eligible)
 	if eligible != nil && selected != "" && !eligible[selected] {
 		if udpReason := gs.udpErrors[selected]; udpReason != "" {
-			return nil, "", fmt.Errorf("policy group %q selected chain %q is not UDP-capable: %s", groupName, selected, udpReason)
+			return nil, "", "", fmt.Errorf("policy group %q selected chain %q is not UDP-capable: %s", groupName, selected, udpReason)
 		}
-		return nil, "", fmt.Errorf("policy group %q selected chain %q is not UDP-capable", groupName, selected)
+		return nil, "", "", fmt.Errorf("policy group %q selected chain %q is not UDP-capable", groupName, selected)
 	}
 	ch := gs.chains[selected]
 	if ch == nil {
-		return nil, "", fmt.Errorf("policy group %q selected missing chain %q", groupName, selected)
+		return nil, "", "", fmt.Errorf("policy group %q selected missing chain %q", groupName, selected)
 	}
 	gs.selectedChain = selected
 	gs.selectionReason = reason
 	gs.updatedTsNs = time.Now().UnixNano()
-	return ch, selected, nil
+	return ch, selected, reason, nil
 }
 
 // SetSelection updates a select group's current member chain in memory.

@@ -91,12 +91,15 @@ func TestManagerFailsOpenToFirstChainWhenNoProbeIsHealthy(t *testing.T) {
 	if _, err := m.Refresh(context.Background(), "auto"); err != nil {
 		t.Fatalf("Refresh: %v", err)
 	}
-	_, selected, err := m.Select("auto", SelectionContext{Network: "tcp"})
+	_, selected, reason, err := m.SelectWithReason("auto", SelectionContext{Network: "tcp"})
 	if err != nil {
 		t.Fatalf("Select: %v", err)
 	}
 	if selected != "first" {
 		t.Fatalf("selected = %q, want first", selected)
+	}
+	if reason != "no_healthy_fallback" {
+		t.Fatalf("reason = %q, want no_healthy_fallback", reason)
 	}
 }
 

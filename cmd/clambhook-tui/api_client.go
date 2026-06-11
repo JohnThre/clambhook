@@ -47,17 +47,18 @@ type policyGroupsPayload struct {
 }
 
 type policyGroupPayload struct {
-	Name          string                     `json:"name"`
-	Type          string                     `json:"type"`
-	Chains        []string                   `json:"chains"`
-	Selected      string                     `json:"selected,omitempty"`
-	TestURL       string                     `json:"test_url"`
-	Interval      string                     `json:"interval"`
-	Timeout       string                     `json:"timeout"`
-	SelectedChain string                     `json:"selected_chain,omitempty"`
-	SelectionMode string                     `json:"selection_mode,omitempty"`
-	UpdatedTsNs   int64                      `json:"updated_ts_ns,omitempty"`
-	Results       []policyProbeResultPayload `json:"results"`
+	Name            string                     `json:"name"`
+	Type            string                     `json:"type"`
+	Chains          []string                   `json:"chains"`
+	Selected        string                     `json:"selected,omitempty"`
+	TestURL         string                     `json:"test_url"`
+	Interval        string                     `json:"interval"`
+	Timeout         string                     `json:"timeout"`
+	SelectedChain   string                     `json:"selected_chain,omitempty"`
+	SelectionMode   string                     `json:"selection_mode,omitempty"`
+	SelectionReason string                     `json:"selection_reason,omitempty"`
+	UpdatedTsNs     int64                      `json:"updated_ts_ns,omitempty"`
+	Results         []policyProbeResultPayload `json:"results"`
 }
 
 type policyProbeResultPayload struct {
@@ -135,38 +136,52 @@ type trafficSummaryPayload struct {
 }
 
 type trafficConnectionPayload struct {
-	ConnID      string          `json:"conn_id"`
-	Profile     string          `json:"profile,omitempty"`
-	State       string          `json:"state"`
-	StartTsNs   int64           `json:"start_ts_ns"`
-	UpdatedTsNs int64           `json:"updated_ts_ns"`
-	EndTsNs     int64           `json:"end_ts_ns,omitempty"`
-	Listener    listenerInfo    `json:"listener"`
-	ClientAddr  string          `json:"client_addr,omitempty"`
-	ChainName   string          `json:"chain_name,omitempty"`
-	GroupName   string          `json:"group_name,omitempty"`
-	RuleName    string          `json:"rule_name,omitempty"`
-	RuleAction  string          `json:"rule_action,omitempty"`
-	Default     bool            `json:"default,omitempty"`
-	DecisionNs  int64           `json:"decision_ns,omitempty"`
-	Target      string          `json:"target,omitempty"`
-	TargetHost  string          `json:"target_host,omitempty"`
-	TargetPort  string          `json:"target_port,omitempty"`
-	Network     string          `json:"network,omitempty"`
-	Source      string          `json:"source,omitempty"`
-	Application string          `json:"application,omitempty"`
-	Hops        []trafficHop    `json:"hops,omitempty"`
-	Timeline    []timelineEvent `json:"timeline,omitempty"`
-	Visibility  *visibilityInfo `json:"visibility,omitempty"`
-	Geo         locationPayload `json:"geo"`
-	GeoError    string          `json:"geo_error,omitempty"`
-	TotalDialNs int64           `json:"total_dial_ns,omitempty"`
-	RxBps       float64         `json:"rx_bps"`
-	TxBps       float64         `json:"tx_bps"`
-	RxTotal     uint64          `json:"rx_total"`
-	TxTotal     uint64          `json:"tx_total"`
-	DurationNs  int64           `json:"duration_ns,omitempty"`
-	CloseReason string          `json:"close_reason,omitempty"`
+	ConnID       string              `json:"conn_id"`
+	Profile      string              `json:"profile,omitempty"`
+	State        string              `json:"state"`
+	StartTsNs    int64               `json:"start_ts_ns"`
+	UpdatedTsNs  int64               `json:"updated_ts_ns"`
+	EndTsNs      int64               `json:"end_ts_ns,omitempty"`
+	Listener     listenerInfo        `json:"listener"`
+	ClientAddr   string              `json:"client_addr,omitempty"`
+	ChainName    string              `json:"chain_name,omitempty"`
+	GroupName    string              `json:"group_name,omitempty"`
+	RuleName     string              `json:"rule_name,omitempty"`
+	RuleAction   string              `json:"rule_action,omitempty"`
+	Default      bool                `json:"default,omitempty"`
+	DecisionNs   int64               `json:"decision_ns,omitempty"`
+	Target       string              `json:"target,omitempty"`
+	TargetHost   string              `json:"target_host,omitempty"`
+	TargetPort   string              `json:"target_port,omitempty"`
+	Network      string              `json:"network,omitempty"`
+	Source       string              `json:"source,omitempty"`
+	Application  string              `json:"application,omitempty"`
+	Hops         []trafficHop        `json:"hops,omitempty"`
+	Timeline     []timelineEvent     `json:"timeline,omitempty"`
+	Visibility   *visibilityInfo     `json:"visibility,omitempty"`
+	RouteControl routeControlPayload `json:"route_control,omitempty"`
+	Geo          locationPayload     `json:"geo"`
+	GeoError     string              `json:"geo_error,omitempty"`
+	TotalDialNs  int64               `json:"total_dial_ns,omitempty"`
+	RxBps        float64             `json:"rx_bps"`
+	TxBps        float64             `json:"tx_bps"`
+	RxTotal      uint64              `json:"rx_total"`
+	TxTotal      uint64              `json:"tx_total"`
+	DurationNs   int64               `json:"duration_ns,omitempty"`
+	CloseReason  string              `json:"close_reason,omitempty"`
+}
+
+type routeControlPayload struct {
+	Mode            string `json:"mode,omitempty"`
+	Decision        string `json:"decision,omitempty"`
+	Source          string `json:"source,omitempty"`
+	RuleName        string `json:"rule_name,omitempty"`
+	RuleNumber      int    `json:"rule_number,omitempty"`
+	PolicyGroup     string `json:"policy_group,omitempty"`
+	SelectedChain   string `json:"selected_chain,omitempty"`
+	SelectionReason string `json:"selection_reason,omitempty"`
+	Fallback        bool   `json:"fallback,omitempty"`
+	Default         bool   `json:"default,omitempty"`
 }
 
 type profileContextPayload struct {
