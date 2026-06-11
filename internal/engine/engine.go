@@ -89,6 +89,14 @@ func (e *Engine) Bus() *events.Bus { return e.bus }
 // TemporaryRules returns the in-memory temporary-rule manager.
 func (e *Engine) TemporaryRules() *temprules.Manager { return e.tempRules }
 
+// SetTemporaryRules replaces the in-memory temporary-rule manager. It is used
+// by embedded runtimes that need multiple route planners to share one rule set.
+func (e *Engine) SetTemporaryRules(manager *temprules.Manager) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.tempRules = manager
+}
+
 // SetHTTPInspector wires the optional developer-mode HTTP inspector. Callers
 // should set it before Start or before a Reload-triggered listener rebuild.
 func (e *Engine) SetHTTPInspector(inspector listener.HTTPInspector) {
@@ -677,6 +685,12 @@ func buildPacketStackWithConfigPath(profile *config.Profile, configPath string, 
 // BuildPacketStackForConfig constructs a packet stack for cfg's active profile
 // after applying cached subscription rules.
 func BuildPacketStackForConfig(cfg *config.Config, bus *events.Bus, writer listener.PacketWriter) (*listener.PacketStack, []*chain.Chain, error) {
+	return BuildPacketStackForConfigWithTemporaryRules(cfg, bus, writer, nil)
+}
+
+// BuildPacketStackForConfigWithTemporaryRules constructs a packet stack and
+// evaluates temporary routing rules before the profile's persisted rules.
+func BuildPacketStackForConfigWithTemporaryRules(cfg *config.Config, bus *events.Bus, writer listener.PacketWriter, tempRules *temprules.Manager) (*listener.PacketStack, []*chain.Chain, error) {
 	if cfg == nil {
 		return nil, nil, errors.New("nil config")
 	}
@@ -685,7 +699,59 @@ func BuildPacketStackForConfig(cfg *config.Config, bus *events.Bus, writer liste
 		return nil, nil, err
 	}
 	effectiveProfile := subscription.ProfileWithCachedRules(cfg.Path, profile)
-	return buildPacketStackWithConfigPath(&effectiveProfile, cfg.Path, bus, writer)
+	return buildPacketStackWithConfigPathAndTemporaryRules(&effectiveProfile, cfg.Path, bus, writer, tempRules)
+}
+
+func buildPacketStackWithConfigPathAndTemporaryRules(profile *config.Profile, configPath string, bus *events.Bus, writer listener.PacketWriter, tempRules *temprules.Manager) (*listener.PacketStack, []*chain.Chain, error) {
+	if profile == nil {
+		return nil, nil, errors.New("nil profile")
+	}
+	tunCfg := profile.Listen.TUN
+	if tunCfg == nil || !tunCfg.Enabled {
+		return nil, nil, errors.New("tun: packet tunnel is not enabled in active profile")
+	}
+	resolver := newChainResolver(profile, configPath, tempRules)
+	if err := resolver.ensureBuilt(); err != nil {
+		return nil, nil, err
+	}
+	policies, err := policy.New(profile.PolicyGroups, resolver.byName)
+	if err != nil {
+		if closeErr := closeChains(resolver.chains); closeErr != nil {
+			return nil, nil, errors.Join(err, closeErr)
+		}
+		return nil, nil, err
+	}
+	ch, err := resolver.resolve(tunCfg.Chain)
+	if err != nil {
+		_ = policies.Close()
+		_ = closeChains(resolver.chains)
+		return nil, nil, fmt.Errorf("tun: %w", err)
+	}
+	planner, err := resolver.routePlanner(tunCfg.Chain, policies)
+	if err != nil {
+		_ = policies.Close()
+		_ = closeChains(resolver.chains)
+		return nil, nil, fmt.Errorf("tun rules: %w", err)
+	}
+	dnsProxy, err := dnsproxy.New(profile.DNS, planner)
+	if err != nil {
+		_ = policies.Close()
+		_ = closeChains(resolver.chains)
+		return nil, nil, fmt.Errorf("tun dns: %w", err)
+	}
+	opts := listener.TUNOptions{
+		Name:          tunCfg.Name,
+		ProfileName:   profile.Name,
+		MTU:           tunCfg.MTU,
+		Addresses:     tunCfg.Addresses,
+		Routes:        tunCfg.Routes,
+		ExcludeCIDRs:  tunCfg.ExcludeCIDRs,
+		ChainName:     ch.Name,
+		EventBus:      bus,
+		DNSProxy:      dnsProxy,
+		PolicyManager: policies,
+	}
+	return listener.NewPacketStack(opts, ch, planner, writer), resolver.chains, nil
 }
 
 type chainResolver struct {

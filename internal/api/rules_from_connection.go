@@ -85,10 +85,16 @@ func (s *Server) handleCreateRuleFromConnection(w http.ResponseWriter, r *http.R
 }
 
 func ruleFromConnection(profile *config.Profile, conn traffic.Connection, req createRuleFromConnectionRequest) (config.RuleConfig, error) {
+	return RuleFromConnection(profile, conn, req.Name, req.Action, req.Scope)
+}
+
+// RuleFromConnection derives a rule from a captured connection using the same
+// action and scope semantics as the daemon API.
+func RuleFromConnection(profile *config.Profile, conn traffic.Connection, name, actionRaw, scopeRaw string) (config.RuleConfig, error) {
 	if profile == nil {
 		return config.RuleConfig{}, fmt.Errorf("profile is required")
 	}
-	action, nameFamily, err := actionFromConnection(profile, conn, req.Action)
+	action, nameFamily, err := actionFromConnection(profile, conn, actionRaw)
 	if err != nil {
 		return config.RuleConfig{}, err
 	}
@@ -96,7 +102,7 @@ func ruleFromConnection(profile *config.Profile, conn traffic.Connection, req cr
 	if host == "" {
 		return config.RuleConfig{}, fmt.Errorf("connection has no ruleable host")
 	}
-	scope := strings.ToLower(strings.TrimSpace(req.Scope))
+	scope := strings.ToLower(strings.TrimSpace(scopeRaw))
 	if scope == "" {
 		scope = "auto"
 	}
@@ -132,6 +138,9 @@ func ruleFromConnection(profile *config.Profile, conn traffic.Connection, req cr
 		rule.CIDRs = []string{ip.String() + "/" + strconv.Itoa(bits)}
 	default:
 		return config.RuleConfig{}, fmt.Errorf("scope must be auto, exact_host, domain_suffix, or cidr")
+	}
+	if name := strings.TrimSpace(name); name != "" {
+		rule.Name = name
 	}
 	return rule, nil
 }

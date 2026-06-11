@@ -10,6 +10,7 @@ import (
 	"net/netip"
 	"strings"
 	"sync"
+	"time"
 
 	api "github.com/JohnThre/clambhook/internal/api"
 	"github.com/JohnThre/clambhook/internal/chain"
@@ -23,6 +24,7 @@ import (
 	"github.com/JohnThre/clambhook/internal/protocol"
 	"github.com/JohnThre/clambhook/internal/ruleset"
 	"github.com/JohnThre/clambhook/internal/subscription"
+	"github.com/JohnThre/clambhook/internal/temprules"
 	"github.com/JohnThre/clambhook/internal/traffic"
 )
 
@@ -55,6 +57,7 @@ type TunnelRuntime struct {
 	bus    *events.Bus
 	trf    *traffic.Manager
 	dev    *developer.Manager
+	temp   *temprules.Manager
 	stack  *listener.PacketStack
 	proxy  *engine.Engine
 	chains []*chain.Chain
@@ -64,7 +67,7 @@ type TunnelRuntime struct {
 // NewTunnelRuntime creates an iOS/Android packet-tunnel runtime. iOS passes a
 // NetworkExtension-backed writer; tests can provide any PacketWriter.
 func NewTunnelRuntime(writer PacketWriter) *TunnelRuntime {
-	return &TunnelRuntime{writer: writer}
+	return &TunnelRuntime{writer: writer, temp: temprules.New()}
 }
 
 // Start loads configPath and starts packet routing. If the active profile has
@@ -112,7 +115,10 @@ func (r *TunnelRuntime) Start(configPath string) error {
 		return fmt.Errorf("developer: %w", err)
 	}
 
-	stack, chains, err := engine.BuildPacketStackForConfig(cfg, bus, r.writer)
+	if r.temp == nil {
+		r.temp = temprules.New()
+	}
+	stack, chains, err := engine.BuildPacketStackForConfigWithTemporaryRules(cfg, bus, r.writer, r.temp)
 	if err != nil {
 		trafficMgr.Stop()
 		_ = geoReader.Close()
@@ -129,7 +135,7 @@ func (r *TunnelRuntime) Start(configPath string) error {
 		bus.Close()
 		return err
 	}
-	proxyEngine, err := startMobileHTTPProxy(ctx, cfg, bus, developerMgr)
+	proxyEngine, err := startMobileHTTPProxy(ctx, cfg, bus, developerMgr, r.temp)
 	if err != nil {
 		cancel()
 		_ = stack.Stop()
@@ -340,7 +346,10 @@ func (r *TunnelRuntime) startConfig(cfg *config.Config) error {
 		bus.Close()
 		return fmt.Errorf("developer: %w", err)
 	}
-	stack, chains, err := engine.BuildPacketStackForConfig(cfg, bus, r.writer)
+	if r.temp == nil {
+		r.temp = temprules.New()
+	}
+	stack, chains, err := engine.BuildPacketStackForConfigWithTemporaryRules(cfg, bus, r.writer, r.temp)
 	if err != nil {
 		trafficMgr.Stop()
 		_ = geoReader.Close()
@@ -357,7 +366,7 @@ func (r *TunnelRuntime) startConfig(cfg *config.Config) error {
 		bus.Close()
 		return err
 	}
-	proxyEngine, err := startMobileHTTPProxy(ctx, cfg, bus, developerMgr)
+	proxyEngine, err := startMobileHTTPProxy(ctx, cfg, bus, developerMgr, r.temp)
 	if err != nil {
 		cancel()
 		_ = stack.Stop()
@@ -380,12 +389,13 @@ func (r *TunnelRuntime) startConfig(cfg *config.Config) error {
 	return nil
 }
 
-func startMobileHTTPProxy(ctx context.Context, cfg *config.Config, bus *events.Bus, inspector listener.HTTPInspector) (*engine.Engine, error) {
+func startMobileHTTPProxy(ctx context.Context, cfg *config.Config, bus *events.Bus, inspector listener.HTTPInspector, tempRules *temprules.Manager) (*engine.Engine, error) {
 	proxyCfg := mobileHTTPProxyConfig(cfg)
 	if proxyCfg == nil {
 		return nil, nil
 	}
 	eng := engine.New(proxyCfg, bus)
+	eng.SetTemporaryRules(tempRules)
 	eng.SetHTTPInspector(inspector)
 	if err := eng.Start(ctx); err != nil {
 		_ = eng.CloseGeo()
@@ -470,12 +480,84 @@ func (r *TunnelRuntime) RulesJSON() (string, error) {
 func (r *TunnelRuntime) TrafficJSON() (string, error) {
 	r.mu.Lock()
 	trf := r.trf
+	cfg := r.cfg
+	tempRules := r.temp
 	r.mu.Unlock()
+	profile := activeProfileName(cfg)
+	temporaryRules := []temprules.Rule(nil)
+	if tempRules != nil {
+		temporaryRules = tempRules.Snapshot(profile)
+	}
 	if trf == nil || trf.Store() == nil {
 		var empty *traffic.Store
-		return marshalString(empty.Snapshot("all", 200))
+		return marshalString(empty.SnapshotWithOptions(traffic.SnapshotOptions{
+			State:          "all",
+			Limit:          200,
+			ActiveProfile:  profile,
+			Profiles:       profileNames(cfg),
+			TemporaryRules: temporaryRules,
+		}))
 	}
-	return marshalString(trf.Store().Snapshot("all", 200))
+	return marshalString(trf.Store().SnapshotWithOptions(traffic.SnapshotOptions{
+		State:          "all",
+		Limit:          200,
+		ActiveProfile:  profile,
+		Profiles:       profileNames(cfg),
+		TemporaryRules: temporaryRules,
+	}))
+}
+
+// CreateTemporaryRuleFromConnectionJSON creates an in-memory routing rule from
+// a tracked connection and returns the created rule plus the current snapshot.
+func (r *TunnelRuntime) CreateTemporaryRuleFromConnectionJSON(connID, profileName, name, action, scope string, ttlSeconds int64) (string, error) {
+	r.mu.Lock()
+	cfg := r.cfg
+	trf := r.trf
+	tempRules := r.temp
+	r.mu.Unlock()
+	if cfg == nil || trf == nil || trf.Store() == nil {
+		return "", errors.New("tunnel: runtime is not running")
+	}
+	if tempRules == nil {
+		return "", errors.New("temporary rules are not configured")
+	}
+	conn, ok := trf.Store().Connection(connID)
+	if !ok {
+		return "", errors.New("connection not found")
+	}
+	if strings.TrimSpace(profileName) == "" {
+		profileName = conn.Profile
+	}
+	profile := selectProfileForEdit(cfg, profileName)
+	if profile == nil {
+		return "", fmt.Errorf("profile %q not found", profileName)
+	}
+	rule, err := api.RuleFromConnection(profile, conn, name, action, scope)
+	if err != nil {
+		return "", err
+	}
+	ttl := 15 * time.Minute
+	if ttlSeconds > 0 {
+		ttl = time.Duration(ttlSeconds) * time.Second
+	}
+	if ttl > 24*time.Hour {
+		return "", errors.New("ttl_seconds must be at most 86400")
+	}
+	created, err := tempRules.Create(temprules.CreateRequest{
+		Profile:          profile.Name,
+		Rule:             rule,
+		TTL:              ttl,
+		SourceConnID:     conn.ConnID,
+		SourceTarget:     conn.Target,
+		SourceTargetHost: mobileConnectionRuleHost(conn),
+	})
+	if err != nil {
+		return "", err
+	}
+	return marshalString(map[string]any{
+		"temporary_rule":  created,
+		"temporary_rules": tempRules.Snapshot(profile.Name),
+	})
 }
 
 func (r *TunnelRuntime) DeveloperStatusJSON() (string, error) {
@@ -537,15 +619,33 @@ func (r *TunnelRuntime) DashboardJSON() (string, error) {
 	geoReader := r.geo
 	trf := r.trf
 	stack := r.stack
+	tempRulesMgr := r.temp
 	status := r.statusLocked()
 	r.mu.Unlock()
 
 	var trafficSnapshot traffic.Snapshot
+	profile := activeProfileName(cfg)
+	temporaryRules := []temprules.Rule(nil)
+	if tempRulesMgr != nil {
+		temporaryRules = tempRulesMgr.Snapshot(profile)
+	}
 	if trf == nil || trf.Store() == nil {
 		var empty *traffic.Store
-		trafficSnapshot = empty.Snapshot("all", 200)
+		trafficSnapshot = empty.SnapshotWithOptions(traffic.SnapshotOptions{
+			State:          "all",
+			Limit:          200,
+			ActiveProfile:  profile,
+			Profiles:       profileNames(cfg),
+			TemporaryRules: temporaryRules,
+		})
 	} else {
-		trafficSnapshot = trf.Store().Snapshot("all", 200)
+		trafficSnapshot = trf.Store().SnapshotWithOptions(traffic.SnapshotOptions{
+			State:          "all",
+			Limit:          200,
+			ActiveProfile:  profile,
+			Profiles:       profileNames(cfg),
+			TemporaryRules: temporaryRules,
+		})
 	}
 	payload := dashboardPayload{
 		Status: status,
@@ -563,6 +663,20 @@ func (r *TunnelRuntime) DashboardJSON() (string, error) {
 		NetworkSettings:   networkSettingsForConfig(cfg),
 	}
 	return marshalString(payload)
+}
+
+func mobileConnectionRuleHost(conn traffic.Connection) string {
+	host := strings.TrimSpace(conn.TargetHost)
+	if host == "" && conn.Visibility != nil {
+		host = strings.TrimSpace(conn.Visibility.Host)
+	}
+	if host == "" {
+		host = strings.TrimSpace(conn.Target)
+		if i := strings.LastIndex(host, ":"); i > 0 && i < len(host)-1 {
+			host = host[:i]
+		}
+	}
+	return strings.Trim(host, "[]")
 }
 
 // TunnelNetworkSettingsJSON describes the NetworkExtension interface settings

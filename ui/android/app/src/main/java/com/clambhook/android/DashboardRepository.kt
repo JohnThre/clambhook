@@ -146,6 +146,10 @@ class DashboardRepository(
         performAction(DashboardAction.Refresh) { api.createRuleFromConnection(connection, rule) }
     }
 
+    suspend fun createTemporaryRuleFromConnection(connection: TrafficConnectionPayload, action: String) {
+        performAction(DashboardAction.Refresh) { api.createTemporaryRuleFromConnection(connection, action) }
+    }
+
     suspend fun cleanupRule(suggestion: TrafficCleanupSuggestionPayload) {
         performAction(DashboardAction.Refresh) { api.cleanupRule(suggestion) }
     }

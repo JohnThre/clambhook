@@ -503,6 +503,7 @@ func (s *Store) SnapshotWithOptions(opts SnapshotOptions) Snapshot {
 	if s == nil {
 		return Snapshot{
 			UpdatedTsNs:    time.Now().UnixNano(),
+			TemporaryRules: append([]temprules.Rule(nil), opts.TemporaryRules...),
 			ProfileContext: ProfileContext{Active: opts.ActiveProfile, Profiles: append([]string(nil), opts.Profiles...)},
 			Connections:    []Connection{},
 		}

@@ -30,6 +30,7 @@ interface ClambhookApi {
     suspend fun setActiveProfile(name: String)
     suspend fun createRule(rule: RulePayload): RulesPayload
     suspend fun createRuleFromConnection(connection: TrafficConnectionPayload, rule: RulePayload): RulesPayload
+    suspend fun createTemporaryRuleFromConnection(connection: TrafficConnectionPayload, action: String, ttlSeconds: Int = 900): TemporaryRuleCreateResponsePayload
     suspend fun cleanupRule(suggestion: TrafficCleanupSuggestionPayload): RulesPayload
     suspend fun replaceRules(profile: String, rules: List<RulePayload>): RulesPayload
     suspend fun developerStatus(): DeveloperStatusPayload
@@ -120,6 +121,22 @@ class ClambhookApiClient(
                         profile = connection.profile,
                         name = rule.name,
                         action = rule.action
+                    )
+                )
+            )
+        )
+
+    override suspend fun createTemporaryRuleFromConnection(connection: TrafficConnectionPayload, action: String, ttlSeconds: Int): TemporaryRuleCreateResponsePayload =
+        ApiJson.decodeFromString(
+            send(
+                "POST",
+                "/api/v1/rules/temporary/from-connection",
+                ApiJson.encodeToString(
+                    CreateTemporaryRuleFromConnectionRequest(
+                        connId = connection.connId,
+                        profile = connection.profile,
+                        action = action,
+                        ttlSeconds = ttlSeconds
                     )
                 )
             )

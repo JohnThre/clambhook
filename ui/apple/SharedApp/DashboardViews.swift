@@ -73,7 +73,16 @@ struct DashboardContentView: View {
             }
             Section("Traffic") {
                 TrafficSummaryView(traffic: model.dashboard.traffic)
-                TrafficListView(connections: model.dashboard.traffic.connections)
+                TrafficListView(
+                    connections: model.dashboard.traffic.connections,
+                    fallbackChain: dashboardFallbackProxyChain(model.dashboard),
+                    onTemporaryAction: { connection, action in
+                        model.createTemporaryRuleFromConnection(connection, action: action)
+                    },
+                    onPermanentRule: { connection, rule in
+                        model.createRuleFromConnection(connection, rule: rule)
+                    }
+                )
             }
             if !model.dashboard.traffic.ruleHits.isEmpty {
                 Section("Rule Hits") {
@@ -157,6 +166,19 @@ private func dashboardCleanupActionTitle(_ suggestion: TrafficCleanupSuggestionP
     suggestion.operation == "move_rule_to_end" ? "Move to End" : "Delete"
 }
 
+@MainActor
+private func dashboardFallbackProxyChain(_ dashboard: DashboardStore) -> String {
+    for group in dashboard.policyGroups.groups {
+        if !group.selectedChain.isEmpty {
+            return group.selectedChain
+        }
+        if !group.selected.isEmpty {
+            return group.selected
+        }
+    }
+    return dashboard.servers.chains.first?.name ?? ""
+}
+
 struct TrafficSummaryView: View {
     var traffic: TrafficSnapshotPayload
 
@@ -177,6 +199,9 @@ struct TrafficSummaryView: View {
 
 struct TrafficListView: View {
     var connections: [TrafficConnectionPayload]
+    var fallbackChain: String = ""
+    var onTemporaryAction: ((TrafficConnectionPayload, String) -> Void)?
+    var onPermanentRule: ((TrafficConnectionPayload, RulePayload) -> Void)?
 
     var body: some View {
         if connections.isEmpty {
@@ -198,6 +223,12 @@ struct TrafficListView: View {
                     Text("\(formatBytes(connection.rxTotal)) down · \(formatBytes(connection.txTotal)) up · \(formatDurationNs(connection.durationNs))")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                    TrafficRowActionView(
+                        connection: connection,
+                        fallbackChain: fallbackChain,
+                        onTemporaryAction: onTemporaryAction,
+                        onPermanentRule: onPermanentRule
+                    )
                 }
             }
         }
@@ -211,6 +242,59 @@ struct TrafficListView: View {
             return parts.joined(separator: " · ")
         }
         return connection.listener.protocol
+    }
+}
+
+private struct TrafficRowActionView: View {
+    var connection: TrafficConnectionPayload
+    var fallbackChain: String
+    var onTemporaryAction: ((TrafficConnectionPayload, String) -> Void)?
+    var onPermanentRule: ((TrafficConnectionPayload, RulePayload) -> Void)?
+
+    private var canCreateRule: Bool {
+        !connection.connID.isEmpty && !connection.monitorHost.isEmpty
+    }
+
+    private var proxyAction: String {
+        connection.temporaryProxyAction(fallbackChain: fallbackChain)
+    }
+
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 8) {
+                buttons
+            }
+            VStack(alignment: .leading, spacing: 6) {
+                buttons
+            }
+        }
+        .font(.caption)
+    }
+
+    private var buttons: some View {
+        Group {
+            Button("Allow") {
+                onTemporaryAction?(connection, "allow")
+            }
+            .disabled(!canCreateRule)
+            Button("Block", role: .destructive) {
+                onTemporaryAction?(connection, "block")
+            }
+            .disabled(!canCreateRule)
+            Button("Proxy") {
+                if !proxyAction.isEmpty {
+                    onTemporaryAction?(connection, proxyAction)
+                }
+            }
+            .disabled(!canCreateRule || proxyAction.isEmpty)
+            Button("Permanent") {
+                if let rule = connection.ruleDraft() {
+                    onPermanentRule?(connection, rule)
+                }
+            }
+            .disabled(connection.ruleDraft() == nil)
+        }
+        .buttonStyle(.borderless)
     }
 }
 

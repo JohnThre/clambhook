@@ -183,6 +183,7 @@ fun ClambhookApp(
                         onOpenSettings = { selectedTab = AppTab.Settings },
                         onCreateRule = viewModel::createRule,
                         onCreateRuleFromConnection = viewModel::createRuleFromConnection,
+                        onCreateTemporaryRuleFromConnection = viewModel::createTemporaryRuleFromConnection,
                         onCleanupRule = viewModel::cleanupRule,
                         modifier = Modifier.padding(padding)
                     )
@@ -198,6 +199,7 @@ fun ClambhookApp(
                         onOpenSettings = { selectedTab = AppTab.Settings },
                         onCreateRule = viewModel::createRule,
                         onCreateRuleFromConnection = viewModel::createRuleFromConnection,
+                        onCreateTemporaryRuleFromConnection = viewModel::createTemporaryRuleFromConnection,
                         onCleanupRule = viewModel::cleanupRule,
                         modifier = Modifier.padding(padding)
                     )
@@ -213,6 +215,7 @@ fun ClambhookApp(
                         onOpenSettings = { selectedTab = AppTab.Settings },
                         onCreateRule = viewModel::createRule,
                         onCreateRuleFromConnection = viewModel::createRuleFromConnection,
+                        onCreateTemporaryRuleFromConnection = viewModel::createTemporaryRuleFromConnection,
                         onCleanupRule = viewModel::cleanupRule,
                         modifier = Modifier.padding(padding)
                     )
@@ -228,6 +231,7 @@ fun ClambhookApp(
                         onOpenSettings = { selectedTab = AppTab.Settings },
                         onCreateRule = viewModel::createRule,
                         onCreateRuleFromConnection = viewModel::createRuleFromConnection,
+                        onCreateTemporaryRuleFromConnection = viewModel::createTemporaryRuleFromConnection,
                         onCleanupRule = viewModel::cleanupRule,
                         modifier = Modifier.padding(padding)
                     )

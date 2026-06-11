@@ -79,6 +79,7 @@ fun DashboardScreen(
     onOpenSettings: () -> Unit,
     onCreateRule: (RulePayload) -> Unit,
     onCreateRuleFromConnection: (TrafficConnectionPayload, RulePayload) -> Unit,
+    onCreateTemporaryRuleFromConnection: (TrafficConnectionPayload, String) -> Unit,
     onCleanupRule: (TrafficCleanupSuggestionPayload) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -106,7 +107,7 @@ fun DashboardScreen(
             }
 
             DashboardDestination.Logbook -> {
-                item { TrafficCard(state, onCreateRule, onCreateRuleFromConnection, onCleanupRule) }
+                item { TrafficCard(state, onCreateRule, onCreateRuleFromConnection, onCreateTemporaryRuleFromConnection, onCleanupRule) }
                 item { DeveloperCaptureCard(state) }
                 item { LogsCard(state) }
             }
@@ -691,6 +692,7 @@ private fun TrafficCard(
     state: DashboardState,
     onCreateRule: (RulePayload) -> Unit,
     onCreateRuleFromConnection: (TrafficConnectionPayload, RulePayload) -> Unit,
+    onCreateTemporaryRuleFromConnection: (TrafficConnectionPayload, String) -> Unit,
     onCleanupRule: (TrafficCleanupSuggestionPayload) -> Unit
 ) {
     val traffic = state.traffic
@@ -700,6 +702,7 @@ private fun TrafficCard(
     var draftConnection by remember { mutableStateOf<TrafficConnectionPayload?>(null) }
     var pendingCleanup by remember { mutableStateOf<TrafficCleanupSuggestionPayload?>(null) }
     val counts = traffic.actionCounts()
+    val fallbackChain = dashboardFallbackProxyChain(state)
     val visibleConnections = traffic.connections.filter { connection ->
         (filter == "all" || connection.actionFamily() == filter) &&
             (search.isBlank() || listOf(
@@ -794,7 +797,9 @@ private fun TrafficCard(
                 EmptyState("No matching activity", "Connection decisions appear here when traffic passes through clambhook.")
             } else {
                 visibleConnections.take(8).forEach { connection ->
-                    ConnectionRow(connection, onCreateRule = {
+                    ConnectionRow(connection, fallbackChain, onTemporaryAction = { action ->
+                        onCreateTemporaryRuleFromConnection(connection, action)
+                    }, onCreatePermanentRule = {
                         draftConnection = connection
                         draftRule = connection.ruleDraft()
                     })
@@ -842,6 +847,12 @@ private fun TrafficCard(
             }
         )
     }
+}
+
+private fun dashboardFallbackProxyChain(state: DashboardState): String {
+    state.policyGroups.groups.firstOrNull { it.selectedChain.isNotBlank() }?.let { return it.selectedChain }
+    state.policyGroups.groups.firstOrNull { it.selected.isNotBlank() }?.let { return it.selected }
+    return state.servers.chains.firstOrNull()?.name.orEmpty()
 }
 
 @Composable
@@ -914,7 +925,14 @@ private fun RuleSuggestionRow(suggestion: TrafficRuleSuggestionPayload, onCreate
 }
 
 @Composable
-private fun ConnectionRow(connection: TrafficConnectionPayload, onCreateRule: () -> Unit) {
+private fun ConnectionRow(
+    connection: TrafficConnectionPayload,
+    fallbackChain: String,
+    onTemporaryAction: (String) -> Unit,
+    onCreatePermanentRule: () -> Unit
+) {
+    val canCreateTemporary = connection.canCreateTemporaryRule()
+    val proxyAction = connection.temporaryProxyAction(fallbackChain)
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(3.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text(
@@ -942,8 +960,19 @@ private fun ConnectionRow(connection: TrafficConnectionPayload, onCreateRule: ()
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
-        OutlinedButton(onClick = onCreateRule, enabled = connection.ruleDraft() != null) {
-            Text("Create rule from connection")
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            OutlinedButton(onClick = { onTemporaryAction("allow") }, enabled = canCreateTemporary) {
+                Text("Allow")
+            }
+            OutlinedButton(onClick = { onTemporaryAction("block") }, enabled = canCreateTemporary) {
+                Text("Block")
+            }
+            OutlinedButton(onClick = { onTemporaryAction(proxyAction) }, enabled = canCreateTemporary && proxyAction.isNotBlank()) {
+                Text("Proxy")
+            }
+            OutlinedButton(onClick = onCreatePermanentRule, enabled = connection.ruleDraft() != null) {
+                Text("Permanent")
+            }
         }
     }
 }

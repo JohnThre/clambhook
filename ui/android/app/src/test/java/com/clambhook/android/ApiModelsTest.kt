@@ -129,6 +129,7 @@ class ApiModelsTest {
               "updated_ts_ns": 99,
               "summary": {"active_connections": 1},
               "profile_context": {"active": "Work", "profiles": ["Work", "Home"]},
+              "temporary_rules": [{"id":"tmp1","profile":"Work","rule":{"name":"allow-api","action":"chain:proxy","domains":["api.example.com"]}}],
               "quick_filters": [{"key": "block", "label": "Block", "count": 2}],
               "rule_hits": [{"profile": "Work", "rule_name": "ads", "action": "block", "count": 2, "last_target": "ads.example.com:443"}],
               "block_decisions": [{"conn_id": "c1", "profile": "Work", "rule_name": "ads", "action": "block", "target_host": "ads.example.com", "ts_ns": 88}],
@@ -140,6 +141,7 @@ class ApiModelsTest {
         )
 
         assertEquals("Work", traffic.profileContext.active)
+        assertEquals("tmp1", traffic.temporaryRules.single().id)
         assertEquals("block", traffic.quickFilters.single().key)
         assertEquals("ads", traffic.ruleHits.single().ruleName)
         assertEquals("ads.example.com", traffic.blockDecisions.single().targetHost)
@@ -150,5 +152,17 @@ class ApiModelsTest {
         assertEquals(443, traffic.ruleSuggestions.single().draftRule.ports.single())
         assertEquals("Work", traffic.connections.single().profile)
         assertEquals(true, traffic.connections.single().isDefault)
+    }
+
+    @Test
+    fun derivesTemporaryRuleActionsFromConnectionRows() {
+        val grouped = TrafficConnectionPayload(connId = "c1", targetHost = "api.example.com", groupName = "auto")
+        val chained = TrafficConnectionPayload(connId = "c2", targetHost = "cdn.example.com", chainName = "proxy")
+        val fallback = TrafficConnectionPayload(connId = "c3", targetHost = "fallback.example.com")
+
+        assertEquals(true, grouped.canCreateTemporaryRule())
+        assertEquals("group:auto", grouped.temporaryProxyAction("backup"))
+        assertEquals("chain:proxy", chained.temporaryProxyAction("backup"))
+        assertEquals("chain:backup", fallback.temporaryProxyAction("backup"))
     }
 }

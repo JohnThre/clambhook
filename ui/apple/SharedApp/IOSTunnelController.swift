@@ -121,6 +121,22 @@ final class IOSTunnelController: ObservableObject {
         return try disconnectedDashboard().policyGroups
     }
 
+    func createTemporaryRuleFromConnection(connID: String, profile: String, name: String, action: String, scope: String, ttlSeconds: Int) async throws -> TemporaryRuleCreateResponsePayload {
+        guard canSendProviderMessage else {
+            throw TunnelControllerError.tunnelNotRunning
+        }
+        let data = try await send(.init(
+            action: .createTemporaryRuleFromConnection,
+            profile: profile,
+            connID: connID,
+            name: name,
+            ruleAction: action,
+            scope: scope,
+            ttlSeconds: ttlSeconds
+        ))
+        return try decoder.decode(TemporaryRuleCreateResponsePayload.self, from: data)
+    }
+
     func dashboard() async throws -> TunnelDashboardPayload {
         let manager = try await configuredManager()
         updateStatus(from: manager)

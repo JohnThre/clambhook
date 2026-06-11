@@ -42,6 +42,7 @@ public enum TunnelCommandAction: String, Codable, Sendable {
     case reload
     case setActiveProfile = "set_active_profile"
     case selectPolicyGroup = "select_policy_group"
+    case createTemporaryRuleFromConnection = "create_temporary_rule_from_connection"
     case developerStatus = "developer_status"
     case developerEntries = "developer_entries"
     case developerCA = "developer_ca"
@@ -54,12 +55,34 @@ public struct TunnelCommand: Codable, Equatable, Sendable {
     public var profile: String?
     public var group: String?
     public var chain: String?
+    public var connID: String?
+    public var name: String?
+    public var ruleAction: String?
+    public var scope: String?
+    public var ttlSeconds: Int?
 
-    public init(action: TunnelCommandAction, profile: String? = nil, group: String? = nil, chain: String? = nil) {
+    enum CodingKeys: String, CodingKey {
+        case action
+        case profile
+        case group
+        case chain
+        case connID = "conn_id"
+        case name
+        case ruleAction = "rule_action"
+        case scope
+        case ttlSeconds = "ttl_seconds"
+    }
+
+    public init(action: TunnelCommandAction, profile: String? = nil, group: String? = nil, chain: String? = nil, connID: String? = nil, name: String? = nil, ruleAction: String? = nil, scope: String? = nil, ttlSeconds: Int? = nil) {
         self.action = action
         self.profile = profile
         self.group = group
         self.chain = chain
+        self.connID = connID
+        self.name = name
+        self.ruleAction = ruleAction
+        self.scope = scope
+        self.ttlSeconds = ttlSeconds
     }
 }
 

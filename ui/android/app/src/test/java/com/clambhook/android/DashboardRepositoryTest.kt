@@ -137,6 +137,21 @@ class DashboardRepositoryTest {
     }
 
     @Test
+    fun createTemporaryRuleFromConnectionRefreshesDashboardAfterSuccess() = runBlocking {
+        val api = FakeApi()
+        val repository = DashboardRepository(api)
+
+        repository.createTemporaryRuleFromConnection(
+            TrafficConnectionPayload(connId = "c1", profile = "Work", targetHost = "api.example.com"),
+            "block"
+        )
+
+        assertEquals(listOf("temporary-rule:c1:block:900"), api.actions)
+        assertEquals(1, api.ruleCalls)
+        assertNull(repository.state.value.actionInProgress)
+    }
+
+    @Test
     fun appliesBandwidthAndLogEventsWithCaps() = runBlocking {
         val repository = DashboardRepository(FakeApi())
 
@@ -275,6 +290,17 @@ private class FakeApi(
         actions += "connection-rule:${connection.connId}:${rule.name}"
         rules = RulesPayload(profile = connection.profile, rules = listOf(rule))
         return rules
+    }
+
+    override suspend fun createTemporaryRuleFromConnection(connection: TrafficConnectionPayload, action: String, ttlSeconds: Int): TemporaryRuleCreateResponsePayload {
+        actions += "temporary-rule:${connection.connId}:$action:$ttlSeconds"
+        return TemporaryRuleCreateResponsePayload(
+            temporaryRule = TemporaryRulePayload(
+                id = "tmp1",
+                profile = connection.profile,
+                rule = RulePayload(name = "tmp", action = action)
+            )
+        )
     }
 
     override suspend fun cleanupRule(suggestion: TrafficCleanupSuggestionPayload): RulesPayload {
