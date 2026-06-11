@@ -8,7 +8,7 @@ ClambHook's end-user iPhone release is distributed only through the Apple App St
 - Premium access and paid feature updates are sold through non-consumable In-App Purchases.
 - Family Sharing is enabled for premium In-App Purchases in App Store Connect.
 - GitHub is source-only and view-only for end users.
-- App Store Release builds require privacy-preserving server license validation using App Attest and StoreKit 2 transaction JWS values; see `docs/license-validation.md`.
+- App Store Release builds require privacy-preserving server license validation using App Attest and StoreKit 2 transaction JWS values. The production endpoint is hosted under `https://jpfchang.org/clambhook/license`.
 
 The source is proprietary to Pengfan Chang, all rights reserved, and may not be copied, modified, built, run, contributed to, redistributed, packaged, released, hosted, sublicensed, or used to create derivative works without separate prior written permission from Pengfan Chang.
 
