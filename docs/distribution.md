@@ -7,8 +7,10 @@ ClambHook's end-user iPhone release is distributed only through the Apple App St
 - The App Store app price is Free.
 - Premium access and paid feature updates are sold through non-consumable In-App Purchases.
 - Family Sharing is enabled for premium In-App Purchases in App Store Connect.
-- GitHub is source-only for end users.
+- GitHub is source-only and view-only for end users.
 - App Store Release builds require privacy-preserving server license validation using App Attest and StoreKit 2 transaction JWS values; see `docs/license-validation.md`.
+
+The source is proprietary to Pengfan Chang, all rights reserved, and may not be copied, modified, built, run, contributed to, redistributed, packaged, released, hosted, sublicensed, or used to create derivative works without separate prior written permission from Pengfan Chang.
 
 ## In-App Purchase Products
 
@@ -25,4 +27,4 @@ The lifetime unlock includes features released through the purchase date plus on
 
 Do not release end-user installers or package artifacts on GitHub. This includes `.dmg`, `.pkg`, `.apk`, `.aab`, `.ipa`, Homebrew formula releases, Debian packages, and macOS installer artifacts.
 
-Non-iPhone build, package, and release targets remain available for internal developer QA only.
+Non-iPhone build, package, and release targets remain available for Pengfan Chang's internal developer QA only. Only Pengfan Chang may distribute, publish, package, or release ClambHook source code or artifacts.

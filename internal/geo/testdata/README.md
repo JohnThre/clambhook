@@ -10,7 +10,7 @@ Files:
 - `GeoIP2-Country-Test.mmdb` — country-only records (for coverage of the
   code path where city/location fields are absent)
 
-The MaxMind-DB project is dual-licensed under MIT and Apache 2.0. Both are
-compatible with this project's GPL v3 license.
+The MaxMind-DB project is dual-licensed under MIT and Apache 2.0. These
+fixtures remain subject to their upstream license terms.
 
 Source: https://github.com/maxmind/MaxMind-DB/tree/main/test-data

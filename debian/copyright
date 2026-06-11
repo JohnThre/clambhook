@@ -3,17 +3,29 @@ Upstream-Name: clambhook
 Source: https://github.com/JohnThre/clambhook
 
 Files: *
-Copyright: 2026 clambhook contributors
-License: GPL-3
+Copyright: 2026 Pengfan Chang
+License: Clambhook-Proprietary-View-Only
 
-License: GPL-3
- This package is free software: you can redistribute it and/or modify it under
- the terms of the GNU General Public License as published by the Free Software
- Foundation, version 3 of the License.
+Files: vendor/*
+Copyright: see vendored upstream notices
+License: Vendored-Third-Party-Notices
+
+License: Clambhook-Proprietary-View-Only
+ Clambhook first-party materials are proprietary source-available software.
  .
- This package is distributed in the hope that it will be useful, but WITHOUT
- ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
- FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
+ Copyright (c) 2026 Pengfan Chang. All rights reserved.
  .
- On Debian systems, the complete text of the GNU General Public License
- version 3 can be found in /usr/share/common-licenses/GPL-3.
+ Permission is granted only to view source code made available by Pengfan Chang
+ for personal inspection. No permission is granted to copy, modify, build, run,
+ distribute, redistribute, contribute to, publish, package, release, host,
+ sublicense, sell, or create derivative works from Clambhook first-party
+ materials without separate prior written permission from Pengfan Chang.
+ .
+ Third-party contributions are not accepted unless Pengfan Chang has given
+ separate prior written permission.
+ .
+ This software is provided for viewing only, as is, without warranty of any kind.
+ .
+License: Vendored-Third-Party-Notices
+ Vendored third-party materials remain subject to their respective upstream
+ license notices included with those materials.
