@@ -15,6 +15,7 @@ struct IOSStatusView: View {
                 }
                 IOSConnectionHeader(model: model, onRecoveryAction: onRecoveryAction)
                 IOSBandwidthPanel(model: model)
+                IOSActivityAccessPanel(model: model)
                 IOSPolicyControlPanel(model: model)
                 IOSNetworkSummaryPanel(model: model)
                 IOSProfileSwitchStrip(model: model)
@@ -243,6 +244,104 @@ private struct IOSBandwidthPanel: View {
                 .minimumScaleFactor(0.7)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private struct IOSActivityAccessPanel: View {
+    @ObservedObject var model: AppleAppModel
+
+    var body: some View {
+        IOSPanel {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text("Activity")
+                        .font(.headline)
+                    Spacer()
+                    Text("\(activityCount + metadataCount)")
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                }
+
+                VStack(spacing: 10) {
+                    NavigationLink {
+                        IOSActivityView(model: model)
+                    } label: {
+                        IOSActivityAccessRow(
+                            title: "Traffic Activity",
+                            detail: activityDetail,
+                            systemImage: "clock.arrow.circlepath",
+                            tint: .blue
+                        )
+                    }
+                    .buttonStyle(.plain)
+
+                    Divider()
+
+                    NavigationLink {
+                        IOSHTTPCaptureView(model: model)
+                    } label: {
+                        IOSActivityAccessRow(
+                            title: "HTTP Metadata",
+                            detail: metadataDetail,
+                            systemImage: "network",
+                            tint: .teal
+                        )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+    }
+
+    private var activityCount: Int {
+        model.dashboard.traffic.connections.count
+    }
+
+    private var metadataCount: Int {
+        CaptureSupport.captureEntries(from: model.dashboard.traffic).count
+    }
+
+    private var activityDetail: String {
+        "\(model.dashboard.traffic.summary.activeConnections) active, \(activityCount) total"
+    }
+
+    private var metadataDetail: String {
+        metadataCount == 1 ? "1 metadata request" : "\(metadataCount) metadata requests"
+    }
+}
+
+private struct IOSActivityAccessRow: View {
+    var title: String
+    var detail: String
+    var systemImage: String
+    var tint: Color
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 10) {
+            Image(systemName: systemImage)
+                .foregroundStyle(tint)
+                .frame(width: 24)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                Text(detail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+            }
+
+            Spacer(minLength: 0)
+
+            Image(systemName: "chevron.right")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.tertiary)
+        }
+        .contentShape(Rectangle())
     }
 }
 
