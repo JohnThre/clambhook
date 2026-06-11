@@ -124,10 +124,44 @@ func TestNowViewIncludesStatusAndGraph(t *testing.T) {
 			}},
 		}},
 	}
+	m.policies = policyGroupsPayload{
+		Profile: "B",
+		Groups: []policyGroupPayload{{
+			Name:          "auto",
+			Type:          "url-test",
+			Chains:        []string{"default", "backup"},
+			SelectedChain: "default",
+			Results: []policyProbeResultPayload{{
+				ChainName:  "default",
+				Healthy:    true,
+				LatencyNs:  int64(42 * time.Millisecond),
+				StatusCode: 204,
+			}},
+		}},
+	}
+	m.traffic = trafficSnapshotPayload{
+		Summary: trafficSummaryPayload{
+			ActiveConnections: 2,
+			RxBps:             2048,
+			TxBps:             1024,
+			RxTotal:           4096,
+			TxTotal:           2048,
+		},
+		Connections: []trafficConnectionPayload{{
+			Target:     "example.com:443",
+			TargetHost: "example.com",
+			RuleName:   "web",
+			RuleAction: "group",
+			GroupName:  "auto",
+			ChainName:  "default",
+			RxTotal:    4096,
+			TxTotal:    2048,
+		}},
+	}
 	m.bandwidth.add(bandwidthSample{RxBps: 2048, TxBps: 1024})
 
 	view := m.View()
-	for _, want := range []string{"Now", "RUNNING", "B", "Rx", "Tx"} {
+	for _, want := range []string{"Now", "Connection", "RUNNING", "B", "Policy", "auto", "url test", "Selected default", "Live Traffic", "Rx", "Tx", "Recent Decisions", "PROXY", "example.com", "web", "auto -> default"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("view missing %q:\n%s", want, view)
 		}
@@ -143,6 +177,23 @@ func TestNowViewIncludesStatusAndGraph(t *testing.T) {
 	for _, want := range []string{"Library", "socks5", "🇬🇧", "london", "trojan"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("library view missing %q:\n%s", want, view)
+		}
+	}
+}
+
+func TestNowViewShowsStaticPolicySummaryWithoutPolicyGroups(t *testing.T) {
+	m := newModel("127.0.0.1:9090")
+	m.apiOnline = true
+	m.status = statusPayload{Running: true, Profile: "A"}
+	m.servers = serversPayload{
+		Profile: "A",
+		Chains:  []chainPayload{{Name: "default"}},
+	}
+
+	view := m.View()
+	for _, want := range []string{"Policy", "Static route", "Selected default", "1 route"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("view missing %q:\n%s", want, view)
 		}
 	}
 }
@@ -360,7 +411,7 @@ func TestDashboardClipsTrafficPreviewAtSmallHeight(t *testing.T) {
 	}
 
 	view := m.View()
-	for _, want := range []string{"target-00.example:443", "target-01.example:443", "+3 more (press t)"} {
+	for _, want := range []string{"Recent Decisions", "target-00.example:443", "target-01.example:443", "+3 more (press 2)"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("dashboard traffic preview missing %q:\n%s", want, view)
 		}

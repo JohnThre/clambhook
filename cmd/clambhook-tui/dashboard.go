@@ -618,14 +618,15 @@ func (m model) View() string {
 	width := m.contentWidth()
 	sections := []string{
 		m.renderHeader("Now"),
-		m.renderStatusSummary(width),
 	}
 	if m.errText != "" {
 		sections = append(sections, m.renderError(width))
 	}
 	sections = append(sections,
-		m.renderBandwidthSection(width),
-		m.renderTrafficPreviewSection(width),
+		m.renderConnectionSection(width),
+		m.renderNowPolicySection(width),
+		m.renderLiveTrafficSection(width),
+		m.renderRecentDecisionsSection(width),
 		m.renderFooter(
 			"Keys: c connect  d disconnect  r refresh  2 activity  3 library  4 settings  5 developer  q quit",
 			"Keys: c/d  r  2 activity  3 library  4 settings  5 dev  q",
@@ -878,6 +879,14 @@ func (m model) renderStatusSummary(width int) string {
 	}, "\n")
 }
 
+func (m model) renderConnectionSection(width int) string {
+	lines := []string{
+		m.renderStatusSummary(width),
+		truncate(fmt.Sprintf("  Active profile %s  Connections %d", emptyDash(m.activeProfile()), m.activeConnections()), width),
+	}
+	return renderSection("Connection", lines)
+}
+
 func (m model) runningBadge() string {
 	if m.status.Running {
 		return runningBadgeStyle.Render("RUNNING")
@@ -978,6 +987,20 @@ func (m model) renderServersSection(width int) string {
 
 func (m model) renderPolicyGroupsSection(width int) string {
 	return renderSection("Policy Groups", m.policyGroupLines(width))
+}
+
+func (m model) renderNowPolicySection(width int) string {
+	lines := make([]string, 0, 3)
+	if len(m.policies.Groups) > 0 {
+		group := m.policies.Groups[0]
+		lines = append(lines, truncate(fmt.Sprintf("  Group %s  Mode %s", group.Name, policyModeText(group)), width))
+		lines = append(lines, truncate(fmt.Sprintf("  Selected %s  %s", emptyDash(selectedPolicyChain(group)), policyGroupHealthText(group)), width))
+	} else {
+		lines = append(lines, truncate(fmt.Sprintf("  Static route  Selected %s  %s", emptyDash(m.defaultRouteName()), routeCountText(len(m.servers.Chains))), width))
+	}
+	counts := m.actionCounts()
+	lines = append(lines, truncate(fmt.Sprintf("  Decisions  Proxy %d  Direct %d  Block %d", counts["proxy"], counts["direct"], counts["block"]), width))
+	return renderSection("Policy", lines)
 }
 
 func (m model) policyGroupLines(width int) []string {
@@ -1156,29 +1179,33 @@ func policyResultText(result policyProbeResultPayload, ok bool) string {
 	return "unhealthy"
 }
 
-func (m model) renderBandwidthSection(width int) string {
+func (m model) renderLiveTrafficSection(width int) string {
 	current := m.bandwidth.current()
 	graphWidth := graphWidthFor(width)
 	lines := []string{
+		m.trafficSummaryLine(width),
 		fmt.Sprintf("  Rx %-10s %s", formatRate(current.RxBps), m.bandwidth.graph(true, graphWidth)),
 		fmt.Sprintf("  Tx %-10s %s", formatRate(current.TxBps), m.bandwidth.graph(false, graphWidth)),
 	}
-	return renderSection("Bandwidth", lines)
+	if m.traffic.Summary.PersistError != "" {
+		lines = append(lines, errorStyle.Render(truncate("  History: "+m.traffic.Summary.PersistError, width)))
+	}
+	return renderSection("Live Traffic", lines)
 }
 
-func (m model) renderTrafficPreviewSection(width int) string {
-	lines := []string{m.trafficSummaryLine(width)}
+func (m model) renderRecentDecisionsSection(width int) string {
 	if len(m.traffic.Connections) == 0 {
-		lines = append(lines, emptyStateLines("No activity yet", "Recent connection decisions will appear here.", width)...)
-		return renderSection("Traffic", lines)
+		return renderSection("Recent Decisions", emptyStateLines("No recent activity", "Connection decisions will appear here.", width))
 	}
-
 	limit := m.dashboardTrafficRows()
-	lines = append(lines, m.trafficRows(width, limit, false)...)
-	if len(m.traffic.Connections) > limit {
-		lines = append(lines, subtleStyle.Render(fmt.Sprintf("  +%d more (press t)", len(m.traffic.Connections)-limit)))
+	lines := make([]string, 0, limit+1)
+	for _, conn := range firstTrafficRows(m.traffic.Connections, limit) {
+		lines = append(lines, recentDecisionLine(conn, width))
 	}
-	return renderSection("Traffic", lines)
+	if len(m.traffic.Connections) > limit {
+		lines = append(lines, subtleStyle.Render(fmt.Sprintf("  +%d more (press 2)", len(m.traffic.Connections)-limit)))
+	}
+	return renderSection("Recent Decisions", lines)
 }
 
 func (m model) renderTrafficDetailSection(width int) string {
@@ -1832,6 +1859,28 @@ func routeLabel(conn trafficConnectionPayload) string {
 	}
 }
 
+func recentDecisionLine(conn trafficConnectionPayload, width int) string {
+	parts := []string{
+		actionChip(conn),
+		emptyDash(recentDecisionTarget(conn)),
+		"rule " + ruleLabel(conn),
+		"route " + routeLabel(conn),
+		fmt.Sprintf("%s down / %s up", formatBytes(conn.RxTotal), formatBytes(conn.TxTotal)),
+		formatDurationNs(conn.DurationNs),
+	}
+	return truncate("  "+strings.Join(parts, "  "), width)
+}
+
+func recentDecisionTarget(conn trafficConnectionPayload) string {
+	if conn.TargetHost != "" {
+		return conn.TargetHost
+	}
+	if conn.Visibility != nil && conn.Visibility.Host != "" {
+		return conn.Visibility.Host
+	}
+	return conn.Target
+}
+
 func actionFamily(conn trafficConnectionPayload) string {
 	action := strings.ToLower(strings.TrimSpace(conn.RuleAction))
 	return actionFamilyFromAction(action)
@@ -2251,6 +2300,29 @@ func (m model) activeProfile() string {
 		return m.profiles.Active
 	}
 	return m.status.Profile
+}
+
+func (m model) defaultRouteName() string {
+	if len(m.servers.Chains) > 0 {
+		return m.servers.Chains[0].Name
+	}
+	for _, conn := range m.traffic.Connections {
+		if conn.ChainName != "" {
+			return conn.ChainName
+		}
+	}
+	return ""
+}
+
+func routeCountText(count int) string {
+	switch count {
+	case 0:
+		return "0 routes"
+	case 1:
+		return "1 route"
+	default:
+		return fmt.Sprintf("%d routes", count)
+	}
 }
 
 func (m model) startEventStreamCmd() tea.Cmd {
