@@ -21,6 +21,7 @@ const (
 
 type Config struct {
 	AppID              string
+	AppAppleID         int64
 	Environment        string
 	HMACSecret         []byte
 	GrantSigningSecret []byte
@@ -103,11 +104,15 @@ type LicenseGrant struct {
 }
 
 type LicenseTransaction struct {
-	ProductID      string     `json:"product_id"`
-	PurchaseDate   time.Time  `json:"purchase_date"`
-	RevocationDate *time.Time `json:"revocation_date,omitempty"`
-	OwnershipType  string     `json:"ownership_type"`
-	TransactionID  string     `json:"transaction_id"`
+	ProductID       string     `json:"product_id"`
+	PurchaseDate    time.Time  `json:"purchase_date"`
+	RevocationDate  *time.Time `json:"revocation_date,omitempty"`
+	OwnershipType   string     `json:"ownership_type"`
+	TransactionID   string     `json:"transaction_id"`
+	BundleID        string     `json:"-"`
+	AppAppleID      int64      `json:"-"`
+	Environment     string     `json:"-"`
+	AppAccountToken string     `json:"-"`
 }
 
 type ChallengeRecord struct {

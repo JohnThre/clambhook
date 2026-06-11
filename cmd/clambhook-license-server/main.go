@@ -15,6 +15,7 @@ func main() {
 	addr := flag.String("addr", envDefault("CLAMBHOOK_LICENSE_ADDR", "127.0.0.1:9091"), "listen address")
 	storePath := flag.String("store", envDefault("CLAMBHOOK_LICENSE_STORE", "license-store.json"), "license store path")
 	appID := flag.String("app-id", envDefault("CLAMBHOOK_LICENSE_APP_ID", ""), "Apple app id, for example TEAMID.org.jpfchang.clambhook")
+	appAppleID := flag.Int64("app-apple-id", envInt64("CLAMBHOOK_LICENSE_APP_APPLE_ID", 0), "App Store numeric app Apple ID; optional but enforced when set")
 	environment := flag.String("environment", envDefault("CLAMBHOOK_LICENSE_ENVIRONMENT", "production"), "App Attest environment")
 	allowNoReceiptRisk := flag.Bool("allow-no-receipt-risk", envBool("CLAMBHOOK_LICENSE_ALLOW_NO_RECEIPT_RISK", false), "allow startup without App Attest receipt risk refresh")
 	flag.Parse()
@@ -37,6 +38,7 @@ func main() {
 	}
 	cfg := license.Config{
 		AppID:              *appID,
+		AppAppleID:         *appAppleID,
 		Environment:        *environment,
 		HMACSecret:         hmacSecret,
 		GrantSigningSecret: grantSecret,
@@ -83,6 +85,15 @@ func secretFromEnv(key string) ([]byte, error) {
 func envInt(key string, fallback int) int {
 	value := os.Getenv(key)
 	var out int
+	if _, err := fmt.Sscanf(value, "%d", &out); err == nil && out > 0 {
+		return out
+	}
+	return fallback
+}
+
+func envInt64(key string, fallback int64) int64 {
+	value := os.Getenv(key)
+	var out int64
 	if _, err := fmt.Sscanf(value, "%d", &out); err == nil && out > 0 {
 		return out
 	}

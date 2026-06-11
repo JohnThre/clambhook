@@ -223,6 +223,10 @@ func (s *Server) handleValidate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "key_id mismatch")
 		return
 	}
+	if !equalStringSlices(data.Transactions, req.Transactions) {
+		writeError(w, http.StatusBadRequest, "transaction list mismatch")
+		return
+	}
 	installHash := keyedHash(s.cfg.HMACSecret, data.InstallID)
 	keyHash := keyedHash(s.cfg.HMACSecret, data.KeyID)
 	now := s.cfg.now()
@@ -271,6 +275,10 @@ func (s *Server) handleValidate(w http.ResponseWriter, r *http.Request) {
 		if !isKnownProduct(tx.ProductID) {
 			continue
 		}
+		if !storeKitAppAccountTokenMatches(data.InstallID, tx.AppAccountToken) {
+			writeError(w, http.StatusUnauthorized, "transaction app account token mismatch")
+			return
+		}
 		transactions = append(transactions, tx)
 	}
 	dev.AssertionCounter = counter
@@ -298,6 +306,24 @@ func transactionHashes(secret []byte, transactions []LicenseTransaction) []strin
 		}
 	}
 	return out
+}
+
+func equalStringSlices(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for i := range left {
+		if left[i] != right[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func storeKitAppAccountTokenMatches(installID, appAccountToken string) bool {
+	installID = strings.ToLower(strings.TrimSpace(installID))
+	appAccountToken = strings.ToLower(strings.TrimSpace(appAccountToken))
+	return installID != "" && installID == appAccountToken
 }
 
 func decodeJSON(w http.ResponseWriter, r *http.Request, dst any) bool {

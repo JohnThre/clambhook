@@ -18,6 +18,7 @@ Run it with a private store, Apple trust roots, DeviceCheck credentials, and
 
 ```sh
 CLAMBHOOK_LICENSE_APP_ID="TEAMID.org.jpfchang.clambhook" \
+CLAMBHOOK_LICENSE_APP_APPLE_ID="1234567890" \
 CLAMBHOOK_LICENSE_HMAC_SECRET="replace-with-32-byte-secret" \
 CLAMBHOOK_LICENSE_GRANT_SECRET="replace-with-32-byte-secret" \
 CLAMBHOOK_LICENSE_APPLE_ROOTS_PEM="$(cat AppleRootCA.pem)" \
@@ -40,6 +41,12 @@ App Attest receipt refresh and Apple fraud metrics use:
 The server stores HMACs of app install IDs, App Attest key IDs, and transaction
 IDs. It does not store user accounts, email addresses, profile data, traffic
 data, or raw stable device identifiers.
+
+StoreKit transaction validation enforces the configured bundle ID from
+`CLAMBHOOK_LICENSE_APP_ID`, the configured environment, known product IDs,
+valid ownership types, revocation state, and the purchase `appAccountToken`.
+Set `CLAMBHOOK_LICENSE_APP_APPLE_ID` or `-app-apple-id` to also require the
+StoreKit numeric App Store app ID.
 
 ## Endpoints
 

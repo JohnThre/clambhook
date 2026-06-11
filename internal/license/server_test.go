@@ -79,10 +79,11 @@ func TestTrialEndDateUsesTwoCalendarMonthsClampedToTargetMonth(t *testing.T) {
 func TestServerValidationReturnsLifetimeGrant(t *testing.T) {
 	now := time.Date(2026, 6, 3, 0, 0, 0, 0, time.UTC)
 	tx := LicenseTransaction{
-		ProductID:     LifetimeUnlockProductID,
-		PurchaseDate:  now,
-		OwnershipType: "purchased",
-		TransactionID: "tx-1",
+		ProductID:       LifetimeUnlockProductID,
+		PurchaseDate:    now,
+		OwnershipType:   "purchased",
+		TransactionID:   "tx-1",
+		AppAccountToken: "install-a",
 	}
 	server := newTestServer(t, now, tx)
 
@@ -132,6 +133,78 @@ func TestServerValidationReturnsLifetimeGrant(t *testing.T) {
 	}
 }
 
+func TestServerValidationRejectsUnsignedTransactionListMismatch(t *testing.T) {
+	now := time.Date(2026, 6, 3, 0, 0, 0, 0, time.UTC)
+	tx := LicenseTransaction{
+		ProductID:       LifetimeUnlockProductID,
+		PurchaseDate:    now,
+		OwnershipType:   "purchased",
+		TransactionID:   "tx-1",
+		AppAccountToken: "install-a",
+	}
+	server := newTestServer(t, now, tx)
+	attestTestDevice(t, server, "install-a", "key-a")
+
+	validateChallenge := postJSON[ChallengeResponse](t, server, "/v1/license/challenge", ChallengeRequest{
+		Purpose:   ChallengePurposeValidate,
+		InstallID: "install-a",
+		KeyID:     "key-a",
+	}, http.StatusOK)
+	clientData := AssertionClientData{
+		ChallengeID:  validateChallenge.ChallengeID,
+		Challenge:    validateChallenge.Challenge,
+		InstallID:    "install-a",
+		KeyID:        "key-a",
+		Transactions: []string{"signed-tx"},
+	}
+	clientDataJSON, err := json.Marshal(clientData)
+	if err != nil {
+		t.Fatal(err)
+	}
+	postJSON[map[string]string](t, server, "/v1/license/validate", ValidateRequest{
+		KeyID:        "key-a",
+		ClientData:   base64.StdEncoding.EncodeToString(clientDataJSON),
+		Assertion:    base64.StdEncoding.EncodeToString([]byte("assertion")),
+		Transactions: []string{"different-signed-tx"},
+	}, http.StatusBadRequest)
+}
+
+func TestServerValidationRejectsAppAccountTokenMismatch(t *testing.T) {
+	now := time.Date(2026, 6, 3, 0, 0, 0, 0, time.UTC)
+	tx := LicenseTransaction{
+		ProductID:       LifetimeUnlockProductID,
+		PurchaseDate:    now,
+		OwnershipType:   "purchased",
+		TransactionID:   "tx-1",
+		AppAccountToken: "other-install",
+	}
+	server := newTestServer(t, now, tx)
+	attestTestDevice(t, server, "install-a", "key-a")
+
+	validateChallenge := postJSON[ChallengeResponse](t, server, "/v1/license/challenge", ChallengeRequest{
+		Purpose:   ChallengePurposeValidate,
+		InstallID: "install-a",
+		KeyID:     "key-a",
+	}, http.StatusOK)
+	clientData := AssertionClientData{
+		ChallengeID:  validateChallenge.ChallengeID,
+		Challenge:    validateChallenge.Challenge,
+		InstallID:    "install-a",
+		KeyID:        "key-a",
+		Transactions: []string{"signed-tx"},
+	}
+	clientDataJSON, err := json.Marshal(clientData)
+	if err != nil {
+		t.Fatal(err)
+	}
+	postJSON[map[string]string](t, server, "/v1/license/validate", ValidateRequest{
+		KeyID:        "key-a",
+		ClientData:   base64.StdEncoding.EncodeToString(clientDataJSON),
+		Assertion:    base64.StdEncoding.EncodeToString([]byte("assertion")),
+		Transactions: []string{"signed-tx"},
+	}, http.StatusUnauthorized)
+}
+
 func newTestServer(t *testing.T, now time.Time, tx LicenseTransaction) *Server {
 	t.Helper()
 	cfg := Config{
@@ -153,6 +226,21 @@ func newTestServer(t *testing.T, now time.Time, tx LicenseTransaction) *Server {
 		t.Fatal(err)
 	}
 	return server
+}
+
+func attestTestDevice(t *testing.T, server *Server, installID, keyID string) {
+	t.Helper()
+	challenge := postJSON[ChallengeResponse](t, server, "/v1/license/challenge", ChallengeRequest{
+		Purpose:   ChallengePurposeAttest,
+		InstallID: installID,
+		KeyID:     keyID,
+	}, http.StatusOK)
+	postJSON[GrantResponse](t, server, "/v1/license/attest", AttestRequest{
+		ChallengeID:       challenge.ChallengeID,
+		InstallID:         installID,
+		KeyID:             keyID,
+		AttestationObject: base64.StdEncoding.EncodeToString([]byte("attestation")),
+	}, http.StatusOK)
 }
 
 func postJSON[T any](t *testing.T, handler http.Handler, path string, body any, wantStatus int) T {

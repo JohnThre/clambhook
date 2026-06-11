@@ -15,7 +15,10 @@ import (
 )
 
 type StoreKitJWSValidator struct {
-	roots *x509.CertPool
+	roots       *x509.CertPool
+	bundleID    string
+	appAppleID  int64
+	environment string
 }
 
 func NewStoreKitJWSValidator(cfg Config) (*StoreKitJWSValidator, error) {
@@ -35,7 +38,12 @@ func NewStoreKitJWSValidator(cfg Config) (*StoreKitJWSValidator, error) {
 			roots.AddCert(cert)
 		}
 	}
-	return &StoreKitJWSValidator{roots: roots}, nil
+	return &StoreKitJWSValidator{
+		roots:       roots,
+		bundleID:    bundleIDFromAppID(cfg.AppID),
+		appAppleID:  cfg.AppAppleID,
+		environment: cfg.Environment,
+	}, nil
 }
 
 type jwsHeader struct {
@@ -46,6 +54,9 @@ type jwsHeader struct {
 type storeKitTransactionPayload struct {
 	TransactionID      string `json:"transactionId"`
 	OriginalID         string `json:"originalTransactionId"`
+	BundleID           string `json:"bundleId"`
+	AppAppleID         int64  `json:"appAppleId"`
+	Environment        string `json:"environment"`
 	ProductID          string `json:"productId"`
 	PurchaseDate       int64  `json:"purchaseDate"`
 	RevocationDate     *int64 `json:"revocationDate"`
@@ -107,8 +118,8 @@ func (v *StoreKitJWSValidator) Validate(jws string) (LicenseTransaction, error) 
 	if err := json.Unmarshal(payloadData, &payload); err != nil {
 		return LicenseTransaction{}, fmt.Errorf("parse StoreKit transaction payload: %w", err)
 	}
-	if !isKnownProduct(payload.ProductID) {
-		return LicenseTransaction{}, fmt.Errorf("unknown product id %q", payload.ProductID)
+	if err := v.validatePayload(payload); err != nil {
+		return LicenseTransaction{}, err
 	}
 	purchaseDate := time.UnixMilli(payload.PurchaseDate).UTC()
 	var revocationDate *time.Time
@@ -116,21 +127,95 @@ func (v *StoreKitJWSValidator) Validate(jws string) (LicenseTransaction, error) 
 		value := time.UnixMilli(*payload.RevocationDate).UTC()
 		revocationDate = &value
 	}
-	ownership := "purchased"
-	if strings.EqualFold(payload.InAppOwnershipType, "FAMILY_SHARED") {
-		ownership = "familyShared"
+	if revocationDate != nil && revocationDate.Before(purchaseDate) {
+		return LicenseTransaction{}, errors.New("StoreKit revocation date predates purchase date")
 	}
+	ownership, err := normalizeStoreKitOwnership(payload.InAppOwnershipType)
+	if err != nil {
+		return LicenseTransaction{}, err
+	}
+	if strings.TrimSpace(payload.TransactionID) == "" && strings.TrimSpace(payload.OriginalID) == "" {
+		return LicenseTransaction{}, errors.New("StoreKit transaction id is required")
+	}
+	if strings.TrimSpace(payload.AppAccountToken) == "" {
+		return LicenseTransaction{}, errors.New("StoreKit app account token is required")
+	}
+
 	txID := payload.TransactionID
 	if txID == "" {
 		txID = payload.OriginalID
 	}
 	return LicenseTransaction{
-		ProductID:      payload.ProductID,
-		PurchaseDate:   purchaseDate,
-		RevocationDate: revocationDate,
-		OwnershipType:  ownership,
-		TransactionID:  txID,
+		ProductID:       payload.ProductID,
+		PurchaseDate:    purchaseDate,
+		RevocationDate:  revocationDate,
+		OwnershipType:   ownership,
+		TransactionID:   txID,
+		BundleID:        payload.BundleID,
+		AppAppleID:      payload.AppAppleID,
+		Environment:     payload.Environment,
+		AppAccountToken: strings.ToLower(payload.AppAccountToken),
 	}, nil
+}
+
+func (v *StoreKitJWSValidator) validatePayload(payload storeKitTransactionPayload) error {
+	if v.bundleID != "" && payload.BundleID != v.bundleID {
+		return fmt.Errorf("StoreKit bundle id %q does not match %q", payload.BundleID, v.bundleID)
+	}
+	if v.appAppleID != 0 && payload.AppAppleID != v.appAppleID {
+		return fmt.Errorf("StoreKit app apple id %d does not match %d", payload.AppAppleID, v.appAppleID)
+	}
+	if !storeKitEnvironmentMatches(v.environment, payload.Environment) {
+		return fmt.Errorf("StoreKit environment %q does not match %q", payload.Environment, v.environment)
+	}
+	if !isKnownProduct(payload.ProductID) {
+		return fmt.Errorf("unknown product id %q", payload.ProductID)
+	}
+	if payload.PurchaseDate <= 0 {
+		return errors.New("StoreKit purchase date is required")
+	}
+	return nil
+}
+
+func bundleIDFromAppID(appID string) string {
+	appID = strings.TrimSpace(appID)
+	if appID == "" {
+		return ""
+	}
+	if idx := strings.IndexByte(appID, '.'); idx > 0 && idx+1 < len(appID) {
+		return appID[idx+1:]
+	}
+	return appID
+}
+
+func storeKitEnvironmentMatches(configured, payload string) bool {
+	payload = strings.TrimSpace(payload)
+	if payload == "" {
+		return false
+	}
+	switch strings.ToLower(strings.TrimSpace(configured)) {
+	case "":
+		return true
+	case "production":
+		return payload == "Production"
+	case "development", "sandbox":
+		return payload == "Sandbox" || payload == "Xcode"
+	case "xcode":
+		return payload == "Xcode"
+	default:
+		return strings.EqualFold(payload, configured)
+	}
+}
+
+func normalizeStoreKitOwnership(value string) (string, error) {
+	switch strings.ToUpper(strings.TrimSpace(value)) {
+	case "PURCHASED":
+		return "purchased", nil
+	case "FAMILY_SHARED":
+		return "familyShared", nil
+	default:
+		return "", fmt.Errorf("unsupported StoreKit ownership type %q", value)
+	}
 }
 
 func decodeX5C(values []string) ([]*x509.Certificate, error) {
