@@ -126,6 +126,19 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                     try runtime.reload(configPath)
                 }
                 json = try mobileString { runtime.dashboardJSON($0) }
+            case .createTemporaryRuleFromConnection:
+                json = try mobileString {
+                    runtime.createTemporaryRule(
+                        fromConnectionJSON:
+                        command.connID ?? "",
+                        profileName: command.profile ?? "",
+                        name: command.name ?? "",
+                        action: command.ruleAction ?? "",
+                        scope: command.scope ?? "auto",
+                        ttlSeconds: Int64(command.ttlSeconds ?? 900),
+                        error: $0
+                    )
+                }
             case .developerStatus:
                 json = #"{"enabled":false}"#
             case .developerEntries:

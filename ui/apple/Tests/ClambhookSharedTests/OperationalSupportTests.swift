@@ -231,6 +231,16 @@ final class OperationalSupportTests: XCTestCase {
         XCTAssertEqual(summary.routes.first?.healthState, .staticRoute)
     }
 
+    func testTemporaryProxyActionPrefersConnectionRouteThenFallbackChain() {
+        let grouped = TrafficConnectionPayload(connID: "c1", groupName: "auto", targetHost: "api.example.com")
+        let chained = TrafficConnectionPayload(connID: "c2", chainName: "proxy", targetHost: "cdn.example.com")
+        let fallback = TrafficConnectionPayload(connID: "c3", targetHost: "fallback.example.com")
+
+        XCTAssertEqual(grouped.temporaryProxyAction(fallbackChain: "backup"), "group:auto")
+        XCTAssertEqual(chained.temporaryProxyAction(fallbackChain: "backup"), "chain:proxy")
+        XCTAssertEqual(fallback.temporaryProxyAction(fallbackChain: "backup"), "chain:backup")
+    }
+
     func testPolicySelectorSummaryReportsHealthySelectedChain() {
         let summary = PolicySelectorSummary.build(
             policyGroups: PolicyGroupsPayload(profile: "A", groups: [

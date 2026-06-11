@@ -52,6 +52,10 @@ class DashboardViewModel(
         viewModelScope.launch { repository.createRuleFromConnection(connection, rule) }
     }
 
+    fun createTemporaryRuleFromConnection(connection: TrafficConnectionPayload, action: String) {
+        viewModelScope.launch { repository.createTemporaryRuleFromConnection(connection, action) }
+    }
+
     fun cleanupRule(suggestion: TrafficCleanupSuggestionPayload) {
         viewModelScope.launch { repository.cleanupRule(suggestion) }
     }

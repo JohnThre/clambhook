@@ -29,6 +29,17 @@ fun TrafficConnectionPayload.ruleDraft(actionOverride: String? = null): RulePayl
     }
 }
 
+fun TrafficConnectionPayload.canCreateTemporaryRule(): Boolean =
+    connId.isNotBlank() && monitorHost().isNotBlank()
+
+fun TrafficConnectionPayload.temporaryProxyAction(fallbackChain: String = ""): String =
+    when {
+        groupName.isNotBlank() -> "group:$groupName"
+        chainName.isNotBlank() -> "chain:$chainName"
+        fallbackChain.isNotBlank() -> "chain:$fallbackChain"
+        else -> ""
+    }
+
 fun TrafficSnapshotPayload.actionCounts(): Map<String, Int> =
     connections.groupingBy { it.actionFamily() }.eachCount()
 

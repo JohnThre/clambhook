@@ -174,6 +174,43 @@ data class CreateRuleFromConnectionRequest(
 )
 
 @Serializable
+data class CreateTemporaryRuleFromConnectionRequest(
+    @SerialName("conn_id")
+    val connId: String,
+    val profile: String = "",
+    val name: String = "",
+    val action: String = "",
+    val scope: String = "auto",
+    @SerialName("ttl_seconds")
+    val ttlSeconds: Int = 900
+)
+
+@Serializable
+data class TemporaryRulePayload(
+    val id: String = "",
+    val profile: String = "",
+    val rule: RulePayload = RulePayload(),
+    @SerialName("created_ts_ns")
+    val createdTsNs: Long = 0,
+    @SerialName("expires_ts_ns")
+    val expiresTsNs: Long = 0,
+    @SerialName("source_conn_id")
+    val sourceConnId: String = "",
+    @SerialName("source_target")
+    val sourceTarget: String = "",
+    @SerialName("source_target_host")
+    val sourceTargetHost: String = ""
+)
+
+@Serializable
+data class TemporaryRuleCreateResponsePayload(
+    @SerialName("temporary_rule")
+    val temporaryRule: TemporaryRulePayload = TemporaryRulePayload(),
+    @SerialName("temporary_rules")
+    val temporaryRules: List<TemporaryRulePayload> = emptyList()
+)
+
+@Serializable
 data class CleanupRuleRequest(
     val profile: String = "",
     val kind: String,
@@ -300,6 +337,8 @@ data class TrafficSnapshotPayload(
     val updatedTsNs: Long = 0,
     val summary: TrafficSummaryPayload = TrafficSummaryPayload(),
     val connections: List<TrafficConnectionPayload> = emptyList(),
+    @SerialName("temporary_rules")
+    val temporaryRules: List<TemporaryRulePayload> = emptyList(),
     @SerialName("profile_context")
     val profileContext: TrafficProfileContextPayload = TrafficProfileContextPayload(),
     @SerialName("quick_filters")

@@ -339,14 +339,21 @@ final class AppleAppModel: ObservableObject {
         }
         Task {
             do {
+                guard !connection.connID.isEmpty else {
+                    throw APIClientError.invalidURL("missing connection id")
+                }
                 #if os(iOS)
-                throw APIClientError.invalidURL("temporary rules require daemon API")
+                _ = try await tunnelController.createTemporaryRuleFromConnection(
+                    connID: connection.connID,
+                    profile: connection.profile,
+                    name: "",
+                    action: action,
+                    scope: "auto",
+                    ttlSeconds: ttlSeconds
+                )
                 #else
                 guard let apiClient else {
                     throw APIClientError.invalidURL("missing API client")
-                }
-                guard !connection.connID.isEmpty else {
-                    throw APIClientError.invalidURL("missing connection id")
                 }
                 _ = try await apiClient.createTemporaryRuleFromConnection(
                     connID: connection.connID,

@@ -103,6 +103,30 @@ class ClambhookApiClientTest {
     }
 
     @Test
+    fun createTemporaryRuleFromConnectionSendsTTLRequest() = runBlocking {
+        val interceptor = CapturingInterceptor("""{"temporary_rule":{"id":"tmp1","profile":"Work","rule":{"name":"api","action":"block","domains":["api.example.com"]}},"temporary_rules":[]}""")
+        val client = ClambhookApiClient(
+            baseUrl = "http://127.0.0.1:9090",
+            okHttpClient = OkHttpClient.Builder().addInterceptor(interceptor).build()
+        )
+
+        val response = client.createTemporaryRuleFromConnection(
+            TrafficConnectionPayload(connId = "c1", profile = "Work"),
+            action = "block",
+            ttlSeconds = 60
+        )
+
+        val request = interceptor.requests.single()
+        assertEquals("POST", request.method)
+        assertEquals("/api/v1/rules/temporary/from-connection", request.url.encodedPath)
+        assertEquals(
+            """{"conn_id":"c1","profile":"Work","name":"","action":"block","scope":"auto","ttl_seconds":60}""",
+            requireNotNull(request.body).bodyToString()
+        )
+        assertEquals("tmp1", response.temporaryRule.id)
+    }
+
+    @Test
     fun cleanupRuleSendsSuggestionIdentity() = runBlocking {
         val interceptor = CapturingInterceptor("""{"profile":"Work","rules":[{"name":"keep","action":"direct","domains":["keep.example.com"]}]}""")
         val client = ClambhookApiClient(

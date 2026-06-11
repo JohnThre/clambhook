@@ -826,6 +826,20 @@ public extension TrafficConnectionPayload {
         return "direct"
     }
 
+    func temporaryProxyAction(fallbackChain: String = "") -> String {
+        if !groupName.isEmpty {
+            return "group:\(groupName)"
+        }
+        if !chainName.isEmpty {
+            return "chain:\(chainName)"
+        }
+        let fallback = fallbackChain.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !fallback.isEmpty {
+            return "chain:\(fallback)"
+        }
+        return ""
+    }
+
     var displayVisibility: String {
         guard let visibility else {
             return application.isEmpty ? network.uppercased() : application
