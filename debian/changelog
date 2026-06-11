@@ -2,4 +2,4 @@ clambhook (0.1.0-1) unstable; urgency=medium
 
   * Initial Debian packaging.
 
- -- clambhook contributors <noreply@example.invalid>  Fri, 22 May 2026 22:00:36 +0800
+ -- Pengfan Chang <developer@jpfchang.org>  Fri, 22 May 2026 22:00:36 +0800

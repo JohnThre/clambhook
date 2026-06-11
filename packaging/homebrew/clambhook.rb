@@ -5,7 +5,7 @@ class Clambhook < Formula
   homepage "https://github.com/JohnThre/clambhook"
   url "https://github.com/JohnThre/clambhook.git",
       tag:      "v0.1.0"
-  license "GPL-3.0-only"
+  license :cannot_represent
 
   depends_on "go" => :build
   depends_on "pkgconf" => :build

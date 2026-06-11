@@ -1,7 +1,7 @@
 Source: clambhook
 Section: net
 Priority: optional
-Maintainer: clambhook contributors <noreply@example.invalid>
+Maintainer: Pengfan Chang <developer@jpfchang.org>
 Build-Depends:
  debhelper-compat (= 13),
  dh-golang,

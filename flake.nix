@@ -35,7 +35,13 @@
             meta = with pkgs.lib; {
               description = "Local network client daemon and terminal dashboard";
               homepage = "https://github.com/JohnThre/clambhook";
-              license = licenses.gpl3Only;
+              license = {
+                shortName = "Clambhook-Proprietary-View-Only";
+                fullName = "Clambhook Proprietary Source-Available License";
+                url = "https://github.com/JohnThre/clambhook/blob/main/LICENSE";
+                free = false;
+                redistributable = false;
+              };
               mainProgram = "clambhook";
               platforms = platforms.darwin;
             };

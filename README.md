@@ -4,19 +4,19 @@
 
 <h1 align="center">Clambhook</h1>
 
-<p align="center">A private VPN/proxy router with metadata inspection.</p>
+<p align="center">A private connectivity client with local status views.</p>
 
-Clambhook v1 routes device traffic through user-managed proxy and VPN profiles and exposes metadata-only inspection for connection targets, routing decisions, byte counts, and hop status by default.
-
-The daemon and terminal UI also include a separate opt-in developer mode for the explicit HTTP proxy listener. When `[developer] enabled = true`, clambhook can capture bounded HTTP request/response previews, export HAR, and perform HTTPS CONNECT MITM after you manually trust the generated local CA. Android/App Store paths remain metadata-only.
+Clambhook helps manage user-defined connectivity profiles and shows local status, counters, and recent activity summaries.
 
 ## End-user Distribution
 
 The iOS and iPadOS app is distributed only through the Apple App Store as a free download with non-consumable In-App Purchases for premium access and paid feature updates. tvOS and visionOS builds are compile-first Apple targets until their platform-specific runtime surfaces are completed.
 
-GitHub is source-only for end users. Do not publish or link end-user installers or package artifacts from GitHub, including `.dmg`, `.pkg`, `.apk`, `.aab`, `.ipa`, Homebrew formula releases, Debian packages, or macOS installer artifacts. macOS and GNU/Linux builds are distributed from jpfchang.org, not the Apple App Store or GitHub release artifacts.
+GitHub is source-only and view-only for end users. The source is proprietary to Pengfan Chang, all rights reserved, and may not be copied, modified, built, run, contributed to, redistributed, packaged, released, hosted, sublicensed, or used to create derivative works without separate prior written permission from Pengfan Chang.
 
-The Android app should use Swift for shared domain logic as much as practical in a future migration. Keep Kotlin for Android lifecycle, Compose UI, billing, services, storage, JNI/glue, and Gradle integration unless the Android Swift toolchain plan changes.
+Do not publish or link end-user installers or package artifacts from GitHub, including `.dmg`, `.pkg`, `.apk`, `.aab`, `.ipa`, Homebrew formula releases, Debian packages, or macOS installer artifacts. Other official builds are distributed only through Pengfan Chang's controlled channels. Only Pengfan Chang may distribute, publish, package, or release Clambhook artifacts.
+
+The Android app should use Swift for common domain logic as much as practical in a future migration. Keep Kotlin for Android lifecycle, Compose UI, billing, services, storage, JNI/glue, and Gradle integration unless the Android Swift toolchain plan changes.
 
 ## Donate
 
