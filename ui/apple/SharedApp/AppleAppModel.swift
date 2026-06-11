@@ -333,6 +333,10 @@ final class AppleAppModel: ObservableObject {
     }
 
     func createTemporaryRuleFromConnection(_ connection: TrafficConnectionPayload, action: String, ttlSeconds: Int = 900) {
+        #if os(iOS)
+        daemonMessage = "Temporary rules are not supported on iOS yet."
+        return
+        #else
         guard canUseLicensedFeature(.routingRules) else {
             daemonMessage = AppleAppModelError.licenseLocked.errorDescription ?? ""
             return
@@ -342,16 +346,6 @@ final class AppleAppModel: ObservableObject {
                 guard !connection.connID.isEmpty else {
                     throw APIClientError.invalidURL("missing connection id")
                 }
-                #if os(iOS)
-                _ = try await tunnelController.createTemporaryRuleFromConnection(
-                    connID: connection.connID,
-                    profile: connection.profile,
-                    name: "",
-                    action: action,
-                    scope: "auto",
-                    ttlSeconds: ttlSeconds
-                )
-                #else
                 guard let apiClient else {
                     throw APIClientError.invalidURL("missing API client")
                 }
@@ -362,13 +356,13 @@ final class AppleAppModel: ObservableObject {
                     scope: "auto",
                     ttlSeconds: ttlSeconds
                 )
-                #endif
                 await dashboard.refreshDashboard()
                 daemonMessage = "temporary rule created"
             } catch {
                 daemonMessage = error.localizedDescription
             }
         }
+        #endif
     }
 
     func applyCleanupSuggestion(_ suggestion: TrafficCleanupSuggestionPayload) {

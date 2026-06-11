@@ -76,9 +76,7 @@ struct DashboardContentView: View {
                 TrafficListView(
                     connections: model.dashboard.traffic.connections,
                     fallbackChain: dashboardFallbackProxyChain(model.dashboard),
-                    onTemporaryAction: { connection, action in
-                        model.createTemporaryRuleFromConnection(connection, action: action)
-                    },
+                    onTemporaryAction: temporaryRuleActionHandler,
                     onPermanentRule: { connection, rule in
                         model.createRuleFromConnection(connection, rule: rule)
                     }
@@ -155,6 +153,16 @@ struct DashboardContentView: View {
         } message: { suggestion in
             Text(suggestion.message)
         }
+    }
+
+    private var temporaryRuleActionHandler: ((TrafficConnectionPayload, String) -> Void)? {
+        #if os(iOS)
+        return nil
+        #else
+        return { connection, action in
+            model.createTemporaryRuleFromConnection(connection, action: action)
+        }
+        #endif
     }
 }
 
@@ -273,20 +281,22 @@ private struct TrafficRowActionView: View {
 
     private var buttons: some View {
         Group {
-            Button("Allow") {
-                onTemporaryAction?(connection, "allow")
-            }
-            .disabled(!canCreateRule)
-            Button("Block", role: .destructive) {
-                onTemporaryAction?(connection, "block")
-            }
-            .disabled(!canCreateRule)
-            Button("Proxy") {
-                if !proxyAction.isEmpty {
-                    onTemporaryAction?(connection, proxyAction)
+            if let onTemporaryAction {
+                Button("Allow") {
+                    onTemporaryAction(connection, "allow")
                 }
+                .disabled(!canCreateRule)
+                Button("Block", role: .destructive) {
+                    onTemporaryAction(connection, "block")
+                }
+                .disabled(!canCreateRule)
+                Button("Proxy") {
+                    if !proxyAction.isEmpty {
+                        onTemporaryAction(connection, proxyAction)
+                    }
+                }
+                .disabled(!canCreateRule || proxyAction.isEmpty)
             }
-            .disabled(!canCreateRule || proxyAction.isEmpty)
             Button("Permanent") {
                 if let rule = connection.ruleDraft() {
                     onPermanentRule?(connection, rule)
