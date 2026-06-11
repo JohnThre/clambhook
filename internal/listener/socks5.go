@@ -421,12 +421,13 @@ func (s *SOCKSv5) plan(ctx context.Context, network, target, source string) (Rou
 		return PlanRoute(ctx, s.planner, network, target, source)
 	}
 	plan := RoutePlan{
-		Profile:   s.opts.ProfileName,
-		Action:    RouteActionChain,
-		ChainName: s.chainName,
-		Target:    target,
-		Network:   network,
-		Source:    source,
+		Profile:      s.opts.ProfileName,
+		Action:       RouteActionChain,
+		ChainName:    s.chainName,
+		Target:       target,
+		Network:      network,
+		Source:       source,
+		RouteControl: staticRouteControl(RouteActionChain, s.chainName),
 		Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
 			return s.dial(ctx, network, address)
 		},

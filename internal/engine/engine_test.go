@@ -528,4 +528,7 @@ func TestRoutePlannerResolvesPolicyGroupSelection(t *testing.T) {
 	if plan.Action != "group" || plan.GroupName != "auto" || plan.ChainName != "backup" {
 		t.Fatalf("plan = %+v, want group auto selected backup", plan)
 	}
+	if plan.RouteControl.Mode != "rule" || plan.RouteControl.Decision != "proxy" || plan.RouteControl.PolicyGroup != "auto" || plan.RouteControl.SelectedChain != "backup" || plan.RouteControl.SelectionReason != "lowest_latency" || plan.RouteControl.Fallback {
+		t.Fatalf("route control = %+v, want rule proxy auto backup lowest_latency without fallback", plan.RouteControl)
+	}
 }

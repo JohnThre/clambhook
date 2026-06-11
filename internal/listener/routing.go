@@ -24,21 +24,22 @@ var (
 // RoutePlan is the listener-facing form of a routing decision. The planner
 // owns the concrete chain/direct dialers; listeners only execute the plan.
 type RoutePlan struct {
-	Profile     string
-	RuleName    string
-	Action      string
-	ChainName   string
-	GroupName   string
-	Target      string
-	Host        string
-	Port        string
-	Network     string
-	Source      string
-	Default     bool
-	ElapsedNs   int64
-	Hops        []events.HopInfo
-	Visibility  events.VisibilityInfo
-	Explanation events.RouteExplanation
+	Profile      string
+	RuleName     string
+	Action       string
+	ChainName    string
+	GroupName    string
+	Target       string
+	Host         string
+	Port         string
+	Network      string
+	Source       string
+	Default      bool
+	ElapsedNs    int64
+	Hops         []events.HopInfo
+	Visibility   events.VisibilityInfo
+	Explanation  events.RouteExplanation
+	RouteControl events.RouteControl
 
 	Dial       func(context.Context, string, string) (net.Conn, error)
 	DialPacket func(context.Context, string) (net.PacketConn, error)
@@ -62,4 +63,23 @@ func PlanRoute(ctx context.Context, planner RoutePlanner, network, target, sourc
 		return sourcePlanner.PlanWithSource(ctx, network, target, source)
 	}
 	return planner.Plan(ctx, network, target)
+}
+
+func staticRouteControl(action, chainName string) events.RouteControl {
+	control := events.RouteControl{
+		Mode:     "rule",
+		Decision: "proxy",
+		Source:   "default",
+		Default:  true,
+	}
+	switch action {
+	case RouteActionDirect:
+		control.Decision = "direct"
+	case RouteActionBlock, RouteActionReject:
+		control.Decision = "block"
+	}
+	if control.Decision == "proxy" {
+		control.SelectedChain = chainName
+	}
+	return control
 }

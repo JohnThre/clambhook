@@ -991,16 +991,18 @@ func (m model) renderPolicyGroupsSection(width int) string {
 
 func (m model) renderNowPolicySection(width int) string {
 	lines := make([]string, 0, 3)
+	counts := m.actionCounts()
+	lines = append(lines, truncate(fmt.Sprintf("  Mode Rule  Proxy %d  Direct %d  Block %d", counts["proxy"], counts["direct"], counts["block"]), width))
 	if len(m.policies.Groups) > 0 {
 		group := m.policies.Groups[0]
-		lines = append(lines, truncate(fmt.Sprintf("  Group %s  Mode %s", group.Name, policyModeText(group)), width))
-		lines = append(lines, truncate(fmt.Sprintf("  Selected %s  %s", emptyDash(selectedPolicyChain(group)), policyGroupHealthText(group)), width))
+		reason := routeSelectionReason(group.SelectionReason)
+		lines = append(lines, truncate(fmt.Sprintf("  Group %s  Policy %s  Selected %s", group.Name, policyModeText(group), emptyDash(selectedPolicyChain(group))), width))
+		lines = append(lines, truncate(fmt.Sprintf("  Fallback %s  Reason %s  %s", fallbackStateText(group.SelectionReason == "no_healthy_fallback"), reason, policyGroupHealthText(group)), width))
 	} else {
-		lines = append(lines, truncate(fmt.Sprintf("  Static route  Selected %s  %s", emptyDash(m.defaultRouteName()), routeCountText(len(m.servers.Chains))), width))
+		lines = append(lines, truncate(fmt.Sprintf("  Group --  Static route  Selected %s", emptyDash(m.defaultRouteName())), width))
+		lines = append(lines, truncate(fmt.Sprintf("  Fallback No  %s", routeCountText(len(m.servers.Chains))), width))
 	}
-	counts := m.actionCounts()
-	lines = append(lines, truncate(fmt.Sprintf("  Decisions  Proxy %d  Direct %d  Block %d", counts["proxy"], counts["direct"], counts["block"]), width))
-	return renderSection("Policy", lines)
+	return renderSection("Route Control", lines)
 }
 
 func (m model) policyGroupLines(width int) []string {
@@ -1131,6 +1133,21 @@ func selectedPolicyChain(group policyGroupPayload) string {
 		return group.Chains[0]
 	}
 	return ""
+}
+
+func routeSelectionReason(reason string) string {
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		return "--"
+	}
+	return strings.ReplaceAll(reason, "_", " ")
+}
+
+func fallbackStateText(fallback bool) string {
+	if fallback {
+		return "Yes (no healthy fallback)"
+	}
+	return "No"
 }
 
 func policyResultFor(group policyGroupPayload, chainName string) (policyProbeResultPayload, bool) {
@@ -1709,6 +1726,7 @@ func (m model) selectedConnectionDetailLines(width int) []string {
 	lines := []string{
 		tableHeaderStyle.Render(truncate("  Host Detail", width)),
 		truncate(fmt.Sprintf("  Host %s  Decision %s  Rule %s  Route %s  Profile %s", emptyDash(host), actionChip(conn), ruleLabel(conn), routeLabel(conn), emptyDash(conn.Profile)), width),
+		truncate(routeControlDetailLine(conn), width),
 		truncate(fmt.Sprintf("  Target %s  Network %s  App %s  Listener %s %s", emptyDash(conn.Target), emptyDash(conn.Network), emptyDash(conn.Application), conn.Listener.Protocol, conn.Listener.Addr), width),
 		truncate(fmt.Sprintf("  Bytes %s down / %s up  Duration %s  Decision %s", formatBytes(conn.RxTotal), formatBytes(conn.TxTotal), formatDurationNs(conn.DurationNs), formatDurationNs(conn.DecisionNs)), width),
 	}
@@ -1859,6 +1877,61 @@ func routeLabel(conn trafficConnectionPayload) string {
 	}
 }
 
+func routeControlDetailLine(conn trafficConnectionPayload) string {
+	control := conn.RouteControl
+	mode := routeControlMode(control)
+	decision := strings.ToUpper(routeControlDecision(conn))
+	source := routeControlSource(conn)
+	group := control.PolicyGroup
+	if group == "" {
+		group = conn.GroupName
+	}
+	selected := control.SelectedChain
+	if selected == "" {
+		selected = conn.ChainName
+	}
+	return fmt.Sprintf("  Route Control  Mode %s  Decision %s  Source %s  Group %s  Selected %s  Fallback %s",
+		mode,
+		decision,
+		source,
+		emptyDash(group),
+		emptyDash(selected),
+		fallbackStateText(control.Fallback),
+	)
+}
+
+func routeControlMode(control routeControlPayload) string {
+	mode := strings.TrimSpace(control.Mode)
+	if mode == "" {
+		return "Rule"
+	}
+	mode = strings.ReplaceAll(mode, "_", " ")
+	return strings.ToUpper(mode[:1]) + mode[1:]
+}
+
+func routeControlDecision(conn trafficConnectionPayload) string {
+	decision := strings.ToLower(strings.TrimSpace(conn.RouteControl.Decision))
+	if decision != "" {
+		return decision
+	}
+	return actionFamilyFromAction(conn.RuleAction)
+}
+
+func routeControlSource(conn trafficConnectionPayload) string {
+	source := strings.TrimSpace(conn.RouteControl.Source)
+	if source == "" {
+		if conn.Default || conn.RouteControl.Default {
+			source = "default"
+		} else if conn.RuleName != "" {
+			source = "profile_rule"
+		}
+	}
+	if source == "" {
+		return "--"
+	}
+	return strings.ReplaceAll(source, "_", " ")
+}
+
 func recentDecisionLine(conn trafficConnectionPayload, width int) string {
 	parts := []string{
 		actionChip(conn),
@@ -1882,6 +1955,9 @@ func recentDecisionTarget(conn trafficConnectionPayload) string {
 }
 
 func actionFamily(conn trafficConnectionPayload) string {
+	if decision := strings.ToLower(strings.TrimSpace(conn.RouteControl.Decision)); decision != "" {
+		return actionFamilyFromAction(decision)
+	}
 	action := strings.ToLower(strings.TrimSpace(conn.RuleAction))
 	return actionFamilyFromAction(action)
 }

@@ -89,32 +89,33 @@ type Visibility struct {
 // Connection is the API model exposed to end-user UIs. It intentionally
 // contains connection metadata and counters only; payload bytes are not stored.
 type Connection struct {
-	ConnID      string            `json:"conn_id"`
-	Profile     string            `json:"profile,omitempty"`
-	State       string            `json:"state"`
-	StartTsNs   int64             `json:"start_ts_ns"`
-	UpdatedTsNs int64             `json:"updated_ts_ns"`
-	EndTsNs     int64             `json:"end_ts_ns,omitempty"`
-	Listener    Listener          `json:"listener"`
-	ClientAddr  string            `json:"client_addr,omitempty"`
-	ChainName   string            `json:"chain_name,omitempty"`
-	GroupName   string            `json:"group_name,omitempty"`
-	RuleName    string            `json:"rule_name,omitempty"`
-	RuleAction  string            `json:"rule_action,omitempty"`
-	Default     bool              `json:"default,omitempty"`
-	DecisionNs  int64             `json:"decision_ns,omitempty"`
-	Target      string            `json:"target,omitempty"`
-	TargetHost  string            `json:"target_host,omitempty"`
-	TargetPort  string            `json:"target_port,omitempty"`
-	Network     string            `json:"network,omitempty"`
-	Source      string            `json:"source,omitempty"`
-	Application string            `json:"application,omitempty"`
-	Hops        []Hop             `json:"hops,omitempty"`
-	Timeline    []TimelineEvent   `json:"timeline,omitempty"`
-	Visibility  *Visibility       `json:"visibility,omitempty"`
-	Explanation *RouteExplanation `json:"explanation,omitempty"`
-	Geo         geo.Location      `json:"geo"`
-	GeoError    string            `json:"geo_error,omitempty"`
+	ConnID       string            `json:"conn_id"`
+	Profile      string            `json:"profile,omitempty"`
+	State        string            `json:"state"`
+	StartTsNs    int64             `json:"start_ts_ns"`
+	UpdatedTsNs  int64             `json:"updated_ts_ns"`
+	EndTsNs      int64             `json:"end_ts_ns,omitempty"`
+	Listener     Listener          `json:"listener"`
+	ClientAddr   string            `json:"client_addr,omitempty"`
+	ChainName    string            `json:"chain_name,omitempty"`
+	GroupName    string            `json:"group_name,omitempty"`
+	RuleName     string            `json:"rule_name,omitempty"`
+	RuleAction   string            `json:"rule_action,omitempty"`
+	Default      bool              `json:"default,omitempty"`
+	DecisionNs   int64             `json:"decision_ns,omitempty"`
+	Target       string            `json:"target,omitempty"`
+	TargetHost   string            `json:"target_host,omitempty"`
+	TargetPort   string            `json:"target_port,omitempty"`
+	Network      string            `json:"network,omitempty"`
+	Source       string            `json:"source,omitempty"`
+	Application  string            `json:"application,omitempty"`
+	Hops         []Hop             `json:"hops,omitempty"`
+	Timeline     []TimelineEvent   `json:"timeline,omitempty"`
+	Visibility   *Visibility       `json:"visibility,omitempty"`
+	Explanation  *RouteExplanation `json:"explanation,omitempty"`
+	RouteControl *RouteControl     `json:"route_control,omitempty"`
+	Geo          geo.Location      `json:"geo"`
+	GeoError     string            `json:"geo_error,omitempty"`
 
 	TotalDialNs int64   `json:"total_dial_ns,omitempty"`
 	RxBps       float64 `json:"rx_bps"`
@@ -201,6 +202,20 @@ type RouteExplanation struct {
 	SelectedChain string `json:"selected_chain,omitempty"`
 	FinalChain    string `json:"final_chain,omitempty"`
 	Summary       string `json:"summary,omitempty"`
+}
+
+// RouteControl is the API-ready normalized route-mode state for a connection.
+type RouteControl struct {
+	Mode            string `json:"mode,omitempty"`
+	Decision        string `json:"decision,omitempty"`
+	Source          string `json:"source,omitempty"`
+	RuleName        string `json:"rule_name,omitempty"`
+	RuleNumber      int    `json:"rule_number,omitempty"`
+	PolicyGroup     string `json:"policy_group,omitempty"`
+	SelectedChain   string `json:"selected_chain,omitempty"`
+	SelectionReason string `json:"selection_reason,omitempty"`
+	Fallback        bool   `json:"fallback,omitempty"`
+	Default         bool   `json:"default,omitempty"`
 }
 
 // ProfileContext names the active profile and available profile choices.
@@ -1573,6 +1588,7 @@ func (s *Store) applyDialingLocked(ev events.Event) {
 	c.Default = data.Default
 	c.DecisionNs = data.DecisionNs
 	applyExplanation(c, data.Explanation)
+	applyRouteControl(c, data.RouteControl)
 	applyVisibility(c, data.Visibility)
 	if data.ChainName != "" {
 		c.ChainName = data.ChainName
@@ -1628,6 +1644,7 @@ func (s *Store) applyRuleDecisionLocked(ev events.Event) {
 	c.Default = data.Default
 	c.DecisionNs = data.ElapsedNs
 	applyExplanation(c, data.Explanation)
+	applyRouteControl(c, data.RouteControl)
 	if data.Profile != "" {
 		c.Profile = data.Profile
 	}
@@ -1897,6 +1914,10 @@ func cloneConnection(in Connection) Connection {
 		explanation := *in.Explanation
 		in.Explanation = &explanation
 	}
+	if in.RouteControl != nil {
+		routeControl := *in.RouteControl
+		in.RouteControl = &routeControl
+	}
 	return in
 }
 
@@ -1935,6 +1956,24 @@ func applyVisibility(c *Connection, info events.VisibilityInfo) {
 		case "http_connect":
 			c.Application = "HTTPS"
 		}
+	}
+}
+
+func applyRouteControl(c *Connection, info events.RouteControl) {
+	if c == nil || (info.Mode == "" && info.Decision == "" && info.Source == "" && info.RuleName == "" && info.RuleNumber == 0 && info.PolicyGroup == "" && info.SelectedChain == "" && info.SelectionReason == "" && !info.Fallback && !info.Default) {
+		return
+	}
+	c.RouteControl = &RouteControl{
+		Mode:            info.Mode,
+		Decision:        info.Decision,
+		Source:          info.Source,
+		RuleName:        info.RuleName,
+		RuleNumber:      info.RuleNumber,
+		PolicyGroup:     info.PolicyGroup,
+		SelectedChain:   info.SelectedChain,
+		SelectionReason: info.SelectionReason,
+		Fallback:        info.Fallback,
+		Default:         info.Default,
 	}
 }
 

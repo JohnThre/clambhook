@@ -43,6 +43,16 @@ func TestStoreAggregatesAndPersistsClosedHistory(t *testing.T) {
 			Host:   "example.com",
 			Port:   "443",
 		},
+		RouteControl: events.RouteControl{
+			Mode:            "rule",
+			Decision:        "proxy",
+			Source:          "profile_rule",
+			RuleName:        "web",
+			RuleNumber:      1,
+			PolicyGroup:     "auto",
+			SelectedChain:   "exit",
+			SelectionReason: "lowest_latency",
+		},
 		Hops: []events.HopInfo{{
 			Index:    0,
 			Name:     "exit",
@@ -81,6 +91,9 @@ func TestStoreAggregatesAndPersistsClosedHistory(t *testing.T) {
 	}
 	if conn.Visibility == nil || conn.Visibility.Kind != "http_connect" || conn.Visibility.Host != "example.com" {
 		t.Fatalf("visibility = %+v", conn.Visibility)
+	}
+	if conn.RouteControl == nil || conn.RouteControl.Mode != "rule" || conn.RouteControl.Decision != "proxy" || conn.RouteControl.PolicyGroup != "auto" || conn.RouteControl.SelectedChain != "exit" {
+		t.Fatalf("route control = %+v", conn.RouteControl)
 	}
 	if len(conn.Timeline) < 4 {
 		t.Fatalf("timeline = %#v, want lifecycle events", conn.Timeline)
