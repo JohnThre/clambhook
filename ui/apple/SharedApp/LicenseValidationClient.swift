@@ -111,7 +111,11 @@ final class LicenseValidationClient {
         let installID = try installUUID().uuidString.lowercased()
         let keyID = try await resolvedKeyID()
         if MobileServerLicenseGrantStore.load(defaults: defaults) == nil {
-            return try await attest(installID: installID, keyID: keyID)
+            let response = try await attest(installID: installID, keyID: keyID)
+            guard !transactionJWS.isEmpty else {
+                return response
+            }
+            return try await validate(installID: installID, keyID: keyID, transactionJWS: transactionJWS)
         }
         return try await validate(installID: installID, keyID: keyID, transactionJWS: transactionJWS)
     }
