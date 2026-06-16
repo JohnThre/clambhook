@@ -20,7 +20,27 @@ if [[ ! -f "$SODIUM_SOURCE" ]]; then
 fi
 
 mkdir -p "$ROOT_DIR/bin"
-cp "$SODIUM_SOURCE" "$SODIUM_DEST"
+
+daemon_archs="$(lipo -archs "$DAEMON" 2>/dev/null || true)"
+if [[ " $daemon_archs " != *" arm64 "* ]]; then
+    echo "daemon must contain an arm64 slice for Apple Silicon-only macOS builds; found: ${daemon_archs:-unknown}" >&2
+    exit 1
+fi
+if [[ " $daemon_archs " == *" x86_64 "* || " $daemon_archs " == *" i386 "* ]]; then
+    echo "daemon must not contain Intel slices for Apple Silicon-only macOS builds; found: $daemon_archs" >&2
+    exit 1
+fi
+
+sodium_archs="$(lipo -archs "$SODIUM_SOURCE" 2>/dev/null || true)"
+if [[ " $sodium_archs " != *" arm64 "* ]]; then
+    echo "libsodium must contain an arm64 slice for Apple Silicon-only macOS builds; found: ${sodium_archs:-unknown}" >&2
+    exit 1
+fi
+if [[ " $sodium_archs " == *" x86_64 "* || " $sodium_archs " == *" i386 "* ]]; then
+    lipo "$SODIUM_SOURCE" -thin arm64 -output "$SODIUM_DEST"
+else
+    cp "$SODIUM_SOURCE" "$SODIUM_DEST"
+fi
 chmod 755 "$SODIUM_DEST"
 
 current_sodium_path="$(otool -L "$DAEMON" | awk '/libsodium/ { print $1; exit }')"

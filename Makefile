@@ -39,7 +39,8 @@ install-linux: check-linux-ui-deps build-daemon
 	cd ui/linux && meson setup builddir --prefix="$(LINUX_MESON_PREFIX)" --libexecdir="$(LINUX_MESON_LIBEXECDIR)" --reconfigure -Dclambhook_daemon="$(abspath bin/clambhook)"
 	cd ui/linux && meson install -C builddir $(if $(DESTDIR),--destdir "$(abspath $(DESTDIR))",)
 
-prepare-apple-runtime: build-daemon
+prepare-apple-runtime:
+	GOOS=darwin GOARCH=arm64 CGO_ENABLED=1 $(MAKE) build-daemon
 	./scripts/prepare-macos-runtime.sh
 
 generate-apple:

@@ -8,6 +8,72 @@ public struct MobileServerLicenseGrantResponse: Codable, Equatable, Sendable {
     public var snapshot: MobileServerGrantSnapshot
 }
 
+public struct MacLicenseServerResponse: Codable, Equatable, Sendable {
+    public var grant: MobileServerLicenseGrant
+    public var snapshot: MobileServerGrantSnapshot
+    public var deviceState: MobileLicenseDeviceState
+
+    public init(
+        grant: MobileServerLicenseGrant,
+        snapshot: MobileServerGrantSnapshot,
+        deviceState: MobileLicenseDeviceState
+    ) {
+        self.grant = grant
+        self.snapshot = snapshot
+        self.deviceState = deviceState
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case grant
+        case snapshot
+        case deviceState = "device_state"
+    }
+}
+
+public struct MacLicenseActivationRequest: Codable, Equatable, Sendable {
+    public var licenseKey: String
+    public var email: String?
+    public var device: MobileLicenseDeviceRegistration
+
+    public init(licenseKey: String, email: String?, device: MobileLicenseDeviceRegistration) {
+        self.licenseKey = licenseKey
+        self.email = email
+        self.device = device
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case licenseKey = "license_key"
+        case email
+        case device
+    }
+}
+
+public struct MacLicenseDeviceActionRequest: Codable, Equatable, Sendable {
+    public var licenseKey: String
+    public var installID: String
+    public var deviceID: String?
+    public var device: MobileLicenseDeviceRegistration
+
+    public init(
+        licenseKey: String,
+        installID: String,
+        deviceID: String?,
+        device: MobileLicenseDeviceRegistration
+    ) {
+        self.licenseKey = licenseKey
+        self.installID = installID
+        self.deviceID = deviceID
+        self.device = device
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case licenseKey = "license_key"
+        case installID = "install_id"
+        case deviceID = "device_id"
+        case device
+    }
+}
+
 public struct MobileServerLicenseGrant: Codable, Equatable, Sendable {
     public var version: Int
     public var issuedAt: Date

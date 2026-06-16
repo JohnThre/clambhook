@@ -37,7 +37,7 @@ fi
 rm -rf "$DIST_DIR"
 mkdir -p "$DIST_DIR"
 
-make -C "$ROOT_DIR" build-daemon
+GOOS=darwin GOARCH=arm64 CGO_ENABLED=1 make -C "$ROOT_DIR" build-daemon
 "$ROOT_DIR/scripts/prepare-macos-runtime.sh"
 
 codesign --force --timestamp --options runtime --sign "$IDENTITY" "$SODIUM"
