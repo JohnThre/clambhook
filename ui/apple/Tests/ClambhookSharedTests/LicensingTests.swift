@@ -478,4 +478,114 @@ final class LicensingTests: XCTestCase {
 
         XCTAssertEqual(snapshot.transactions.first?.ownershipType, .purchased)
     }
+
+    func testDeviceStateHonorsFourActiveDeviceLimit() {
+        let state = MobileLicenseDeviceState(
+            currentInstallID: "install-5",
+            devices: [
+                licenseDevice(id: "device-1", installID: "install-1"),
+                licenseDevice(id: "device-2", installID: "install-2"),
+                licenseDevice(id: "device-3", installID: "install-3"),
+                licenseDevice(id: "device-4", installID: "install-4"),
+            ]
+        )
+
+        XCTAssertEqual(state.maxActiveDevices, 4)
+        XCTAssertEqual(state.activeDeviceCount, 4)
+        XCTAssertEqual(state.remainingActivations, 0)
+        XCTAssertFalse(state.canActivateCurrentDevice)
+        XCTAssertFalse(state.canReactivateCurrentDevice)
+    }
+
+    func testCommercialTermsMatchMacLicensePolicy() {
+        XCTAssertEqual(MobileLicenseCommercialTerms.lifetimePriceUSD, "99.99")
+        XCTAssertEqual(MobileLicenseCommercialTerms.paidFeatureUpdatePriceUSD, "8.99")
+        XCTAssertEqual(MobileLicenseCommercialTerms.includedFeatureUpdateYears, 1)
+        XCTAssertEqual(MobileLicenseCommercialTerms.maxActiveDevices, 4)
+    }
+
+    func testActiveCurrentDeviceCanRemainActiveAtDeviceLimit() {
+        let state = MobileLicenseDeviceState(
+            currentInstallID: "install-1",
+            currentDeviceID: "device-1",
+            devices: [
+                licenseDevice(id: "device-1", installID: "install-1"),
+                licenseDevice(id: "device-2", installID: "install-2"),
+                licenseDevice(id: "device-3", installID: "install-3"),
+                licenseDevice(id: "device-4", installID: "install-4"),
+            ]
+        )
+
+        XCTAssertTrue(state.isCurrentDeviceActive)
+        XCTAssertTrue(state.canActivateCurrentDevice)
+        XCTAssertTrue(state.canTransferCurrentDevice)
+    }
+
+    func testReactivationRequiresAvailableSeat() {
+        let deactivatedCurrent = licenseDevice(
+            id: "device-1",
+            installID: "install-1",
+            deactivatedAt: mobileLicenseUTCDate(year: 2026, month: 7, day: 1)
+        )
+        let fullState = MobileLicenseDeviceState(
+            currentInstallID: "install-1",
+            currentDeviceID: "device-1",
+            devices: [
+                deactivatedCurrent,
+                licenseDevice(id: "device-2", installID: "install-2"),
+                licenseDevice(id: "device-3", installID: "install-3"),
+                licenseDevice(id: "device-4", installID: "install-4"),
+                licenseDevice(id: "device-5", installID: "install-5"),
+            ]
+        )
+        let availableState = MobileLicenseDeviceState(
+            currentInstallID: "install-1",
+            currentDeviceID: "device-1",
+            devices: [
+                deactivatedCurrent,
+                licenseDevice(id: "device-2", installID: "install-2"),
+                licenseDevice(id: "device-3", installID: "install-3"),
+                licenseDevice(id: "device-4", installID: "install-4"),
+            ]
+        )
+
+        XCTAssertFalse(fullState.canReactivateCurrentDevice)
+        XCTAssertTrue(availableState.canReactivateCurrentDevice)
+    }
+
+    func testDeviceStateStoreRoundTripsCurrentDeviceAndProvider() throws {
+        let defaultsName = "LicensingTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: defaultsName))
+        defer { defaults.removePersistentDomain(forName: defaultsName) }
+        let state = MobileLicenseDeviceState(
+            currentInstallID: "install-1",
+            currentDeviceID: "device-1",
+            devices: [licenseDevice(id: "device-1", installID: "install-1")],
+            paymentProvider: .creem
+        )
+
+        MobileLicenseDeviceStateStore.save(state, defaults: defaults)
+        let loaded = MobileLicenseDeviceStateStore.load(defaults: defaults)
+
+        XCTAssertEqual(loaded, state)
+        XCTAssertEqual(loaded.currentDevice?.deviceID, "device-1")
+        XCTAssertEqual(loaded.paymentProvider, .creem)
+    }
+
+    private func licenseDevice(
+        id: String,
+        installID: String,
+        deactivatedAt: Date? = nil
+    ) -> MobileLicenseDevice {
+        MobileLicenseDevice(
+            deviceID: id,
+            installID: installID,
+            displayName: id,
+            platform: "macOS",
+            architecture: "arm64",
+            activatedAt: mobileLicenseUTCDate(year: 2026, month: 6, day: 3),
+            lastSeenAt: mobileLicenseUTCDate(year: 2026, month: 6, day: 4),
+            deactivatedAt: deactivatedAt
+        )
+    }
 }

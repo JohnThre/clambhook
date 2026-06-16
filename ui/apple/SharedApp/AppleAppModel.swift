@@ -69,6 +69,7 @@ final class AppleAppModel: ObservableObject {
 
     #if os(macOS)
     let daemonSupervisor = DaemonSupervisor()
+    @Published private(set) var licenseManager: MacLicenseManager
     #endif
 
     convenience init(platform: AppPlatform) {
@@ -86,6 +87,13 @@ final class AppleAppModel: ObservableObject {
         self.snapshotStore = FileSnapshotStore.appGroupStore(groupIdentifier: settingsStore.settings.appGroupIdentifier)
         #if os(iOS)
         self.licenseManager = StoreKitEntitlementManager(
+            defaults: UserDefaults(suiteName: settingsStore.settings.appGroupIdentifier) ?? .standard,
+            credentialStore: KeychainCredentialStore(service: "org.jpfchang.clambhook.license"),
+            licenseValidationEndpoint: settingsStore.settings.licenseValidationEndpoint
+        )
+        #endif
+        #if os(macOS)
+        self.licenseManager = MacLicenseManager(
             defaults: UserDefaults(suiteName: settingsStore.settings.appGroupIdentifier) ?? .standard,
             credentialStore: KeychainCredentialStore(service: "org.jpfchang.clambhook.license"),
             licenseValidationEndpoint: settingsStore.settings.licenseValidationEndpoint
@@ -126,6 +134,9 @@ final class AppleAppModel: ObservableObject {
         }
         started = true
         #if os(iOS)
+        licenseManager.start()
+        #endif
+        #if os(macOS)
         licenseManager.start()
         #endif
         reloadClient()
@@ -397,7 +408,7 @@ final class AppleAppModel: ObservableObject {
     }
 
     var mobileLicenseDecision: MobileLicenseDecision {
-        #if os(iOS)
+        #if os(iOS) || os(macOS)
         return licenseManager.decision
         #else
         return MobileLicenseEvaluator.evaluate(snapshot: MobileLicenseSnapshot(trialStartDate: Date()))
@@ -919,7 +930,7 @@ final class AppleAppModel: ObservableObject {
                 self?.objectWillChange.send()
             }
         }
-        #if os(iOS)
+        #if os(iOS) || os(macOS)
         bindLicenseManager()
         #endif
     }
@@ -948,7 +959,7 @@ final class AppleAppModel: ObservableObject {
         }
     }
 
-    #if os(iOS)
+    #if os(iOS) || os(macOS)
     private func bindLicenseManager() {
         licenseChangeCancellable = licenseManager.objectWillChange.sink { [weak self] _ in
             Task { @MainActor in

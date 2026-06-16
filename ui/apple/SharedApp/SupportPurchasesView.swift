@@ -3,7 +3,66 @@ import SwiftUI
 
 #if os(iOS)
 import StoreKit
+#endif
 
+struct ProductStatePanel: View {
+    var decision: MobileLicenseDecision
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            ForEach(MobileLicenseProductStateBuilder.states(for: decision)) { state in
+                ProductStateRow(state: state)
+            }
+        }
+    }
+}
+
+private struct ProductStateRow: View {
+    var state: MobileLicenseProductState
+
+    var body: some View {
+        Label {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(state.title)
+                    .font(.body.weight(.semibold))
+                Text(state.detail)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        } icon: {
+            Image(systemName: systemImage)
+                .foregroundStyle(tint)
+        }
+    }
+
+    private var systemImage: String {
+        switch state.kind {
+        case .trial:
+            return "clock"
+        case .lifetimeUnlocked:
+            return "checkmark.seal.fill"
+        case .paidUpdateWindow:
+            return "calendar"
+        case .newFeaturesLocked:
+            return "lock.fill"
+        }
+    }
+
+    private var tint: Color {
+        if state.isActive {
+            return state.kind == .newFeaturesLocked ? .orange : .green
+        }
+        switch state.kind {
+        case .trial, .lifetimeUnlocked, .paidUpdateWindow:
+            return .secondary
+        case .newFeaturesLocked:
+            return .red
+        }
+    }
+}
+
+#if os(iOS)
 struct PremiumPurchasesSection: View {
     @ObservedObject var manager: StoreKitEntitlementManager
 
@@ -67,61 +126,90 @@ struct PremiumPurchasesSection: View {
         }
     }
 }
+#endif
 
-private struct ProductStatePanel: View {
-    var decision: MobileLicenseDecision
+#if os(macOS)
+struct MacLicenseSection: View {
+    @ObservedObject var manager: MacLicenseManager
+    @State private var licenseKey = ""
+    @State private var email = ""
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            ForEach(MobileLicenseProductStateBuilder.states(for: decision)) { state in
-                ProductStateRow(state: state)
+        Section("License") {
+            ProductStatePanel(decision: manager.decision)
+
+            HStack {
+                Label(deviceSummary, systemImage: "desktopcomputer")
+                Spacer()
+                Text("\(manager.deviceState.activeDeviceCount)/\(manager.deviceState.maxActiveDevices) active")
+                    .foregroundStyle(.secondary)
             }
-        }
-    }
-}
 
-private struct ProductStateRow: View {
-    var state: MobileLicenseProductState
+            SecureField("License key", text: $licenseKey)
+            TextField("Email", text: $email)
 
-    var body: some View {
-        Label {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(state.title)
-                    .font(.body.weight(.semibold))
-                Text(state.detail)
+            HStack {
+                Button {
+                    Task { await manager.activate(licenseKey: licenseKey, email: email) }
+                } label: {
+                    Label("Activate", systemImage: "checkmark.seal")
+                }
+                .disabled(manager.isLoading || licenseKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+                Button {
+                    Task { await manager.deactivateCurrentDevice() }
+                } label: {
+                    Label("Deactivate", systemImage: "minus.circle")
+                }
+                .disabled(manager.isLoading || !manager.deviceState.isCurrentDeviceActive)
+            }
+
+            HStack {
+                Button {
+                    Task { await manager.reactivateCurrentDevice() }
+                } label: {
+                    Label("Reactivate", systemImage: "arrow.clockwise.circle")
+                }
+                .disabled(manager.isLoading || !manager.deviceState.canReactivateCurrentDevice)
+
+                Button {
+                    Task { await manager.transferCurrentDevice() }
+                } label: {
+                    Label("Transfer", systemImage: "arrow.right.arrow.left")
+                }
+                .disabled(manager.isLoading || !manager.deviceState.canTransferCurrentDevice)
+            }
+
+            Link(destination: URL(string: "https://jpfchang.org/clambhook/buy")!) {
+                Label("Buy ClambHook USD \(MobileLicenseCommercialTerms.lifetimePriceUSD)", systemImage: "cart")
+            }
+
+            if manager.isLoading {
+                ProgressView()
+            }
+
+            if !manager.statusMessage.isEmpty {
+                Text(manager.statusMessage)
                     .font(.footnote)
                     .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
             }
-        } icon: {
-            Image(systemName: systemImage)
-                .foregroundStyle(tint)
+        }
+        .onAppear {
+            licenseKey = manager.savedLicenseKey()
+            email = manager.savedEmail()
         }
     }
 
-    private var systemImage: String {
-        switch state.kind {
-        case .trial:
-            return "clock"
-        case .lifetimeUnlocked:
-            return "checkmark.seal.fill"
-        case .paidUpdateWindow:
-            return "calendar"
-        case .newFeaturesLocked:
-            return "lock.fill"
+    private var deviceSummary: String {
+        if let device = manager.deviceState.currentDevice {
+            switch device.status {
+            case .active:
+                return "\(device.displayName) is active"
+            case .deactivated:
+                return "\(device.displayName) is deactivated"
+            }
         }
-    }
-
-    private var tint: Color {
-        if state.isActive {
-            return state.kind == .newFeaturesLocked ? .orange : .green
-        }
-        switch state.kind {
-        case .trial, .lifetimeUnlocked, .paidUpdateWindow:
-            return .secondary
-        case .newFeaturesLocked:
-            return .red
-        }
+        return "This Mac is not activated"
     }
 }
 #endif

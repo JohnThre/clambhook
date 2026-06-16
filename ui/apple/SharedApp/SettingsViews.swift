@@ -105,6 +105,9 @@ struct AppSettingsView: View {
             #if os(iOS)
             PremiumPurchasesSection(manager: model.licenseManager)
             #endif
+            #if os(macOS)
+            MacLicenseSection(manager: model.licenseManager)
+            #endif
             #if !os(iOS)
             Section {
                 Button("Apply") {
