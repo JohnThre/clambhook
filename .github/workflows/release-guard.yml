@@ -1,0 +1,41 @@
+name: Release Guard
+
+on:
+  release:
+    types: [published, prereleased, edited]
+
+permissions:
+  contents: read
+
+jobs:
+  no-macos-installers:
+    name: Reject macOS installer assets
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check release assets for macOS installers
+        env:
+          ASSETS_JSON: ${{ toJson(github.event.release.assets) }}
+        run: |
+          BLOCKED=$(python3 - <<'EOF'
+          import json, os, re, sys
+          assets = json.loads(os.environ.get("ASSETS_JSON", "[]"))
+          pattern = re.compile(
+              r'(?i)\.dmg$'
+              r'|(?i)\.pkg$'
+              r'|(?i)(mac|macos|darwin)[^/]*\.zip$'
+              r'|(?i)ClambhookMac[^/]*\.zip$'
+          )
+          bad = [a["name"] for a in assets if pattern.search(a.get("name", ""))]
+          for name in bad:
+              print(name)
+          EOF
+          )
+          if [ -n "$BLOCKED" ]; then
+            echo "ERROR: macOS installer assets must not be attached to GitHub releases."
+            echo "Distribute macOS installers through https://jpfchang.org/clambhook/ only."
+            echo ""
+            echo "Blocked files found:"
+            echo "$BLOCKED"
+            exit 1
+          fi
+          echo "OK: no macOS installer assets in this release."
