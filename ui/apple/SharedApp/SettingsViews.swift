@@ -1,8 +1,6 @@
+import AppKit
 import ClambhookShared
 import SwiftUI
-#if os(macOS)
-import AppKit
-#endif
 
 struct AppSettingsView: View {
     @ObservedObject var model: AppleAppModel
@@ -12,19 +10,9 @@ struct AppSettingsView: View {
     @State private var daemonConfigPath = ""
     @State private var daemonBinaryBookmark: Data?
     @State private var daemonConfigBookmark: Data?
-    @State private var biometricStatus = BiometricAuthStatus(isAvailable: false, label: "Biometric Lock")
 
     var body: some View {
         Form {
-            #if os(iOS)
-            Section("Advanced Config") {
-                NavigationLink {
-                    AdvancedConfigSettingsView(model: model)
-                } label: {
-                    Label("Raw Tunnel Config", systemImage: "doc.plaintext")
-                }
-            }
-            #else
             Section("API") {
                 TextField("Endpoint", text: $endpointText)
                 if let error = endpointValidationMessage(endpointText) {
@@ -40,8 +28,6 @@ struct AppSettingsView: View {
                     step: 1
                 )
             }
-            #endif
-            #if os(macOS)
             Section("Daemon") {
                 HStack {
                     TextField("Daemon binary path", text: $daemonBinaryPath)
@@ -64,7 +50,6 @@ struct AppSettingsView: View {
                 Toggle("Launch daemon when app starts", isOn: $model.settingsStore.settings.launchDaemonOnStart)
                 Toggle("Stop launched daemon when app quits", isOn: $model.settingsStore.settings.stopDaemonOnQuit)
             }
-            #endif
             Section("History") {
                 Stepper(
                     "Keep \(model.settingsStore.settings.logRetention) log lines",
@@ -73,16 +58,6 @@ struct AppSettingsView: View {
                     step: 50
                 )
             }
-            #if os(iOS)
-            Section("Inspection Privacy") {
-                Toggle("Require \(biometricStatus.label) for Inspection", isOn: $model.settingsStore.settings.inspectionLockEnabled)
-                    .disabled(!biometricStatus.isAvailable)
-                Text(biometricStatus.isAvailable ? "Activity and capture details stay hidden until biometric authentication succeeds." : biometricStatus.reason)
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            }
-            #endif
-            #if !os(iOS)
             Section("HTTPS Body Capture") {
                 Label(
                     model.developerStatus.enabled ? "Developer capture configured" : "Developer capture disabled",
@@ -92,23 +67,9 @@ struct AppSettingsView: View {
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
-            #endif
-            #if os(iOS)
-            Section("Privacy") {
-                Text(vpnDataUseDisclosure)
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                Link("Privacy Policy", destination: defaultPrivacyPolicyURL)
-                Link("Support", destination: defaultSupportURL)
-            }
-            #endif
-            #if os(iOS)
-            PremiumPurchasesSection(manager: model.licenseManager)
-            #endif
             #if os(macOS)
             MacLicenseSection(manager: model.licenseManager)
             #endif
-            #if !os(iOS)
             Section {
                 Button("Apply") {
                     apply()
@@ -118,7 +79,6 @@ struct AppSettingsView: View {
                     endpointText = defaultAPIEndpoint.absoluteString
                 }
             }
-            #endif
         }
         .formStyle(.grouped)
         .onAppear {
@@ -128,12 +88,6 @@ struct AppSettingsView: View {
             daemonConfigPath = model.settingsStore.settings.daemonConfigPath
             daemonBinaryBookmark = model.settingsStore.settings.daemonBinaryBookmark
             daemonConfigBookmark = model.settingsStore.settings.daemonConfigBookmark
-            #if os(iOS)
-            biometricStatus = SystemBiometricAuthenticator().status()
-            if !biometricStatus.isAvailable {
-                model.settingsStore.settings.inspectionLockEnabled = false
-            }
-            #endif
         }
     }
 
@@ -163,7 +117,6 @@ struct AppSettingsView: View {
         return nil
     }
 
-    #if os(macOS)
     private func chooseDaemonBinary() {
         chooseFile(title: "Choose clambhook daemon") { url in
             daemonBinaryPath = url.path
@@ -208,65 +161,4 @@ struct AppSettingsView: View {
         }
         return url.path == path.trimmingCharacters(in: .whitespacesAndNewlines) ? data : nil
     }
-    #else
-    private func matchingBookmark(_ data: Data?, path: String) -> Data? {
-        data
-    }
-    #endif
 }
-
-#if os(iOS)
-private struct AdvancedConfigSettingsView: View {
-    @ObservedObject var model: AppleAppModel
-    @State private var tunnelConfigText = ""
-    @State private var tunnelConfigMessage = ""
-
-    var body: some View {
-        Form {
-            Section("Advanced Config") {
-                TextEditor(text: $tunnelConfigText)
-                    .font(.system(.footnote, design: .monospaced))
-                    .frame(minHeight: 320)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                if !tunnelConfigMessage.isEmpty {
-                    Text(tunnelConfigMessage)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-
-            Section {
-                Button("Apply") {
-                    apply()
-                }
-                .disabled(applyDisabled)
-                Button("Reset Tunnel Config") {
-                    tunnelConfigText = defaultIOSTunnelConfig
-                    tunnelConfigMessage = ""
-                }
-            }
-        }
-        .formStyle(.grouped)
-        .navigationTitle("Advanced Config")
-        .onAppear {
-            tunnelConfigText = (try? TunnelConfigStore.loadOrCreateConfig(groupIdentifier: model.settingsStore.settings.appGroupIdentifier)) ?? defaultIOSTunnelConfig
-        }
-    }
-
-    private func apply() {
-        do {
-            try TunnelConfigStore.save(tunnelConfigText, groupIdentifier: model.settingsStore.settings.appGroupIdentifier)
-            tunnelConfigMessage = "Saved tunnel configuration."
-            model.applySettings()
-            model.reloadTunnelConfiguration()
-        } catch {
-            tunnelConfigMessage = error.localizedDescription
-        }
-    }
-
-    private var applyDisabled: Bool {
-        tunnelConfigText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
-}
-#endif

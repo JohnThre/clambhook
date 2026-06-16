@@ -64,8 +64,8 @@ type TunnelRuntime struct {
 	cancel context.CancelFunc
 }
 
-// NewTunnelRuntime creates an iOS/Android packet-tunnel runtime. iOS passes a
-// NetworkExtension-backed writer; tests can provide any PacketWriter.
+// NewTunnelRuntime creates an Android packet-tunnel runtime.
+// Tests can provide any PacketWriter.
 func NewTunnelRuntime(writer PacketWriter) *TunnelRuntime {
 	return &TunnelRuntime{writer: writer, temp: temprules.New()}
 }

@@ -1,8 +1,8 @@
 import Foundation
 
-public let defaultTunnelConfigFileName = "clambhook-ios.toml"
+public let defaultTunnelConfigFileName = "clambhook.toml"
 
-public let defaultIOSTunnelConfig = """
+public let defaultTunnelConfig = """
 # Replace this placeholder with a real clambhook profile before connecting.
 active = "default"
 
@@ -384,8 +384,8 @@ public enum TunnelConfigStore {
         if FileManager.default.fileExists(atPath: url.path) {
             return try String(contentsOf: url, encoding: .utf8)
         }
-        try save(defaultIOSTunnelConfig, groupIdentifier: groupIdentifier)
-        return defaultIOSTunnelConfig
+        try save(defaultTunnelConfig, groupIdentifier: groupIdentifier)
+        return defaultTunnelConfig
     }
 
     public static func save(_ text: String, groupIdentifier: String = defaultAppGroupIdentifier) throws {

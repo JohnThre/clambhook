@@ -156,13 +156,9 @@ struct DashboardContentView: View {
     }
 
     private var temporaryRuleActionHandler: ((TrafficConnectionPayload, String) -> Void)? {
-        #if os(iOS)
-        return nil
-        #else
         return { connection, action in
             model.createTemporaryRuleFromConnection(connection, action: action)
         }
-        #endif
     }
 }
 
