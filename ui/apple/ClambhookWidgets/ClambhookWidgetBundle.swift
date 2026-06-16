@@ -2,15 +2,6 @@ import AppIntents
 import ClambhookShared
 import SwiftUI
 import WidgetKit
-#if os(iOS)
-import NetworkExtension
-#if !DEBUG && !canImport(ClambhookMobile)
-#error("Mobile must be importable for iOS Release/App Store widget builds. Run make build-ios-mobile-xcframework before building the release app.")
-#endif
-#if canImport(ClambhookMobile)
-import ClambhookMobile
-#endif
-#endif
 
 @main
 struct ClambhookWidgetBundle: WidgetBundle {
@@ -136,11 +127,7 @@ struct StatusWidgetView: View {
     }
 
     private var canUseApp: Bool {
-        #if os(iOS)
-        WidgetEnvironment.licenseDecision().canUseApp
-        #else
         true
-        #endif
     }
 }
 
@@ -207,13 +194,9 @@ struct ConnectIntent: AppIntent {
     static var title: LocalizedStringResource = "Connect clambhook"
 
     func perform() async throws -> some IntentResult {
-        #if os(iOS)
-        try await IOSTunnelWidgetClient().connect()
-        #else
         let client = WidgetEnvironment.client()
         try await client.connect()
         await WidgetEnvironment.refreshSnapshot(from: client)
-        #endif
         WidgetCenter.shared.reloadAllTimelines()
         return .result()
     }
@@ -223,13 +206,9 @@ struct DisconnectIntent: AppIntent {
     static var title: LocalizedStringResource = "Disconnect clambhook"
 
     func perform() async throws -> some IntentResult {
-        #if os(iOS)
-        try await IOSTunnelWidgetClient().disconnect()
-        #else
         let client = WidgetEnvironment.client()
         try await client.disconnect()
         await WidgetEnvironment.refreshSnapshot(from: client)
-        #endif
         WidgetCenter.shared.reloadAllTimelines()
         return .result()
     }
@@ -239,9 +218,6 @@ struct NextProfileIntent: AppIntent {
     static var title: LocalizedStringResource = "Switch to next clambhook profile"
 
     func perform() async throws -> some IntentResult {
-        #if os(iOS)
-        try await IOSTunnelWidgetClient().nextProfile()
-        #else
         let client = WidgetEnvironment.client()
         let payload = try await client.profiles()
         guard !payload.profiles.isEmpty else {
@@ -254,7 +230,6 @@ struct NextProfileIntent: AppIntent {
         let next = payload.profiles[(index + 1) % payload.profiles.count]
         try await client.setActiveProfile(next)
         await WidgetEnvironment.refreshSnapshot(from: client)
-        #endif
         WidgetCenter.shared.reloadAllTimelines()
         return .result()
     }
@@ -331,262 +306,3 @@ enum WidgetEnvironment {
         MobileLicenseRuntimeGuard.decision(groupIdentifier: settings().appGroupIdentifier)
     }
 }
-
-#if os(iOS)
-private let widgetTunnelProviderBundleIdentifier = "org.jpfchang.clambhook.tunnel"
-
-private final class IOSTunnelWidgetClient {
-    private let decoder = JSONDecoder()
-    private let encoder = JSONEncoder()
-
-    private var groupIdentifier: String {
-        WidgetEnvironment.settings().appGroupIdentifier
-    }
-
-    private var configURL: URL {
-        TunnelConfigStore.configURL(groupIdentifier: groupIdentifier)
-    }
-
-    func connect() async throws {
-        try MobileLicenseRuntimeGuard.requireFeatureAccess(.tunnelRouting, groupIdentifier: groupIdentifier)
-        _ = try TunnelConfigStore.loadOrCreateConfig(groupIdentifier: groupIdentifier)
-        let manager = try await configuredManager()
-        guard let session = manager.connection as? NETunnelProviderSession else {
-            throw IOSTunnelWidgetError.invalidSession
-        }
-        try session.startTunnel(options: [
-            "configPath": configURL.path
-        ])
-        await saveCurrentSnapshot(manager: manager, assumedRunning: true)
-    }
-
-    func disconnect() async throws {
-        guard let manager = try await loadManager(createIfMissing: false) else {
-            await saveCurrentSnapshot(manager: nil, assumedRunning: false)
-            return
-        }
-        guard let session = manager.connection as? NETunnelProviderSession else {
-            throw IOSTunnelWidgetError.invalidSession
-        }
-        session.stopTunnel()
-        await saveCurrentSnapshot(manager: manager, assumedRunning: false)
-    }
-
-    func nextProfile() async throws {
-        try MobileLicenseRuntimeGuard.requireFeatureAccess(.profileManagement, groupIdentifier: groupIdentifier)
-        guard let manager = try await loadManager(createIfMissing: false),
-              canSendProviderMessage(status: manager.connection.status)
-        else {
-            try await nextProfileInConfig()
-            return
-        }
-
-        let payload = try await dashboard(manager: manager)
-        guard payload.profiles.profiles.count > 1 else {
-            await WidgetEnvironment.saveSnapshot(dashboard: payload)
-            return
-        }
-
-        let next = nextProfileName(in: payload.profiles)
-        let data = try await send(.init(action: .setActiveProfile, profile: next), manager: manager)
-        let updated = try decoder.decode(TunnelDashboardPayload.self, from: data)
-        await WidgetEnvironment.saveSnapshot(dashboard: updated)
-    }
-
-    private func nextProfileInConfig() async throws {
-        let payload = try disconnectedDashboard()
-        guard payload.profiles.profiles.count > 1 else {
-            await WidgetEnvironment.saveSnapshot(dashboard: payload)
-            return
-        }
-
-        let next = nextProfileName(in: payload.profiles)
-        #if canImport(ClambhookMobile)
-        try mobileBool {
-            MobileSetActiveTunnelProfileConfig(configURL.path, next, $0)
-        }
-        let updated = try disconnectedDashboard()
-        await WidgetEnvironment.saveSnapshot(dashboard: updated)
-        #else
-        throw IOSTunnelWidgetError.mobileRuntimeUnavailable
-        #endif
-    }
-
-    private func nextProfileName(in payload: ProfilesPayload) -> String {
-        let active = payload.active
-        let index = payload.profiles.firstIndex(of: active) ?? 0
-        return payload.profiles[(index + 1) % payload.profiles.count]
-    }
-
-    private func dashboard(manager: NETunnelProviderManager) async throws -> TunnelDashboardPayload {
-        if canSendProviderMessage(status: manager.connection.status) {
-            let data = try await send(.init(action: .dashboard), manager: manager)
-            return try decoder.decode(TunnelDashboardPayload.self, from: data)
-        }
-        return try disconnectedDashboard()
-    }
-
-    private func disconnectedDashboard() throws -> TunnelDashboardPayload {
-        #if canImport(ClambhookMobile)
-        _ = try TunnelConfigStore.loadOrCreateConfig(groupIdentifier: groupIdentifier)
-        let json = try mobileString {
-            MobileTunnelConfigDashboardJSON(configURL.path, $0)
-        }
-        return try decoder.decode(TunnelDashboardPayload.self, from: Data(json.utf8))
-        #else
-        throw IOSTunnelWidgetError.mobileRuntimeUnavailable
-        #endif
-    }
-
-    private func saveCurrentSnapshot(manager: NETunnelProviderManager?, assumedRunning: Bool?) async {
-        do {
-            let payload = try await currentDashboard(manager: manager, assumedRunning: assumedRunning)
-            await WidgetEnvironment.saveSnapshot(dashboard: payload)
-        } catch {
-            var current = WidgetEnvironment.snapshot()
-            current.updatedAt = Date()
-            current.apiOnline = false
-            if let assumedRunning {
-                current.running = assumedRunning
-            }
-            await WidgetEnvironment.saveSnapshot(current)
-        }
-    }
-
-    private func currentDashboard(manager: NETunnelProviderManager?, assumedRunning: Bool?) async throws -> TunnelDashboardPayload {
-        let payload: TunnelDashboardPayload
-        if let manager {
-            payload = try await dashboard(manager: manager)
-        } else {
-            payload = try disconnectedDashboard()
-        }
-        guard let assumedRunning else {
-            return payload
-        }
-        var updated = payload
-        updated.status.running = assumedRunning
-        return updated
-    }
-
-    private func configuredManager() async throws -> NETunnelProviderManager {
-        let manager = try await loadManager(createIfMissing: true) ?? NETunnelProviderManager()
-        let proto = (manager.protocolConfiguration as? NETunnelProviderProtocol) ?? NETunnelProviderProtocol()
-        proto.providerBundleIdentifier = widgetTunnelProviderBundleIdentifier
-        proto.serverAddress = "clambhook"
-        proto.providerConfiguration = [
-            "configPath": configURL.path
-        ]
-        manager.localizedDescription = "clambhook"
-        manager.protocolConfiguration = proto
-        manager.isEnabled = true
-        try await save(manager)
-        try await reload(manager)
-        return manager
-    }
-
-    private func loadManager(createIfMissing: Bool) async throws -> NETunnelProviderManager? {
-        let managers = try await loadAllManagers()
-        if let existing = managers.first(where: { manager in
-            (manager.protocolConfiguration as? NETunnelProviderProtocol)?.providerBundleIdentifier == widgetTunnelProviderBundleIdentifier
-        }) {
-            return existing
-        }
-        return createIfMissing ? NETunnelProviderManager() : nil
-    }
-
-    private func loadAllManagers() async throws -> [NETunnelProviderManager] {
-        try await withCheckedThrowingContinuation { continuation in
-            NETunnelProviderManager.loadAllFromPreferences { managers, error in
-                if let error {
-                    continuation.resume(throwing: error)
-                } else {
-                    continuation.resume(returning: managers ?? [])
-                }
-            }
-        }
-    }
-
-    private func save(_ manager: NETunnelProviderManager) async throws {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            manager.saveToPreferences { error in
-                if let error {
-                    continuation.resume(throwing: error)
-                } else {
-                    continuation.resume()
-                }
-            }
-        }
-    }
-
-    private func reload(_ manager: NETunnelProviderManager) async throws {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            manager.loadFromPreferences { error in
-                if let error {
-                    continuation.resume(throwing: error)
-                } else {
-                    continuation.resume()
-                }
-            }
-        }
-    }
-
-    private func send(_ command: TunnelCommand, manager: NETunnelProviderManager) async throws -> Data {
-        guard let session = manager.connection as? NETunnelProviderSession else {
-            throw IOSTunnelWidgetError.invalidSession
-        }
-        let message = try encoder.encode(command)
-        return try await withCheckedThrowingContinuation { continuation in
-            do {
-                try session.sendProviderMessage(message) { data in
-                    if let data {
-                        continuation.resume(returning: data)
-                    } else {
-                        continuation.resume(throwing: IOSTunnelWidgetError.emptyProviderResponse)
-                    }
-                }
-            } catch {
-                continuation.resume(throwing: error)
-            }
-        }
-    }
-
-    private func canSendProviderMessage(status: NEVPNStatus) -> Bool {
-        status == .connected || status == .connecting || status == .reasserting
-    }
-}
-
-private enum IOSTunnelWidgetError: Error, LocalizedError {
-    case invalidSession
-    case emptyProviderResponse
-    case mobileRuntimeUnavailable
-
-    var errorDescription: String? {
-        switch self {
-        case .invalidSession:
-            return "packet tunnel session is unavailable"
-        case .emptyProviderResponse:
-            return "packet tunnel returned no response"
-        case .mobileRuntimeUnavailable:
-            return "embedded mobile runtime is unavailable"
-        }
-    }
-}
-
-#if canImport(ClambhookMobile)
-private func mobileString(_ operation: (NSErrorPointer) -> String) throws -> String {
-    var error: NSError?
-    let value = operation(&error)
-    if let error {
-        throw error
-    }
-    return value
-}
-
-private func mobileBool(_ operation: (NSErrorPointer) -> Bool) throws {
-    var error: NSError?
-    if !operation(&error) {
-        throw error ?? IOSTunnelWidgetError.mobileRuntimeUnavailable
-    }
-}
-#endif
-#endif

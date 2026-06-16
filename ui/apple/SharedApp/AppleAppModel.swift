@@ -2,41 +2,6 @@ import ClambhookShared
 import Combine
 import Foundation
 import SwiftUI
-#if os(iOS)
-import UIKit
-#endif
-#if os(iOS) && !DEBUG && !canImport(ClambhookMobile)
-#error("Mobile must be importable for iOS Release/App Store builds. Run make build-ios-mobile-xcframework before building the release app.")
-#endif
-#if os(iOS) && canImport(ClambhookMobile)
-import ClambhookMobile
-#endif
-
-#if os(iOS) && canImport(ClambhookMobile)
-private func mobileConfigError(_ description: String) -> NSError {
-    NSError(
-        domain: "org.jpfchang.clambhook.mobile",
-        code: 1,
-        userInfo: [NSLocalizedDescriptionKey: description]
-    )
-}
-
-private func mobileBool(_ operation: (NSErrorPointer) -> Bool) throws {
-    var error: NSError?
-    if !operation(&error) {
-        throw error ?? mobileConfigError("Mobile config operation failed")
-    }
-}
-
-private func mobileString(_ operation: (NSErrorPointer) -> String) throws -> String {
-    var error: NSError?
-    let value = operation(&error)
-    if let error {
-        throw error
-    }
-    return value
-}
-#endif
 
 @MainActor
 final class AppleAppModel: ObservableObject {
@@ -62,15 +27,8 @@ final class AppleAppModel: ObservableObject {
     private var licenseChangeCancellable: AnyCancellable?
     private var started = false
 
-    #if os(iOS)
-    let tunnelController = IOSTunnelController()
-    @Published private(set) var licenseManager: StoreKitEntitlementManager
-    #endif
-
-    #if os(macOS)
     let daemonSupervisor = DaemonSupervisor()
     @Published private(set) var licenseManager: MacLicenseManager
-    #endif
 
     convenience init(platform: AppPlatform) {
         self.init(
@@ -85,31 +43,16 @@ final class AppleAppModel: ObservableObject {
         self.settingsStore = settingsStore
         self.credentialStore = credentialStore
         self.snapshotStore = FileSnapshotStore.appGroupStore(groupIdentifier: settingsStore.settings.appGroupIdentifier)
-        #if os(iOS)
-        self.licenseManager = StoreKitEntitlementManager(
-            defaults: UserDefaults(suiteName: settingsStore.settings.appGroupIdentifier) ?? .standard,
-            credentialStore: KeychainCredentialStore(service: "org.jpfchang.clambhook.license"),
-            licenseValidationEndpoint: settingsStore.settings.licenseValidationEndpoint
-        )
-        #endif
-        #if os(macOS)
         self.licenseManager = MacLicenseManager(
             defaults: UserDefaults(suiteName: settingsStore.settings.appGroupIdentifier) ?? .standard,
             credentialStore: KeychainCredentialStore(service: "org.jpfchang.clambhook.license"),
             licenseValidationEndpoint: settingsStore.settings.licenseValidationEndpoint
         )
-        #endif
         let initialToken = (try? credentialStore.readToken(account: settingsStore.settings.apiEndpoint.absoluteString)) ?? ""
         self.apiToken = initialToken
-        #if os(iOS)
-        let initialDashboardAPI = TunnelDashboardClient(controller: tunnelController)
-        self.apiClient = nil
-        self.dashboardAPI = initialDashboardAPI
-        #else
         let initialAPIClient = ClambhookAPIClient(baseURL: settingsStore.settings.apiEndpoint, tokenProvider: { initialToken })
         self.apiClient = initialAPIClient
         self.dashboardAPI = initialAPIClient
-        #endif
         self.dashboard = DashboardStore(
             api: dashboardAPI,
             snapshotStore: snapshotStore,
@@ -118,13 +61,11 @@ final class AppleAppModel: ObservableObject {
         self.attention = AttentionStore.appGroupStore(groupIdentifier: settingsStore.settings.appGroupIdentifier)
         self.profileMetadata = ProfileMetadataStore.appGroupStore(groupIdentifier: settingsStore.settings.appGroupIdentifier)
         bindChildStores()
-        #if os(macOS)
         if platform == .macOS {
             Task { @MainActor [weak self] in
                 self?.start()
             }
         }
-        #endif
     }
 
     func start() {
@@ -133,18 +74,11 @@ final class AppleAppModel: ObservableObject {
             return
         }
         started = true
-        #if os(iOS)
         licenseManager.start()
-        #endif
-        #if os(macOS)
-        licenseManager.start()
-        #endif
         reloadClient()
-        #if os(macOS)
         if settingsStore.settings.launchDaemonOnStart {
             launchDaemon()
         }
-        #endif
         if let apiClient {
             dashboard.startEventStream(from: apiClient)
         }
@@ -161,11 +95,9 @@ final class AppleAppModel: ObservableObject {
         pollingTask?.cancel()
         pollingTask = nil
         dashboard.stopEventStream()
-        #if os(macOS)
         if settingsStore.settings.stopDaemonOnQuit {
             daemonSupervisor.stop()
         }
-        #endif
         started = false
     }
 
@@ -262,26 +194,9 @@ final class AppleAppModel: ObservableObject {
         case .refresh:
             refresh()
         case .openAppSettings:
-            #if os(iOS)
-            if let url = URL(string: UIApplication.openSettingsURLString) {
-                UIApplication.shared.open(url)
-            }
-            #endif
+            break
         case .rebuildVPNProfile:
-            #if os(iOS)
-            Task {
-                do {
-                    try await tunnelController.resetVPNProfile()
-                    dashboard.clearRecoveryIssue(kind: .invalidEntitlementOrProfile)
-                    await dashboard.refreshDashboard()
-                    syncProfileRecoveryIssue()
-                } catch {
-                    dashboard.setRecoveryIssue(TunnelRecoveryClassifier.issue(for: error))
-                }
-            }
-            #else
             refresh()
-            #endif
         case .openProfiles, .importProfile:
             daemonMessage = action == .importProfile ? "open imports" : "open profiles"
         }
@@ -294,14 +209,10 @@ final class AppleAppModel: ObservableObject {
         }
         Task {
             do {
-                #if os(iOS)
-                try replaceActiveProfileRules(dashboard.rules.rules + [rule])
-                #else
                 guard let apiClient else {
                     throw APIClientError.invalidURL("missing API client")
                 }
                 _ = try await apiClient.createRule(rule)
-                #endif
                 await dashboard.refreshDashboard()
                 daemonMessage = "rule created"
             } catch {
@@ -317,9 +228,6 @@ final class AppleAppModel: ObservableObject {
         }
         Task {
             do {
-                #if os(iOS)
-                try replaceActiveProfileRules(dashboard.rules.rules + [rule])
-                #else
                 guard let apiClient else {
                     throw APIClientError.invalidURL("missing API client")
                 }
@@ -334,7 +242,6 @@ final class AppleAppModel: ObservableObject {
                         scope: "auto"
                     )
                 }
-                #endif
                 await dashboard.refreshDashboard()
                 daemonMessage = "rule created"
             } catch {
@@ -344,10 +251,6 @@ final class AppleAppModel: ObservableObject {
     }
 
     func createTemporaryRuleFromConnection(_ connection: TrafficConnectionPayload, action: String, ttlSeconds: Int = 900) {
-        #if os(iOS)
-        daemonMessage = "Temporary rules are not supported on iOS yet."
-        return
-        #else
         guard canUseLicensedFeature(.routingRules) else {
             daemonMessage = AppleAppModelError.licenseLocked.errorDescription ?? ""
             return
@@ -373,7 +276,6 @@ final class AppleAppModel: ObservableObject {
                 daemonMessage = error.localizedDescription
             }
         }
-        #endif
     }
 
     func applyCleanupSuggestion(_ suggestion: TrafficCleanupSuggestionPayload) {
@@ -383,15 +285,10 @@ final class AppleAppModel: ObservableObject {
         }
         Task {
             do {
-                #if os(iOS)
-                let nextRules = try rulesApplyingCleanupSuggestion(dashboard.rules.rules, suggestion: suggestion)
-                try replaceActiveProfileRules(nextRules)
-                #else
                 guard let apiClient else {
                     throw APIClientError.invalidURL("missing API client")
                 }
                 _ = try await apiClient.cleanupRule(suggestion)
-                #endif
                 await dashboard.refreshDashboard()
                 daemonMessage = "rule cleanup applied"
             } catch {
@@ -408,29 +305,12 @@ final class AppleAppModel: ObservableObject {
     }
 
     var mobileLicenseDecision: MobileLicenseDecision {
-        #if os(iOS) || os(macOS)
+        #if os(macOS)
         return licenseManager.decision
         #else
         return MobileLicenseEvaluator.evaluate(snapshot: MobileLicenseSnapshot(trialStartDate: Date()))
         #endif
     }
-
-    #if os(iOS)
-    var licenseRecoveryState: AppRecoveryState? {
-        AppRecoveryStateBuilder.expiredTrial(
-            decision: mobileLicenseDecision,
-            storeKitAvailability: licenseManager.purchaseAvailability
-        )
-    }
-
-    var dashboardBlockingRecoveryState: AppRecoveryState? {
-        if let issue = dashboard.recoveryIssue,
-           let state = AppRecoveryStateBuilder.invalidVPNEntitlementOrProfile(issue: issue) {
-            return state
-        }
-        return AppRecoveryStateBuilder.missingProfile(readinessMessage: tunnelOnboardingReadinessMessage() ?? "")
-    }
-    #endif
 
     func canUseLicensedFeature(_ featureID: MobileLicenseFeatureID) -> Bool {
         mobileLicenseDecision.canUseFeature(featureID)
@@ -478,11 +358,6 @@ final class AppleAppModel: ObservableObject {
     }
 
     func refreshDeveloperCaptureNow() async {
-        #if os(iOS)
-        developerStatus = DeveloperStatusPayload()
-        developerEntries = []
-        return
-        #else
         guard let provider = dashboardAPI as? DeveloperCaptureProviding else {
             developerStatus = DeveloperStatusPayload()
             developerEntries = []
@@ -496,36 +371,23 @@ final class AppleAppModel: ObservableObject {
             developerEntries = []
             daemonMessage = error.localizedDescription
         }
-        #endif
     }
 
     func developerCAPEM() async throws -> String {
-        #if os(iOS)
-        throw APIClientError.invalidURL("developer capture unavailable in iOS v1")
-        #else
         guard let provider = dashboardAPI as? DeveloperCaptureProviding else {
             throw APIClientError.invalidURL("developer capture unavailable")
         }
         return try await provider.developerCAPEM()
-        #endif
     }
 
     func developerHAR() async throws -> String {
-        #if os(iOS)
-        throw APIClientError.invalidURL("developer capture unavailable in iOS v1")
-        #else
         guard let provider = dashboardAPI as? DeveloperCaptureProviding else {
             throw APIClientError.invalidURL("developer capture unavailable")
         }
         return try await provider.developerHAR()
-        #endif
     }
 
     func clearDeveloperEntries() {
-        #if os(iOS)
-        developerEntries = []
-        return
-        #else
         Task {
             guard let provider = dashboardAPI as? DeveloperCaptureProviding else {
                 return
@@ -537,139 +399,6 @@ final class AppleAppModel: ObservableObject {
                 daemonMessage = error.localizedDescription
             }
         }
-        #endif
-    }
-
-    #if os(iOS)
-    func importReviewPayload(for item: InboxImportItem) throws -> TunnelImportReviewPayload {
-        guard canUseLicensedFeature(.profileManagement) else {
-            throw AppleAppModelError.licenseLocked
-        }
-        #if canImport(ClambhookMobile)
-        let raw = try mobileString {
-            MobileTunnelImportReviewJSON(item.decodedConfigText, $0)
-        }
-        return try JSONDecoder().decode(TunnelImportReviewPayload.self, from: Data(raw.utf8))
-        #else
-        return TunnelImportReviewPayload(
-            activeProfile: item.preview.activeProfile,
-            profiles: item.preview.profileNames.map {
-                TunnelImportReviewProfile(name: $0, serverCount: item.preview.serverCount)
-            }
-        )
-        #endif
-    }
-
-    func validateReviewedTunnelImport(_ request: ReviewedTunnelImportRequest) throws {
-        guard canUseLicensedFeature(.profileManagement) else {
-            throw AppleAppModelError.licenseLocked
-        }
-        #if canImport(ClambhookMobile)
-        let data = try JSONEncoder().encode(request)
-        guard let raw = String(data: data, encoding: .utf8) else {
-            throw AppleAppModelError.invalidProfileRequest
-        }
-        try mobileBool {
-            MobileValidateReviewedTunnelImportJSON(
-                TunnelConfigStore.configURL(groupIdentifier: settingsStore.settings.appGroupIdentifier).path,
-                raw,
-                $0
-            )
-        }
-        #endif
-    }
-
-    func applyReviewedTunnelImport(
-        item: InboxImportItem,
-        request: ReviewedTunnelImportRequest,
-        tagsByProfile: [String: [String]]
-    ) {
-        guard canUseLicensedFeature(.profileManagement) else {
-            daemonMessage = AppleAppModelError.licenseLocked.errorDescription ?? ""
-            return
-        }
-        do {
-            #if canImport(ClambhookMobile)
-            let data = try JSONEncoder().encode(request)
-            guard let raw = String(data: data, encoding: .utf8) else {
-                throw AppleAppModelError.invalidProfileRequest
-            }
-            try mobileBool {
-                MobileApplyReviewedTunnelImportJSON(
-                    TunnelConfigStore.configURL(groupIdentifier: settingsStore.settings.appGroupIdentifier).path,
-                    raw,
-                    $0
-                )
-            }
-            #else
-            try validateAndSaveTunnelConfig(item.decodedConfigText)
-            #endif
-            profileMetadata.setTagsByProfile(tagsByProfile)
-            attention.removeInboxItem(id: item.id)
-            applySettings()
-            reloadTunnelConfiguration()
-            daemonMessage = "imported reviewed profiles"
-        } catch {
-            attention.markInboxImportError(id: item.id, error: error.localizedDescription)
-            daemonMessage = error.localizedDescription
-        }
-    }
-
-    func importTunnelConfigText(_ rawText: String) throws {
-        guard canUseLicensedFeature(.profileManagement) else {
-            throw AppleAppModelError.licenseLocked
-        }
-        let text = try TunnelImportDecoder.decode(rawText)
-        try validateAndSaveTunnelConfig(text)
-        applySettings()
-        reloadTunnelConfiguration()
-    }
-
-    func createTunnelProfile(_ request: TunnelProfileCreateRequest) throws {
-        guard canUseLicensedFeature(.profileManagement) else {
-            throw AppleAppModelError.licenseLocked
-        }
-        #if canImport(ClambhookMobile)
-        let data = try JSONEncoder().encode(request)
-        guard let raw = String(data: data, encoding: .utf8) else {
-            throw AppleAppModelError.invalidProfileRequest
-        }
-        try mobileBool {
-            MobileCreateTunnelProfileConfigJSON(
-                TunnelConfigStore.configURL(groupIdentifier: settingsStore.settings.appGroupIdentifier).path,
-                raw,
-                $0
-            )
-        }
-        applySettings()
-        reloadTunnelConfiguration()
-        #else
-        throw AppleAppModelError.mobileConfigEditorUnavailable
-        #endif
-    }
-
-    func replaceActiveProfileRules(_ rules: [RulePayload]) throws {
-        guard canUseLicensedFeature(.routingRules) else {
-            throw AppleAppModelError.licenseLocked
-        }
-        #if canImport(ClambhookMobile)
-        let data = try JSONEncoder().encode(rules)
-        guard let raw = String(data: data, encoding: .utf8) else {
-            throw AppleAppModelError.invalidRules
-        }
-        try mobileBool {
-            MobileReplaceTunnelRulesJSON(
-                TunnelConfigStore.configURL(groupIdentifier: settingsStore.settings.appGroupIdentifier).path,
-                dashboard.activeProfile,
-                raw,
-                $0
-            )
-        }
-        applySettings()
-        reloadTunnelConfiguration()
-        #else
-        throw AppleAppModelError.mobileConfigEditorUnavailable
-        #endif
     }
 
     func refreshActiveProfileRuleSets() {
@@ -679,27 +408,11 @@ final class AppleAppModel: ObservableObject {
         }
         Task {
             do {
-                #if os(iOS)
-                #if canImport(ClambhookMobile)
-                _ = try mobileString {
-                    MobileRefreshRuleSetsJSON(
-                        TunnelConfigStore.configURL(groupIdentifier: settingsStore.settings.appGroupIdentifier).path,
-                        dashboard.activeProfile,
-                        "[]",
-                        $0
-                    )
-                }
-                reloadTunnelConfiguration()
-                #else
-                throw AppleAppModelError.mobileConfigEditorUnavailable
-                #endif
-                #else
                 guard let apiClient else {
                     throw APIClientError.invalidURL("missing API client")
                 }
                 _ = try await apiClient.refreshRuleSets(profile: dashboard.activeProfile)
                 await dashboard.refreshDashboard()
-                #endif
                 daemonMessage = "rule sets refreshed"
             } catch {
                 daemonMessage = error.localizedDescription
@@ -711,26 +424,6 @@ final class AppleAppModel: ObservableObject {
         guard canUseLicensedFeature(.routingRules) else {
             throw AppleAppModelError.licenseLocked
         }
-        #if os(iOS)
-        #if canImport(ClambhookMobile)
-        let data = try JSONEncoder().encode(groups)
-        guard let raw = String(data: data, encoding: .utf8) else {
-            throw AppleAppModelError.invalidRules
-        }
-        try mobileBool {
-            MobileReplaceTunnelPolicyGroupsJSON(
-                TunnelConfigStore.configURL(groupIdentifier: settingsStore.settings.appGroupIdentifier).path,
-                dashboard.activeProfile,
-                raw,
-                $0
-            )
-        }
-        applySettings()
-        reloadTunnelConfiguration()
-        #else
-        throw AppleAppModelError.mobileConfigEditorUnavailable
-        #endif
-        #else
         Task {
             do {
                 guard let apiClient else {
@@ -742,33 +435,12 @@ final class AppleAppModel: ObservableObject {
                 daemonMessage = error.localizedDescription
             }
         }
-        #endif
     }
 
     func replaceActiveProfileRuleSubscriptions(_ subscriptions: [RuleSubscriptionPayload]) throws {
         guard canUseLicensedFeature(.routingRules) else {
             throw AppleAppModelError.licenseLocked
         }
-        #if os(iOS)
-        #if canImport(ClambhookMobile)
-        let data = try JSONEncoder().encode(subscriptions)
-        guard let raw = String(data: data, encoding: .utf8) else {
-            throw AppleAppModelError.invalidRules
-        }
-        try mobileBool {
-            MobileReplaceTunnelRuleSubscriptionsJSON(
-                TunnelConfigStore.configURL(groupIdentifier: settingsStore.settings.appGroupIdentifier).path,
-                dashboard.activeProfile,
-                raw,
-                $0
-            )
-        }
-        applySettings()
-        reloadTunnelConfiguration()
-        #else
-        throw AppleAppModelError.mobileConfigEditorUnavailable
-        #endif
-        #else
         Task {
             do {
                 guard let apiClient else {
@@ -780,7 +452,6 @@ final class AppleAppModel: ObservableObject {
                 daemonMessage = error.localizedDescription
             }
         }
-        #endif
     }
 
     func refreshActiveProfileRuleSubscriptions() {
@@ -790,27 +461,11 @@ final class AppleAppModel: ObservableObject {
         }
         Task {
             do {
-                #if os(iOS)
-                #if canImport(ClambhookMobile)
-                _ = try mobileString {
-                    MobileRefreshRuleSubscriptionsJSON(
-                        TunnelConfigStore.configURL(groupIdentifier: settingsStore.settings.appGroupIdentifier).path,
-                        dashboard.activeProfile,
-                        "[]",
-                        $0
-                    )
-                }
-                reloadTunnelConfiguration()
-                #else
-                throw AppleAppModelError.mobileConfigEditorUnavailable
-                #endif
-                #else
                 guard let apiClient else {
                     throw APIClientError.invalidURL("missing API client")
                 }
                 _ = try await apiClient.refreshRuleSubscriptions(profile: dashboard.activeProfile)
                 await dashboard.refreshDashboard()
-                #endif
                 daemonMessage = "subscriptions refreshed"
             } catch {
                 daemonMessage = error.localizedDescription
@@ -818,66 +473,6 @@ final class AppleAppModel: ObservableObject {
         }
     }
 
-    func tunnelOnboardingReadinessMessage() -> String? {
-        do {
-            let text = try TunnelConfigStore.loadOrCreateConfig(groupIdentifier: settingsStore.settings.appGroupIdentifier)
-            if TunnelConfigStore.isPlaceholderConfigText(text) {
-                return "Replace the placeholder profile before continuing."
-            }
-            #if canImport(ClambhookMobile)
-            try mobileBool {
-                MobileValidateUsableTunnelConfig(
-                    TunnelConfigStore.configURL(groupIdentifier: settingsStore.settings.appGroupIdentifier).path,
-                    $0
-                )
-            }
-            #else
-            guard TunnelImportDecoder.looksLikeTOML(text), text.lowercased().contains("[[profile]]") else {
-                return "Import or create a tunnel profile before continuing."
-            }
-            #endif
-            return nil
-        } catch {
-            return error.localizedDescription
-        }
-    }
-
-    func shouldShowOnboarding() -> Bool {
-        tunnelOnboardingReadinessMessage() != nil
-    }
-
-    func reloadTunnelConfiguration() {
-        Task {
-            do {
-                try await (dashboardAPI as? TunnelDashboardClient)?.reloadConfiguration()
-                await dashboard.refreshDashboard()
-                syncProfileRecoveryIssue()
-            } catch {
-                dashboard.stopEventStream()
-                await dashboard.refreshDashboard()
-                syncProfileRecoveryIssue()
-            }
-        }
-    }
-
-    private func validateAndSaveTunnelConfig(_ text: String) throws {
-        #if canImport(ClambhookMobile)
-        let tempURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString)
-            .appendingPathExtension("toml")
-        try text.write(to: tempURL, atomically: true, encoding: .utf8)
-        defer { try? FileManager.default.removeItem(at: tempURL) }
-        try mobileBool { MobileValidateTunnelConfig(tempURL.path, $0) }
-        #else
-        guard TunnelImportDecoder.looksLikeTOML(text) else {
-            throw TunnelImportError.unsupported
-        }
-        #endif
-        try TunnelConfigStore.save(text, groupIdentifier: settingsStore.settings.appGroupIdentifier)
-    }
-    #endif
-
-    #if os(macOS)
     func launchDaemon() {
         Task {
             do {
@@ -895,21 +490,15 @@ final class AppleAppModel: ObservableObject {
         daemonSupervisor.stop()
         daemonMessage = "daemon stopped"
     }
-    #endif
 
     private func reloadClient() {
         let settings = settingsStore.settings.normalized()
         let endpoint = settings.apiEndpoint
         let token = apiToken
         snapshotStore = FileSnapshotStore.appGroupStore(groupIdentifier: settings.appGroupIdentifier)
-        #if os(iOS)
-        apiClient = nil
-        dashboardAPI = TunnelDashboardClient(controller: tunnelController)
-        #else
         let nextAPIClient = ClambhookAPIClient(baseURL: endpoint, tokenProvider: { token.isEmpty ? nil : token })
         apiClient = nextAPIClient
         dashboardAPI = nextAPIClient
-        #endif
         dashboard.stopEventStream()
         dashboard = DashboardStore(api: dashboardAPI, snapshotStore: snapshotStore, logRetention: settings.logRetention)
         attention = AttentionStore.appGroupStore(groupIdentifier: settings.appGroupIdentifier)
@@ -930,7 +519,7 @@ final class AppleAppModel: ObservableObject {
                 self?.objectWillChange.send()
             }
         }
-        #if os(iOS) || os(macOS)
+        #if os(macOS)
         bindLicenseManager()
         #endif
     }
@@ -959,7 +548,7 @@ final class AppleAppModel: ObservableObject {
         }
     }
 
-    #if os(iOS) || os(macOS)
+    #if os(macOS)
     private func bindLicenseManager() {
         licenseChangeCancellable = licenseManager.objectWillChange.sink { [weak self] _ in
             Task { @MainActor in
@@ -968,8 +557,10 @@ final class AppleAppModel: ObservableObject {
             }
         }
     }
+    #endif
 
     private func enforceLicenseState() {
+        #if os(macOS)
         licenseManager.refreshDecision()
         guard !licenseManager.decision.canUseApp, dashboard.status.running else {
             return
@@ -977,10 +568,8 @@ final class AppleAppModel: ObservableObject {
         Task {
             await dashboard.disconnect()
         }
+        #endif
     }
-    #else
-    private func enforceLicenseState() {}
-    #endif
 
     private func startPolling() {
         pollingTask?.cancel()
@@ -1001,7 +590,6 @@ final class AppleAppModel: ObservableObject {
         }
     }
 
-    #if os(macOS)
     private func waitForAPIReady(timeout: TimeInterval = 3) async -> Bool {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
@@ -1013,13 +601,10 @@ final class AppleAppModel: ObservableObject {
         }
         return false
     }
-    #endif
 }
 
 enum AppPlatform {
     case macOS
-    case iOS
-    case tvOS
     case visionOS
 }
 
@@ -1040,26 +625,6 @@ enum AppleAppModelError: Error, LocalizedError {
         case .licenseLocked:
             return "Free access has ended. Purchase or restore the lifetime unlock to keep using clambhook."
         }
-    }
-}
-
-private func rulesApplyingCleanupSuggestion(_ rules: [RulePayload], suggestion: TrafficCleanupSuggestionPayload) throws -> [RulePayload] {
-    let target = suggestion.targetRuleName.isEmpty ? suggestion.ruleName : suggestion.targetRuleName
-    guard !target.isEmpty, let index = rules.firstIndex(where: { $0.name == target }) else {
-        throw AppleAppModelError.invalidRules
-    }
-    switch suggestion.operation {
-    case "delete_rule":
-        var next = rules
-        next.remove(at: index)
-        return next
-    case "move_rule_to_end":
-        var next = rules
-        let rule = next.remove(at: index)
-        next.append(rule)
-        return next
-    default:
-        throw AppleAppModelError.invalidRules
     }
 }
 

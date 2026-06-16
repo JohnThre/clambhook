@@ -61,8 +61,8 @@ func ValidateUsableTunnelConfig(configPath string) error {
 }
 
 // TunnelConfigDashboardJSON returns profile, server, and rule data directly
-// from configPath. It lets the iOS app render onboarding/config screens before
-// the NetworkExtension runtime is connected.
+// from configPath. It lets the Android app render onboarding/config screens
+// before the tunnel runtime is connected.
 func TunnelConfigDashboardJSON(configPath string) (string, error) {
 	cfg, err := loadTunnelConfig(configPath)
 	if err != nil {

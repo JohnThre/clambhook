@@ -246,10 +246,6 @@ require_text "$ROOT_DIR/docs/app-store/territory-plan.md" "United States only" "
 require_text "$ROOT_DIR/docs/distribution.md" "Premium access and paid feature updates are sold through non-consumable In-App Purchases." "distribution policy"
 require_text "$ROOT_DIR/docs/distribution.md" "Existing purchased features remain enabled forever" "distribution policy"
 
-verify_source_entitlements "iOS app" "$ROOT_DIR/ui/apple/ClambhookiOS/ClambhookiOS.entitlements"
-verify_source_entitlements "packet tunnel" "$ROOT_DIR/ui/apple/ClambhookPacketTunnel/ClambhookPacketTunnel.entitlements"
-verify_source_entitlements "iOS widget" "$ROOT_DIR/ui/apple/ClambhookWidgets/ClambhookiOSWidgetExtension.entitlements"
-
 if [[ "$REQUIRE_DEMO_SECRET" -eq 1 || -n "${CLAMBHOOK_APP_REVIEW_DEMO_PASSWORD:-}" ]]; then
     require_command python3
     require_command go

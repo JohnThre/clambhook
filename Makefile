@@ -1,4 +1,4 @@
-.PHONY: all build build-clib build-daemon build-tui install install-linux prepare-apple-runtime generate-apple build-apple archive-iphone build-iphone release-macos release-check app-review-release-check package-smoke test-apple test-android build-android-mobile-aar build-ios-mobile-xcframework build-android build-android-release build-android-play-release check-linux-ui-deps test-linux build-linux test e2e e2e-release lint clean
+.PHONY: all build build-clib build-daemon build-tui install install-linux prepare-apple-runtime generate-apple build-apple release-macos release-check app-review-release-check package-smoke test-apple test-android build-android-mobile-aar build-android build-android-release build-android-play-release check-linux-ui-deps test-linux build-linux test e2e e2e-release lint clean
 
 export CGO_ENABLED=1
 PREFIX ?= /usr/local
@@ -46,18 +46,10 @@ prepare-apple-runtime:
 generate-apple:
 	cd ui/apple && xcodegen generate --spec project.yml
 
-build-apple: prepare-apple-runtime build-ios-mobile-xcframework
+build-apple: prepare-apple-runtime
 	$(MAKE) generate-apple
 	xcodebuild -project ui/apple/Clambhook.xcodeproj -scheme ClambhookMac -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO build
-	xcodebuild -project ui/apple/Clambhook.xcodeproj -scheme ClambhookiOS -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build
-	xcodebuild -project ui/apple/Clambhook.xcodeproj -scheme ClambhookTV -destination 'generic/platform=tvOS Simulator' CODE_SIGNING_ALLOWED=NO build
 	xcodebuild -project ui/apple/Clambhook.xcodeproj -scheme ClambhookVision -destination 'generic/platform=visionOS Simulator' CODE_SIGNING_ALLOWED=NO build
-
-archive-iphone:
-	@printf '%s\n' "App Store Connect only: exported IPAs must not be published on GitHub."
-	./scripts/archive-ios-app-store.sh
-
-build-iphone: archive-iphone
 
 release-macos:
 	$(internal-release-notice)
@@ -83,9 +75,6 @@ test-android:
 
 build-android-mobile-aar:
 	./scripts/build-android-mobile-aar.sh
-
-build-ios-mobile-xcframework:
-	./scripts/build-ios-mobile-xcframework.sh
 
 build-android:
 	cd ui/android && ANDROID_HOME="$(ANDROID_HOME)" ./gradlew :app:assemblePlayDebug
