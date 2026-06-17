@@ -688,7 +688,7 @@ private struct MacCaptureEntryRow: View {
     }
 }
 
-private struct MacRuleCreateSheet: View {
+struct MacRuleCreateSheet: View {
     @ObservedObject var model: AppleAppModel
     @Environment(\.dismiss) private var dismiss
     @State private var rule: RulePayload

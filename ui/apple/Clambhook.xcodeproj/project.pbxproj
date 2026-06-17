@@ -7,26 +7,31 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		02515828BBDD5E2F458BBC82 /* MacDashboardWindowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 73930EE75CE83BC0639DF8FB /* MacDashboardWindowView.swift */; };
+		032EB9CFFF8103097D695F50 /* VisionRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB084852D105E104FA1A2C08 /* VisionRootView.swift */; };
 		069007F5D0A7675880D40F9B /* libsodium.26.dylib in CopyFiles */ = {isa = PBXBuildFile; fileRef = 0A1CC5DD0620471B3CCA85A1 /* libsodium.26.dylib */; };
+		08E41EA0CC54ADA8C6AA6715 /* DashboardViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5D820AE96C5A0080AA5CF1F /* DashboardViews.swift */; };
 		095D479A2F5A1084BFB762D0 /* ClambhookMacApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02A8B8AC40D9FACBCFC83187 /* ClambhookMacApp.swift */; };
 		21058FE949E1058BD40B24BC /* DaemonSupervisor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 752B77E9507F4674BBA0E4D8 /* DaemonSupervisor.swift */; };
+		22E5858EF2C129AAA285716D /* SupportPurchasesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8D0525C10EE904F2F5523DA /* SupportPurchasesView.swift */; };
 		25B6F6D85173FD2DA15BDA67 /* ClambhookShared in Frameworks */ = {isa = PBXBuildFile; productRef = E28DD20CC4C8CA4C959EBDA4 /* ClambhookShared */; };
-		2F934360F534A4AA15AA9630 /* LicenseValidationClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 070CA8C30ACAF4B3CD0763EE /* LicenseValidationClient.swift */; };
 		3792B993B246938C4220AC8D /* clambhook in CopyFiles */ = {isa = PBXBuildFile; fileRef = A94F492377279C40EF5D0E2D /* clambhook */; };
 		3B1AEF48F2085F24D45275D2 /* DashboardViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5D820AE96C5A0080AA5CF1F /* DashboardViews.swift */; };
+		3C6BECDDFC169FDC9752E7E8 /* SettingsViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11D3A8B6CD3A6119053C8908 /* SettingsViews.swift */; };
 		3D5A142E8942DA836F15A989 /* ClambhookMacWidgetExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 9A9A34557D90A7B2D48D34A7 /* ClambhookMacWidgetExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		3F66FD26F33A8017C4D60A10 /* AppleAppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F26A7314DC7A26F275AB285 /* AppleAppModel.swift */; };
 		4AA3902FB355119E38FC8385 /* MacLicenseManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 861C6B6F1238EBFD62EBA315 /* MacLicenseManager.swift */; };
-		518777F562CBD72CCE4A4BF7 /* IOSTunnelController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C796A563F604DA4F32123737 /* IOSTunnelController.swift */; };
 		55EB0B85AE3ECF0FD4819B8B /* ClambhookShared in Frameworks */ = {isa = PBXBuildFile; productRef = B64D35EC77B9F6E4644D12DE /* ClambhookShared */; };
 		591061674835E9B22E696123 /* MacMenuBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B7ECD0E4E9DE7440023C997 /* MacMenuBarView.swift */; };
-		9F6E0B313438BD3A6FCC94EB /* PacketTunnelProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2786E765739825A20569D217 /* PacketTunnelProvider.swift */; };
+		751082522AE94AEC0132939B /* ClambhookVisionApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = DDDB54D167062A1D34DD23E1 /* ClambhookVisionApp.swift */; };
+		796E1CFB4C4751AEF5C1F502 /* VisionNetworkMapScene.swift in Sources */ = {isa = PBXBuildFile; fileRef = C34298B9F0C4CFA97FFDC543 /* VisionNetworkMapScene.swift */; };
 		B6415B0956578D75A1C9E598 /* ClambhookWidgetBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E7E93A4404814358F6C95DB /* ClambhookWidgetBundle.swift */; };
+		C57BE413A40A04BB9A3C80B2 /* MacSidebarSections.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B8CD11563D4B3DD735C2E6D /* MacSidebarSections.swift */; };
+		C785B03E1F90EEE06E88309D /* AppleAppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F26A7314DC7A26F275AB285 /* AppleAppModel.swift */; };
 		CC0CF0A287AC0E53A37374A7 /* SupportPurchasesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8D0525C10EE904F2F5523DA /* SupportPurchasesView.swift */; };
 		E20BEBC7404594F87E09BDF7 /* SettingsViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11D3A8B6CD3A6119053C8908 /* SettingsViews.swift */; };
-		F109B7EA31BAC151B174E2FE /* StoreKitEntitlementManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7DF297B3EF8801A24F5E1FBE /* StoreKitEntitlementManager.swift */; };
-		F661F1DFCEA4AEC664607E3A /* ClambhookShared in Frameworks */ = {isa = PBXBuildFile; productRef = 486535E4136EE4440DE8CBCE /* ClambhookShared */; };
-		FE4BEC9988380D6CB0B7B82A /* ClambhookMobile.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 12F5B3C049819652D51B60F7 /* ClambhookMobile.xcframework */; };
+		F87E277DD4DAAE72743F3DA6 /* ClambhookShared in Frameworks */ = {isa = PBXBuildFile; productRef = 17ABE50C62B10E6EB5160225 /* ClambhookShared */; };
+		F9083C92FB728F157ED65C28 /* MacLicenseManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 861C6B6F1238EBFD62EBA315 /* MacLicenseManager.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -75,74 +80,48 @@
 
 /* Begin PBXFileReference section */
 		02A8B8AC40D9FACBCFC83187 /* ClambhookMacApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClambhookMacApp.swift; sourceTree = "<group>"; };
-		070CA8C30ACAF4B3CD0763EE /* LicenseValidationClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LicenseValidationClient.swift; sourceTree = "<group>"; };
 		0A1CC5DD0620471B3CCA85A1 /* libsodium.26.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; path = libsodium.26.dylib; sourceTree = "<group>"; };
 		0BFDFE052F0742168D946261 /* apple */ = {isa = PBXFileReference; lastKnownFileType = folder; name = apple; path = .; sourceTree = SOURCE_ROOT; };
 		0F26A7314DC7A26F275AB285 /* AppleAppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleAppModel.swift; sourceTree = "<group>"; };
-		0F6319893EEF7EF443C9B98F /* ClambhookiOS.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = ClambhookiOS.entitlements; sourceTree = "<group>"; };
 		11D3A8B6CD3A6119053C8908 /* SettingsViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsViews.swift; sourceTree = "<group>"; };
-		1291F45AF690B41C9544CF24 /* ClambhookProducts.storekit */ = {isa = PBXFileReference; lastKnownFileType = text; path = ClambhookProducts.storekit; sourceTree = "<group>"; };
-		12F5B3C049819652D51B60F7 /* ClambhookMobile.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = ClambhookMobile.xcframework; path = Frameworks/ClambhookMobile.xcframework; sourceTree = "<group>"; };
-		183D6DAAE16811A1E782EF8D /* IOSRulesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IOSRulesView.swift; sourceTree = "<group>"; };
 		1B067640E07DD0E186D64487 /* ClambhookMacWidgetExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = ClambhookMacWidgetExtension.entitlements; sourceTree = "<group>"; };
-		1F8F935BB37F72C3A4E8E473 /* IOSQRCodeScannerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IOSQRCodeScannerView.swift; sourceTree = "<group>"; };
+		22F84BCEFC14A14041740CB6 /* ClambhookVision.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = ClambhookVision.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		24D15BDA328B4ED0B2A65291 /* ClambhookMac.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ClambhookMac.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		25BA7CB2A27B7FD25CFC4221 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
-		2786E765739825A20569D217 /* PacketTunnelProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PacketTunnelProvider.swift; sourceTree = "<group>"; };
-		27D701BE1DB83578C6553267 /* ClambhookIOSApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClambhookIOSApp.swift; sourceTree = "<group>"; };
-		3053BEE019F86E16C70EC344 /* IOSServersView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IOSServersView.swift; sourceTree = "<group>"; };
-		381D40C9B488F22288A2D561 /* ClambhookPacketTunnel.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = ClambhookPacketTunnel.appex; sourceTree = BUILT_PRODUCTS_DIR; };
-		3B3B18FAD354E883C6E95B0D /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
-		44BB52914FF567D1A4EA9446 /* ClambhookiOSWidgetExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = ClambhookiOSWidgetExtension.entitlements; sourceTree = "<group>"; };
-		53AB218D42B1D8BC20F0158A /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
-		58D7CB0093B99DCD8627031D /* IOSOnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IOSOnboardingView.swift; sourceTree = "<group>"; };
-		59F1F1688CAC6D440B594C00 /* ClambhookTVApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClambhookTVApp.swift; sourceTree = "<group>"; };
 		60CD6FD2940A90C4362F5B00 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
-		6DD8C81B5516A352C3F1E355 /* IOSOverviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IOSOverviewView.swift; sourceTree = "<group>"; };
-		71619AA1E2C9424F8D0CAE82 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		6B8CD11563D4B3DD735C2E6D /* MacSidebarSections.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacSidebarSections.swift; sourceTree = "<group>"; };
+		73930EE75CE83BC0639DF8FB /* MacDashboardWindowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacDashboardWindowView.swift; sourceTree = "<group>"; };
 		752B77E9507F4674BBA0E4D8 /* DaemonSupervisor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DaemonSupervisor.swift; sourceTree = "<group>"; };
-		7DF297B3EF8801A24F5E1FBE /* StoreKitEntitlementManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoreKitEntitlementManager.swift; sourceTree = "<group>"; };
 		861C6B6F1238EBFD62EBA315 /* MacLicenseManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacLicenseManager.swift; sourceTree = "<group>"; };
-		8991E030330B6AD4F39E430B /* IOSDashboardComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IOSDashboardComponents.swift; sourceTree = "<group>"; };
 		8B7ECD0E4E9DE7440023C997 /* MacMenuBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacMenuBarView.swift; sourceTree = "<group>"; };
-		8C0F701E4D02A594C2F5744B /* ClambhookPacketTunnel.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = ClambhookPacketTunnel.entitlements; sourceTree = "<group>"; };
 		8E7E93A4404814358F6C95DB /* ClambhookWidgetBundle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClambhookWidgetBundle.swift; sourceTree = "<group>"; };
-		8F32595BC328927A695355CA /* IOSHTTPCaptureView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IOSHTTPCaptureView.swift; sourceTree = "<group>"; };
 		903292C941E24F9681AB680C /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		962836E5FF857FC15720D328 /* ClambhookVision.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = ClambhookVision.entitlements; sourceTree = "<group>"; };
 		9A9A34557D90A7B2D48D34A7 /* ClambhookMacWidgetExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = ClambhookMacWidgetExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
-		A94F492377279C40EF5D0E2D /* clambhook */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; path = clambhook; sourceTree = "<group>"; };
+		A94F492377279C40EF5D0E2D /* clambhook */ = {isa = PBXFileReference; path = clambhook; sourceTree = "<group>"; };
 		B1CF51F1CEED770CC79EBC8C /* ClambhookMac.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = ClambhookMac.entitlements; sourceTree = "<group>"; };
-		B3E13B159DEE2DF199BBA787 /* IOSPolicyGroupsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IOSPolicyGroupsView.swift; sourceTree = "<group>"; };
 		B79D4C19242D8E6E95224A77 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		C34298B9F0C4CFA97FFDC543 /* VisionNetworkMapScene.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisionNetworkMapScene.swift; sourceTree = "<group>"; };
-		C796A563F604DA4F32123737 /* IOSTunnelController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IOSTunnelController.swift; sourceTree = "<group>"; };
 		C8D0525C10EE904F2F5523DA /* SupportPurchasesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SupportPurchasesView.swift; sourceTree = "<group>"; };
-		DC493E66B108DC7C1A44F319 /* TVRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TVRootView.swift; sourceTree = "<group>"; };
 		DDDB54D167062A1D34DD23E1 /* ClambhookVisionApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClambhookVisionApp.swift; sourceTree = "<group>"; };
-		DEE96F423A4757F386C66843 /* IOSProfilesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IOSProfilesView.swift; sourceTree = "<group>"; };
-		DFEDFA8D75241DDF56ABCB3F /* IOSRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IOSRootView.swift; sourceTree = "<group>"; };
 		E0B72BED6576EF183CAD2854 /* ClambhookDaemon.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = ClambhookDaemon.entitlements; sourceTree = "<group>"; };
 		E5D820AE96C5A0080AA5CF1F /* DashboardViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashboardViews.swift; sourceTree = "<group>"; };
-		F1D94DD2566D74A95CE20D84 /* IOSTrafficMonitorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IOSTrafficMonitorView.swift; sourceTree = "<group>"; };
 		FB084852D105E104FA1A2C08 /* VisionRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisionRootView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
+		1081D22A228D1505364BAAB0 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				F87E277DD4DAAE72743F3DA6 /* ClambhookShared in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		3C88CE3CE3F2D1225FFC0094 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
 				25B6F6D85173FD2DA15BDA67 /* ClambhookShared in Frameworks */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		C7C8B2B3634541D0568113BD /* Frameworks */ = {
-			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				F661F1DFCEA4AEC664607E3A /* ClambhookShared in Frameworks */,
-				FE4BEC9988380D6CB0B7B82A /* ClambhookMobile.xcframework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -165,7 +144,9 @@
 				02A8B8AC40D9FACBCFC83187 /* ClambhookMacApp.swift */,
 				752B77E9507F4674BBA0E4D8 /* DaemonSupervisor.swift */,
 				B79D4C19242D8E6E95224A77 /* Info.plist */,
+				73930EE75CE83BC0639DF8FB /* MacDashboardWindowView.swift */,
 				8B7ECD0E4E9DE7440023C997 /* MacMenuBarView.swift */,
+				6B8CD11563D4B3DD735C2E6D /* MacSidebarSections.swift */,
 			);
 			path = ClambhookMac;
 			sourceTree = "<group>";
@@ -182,20 +163,9 @@
 			path = ClambhookVision;
 			sourceTree = "<group>";
 		};
-		59ABEB4A771C084251258632 /* ClambhookPacketTunnel */ = {
-			isa = PBXGroup;
-			children = (
-				8C0F701E4D02A594C2F5744B /* ClambhookPacketTunnel.entitlements */,
-				3B3B18FAD354E883C6E95B0D /* Info.plist */,
-				2786E765739825A20569D217 /* PacketTunnelProvider.swift */,
-			);
-			path = ClambhookPacketTunnel;
-			sourceTree = "<group>";
-		};
 		5C1DC0CFBC1B62A3EC95563E /* ClambhookWidgets */ = {
 			isa = PBXGroup;
 			children = (
-				44BB52914FF567D1A4EA9446 /* ClambhookiOSWidgetExtension.entitlements */,
 				1B067640E07DD0E186D64487 /* ClambhookMacWidgetExtension.entitlements */,
 				8E7E93A4404814358F6C95DB /* ClambhookWidgetBundle.swift */,
 				903292C941E24F9681AB680C /* Info.plist */,
@@ -216,7 +186,7 @@
 			children = (
 				24D15BDA328B4ED0B2A65291 /* ClambhookMac.app */,
 				9A9A34557D90A7B2D48D34A7 /* ClambhookMacWidgetExtension.appex */,
-				381D40C9B488F22288A2D561 /* ClambhookPacketTunnel.appex */,
+				22F84BCEFC14A14041740CB6 /* ClambhookVision.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -239,52 +209,17 @@
 			path = bin;
 			sourceTree = "<group>";
 		};
-		B196521C20887C13E8C42C7E /* Frameworks */ = {
-			isa = PBXGroup;
-			children = (
-				12F5B3C049819652D51B60F7 /* ClambhookMobile.xcframework */,
-			);
-			name = Frameworks;
-			sourceTree = "<group>";
-		};
 		E99574CBEE7F120459AD262C = {
 			isa = PBXGroup;
 			children = (
-				71619AA1E2C9424F8D0CAE82 /* Assets.xcassets */,
-				1291F45AF690B41C9544CF24 /* ClambhookProducts.storekit */,
 				89770E96EAB9F6FBEC965742 /* clambhook */,
-				F670A4FD48B43D5BE64B217F /* ClambhookiOS */,
 				02DBE71539B0AF31E3C21C10 /* ClambhookMac */,
-				59ABEB4A771C084251258632 /* ClambhookPacketTunnel */,
-				FDE2910D353371D3FD34F6E3 /* ClambhookTV */,
 				53510433E44BD790460FB276 /* ClambhookVision */,
 				5C1DC0CFBC1B62A3EC95563E /* ClambhookWidgets */,
 				700E42F47FDF5AB645B28B09 /* Packages */,
 				F9220CB88CF8F43786FC0695 /* SharedApp */,
-				B196521C20887C13E8C42C7E /* Frameworks */,
 				76937B35C0688E107FFABAB2 /* Products */,
 			);
-			sourceTree = "<group>";
-		};
-		F670A4FD48B43D5BE64B217F /* ClambhookiOS */ = {
-			isa = PBXGroup;
-			children = (
-				0F6319893EEF7EF443C9B98F /* ClambhookiOS.entitlements */,
-				27D701BE1DB83578C6553267 /* ClambhookIOSApp.swift */,
-				25BA7CB2A27B7FD25CFC4221 /* Info.plist */,
-				8991E030330B6AD4F39E430B /* IOSDashboardComponents.swift */,
-				8F32595BC328927A695355CA /* IOSHTTPCaptureView.swift */,
-				58D7CB0093B99DCD8627031D /* IOSOnboardingView.swift */,
-				6DD8C81B5516A352C3F1E355 /* IOSOverviewView.swift */,
-				B3E13B159DEE2DF199BBA787 /* IOSPolicyGroupsView.swift */,
-				DEE96F423A4757F386C66843 /* IOSProfilesView.swift */,
-				1F8F935BB37F72C3A4E8E473 /* IOSQRCodeScannerView.swift */,
-				DFEDFA8D75241DDF56ABCB3F /* IOSRootView.swift */,
-				183D6DAAE16811A1E782EF8D /* IOSRulesView.swift */,
-				3053BEE019F86E16C70EC344 /* IOSServersView.swift */,
-				F1D94DD2566D74A95CE20D84 /* IOSTrafficMonitorView.swift */,
-			);
-			path = ClambhookiOS;
 			sourceTree = "<group>";
 		};
 		F9220CB88CF8F43786FC0695 /* SharedApp */ = {
@@ -292,24 +227,11 @@
 			children = (
 				0F26A7314DC7A26F275AB285 /* AppleAppModel.swift */,
 				E5D820AE96C5A0080AA5CF1F /* DashboardViews.swift */,
-				C796A563F604DA4F32123737 /* IOSTunnelController.swift */,
-				070CA8C30ACAF4B3CD0763EE /* LicenseValidationClient.swift */,
 				861C6B6F1238EBFD62EBA315 /* MacLicenseManager.swift */,
 				11D3A8B6CD3A6119053C8908 /* SettingsViews.swift */,
-				7DF297B3EF8801A24F5E1FBE /* StoreKitEntitlementManager.swift */,
 				C8D0525C10EE904F2F5523DA /* SupportPurchasesView.swift */,
 			);
 			path = SharedApp;
-			sourceTree = "<group>";
-		};
-		FDE2910D353371D3FD34F6E3 /* ClambhookTV */ = {
-			isa = PBXGroup;
-			children = (
-				59F1F1688CAC6D440B594C00 /* ClambhookTVApp.swift */,
-				53AB218D42B1D8BC20F0158A /* Info.plist */,
-				DC493E66B108DC7C1A44F319 /* TVRootView.swift */,
-			);
-			path = ClambhookTV;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -338,6 +260,25 @@
 			productReference = 24D15BDA328B4ED0B2A65291 /* ClambhookMac.app */;
 			productType = "com.apple.product-type.application";
 		};
+		088461658E40F91573E4319B /* ClambhookVision */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A1C79D77F62A509D8D817B85 /* Build configuration list for PBXNativeTarget "ClambhookVision" */;
+			buildPhases = (
+				F72AFC7DA7CA88ACF4DB399E /* Sources */,
+				1081D22A228D1505364BAAB0 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = ClambhookVision;
+			packageProductDependencies = (
+				17ABE50C62B10E6EB5160225 /* ClambhookShared */,
+			);
+			productName = ClambhookVision;
+			productReference = 22F84BCEFC14A14041740CB6 /* ClambhookVision.app */;
+			productType = "com.apple.product-type.application";
+		};
 		41A94BC1E503BFF6BD544A2A /* ClambhookMacWidgetExtension */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = 0FFC22BDCE01FE175D717EEA /* Build configuration list for PBXNativeTarget "ClambhookMacWidgetExtension" */;
@@ -357,25 +298,6 @@
 			productReference = 9A9A34557D90A7B2D48D34A7 /* ClambhookMacWidgetExtension.appex */;
 			productType = "com.apple.product-type.app-extension";
 		};
-		BB39F70D287EE0E378D5291A /* ClambhookPacketTunnel */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = 95F09F7F4294B048A0CCA06B /* Build configuration list for PBXNativeTarget "ClambhookPacketTunnel" */;
-			buildPhases = (
-				E4D076F7460555F1BB4A42EA /* Sources */,
-				C7C8B2B3634541D0568113BD /* Frameworks */,
-			);
-			buildRules = (
-			);
-			dependencies = (
-			);
-			name = ClambhookPacketTunnel;
-			packageProductDependencies = (
-				486535E4136EE4440DE8CBCE /* ClambhookShared */,
-			);
-			productName = ClambhookPacketTunnel;
-			productReference = 381D40C9B488F22288A2D561 /* ClambhookPacketTunnel.appex */;
-			productType = "com.apple.product-type.app-extension";
-		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -386,12 +308,15 @@
 				LastUpgradeCheck = 1430;
 				TargetAttributes = {
 					04F6C6CEBBA59499FBD06EEF = {
+						DevelopmentTeam = "";
+						ProvisioningStyle = Automatic;
+					};
+					088461658E40F91573E4319B = {
+						DevelopmentTeam = "";
 						ProvisioningStyle = Automatic;
 					};
 					41A94BC1E503BFF6BD544A2A = {
-						ProvisioningStyle = Automatic;
-					};
-					BB39F70D287EE0E378D5291A = {
+						DevelopmentTeam = "";
 						ProvisioningStyle = Automatic;
 					};
 				};
@@ -415,7 +340,7 @@
 			targets = (
 				04F6C6CEBBA59499FBD06EEF /* ClambhookMac */,
 				41A94BC1E503BFF6BD544A2A /* ClambhookMacWidgetExtension */,
-				BB39F70D287EE0E378D5291A /* ClambhookPacketTunnel */,
+				088461658E40F91573E4319B /* ClambhookVision */,
 			);
 		};
 /* End PBXProject section */
@@ -429,12 +354,11 @@
 				095D479A2F5A1084BFB762D0 /* ClambhookMacApp.swift in Sources */,
 				21058FE949E1058BD40B24BC /* DaemonSupervisor.swift in Sources */,
 				3B1AEF48F2085F24D45275D2 /* DashboardViews.swift in Sources */,
-				518777F562CBD72CCE4A4BF7 /* IOSTunnelController.swift in Sources */,
-				2F934360F534A4AA15AA9630 /* LicenseValidationClient.swift in Sources */,
+				02515828BBDD5E2F458BBC82 /* MacDashboardWindowView.swift in Sources */,
 				4AA3902FB355119E38FC8385 /* MacLicenseManager.swift in Sources */,
 				591061674835E9B22E696123 /* MacMenuBarView.swift in Sources */,
+				C57BE413A40A04BB9A3C80B2 /* MacSidebarSections.swift in Sources */,
 				E20BEBC7404594F87E09BDF7 /* SettingsViews.swift in Sources */,
-				F109B7EA31BAC151B174E2FE /* StoreKitEntitlementManager.swift in Sources */,
 				CC0CF0A287AC0E53A37374A7 /* SupportPurchasesView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -447,11 +371,18 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		E4D076F7460555F1BB4A42EA /* Sources */ = {
+		F72AFC7DA7CA88ACF4DB399E /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				9F6E0B313438BD3A6FCC94EB /* PacketTunnelProvider.swift in Sources */,
+				C785B03E1F90EEE06E88309D /* AppleAppModel.swift in Sources */,
+				751082522AE94AEC0132939B /* ClambhookVisionApp.swift in Sources */,
+				08E41EA0CC54ADA8C6AA6715 /* DashboardViews.swift in Sources */,
+				F9083C92FB728F157ED65C28 /* MacLicenseManager.swift in Sources */,
+				3C6BECDDFC169FDC9752E7E8 /* SettingsViews.swift in Sources */,
+				22E5858EF2C129AAA285716D /* SupportPurchasesView.swift in Sources */,
+				796E1CFB4C4751AEF5C1F502 /* VisionNetworkMapScene.swift in Sources */,
+				032EB9CFFF8103097D695F50 /* VisionRootView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -466,37 +397,12 @@
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
-		05A9009FF7757AD11BD2F3A2 /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				APPLICATION_EXTENSION_API_ONLY = YES;
-				CODE_SIGN_ENTITLEMENTS = ClambhookPacketTunnel/ClambhookPacketTunnel.entitlements;
-				DEVELOPMENT_TEAM = V6GG4HYABJ;
-				FRAMEWORK_SEARCH_PATHS = (
-					"$(PROJECT_DIR)/Frameworks",
-					"$(PROJECT_DIR)/Frameworks/**",
-					"\"Frameworks\"",
-				);
-				INFOPLIST_FILE = ClambhookPacketTunnel/Info.plist;
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/Frameworks",
-					"@executable_path/../../Frameworks",
-				);
-				PRODUCT_BUNDLE_IDENTIFIER = org.jpfchang.clambhook.tunnel;
-				SDKROOT = iphoneos;
-				SKIP_INSTALL = YES;
-				TARGETED_DEVICE_FAMILY = "1,2";
-			};
-			name = Debug;
-		};
 		1A13FFFD287AC0FDF33CAD16 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = ClambhookMac/ClambhookMac.entitlements;
 				COMBINE_HIDPI_IMAGES = YES;
-				DEVELOPMENT_TEAM = V6GG4HYABJ;
 				ENABLE_APP_SANDBOX = YES;
 				INFOPLIST_FILE = ClambhookMac/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -513,7 +419,6 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = ClambhookWidgets/ClambhookMacWidgetExtension.entitlements;
 				COMBINE_HIDPI_IMAGES = YES;
-				DEVELOPMENT_TEAM = V6GG4HYABJ;
 				ENABLE_APP_SANDBOX = YES;
 				INFOPLIST_FILE = ClambhookWidgets/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -577,7 +482,6 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
@@ -586,7 +490,6 @@
 				SWIFT_COMPILATION_MODE = wholemodule;
 				SWIFT_OPTIMIZATION_LEVEL = "-O";
 				SWIFT_VERSION = 5.0;
-				TVOS_DEPLOYMENT_TARGET = 26.0;
 				XROS_DEPLOYMENT_TARGET = 26.0;
 			};
 			name = Release;
@@ -596,7 +499,6 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = ClambhookWidgets/ClambhookMacWidgetExtension.entitlements;
 				COMBINE_HIDPI_IMAGES = YES;
-				DEVELOPMENT_TEAM = V6GG4HYABJ;
 				ENABLE_APP_SANDBOX = YES;
 				INFOPLIST_FILE = ClambhookWidgets/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -666,7 +568,6 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
@@ -675,32 +576,25 @@
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 5.0;
-				TVOS_DEPLOYMENT_TARGET = 26.0;
 				XROS_DEPLOYMENT_TARGET = 26.0;
 			};
 			name = Debug;
 		};
-		9BE636EFFBFC307331194AA2 /* Release */ = {
+		96C3C5135085E323E85F4E17 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				APPLICATION_EXTENSION_API_ONLY = YES;
-				CODE_SIGN_ENTITLEMENTS = ClambhookPacketTunnel/ClambhookPacketTunnel.entitlements;
-				DEVELOPMENT_TEAM = V6GG4HYABJ;
-				FRAMEWORK_SEARCH_PATHS = (
-					"$(PROJECT_DIR)/Frameworks",
-					"$(PROJECT_DIR)/Frameworks/**",
-					"\"Frameworks\"",
-				);
-				INFOPLIST_FILE = ClambhookPacketTunnel/Info.plist;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = ClambhookVision/ClambhookVision.entitlements;
+				INFOPLIST_FILE = ClambhookVision/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
-					"@executable_path/../../Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = org.jpfchang.clambhook.tunnel;
-				SDKROOT = iphoneos;
-				SKIP_INSTALL = YES;
-				TARGETED_DEVICE_FAMILY = "1,2";
+				PRODUCT_BUNDLE_IDENTIFIER = com.clambhook.vision;
+				SDKROOT = xros;
+				SUPPORTED_PLATFORMS = "xros xrsimulator";
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
+				TARGETED_DEVICE_FAMILY = 7;
 			};
 			name = Release;
 		};
@@ -710,7 +604,6 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = ClambhookMac/ClambhookMac.entitlements;
 				COMBINE_HIDPI_IMAGES = YES;
-				DEVELOPMENT_TEAM = V6GG4HYABJ;
 				ENABLE_APP_SANDBOX = YES;
 				INFOPLIST_FILE = ClambhookMac/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -721,6 +614,24 @@
 				SDKROOT = macosx;
 			};
 			name = Release;
+		};
+		EB7D58B62C5FD3C8B4D92B92 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = ClambhookVision/ClambhookVision.entitlements;
+				INFOPLIST_FILE = ClambhookVision/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.clambhook.vision;
+				SDKROOT = xros;
+				SUPPORTED_PLATFORMS = "xros xrsimulator";
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
+				TARGETED_DEVICE_FAMILY = 7;
+			};
+			name = Debug;
 		};
 /* End XCBuildConfiguration section */
 
@@ -743,11 +654,11 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;
 		};
-		95F09F7F4294B048A0CCA06B /* Build configuration list for PBXNativeTarget "ClambhookPacketTunnel" */ = {
+		A1C79D77F62A509D8D817B85 /* Build configuration list for PBXNativeTarget "ClambhookVision" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
-				05A9009FF7757AD11BD2F3A2 /* Debug */,
-				9BE636EFFBFC307331194AA2 /* Release */,
+				EB7D58B62C5FD3C8B4D92B92 /* Debug */,
+				96C3C5135085E323E85F4E17 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;
@@ -771,7 +682,7 @@
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		486535E4136EE4440DE8CBCE /* ClambhookShared */ = {
+		17ABE50C62B10E6EB5160225 /* ClambhookShared */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = ClambhookShared;
 		};
