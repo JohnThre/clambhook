@@ -6,6 +6,7 @@ struct MacMenuBarView: View {
     @ObservedObject var model: AppleAppModel
     @ObservedObject private var daemon: DaemonSupervisor
     @Environment(\.openSettings) private var openSettings
+    @Environment(\.openWindow) private var openWindow
     @State private var trafficFilter = "all"
     @State private var trafficSearch = ""
     @State private var captureFilter: CaptureFilterKind = .all
@@ -449,6 +450,13 @@ struct MacMenuBarView: View {
                 Label(daemon.isRunning ? "Stop Daemon" : "Launch Daemon", systemImage: daemon.isRunning ? "xmark.octagon" : "terminal")
             }
             .disabled(daemon.state.isBusy)
+            Button {
+                NSApp.setActivationPolicy(.regular)
+                NSApp.activate(ignoringOtherApps: true)
+                openWindow(id: "dashboard")
+            } label: {
+                Label("Open Window", systemImage: "macwindow")
+            }
             Spacer()
             Button {
                 openSettings()
