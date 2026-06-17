@@ -635,3 +635,60 @@ private func defaultCredentialStore() -> CredentialStoring {
     return InMemoryCredentialStore()
     #endif
 }
+
+#if os(macOS)
+extension AppleAppModel {
+    func readConfigFile() throws -> String {
+        let path = settingsStore.settings.daemonConfigPath
+        guard !path.isEmpty else { throw ConfigFileError.noPathConfigured }
+        if let data = settingsStore.settings.daemonConfigBookmark {
+            var stale = false
+            if let url = try? URL(
+                resolvingBookmarkData: data,
+                options: [.withSecurityScope],
+                relativeTo: nil,
+                bookmarkDataIsStale: &stale
+            ) {
+                url.startAccessingSecurityScopedResource()
+                defer { url.stopAccessingSecurityScopedResource() }
+                return try String(contentsOf: url, encoding: .utf8)
+            }
+        }
+        return try String(contentsOfFile: path, encoding: .utf8)
+    }
+
+    func writeConfigFile(_ content: String) throws {
+        let path = settingsStore.settings.daemonConfigPath
+        guard !path.isEmpty else { throw ConfigFileError.noPathConfigured }
+        if let data = settingsStore.settings.daemonConfigBookmark {
+            var stale = false
+            if let url = try? URL(
+                resolvingBookmarkData: data,
+                options: [.withSecurityScope],
+                relativeTo: nil,
+                bookmarkDataIsStale: &stale
+            ) {
+                url.startAccessingSecurityScopedResource()
+                defer { url.stopAccessingSecurityScopedResource() }
+                try content.write(to: url, atomically: true, encoding: .utf8)
+                return
+            }
+        }
+        try content.write(toFile: path, atomically: true, encoding: .utf8)
+    }
+
+    func reloadDaemon() {
+        Task {
+            await dashboard.refreshDashboard()
+            daemonMessage = "Config reloaded — restart daemon to apply changes"
+        }
+    }
+}
+
+enum ConfigFileError: LocalizedError {
+    case noPathConfigured
+    var errorDescription: String? {
+        "No config file path is configured. Set it in Settings → Daemon."
+    }
+}
+#endif
