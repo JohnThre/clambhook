@@ -13,6 +13,9 @@ EXPORT_OPTIONS="$DIST_DIR/ExportOptions.DeveloperID.plist"
 APP_PATH="$EXPORT_PATH/ClambhookMac.app"
 NOTARY_ZIP="$DIST_DIR/ClambhookMac-notary.zip"
 FINAL_ZIP="$DIST_DIR/ClambhookMac-arm64.zip"
+FINAL_DMG="$DIST_DIR/ClambhookMac-arm64.dmg"
+FINAL_DMG_CHECKSUM="$DIST_DIR/ClambhookMac-arm64.dmg.sha256"
+UPDATE_MANIFEST="$DIST_DIR/clambhook-update-manifest.json"
 DAEMON="$ROOT_DIR/bin/clambhook"
 SODIUM="$ROOT_DIR/bin/libsodium.26.dylib"
 HELPER_ENTITLEMENTS="$ROOT_DIR/ui/apple/ClambhookMac/ClambhookDaemon.entitlements"
@@ -106,9 +109,63 @@ ditto -c -k --keepParent "$APP_PATH" "$FINAL_ZIP"
 
 echo "Created $FINAL_ZIP"
 
+# Build a signed and notarized DMG.
+DMG_STAGING="$DIST_DIR/dmg-staging"
+rm -rf "$DMG_STAGING"
+mkdir -p "$DMG_STAGING"
+cp -R "$APP_PATH" "$DMG_STAGING/"
+ln -s /Applications "$DMG_STAGING/Applications"
+
+DMG_RAW="$DIST_DIR/ClambhookMac-arm64-raw.dmg"
+hdiutil create \
+    -volname "ClambHook" \
+    -srcfolder "$DMG_STAGING" \
+    -ov \
+    -format UDZO \
+    -imagekey zlib-level=9 \
+    "$DMG_RAW"
+
+codesign --force --timestamp --sign "$IDENTITY" "$DMG_RAW"
+codesign --verify --verbose=4 "$DMG_RAW"
+
+DMG_NOTARY_ZIP="$DIST_DIR/ClambhookMac-dmg-notary.zip"
+ditto -c -k "$DMG_RAW" "$DMG_NOTARY_ZIP"
+xcrun notarytool submit "$DMG_NOTARY_ZIP" --keychain-profile "$NOTARY_PROFILE" --wait
+xcrun stapler staple "$DMG_RAW"
+xcrun stapler validate "$DMG_RAW"
+
+mv "$DMG_RAW" "$FINAL_DMG"
+echo "Created $FINAL_DMG"
+
+# Compute SHA-256 checksum of the DMG.
+DMG_SHA256="$(shasum -a 256 "$FINAL_DMG" | awk '{print $1}')"
+echo "$DMG_SHA256  ClambhookMac-arm64.dmg" > "$FINAL_DMG_CHECKSUM"
+echo "Checksum: $DMG_SHA256"
+
+# Determine build version.
+DMG_SIZE="$(stat -f%z "$FINAL_DMG")"
+BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+BUILD_NUMBER="${BUILD_NUMBER:-$(git -C "$ROOT_DIR" rev-list --count HEAD 2>/dev/null || echo '0')}"
+SHORT_VERSION="${VERSION}"
+
+# Generate JSON update manifest.
+cat > "$UPDATE_MANIFEST" <<JSON
+{
+  "version": "${SHORT_VERSION}",
+  "build": "${BUILD_NUMBER}",
+  "published_at": "${BUILD_DATE}",
+  "minimum_os_version": "14.0",
+  "url": "https://jpfchang.org/api/clambhook/download",
+  "filename": "ClambhookMac-arm64.dmg",
+  "sha256": "${DMG_SHA256}",
+  "size": ${DMG_SIZE}
+}
+JSON
+echo "Created $UPDATE_MANIFEST"
+
 # Upload to Cloudflare R2 when bucket is configured.
 if [[ -n "${CLAMBHOOK_R2_BUCKET:-}" ]]; then
-    "$ROOT_DIR/scripts/upload-release-r2.sh" "$FINAL_ZIP"
+    "$ROOT_DIR/scripts/upload-release-r2.sh" "$FINAL_ZIP" "$FINAL_DMG" "$FINAL_DMG_CHECKSUM" "$UPDATE_MANIFEST"
 else
     echo "Skipping R2 upload: set CLAMBHOOK_R2_BUCKET and run 'make upload-release-r2' to publish." >&2
 fi
