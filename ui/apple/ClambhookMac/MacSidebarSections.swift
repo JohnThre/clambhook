@@ -6,59 +6,295 @@ import SwiftUI
 
 struct MacDashboardSection: View {
     @ObservedObject var model: AppleAppModel
+    @ObservedObject private var daemon: DaemonSupervisor
+
+    init(model: AppleAppModel) {
+        self.model = model
+        self._daemon = ObservedObject(wrappedValue: model.daemonSupervisor)
+    }
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                StatusHeaderView(model: model)
+            VStack(alignment: .leading, spacing: 22) {
+                connectionControl
                 Divider()
                 metricsGrid
+                if !model.dashboard.policyGroups.groups.isEmpty {
+                    Divider()
+                    policyGroupHealth
+                }
                 Divider()
-                listenersList
+                recentRequests
             }
             .padding(20)
         }
     }
 
-    private var metricsGrid: some View {
-        let sample = model.dashboard.currentBandwidth
-        let activeConnections = model.dashboard.status.listeners.reduce(0) { $0 + $1.activeConns }
-        return LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
-            MacMetricCard(title: "Download", value: formatRate(sample.rxBps), systemImage: "arrow.down", tint: .blue)
-            MacMetricCard(title: "Upload", value: formatRate(sample.txBps), systemImage: "arrow.up", tint: .green)
-            MacMetricCard(title: "Active", value: "\(activeConnections)", systemImage: "point.3.connected.trianglepath.dotted", tint: .orange)
-            MacMetricCard(title: "Listeners", value: "\(model.dashboard.status.listeners.count)", systemImage: "antenna.radiowaves.left.and.right", tint: .purple)
+    // MARK: Connection control
+
+    private var connectionControl: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 12) {
+                profilePicker
+                Spacer()
+                apiPill
+            }
+            HStack(spacing: 10) {
+                Button {
+                    model.connectOrDisconnect()
+                } label: {
+                    Label(
+                        model.dashboard.status.running ? "Disconnect" : "Connect",
+                        systemImage: model.dashboard.status.running ? "stop.fill" : "play.fill"
+                    )
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(model.dashboard.status.running ? .red : .green)
+                .disabled(!model.dashboard.apiOnline && !model.dashboard.status.running)
+
+                statusLabel
+            }
         }
     }
 
-    private var listenersList: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Listeners")
-                .font(.headline)
-            if model.dashboard.status.listeners.isEmpty {
-                Text("None active")
+    private var profilePicker: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "person.crop.circle")
+                .foregroundStyle(.secondary)
+            if model.dashboard.profiles.profiles.isEmpty {
+                Text(model.dashboard.activeProfile.isEmpty ? "No profile" : model.dashboard.activeProfile)
                     .foregroundStyle(.secondary)
             } else {
-                ForEach(model.dashboard.status.listeners) { listener in
-                    HStack {
-                        Image(systemName: "antenna.radiowaves.left.and.right")
-                            .foregroundStyle(.secondary)
-                            .frame(width: 20)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(listener.protocol.uppercased())
-                                .font(.caption.weight(.semibold))
-                            Text(listener.addr)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                        Spacer()
-                        Text("\(listener.activeConns) active")
+                Picker("Profile", selection: Binding(
+                    get: { model.dashboard.activeProfile },
+                    set: { model.selectProfile($0) }
+                )) {
+                    ForEach(model.dashboard.profiles.profiles, id: \.self) { profile in
+                        Text(profile).tag(profile)
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+            }
+        }
+    }
+
+    private var apiPill: some View {
+        Label(
+            model.dashboard.apiOnline ? "API online" : "API offline",
+            systemImage: model.dashboard.apiOnline ? "checkmark.circle.fill" : "xmark.circle.fill"
+        )
+        .font(.caption.weight(.medium))
+        .foregroundStyle(model.dashboard.apiOnline ? Color.green : Color.red)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(
+            (model.dashboard.apiOnline ? Color.green : Color.red).opacity(0.12),
+            in: Capsule()
+        )
+    }
+
+    private var statusLabel: some View {
+        HStack(spacing: 6) {
+            Circle()
+                .fill(statusDotColor)
+                .frame(width: 8, height: 8)
+            Text(statusText)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+            if daemon.state.isBusy {
+                ProgressView()
+                    .controlSize(.small)
+                    .scaleEffect(0.75)
+            }
+        }
+    }
+
+    private var statusDotColor: Color {
+        if model.dashboard.status.running { return .green }
+        switch daemon.state {
+        case .starting, .stopping: return .orange
+        case .failed: return .red
+        default: return .secondary
+        }
+    }
+
+    private var statusText: String {
+        if model.dashboard.status.running {
+            return "Connected"
+        }
+        switch daemon.state {
+        case .running: return "Daemon running"
+        case .starting: return "Starting…"
+        case .stopping: return "Stopping…"
+        case .failed: return "Daemon failed"
+        case .stopped: return "Disconnected"
+        }
+    }
+
+    // MARK: Metrics grid
+
+    private var metricsGrid: some View {
+        let sample = model.dashboard.currentBandwidth
+        let activeConnections = model.dashboard.status.listeners.reduce(0) { $0 + $1.activeConns }
+        let latency = bestLatency
+        return LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
+            MacMetricCard(title: "Download", value: formatRate(sample.rxBps), systemImage: "arrow.down", tint: .blue)
+            MacMetricCard(title: "Upload", value: formatRate(sample.txBps), systemImage: "arrow.up", tint: .green)
+            MacMetricCard(title: "Latency", value: latency, systemImage: "timer", tint: latency == "--" ? .secondary : .orange)
+            MacMetricCard(title: "Active", value: "\(activeConnections)", systemImage: "point.3.connected.trianglepath.dotted", tint: .purple)
+            MacMetricCard(title: "Total ↓", value: formatBytes(model.dashboard.traffic.summary.rxTotal), systemImage: "internaldrive", tint: .blue)
+            MacMetricCard(title: "Total ↑", value: formatBytes(model.dashboard.traffic.summary.txTotal), systemImage: "internaldrive", tint: .green)
+        }
+    }
+
+    private var bestLatency: String {
+        for group in model.dashboard.policyGroups.groups {
+            let selected = group.selectedChain.isEmpty ? group.selected : group.selectedChain
+            if let result = group.results.first(where: { $0.chainName == selected }), result.latencyNs > 0 {
+                return formatDurationNs(result.latencyNs)
+            }
+        }
+        return "--"
+    }
+
+    // MARK: Policy group health
+
+    private var policyGroupHealth: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Policy Groups")
+                .font(.headline)
+            ForEach(model.dashboard.policyGroups.groups) { group in
+                MacPolicyGroupHealthRow(group: group, onSelect: { chain in
+                    model.selectPolicyGroup(group: group.name, chain: chain)
+                })
+            }
+        }
+    }
+
+    // MARK: Recent requests
+
+    private var recentRequests: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("Recent Requests")
+                    .font(.headline)
+                Spacer()
+                let counts = model.dashboard.monitorActionCounts
+                HStack(spacing: 8) {
+                    MacActionBadge(label: "P \(counts["proxy", default: 0])", color: .green)
+                    MacActionBadge(label: "D \(counts["direct", default: 0])", color: .blue)
+                    MacActionBadge(label: "B \(counts["block", default: 0])", color: .red)
+                }
+            }
+            if model.dashboard.recentDecisions.isEmpty {
+                Text("No recent traffic")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(model.dashboard.recentDecisions) { decision in
+                    HStack(spacing: 8) {
+                        Circle()
+                            .fill(actionColor(decision.action))
+                            .frame(width: 8, height: 8)
+                        Text(emptyDash(decision.target))
+                            .font(.caption)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        Spacer(minLength: 8)
+                        Text([decision.ruleName, decision.action].filter { !$0.isEmpty }.joined(separator: " / "))
                             .font(.caption)
                             .foregroundStyle(.secondary)
+                            .lineLimit(1)
                     }
                 }
             }
         }
+    }
+
+    private func actionColor(_ action: String) -> Color {
+        switch action.lowercased() {
+        case "direct": return .blue
+        case "block", "reject": return .red
+        default: return .green
+        }
+    }
+}
+
+private struct MacPolicyGroupHealthRow: View {
+    var group: PolicyGroupPayload
+    var onSelect: (String) -> Void
+
+    private var selected: String {
+        group.selectedChain.isEmpty ? group.selected : group.selectedChain
+    }
+
+    private var selectedResult: PolicyProbeResultPayload? {
+        group.results.first(where: { $0.chainName == selected })
+    }
+
+    private var isManual: Bool {
+        group.type.caseInsensitiveCompare("select") == .orderedSame ||
+            group.selectionMode.caseInsensitiveCompare("manual") == .orderedSame
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Circle()
+                    .fill(healthColor)
+                    .frame(width: 9, height: 9)
+                Text(group.name.isEmpty ? "Policy group" : group.name)
+                    .font(.subheadline.weight(.medium))
+                    .lineLimit(1)
+                Spacer(minLength: 8)
+                if let result = selectedResult, result.latencyNs > 0 {
+                    Text(formatDurationNs(result.latencyNs))
+                        .font(.caption.weight(.semibold))
+                        .monospacedDigit()
+                        .foregroundStyle(.secondary)
+                }
+                Text(selected.isEmpty ? "--" : selected)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            if isManual && !group.chains.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 6) {
+                        ForEach(group.chains, id: \.self) { chain in
+                            Button {
+                                onSelect(chain)
+                            } label: {
+                                HStack(spacing: 4) {
+                                    if chain == selected {
+                                        Image(systemName: "checkmark")
+                                            .font(.caption2.weight(.bold))
+                                    }
+                                    Text(chain)
+                                        .font(.caption)
+                                }
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
+                                .background(
+                                    chain == selected ? Color.accentColor.opacity(0.15) : Color.secondary.opacity(0.08),
+                                    in: Capsule()
+                                )
+                                .foregroundStyle(chain == selected ? Color.accentColor : Color.primary)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+            }
+        }
+        .padding(10)
+        .background(Color.secondary.opacity(0.05), in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    private var healthColor: Color {
+        guard let result = selectedResult else { return .secondary }
+        return result.healthy ? .green : .orange
     }
 }
 
@@ -69,24 +305,39 @@ private struct MacMetricCard: View {
     var tint: Color
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 10) {
             Image(systemName: systemImage)
-                .font(.title3)
+                .font(.subheadline)
                 .foregroundStyle(tint)
-                .frame(width: 28)
+                .frame(width: 22)
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
-                    .font(.caption)
+                    .font(.caption2)
                     .foregroundStyle(.secondary)
                 Text(value)
-                    .font(.title3.weight(.semibold))
+                    .font(.subheadline.weight(.semibold))
                     .monospacedDigit()
                     .lineLimit(1)
             }
             Spacer(minLength: 0)
         }
-        .padding(14)
+        .padding(12)
         .background(Color.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 10))
+    }
+}
+
+private struct MacActionBadge: View {
+    var label: String
+    var color: Color
+
+    var body: some View {
+        Text(label)
+            .font(.caption2.weight(.semibold))
+            .monospacedDigit()
+            .foregroundStyle(color)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 3)
+            .background(color.opacity(0.12), in: Capsule())
     }
 }
 
