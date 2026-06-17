@@ -13,6 +13,12 @@ struct ClambhookMacApp: App {
         }
         .menuBarExtraStyle(.window)
 
+        Window("clambhook", id: "dashboard") {
+            MacDashboardWindowView(model: model)
+        }
+        .defaultSize(width: 960, height: 680)
+        .defaultPosition(.center)
+
         Settings {
             AppSettingsView(model: model)
                 .frame(width: 520, height: 420)
