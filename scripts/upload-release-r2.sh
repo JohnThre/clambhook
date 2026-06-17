@@ -26,13 +26,15 @@ VERSIONED_KEY="ClambhookMac-arm64-${VERSION}.zip"
 echo "Uploading → r2://$BUCKET/$VERSIONED_KEY"
 wrangler r2 object put "$BUCKET/$VERSIONED_KEY" \
     --file "$FINAL_ZIP" \
-    --content-type "application/zip"
+    --content-type "application/zip" \
+    --remote
 
 # Overwrite the latest key (what /api/clambhook/download serves by default).
-LATEST_KEY="ClambhookMac-arm64.zip"
+LATEST_KEY="**********************"
 echo "Uploading → r2://$BUCKET/$LATEST_KEY"
 wrangler r2 object put "$BUCKET/$LATEST_KEY" \
     --file "$FINAL_ZIP" \
-    --content-type "application/zip"
+    --content-type "application/zip" \
+    --remote
 
 echo "R2 upload complete: $VERSIONED_KEY and $LATEST_KEY"
