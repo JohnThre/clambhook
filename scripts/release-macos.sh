@@ -105,3 +105,10 @@ spctl -a -vvv -t exec "$APP_PATH"
 ditto -c -k --keepParent "$APP_PATH" "$FINAL_ZIP"
 
 echo "Created $FINAL_ZIP"
+
+# Upload to Cloudflare R2 when bucket is configured.
+if [[ -n "${CLAMBHOOK_R2_BUCKET:-}" ]]; then
+    "$ROOT_DIR/scripts/upload-release-r2.sh" "$FINAL_ZIP"
+else
+    echo "Skipping R2 upload: set CLAMBHOOK_R2_BUCKET and run 'make upload-release-r2' to publish." >&2
+fi

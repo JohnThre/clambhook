@@ -1,4 +1,4 @@
-.PHONY: all build build-clib build-daemon build-tui install install-linux prepare-apple-runtime generate-apple build-apple release-macos release-check app-review-release-check package-smoke test-apple test-android build-android-mobile-aar build-android build-android-release build-android-play-release check-linux-ui-deps test-linux build-linux test e2e e2e-release lint clean
+.PHONY: all build build-clib build-daemon build-tui install install-linux prepare-apple-runtime generate-apple build-apple release-macos upload-release-r2 release-check app-review-release-check package-smoke test-apple test-android build-android-mobile-aar build-android build-android-release build-android-play-release check-linux-ui-deps test-linux build-linux test e2e e2e-release lint clean
 
 export CGO_ENABLED=1
 PREFIX ?= /usr/local
@@ -54,6 +54,10 @@ build-apple: prepare-apple-runtime
 release-macos:
 	$(internal-release-notice)
 	./scripts/release-macos.sh
+
+upload-release-r2:
+	$(internal-release-notice)
+	./scripts/upload-release-r2.sh
 
 release-check:
 	$(internal-release-notice)
