@@ -304,6 +304,49 @@ final class AppleAppModel: ObservableObject {
         return try await dashboardAPI.testRule(network: network, target: target, profile: dashboard.activeProfile)
     }
 
+    func saveRules(_ rows: [RuleEditorRow]) {
+        guard canUseLicensedFeature(.routingRules) else {
+            daemonMessage = AppleAppModelError.licenseLocked.errorDescription ?? ""
+            return
+        }
+        Task {
+            do {
+                guard let apiClient else {
+                    throw APIClientError.invalidURL("missing API client")
+                }
+                let chainNames = dashboard.servers.chains.map { $0.name }
+                let policyGroupNames = dashboard.policyGroups.groups.map { $0.name }
+                let defaultChainName = dashboard.servers.chains.first?.name ?? ""
+                let rules = try RuleEditor.rules(
+                    from: rows,
+                    chainNames: chainNames,
+                    policyGroupNames: policyGroupNames,
+                    defaultChainName: defaultChainName
+                )
+                _ = try await apiClient.replaceRules(rules, profile: dashboard.activeProfile)
+                await dashboard.refreshDashboard()
+                daemonMessage = "rules saved"
+            } catch {
+                daemonMessage = error.localizedDescription
+            }
+        }
+    }
+
+    func explainRoute(network: String, target: String, source: String) async throws -> RuleTestResponse {
+        guard canUseLicensedFeature(.routingRules) else {
+            throw AppleAppModelError.licenseLocked
+        }
+        guard let apiClient else {
+            throw APIClientError.invalidURL("missing API client")
+        }
+        return try await apiClient.explainRoute(
+            network: network,
+            target: target,
+            source: source,
+            profile: dashboard.activeProfile
+        )
+    }
+
     var mobileLicenseDecision: MobileLicenseDecision {
         #if os(macOS)
         return licenseManager.decision
