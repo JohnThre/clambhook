@@ -28,3 +28,11 @@ The lifetime unlock includes features released through the purchase date plus on
 Do not release end-user installers or package artifacts on GitHub. This includes `.dmg`, `.pkg`, `.apk`, `.aab`, `.ipa`, Homebrew formula releases, Debian packages, and macOS installer artifacts.
 
 Non-iPhone build, package, and release targets remain available for Pengfan Chang's internal developer QA only. Only Pengfan Chang may distribute, publish, package, or release ClambHook source code or artifacts.
+
+## macOS v1 Scope
+
+macOS v1 is proxy-only. The app may launch the bundled daemon, expose local SOCKS5 and HTTP listeners, and optionally configure macOS system HTTP, HTTPS, and SOCKS proxy settings to use those listeners.
+
+macOS v1 does not include a Network Extension packet tunnel, full-device VPN routing, route-table ownership, DNS interception, or device-wide traffic capture. Traffic status and history on macOS apply only to traffic that reaches the configured clambhook proxy listeners.
+
+The full scope note is in `docs/macos-v1-scope.md`.

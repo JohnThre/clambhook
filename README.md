@@ -8,6 +8,10 @@
 
 Clambhook helps manage user-defined connectivity profiles and shows local status, counters, and recent activity summaries.
 
+## macOS v1 Scope
+
+The macOS app is proxy-only for v1. It launches the local daemon, exposes SOCKS5 and HTTP proxy listeners, and can optionally point macOS system HTTP, HTTPS, and SOCKS proxy settings at those listeners. It does not provide a macOS packet tunnel, full-device VPN, route-table ownership, DNS interception, or device-wide traffic capture. See `docs/macos-v1-scope.md`.
+
 ## End-user Distribution
 
 The iOS and iPadOS app is distributed only through the Apple App Store as a free download with non-consumable In-App Purchases for premium access and paid feature updates. tvOS and visionOS builds are compile-first Apple targets until their platform-specific runtime surfaces are completed.
