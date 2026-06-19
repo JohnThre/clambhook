@@ -354,6 +354,14 @@ func validateDeveloperConfig(dev *DeveloperConfig) []error {
 			errs = append(errs, fmt.Errorf("developer.redact_headers[%d] %q must be lowercase without surrounding whitespace", i, header))
 		}
 	}
+	for i, param := range dev.RedactQueryParams {
+		name := strings.TrimSpace(strings.ToLower(param))
+		if name == "" {
+			errs = append(errs, fmt.Errorf("developer.redact_query_params[%d] must not be empty", i))
+		} else if name != param {
+			errs = append(errs, fmt.Errorf("developer.redact_query_params[%d] %q must be lowercase without surrounding whitespace", i, param))
+		}
+	}
 	for i := range dev.MapRules {
 		errs = append(errs, validateDeveloperMapRule(i, &dev.MapRules[i])...)
 	}

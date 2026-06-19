@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"net/url"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -25,7 +26,7 @@ func TestCaptureRedactsAndTruncates(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewManager: %v", err)
 	}
-	req, err := http.NewRequest(http.MethodPost, "http://example.com/upload", io.NopCloser(strings.NewReader("abcdef")))
+	req, err := http.NewRequest(http.MethodPost, "http://example.com/upload?access_token=secret&keep=ok", io.NopCloser(strings.NewReader("abcdef")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -47,6 +48,13 @@ func TestCaptureRedactsAndTruncates(t *testing.T) {
 		t.Fatalf("entries = %d, want 1", len(entries))
 	}
 	entry := entries[0]
+	gotURL, err := url.Parse(entry.URL)
+	if err != nil {
+		t.Fatalf("parse captured URL: %v", err)
+	}
+	if gotURL.Query().Get("access_token") != redactedValue || gotURL.Query().Get("keep") != "ok" {
+		t.Fatalf("captured URL query not redacted: %q", entry.URL)
+	}
 	if entry.Request.Body.Preview != "abcd" || !entry.Request.Body.Truncated || entry.Request.Body.Size != 6 {
 		t.Fatalf("body = %+v", entry.Request.Body)
 	}
@@ -64,6 +72,13 @@ func TestCaptureRedactsAndTruncates(t *testing.T) {
 	}
 	if !foundLong {
 		t.Fatalf("X-Long header missing: %+v", entry.Request.Headers)
+	}
+	harData, err := json.Marshal(mgr.HAR())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(harData), "access_token=secret") {
+		t.Fatalf("HAR leaked query secret: %s", harData)
 	}
 }
 

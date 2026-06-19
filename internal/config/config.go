@@ -59,6 +59,7 @@ type DeveloperConfig struct {
 	BodyLimitBytes        int64                           `toml:"body_limit_bytes" json:"body_limit_bytes"`
 	HeaderValueLimitBytes int                             `toml:"header_value_limit_bytes" json:"header_value_limit_bytes"`
 	RedactHeaders         []string                        `toml:"redact_headers" json:"redact_headers"`
+	RedactQueryParams     []string                        `toml:"redact_query_params" json:"redact_query_params"`
 	CACertPath            string                          `toml:"ca_cert_path" json:"ca_cert_path,omitempty"`
 	CAKeyPath             string                          `toml:"ca_key_path" json:"ca_key_path,omitempty"`
 	MapRules              []DeveloperMapRuleConfig        `toml:"map_rule" json:"map_rules,omitempty"`
@@ -101,7 +102,7 @@ type DeveloperBreakpointRuleConfig struct {
 func DefaultDeveloperConfig() DeveloperConfig {
 	return DeveloperConfig{
 		Enabled:               false,
-		MITMEnabled:           true,
+		MITMEnabled:           false,
 		CaptureLimit:          200,
 		BodyLimitBytes:        64 << 10,
 		HeaderValueLimitBytes: 8 << 10,
@@ -110,6 +111,28 @@ func DefaultDeveloperConfig() DeveloperConfig {
 			"proxy-authorization",
 			"cookie",
 			"set-cookie",
+			"x-api-key",
+			"api-key",
+			"x-auth-token",
+			"x-csrf-token",
+			"x-xsrf-token",
+			"csrf-token",
+			"xsrf-token",
+		},
+		RedactQueryParams: []string{
+			"token",
+			"access_token",
+			"refresh_token",
+			"id_token",
+			"api_key",
+			"apikey",
+			"key",
+			"secret",
+			"password",
+			"passwd",
+			"code",
+			"session",
+			"auth",
 		},
 	}
 }

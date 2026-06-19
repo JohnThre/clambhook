@@ -48,6 +48,8 @@ public protocol ClambhookConfigSettingsProviding: AnyObject {
 
 public protocol DeveloperCaptureProviding: AnyObject {
     func developerStatus() async throws -> DeveloperStatusPayload
+    func developerSettings() async throws -> DeveloperSettingsPayload
+    func updateDeveloperSettings(_ request: DeveloperSettingsUpdateRequest) async throws -> DeveloperSettingsPayload
     func developerEntries() async throws -> DeveloperEntriesPayload
     func developerCAPEM() async throws -> String
     func developerHAR() async throws -> String
@@ -341,6 +343,16 @@ public final class ClambhookAPIClient: ClambhookAPIProviding, ClambhookRuleEditi
 
     public func developerStatus() async throws -> DeveloperStatusPayload {
         try await getJSON("/api/v1/developer/status")
+    }
+
+    public func developerSettings() async throws -> DeveloperSettingsPayload {
+        try await getJSON("/api/v1/developer/settings")
+    }
+
+    public func updateDeveloperSettings(_ request: DeveloperSettingsUpdateRequest) async throws -> DeveloperSettingsPayload {
+        let body = try encoder.encode(request)
+        let data = try await send(method: "PUT", path: "/api/v1/developer/settings", body: body)
+        return try decoder.decode(DeveloperSettingsPayload.self, from: data)
     }
 
     public func developerEntries() async throws -> DeveloperEntriesPayload {

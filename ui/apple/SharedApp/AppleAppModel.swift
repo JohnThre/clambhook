@@ -14,6 +14,7 @@ final class AppleAppModel: ObservableObject {
     @Published private(set) var developerMapRules: [DeveloperMapRulePayload] = []
     @Published private(set) var developerBreakpointRules: [DeveloperBreakpointRulePayload] = []
     @Published private(set) var developerPendingBreakpoints: [DeveloperPendingBreakpointPayload] = []
+    @Published private(set) var developerSettings = DeveloperSettingsPayload()
     @Published private(set) var configSettings = ConfigSettingsPayload()
     @Published private(set) var developerCAPEMText = ""
     @Published var apiToken = ""
@@ -467,10 +468,12 @@ final class AppleAppModel: ObservableObject {
     func refreshDeveloperCaptureNow() async {
         guard let provider = dashboardAPI as? DeveloperCaptureProviding else {
             developerStatus = DeveloperStatusPayload()
+            developerSettings = DeveloperSettingsPayload()
             developerEntries = []
             return
         }
         do {
+            developerSettings = try await provider.developerSettings()
             developerStatus = try await provider.developerStatus()
             developerEntries = try await provider.developerEntries().entries
             developerMapRules = try await provider.developerMapRules().rules
@@ -478,11 +481,29 @@ final class AppleAppModel: ObservableObject {
             developerPendingBreakpoints = try await provider.developerPendingBreakpoints().breakpoints
         } catch {
             developerStatus = DeveloperStatusPayload()
+            developerSettings = DeveloperSettingsPayload()
             developerEntries = []
             developerMapRules = []
             developerBreakpointRules = []
             developerPendingBreakpoints = []
             daemonMessage = error.localizedDescription
+        }
+    }
+
+    func saveDeveloperSettings(_ request: DeveloperSettingsUpdateRequest) {
+        Task {
+            do {
+                guard let provider = dashboardAPI as? DeveloperCaptureProviding else {
+                    throw APIClientError.invalidURL("developer capture unavailable")
+                }
+                developerSettings = try await provider.updateDeveloperSettings(request)
+                await refreshDeveloperCaptureNow()
+                await refreshDeveloperCANow()
+                daemonMessage = developerSettings.backupPath.isEmpty ? "developer settings saved" : "developer settings saved with backup"
+            } catch {
+                daemonMessage = error.localizedDescription
+                await refreshDeveloperCaptureNow()
+            }
         }
     }
 
@@ -767,6 +788,7 @@ final class AppleAppModel: ObservableObject {
         developerMapRules = []
         developerBreakpointRules = []
         developerPendingBreakpoints = []
+        developerSettings = DeveloperSettingsPayload()
         configSettings = ConfigSettingsPayload()
         developerCAPEMText = ""
         bindDashboardStore()

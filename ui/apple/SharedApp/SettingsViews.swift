@@ -19,6 +19,14 @@ struct AppSettingsView: View {
     @State private var dnsEnabled = false
     @State private var dnsTimeout = "5s"
     @State private var dnsUpstreams: [EditableDNSUpstream] = []
+    @State private var developerCaptureEnabled = false
+    @State private var httpsCaptureEnabled = false
+    @State private var captureLimit = 200
+    @State private var bodyLimitBytes = 65_536
+    @State private var headerValueLimitBytes = 8_192
+    @State private var redactHeadersText = developerDefaultRedactHeaders.joined(separator: ", ")
+    @State private var redactQueryParamsText = developerDefaultRedactQueryParams.joined(separator: ", ")
+    @State private var showingHTTPSCaptureConfirmation = false
     @State private var stableManifestURL = ""
     @State private var betaManifestURL = ""
 
@@ -29,7 +37,7 @@ struct AppSettingsView: View {
             systemExtensionSection
             proxySection
             dnsSection
-            certificateSection
+            developerCaptureSection
             logsSection
             updatesSection
             #if os(macOS)
@@ -42,10 +50,29 @@ struct AppSettingsView: View {
             loadSettings()
             model.privilegedHelperManager.refreshStatus()
             model.refreshConfigSettings()
-            model.refreshDeveloperCA()
+            model.refreshDeveloperCapture()
         }
         .onChange(of: model.configSettings) { _, value in
             loadConfigSettings(value)
+        }
+        .onChange(of: model.developerSettings) { _, value in
+            loadDeveloperSettings(value)
+        }
+        .confirmationDialog(
+            "Enable HTTPS Capture?",
+            isPresented: $showingHTTPSCaptureConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Enable HTTPS Capture", role: .destructive) {
+                developerCaptureEnabled = true
+                httpsCaptureEnabled = true
+                saveDeveloperSettings(enabled: true, mitmEnabled: true, httpsCaptureAck: true)
+            }
+            Button("Cancel", role: .cancel) {
+                httpsCaptureEnabled = model.developerSettings.mitmEnabled
+            }
+        } message: {
+            Text(developerHTTPSCaptureDisclosure)
         }
     }
 
@@ -320,12 +347,56 @@ struct AppSettingsView: View {
         }
     }
 
-    private var certificateSection: some View {
-        Section("CA Certificate") {
+    private var developerCaptureSection: some View {
+        Section("Developer Capture") {
+            Toggle("Developer capture", isOn: Binding(
+                get: { developerCaptureEnabled },
+                set: { enabled in
+                    developerCaptureEnabled = enabled
+                    if !enabled {
+                        httpsCaptureEnabled = false
+                    }
+                    saveDeveloperSettings(enabled: enabled, mitmEnabled: false)
+                }
+            ))
+            Text(developerCaptureDisclosure)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            Stepper("Keep \(captureLimit) captures", value: $captureLimit, in: 0...5_000, step: 50)
+            Stepper("Body preview \(bodyLimitBytes) bytes", value: $bodyLimitBytes, in: 0...1_048_576, step: 4_096)
+            Stepper("Header value limit \(headerValueLimitBytes) bytes", value: $headerValueLimitBytes, in: 0...65_536, step: 512)
+            TextField("Redacted headers", text: $redactHeadersText)
+            TextField("Redacted query parameters", text: $redactQueryParamsText)
+            Button {
+                saveDeveloperSettings()
+            } label: {
+                Label("Save Capture Defaults", systemImage: "square.and.arrow.down")
+            }
+
+            Divider()
+
+            Toggle("HTTPS capture", isOn: Binding(
+                get: { httpsCaptureEnabled },
+                set: { enabled in
+                    if enabled {
+                        showingHTTPSCaptureConfirmation = true
+                    } else {
+                        httpsCaptureEnabled = false
+                        saveDeveloperSettings(mitmEnabled: false)
+                    }
+                }
+            ))
+            .disabled(!developerCaptureEnabled)
+            Text(developerHTTPSCaptureDisclosure)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
             Label(
-                model.developerStatus.enabled ? "Developer capture configured" : "Developer capture disabled",
-                systemImage: model.developerStatus.mitmEnabled ? "lock.open" : "lock"
+                httpsCaptureEnabled ? "HTTPS capture enabled" : "HTTPS capture disabled",
+                systemImage: httpsCaptureEnabled ? "lock.open" : "lock"
             )
+            .foregroundStyle(httpsCaptureEnabled ? .orange : .secondary)
             if model.certificateManager.fingerprint.isEmpty {
                 Text("No developer CA is available from the daemon.")
                     .font(.caption)
@@ -337,7 +408,7 @@ struct AppSettingsView: View {
             }
             HStack {
                 Button {
-                    model.refreshDeveloperCA()
+                    model.refreshDeveloperCapture()
                 } label: {
                     Label("Refresh CA", systemImage: "arrow.clockwise")
                 }
@@ -440,7 +511,7 @@ struct AppSettingsView: View {
     }
 
     private var canManageCA: Bool {
-        model.developerStatus.enabled && model.developerStatus.mitmEnabled && !model.developerCAPEMText.isEmpty
+        model.developerSettings.enabled && model.developerSettings.mitmEnabled && !model.developerCAPEMText.isEmpty
     }
 
     private var updateStatusImage: String {
@@ -480,6 +551,7 @@ struct AppSettingsView: View {
         stableManifestURL = settings.stableUpdateManifestURL.absoluteString
         betaManifestURL = settings.betaUpdateManifestURL.absoluteString
         loadConfigSettings(model.configSettings)
+        loadDeveloperSettings(model.developerSettings)
     }
 
     private func loadConfigSettings(_ settings: ConfigSettingsPayload) {
@@ -490,6 +562,16 @@ struct AppSettingsView: View {
         dnsEnabled = settings.dns.enabled
         dnsTimeout = settings.dns.timeout
         dnsUpstreams = settings.dns.upstreams.map(EditableDNSUpstream.init)
+    }
+
+    private func loadDeveloperSettings(_ settings: DeveloperSettingsPayload) {
+        developerCaptureEnabled = settings.enabled
+        httpsCaptureEnabled = settings.mitmEnabled
+        captureLimit = settings.captureLimit
+        bodyLimitBytes = Int(min(settings.bodyLimitBytes, UInt64(Int.max)))
+        headerValueLimitBytes = settings.headerValueLimitBytes
+        redactHeadersText = (settings.redactHeaders.isEmpty ? developerDefaultRedactHeaders : settings.redactHeaders).joined(separator: ", ")
+        redactQueryParamsText = (settings.redactQueryParams.isEmpty ? developerDefaultRedactQueryParams : settings.redactQueryParams).joined(separator: ", ")
     }
 
     private func apply() {
@@ -522,6 +604,26 @@ struct AppSettingsView: View {
             timeout: dnsTimeout.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "5s" : dnsTimeout,
             upstreams: dnsUpstreams.map(\.payload)
         ))
+    }
+
+    private func saveDeveloperSettings(enabled: Bool? = nil, mitmEnabled: Bool? = nil, httpsCaptureAck: Bool = false) {
+        model.saveDeveloperSettings(DeveloperSettingsUpdateRequest(
+            enabled: enabled,
+            mitmEnabled: mitmEnabled,
+            captureLimit: captureLimit,
+            bodyLimitBytes: UInt64(max(0, bodyLimitBytes)),
+            headerValueLimitBytes: headerValueLimitBytes,
+            redactHeaders: redactionList(redactHeadersText),
+            redactQueryParams: redactionList(redactQueryParamsText),
+            httpsCaptureAck: httpsCaptureAck
+        ))
+    }
+
+    private func redactionList(_ value: String) -> [String] {
+        value
+            .split { character in character == "," || character == "\n" }
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+            .filter { !$0.isEmpty }
     }
 
     private func applyManifestURLs() {

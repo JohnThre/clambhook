@@ -12,6 +12,21 @@ final class SettingsTests: XCTestCase {
         XCTAssertFalse(vpnDataUseDisclosure.contains("body previews"))
     }
 
+    func testDeveloperCaptureDisclosureSeparatesHTTPAndHTTPSCapture() {
+        XCTAssertTrue(developerCaptureDisclosure.contains("Developer capture is opt-in and local"))
+        XCTAssertTrue(developerCaptureDisclosure.contains("configured query parameters are redacted"))
+        XCTAssertFalse(developerCaptureDisclosure.contains("creates a local certificate authority"))
+
+        XCTAssertTrue(developerHTTPSCaptureDisclosure.contains("HTTPS capture is a separate opt-in"))
+        XCTAssertTrue(developerHTTPSCaptureDisclosure.contains("trust that CA in your user keychain"))
+        XCTAssertTrue(developerHTTPSCaptureDisclosure.contains("Only enable it for devices and test traffic you control"))
+    }
+
+    func testHARExportDisclosureWarnsBeforeSharing() {
+        XCTAssertTrue(developerHARExportDisclosure.contains("HAR exports can include URLs"))
+        XCTAssertTrue(developerHARExportDisclosure.contains("Review the file before sharing"))
+    }
+
     func testMacOSProxyScopeDisclosureStatesNetworkExtensionAndProxyFallback() {
         XCTAssertTrue(macOSProxyScopeDisclosure.contains("Network Extension mode"))
         XCTAssertTrue(macOSProxyScopeDisclosure.contains("packet tunnel"))

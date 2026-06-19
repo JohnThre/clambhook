@@ -2031,6 +2031,7 @@ struct MacHTTPCaptureSection: View {
     @State private var localPath = ""
     @State private var remoteURL = ""
     @State private var harExport = ""
+    @State private var showingHARExportWarning = false
     @State private var editingBreakpoint: DeveloperPendingBreakpointPayload?
     @State private var breakpointRequestBody = ""
     @State private var breakpointResponseBody = ""
@@ -2040,6 +2041,13 @@ struct MacHTTPCaptureSection: View {
         VStack(spacing: 0) {
             toolbar
                 .padding(12)
+            if model.developerStatus.mitmEnabled {
+                Label("HTTPS capture is decrypting traffic routed through the daemon HTTP proxy.", systemImage: "exclamationmark.triangle")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 8)
+            }
             Divider()
             pendingBreakpoints
             HSplitView {
@@ -2056,6 +2064,20 @@ struct MacHTTPCaptureSection: View {
             breakpointEditor(breakpoint)
                 .frame(minWidth: 560, minHeight: 460)
         }
+        .confirmationDialog(
+            "Export HAR?",
+            isPresented: $showingHARExportWarning,
+            titleVisibility: .visible
+        ) {
+            Button("Load HAR Export") {
+                Task {
+                    harExport = (try? await model.developerHAR()) ?? ""
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(developerHARExportDisclosure)
+        }
     }
 
     private var toolbar: some View {
@@ -2063,7 +2085,7 @@ struct MacHTTPCaptureSection: View {
             Label("\(model.developerEntries.count) requests", systemImage: "list.bullet.rectangle")
                 .foregroundStyle(model.developerStatus.enabled ? Color.blue : Color.secondary)
             if model.developerStatus.mitmEnabled {
-                Label("MITM on", systemImage: "lock.open")
+                Label("HTTPS capture on", systemImage: "lock.open")
                     .foregroundStyle(.orange)
             }
             TextField("Search requests", text: $captureSearch)
@@ -2083,9 +2105,7 @@ struct MacHTTPCaptureSection: View {
             }
             .help("Clear")
             Button {
-                Task {
-                    harExport = (try? await model.developerHAR()) ?? ""
-                }
+                showingHARExportWarning = true
             } label: {
                 Image(systemName: "square.and.arrow.down")
             }

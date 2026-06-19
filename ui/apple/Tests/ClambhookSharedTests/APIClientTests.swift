@@ -205,6 +205,69 @@ final class APIClientTests: XCTestCase {
         XCTAssertNil(decoded.dns)
     }
 
+    func testDeveloperSettingsRequestDecodesSafeCaptureDefaults() async throws {
+        MockURLProtocol.responseData = Data("""
+        {
+          "enabled": true,
+          "mitm_enabled": false,
+          "capture_limit": 200,
+          "body_limit_bytes": 65536,
+          "header_value_limit_bytes": 8192,
+          "redact_headers": ["authorization", "cookie"],
+          "redact_query_params": ["access_token", "secret"]
+        }
+        """.utf8)
+        let client = ClambhookAPIClient(
+            baseURL: URL(string: "http://127.0.0.1:9090")!,
+            session: mockSession()
+        )
+
+        let settings = try await client.developerSettings()
+
+        XCTAssertEqual(MockURLProtocol.lastRequest?.url?.absoluteString, "http://127.0.0.1:9090/api/v1/developer/settings")
+        XCTAssertTrue(settings.enabled)
+        XCTAssertFalse(settings.mitmEnabled)
+        XCTAssertEqual(settings.redactQueryParams, ["access_token", "secret"])
+    }
+
+    func testUpdateDeveloperSettingsSendsHTTPSCaptureAck() async throws {
+        MockURLProtocol.responseData = Data("""
+        {
+          "enabled": true,
+          "mitm_enabled": true,
+          "capture_limit": 200,
+          "body_limit_bytes": 65536,
+          "header_value_limit_bytes": 8192,
+          "redact_headers": ["authorization"],
+          "redact_query_params": ["access_token"],
+          "backup_path": "/tmp/clambhook.toml.bak"
+        }
+        """.utf8)
+        let client = ClambhookAPIClient(
+            baseURL: URL(string: "http://127.0.0.1:9090")!,
+            session: mockSession()
+        )
+
+        let response = try await client.updateDeveloperSettings(DeveloperSettingsUpdateRequest(
+            enabled: true,
+            mitmEnabled: true,
+            redactHeaders: ["authorization"],
+            redactQueryParams: ["access_token"],
+            httpsCaptureAck: true
+        ))
+
+        XCTAssertTrue(response.mitmEnabled)
+        XCTAssertEqual(response.backupPath, "/tmp/clambhook.toml.bak")
+        XCTAssertEqual(MockURLProtocol.lastRequest?.httpMethod, "PUT")
+        XCTAssertEqual(MockURLProtocol.lastRequest?.url?.absoluteString, "http://127.0.0.1:9090/api/v1/developer/settings")
+        let body = try XCTUnwrap(MockURLProtocol.lastBody)
+        let decoded = try JSONDecoder().decode(DeveloperSettingsUpdateRequest.self, from: body)
+        XCTAssertEqual(decoded.enabled, true)
+        XCTAssertEqual(decoded.mitmEnabled, true)
+        XCTAssertEqual(decoded.redactQueryParams, ["access_token"])
+        XCTAssertTrue(decoded.httpsCaptureAck)
+    }
+
     func testRefreshRuleSubscriptionsSendsSelectedNames() async throws {
         MockURLProtocol.responseData = Data("""
         {"profile":"Work","subscriptions":[{"name":"ads","url":"https://lists.example.invalid/ads.txt","format":"auto","action":"block","cached":true,"domain_count":1}]}
