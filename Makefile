@@ -1,4 +1,4 @@
-.PHONY: all build build-clib build-daemon build-tui install install-linux prepare-apple-runtime build-apple-mobile-xcframework generate-apple build-apple release-macos upload-release-r2 release-check app-review-release-check package-smoke test-apple test-android build-android-mobile-aar build-android build-android-release build-android-play-release check-linux-ui-deps test-linux build-linux test e2e e2e-release lint clean
+.PHONY: all build build-clib build-daemon build-tui install install-linux prepare-apple-runtime build-apple-mobile-xcframework generate-apple build-apple check-macos-signing release-macos upload-release-r2 release-check app-review-release-check package-smoke test-apple test-android build-android-mobile-aar build-android build-android-release build-android-play-release check-linux-ui-deps test-linux build-linux test e2e e2e-release lint clean
 
 export CGO_ENABLED=1
 PREFIX ?= /usr/local
@@ -53,6 +53,9 @@ build-apple: prepare-apple-runtime build-apple-mobile-xcframework
 	$(MAKE) generate-apple
 	xcodebuild -project ui/apple/Clambhook.xcodeproj -scheme ClambhookMac -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO build
 	xcodebuild -project ui/apple/Clambhook.xcodeproj -scheme ClambhookVision -destination 'generic/platform=visionOS Simulator' CODE_SIGNING_ALLOWED=NO build
+
+check-macos-signing:
+	./scripts/check-macos-signing.sh
 
 release-macos:
 	$(internal-release-notice)

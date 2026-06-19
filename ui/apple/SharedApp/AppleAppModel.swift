@@ -34,6 +34,8 @@ final class AppleAppModel: ObservableObject {
     private var systemProxyChangeCancellable: AnyCancellable?
     private var certificateChangeCancellable: AnyCancellable?
     private var updateChangeCancellable: AnyCancellable?
+    private var privilegedHelperChangeCancellable: AnyCancellable?
+    private var systemExtensionChangeCancellable: AnyCancellable?
     #endif
     private var started = false
 
@@ -42,6 +44,8 @@ final class AppleAppModel: ObservableObject {
     let systemProxyManager = MacSystemProxyManager()
     let certificateManager = MacCertificateManager()
     let updateChecker = MacUpdateChecker()
+    let privilegedHelperManager = MacPrivilegedHelperManager()
+    let systemExtensionInstaller = MacSystemExtensionInstaller.shared
     @Published private(set) var licenseManager: MacLicenseManager
 
     private var usesNetworkExtensionRouting: Bool {
@@ -65,7 +69,10 @@ final class AppleAppModel: ObservableObject {
         #if os(macOS)
         self.licenseManager = MacLicenseManager(
             defaults: UserDefaults(suiteName: settingsStore.settings.appGroupIdentifier) ?? .standard,
-            credentialStore: KeychainCredentialStore(service: "org.jpfchang.clambhook.license"),
+            credentialStore: KeychainCredentialStore(
+                service: "org.jpfchang.clambhook.license",
+                accessGroup: defaultAppleKeychainAccessGroup
+            ),
             licenseValidationEndpoint: settingsStore.settings.licenseValidationEndpoint
         )
         #endif
@@ -73,7 +80,10 @@ final class AppleAppModel: ObservableObject {
         self.apiToken = initialToken
         #if os(macOS)
         if settingsStore.settings.normalized().routingMode == .networkExtension {
-            let tunnelClient = MacTunnelProviderClient(groupIdentifier: settingsStore.settings.appGroupIdentifier)
+            let tunnelClient = MacTunnelProviderClient(
+                groupIdentifier: settingsStore.settings.appGroupIdentifier,
+                systemExtensionInstaller: systemExtensionInstaller
+            )
             self.apiClient = nil
             self.dashboardAPI = tunnelClient
         } else {
@@ -136,7 +146,13 @@ final class AppleAppModel: ObservableObject {
         dashboard.stopEventStream()
         #if os(macOS)
         if settingsStore.settings.stopDaemonOnQuit {
-            daemonSupervisor.stop()
+            if settingsStore.settings.normalized().usePrivilegedHelper {
+                Task {
+                    await privilegedHelperManager.stopDaemon()
+                }
+            } else {
+                daemonSupervisor.stop()
+            }
         }
         #endif
         started = false
@@ -694,7 +710,11 @@ final class AppleAppModel: ObservableObject {
         Task {
             do {
                 daemonMessage = "daemon starting"
-                try daemonSupervisor.launch(settings: settingsStore.settings, token: apiToken)
+                if settingsStore.settings.normalized().usePrivilegedHelper {
+                    try await privilegedHelperManager.startDaemon(settings: settingsStore.settings, token: apiToken)
+                } else {
+                    try daemonSupervisor.launch(settings: settingsStore.settings, token: apiToken)
+                }
                 let ready = await waitForAPIReady()
                 daemonMessage = ready ? "daemon launched" : "daemon launched; waiting for API"
             } catch {
@@ -704,8 +724,15 @@ final class AppleAppModel: ObservableObject {
     }
 
     func stopDaemon() {
-        daemonSupervisor.stop()
-        daemonMessage = "daemon stopped"
+        if settingsStore.settings.normalized().usePrivilegedHelper {
+            Task {
+                await privilegedHelperManager.stopDaemon()
+                daemonMessage = "daemon stopped"
+            }
+        } else {
+            daemonSupervisor.stop()
+            daemonMessage = "daemon stopped"
+        }
     }
     #endif
 
@@ -717,7 +744,10 @@ final class AppleAppModel: ObservableObject {
         #if os(macOS)
         if settings.routingMode == .networkExtension {
             apiClient = nil
-            dashboardAPI = MacTunnelProviderClient(groupIdentifier: settings.appGroupIdentifier)
+            dashboardAPI = MacTunnelProviderClient(
+                groupIdentifier: settings.appGroupIdentifier,
+                systemExtensionInstaller: systemExtensionInstaller
+            )
         } else {
             let nextAPIClient = ClambhookAPIClient(baseURL: endpoint, tokenProvider: { token.isEmpty ? nil : token })
             apiClient = nextAPIClient
@@ -803,6 +833,12 @@ final class AppleAppModel: ObservableObject {
         updateChangeCancellable = updateChecker.objectWillChange.sink { [weak self] _ in
             Task { @MainActor in self?.objectWillChange.send() }
         }
+        privilegedHelperChangeCancellable = privilegedHelperManager.objectWillChange.sink { [weak self] _ in
+            Task { @MainActor in self?.objectWillChange.send() }
+        }
+        systemExtensionChangeCancellable = systemExtensionInstaller.objectWillChange.sink { [weak self] _ in
+            Task { @MainActor in self?.objectWillChange.send() }
+        }
     }
     #endif
 
@@ -877,7 +913,7 @@ enum AppleAppModelError: Error, LocalizedError {
 
 private func defaultCredentialStore() -> CredentialStoring {
     #if canImport(Security)
-    return KeychainCredentialStore()
+    return KeychainCredentialStore(accessGroup: defaultAppleKeychainAccessGroup)
     #else
     return InMemoryCredentialStore()
     #endif
@@ -896,7 +932,7 @@ extension AppleAppModel {
                 relativeTo: nil,
                 bookmarkDataIsStale: &stale
             ) {
-                url.startAccessingSecurityScopedResource()
+                _ = url.startAccessingSecurityScopedResource()
                 defer { url.stopAccessingSecurityScopedResource() }
                 return try String(contentsOf: url, encoding: .utf8)
             }
@@ -915,7 +951,7 @@ extension AppleAppModel {
                 relativeTo: nil,
                 bookmarkDataIsStale: &stale
             ) {
-                url.startAccessingSecurityScopedResource()
+                _ = url.startAccessingSecurityScopedResource()
                 defer { url.stopAccessingSecurityScopedResource() }
                 try content.write(to: url, atomically: true, encoding: .utf8)
                 return

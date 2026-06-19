@@ -26,6 +26,7 @@ struct AppSettingsView: View {
         Form {
             apiSection
             daemonSection
+            systemExtensionSection
             proxySection
             dnsSection
             certificateSection
@@ -39,11 +40,68 @@ struct AppSettingsView: View {
         .formStyle(.grouped)
         .onAppear {
             loadSettings()
+            model.privilegedHelperManager.refreshStatus()
             model.refreshConfigSettings()
             model.refreshDeveloperCA()
         }
         .onChange(of: model.configSettings) { _, value in
             loadConfigSettings(value)
+        }
+    }
+
+    private var privilegedHelperStatusImage: String {
+        switch model.privilegedHelperManager.serviceStatus {
+        case .enabled:
+            return "checkmark.circle.fill"
+        case .requiresApproval:
+            return "exclamationmark.triangle.fill"
+        case .notFound:
+            return "questionmark.circle"
+        case .notRegistered:
+            return "lock.shield"
+        case .unknown:
+            return "questionmark.circle"
+        }
+    }
+
+    private var privilegedHelperStatusColor: Color {
+        switch model.privilegedHelperManager.serviceStatus {
+        case .enabled:
+            return .green
+        case .requiresApproval:
+            return .orange
+        case .notFound, .unknown:
+            return .red
+        case .notRegistered:
+            return .secondary
+        }
+    }
+
+    private var systemExtensionStatusImage: String {
+        switch model.systemExtensionInstaller.status {
+        case .activated:
+            return "checkmark.circle.fill"
+        case .activating:
+            return "hourglass"
+        case .requiresApproval, .rebootRequired:
+            return "exclamationmark.triangle.fill"
+        case .failed:
+            return "xmark.circle.fill"
+        case .notActivated:
+            return "network"
+        }
+    }
+
+    private var systemExtensionStatusColor: Color {
+        switch model.systemExtensionInstaller.status {
+        case .activated:
+            return .green
+        case .activating, .requiresApproval, .rebootRequired:
+            return .orange
+        case .failed:
+            return .red
+        case .notActivated:
+            return .secondary
         }
     }
 
@@ -93,6 +151,78 @@ struct AppSettingsView: View {
             }
             Toggle("Launch daemon when app starts", isOn: $model.settingsStore.settings.launchDaemonOnStart)
             Toggle("Stop launched daemon when app quits", isOn: $model.settingsStore.settings.stopDaemonOnQuit)
+            Toggle("Use privileged helper", isOn: $model.settingsStore.settings.usePrivilegedHelper)
+            HStack {
+                Label(
+                    model.privilegedHelperManager.serviceStatus.label,
+                    systemImage: privilegedHelperStatusImage
+                )
+                .foregroundStyle(privilegedHelperStatusColor)
+                if model.privilegedHelperManager.isWorking {
+                    ProgressView()
+                        .controlSize(.small)
+                }
+            }
+            if model.privilegedHelperManager.daemonRunning {
+                Text("Helper daemon PID \(model.privilegedHelperManager.daemonPID.map(String.init) ?? "-")")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            HStack {
+                Button {
+                    Task { await model.privilegedHelperManager.registerHelper() }
+                } label: {
+                    Label("Install Helper", systemImage: "lock.shield")
+                }
+                Button {
+                    model.privilegedHelperManager.openSystemSettings()
+                } label: {
+                    Label("Open System Settings", systemImage: "gear")
+                }
+                Button(role: .destructive) {
+                    Task { await model.privilegedHelperManager.unregisterHelper() }
+                } label: {
+                    Label("Remove Helper", systemImage: "trash")
+                }
+            }
+            if !model.privilegedHelperManager.statusMessage.isEmpty {
+                Text(model.privilegedHelperManager.statusMessage)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private var systemExtensionSection: some View {
+        Section("System Extension") {
+            HStack {
+                Label(
+                    model.systemExtensionInstaller.status.label,
+                    systemImage: systemExtensionStatusImage
+                )
+                .foregroundStyle(systemExtensionStatusColor)
+                if model.systemExtensionInstaller.isWorking {
+                    ProgressView()
+                        .controlSize(.small)
+                }
+            }
+            HStack {
+                Button {
+                    Task { await model.systemExtensionInstaller.activate() }
+                } label: {
+                    Label("Activate Tunnel Extension", systemImage: "network")
+                }
+                Button {
+                    model.systemExtensionInstaller.openSystemSettings()
+                } label: {
+                    Label("Open System Settings", systemImage: "gear")
+                }
+            }
+            if !model.systemExtensionInstaller.statusMessage.isEmpty {
+                Text(model.systemExtensionInstaller.statusMessage)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
     }
 

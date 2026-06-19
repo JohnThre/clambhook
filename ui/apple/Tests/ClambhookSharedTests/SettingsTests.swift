@@ -38,8 +38,18 @@ final class SettingsTests: XCTestCase {
 
         XCTAssertFalse(settings.systemProxyEnabled)
         XCTAssertEqual(settings.routingMode, .networkExtension)
+        XCTAssertTrue(settings.usePrivilegedHelper)
         XCTAssertEqual(settings.updateChannel, "stable")
         XCTAssertEqual(settings.updateManifestURL, defaultStableUpdateManifestURL)
+    }
+
+    func testMacOSIdentifiersUseJPFChangNamespace() {
+        XCTAssertEqual(clambhookMacAppBundleIdentifier, "org.jpfchang.clambhook.mac")
+        XCTAssertEqual(clambhookMacTunnelBundleIdentifier, "org.jpfchang.clambhook.mac.tunnel")
+        XCTAssertEqual(clambhookMacWidgetBundleIdentifier, "org.jpfchang.clambhook.mac.widgets")
+        XCTAssertEqual(clambhookMacPrivilegedHelperLabel, "org.jpfchang.clambhook.mac.helper")
+        XCTAssertEqual(clambhookMacPrivilegedHelperPlistName, "org.jpfchang.clambhook.mac.helper.plist")
+        XCTAssertEqual(defaultAppleKeychainAccessGroup, "V6GG4HYABJ.org.jpfchang.clambhook")
     }
 
     func testUpdateComparatorUsesVersionThenBuild() {

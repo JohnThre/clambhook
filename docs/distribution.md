@@ -33,6 +33,6 @@ Non-iPhone build, package, and release targets remain available for Pengfan Chan
 
 macOS uses Network Extension packet tunnel mode for device-wide routing. The app embeds a packet tunnel system extension and configures a `NETunnelProviderManager` profile that passes packets to the shared tunnel runtime.
 
-System proxy mode remains available as a fallback. In that mode the app may launch the bundled daemon, expose local SOCKS5 and HTTP listeners, and optionally configure macOS system HTTP, HTTPS, and SOCKS proxy settings to use those listeners. Traffic status and history in fallback mode apply only to traffic that reaches the configured clambhook proxy listeners.
+System proxy mode remains available as a fallback. In that mode the app may launch the bundled daemon through the approved privileged helper or the user-session fallback, expose local SOCKS5 and HTTP listeners, and optionally configure macOS system HTTP, HTTPS, and SOCKS proxy settings to use those listeners. Traffic status and history in fallback mode apply only to traffic that reaches the configured clambhook proxy listeners.
 
 The full scope note is in `docs/macos-v1-scope.md`.
