@@ -8,9 +8,9 @@
 
 Clambhook helps manage user-defined connectivity profiles and shows local status, counters, and recent activity summaries.
 
-## macOS v1 Scope
+## macOS Scope
 
-The macOS app is proxy-only for v1. It launches the local daemon, exposes SOCKS5 and HTTP proxy listeners, and can optionally point macOS system HTTP, HTTPS, and SOCKS proxy settings at those listeners. It does not provide a macOS packet tunnel, full-device VPN, route-table ownership, DNS interception, or device-wide traffic capture. See `docs/macos-v1-scope.md`.
+The macOS app uses Network Extension packet tunnel mode for device-wide routing. It embeds a macOS system extension, starts a `NETunnelProviderManager` packet tunnel, and routes packets through the shared mobile tunnel runtime. System proxy mode remains available as a daemon-backed fallback for apps and environments that should only use macOS HTTP, HTTPS, and SOCKS proxy settings. See `docs/macos-v1-scope.md`.
 
 ## End-user Distribution
 

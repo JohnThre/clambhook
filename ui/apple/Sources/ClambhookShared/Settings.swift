@@ -15,8 +15,24 @@ ClambHook creates a local VPN configuration to route device network traffic acco
 """
 
 public let macOSProxyScopeDisclosure = """
-macOS v1 configures the local HTTP, HTTPS, and SOCKS system proxy settings to point at clambhook. It handles apps that honor those proxy settings. It is not a packet tunnel, full-device VPN, route-table owner, or DNS interceptor.
+Network Extension mode installs a packet tunnel for device-wide routing. System proxy mode is a fallback for apps that honor macOS HTTP, HTTPS, and SOCKS proxy settings.
 """
+
+public enum AppRoutingMode: String, Codable, CaseIterable, Identifiable, Sendable {
+    case networkExtension = "network_extension"
+    case daemonProxy = "daemon_proxy"
+
+    public var id: String { rawValue }
+
+    public var displayName: String {
+        switch self {
+        case .networkExtension:
+            return "Network Extension"
+        case .daemonProxy:
+            return "Daemon + Proxy"
+        }
+    }
+}
 
 public struct AppSettings: Codable, Equatable, Sendable {
     public var apiEndpoint: URL
@@ -33,6 +49,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
     public var pinnedConnectionIDs: [String]
     public var licenseValidationEndpoint: URL
     public var systemProxyEnabled: Bool
+    public var routingMode: AppRoutingMode
     public var updateChannel: String
     public var stableUpdateManifestURL: URL
     public var betaUpdateManifestURL: URL
@@ -52,6 +69,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
         pinnedConnectionIDs: [String] = [],
         licenseValidationEndpoint: URL = defaultLicenseValidationURL,
         systemProxyEnabled: Bool = false,
+        routingMode: AppRoutingMode = .networkExtension,
         updateChannel: String = "stable",
         stableUpdateManifestURL: URL = defaultStableUpdateManifestURL,
         betaUpdateManifestURL: URL = defaultBetaUpdateManifestURL
@@ -70,6 +88,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
         self.pinnedConnectionIDs = pinnedConnectionIDs
         self.licenseValidationEndpoint = licenseValidationEndpoint
         self.systemProxyEnabled = systemProxyEnabled
+        self.routingMode = routingMode
         self.updateChannel = updateChannel
         self.stableUpdateManifestURL = stableUpdateManifestURL
         self.betaUpdateManifestURL = betaUpdateManifestURL
@@ -90,6 +109,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
         case pinnedConnectionIDs
         case licenseValidationEndpoint
         case systemProxyEnabled
+        case routingMode
         case updateChannel
         case stableUpdateManifestURL
         case betaUpdateManifestURL
@@ -111,6 +131,8 @@ public struct AppSettings: Codable, Equatable, Sendable {
         self.pinnedConnectionIDs = try container.decodeIfPresent([String].self, forKey: .pinnedConnectionIDs) ?? []
         self.licenseValidationEndpoint = try container.decodeIfPresent(URL.self, forKey: .licenseValidationEndpoint) ?? defaultLicenseValidationURL
         self.systemProxyEnabled = try container.decodeIfPresent(Bool.self, forKey: .systemProxyEnabled) ?? false
+        let decodedRoutingMode = try container.decodeIfPresent(String.self, forKey: .routingMode) ?? AppRoutingMode.networkExtension.rawValue
+        self.routingMode = AppRoutingMode(rawValue: decodedRoutingMode) ?? .networkExtension
         self.updateChannel = try container.decodeIfPresent(String.self, forKey: .updateChannel) ?? "stable"
         self.stableUpdateManifestURL = try container.decodeIfPresent(URL.self, forKey: .stableUpdateManifestURL) ?? defaultStableUpdateManifestURL
         self.betaUpdateManifestURL = try container.decodeIfPresent(URL.self, forKey: .betaUpdateManifestURL) ?? defaultBetaUpdateManifestURL

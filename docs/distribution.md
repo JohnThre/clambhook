@@ -29,10 +29,10 @@ Do not release end-user installers or package artifacts on GitHub. This includes
 
 Non-iPhone build, package, and release targets remain available for Pengfan Chang's internal developer QA only. Only Pengfan Chang may distribute, publish, package, or release ClambHook source code or artifacts.
 
-## macOS v1 Scope
+## macOS Scope
 
-macOS v1 is proxy-only. The app may launch the bundled daemon, expose local SOCKS5 and HTTP listeners, and optionally configure macOS system HTTP, HTTPS, and SOCKS proxy settings to use those listeners.
+macOS uses Network Extension packet tunnel mode for device-wide routing. The app embeds a packet tunnel system extension and configures a `NETunnelProviderManager` profile that passes packets to the shared tunnel runtime.
 
-macOS v1 does not include a Network Extension packet tunnel, full-device VPN routing, route-table ownership, DNS interception, or device-wide traffic capture. Traffic status and history on macOS apply only to traffic that reaches the configured clambhook proxy listeners.
+System proxy mode remains available as a fallback. In that mode the app may launch the bundled daemon, expose local SOCKS5 and HTTP listeners, and optionally configure macOS system HTTP, HTTPS, and SOCKS proxy settings to use those listeners. Traffic status and history in fallback mode apply only to traffic that reaches the configured clambhook proxy listeners.
 
 The full scope note is in `docs/macos-v1-scope.md`.

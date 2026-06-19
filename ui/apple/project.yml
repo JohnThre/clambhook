@@ -33,6 +33,11 @@ targets:
             destination: frameworks
     dependencies:
       - package: ClambhookShared
+      - framework: Frameworks/ClambhookMobile.xcframework
+      - sdk: NetworkExtension.framework
+      - sdk: SystemExtensions.framework
+      - target: ClambhookMacTunnel
+        embed: true
       - target: ClambhookMacWidgetExtension
         embed: true
     settings:
@@ -41,6 +46,22 @@ targets:
         INFOPLIST_FILE: ClambhookMac/Info.plist
         CODE_SIGN_ENTITLEMENTS: ClambhookMac/ClambhookMac.entitlements
         ENABLE_APP_SANDBOX: YES
+  ClambhookMacTunnel:
+    type: system-extension
+    platform: macOS
+    sources:
+      - path: ClambhookMacTunnel
+    dependencies:
+      - package: ClambhookShared
+      - framework: Frameworks/ClambhookMobile.xcframework
+      - sdk: NetworkExtension.framework
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.clambhook.mac.tunnel
+        INFOPLIST_FILE: ClambhookMacTunnel/Info.plist
+        CODE_SIGN_ENTITLEMENTS: ClambhookMacTunnel/ClambhookMacTunnel.entitlements
+        ENABLE_APP_SANDBOX: YES
+        SKIP_INSTALL: YES
   ClambhookVision:
     type: application
     platform: visionOS
@@ -70,4 +91,3 @@ targets:
         CODE_SIGN_ENTITLEMENTS: ClambhookWidgets/ClambhookMacWidgetExtension.entitlements
         ENABLE_APP_SANDBOX: YES
         SKIP_INSTALL: YES
-

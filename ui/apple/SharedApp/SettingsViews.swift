@@ -67,6 +67,12 @@ struct AppSettingsView: View {
 
     private var daemonSection: some View {
         Section("Daemon") {
+            Picker("Routing mode", selection: $model.settingsStore.settings.routingMode) {
+                ForEach(AppRoutingMode.allCases) { mode in
+                    Text(mode.displayName).tag(mode)
+                }
+            }
+            .pickerStyle(.segmented)
             HStack {
                 TextField("Daemon binary path", text: $daemonBinaryPath)
                 Button {

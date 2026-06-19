@@ -355,6 +355,55 @@ func TestTunnelConfigDashboardAndRuleReplacement(t *testing.T) {
 	}
 }
 
+func TestTunnelConfigRuleTestJSONExplainsPolicyGroupSelection(t *testing.T) {
+	path := writeTunnelTestConfig(t)
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.Profiles[0].Chains = append(cfg.Profiles[0].Chains, config.ChainConfig{
+		Name: "backup",
+		Servers: []config.ServerConfig{{
+			Name:     "backup",
+			Address:  "backup.example.invalid:443",
+			Protocol: "shadowsocks",
+			Settings: map[string]any{
+				"method":   "chacha20-ietf-poly1305",
+				"password": "secret",
+			},
+		}},
+	})
+	cfg.Profiles[0].PolicyGroups = []config.PolicyGroupConfig{{
+		Name:     "manual",
+		Type:     "select",
+		Chains:   []string{"proxy", "backup"},
+		Selected: "backup",
+	}}
+	cfg.Profiles[0].Rules = []config.RuleConfig{{
+		Name:           "grouped",
+		Action:         "group:manual",
+		DomainSuffixes: []string{"example.com"},
+	}}
+	if _, err := config.WriteAtomicWithBackup(path, cfg); err != nil {
+		t.Fatalf("write rule test config: %v", err)
+	}
+
+	rawTest, err := TestRuleJSON(path, "", "tcp", "www.example.com:443", "")
+	if err != nil {
+		t.Fatalf("TestRuleJSON: %v", err)
+	}
+	var payload ruleTestResponse
+	if err := json.Unmarshal([]byte(rawTest), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Profile != "default" || payload.Decision.RuleName != "grouped" || payload.Decision.ChainName != "backup" {
+		t.Fatalf("rule test payload = %+v", payload)
+	}
+	if payload.Chain == nil || payload.Chain.Name != "backup" || len(payload.Hops) != 1 || payload.Hops[0].Name != "backup" {
+		t.Fatalf("route chain = %+v hops=%+v", payload.Chain, payload.Hops)
+	}
+}
+
 func TestTunnelConfigDashboardJSONIncludesPolicyGroups(t *testing.T) {
 	path := writeTunnelTestConfig(t)
 	cfg, err := config.Load(path)

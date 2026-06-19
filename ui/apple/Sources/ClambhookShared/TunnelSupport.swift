@@ -37,12 +37,26 @@ public enum TunnelCommandAction: String, Codable, Sendable {
     case status
     case profiles
     case servers
+    case policyGroups = "policy_groups"
     case rules
+    case ruleSets = "rule_sets"
+    case ruleSubscriptions = "rule_subscriptions"
+    case dns
     case traffic
     case reload
     case setActiveProfile = "set_active_profile"
     case selectPolicyGroup = "select_policy_group"
+    case testRule = "test_rule"
+    case explainRoute = "explain_route"
+    case createRule = "create_rule"
+    case createRuleFromConnection = "create_rule_from_connection"
     case createTemporaryRuleFromConnection = "create_temporary_rule_from_connection"
+    case replaceRules = "replace_rules"
+    case replacePolicyGroups = "replace_policy_groups"
+    case replaceRuleSets = "replace_rule_sets"
+    case refreshRuleSets = "refresh_rule_sets"
+    case replaceRuleSubscriptions = "replace_rule_subscriptions"
+    case refreshRuleSubscriptions = "refresh_rule_subscriptions"
     case developerStatus = "developer_status"
     case developerEntries = "developer_entries"
     case developerCA = "developer_ca"
@@ -60,6 +74,15 @@ public struct TunnelCommand: Codable, Equatable, Sendable {
     public var ruleAction: String?
     public var scope: String?
     public var ttlSeconds: Int?
+    public var network: String?
+    public var target: String?
+    public var source: String?
+    public var rule: RulePayload?
+    public var rules: [RulePayload]?
+    public var policyGroups: [PolicyGroupPayload]?
+    public var ruleSets: [RuleSetPayload]?
+    public var ruleSubscriptions: [RuleSubscriptionPayload]?
+    public var names: [String]?
 
     enum CodingKeys: String, CodingKey {
         case action
@@ -71,9 +94,37 @@ public struct TunnelCommand: Codable, Equatable, Sendable {
         case ruleAction = "rule_action"
         case scope
         case ttlSeconds = "ttl_seconds"
+        case network
+        case target
+        case source
+        case rule
+        case rules
+        case policyGroups = "policy_groups"
+        case ruleSets = "rule_sets"
+        case ruleSubscriptions = "rule_subscriptions"
+        case names
     }
 
-    public init(action: TunnelCommandAction, profile: String? = nil, group: String? = nil, chain: String? = nil, connID: String? = nil, name: String? = nil, ruleAction: String? = nil, scope: String? = nil, ttlSeconds: Int? = nil) {
+    public init(
+        action: TunnelCommandAction,
+        profile: String? = nil,
+        group: String? = nil,
+        chain: String? = nil,
+        connID: String? = nil,
+        name: String? = nil,
+        ruleAction: String? = nil,
+        scope: String? = nil,
+        ttlSeconds: Int? = nil,
+        network: String? = nil,
+        target: String? = nil,
+        source: String? = nil,
+        rule: RulePayload? = nil,
+        rules: [RulePayload]? = nil,
+        policyGroups: [PolicyGroupPayload]? = nil,
+        ruleSets: [RuleSetPayload]? = nil,
+        ruleSubscriptions: [RuleSubscriptionPayload]? = nil,
+        names: [String]? = nil
+    ) {
         self.action = action
         self.profile = profile
         self.group = group
@@ -83,6 +134,35 @@ public struct TunnelCommand: Codable, Equatable, Sendable {
         self.ruleAction = ruleAction
         self.scope = scope
         self.ttlSeconds = ttlSeconds
+        self.network = network
+        self.target = target
+        self.source = source
+        self.rule = rule
+        self.rules = rules
+        self.policyGroups = policyGroups
+        self.ruleSets = ruleSets
+        self.ruleSubscriptions = ruleSubscriptions
+        self.names = names
+    }
+}
+
+public struct TunnelCommandResponse: Codable, Equatable, Sendable {
+    public var ok: Bool
+    public var payload: String?
+    public var error: String?
+
+    public init(ok: Bool, payload: String? = nil, error: String? = nil) {
+        self.ok = ok
+        self.payload = payload
+        self.error = error
+    }
+
+    public static func success(_ payload: String? = nil) -> TunnelCommandResponse {
+        TunnelCommandResponse(ok: true, payload: payload)
+    }
+
+    public static func failure(_ error: String) -> TunnelCommandResponse {
+        TunnelCommandResponse(ok: false, error: error)
     }
 }
 

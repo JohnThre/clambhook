@@ -12,12 +12,12 @@ final class SettingsTests: XCTestCase {
         XCTAssertFalse(vpnDataUseDisclosure.contains("body previews"))
     }
 
-    func testMacOSProxyScopeDisclosureStatesProxyOnlyBoundary() {
-        XCTAssertTrue(macOSProxyScopeDisclosure.contains("HTTP, HTTPS, and SOCKS system proxy"))
-        XCTAssertTrue(macOSProxyScopeDisclosure.contains("apps that honor those proxy settings"))
-        XCTAssertTrue(macOSProxyScopeDisclosure.contains("not a packet tunnel"))
-        XCTAssertTrue(macOSProxyScopeDisclosure.contains("full-device VPN"))
-        XCTAssertTrue(macOSProxyScopeDisclosure.contains("DNS interceptor"))
+    func testMacOSProxyScopeDisclosureStatesNetworkExtensionAndProxyFallback() {
+        XCTAssertTrue(macOSProxyScopeDisclosure.contains("Network Extension mode"))
+        XCTAssertTrue(macOSProxyScopeDisclosure.contains("packet tunnel"))
+        XCTAssertTrue(macOSProxyScopeDisclosure.contains("device-wide routing"))
+        XCTAssertTrue(macOSProxyScopeDisclosure.contains("System proxy mode"))
+        XCTAssertTrue(macOSProxyScopeDisclosure.contains("HTTP, HTTPS, and SOCKS proxy settings"))
     }
 
     func testSettingsDecodeNewMacDefaultsFromOldPayload() throws {
@@ -37,6 +37,7 @@ final class SettingsTests: XCTestCase {
         let settings = try JSONDecoder().decode(AppSettings.self, from: data).normalized()
 
         XCTAssertFalse(settings.systemProxyEnabled)
+        XCTAssertEqual(settings.routingMode, .networkExtension)
         XCTAssertEqual(settings.updateChannel, "stable")
         XCTAssertEqual(settings.updateManifestURL, defaultStableUpdateManifestURL)
     }
