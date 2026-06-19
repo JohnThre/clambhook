@@ -26,10 +26,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider, MobilePacketWriterProt
                 configPath = TunnelConfigStore.configURL(groupIdentifier: appGroupIdentifier).path
             }
             _ = try TunnelConfigStore.loadOrCreateConfig(groupIdentifier: appGroupIdentifier)
-            let rawSettings = try mobileString { MobileTunnelNetworkSettingsJSON(configPath, $0) }
-            let settingsPayload = try decoder.decode(TunnelNetworkSettingsPayload.self, from: Data(rawSettings.utf8))
-            let networkSettings = try packetTunnelSettings(from: settingsPayload)
-            setTunnelNetworkSettings(networkSettings) { [weak self] error in
+            applyCurrentNetworkSettings { [weak self] error in
                 guard let self else { return }
                 if let error {
                     completionHandler(error)
@@ -134,10 +131,12 @@ final class PacketTunnelProvider: NEPacketTunnelProvider, MobilePacketWriterProt
             return try runtimeString { runtime.trafficJSON($0) }
         case .reload:
             try runtime.reload(configPath)
+            try reapplyCurrentNetworkSettings()
             return try runtimeString { runtime.dashboardJSON($0) }
         case .setActiveProfile:
             try mobileBool { MobileSetActiveTunnelProfileConfig(configPath, command.profile ?? "", $0) }
             try runtime.reload(configPath)
+            try reapplyCurrentNetworkSettings()
             return try runtimeString { runtime.profilesJSON($0) }
         case .selectPolicyGroup:
             let raw = try mobileString {
@@ -238,12 +237,44 @@ final class PacketTunnelProvider: NEPacketTunnelProvider, MobilePacketWriterProt
         return try decoder.decode(TunnelDashboardPayload.self, from: Data(raw.utf8))
     }
 
+    private func currentPacketTunnelSettings() throws -> NEPacketTunnelNetworkSettings {
+        let rawSettings = try mobileString { MobileTunnelNetworkSettingsJSON(configPath, $0) }
+        let settingsPayload = try decoder.decode(TunnelNetworkSettingsPayload.self, from: Data(rawSettings.utf8))
+        return try packetTunnelSettings(from: settingsPayload)
+    }
+
+    private func applyCurrentNetworkSettings(completionHandler: @escaping (Error?) -> Void) {
+        do {
+            setTunnelNetworkSettings(try currentPacketTunnelSettings(), completionHandler: completionHandler)
+        } catch {
+            completionHandler(error)
+        }
+    }
+
+    private func reapplyCurrentNetworkSettings() throws {
+        let networkSettings = try currentPacketTunnelSettings()
+        let semaphore = DispatchSemaphore(value: 0)
+        var applyError: Error?
+        setTunnelNetworkSettings(networkSettings) { error in
+            applyError = error
+            semaphore.signal()
+        }
+        if semaphore.wait(timeout: .now() + 10) == .timedOut {
+            throw PacketTunnelProviderError.networkSettingsTimedOut
+        }
+        if let applyError {
+            throw applyError
+        }
+    }
+
     private func encodeJSONString<T: Encodable>(_ value: T) throws -> String {
         String(data: try encoder.encode(value), encoding: .utf8) ?? ""
     }
 }
 
 private func packetTunnelSettings(from payload: TunnelNetworkSettingsPayload) throws -> NEPacketTunnelNetworkSettings {
+    let includedRoutes = try payload.includedRoutePrefixes()
+    let excludedRoutes = try payload.excludedRoutePrefixes()
     let settings = NEPacketTunnelNetworkSettings(tunnelRemoteAddress: payload.remoteAddress.isEmpty ? "127.0.0.1" : payload.remoteAddress)
     settings.mtu = NSNumber(value: max(payload.mtu, 1280))
     if !payload.ipv4.isEmpty {
@@ -251,19 +282,22 @@ private func packetTunnelSettings(from payload: TunnelNetworkSettingsPayload) th
             addresses: payload.ipv4.map(\.address),
             subnetMasks: payload.ipv4.map { ipv4Mask(prefixLength: $0.prefixLen) }
         )
-        settings.ipv4Settings?.includedRoutes = payload.includedRoutes.filter(isIPv4Route).map(ipv4Route)
-        settings.ipv4Settings?.excludedRoutes = payload.excludedRoutes.filter(isIPv4Route).map(ipv4Route)
+        settings.ipv4Settings?.includedRoutes = includedRoutes.filter(\.isIPv4).map(ipv4Route)
+        settings.ipv4Settings?.excludedRoutes = excludedRoutes.filter(\.isIPv4).map(ipv4Route)
     }
     if !payload.ipv6.isEmpty {
         settings.ipv6Settings = NEIPv6Settings(
             addresses: payload.ipv6.map(\.address),
             networkPrefixLengths: payload.ipv6.map { NSNumber(value: $0.prefixLen) }
         )
-        settings.ipv6Settings?.includedRoutes = payload.includedRoutes.filter(isIPv6Route).map(ipv6Route)
-        settings.ipv6Settings?.excludedRoutes = payload.excludedRoutes.filter(isIPv6Route).map(ipv6Route)
+        settings.ipv6Settings?.includedRoutes = includedRoutes.filter(\.isIPv6).map(ipv6Route)
+        settings.ipv6Settings?.excludedRoutes = excludedRoutes.filter(\.isIPv6).map(ipv6Route)
     }
     if !payload.dnsServers.isEmpty {
-        settings.dnsSettings = NEDNSSettings(servers: payload.dnsServers)
+        let dns = NEDNSSettings(servers: payload.dnsServers)
+        dns.matchDomains = [""]
+        dns.matchDomainsNoSearch = true
+        settings.dnsSettings = dns
     }
     if payload.httpProxy != nil || payload.httpsProxy != nil {
         let proxy = NEProxySettings()
@@ -280,30 +314,18 @@ private func packetTunnelSettings(from payload: TunnelNetworkSettingsPayload) th
     return settings
 }
 
-private func isIPv4Route(_ value: String) -> Bool {
-    value.contains(".") && !value.contains(":")
-}
-
-private func isIPv6Route(_ value: String) -> Bool {
-    value.contains(":")
-}
-
-private func ipv4Route(_ cidr: String) -> NEIPv4Route {
-    let (address, prefix) = splitCIDR(cidr, defaultPrefix: 32)
-    return NEIPv4Route(destinationAddress: address, subnetMask: ipv4Mask(prefixLength: prefix))
-}
-
-private func ipv6Route(_ cidr: String) -> NEIPv6Route {
-    let (address, prefix) = splitCIDR(cidr, defaultPrefix: 128)
-    return NEIPv6Route(destinationAddress: address, networkPrefixLength: NSNumber(value: prefix))
-}
-
-private func splitCIDR(_ value: String, defaultPrefix: Int) -> (String, Int) {
-    let parts = value.split(separator: "/", maxSplits: 1).map(String.init)
-    guard parts.count == 2, let prefix = Int(parts[1]) else {
-        return (parts.first ?? value, defaultPrefix)
+private func ipv4Route(_ route: TunnelRoutePrefix) -> NEIPv4Route {
+    if route.isIPv4DefaultRoute {
+        return NEIPv4Route.default()
     }
-    return (parts[0], prefix)
+    return NEIPv4Route(destinationAddress: route.address, subnetMask: ipv4Mask(prefixLength: route.prefixLen))
+}
+
+private func ipv6Route(_ route: TunnelRoutePrefix) -> NEIPv6Route {
+    if route.isIPv6DefaultRoute {
+        return NEIPv6Route.default()
+    }
+    return NEIPv6Route(destinationAddress: route.address, networkPrefixLength: NSNumber(value: route.prefixLen))
 }
 
 private func ipv4Mask(prefixLength: Int) -> String {
@@ -352,6 +374,7 @@ private enum PacketTunnelProviderError: Error, LocalizedError {
     case unsupportedIPVersion(Int)
     case packetWriteFailed
     case mobileBridgeFailed
+    case networkSettingsTimedOut
     case unsupported(String)
 
     var errorDescription: String? {
@@ -366,6 +389,8 @@ private enum PacketTunnelProviderError: Error, LocalizedError {
             return "packet tunnel flow rejected packet write"
         case .mobileBridgeFailed:
             return "mobile tunnel bridge returned failure"
+        case .networkSettingsTimedOut:
+            return "timed out applying packet tunnel network settings"
         case .unsupported(let message):
             return message
         }

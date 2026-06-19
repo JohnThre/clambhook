@@ -76,6 +76,7 @@ final class MacTunnelProviderClient: NSObject, ClambhookDashboardProviding, Clam
     func setActiveProfile(_ name: String) async throws {
         if try await isConnected() {
             _ = try await sendCommand(.init(action: .setActiveProfile, profile: name))
+            try await restartTunnel()
             return
         }
         try mobileBool { MobileSetActiveTunnelProfileConfig(configPath(), name, $0) }
@@ -243,6 +244,17 @@ final class MacTunnelProviderClient: NSObject, ClambhookDashboardProviding, Clam
         String(data: try encoder.encode(value), encoding: .utf8) ?? ""
     }
 
+    private func tunnelNetworkSettingsPayload(configPath: String) throws -> TunnelNetworkSettingsPayload {
+        let rawSettings = try mobileString { MobileTunnelNetworkSettingsJSON(configPath, $0) }
+        return try decoder.decode(TunnelNetworkSettingsPayload.self, from: Data(rawSettings.utf8))
+    }
+
+    private func usesFullTunnelRoutes(_ payload: TunnelNetworkSettingsPayload) throws -> Bool {
+        let includedRoutes = try payload.includedRoutePrefixes()
+        _ = try payload.excludedRoutePrefixes()
+        return includedRoutes.contains(where: \.isIPv4DefaultRoute) && includedRoutes.contains(where: \.isIPv6DefaultRoute)
+    }
+
     private func sendJSONCommand<T: Decodable>(_ command: TunnelCommand, as type: T.Type) async throws -> T {
         let response = try await sendCommand(command)
         return try decodeJSON(response.payload ?? "{}", as: type)
@@ -276,6 +288,29 @@ final class MacTunnelProviderClient: NSObject, ClambhookDashboardProviding, Clam
         return session.status == .connected
     }
 
+    private func restartTunnel() async throws {
+        guard let session = try await tunnelSession(requireConnected: false) else {
+            try await connect()
+            return
+        }
+        session.stopTunnel()
+        try await waitForTunnelStop(session)
+        try await connect()
+    }
+
+    private func waitForTunnelStop(_ session: NETunnelProviderSession, timeout: TimeInterval = 5) async throws {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            switch session.status {
+            case .connected, .connecting, .reasserting, .disconnecting:
+                try await Task.sleep(nanoseconds: 100_000_000)
+            default:
+                return
+            }
+        }
+        throw MacTunnelProviderError.provider("Network Extension tunnel did not stop during profile switch.")
+    }
+
     private func tunnelSession(requireConnected: Bool) async throws -> NETunnelProviderSession? {
         let managers = try await loadManagers()
         guard let manager = managers.first(where: { providerProtocol(from: $0)?.providerBundleIdentifier == providerBundleIdentifier }) else {
@@ -297,6 +332,8 @@ final class MacTunnelProviderClient: NSObject, ClambhookDashboardProviding, Clam
         let managers = try await loadManagers()
         try await removeLegacyManagers(from: managers)
         let manager = managers.first(where: { providerProtocol(from: $0)?.providerBundleIdentifier == providerBundleIdentifier }) ?? NETunnelProviderManager()
+        let settingsPayload = try tunnelNetworkSettingsPayload(configPath: configPath)
+        let fullTunnel = try usesFullTunnelRoutes(settingsPayload)
         let proto = NETunnelProviderProtocol()
         proto.providerBundleIdentifier = providerBundleIdentifier
         proto.serverAddress = "clambhook"
@@ -304,6 +341,9 @@ final class MacTunnelProviderClient: NSObject, ClambhookDashboardProviding, Clam
             "config_path": configPath,
             "app_group": groupIdentifier,
         ]
+        proto.includeAllNetworks = fullTunnel
+        proto.enforceRoutes = fullTunnel
+        proto.excludeLocalNetworks = false
         manager.localizedDescription = tunnelDescription
         manager.protocolConfiguration = proto
         manager.isEnabled = true
