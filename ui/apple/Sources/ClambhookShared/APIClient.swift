@@ -16,7 +16,34 @@ public protocol ClambhookAPIProviding: AnyObject {
 }
 
 public protocol ClambhookRuleEditing: AnyObject {
+    func createRule(_ rule: RulePayload) async throws -> RulesPayload
+    func createRuleFromConnection(connID: String, profile: String, name: String, action: String, scope: String) async throws -> RulesPayload
+    func createTemporaryRuleFromConnection(connID: String, profile: String, name: String, action: String, scope: String, ttlSeconds: Int) async throws -> TemporaryRuleCreateResponsePayload
+    func cleanupRule(_ suggestion: TrafficCleanupSuggestionPayload) async throws -> RulesPayload
     func replaceRules(_ rules: [RulePayload], profile: String) async throws -> RulesPayload
+}
+
+public protocol ClambhookRouteExplaining: AnyObject {
+    func explainRoute(network: String, target: String, source: String, profile: String) async throws -> RuleTestResponse
+}
+
+public protocol ClambhookPolicyGroupEditing: AnyObject {
+    func replacePolicyGroups(_ groups: [PolicyGroupPayload], profile: String) async throws -> PolicyGroupsPayload
+}
+
+public protocol ClambhookRuleSetEditing: AnyObject {
+    func replaceRuleSets(_ ruleSets: [RuleSetPayload], profile: String) async throws -> RuleSetsPayload
+    func refreshRuleSets(names: [String], profile: String) async throws -> RuleSetsPayload
+}
+
+public protocol ClambhookRuleSubscriptionEditing: AnyObject {
+    func replaceRuleSubscriptions(_ subscriptions: [RuleSubscriptionPayload], profile: String) async throws -> RuleSubscriptionsPayload
+    func refreshRuleSubscriptions(names: [String], profile: String) async throws -> RuleSubscriptionsPayload
+}
+
+public protocol ClambhookConfigSettingsProviding: AnyObject {
+    func configSettings(profile: String) async throws -> ConfigSettingsPayload
+    func updateConfigSettings(_ request: ConfigSettingsUpdateRequest) async throws -> ConfigSettingsPayload
 }
 
 public protocol DeveloperCaptureProviding: AnyObject {
@@ -58,7 +85,7 @@ public enum APIClientError: Error, LocalizedError, Equatable {
     }
 }
 
-public final class ClambhookAPIClient: ClambhookAPIProviding, ClambhookRuleEditing, DeveloperCaptureProviding {
+public final class ClambhookAPIClient: ClambhookAPIProviding, ClambhookRuleEditing, ClambhookRouteExplaining, ClambhookPolicyGroupEditing, ClambhookRuleSetEditing, ClambhookRuleSubscriptionEditing, ClambhookConfigSettingsProviding, DeveloperCaptureProviding {
     private let baseURL: URL
     private let tokenProvider: () -> String?
     private let session: URLSession

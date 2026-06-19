@@ -43,6 +43,10 @@ final class AppleAppModel: ObservableObject {
     let certificateManager = MacCertificateManager()
     let updateChecker = MacUpdateChecker()
     @Published private(set) var licenseManager: MacLicenseManager
+
+    private var usesNetworkExtensionRouting: Bool {
+        settingsStore.settings.normalized().routingMode == .networkExtension
+    }
     #endif
 
     convenience init(platform: AppPlatform) {
@@ -67,9 +71,21 @@ final class AppleAppModel: ObservableObject {
         #endif
         let initialToken = (try? credentialStore.readToken(account: settingsStore.settings.apiEndpoint.absoluteString)) ?? ""
         self.apiToken = initialToken
+        #if os(macOS)
+        if settingsStore.settings.normalized().routingMode == .networkExtension {
+            let tunnelClient = MacTunnelProviderClient(groupIdentifier: settingsStore.settings.appGroupIdentifier)
+            self.apiClient = nil
+            self.dashboardAPI = tunnelClient
+        } else {
+            let initialAPIClient = ClambhookAPIClient(baseURL: settingsStore.settings.apiEndpoint, tokenProvider: { initialToken })
+            self.apiClient = initialAPIClient
+            self.dashboardAPI = initialAPIClient
+        }
+        #else
         let initialAPIClient = ClambhookAPIClient(baseURL: settingsStore.settings.apiEndpoint, tokenProvider: { initialToken })
         self.apiClient = initialAPIClient
         self.dashboardAPI = initialAPIClient
+        #endif
         self.dashboard = DashboardStore(
             api: dashboardAPI,
             snapshotStore: snapshotStore,
@@ -96,7 +112,7 @@ final class AppleAppModel: ObservableObject {
         #endif
         reloadClient()
         #if os(macOS)
-        if settingsStore.settings.launchDaemonOnStart {
+        if !usesNetworkExtensionRouting, settingsStore.settings.launchDaemonOnStart {
             launchDaemon()
         }
         #endif
@@ -239,10 +255,10 @@ final class AppleAppModel: ObservableObject {
         }
         Task {
             do {
-                guard let apiClient else {
-                    throw APIClientError.invalidURL("missing API client")
+                guard let ruleEditor = dashboardAPI as? ClambhookRuleEditing else {
+                    throw APIClientError.invalidURL("rule editing unavailable")
                 }
-                _ = try await apiClient.createRule(rule)
+                _ = try await ruleEditor.createRule(rule)
                 await dashboard.refreshDashboard()
                 daemonMessage = "rule created"
             } catch {
@@ -258,13 +274,13 @@ final class AppleAppModel: ObservableObject {
         }
         Task {
             do {
-                guard let apiClient else {
-                    throw APIClientError.invalidURL("missing API client")
+                guard let ruleEditor = dashboardAPI as? ClambhookRuleEditing else {
+                    throw APIClientError.invalidURL("rule editing unavailable")
                 }
-                if connection.connID.isEmpty {
-                    _ = try await apiClient.createRule(rule)
+                if connection.connID.isEmpty || apiClient == nil {
+                    _ = try await ruleEditor.createRule(rule)
                 } else {
-                    _ = try await apiClient.createRuleFromConnection(
+                    _ = try await ruleEditor.createRuleFromConnection(
                         connID: connection.connID,
                         profile: connection.profile,
                         name: rule.name,
@@ -290,12 +306,13 @@ final class AppleAppModel: ObservableObject {
                 guard !connection.connID.isEmpty else {
                     throw APIClientError.invalidURL("missing connection id")
                 }
-                guard let apiClient else {
-                    throw APIClientError.invalidURL("missing API client")
+                guard let ruleEditor = dashboardAPI as? ClambhookRuleEditing else {
+                    throw APIClientError.invalidURL("rule editing unavailable")
                 }
-                _ = try await apiClient.createTemporaryRuleFromConnection(
+                _ = try await ruleEditor.createTemporaryRuleFromConnection(
                     connID: connection.connID,
                     profile: connection.profile,
+                    name: "",
                     action: action,
                     scope: "auto",
                     ttlSeconds: ttlSeconds
@@ -315,10 +332,10 @@ final class AppleAppModel: ObservableObject {
         }
         Task {
             do {
-                guard let apiClient else {
-                    throw APIClientError.invalidURL("missing API client")
+                guard let ruleEditor = dashboardAPI as? ClambhookRuleEditing else {
+                    throw APIClientError.invalidURL("rule editing unavailable")
                 }
-                _ = try await apiClient.cleanupRule(suggestion)
+                _ = try await ruleEditor.cleanupRule(suggestion)
                 await dashboard.refreshDashboard()
                 daemonMessage = "rule cleanup applied"
             } catch {
@@ -341,8 +358,8 @@ final class AppleAppModel: ObservableObject {
         }
         Task {
             do {
-                guard let apiClient else {
-                    throw APIClientError.invalidURL("missing API client")
+                guard let ruleEditor = dashboardAPI as? ClambhookRuleEditing else {
+                    throw APIClientError.invalidURL("rule editing unavailable")
                 }
                 let chainNames = dashboard.servers.chains.map { $0.name }
                 let policyGroupNames = dashboard.policyGroups.groups.map { $0.name }
@@ -353,7 +370,7 @@ final class AppleAppModel: ObservableObject {
                     policyGroupNames: policyGroupNames,
                     defaultChainName: defaultChainName
                 )
-                _ = try await apiClient.replaceRules(rules, profile: dashboard.activeProfile)
+                _ = try await ruleEditor.replaceRules(rules, profile: dashboard.activeProfile)
                 await dashboard.refreshDashboard()
                 daemonMessage = "rules saved"
             } catch {
@@ -366,10 +383,10 @@ final class AppleAppModel: ObservableObject {
         guard canUseLicensedFeature(.routingRules) else {
             throw AppleAppModelError.licenseLocked
         }
-        guard let apiClient else {
-            throw APIClientError.invalidURL("missing API client")
+        guard let routeExplainer = dashboardAPI as? ClambhookRouteExplaining else {
+            throw APIClientError.invalidURL("route explanation unavailable")
         }
-        return try await apiClient.explainRoute(
+        return try await routeExplainer.explainRoute(
             network: network,
             target: target,
             source: source,
@@ -468,10 +485,10 @@ final class AppleAppModel: ObservableObject {
 
     func refreshConfigSettingsNow() async {
         do {
-            guard let apiClient else {
-                throw APIClientError.invalidURL("missing API client")
+            guard let configProvider = dashboardAPI as? ClambhookConfigSettingsProviding else {
+                throw APIClientError.invalidURL("config settings unavailable")
             }
-            configSettings = try await apiClient.configSettings()
+            configSettings = try await configProvider.configSettings(profile: "")
         } catch {
             configSettings = ConfigSettingsPayload()
         }
@@ -480,10 +497,10 @@ final class AppleAppModel: ObservableObject {
     func saveConfigSettings(listen: ConfigListenSettingsPayload? = nil, dns: ConfigDNSSettingsPayload? = nil) {
         Task {
             do {
-                guard let apiClient else {
-                    throw APIClientError.invalidURL("missing API client")
+                guard let configProvider = dashboardAPI as? ClambhookConfigSettingsProviding else {
+                    throw APIClientError.invalidURL("config settings unavailable")
                 }
-                configSettings = try await apiClient.updateConfigSettings(ConfigSettingsUpdateRequest(
+                configSettings = try await configProvider.updateConfigSettings(ConfigSettingsUpdateRequest(
                     profile: configSettings.profile,
                     listen: listen,
                     dns: dns
@@ -607,10 +624,10 @@ final class AppleAppModel: ObservableObject {
         }
         Task {
             do {
-                guard let apiClient else {
-                    throw APIClientError.invalidURL("missing API client")
+                guard let ruleSetEditor = dashboardAPI as? ClambhookRuleSetEditing else {
+                    throw APIClientError.invalidURL("rule set editing unavailable")
                 }
-                _ = try await apiClient.refreshRuleSets(profile: dashboard.activeProfile)
+                _ = try await ruleSetEditor.refreshRuleSets(names: [], profile: dashboard.activeProfile)
                 await dashboard.refreshDashboard()
                 daemonMessage = "rule sets refreshed"
             } catch {
@@ -625,10 +642,10 @@ final class AppleAppModel: ObservableObject {
         }
         Task {
             do {
-                guard let apiClient else {
-                    throw APIClientError.invalidURL("missing API client")
+                guard let policyGroupEditor = dashboardAPI as? ClambhookPolicyGroupEditing else {
+                    throw APIClientError.invalidURL("policy group editing unavailable")
                 }
-                _ = try await apiClient.replacePolicyGroups(groups, profile: dashboard.activeProfile)
+                _ = try await policyGroupEditor.replacePolicyGroups(groups, profile: dashboard.activeProfile)
                 await dashboard.refreshDashboard()
             } catch {
                 daemonMessage = error.localizedDescription
@@ -642,10 +659,10 @@ final class AppleAppModel: ObservableObject {
         }
         Task {
             do {
-                guard let apiClient else {
-                    throw APIClientError.invalidURL("missing API client")
+                guard let subscriptionEditor = dashboardAPI as? ClambhookRuleSubscriptionEditing else {
+                    throw APIClientError.invalidURL("rule subscription editing unavailable")
                 }
-                _ = try await apiClient.replaceRuleSubscriptions(subscriptions, profile: dashboard.activeProfile)
+                _ = try await subscriptionEditor.replaceRuleSubscriptions(subscriptions, profile: dashboard.activeProfile)
                 await dashboard.refreshDashboard()
             } catch {
                 daemonMessage = error.localizedDescription
@@ -660,10 +677,10 @@ final class AppleAppModel: ObservableObject {
         }
         Task {
             do {
-                guard let apiClient else {
-                    throw APIClientError.invalidURL("missing API client")
+                guard let subscriptionEditor = dashboardAPI as? ClambhookRuleSubscriptionEditing else {
+                    throw APIClientError.invalidURL("rule subscription editing unavailable")
                 }
-                _ = try await apiClient.refreshRuleSubscriptions(profile: dashboard.activeProfile)
+                _ = try await subscriptionEditor.refreshRuleSubscriptions(names: [], profile: dashboard.activeProfile)
                 await dashboard.refreshDashboard()
                 daemonMessage = "subscriptions refreshed"
             } catch {
@@ -697,9 +714,20 @@ final class AppleAppModel: ObservableObject {
         let endpoint = settings.apiEndpoint
         let token = apiToken
         snapshotStore = FileSnapshotStore.appGroupStore(groupIdentifier: settings.appGroupIdentifier)
+        #if os(macOS)
+        if settings.routingMode == .networkExtension {
+            apiClient = nil
+            dashboardAPI = MacTunnelProviderClient(groupIdentifier: settings.appGroupIdentifier)
+        } else {
+            let nextAPIClient = ClambhookAPIClient(baseURL: endpoint, tokenProvider: { token.isEmpty ? nil : token })
+            apiClient = nextAPIClient
+            dashboardAPI = nextAPIClient
+        }
+        #else
         let nextAPIClient = ClambhookAPIClient(baseURL: endpoint, tokenProvider: { token.isEmpty ? nil : token })
         apiClient = nextAPIClient
         dashboardAPI = nextAPIClient
+        #endif
         dashboard.stopEventStream()
         dashboard = DashboardStore(api: dashboardAPI, snapshotStore: snapshotStore, logRetention: settings.logRetention)
         attention = AttentionStore.appGroupStore(groupIdentifier: settings.appGroupIdentifier)
