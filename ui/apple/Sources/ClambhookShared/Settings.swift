@@ -14,6 +14,10 @@ public let vpnDataUseDisclosure = """
 ClambHook creates a local VPN configuration to route device network traffic according to your profiles and rules. iPhone v1 inspection is metadata-only: connection targets, routing decisions, byte counts, timing, and hop status. The iPhone app does not install a certificate authority, perform TLS MITM, store request or response bodies, export HAR files, or provide body-level redaction workflows. Profile data, connection metadata, traffic logs, and diagnostics stay on this device unless you export them. ClambHook does not sell, use, or disclose VPN traffic data to third parties. Apple diagnostics may include crash and performance data if enabled.
 """
 
+public let macOSProxyScopeDisclosure = """
+macOS v1 configures the local HTTP, HTTPS, and SOCKS system proxy settings to point at clambhook. It handles apps that honor those proxy settings. It is not a packet tunnel, full-device VPN, route-table owner, or DNS interceptor.
+"""
+
 public struct AppSettings: Codable, Equatable, Sendable {
     public var apiEndpoint: URL
     public var daemonBinaryPath: String

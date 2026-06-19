@@ -12,6 +12,14 @@ final class SettingsTests: XCTestCase {
         XCTAssertFalse(vpnDataUseDisclosure.contains("body previews"))
     }
 
+    func testMacOSProxyScopeDisclosureStatesProxyOnlyBoundary() {
+        XCTAssertTrue(macOSProxyScopeDisclosure.contains("HTTP, HTTPS, and SOCKS system proxy"))
+        XCTAssertTrue(macOSProxyScopeDisclosure.contains("apps that honor those proxy settings"))
+        XCTAssertTrue(macOSProxyScopeDisclosure.contains("not a packet tunnel"))
+        XCTAssertTrue(macOSProxyScopeDisclosure.contains("full-device VPN"))
+        XCTAssertTrue(macOSProxyScopeDisclosure.contains("DNS interceptor"))
+    }
+
     func testSettingsDecodeNewMacDefaultsFromOldPayload() throws {
         let data = Data("""
         {

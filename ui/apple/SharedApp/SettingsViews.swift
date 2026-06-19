@@ -123,6 +123,7 @@ struct AppSettingsView: View {
                     )
                 }
             ))
+            .help(macOSProxyScopeDisclosure)
             if model.systemProxyManager.isApplying {
                 ProgressView()
             }
