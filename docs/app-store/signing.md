@@ -53,3 +53,14 @@ On success, the script writes:
 - `dist/ios/signing-proof.txt`
 
 The proof file records resolved build settings and verifies the signed archive/export products for Team ID, bundle IDs, app group, keychain group, and `packet-tunnel-provider`.
+
+## macOS Developer ID Identifiers
+
+The macOS Developer ID build uses separate bundle identifiers from the iPhone App Store app:
+
+- macOS app: `org.jpfchang.clambhook.mac`
+- Packet tunnel system extension: `org.jpfchang.clambhook.mac.tunnel`
+- macOS widget extension: `org.jpfchang.clambhook.mac.widgets`
+- Privileged helper LaunchDaemon and Mach service: `org.jpfchang.clambhook.mac.helper`
+
+The macOS app and tunnel extension need the `packet-tunnel-provider-systemextension` Network Extension entitlement. The macOS app also needs `com.apple.developer.system-extension.install`, App Groups, and Keychain Sharing. The privileged helper is packaged in the app bundle with `SMAppService.daemon(plistName:)` and requires notarization plus admin approval in System Settings before launchd bootstraps it.

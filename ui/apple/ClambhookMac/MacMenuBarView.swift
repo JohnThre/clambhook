@@ -99,7 +99,14 @@ struct MacMenuBarView: View {
                         systemImage: daemonIcon,
                         tint: daemonTint
                     )
-                    if daemon.state.isBusy {
+                    if model.settingsStore.settings.normalized().usePrivilegedHelper {
+                        MacStatusPill(
+                            text: model.privilegedHelperManager.serviceStatus.label,
+                            systemImage: privilegedHelperIcon,
+                            tint: privilegedHelperTint
+                        )
+                    }
+                    if daemon.state.isBusy || model.privilegedHelperManager.isWorking {
                         ProgressView()
                             .controlSize(.small)
                             .scaleEffect(0.75)
@@ -441,15 +448,15 @@ struct MacMenuBarView: View {
     private var footer: some View {
         HStack(spacing: 8) {
             Button {
-                if daemon.isRunning {
+                if managedDaemonRunning {
                     model.stopDaemon()
                 } else {
                     model.launchDaemon()
                 }
             } label: {
-                Label(daemon.isRunning ? "Stop Daemon" : "Launch Daemon", systemImage: daemon.isRunning ? "xmark.octagon" : "terminal")
+                Label(managedDaemonRunning ? "Stop Daemon" : "Launch Daemon", systemImage: managedDaemonRunning ? "xmark.octagon" : "terminal")
             }
-            .disabled(daemon.state.isBusy)
+            .disabled(daemon.state.isBusy || model.privilegedHelperManager.isWorking)
             Button {
                 NSApp.setActivationPolicy(.regular)
                 NSApp.activate(ignoringOtherApps: true)
@@ -497,6 +504,36 @@ struct MacMenuBarView: View {
         case .starting, .stopping:
             return .orange
         case .stopped:
+            return .secondary
+        }
+    }
+
+    private var managedDaemonRunning: Bool {
+        daemon.isRunning || model.privilegedHelperManager.daemonRunning
+    }
+
+    private var privilegedHelperIcon: String {
+        switch model.privilegedHelperManager.serviceStatus {
+        case .enabled:
+            return "checkmark.circle.fill"
+        case .requiresApproval:
+            return "exclamationmark.triangle.fill"
+        case .notRegistered:
+            return "lock.shield"
+        case .notFound, .unknown:
+            return "questionmark.circle"
+        }
+    }
+
+    private var privilegedHelperTint: Color {
+        switch model.privilegedHelperManager.serviceStatus {
+        case .enabled:
+            return .green
+        case .requiresApproval:
+            return .orange
+        case .notFound, .unknown:
+            return .red
+        case .notRegistered:
             return .secondary
         }
     }

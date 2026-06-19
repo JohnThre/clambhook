@@ -105,6 +105,7 @@ if otool -L "$APP_PATH/Contents/MacOS/clambhook" | grep -q '/opt/homebrew'; then
     exit 1
 fi
 
+"$ROOT_DIR/scripts/check-macos-signing.sh" "$APP_PATH"
 codesign --verify --deep --strict --verbose=4 "$APP_PATH"
 ditto -c -k --keepParent "$APP_PATH" "$NOTARY_ZIP"
 xcrun notarytool submit "$NOTARY_ZIP" --keychain-profile "$NOTARY_PROFILE" --wait

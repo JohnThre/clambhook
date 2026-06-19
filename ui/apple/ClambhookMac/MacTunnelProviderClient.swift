@@ -2,19 +2,23 @@ import ClambhookMobile
 import ClambhookShared
 import Foundation
 import NetworkExtension
-import SystemExtensions
 
 @MainActor
 final class MacTunnelProviderClient: NSObject, ClambhookDashboardProviding, ClambhookRuleEditing, ClambhookRouteExplaining, ClambhookPolicyGroupEditing, ClambhookRuleSetEditing, ClambhookRuleSubscriptionEditing, ClambhookConfigSettingsProviding {
     private let groupIdentifier: String
-    private let providerBundleIdentifier = "com.clambhook.mac.tunnel"
+    private let systemExtensionInstaller: MacSystemExtensionInstaller
+    private let providerBundleIdentifier = clambhookMacTunnelBundleIdentifier
+    private let legacyProviderBundleIdentifiers = [clambhookLegacyMacTunnelBundleIdentifier]
     private let tunnelDescription = "ClambHook"
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
-    private var activationDelegate: MacSystemExtensionActivationDelegate?
 
-    init(groupIdentifier: String = defaultAppGroupIdentifier) {
+    init(
+        groupIdentifier: String = defaultAppGroupIdentifier,
+        systemExtensionInstaller: MacSystemExtensionInstaller
+    ) {
         self.groupIdentifier = groupIdentifier
+        self.systemExtensionInstaller = systemExtensionInstaller
         super.init()
     }
 
@@ -54,7 +58,7 @@ final class MacTunnelProviderClient: NSObject, ClambhookDashboardProviding, Clam
         _ = try TunnelConfigStore.loadOrCreateConfig(groupIdentifier: groupIdentifier)
         let path = configPath()
         try mobileBool { MobileValidateUsableTunnelConfig(path, $0) }
-        try await activateSystemExtension()
+        try await systemExtensionInstaller.prepareForTunnelStart()
         let manager = try await loadOrCreateManager(configPath: path)
         guard let session = manager.connection as? NETunnelProviderSession else {
             throw MacTunnelProviderError.missingTunnelSession
@@ -291,6 +295,7 @@ final class MacTunnelProviderClient: NSObject, ClambhookDashboardProviding, Clam
 
     private func loadOrCreateManager(configPath: String) async throws -> NETunnelProviderManager {
         let managers = try await loadManagers()
+        try await removeLegacyManagers(from: managers)
         let manager = managers.first(where: { providerProtocol(from: $0)?.providerBundleIdentifier == providerBundleIdentifier }) ?? NETunnelProviderManager()
         let proto = NETunnelProviderProtocol()
         proto.providerBundleIdentifier = providerBundleIdentifier
@@ -305,6 +310,20 @@ final class MacTunnelProviderClient: NSObject, ClambhookDashboardProviding, Clam
         try await save(manager)
         try await loadFromPreferences(manager)
         return manager
+    }
+
+    private func removeLegacyManagers(from managers: [NETunnelProviderManager]) async throws {
+        for manager in managers {
+            guard let bundleIdentifier = providerProtocol(from: manager)?.providerBundleIdentifier,
+                  legacyProviderBundleIdentifiers.contains(bundleIdentifier)
+            else {
+                continue
+            }
+            if manager.connection.status == .connected || manager.connection.status == .connecting || manager.connection.status == .reasserting {
+                continue
+            }
+            try await removeFromPreferences(manager)
+        }
     }
 
     private func providerProtocol(from manager: NETunnelProviderManager) -> NETunnelProviderProtocol? {
@@ -347,23 +366,18 @@ final class MacTunnelProviderClient: NSObject, ClambhookDashboardProviding, Clam
         }
     }
 
-    private func activateSystemExtension() async throws {
+    private func removeFromPreferences(_ manager: NETunnelProviderManager) async throws {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            let delegate = MacSystemExtensionActivationDelegate { [weak self] result in
-                Task { @MainActor in
-                    self?.activationDelegate = nil
-                    continuation.resume(with: result)
+            manager.removeFromPreferences { error in
+                if let error {
+                    continuation.resume(throwing: error)
+                } else {
+                    continuation.resume()
                 }
             }
-            activationDelegate = delegate
-            let request = OSSystemExtensionRequest.activationRequest(
-                forExtensionWithIdentifier: providerBundleIdentifier,
-                queue: .main
-            )
-            request.delegate = delegate
-            OSSystemExtensionManager.shared.submitRequest(request)
         }
     }
+
 }
 
 private func mobileString(_ body: (NSErrorPointer) -> String) throws -> String {
@@ -386,44 +400,6 @@ private func mobileBool(_ body: (NSErrorPointer) -> Bool) throws {
     }
 }
 
-private final class MacSystemExtensionActivationDelegate: NSObject, OSSystemExtensionRequestDelegate {
-    private let completion: (Result<Void, Error>) -> Void
-    private var completed = false
-
-    init(completion: @escaping (Result<Void, Error>) -> Void) {
-        self.completion = completion
-    }
-
-    func request(_ request: OSSystemExtensionRequest, actionForReplacingExtension existing: OSSystemExtensionProperties, withExtension ext: OSSystemExtensionProperties) -> OSSystemExtensionRequest.ReplacementAction {
-        .replace
-    }
-
-    func requestNeedsUserApproval(_ request: OSSystemExtensionRequest) {
-        complete(.failure(MacTunnelProviderError.userApprovalRequired))
-    }
-
-    func request(_ request: OSSystemExtensionRequest, didFinishWithResult result: OSSystemExtensionRequest.Result) {
-        switch result {
-        case .completed:
-            complete(.success(()))
-        case .willCompleteAfterReboot:
-            complete(.failure(MacTunnelProviderError.rebootRequired))
-        @unknown default:
-            complete(.success(()))
-        }
-    }
-
-    func request(_ request: OSSystemExtensionRequest, didFailWithError error: Error) {
-        complete(.failure(error))
-    }
-
-    private func complete(_ result: Result<Void, Error>) {
-        guard !completed else { return }
-        completed = true
-        completion(result)
-    }
-}
-
 private enum MacTunnelProviderError: Error, LocalizedError, Equatable {
     case missingTunnelSession
     case notConfigured
@@ -431,8 +407,6 @@ private enum MacTunnelProviderError: Error, LocalizedError, Equatable {
     case startFailed
     case messageSendFailed
     case mobileBridgeFailed
-    case userApprovalRequired
-    case rebootRequired
     case provider(String)
     case unsupported(String)
 
@@ -450,10 +424,6 @@ private enum MacTunnelProviderError: Error, LocalizedError, Equatable {
             return "Network Extension provider message could not be sent."
         case .mobileBridgeFailed:
             return "Mobile tunnel bridge returned failure."
-        case .userApprovalRequired:
-            return "Approve the ClambHook system extension in System Settings, then connect again."
-        case .rebootRequired:
-            return "Restart macOS to finish activating the ClambHook system extension."
         case .provider(let message), .unsupported(let message):
             return message
         }

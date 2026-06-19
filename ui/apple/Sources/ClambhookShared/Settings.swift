@@ -2,6 +2,14 @@ import Foundation
 
 public let defaultAPIEndpoint = URL(string: "http://127.0.0.1:9090")!
 public let defaultAppGroupIdentifier = "group.org.jpfchang.clambhook"
+public let defaultAppleDeveloperTeamIdentifier = "V6GG4HYABJ"
+public let defaultAppleKeychainAccessGroup = "\(defaultAppleDeveloperTeamIdentifier).org.jpfchang.clambhook"
+public let clambhookMacAppBundleIdentifier = "org.jpfchang.clambhook.mac"
+public let clambhookMacTunnelBundleIdentifier = "org.jpfchang.clambhook.mac.tunnel"
+public let clambhookLegacyMacTunnelBundleIdentifier = "com.clambhook.mac.tunnel"
+public let clambhookMacWidgetBundleIdentifier = "org.jpfchang.clambhook.mac.widgets"
+public let clambhookMacPrivilegedHelperLabel = "org.jpfchang.clambhook.mac.helper"
+public let clambhookMacPrivilegedHelperPlistName = "\(clambhookMacPrivilegedHelperLabel).plist"
 public let defaultPrivacyPolicyURL = URL(string: "https://jpfchang.org/clambhook/privacy")!
 public let defaultSupportURL = URL(string: "https://jpfchang.org/clambhook/support")!
 public let minRefreshIntervalSeconds: Double = 1
@@ -50,6 +58,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
     public var licenseValidationEndpoint: URL
     public var systemProxyEnabled: Bool
     public var routingMode: AppRoutingMode
+    public var usePrivilegedHelper: Bool
     public var updateChannel: String
     public var stableUpdateManifestURL: URL
     public var betaUpdateManifestURL: URL
@@ -70,6 +79,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
         licenseValidationEndpoint: URL = defaultLicenseValidationURL,
         systemProxyEnabled: Bool = false,
         routingMode: AppRoutingMode = .networkExtension,
+        usePrivilegedHelper: Bool = true,
         updateChannel: String = "stable",
         stableUpdateManifestURL: URL = defaultStableUpdateManifestURL,
         betaUpdateManifestURL: URL = defaultBetaUpdateManifestURL
@@ -89,6 +99,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
         self.licenseValidationEndpoint = licenseValidationEndpoint
         self.systemProxyEnabled = systemProxyEnabled
         self.routingMode = routingMode
+        self.usePrivilegedHelper = usePrivilegedHelper
         self.updateChannel = updateChannel
         self.stableUpdateManifestURL = stableUpdateManifestURL
         self.betaUpdateManifestURL = betaUpdateManifestURL
@@ -110,6 +121,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
         case licenseValidationEndpoint
         case systemProxyEnabled
         case routingMode
+        case usePrivilegedHelper
         case updateChannel
         case stableUpdateManifestURL
         case betaUpdateManifestURL
@@ -133,6 +145,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
         self.systemProxyEnabled = try container.decodeIfPresent(Bool.self, forKey: .systemProxyEnabled) ?? false
         let decodedRoutingMode = try container.decodeIfPresent(String.self, forKey: .routingMode) ?? AppRoutingMode.networkExtension.rawValue
         self.routingMode = AppRoutingMode(rawValue: decodedRoutingMode) ?? .networkExtension
+        self.usePrivilegedHelper = try container.decodeIfPresent(Bool.self, forKey: .usePrivilegedHelper) ?? true
         self.updateChannel = try container.decodeIfPresent(String.self, forKey: .updateChannel) ?? "stable"
         self.stableUpdateManifestURL = try container.decodeIfPresent(URL.self, forKey: .stableUpdateManifestURL) ?? defaultStableUpdateManifestURL
         self.betaUpdateManifestURL = try container.decodeIfPresent(URL.self, forKey: .betaUpdateManifestURL) ?? defaultBetaUpdateManifestURL
@@ -239,52 +252,82 @@ import Security
 
 public final class KeychainCredentialStore: CredentialStoring {
     private let service: String
+    private let accessGroup: String?
 
-    public init(service: String = "org.jpfchang.clambhook.api-token") {
+    public init(service: String = "org.jpfchang.clambhook.api-token", accessGroup: String? = nil) {
         self.service = service
+        self.accessGroup = accessGroup?.isEmpty == true ? nil : accessGroup
     }
 
     public func readToken(account: String) throws -> String? {
-        var query = baseQuery(account: account)
-        query[kSecReturnData as String] = true
-        query[kSecMatchLimit as String] = kSecMatchLimitOne
-        var result: CFTypeRef?
-        let status = SecItemCopyMatching(query as CFDictionary, &result)
-        if status == errSecItemNotFound {
-            return nil
+        var missingEntitlement: KeychainError?
+        for var query in queryCandidates(account: account) {
+            query[kSecReturnData as String] = true
+            query[kSecMatchLimit as String] = kSecMatchLimitOne
+            var result: CFTypeRef?
+            let status = SecItemCopyMatching(query as CFDictionary, &result)
+            if status == errSecItemNotFound {
+                continue
+            }
+            if status == errSecMissingEntitlement {
+                missingEntitlement = KeychainError(status: status)
+                continue
+            }
+            guard status == errSecSuccess else {
+                throw KeychainError(status: status)
+            }
+            guard let data = result as? Data else {
+                return nil
+            }
+            return String(data: data, encoding: .utf8)
         }
-        guard status == errSecSuccess else {
-            throw KeychainError(status: status)
+        if let missingEntitlement, accessGroup == nil {
+            throw missingEntitlement
         }
-        guard let data = result as? Data else {
-            return nil
-        }
-        return String(data: data, encoding: .utf8)
+        return nil
     }
 
     public func saveToken(_ token: String?, account: String) throws {
-        let query = baseQuery(account: account)
-        let deleteStatus = SecItemDelete(query as CFDictionary)
-        guard deleteStatus == errSecSuccess || deleteStatus == errSecItemNotFound else {
-            throw KeychainError(status: deleteStatus)
+        let candidates = queryCandidates(account: account)
+        for query in candidates {
+            let deleteStatus = SecItemDelete(query as CFDictionary)
+            guard deleteStatus == errSecSuccess || deleteStatus == errSecItemNotFound || deleteStatus == errSecMissingEntitlement else {
+                throw KeychainError(status: deleteStatus)
+            }
         }
         guard let token, !token.isEmpty else {
             return
         }
-        var item = query
-        item[kSecValueData as String] = Data(token.utf8)
-        let addStatus = SecItemAdd(item as CFDictionary, nil)
-        guard addStatus == errSecSuccess else {
-            throw KeychainError(status: addStatus)
+        var lastMissingEntitlement: KeychainError?
+        for var item in candidates {
+            item[kSecValueData as String] = Data(token.utf8)
+            let addStatus = SecItemAdd(item as CFDictionary, nil)
+            if addStatus == errSecMissingEntitlement {
+                lastMissingEntitlement = KeychainError(status: addStatus)
+                continue
+            }
+            guard addStatus == errSecSuccess else {
+                throw KeychainError(status: addStatus)
+            }
+            return
+        }
+        if let lastMissingEntitlement {
+            throw lastMissingEntitlement
         }
     }
 
-    private func baseQuery(account: String) -> [String: Any] {
-        [
+    private func queryCandidates(account: String) -> [[String: Any]] {
+        let base: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: account,
         ]
+        guard let accessGroup else {
+            return [base]
+        }
+        var shared = base
+        shared[kSecAttrAccessGroup as String] = accessGroup
+        return [shared, base]
     }
 }
 

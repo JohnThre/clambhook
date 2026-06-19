@@ -22,6 +22,7 @@ targets:
     platform: macOS
     sources:
       - path: SharedApp
+      - path: SharedPrivilegedHelper
       - path: ClambhookMac
       - path: ../../bin/clambhook
         buildPhase:
@@ -36,16 +37,38 @@ targets:
       - framework: Frameworks/ClambhookMobile.xcframework
       - sdk: NetworkExtension.framework
       - sdk: SystemExtensions.framework
+      - sdk: ServiceManagement.framework
       - target: ClambhookMacTunnel
         embed: true
       - target: ClambhookMacWidgetExtension
         embed: true
+      - target: ClambhookMacHelper
+        link: false
+        embed: false
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.clambhook.mac
+        PRODUCT_BUNDLE_IDENTIFIER: org.jpfchang.clambhook.mac
         INFOPLIST_FILE: ClambhookMac/Info.plist
         CODE_SIGN_ENTITLEMENTS: ClambhookMac/ClambhookMac.entitlements
         ENABLE_APP_SANDBOX: YES
+    postCompileScripts:
+      - name: Embed Privileged Helper
+        script: |
+          set -euo pipefail
+          helper_source="${BUILT_PRODUCTS_DIR}/ClambhookMacHelper"
+          helper_dest="${TARGET_BUILD_DIR}/${CONTENTS_FOLDER_PATH}/Library/HelperTools/ClambhookMacHelper"
+          plist_source="${SRCROOT}/ClambhookMacHelper/org.jpfchang.clambhook.mac.helper.plist"
+          plist_dest="${TARGET_BUILD_DIR}/${CONTENTS_FOLDER_PATH}/Library/LaunchDaemons/org.jpfchang.clambhook.mac.helper.plist"
+          if [[ ! -x "$helper_source" ]]; then
+              echo "missing helper executable at $helper_source" >&2
+              exit 1
+          fi
+          install -d "$(dirname "$helper_dest")" "$(dirname "$plist_dest")"
+          install -m 0755 "$helper_source" "$helper_dest"
+          install -m 0644 "$plist_source" "$plist_dest"
+        outputFiles:
+          - $(TARGET_BUILD_DIR)/$(CONTENTS_FOLDER_PATH)/Library/HelperTools/ClambhookMacHelper
+          - $(TARGET_BUILD_DIR)/$(CONTENTS_FOLDER_PATH)/Library/LaunchDaemons/org.jpfchang.clambhook.mac.helper.plist
   ClambhookMacTunnel:
     type: system-extension
     platform: macOS
@@ -57,7 +80,7 @@ targets:
       - sdk: NetworkExtension.framework
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.clambhook.mac.tunnel
+        PRODUCT_BUNDLE_IDENTIFIER: org.jpfchang.clambhook.mac.tunnel
         INFOPLIST_FILE: ClambhookMacTunnel/Info.plist
         CODE_SIGN_ENTITLEMENTS: ClambhookMacTunnel/ClambhookMacTunnel.entitlements
         ENABLE_APP_SANDBOX: YES
@@ -77,6 +100,20 @@ targets:
         CODE_SIGN_ENTITLEMENTS: ClambhookVision/ClambhookVision.entitlements
         SUPPORTED_PLATFORMS: xros xrsimulator
         SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD: NO
+  ClambhookMacHelper:
+    type: tool
+    platform: macOS
+    sources:
+      - path: SharedPrivilegedHelper
+      - path: ClambhookMacHelper
+        excludes:
+          - ClambhookMacHelper.entitlements
+          - org.jpfchang.clambhook.mac.helper.plist
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: org.jpfchang.clambhook.mac.helper
+        CODE_SIGN_ENTITLEMENTS: ClambhookMacHelper/ClambhookMacHelper.entitlements
+        ENABLE_APP_SANDBOX: NO
   ClambhookMacWidgetExtension:
     type: app-extension
     platform: macOS
@@ -86,7 +123,7 @@ targets:
       - package: ClambhookShared
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.clambhook.mac.widgets
+        PRODUCT_BUNDLE_IDENTIFIER: org.jpfchang.clambhook.mac.widgets
         INFOPLIST_FILE: ClambhookWidgets/Info.plist
         CODE_SIGN_ENTITLEMENTS: ClambhookWidgets/ClambhookMacWidgetExtension.entitlements
         ENABLE_APP_SANDBOX: YES
