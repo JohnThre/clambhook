@@ -34,11 +34,11 @@ final class MacCertificateManager: ObservableObject {
                 let url = try writeTemporaryPEM(pem)
                 defer { try? FileManager.default.removeItem(at: url) }
                 if remove {
-                    try runner.run("/usr/bin/security", arguments: ["remove-trusted-cert", "-d", url.path])
-                    statusMessage = "CA trust removed"
+                    try runner.run("/usr/bin/security", arguments: ["remove-trusted-cert", url.path])
+                    statusMessage = "CA trust removed from user settings"
                 } else {
-                    try runner.run("/usr/bin/security", arguments: ["add-trusted-cert", "-d", "-r", "trustRoot", "-k", loginKeychainPath(), url.path])
-                    statusMessage = "CA trusted in login keychain"
+                    try runner.run("/usr/bin/security", arguments: ["add-trusted-cert", "-r", "trustRoot", "-p", "ssl", "-k", loginKeychainPath(), url.path])
+                    statusMessage = "CA trusted for SSL in login keychain"
                 }
             } catch {
                 statusMessage = error.localizedDescription

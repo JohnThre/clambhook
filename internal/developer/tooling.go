@@ -310,7 +310,7 @@ func (m *Manager) Repeat(ctx context.Context, repeat RepeatRequest) (RepeatRespo
 		ChainName: "repeat",
 		StartedAt: started,
 		Method:    req.Method,
-		URL:       req.URL.String(),
+		URL:       redactCapturedURL(req.URL.String(), cfg),
 		Scheme:    req.URL.Scheme,
 		Host:      req.URL.Host,
 		Request: Message{

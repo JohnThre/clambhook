@@ -42,6 +42,132 @@ public struct DeveloperStatusPayload: Codable, Equatable, Sendable {
     }
 }
 
+public let developerDefaultRedactHeaders = [
+    "authorization",
+    "proxy-authorization",
+    "cookie",
+    "set-cookie",
+    "x-api-key",
+    "api-key",
+    "x-auth-token",
+    "x-csrf-token",
+    "x-xsrf-token",
+    "csrf-token",
+    "xsrf-token"
+]
+
+public let developerDefaultRedactQueryParams = [
+    "token",
+    "access_token",
+    "refresh_token",
+    "id_token",
+    "api_key",
+    "apikey",
+    "key",
+    "secret",
+    "password",
+    "passwd",
+    "code",
+    "session",
+    "auth"
+]
+
+public struct DeveloperSettingsPayload: Codable, Equatable, Sendable {
+    public var enabled: Bool
+    public var mitmEnabled: Bool
+    public var captureLimit: Int
+    public var bodyLimitBytes: UInt64
+    public var headerValueLimitBytes: Int
+    public var redactHeaders: [String]
+    public var redactQueryParams: [String]
+    public var backupPath: String
+
+    enum CodingKeys: String, CodingKey {
+        case enabled
+        case mitmEnabled = "mitm_enabled"
+        case captureLimit = "capture_limit"
+        case bodyLimitBytes = "body_limit_bytes"
+        case headerValueLimitBytes = "header_value_limit_bytes"
+        case redactHeaders = "redact_headers"
+        case redactQueryParams = "redact_query_params"
+        case backupPath = "backup_path"
+    }
+
+    public init(
+        enabled: Bool = false,
+        mitmEnabled: Bool = false,
+        captureLimit: Int = 200,
+        bodyLimitBytes: UInt64 = 65_536,
+        headerValueLimitBytes: Int = 8_192,
+        redactHeaders: [String] = developerDefaultRedactHeaders,
+        redactQueryParams: [String] = developerDefaultRedactQueryParams,
+        backupPath: String = ""
+    ) {
+        self.enabled = enabled
+        self.mitmEnabled = mitmEnabled
+        self.captureLimit = captureLimit
+        self.bodyLimitBytes = bodyLimitBytes
+        self.headerValueLimitBytes = headerValueLimitBytes
+        self.redactHeaders = redactHeaders
+        self.redactQueryParams = redactQueryParams
+        self.backupPath = backupPath
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? false
+        self.mitmEnabled = try container.decodeIfPresent(Bool.self, forKey: .mitmEnabled) ?? false
+        self.captureLimit = try container.decodeIfPresent(Int.self, forKey: .captureLimit) ?? 200
+        self.bodyLimitBytes = try container.decodeIfPresent(UInt64.self, forKey: .bodyLimitBytes) ?? 65_536
+        self.headerValueLimitBytes = try container.decodeIfPresent(Int.self, forKey: .headerValueLimitBytes) ?? 8_192
+        self.redactHeaders = try container.decodeIfPresent([String].self, forKey: .redactHeaders) ?? developerDefaultRedactHeaders
+        self.redactQueryParams = try container.decodeIfPresent([String].self, forKey: .redactQueryParams) ?? developerDefaultRedactQueryParams
+        self.backupPath = try container.decodeIfPresent(String.self, forKey: .backupPath) ?? ""
+    }
+}
+
+public struct DeveloperSettingsUpdateRequest: Codable, Equatable, Sendable {
+    public var enabled: Bool?
+    public var mitmEnabled: Bool?
+    public var captureLimit: Int?
+    public var bodyLimitBytes: UInt64?
+    public var headerValueLimitBytes: Int?
+    public var redactHeaders: [String]?
+    public var redactQueryParams: [String]?
+    public var httpsCaptureAck: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case enabled
+        case mitmEnabled = "mitm_enabled"
+        case captureLimit = "capture_limit"
+        case bodyLimitBytes = "body_limit_bytes"
+        case headerValueLimitBytes = "header_value_limit_bytes"
+        case redactHeaders = "redact_headers"
+        case redactQueryParams = "redact_query_params"
+        case httpsCaptureAck = "https_capture_ack"
+    }
+
+    public init(
+        enabled: Bool? = nil,
+        mitmEnabled: Bool? = nil,
+        captureLimit: Int? = nil,
+        bodyLimitBytes: UInt64? = nil,
+        headerValueLimitBytes: Int? = nil,
+        redactHeaders: [String]? = nil,
+        redactQueryParams: [String]? = nil,
+        httpsCaptureAck: Bool = false
+    ) {
+        self.enabled = enabled
+        self.mitmEnabled = mitmEnabled
+        self.captureLimit = captureLimit
+        self.bodyLimitBytes = bodyLimitBytes
+        self.headerValueLimitBytes = headerValueLimitBytes
+        self.redactHeaders = redactHeaders
+        self.redactQueryParams = redactQueryParams
+        self.httpsCaptureAck = httpsCaptureAck
+    }
+}
+
 public struct DeveloperEntriesPayload: Codable, Equatable, Sendable {
     public var entries: [DeveloperEntryPayload]
 
@@ -343,5 +469,13 @@ public struct DeveloperBreakpointResolutionPayload: Codable, Equatable, Sendable
 }
 
 public let developerCaptureDisclosure = """
-HTTPS body capture is opt-in and local. When enabled, ClambHook creates a local certificate authority for devices you explicitly trust, decrypts traffic routed through the configured HTTP proxy, stores bounded request and response body previews on this device, redacts configured sensitive headers, and exports captures only when you share them.
+Developer capture is opt-in and local. When enabled, ClambHook stores bounded HTTP request and response previews on this Mac for traffic routed through the daemon HTTP proxy. Sensitive headers and configured query parameters are redacted before captures are stored.
+"""
+
+public let developerHTTPSCaptureDisclosure = """
+HTTPS capture is a separate opt-in. It creates a local certificate authority, requires you to trust that CA in your user keychain, and decrypts HTTPS traffic routed through the daemon HTTP proxy. Only enable it for devices and test traffic you control.
+"""
+
+public let developerHARExportDisclosure = """
+HAR exports can include URLs, headers, cookies, and request or response body previews. Review the file before sharing it outside this Mac.
 """

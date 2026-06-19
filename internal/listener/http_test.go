@@ -3,6 +3,7 @@ package listener
 import (
 	"bufio"
 	"context"
+	"crypto/tls"
 	"encoding/base64"
 	"fmt"
 	"io"
@@ -47,6 +48,39 @@ func newTestHTTPListenerWithOpts(t *testing.T, dial dialFunc, opts Options) (*HT
 	}
 	t.Cleanup(func() { _ = s.Stop() })
 	return s, s.Addr()
+}
+
+type disabledMITMInspector struct {
+	tlsConfigCalls atomic.Int32
+}
+
+func (i *disabledMITMInspector) Enabled() bool { return true }
+
+func (i *disabledMITMInspector) MITMEnabled() bool { return false }
+
+func (i *disabledMITMInspector) TLSConfig(string) (*tls.Config, error) {
+	i.tlsConfigCalls.Add(1)
+	return nil, fmt.Errorf("unexpected TLSConfig call")
+}
+
+func (i *disabledMITMInspector) Begin(context.Context, HTTPCaptureMeta, *http.Request) HTTPInspection {
+	return nil
+}
+
+func (i *disabledMITMInspector) MapRequest(req *http.Request) (*http.Request, *HTTPMapResult, error) {
+	return req, nil, nil
+}
+
+func (i *disabledMITMInspector) HasRequestBreakpoint(*http.Request) bool { return false }
+
+func (i *disabledMITMInspector) HasResponseBreakpoint(*http.Request) bool { return false }
+
+func (i *disabledMITMInspector) BreakpointRequest(context.Context, *http.Request, []byte) (HTTPBreakpointResolution, bool, error) {
+	return HTTPBreakpointResolution{}, false, nil
+}
+
+func (i *disabledMITMInspector) BreakpointResponse(context.Context, *http.Request, *http.Response, []byte) (HTTPBreakpointResolution, bool, error) {
+	return HTTPBreakpointResolution{}, false, nil
 }
 
 // --- CONNECT tests -------------------------------------------------------
@@ -103,6 +137,49 @@ func TestHTTPConnectRoundTrip(t *testing.T) {
 	}
 	if string(buf) != "world" {
 		t.Errorf("client got %q, want world", buf)
+	}
+}
+
+func TestHTTPConnectPassesThroughWhenInspectorMITMDisabled(t *testing.T) {
+	remoteCh := make(chan net.Conn, 1)
+	inspector := &disabledMITMInspector{}
+	_, addr := newTestHTTPListenerWithOpts(t, stubDial(remoteCh), Options{HTTPInspector: inspector})
+
+	client, err := net.Dial("tcp", addr)
+	if err != nil {
+		t.Fatalf("dial listener: %v", err)
+	}
+	defer client.Close()
+
+	if _, err := io.WriteString(client,
+		"CONNECT example.com:443 HTTP/1.1\r\nHost: example.com:443\r\n\r\n"); err != nil {
+		t.Fatal(err)
+	}
+
+	br := bufio.NewReader(client)
+	resp, err := http.ReadResponse(br, nil)
+	if err != nil {
+		t.Fatalf("read response: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Fatalf("status got %d, want 200", resp.StatusCode)
+	}
+	if got := inspector.tlsConfigCalls.Load(); got != 0 {
+		t.Fatalf("TLSConfig calls = %d, want 0", got)
+	}
+
+	remote := <-remoteCh
+	defer remote.Close()
+	if _, err := client.Write([]byte("hello")); err != nil {
+		t.Fatal(err)
+	}
+	buf := make([]byte, 5)
+	if _, err := io.ReadFull(remote, buf); err != nil {
+		t.Fatal(err)
+	}
+	if string(buf) != "hello" {
+		t.Errorf("remote got %q, want hello", buf)
 	}
 }
 

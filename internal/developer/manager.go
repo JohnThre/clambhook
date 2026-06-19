@@ -18,6 +18,7 @@ import (
 	"math/big"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -164,7 +165,7 @@ func (m *Manager) Begin(_ context.Context, meta listener.HTTPCaptureMeta, req *h
 		ChainName:  meta.ChainName,
 		StartedAt:  started,
 		Method:     req.Method,
-		URL:        requestURL(meta, req),
+		URL:        redactCapturedURL(requestURL(meta, req), cfg),
 		Scheme:     requestScheme(meta, req),
 		Host:       requestHost(meta, req),
 		Request: Message{
@@ -389,6 +390,9 @@ func fillConfig(cfg config.DeveloperConfig) config.DeveloperConfig {
 	if len(cfg.RedactHeaders) == 0 {
 		cfg.RedactHeaders = append([]string(nil), def.RedactHeaders...)
 	}
+	if len(cfg.RedactQueryParams) == 0 {
+		cfg.RedactQueryParams = append([]string(nil), def.RedactQueryParams...)
+	}
 	return cfg
 }
 
@@ -419,6 +423,43 @@ func cloneHeaders(src http.Header, cfg config.DeveloperConfig) []Header {
 		}
 	}
 	return out
+}
+
+func redactCapturedURL(raw string, cfg config.DeveloperConfig) string {
+	if raw == "" || len(cfg.RedactQueryParams) == 0 {
+		return raw
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return raw
+	}
+	values := parsed.Query()
+	if len(values) == 0 {
+		return raw
+	}
+	redact := make(map[string]struct{}, len(cfg.RedactQueryParams))
+	for _, name := range cfg.RedactQueryParams {
+		name = strings.ToLower(strings.TrimSpace(name))
+		if name != "" {
+			redact[name] = struct{}{}
+		}
+	}
+	changed := false
+	for key, vals := range values {
+		if _, ok := redact[strings.ToLower(key)]; !ok {
+			continue
+		}
+		for i := range vals {
+			vals[i] = redactedValue
+		}
+		values[key] = vals
+		changed = true
+	}
+	if !changed {
+		return raw
+	}
+	parsed.RawQuery = values.Encode()
+	return parsed.String()
 }
 
 func requestURL(meta listener.HTTPCaptureMeta, req *http.Request) string {

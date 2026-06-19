@@ -56,6 +56,8 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/events", s.handleEvents)
 	mux.HandleFunc("GET /api/v1/traffic", s.handleTraffic)
 	mux.HandleFunc("GET /api/v1/developer/status", s.handleDeveloperStatus)
+	mux.HandleFunc("GET /api/v1/developer/settings", s.handleDeveloperSettings)
+	mux.HandleFunc("PUT /api/v1/developer/settings", s.handleUpdateDeveloperSettings)
 	mux.HandleFunc("GET /api/v1/developer/ca.pem", s.handleDeveloperCA)
 	mux.HandleFunc("GET /api/v1/developer/entries", s.handleDeveloperEntries)
 	mux.HandleFunc("GET /api/v1/developer/entries/{id}", s.handleDeveloperEntry)
@@ -834,11 +836,21 @@ func (s *Server) persistRuleSubscriptions(profileName string, nextSubscriptions 
 }
 
 func (s *Server) persistDeveloperConfig(update func(config.DeveloperConfig) config.DeveloperConfig) (developerRulesPersistenceResponse, error) {
+	return s.persistDeveloperConfigWithError(func(dev config.DeveloperConfig) (config.DeveloperConfig, error) {
+		return update(dev), nil
+	})
+}
+
+func (s *Server) persistDeveloperConfigWithError(update func(config.DeveloperConfig) (config.DeveloperConfig, error)) (developerRulesPersistenceResponse, error) {
 	cfg, err := config.Load(s.configPath)
 	if err != nil {
 		return developerRulesPersistenceResponse{}, rulePersistenceError{status: http.StatusInternalServerError, err: err}
 	}
-	cfg.Developer = update(cfg.Developer)
+	next, err := update(cfg.Developer)
+	if err != nil {
+		return developerRulesPersistenceResponse{}, err
+	}
+	cfg.Developer = next
 	if err := engine.ValidateConfig(cfg); err != nil {
 		return developerRulesPersistenceResponse{}, rulePersistenceError{status: http.StatusBadRequest, err: err}
 	}

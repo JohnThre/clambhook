@@ -149,6 +149,58 @@ name = "default"
 	}
 }
 
+func TestDefaultDeveloperConfigKeepsHTTPSCaptureOff(t *testing.T) {
+	dev := DefaultDeveloperConfig()
+	if dev.Enabled {
+		t.Fatal("Enabled = true, want false")
+	}
+	if dev.MITMEnabled {
+		t.Fatal("MITMEnabled = true, want false")
+	}
+	if len(dev.RedactQueryParams) == 0 {
+		t.Fatal("RedactQueryParams empty")
+	}
+}
+
+func TestLoadDeveloperConfigDefaultsHTTPSCaptureOff(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+	data := []byte(`
+active = "default"
+
+[developer]
+enabled = true
+
+[[profile]]
+name = "default"
+
+  [[profile.chain]]
+  name = "default"
+
+    [[profile.chain.server]]
+    name = "exit"
+    address = "203.0.113.10:443"
+    protocol = "trojan"
+
+      [profile.chain.server.settings]
+      password = "secret"
+`)
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if !cfg.Developer.Enabled {
+		t.Fatal("Developer.Enabled = false, want true")
+	}
+	if cfg.Developer.MITMEnabled {
+		t.Fatal("Developer.MITMEnabled = true, want false")
+	}
+}
+
 func TestValidateRejectsBadDeveloperConfig(t *testing.T) {
 	cfg := validConfig()
 	cfg.Developer.CaptureLimit = -1
@@ -156,6 +208,13 @@ func TestValidateRejectsBadDeveloperConfig(t *testing.T) {
 	err := cfg.Validate()
 	if err == nil || !strings.Contains(err.Error(), "developer.capture_limit must be >= 0") {
 		t.Fatalf("Validate error = %v, want developer capture limit error", err)
+	}
+
+	cfg = validConfig()
+	cfg.Developer.RedactQueryParams = []string{" Token "}
+	err = cfg.Validate()
+	if err == nil || !strings.Contains(err.Error(), "developer.redact_query_params[0]") {
+		t.Fatalf("Validate error = %v, want developer redact query param error", err)
 	}
 }
 
