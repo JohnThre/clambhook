@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/netip"
 	"net/url"
+	"path/filepath"
 	"strconv"
 	"strings"
 )
@@ -351,6 +352,113 @@ func validateDeveloperConfig(dev *DeveloperConfig) []error {
 			errs = append(errs, fmt.Errorf("developer.redact_headers[%d] must not be empty", i))
 		} else if name != header {
 			errs = append(errs, fmt.Errorf("developer.redact_headers[%d] %q must be lowercase without surrounding whitespace", i, header))
+		}
+	}
+	for i := range dev.MapRules {
+		errs = append(errs, validateDeveloperMapRule(i, &dev.MapRules[i])...)
+	}
+	for i := range dev.BreakpointRules {
+		errs = append(errs, validateDeveloperBreakpointRule(i, &dev.BreakpointRules[i])...)
+	}
+	return errs
+}
+
+func validateDeveloperMapRule(idx int, rule *DeveloperMapRuleConfig) []error {
+	var errs []error
+	label := fmt.Sprintf("developer.map_rule %d", idx)
+	errs = append(errs, validateDeveloperRuleCommon(label, rule.ID, rule.Name, &rule.Match)...)
+	kind := strings.ToLower(strings.TrimSpace(rule.Kind))
+	if kind == "" {
+		errs = append(errs, fmt.Errorf("%s kind is required", label))
+	} else if kind != rule.Kind {
+		errs = append(errs, fmt.Errorf("%s kind %q must be lowercase without surrounding whitespace", label, rule.Kind))
+	} else if kind != "local" && kind != "remote" {
+		errs = append(errs, fmt.Errorf("%s kind %q must be local or remote", label, rule.Kind))
+	}
+	switch kind {
+	case "local":
+		if strings.TrimSpace(rule.LocalPath) == "" {
+			errs = append(errs, fmt.Errorf("%s local_path is required for local maps", label))
+		} else if strings.TrimSpace(rule.LocalPath) != rule.LocalPath {
+			errs = append(errs, fmt.Errorf("%s local_path %q must not have surrounding whitespace", label, rule.LocalPath))
+		} else if !filepath.IsAbs(rule.LocalPath) {
+			errs = append(errs, fmt.Errorf("%s local_path %q must be absolute", label, rule.LocalPath))
+		}
+		if strings.TrimSpace(rule.RemoteURL) != "" {
+			errs = append(errs, fmt.Errorf("%s remote_url is only valid for remote maps", label))
+		}
+	case "remote":
+		rawURL := strings.TrimSpace(rule.RemoteURL)
+		if rawURL == "" {
+			errs = append(errs, fmt.Errorf("%s remote_url is required for remote maps", label))
+		} else if rawURL != rule.RemoteURL {
+			errs = append(errs, fmt.Errorf("%s remote_url %q must not have surrounding whitespace", label, rule.RemoteURL))
+		} else {
+			parsed, err := url.Parse(rawURL)
+			if err != nil || parsed.Host == "" || parsed.Scheme == "" {
+				errs = append(errs, fmt.Errorf("%s remote_url %q must be a valid URL", label, rawURL))
+			} else if parsed.Scheme != "http" && parsed.Scheme != "https" {
+				errs = append(errs, fmt.Errorf("%s remote_url %q must use http or https", label, rawURL))
+			}
+		}
+		if strings.TrimSpace(rule.LocalPath) != "" {
+			errs = append(errs, fmt.Errorf("%s local_path is only valid for local maps", label))
+		}
+	}
+	if rule.Status < 0 || rule.Status > 999 {
+		errs = append(errs, fmt.Errorf("%s status must be between 0 and 999", label))
+	}
+	for name := range rule.Headers {
+		if strings.TrimSpace(name) == "" || strings.TrimSpace(name) != name {
+			errs = append(errs, fmt.Errorf("%s headers contains invalid name %q", label, name))
+		}
+	}
+	return errs
+}
+
+func validateDeveloperBreakpointRule(idx int, rule *DeveloperBreakpointRuleConfig) []error {
+	var errs []error
+	label := fmt.Sprintf("developer.breakpoint_rule %d", idx)
+	errs = append(errs, validateDeveloperRuleCommon(label, rule.ID, rule.Name, &rule.Match)...)
+	stage := strings.ToLower(strings.TrimSpace(rule.Stage))
+	if stage == "" {
+		errs = append(errs, fmt.Errorf("%s stage is required", label))
+	} else if stage != rule.Stage {
+		errs = append(errs, fmt.Errorf("%s stage %q must be lowercase without surrounding whitespace", label, rule.Stage))
+	} else if stage != "request" && stage != "response" && stage != "both" {
+		errs = append(errs, fmt.Errorf("%s stage %q must be request, response, or both", label, rule.Stage))
+	}
+	return errs
+}
+
+func validateDeveloperRuleCommon(label, id, name string, match *DeveloperMatchConfig) []error {
+	var errs []error
+	if strings.TrimSpace(id) == "" {
+		errs = append(errs, fmt.Errorf("%s id is required", label))
+	} else if strings.TrimSpace(id) != id {
+		errs = append(errs, fmt.Errorf("%s id %q must not have surrounding whitespace", label, id))
+	}
+	if strings.TrimSpace(name) != name {
+		errs = append(errs, fmt.Errorf("%s name %q must not have surrounding whitespace", label, name))
+	}
+	if match == nil {
+		return errs
+	}
+	if strings.TrimSpace(match.Host) != match.Host {
+		errs = append(errs, fmt.Errorf("%s match.host %q must not have surrounding whitespace", label, match.Host))
+	}
+	if strings.TrimSpace(match.PathPrefix) != match.PathPrefix {
+		errs = append(errs, fmt.Errorf("%s match.path_prefix %q must not have surrounding whitespace", label, match.PathPrefix))
+	}
+	if strings.TrimSpace(match.URLContains) != match.URLContains {
+		errs = append(errs, fmt.Errorf("%s match.url_contains %q must not have surrounding whitespace", label, match.URLContains))
+	}
+	for i, method := range match.Methods {
+		normalized := strings.ToUpper(strings.TrimSpace(method))
+		if normalized == "" {
+			errs = append(errs, fmt.Errorf("%s match.methods[%d] must not be empty", label, i))
+		} else if normalized != method {
+			errs = append(errs, fmt.Errorf("%s match.methods[%d] %q must be uppercase without surrounding whitespace", label, i, method))
 		}
 	}
 	return errs

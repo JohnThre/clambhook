@@ -1540,86 +1540,309 @@ struct MacDNSSection: View {
 
 struct MacActivitySection: View {
     @ObservedObject var model: AppleAppModel
-    @State private var trafficFilter = "all"
-    @State private var trafficSearch = ""
+    @State private var filterKind: InspectionFilterKind = .all
+    @State private var searchQuery = ""
+    @State private var selectedID: String?
     @State private var draftRule: RulePayload?
     @State private var sourceConnection: TrafficConnectionPayload?
 
+    private var filteredConnections: [TrafficConnectionPayload] {
+        model.dashboard.traffic.inspectionConnections(
+            filter: filterKind,
+            query: searchQuery,
+            pinnedIDs: model.pinnedConnectionIDs
+        )
+    }
+
+    private var selectedConnection: TrafficConnectionPayload? {
+        guard let id = selectedID else { return nil }
+        return filteredConnections.first { $0.connID == id }
+            ?? model.dashboard.traffic.connections.first { $0.connID == id }
+    }
+
+    private var activeCount: Int {
+        model.dashboard.traffic.connections.filter { $0.state.lowercased() == "active" }.count
+    }
+
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                TrafficSummaryView(traffic: model.dashboard.traffic)
-                Divider()
-                filterBar
-                trafficList
-                if !model.dashboard.traffic.blockDecisions.isEmpty {
-                    Divider()
-                    blockDecisionsList
-                }
-                if !model.dashboard.traffic.cleanupSuggestions.isEmpty {
-                    Divider()
-                    cleanupList
-                }
+        HSplitView {
+            connectionListPanel
+                .frame(minWidth: 360)
+            if let conn = selectedConnection {
+                ActivityDetailPanel(
+                    connection: conn,
+                    fallbackChain: dashboardFallbackProxyChain(model.dashboard),
+                    onTemporaryAction: { connection, action in
+                        model.createTemporaryRuleFromConnection(connection, action: action)
+                    },
+                    onPermanentRule: { connection, rule in
+                        sourceConnection = connection
+                        draftRule = rule
+                    }
+                )
+                .frame(minWidth: 280)
             }
-            .padding(20)
         }
         .sheet(item: $draftRule) { rule in
             MacRuleCreateSheet(model: model, initialRule: rule, sourceConnection: sourceConnection)
         }
     }
 
-    private var filterBar: some View {
-        HStack(spacing: 10) {
-            Picker("Filter", selection: $trafficFilter) {
-                Text("All").tag("all")
-                Text("Proxy").tag("proxy")
-                Text("Direct").tag("direct")
-                Text("Block").tag("block")
+    // MARK: - Connection list panel
+
+    private var connectionListPanel: some View {
+        VStack(spacing: 0) {
+            headerBar
+            Divider()
+            connectionList
+        }
+    }
+
+    private var headerBar: some View {
+        VStack(spacing: 8) {
+            HStack(spacing: 10) {
+                Picker("Filter", selection: $filterKind) {
+                    Text("All").tag(InspectionFilterKind.all)
+                    Text("Active").tag(InspectionFilterKind.active)
+                    Text("Proxy").tag(InspectionFilterKind.proxy)
+                    Text("Direct").tag(InspectionFilterKind.direct)
+                    Text("Block").tag(InspectionFilterKind.block)
+                }
+                .labelsHidden()
+                .pickerStyle(.segmented)
+                .frame(maxWidth: 360)
+                Spacer()
+                statsLabel
             }
-            .labelsHidden()
-            .pickerStyle(.segmented)
-            TextField("Search hosts, rules, chains", text: $trafficSearch)
+            TextField("Search app, host, rule, chain…", text: $searchQuery)
                 .textFieldStyle(.roundedBorder)
         }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
     }
 
-    private var filteredTraffic: [TrafficConnectionPayload] {
-        let query = trafficSearch.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        return model.dashboard.traffic.connections.filter { connection in
-            (trafficFilter == "all" || connection.actionFamily == trafficFilter)
-            && (query.isEmpty || [
-                connection.target, connection.monitorHost, connection.ruleName,
-                connection.ruleAction, connection.chainName, connection.application, connection.network,
-            ].contains { $0.lowercased().contains(query) })
+    private var statsLabel: some View {
+        HStack(spacing: 8) {
+            if activeCount > 0 {
+                Label("\(activeCount) active", systemImage: "circle.fill")
+                    .foregroundStyle(.green)
+                    .font(.caption.weight(.medium))
+            }
+            let summary = model.dashboard.traffic.summary
+            if summary.rxBps > 0 || summary.txBps > 0 {
+                Text("↓ \(formatRate(summary.rxBps))  ↑ \(formatRate(summary.txBps))")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
         }
     }
 
-    private var trafficList: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Connections")
-                .font(.headline)
-            TrafficListView(
-                connections: filteredTraffic,
-                fallbackChain: dashboardFallbackProxyChain(model.dashboard),
-                onTemporaryAction: { connection, action in
-                    model.createTemporaryRuleFromConnection(connection, action: action)
-                },
-                onPermanentRule: { connection, rule in
-                    model.createRuleFromConnection(connection, rule: rule)
+    private var connectionList: some View {
+        let connections = filteredConnections
+        return Group {
+            if connections.isEmpty {
+                emptyState
+            } else {
+                List(connections, selection: $selectedID) { connection in
+                    ActivityConnectionRow(connection: connection)
+                        .tag(connection.connID)
                 }
-            )
+                .listStyle(.plain)
+            }
         }
     }
 
-    private var blockDecisionsList: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Blocked")
-                .font(.headline)
-            ForEach(model.dashboard.traffic.blockDecisions) { decision in
+    private var emptyState: some View {
+        VStack(spacing: 8) {
+            Spacer()
+            Image(systemName: "antenna.radiowaves.left.and.right.slash")
+                .font(.system(size: 36))
+                .foregroundStyle(.quaternary)
+            Text(searchQuery.isEmpty ? "No connections" : "No matches")
+                .foregroundStyle(.secondary)
+            Spacer()
+        }
+        .frame(maxWidth: .infinity)
+    }
+}
+
+// MARK: - Activity connection row
+
+private struct ActivityConnectionRow: View {
+    var connection: TrafficConnectionPayload
+
+    private var appLabel: String {
+        if !connection.application.isEmpty { return connection.application }
+        return connection.listener.protocol.uppercased()
+    }
+
+    private var destinationLabel: String {
+        let host = connection.targetHost.isEmpty ? connection.target : connection.targetHost
+        if !connection.targetPort.isEmpty && connection.targetPort != "0" {
+            return "\(host):\(connection.targetPort)"
+        }
+        return host
+    }
+
+    private var isActive: Bool { connection.state.lowercased() == "active" }
+
+    var body: some View {
+        HStack(spacing: 8) {
+            ActivityDecisionBadge(actionFamily: connection.actionFamily, compact: true)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(appLabel)
+                    .font(.subheadline.weight(.medium))
+                    .lineLimit(1)
+                Text(emptyDash(destinationLabel))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            VStack(alignment: .trailing, spacing: 2) {
+                if isActive {
+                    HStack(spacing: 3) {
+                        Circle()
+                            .fill(Color.green)
+                            .frame(width: 6, height: 6)
+                        Text("active")
+                            .font(.caption2)
+                            .foregroundStyle(.green)
+                    }
+                    if connection.rxBps > 0 || connection.txBps > 0 {
+                        Text("↓ \(formatRate(connection.rxBps))")
+                            .font(.caption2.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                    }
+                } else {
+                    Text(formatDurationNs(connection.durationNs))
+                        .font(.caption2.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .padding(.vertical, 2)
+    }
+}
+
+// MARK: - Activity decision badge
+
+private struct ActivityDecisionBadge: View {
+    var actionFamily: String
+    var compact: Bool = false
+
+    private var label: String {
+        switch actionFamily {
+        case "block": return "Block"
+        case "direct": return "Direct"
+        default: return "Proxy"
+        }
+    }
+
+    private var icon: String {
+        switch actionFamily {
+        case "block": return "hand.raised.fill"
+        case "direct": return "arrow.up.right"
+        default: return "shield.lefthalf.filled"
+        }
+    }
+
+    private var tint: Color {
+        switch actionFamily {
+        case "block": return .red
+        case "direct": return .blue
+        default: return .green
+        }
+    }
+
+    var body: some View {
+        if compact {
+            Circle()
+                .fill(tint)
+                .frame(width: 8, height: 8)
+        } else {
+            Label(label, systemImage: icon)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(tint)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(tint.opacity(0.12), in: Capsule())
+        }
+    }
+}
+
+// MARK: - Activity detail panel
+
+private struct ActivityDetailPanel: View {
+    var connection: TrafficConnectionPayload
+    var fallbackChain: String
+    var onTemporaryAction: ((TrafficConnectionPayload, String) -> Void)?
+    var onPermanentRule: ((TrafficConnectionPayload, RulePayload) -> Void)?
+
+    private var isActive: Bool { connection.state.lowercased() == "active" }
+
+    private var canCreateRule: Bool {
+        !connection.connID.isEmpty && !connection.monitorHost.isEmpty
+    }
+
+    private var proxyAction: String {
+        connection.temporaryProxyAction(fallbackChain: fallbackChain)
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                detailHeader
+                Divider()
+                attributionGroup
+                decisionGroup
+                if !connection.geo.country.isEmpty || !connection.geo.city.isEmpty {
+                    geoGroup
+                }
+                bandwidthGroup
+                if !connection.hops.isEmpty {
+                    hopsGroup
+                }
+                if !connection.timeline.isEmpty {
+                    timelineGroup
+                }
+                Divider()
+                actionsGroup
+            }
+            .padding(16)
+        }
+        .background(Color(NSColor.controlBackgroundColor))
+    }
+
+    private var detailHeader: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .top, spacing: 8) {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(emptyDash(decision.targetHost.isEmpty ? decision.target : decision.targetHost))
-                        .fontWeight(.medium)
-                    Text([decision.profile, decision.ruleName, decision.action].filter { !$0.isEmpty }.joined(separator: " · "))
+                    Text(emptyDash(connection.targetHost.isEmpty ? connection.target : connection.targetHost))
+                        .font(.title3.weight(.semibold))
+                        .lineLimit(2)
+                    if !connection.targetPort.isEmpty && connection.targetPort != "0" {
+                        Text("Port \(connection.targetPort)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                Spacer()
+                ActivityDecisionBadge(actionFamily: connection.actionFamily, compact: false)
+            }
+            HStack(spacing: 8) {
+                Label(
+                    connection.network.uppercased().isEmpty ? "TCP" : connection.network.uppercased(),
+                    systemImage: "network"
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                if isActive {
+                    Label("Active", systemImage: "circle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.green)
+                } else {
+                    Label("Closed", systemImage: "circle")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -1627,26 +1850,174 @@ struct MacActivitySection: View {
         }
     }
 
-    private var cleanupList: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Rule Cleanup")
-                .font(.headline)
-            ForEach(model.dashboard.traffic.cleanupSuggestions) { suggestion in
-                HStack(alignment: .top, spacing: 12) {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(suggestion.targetRuleName.isEmpty ? suggestion.ruleName : suggestion.targetRuleName)
-                            .fontWeight(.medium)
-                        Text(suggestion.message)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    Spacer(minLength: 8)
-                    Button(suggestion.operation == "move_rule_to_end" ? "Move to End" : "Delete") {
-                        model.applyCleanupSuggestion(suggestion)
-                    }
-                    .disabled(suggestion.operation.isEmpty)
+    private var attributionGroup: some View {
+        GroupBox("Attribution") {
+            VStack(alignment: .leading, spacing: 5) {
+                if !connection.application.isEmpty {
+                    LabeledContent("App", value: connection.application)
+                }
+                if !connection.source.isEmpty {
+                    LabeledContent("Source", value: connection.source)
+                }
+                if !connection.clientAddr.isEmpty {
+                    LabeledContent("Client", value: connection.clientAddr)
+                }
+                LabeledContent(
+                    "Listener",
+                    value: "\(connection.listener.protocol.uppercased()) \(connection.listener.addr)"
+                )
+                if !connection.profile.isEmpty {
+                    LabeledContent("Profile", value: connection.profile)
                 }
             }
+            .font(.caption)
+        }
+    }
+
+    private var decisionGroup: some View {
+        GroupBox("Decision") {
+            VStack(alignment: .leading, spacing: 5) {
+                LabeledContent("Action") {
+                    ActivityDecisionBadge(actionFamily: connection.actionFamily, compact: false)
+                }
+                if !connection.ruleName.isEmpty {
+                    LabeledContent("Rule", value: connection.ruleName)
+                }
+                if !connection.ruleAction.isEmpty {
+                    LabeledContent("Rule action", value: connection.ruleAction)
+                }
+                if !connection.chainName.isEmpty {
+                    LabeledContent("Chain", value: connection.chainName)
+                }
+                if !connection.groupName.isEmpty {
+                    LabeledContent("Group", value: connection.groupName)
+                }
+            }
+            .font(.caption)
+        }
+    }
+
+    private var geoGroup: some View {
+        GroupBox("Geography") {
+            VStack(alignment: .leading, spacing: 5) {
+                if !connection.geo.country.isEmpty {
+                    LabeledContent("Country") {
+                        HStack(spacing: 4) {
+                            Text(countryFlag(connection.geo.countryCode))
+                            Text(connection.geo.country)
+                        }
+                    }
+                }
+                if !connection.geo.city.isEmpty {
+                    LabeledContent("City", value: connection.geo.city)
+                }
+            }
+            .font(.caption)
+        }
+    }
+
+    private var bandwidthGroup: some View {
+        GroupBox("Bandwidth") {
+            VStack(alignment: .leading, spacing: 5) {
+                LabeledContent("Downloaded", value: formatBytes(connection.rxTotal))
+                LabeledContent("Uploaded", value: formatBytes(connection.txTotal))
+                if isActive && (connection.rxBps > 0 || connection.txBps > 0) {
+                    LabeledContent("Rate ↓ / ↑") {
+                        Text("\(formatRate(connection.rxBps)) / \(formatRate(connection.txBps))")
+                            .monospacedDigit()
+                    }
+                }
+                LabeledContent("Duration", value: formatDurationNs(connection.durationNs))
+            }
+            .font(.caption)
+        }
+    }
+
+    private var hopsGroup: some View {
+        GroupBox("Proxy Hops") {
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(Array(connection.hops.enumerated()), id: \.offset) { idx, hop in
+                    HStack(spacing: 8) {
+                        Text("\(idx + 1)")
+                            .font(.caption2.weight(.bold))
+                            .foregroundStyle(.secondary)
+                            .frame(width: 16, alignment: .center)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(hop.name.isEmpty ? hop.address : hop.name)
+                                .font(.caption.weight(.medium))
+                            Text(
+                                [hop.`protocol`, hop.state, hop.error]
+                                    .filter { !$0.isEmpty }.joined(separator: " · ")
+                            )
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                        }
+                        Spacer(minLength: 4)
+                        if hop.elapsedNs > 0 {
+                            Text(formatDurationNs(hop.elapsedNs))
+                                .font(.caption2.monospacedDigit())
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
+            .font(.caption)
+        }
+    }
+
+    private var timelineGroup: some View {
+        GroupBox("Timeline") {
+            VStack(alignment: .leading, spacing: 4) {
+                ForEach(connection.timeline) { entry in
+                    HStack(alignment: .top, spacing: 8) {
+                        Text(entry.type)
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                            .frame(width: 60, alignment: .leading)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(entry.title)
+                                .font(.caption2)
+                            if !entry.detail.isEmpty {
+                                Text(entry.detail)
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private var actionsGroup: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Quick Actions")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+            HStack(spacing: 8) {
+                Button("Allow") {
+                    onTemporaryAction?(connection, "allow")
+                }
+                .disabled(!canCreateRule)
+                Button("Block", role: .destructive) {
+                    onTemporaryAction?(connection, "block")
+                }
+                .disabled(!canCreateRule)
+                if !proxyAction.isEmpty {
+                    Button("Proxy") {
+                        onTemporaryAction?(connection, proxyAction)
+                    }
+                    .disabled(!canCreateRule)
+                }
+                Button("Create Rule…") {
+                    if let rule = connection.ruleDraft() {
+                        onPermanentRule?(connection, rule)
+                    }
+                }
+                .disabled(connection.ruleDraft() == nil)
+            }
+            .buttonStyle(.borderless)
+            .font(.caption)
         }
     }
 }
@@ -1655,132 +2026,380 @@ struct MacActivitySection: View {
 
 struct MacHTTPCaptureSection: View {
     @ObservedObject var model: AppleAppModel
-    @State private var captureFilter: CaptureFilterKind = .all
     @State private var captureSearch = ""
+    @State private var selectedEntryID = ""
+    @State private var localPath = ""
+    @State private var remoteURL = ""
+    @State private var harExport = ""
+    @State private var editingBreakpoint: DeveloperPendingBreakpointPayload?
+    @State private var breakpointRequestBody = ""
+    @State private var breakpointResponseBody = ""
+    @State private var breakpointStatus = ""
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                captureStatus
-                Divider()
-                HStack(spacing: 10) {
-                    Picker("Filter", selection: $captureFilter) {
-                        Text("All").tag(CaptureFilterKind.all)
-                        Text("HTTP").tag(CaptureFilterKind.http)
-                        Text("HTTPS").tag(CaptureFilterKind.https)
-                        Text("Pinned").tag(CaptureFilterKind.pinned)
-                    }
-                    .labelsHidden()
-                    .pickerStyle(.segmented)
-                    TextField("Search method, host, path, rule", text: $captureSearch)
-                        .textFieldStyle(.roundedBorder)
-                }
-                captureGroups
-                Text("HTTPS rows remain CONNECT metadata unless opt-in HTTPS Body Capture is enabled in developer config.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+        VStack(spacing: 0) {
+            toolbar
+                .padding(12)
+            Divider()
+            pendingBreakpoints
+            HSplitView {
+                requestList
+                    .frame(minWidth: 280, idealWidth: 360)
+                entryDetail
+                    .frame(minWidth: 420)
             }
-            .padding(20)
+        }
+        .task {
+            await model.refreshDeveloperCaptureNow()
+        }
+        .sheet(item: $editingBreakpoint) { breakpoint in
+            breakpointEditor(breakpoint)
+                .frame(minWidth: 560, minHeight: 460)
         }
     }
 
-    private var captureEntries: [CaptureEntryPayload] {
-        CaptureSupport.captureEntries(from: model.dashboard.traffic)
-    }
-
-    private var filteredCaptureEntries: [CaptureEntryPayload] {
-        CaptureSupport.filteredEntries(
-            captureEntries,
-            filter: captureFilter,
-            query: captureSearch,
-            pinnedIDs: model.pinnedConnectionIDs
-        )
-    }
-
-    private var captureStatus: some View {
-        HStack(spacing: 12) {
-            Label("\(captureEntries.count) metadata requests", systemImage: "list.bullet.rectangle")
-                .foregroundStyle(captureEntries.isEmpty ? Color.secondary : Color.blue)
-            Label("\(CaptureSupport.groupEntriesByHost(filteredCaptureEntries, pinnedIDs: model.pinnedConnectionIDs).count) hosts", systemImage: "rectangle.stack")
-                .foregroundStyle(.secondary)
+    private var toolbar: some View {
+        HStack(spacing: 10) {
+            Label("\(model.developerEntries.count) requests", systemImage: "list.bullet.rectangle")
+                .foregroundStyle(model.developerStatus.enabled ? Color.blue : Color.secondary)
+            if model.developerStatus.mitmEnabled {
+                Label("MITM on", systemImage: "lock.open")
+                    .foregroundStyle(.orange)
+            }
+            TextField("Search requests", text: $captureSearch)
+                .textFieldStyle(.roundedBorder)
+                .frame(maxWidth: 260)
             Spacer()
-            ShareLink(
-                item: CaptureSupport.exportString(traffic: model.dashboard.traffic, entries: filteredCaptureEntries),
-                subject: Text("ClambHook HTTP metadata export"),
-                message: Text("Local metadata-only JSON export.")
-            ) {
-                Image(systemName: "square.and.arrow.up")
+            Button {
+                model.refreshDeveloperCapture()
+            } label: {
+                Image(systemName: "arrow.clockwise")
             }
-            .disabled(filteredCaptureEntries.isEmpty)
-        }
-        .font(.subheadline)
-    }
-
-    private var captureGroups: some View {
-        let groups = CaptureSupport.groupEntriesByHost(filteredCaptureEntries, pinnedIDs: model.pinnedConnectionIDs)
-        return VStack(alignment: .leading, spacing: 10) {
-            if groups.isEmpty {
-                Text("No HTTP metadata")
-                    .foregroundStyle(.secondary)
-            } else {
-                ForEach(groups) { group in
-                    MacCaptureGroupCard(group: group, pinnedIDs: model.pinnedConnectionIDs, onTogglePin: toggleCapturePin)
+            .help("Refresh")
+            Button {
+                model.clearDeveloperEntries()
+            } label: {
+                Image(systemName: "trash")
+            }
+            .help("Clear")
+            Button {
+                Task {
+                    harExport = (try? await model.developerHAR()) ?? ""
                 }
+            } label: {
+                Image(systemName: "square.and.arrow.down")
+            }
+            .help("Load HAR export")
+            if !harExport.isEmpty {
+                ShareLink(item: harExport, subject: Text("ClambHook HAR export")) {
+                    Image(systemName: "square.and.arrow.up")
+                }
+                .help("Share HAR")
             }
         }
     }
 
-    private func toggleCapturePin(_ entry: CaptureMetadataEntryPayload) {
-        var ids = model.pinnedConnectionIDs
-        if ids.contains(entry.pinID) {
-            ids.remove(entry.pinID)
-        } else {
-            ids.insert(entry.pinID)
-        }
-        model.settingsStore.settings.pinnedConnectionIDs = ids.sorted()
-    }
-}
-
-private struct MacCaptureGroupCard: View {
-    var group: CaptureGroupPayload
-    var pinnedIDs: Set<String>
-    var onTogglePin: (CaptureMetadataEntryPayload) -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text(emptyDash(group.host))
-                    .font(.headline)
-                Spacer()
-                let schemes = group.schemes.map { $0.uppercased() }.joined(separator: ", ")
-                Text(schemes.isEmpty ? "\(group.count)" : "\(group.count) / \(schemes)")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            ForEach(group.entries) { entry in
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
+    private var requestList: some View {
+        List(filteredEntries, selection: $selectedEntryID) { entry in
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 8) {
                     Text(entry.method.isEmpty ? "--" : entry.method)
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(entry.scheme.lowercased() == "https" ? .blue : .green)
-                        .frame(minWidth: 46, alignment: .leading)
-                    Text(emptyDash(entry.displayTarget))
-                        .font(.caption)
-                        .lineLimit(1)
+                        .frame(width: 54, alignment: .leading)
+                    Text(entry.status == 0 ? "--" : "\(entry.status)")
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(statusColor(entry.status))
                     Spacer()
-                    Button(action: { onTogglePin(entry) }) {
-                        Image(systemName: pinnedIDs.contains(entry.pinID) ? "pin.slash.fill" : "pin.fill")
-                            .font(.caption)
-                    }
-                    .buttonStyle(.plain)
                 }
-                Text([entry.ruleName, entry.chainName, entry.ruleAction].filter { !$0.isEmpty }.joined(separator: " / "))
+                Text(displayURL(entry))
+                    .font(.caption)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Text([entry.chainName, bodySummary(entry)].filter { !$0.isEmpty }.joined(separator: " / "))
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
+            .padding(.vertical, 4)
+            .tag(entry.id)
         }
-        .padding(12)
-        .background(Color.secondary.opacity(0.05), in: RoundedRectangle(cornerRadius: 8))
+        .onChange(of: filteredEntries) {
+            if selectedEntryID.isEmpty || !filteredEntries.contains(where: { $0.id == selectedEntryID }) {
+                selectedEntryID = filteredEntries.first?.id ?? ""
+            }
+        }
+    }
+
+    private var entryDetail: some View {
+        ScrollView {
+            if let entry = selectedEntry {
+                VStack(alignment: .leading, spacing: 16) {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(displayURL(entry))
+                                .font(.headline)
+                                .textSelection(.enabled)
+                            Text([entry.method, entry.scheme.uppercased(), entry.host, entry.error].filter { !$0.isEmpty }.joined(separator: " / "))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Button {
+                            model.repeatDeveloperEntry(entry)
+                        } label: {
+                            Label("Repeat", systemImage: "arrow.triangle.2.circlepath")
+                        }
+                    }
+                    ruleControls(entry)
+                    Divider()
+                    messageSection(title: "Request", message: entry.request)
+                    Divider()
+                    messageSection(title: "Response", message: entry.response)
+                }
+                .padding(18)
+            } else {
+                ContentUnavailableView("No Request", systemImage: "list.bullet.rectangle")
+                    .padding(40)
+            }
+        }
+    }
+
+    private var pendingBreakpoints: some View {
+        Group {
+            if !model.developerPendingBreakpoints.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(model.developerPendingBreakpoints) { breakpoint in
+                        HStack {
+                            Label("\(breakpoint.stage.capitalized) breakpoint", systemImage: "pause.circle")
+                                .foregroundStyle(.orange)
+                            Text(breakpoint.request.url)
+                                .font(.caption)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                            Spacer()
+                            Button("Edit") {
+                                editingBreakpoint = breakpoint
+                                breakpointRequestBody = breakpoint.request.body
+                                breakpointResponseBody = breakpoint.response?.body ?? ""
+                                breakpointStatus = breakpoint.response.map { "\($0.status)" } ?? ""
+                            }
+                            Button("Continue") {
+                                model.resolveDeveloperBreakpoint(breakpoint, action: "continue")
+                            }
+                            Button("Drop", role: .destructive) {
+                                model.resolveDeveloperBreakpoint(breakpoint, action: "drop")
+                            }
+                        }
+                    }
+                }
+                .padding(12)
+                Divider()
+            }
+        }
+    }
+
+    private func breakpointEditor(_ breakpoint: DeveloperPendingBreakpointPayload) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                Label("\(breakpoint.stage.capitalized) Breakpoint", systemImage: "pause.circle")
+                    .font(.headline)
+                Spacer()
+                Button("Drop", role: .destructive) {
+                    model.resolveDeveloperBreakpoint(breakpoint, action: "drop")
+                    editingBreakpoint = nil
+                }
+            }
+            Text(breakpoint.request.url)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            Text("Request Body")
+                .font(.subheadline.weight(.semibold))
+            TextEditor(text: $breakpointRequestBody)
+                .font(.system(.caption, design: .monospaced))
+                .frame(minHeight: 110)
+            if breakpoint.response != nil {
+                HStack {
+                    Text("Response Status")
+                        .font(.subheadline.weight(.semibold))
+                    TextField("Status", text: $breakpointStatus)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 90)
+                }
+                Text("Response Body")
+                    .font(.subheadline.weight(.semibold))
+                TextEditor(text: $breakpointResponseBody)
+                    .font(.system(.caption, design: .monospaced))
+                    .frame(minHeight: 110)
+            }
+            Spacer()
+            HStack {
+                Spacer()
+                Button("Cancel") {
+                    editingBreakpoint = nil
+                }
+                Button("Continue Edited") {
+                    var request = breakpoint.request
+                    request.body = breakpointRequestBody
+                    var response = breakpoint.response
+                    if var editedResponse = response {
+                        editedResponse.body = breakpointResponseBody
+                        editedResponse.status = Int(breakpointStatus.trimmingCharacters(in: .whitespacesAndNewlines)) ?? editedResponse.status
+                        response = editedResponse
+                    }
+                    model.resolveDeveloperBreakpoint(
+                        breakpoint,
+                        resolution: DeveloperBreakpointResolutionPayload(action: "continue", request: request, response: response)
+                    )
+                    editingBreakpoint = nil
+                }
+                .buttonStyle(.borderedProminent)
+            }
+        }
+        .padding(18)
+    }
+
+    private func ruleControls(_ entry: DeveloperEntryPayload) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Tools")
+                .font(.subheadline.weight(.semibold))
+            HStack {
+                TextField("Local file or directory", text: $localPath)
+                    .textFieldStyle(.roundedBorder)
+                Button("Map Local") {
+                    model.addDeveloperMapRule(DeveloperMapRulePayload(
+                        name: "Local \(entry.host)",
+                        match: matchPayload(entry),
+                        kind: "local",
+                        localPath: localPath
+                    ))
+                }
+                .disabled(localPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+            HStack {
+                TextField("Remote base URL", text: $remoteURL)
+                    .textFieldStyle(.roundedBorder)
+                Button("Map Remote") {
+                    model.addDeveloperMapRule(DeveloperMapRulePayload(
+                        name: "Remote \(entry.host)",
+                        match: matchPayload(entry),
+                        kind: "remote",
+                        remoteURL: remoteURL
+                    ))
+                }
+                .disabled(remoteURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+            HStack {
+                Button {
+                    model.addDeveloperBreakpointRule(DeveloperBreakpointRulePayload(
+                        name: "Breakpoint \(entry.host)",
+                        match: matchPayload(entry),
+                        stage: "both"
+                    ))
+                } label: {
+                    Label("Breakpoint", systemImage: "pause.circle")
+                }
+                Text("\(model.developerMapRules.count) map rules / \(model.developerBreakpointRules.count) breakpoint rules")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private func messageSection(title: String, message: DeveloperMessagePayload) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text(title)
+                    .font(.subheadline.weight(.semibold))
+                Spacer()
+                Text("\(formatBytes(message.body.size))")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            if message.headers.isEmpty {
+                Text("No headers")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(message.headers) { header in
+                    HStack(alignment: .top) {
+                        Text(header.name)
+                            .font(.system(.caption, design: .monospaced).weight(.semibold))
+                            .frame(width: 160, alignment: .leading)
+                        Text(header.value)
+                            .font(.system(.caption, design: .monospaced))
+                            .foregroundStyle(header.redacted ? .red : .secondary)
+                            .textSelection(.enabled)
+                    }
+                }
+            }
+            if message.body.hasPreview {
+                Text(message.body.preview)
+                    .font(.system(.caption, design: .monospaced))
+                    .textSelection(.enabled)
+                    .padding(8)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 6))
+                if message.body.truncated {
+                    Text("Truncated after \(formatBytes(message.body.truncatedAfter))")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                }
+            }
+        }
+    }
+
+    private var filteredEntries: [DeveloperEntryPayload] {
+        let query = captureSearch.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !query.isEmpty else {
+            return model.developerEntries
+        }
+        return model.developerEntries.filter { entry in
+            [entry.method, entry.url, entry.host, entry.chainName, "\(entry.status)"]
+                .joined(separator: " ")
+                .lowercased()
+                .contains(query)
+        }
+    }
+
+    private var selectedEntry: DeveloperEntryPayload? {
+        if let selected = model.developerEntries.first(where: { $0.id == selectedEntryID }) {
+            return selected
+        }
+        return filteredEntries.first
+    }
+
+    private func displayURL(_ entry: DeveloperEntryPayload) -> String {
+        entry.url.isEmpty ? entry.host : entry.url
+    }
+
+    private func bodySummary(_ entry: DeveloperEntryPayload) -> String {
+        let req = entry.request.body.previewBytes
+        let resp = entry.response.body.previewBytes
+        if req == 0 && resp == 0 {
+            return ""
+        }
+        return "\(formatBytes(req)) req / \(formatBytes(resp)) resp"
+    }
+
+    private func statusColor(_ status: Int) -> Color {
+        switch status {
+        case 200..<300: return .green
+        case 300..<400: return .blue
+        case 400..<600: return .red
+        default: return .secondary
+        }
+    }
+
+    private func matchPayload(_ entry: DeveloperEntryPayload) -> DeveloperMatchPayload {
+        let path = URL(string: entry.url)?.path ?? "/"
+        return DeveloperMatchPayload(
+            methods: entry.method.isEmpty ? [] : [entry.method],
+            host: entry.host,
+            pathPrefix: path.isEmpty ? "/" : path
+        )
     }
 }
 

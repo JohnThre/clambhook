@@ -2,6 +2,7 @@ package listener
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"crypto/subtle"
 	"crypto/tls"
@@ -12,6 +13,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -29,6 +31,49 @@ type HTTPInspector interface {
 	MITMEnabled() bool
 	TLSConfig(host string) (*tls.Config, error)
 	Begin(context.Context, HTTPCaptureMeta, *http.Request) HTTPInspection
+	MapRequest(*http.Request) (*http.Request, *HTTPMapResult, error)
+	HasRequestBreakpoint(*http.Request) bool
+	HasResponseBreakpoint(*http.Request) bool
+	BreakpointRequest(context.Context, *http.Request, []byte) (HTTPBreakpointResolution, bool, error)
+	BreakpointResponse(context.Context, *http.Request, *http.Response, []byte) (HTTPBreakpointResolution, bool, error)
+}
+
+// HTTPMapResult describes a developer map rule applied by the inspector.
+type HTTPMapResult struct {
+	RuleID    string
+	RuleName  string
+	Kind      string
+	Local     *HTTPLocalMapResponse
+	RemoteURL string
+}
+
+// HTTPLocalMapResponse is a synthetic local response.
+type HTTPLocalMapResponse struct {
+	Status int
+	Header http.Header
+	Body   []byte
+}
+
+// HTTPBreakpointMessage is an editable request or response snapshot.
+type HTTPBreakpointMessage struct {
+	Method  string
+	URL     string
+	Status  int
+	Headers []HTTPHeader
+	Body    string
+}
+
+// HTTPHeader is a generic header pair used by breakpoint edits.
+type HTTPHeader struct {
+	Name  string
+	Value string
+}
+
+// HTTPBreakpointResolution resumes or drops a paused request/response.
+type HTTPBreakpointResolution struct {
+	Action   string
+	Request  *HTTPBreakpointMessage
+	Response *HTTPBreakpointMessage
 }
 
 // HTTPCaptureMeta identifies a transaction for developer capture.
@@ -421,15 +466,6 @@ func (s *HTTP) handleMITMConnect(ctx context.Context, client net.Conn, br *bufio
 		return ErrRouteBlocked
 	}
 
-	remote, err := plan.Dial(dialCtx, "tcp", req.Host)
-	if err != nil {
-		log.Printf("http: MITM chain dial %s failed: %v", req.Host, err)
-		code, reason := httpStatusForDialErr(err)
-		writeSimpleStatus(client, req.Proto, code, reason)
-		return err
-	}
-	defer remote.Close()
-
 	tlsConfig, err := s.opts.HTTPInspector.TLSConfig(host)
 	if err != nil {
 		log.Printf("http: MITM cert %s failed: %v", host, err)
@@ -450,7 +486,6 @@ func (s *HTTP) handleMITMConnect(ctx context.Context, client net.Conn, br *bufio
 	go func() {
 		select {
 		case <-ctx.Done():
-			_ = remote.Close()
 			_ = client.Close()
 		case <-stopCh:
 		}
@@ -463,24 +498,7 @@ func (s *HTTP) handleMITMConnect(ctx context.Context, client net.Conn, br *bufio
 	}
 	defer clientTLS.Close()
 
-	serverName := strings.Trim(host, "[]")
-	remoteTLS := tls.Client(remote, &tls.Config{
-		ServerName: serverName,
-		NextProtos: []string{"http/1.1"},
-		MinVersion: tls.VersionTLS12,
-	})
-	if err := remoteTLS.HandshakeContext(ctx); err != nil {
-		log.Printf("http: MITM origin TLS handshake %s failed: %v", req.Host, err)
-		return err
-	}
-	defer remoteTLS.Close()
-
 	clientReader := bufio.NewReader(clientTLS)
-	remoteConn := net.Conn(remoteTLS)
-	if ce != nil {
-		remoteConn = &meteredConn{Conn: remoteTLS, rxCounter: ce.rxCounter(), txCounter: ce.txCounter()}
-	}
-	remoteReader := bufio.NewReader(remoteConn)
 	for {
 		mitmReq, err := http.ReadRequest(clientReader)
 		if errors.Is(err, io.EOF) || errors.Is(err, net.ErrClosed) {
@@ -490,7 +508,7 @@ func (s *HTTP) handleMITMConnect(ctx context.Context, client net.Conn, br *bufio
 			log.Printf("http: MITM read request from %s: %v", client.RemoteAddr(), err)
 			return err
 		}
-		if err := s.forwardMITMRequest(ctx, clientTLS, remoteConn, remoteReader, mitmReq, req.Host, client.RemoteAddr().String(), ce); err != nil {
+		if err := s.forwardMITMRequest(ctx, clientTLS, mitmReq, req.Host, client.RemoteAddr().String(), ce); err != nil {
 			return err
 		}
 		if mitmReq.Close {
@@ -499,7 +517,69 @@ func (s *HTTP) handleMITMConnect(ctx context.Context, client net.Conn, br *bufio
 	}
 }
 
-func (s *HTTP) forwardMITMRequest(ctx context.Context, client io.Writer, remote io.Writer, remoteReader *bufio.Reader, req *http.Request, target, clientAddr string, ce *connEvents) error {
+func (s *HTTP) forwardMITMRequest(ctx context.Context, client io.Writer, req *http.Request, connectTarget, clientAddr string, ce *connEvents) error {
+	if s.opts.HTTPInspector != nil && s.opts.HTTPInspector.HasRequestBreakpoint(req) {
+		body, err := readAndResetRequestBody(req)
+		if err != nil {
+			return err
+		}
+		resolution, paused, err := s.opts.HTTPInspector.BreakpointRequest(ctx, req, body)
+		if err != nil {
+			return err
+		}
+		if paused {
+			if strings.EqualFold(resolution.Action, "drop") {
+				return writeSyntheticResponse(client, req, http.StatusForbidden, nil, []byte("Dropped by breakpoint"))
+			}
+			if resolution.Request != nil {
+				if err := applyRequestBreakpointEdit(req, resolution.Request); err != nil {
+					return err
+				}
+			}
+		}
+	}
+
+	if s.opts.HTTPInspector != nil {
+		mappedReq, mapResult, err := s.opts.HTTPInspector.MapRequest(req)
+		if err != nil {
+			return err
+		}
+		req = mappedReq
+		if mapResult != nil && mapResult.Local != nil {
+			return s.writeMITMLocalMap(ctx, client, req, mapResult.Local, connectTarget, clientAddr, ce)
+		}
+	}
+
+	target := mitmRequestTarget(req, connectTarget)
+	dialCtx, cancel := context.WithTimeout(ctx, dialTimeout)
+	defer cancel()
+	if ce != nil {
+		dialCtx = ce.attach(dialCtx)
+	}
+	plan, err := s.plan(dialCtx, "tcp", target, clientAddr)
+	if err != nil {
+		return err
+	}
+	remote, err := plan.Dial(dialCtx, "tcp", target)
+	if err != nil {
+		return err
+	}
+	defer remote.Close()
+	host, _, _ := net.SplitHostPort(target)
+	remoteTLS := tls.Client(remote, &tls.Config{
+		ServerName: strings.Trim(host, "[]"),
+		NextProtos: []string{"http/1.1"},
+		MinVersion: tls.VersionTLS12,
+	})
+	if err := remoteTLS.HandshakeContext(ctx); err != nil {
+		return err
+	}
+	defer remoteTLS.Close()
+	remoteConn := net.Conn(remoteTLS)
+	if ce != nil {
+		remoteConn = &meteredConn{Conn: remoteTLS, rxCounter: ce.rxCounter(), txCounter: ce.txCounter()}
+	}
+	remoteReader := bufio.NewReader(remoteConn)
 	inspection := s.beginInspection(ctx, ce, clientAddr, req, "https", target)
 	if inspection != nil && req.Body != nil {
 		req.Body = inspection.RequestBody(req.Body)
@@ -528,6 +608,33 @@ func (s *HTTP) forwardMITMRequest(ctx context.Context, client io.Writer, remote 
 	if inspection != nil && resp.Body != nil {
 		resp.Body = inspection.ResponseBody(resp.Body)
 	}
+	if s.opts.HTTPInspector != nil && s.opts.HTTPInspector.HasResponseBreakpoint(req) {
+		body, err := readAndReplaceResponseBody(resp)
+		if err != nil {
+			if inspection != nil {
+				inspection.Finish(resp, err)
+			}
+			return err
+		}
+		resolution, paused, err := s.opts.HTTPInspector.BreakpointResponse(ctx, req, resp, body)
+		if err != nil {
+			if inspection != nil {
+				inspection.Finish(resp, err)
+			}
+			return err
+		}
+		if paused {
+			if strings.EqualFold(resolution.Action, "drop") {
+				if inspection != nil {
+					inspection.Finish(resp, nil)
+				}
+				return writeSyntheticResponse(client, req, http.StatusForbidden, nil, []byte("Dropped by breakpoint"))
+			}
+			if resolution.Response != nil {
+				applyResponseBreakpointEdit(resp, resolution.Response)
+			}
+		}
+	}
 	stripHopByHopHeaders(resp.Header)
 	if err := resp.Write(client); err != nil {
 		log.Printf("http: MITM write response to client: %v", err)
@@ -542,7 +649,77 @@ func (s *HTTP) forwardMITMRequest(ctx context.Context, client io.Writer, remote 
 	return nil
 }
 
+func (s *HTTP) writeMITMLocalMap(ctx context.Context, client io.Writer, req *http.Request, local *HTTPLocalMapResponse, target, clientAddr string, ce *connEvents) error {
+	inspection := s.beginInspection(ctx, ce, clientAddr, req, "https", target)
+	if inspection != nil && req.Body != nil {
+		req.Body = inspection.RequestBody(req.Body)
+		_, _ = io.Copy(io.Discard, req.Body)
+	}
+	resp := &http.Response{
+		StatusCode:    local.Status,
+		Status:        fmt.Sprintf("%d %s", local.Status, http.StatusText(local.Status)),
+		Proto:         req.Proto,
+		ProtoMajor:    req.ProtoMajor,
+		ProtoMinor:    req.ProtoMinor,
+		Header:        local.Header.Clone(),
+		Body:          io.NopCloser(bytes.NewReader(local.Body)),
+		ContentLength: int64(len(local.Body)),
+		Request:       req,
+	}
+	if inspection != nil {
+		resp.Body = inspection.ResponseBody(resp.Body)
+	}
+	stripHopByHopHeaders(resp.Header)
+	if err := resp.Write(client); err != nil {
+		if inspection != nil {
+			inspection.Finish(resp, err)
+		}
+		return err
+	}
+	if inspection != nil {
+		inspection.Finish(resp, nil)
+	}
+	return nil
+}
+
 func (s *HTTP) handleForward(ctx context.Context, client net.Conn, req *http.Request, ce *connEvents) error {
+	if s.opts.HTTPInspector != nil && s.opts.HTTPInspector.HasRequestBreakpoint(req) {
+		body, err := readAndResetRequestBody(req)
+		if err != nil {
+			writeSimpleStatus(client, req.Proto, http.StatusBadRequest, "Bad Request")
+			return err
+		}
+		resolution, paused, err := s.opts.HTTPInspector.BreakpointRequest(ctx, req, body)
+		if err != nil {
+			return err
+		}
+		if paused {
+			if strings.EqualFold(resolution.Action, "drop") {
+				writeSimpleStatus(client, req.Proto, http.StatusForbidden, "Dropped by breakpoint")
+				return nil
+			}
+			if resolution.Request != nil {
+				if err := applyRequestBreakpointEdit(req, resolution.Request); err != nil {
+					writeSimpleStatus(client, req.Proto, http.StatusBadRequest, "Bad breakpoint edit")
+					return err
+				}
+			}
+		}
+	}
+
+	if s.opts.HTTPInspector != nil {
+		mappedReq, mapResult, err := s.opts.HTTPInspector.MapRequest(req)
+		if err != nil {
+			log.Printf("http: developer map failed: %v", err)
+			writeSimpleStatus(client, req.Proto, http.StatusBadGateway, "Bad Gateway")
+			return err
+		}
+		req = mappedReq
+		if mapResult != nil && mapResult.Local != nil {
+			return s.handleLocalMap(ctx, client, req, mapResult.Local, ce)
+		}
+	}
+
 	// Resolve target host:port — default port 80 for http://.
 	host := req.URL.Hostname()
 	port := req.URL.Port()
@@ -552,7 +729,11 @@ func (s *HTTP) handleForward(ctx context.Context, client net.Conn, req *http.Req
 		return nil
 	}
 	if port == "" {
-		port = "80"
+		if strings.EqualFold(req.URL.Scheme, "https") {
+			port = "443"
+		} else {
+			port = "80"
+		}
 	}
 	target := net.JoinHostPort(host, port)
 
@@ -586,6 +767,18 @@ func (s *HTTP) handleForward(ctx context.Context, client net.Conn, req *http.Req
 		return err
 	}
 	defer remote.Close()
+	if strings.EqualFold(req.URL.Scheme, "https") {
+		serverName := req.URL.Hostname()
+		tlsRemote := tls.Client(remote, &tls.Config{
+			ServerName: serverName,
+			NextProtos: []string{"http/1.1"},
+			MinVersion: tls.VersionTLS12,
+		})
+		if err := tlsRemote.HandshakeContext(ctx); err != nil {
+			return err
+		}
+		remote = tlsRemote
+	}
 	ce.emitEstablished()
 
 	// Watchdog: close both sides on ctx cancel so resp.Write / req.Write /
@@ -652,6 +845,35 @@ func (s *HTTP) handleForward(ctx context.Context, client net.Conn, req *http.Req
 		resp.Body = inspection.ResponseBody(resp.Body)
 	}
 
+	if s.opts.HTTPInspector != nil && s.opts.HTTPInspector.HasResponseBreakpoint(req) {
+		body, err := readAndReplaceResponseBody(resp)
+		if err != nil {
+			if inspection != nil {
+				inspection.Finish(resp, err)
+			}
+			return err
+		}
+		resolution, paused, err := s.opts.HTTPInspector.BreakpointResponse(ctx, req, resp, body)
+		if err != nil {
+			if inspection != nil {
+				inspection.Finish(resp, err)
+			}
+			return err
+		}
+		if paused {
+			if strings.EqualFold(resolution.Action, "drop") {
+				if inspection != nil {
+					inspection.Finish(resp, nil)
+				}
+				writeSimpleStatus(client, req.Proto, http.StatusForbidden, "Dropped by breakpoint")
+				return nil
+			}
+			if resolution.Response != nil {
+				applyResponseBreakpointEdit(resp, resolution.Response)
+			}
+		}
+	}
+
 	stripHopByHopHeaders(resp.Header)
 
 	if err := resp.Write(client); err != nil {
@@ -681,6 +903,207 @@ func (s *HTTP) beginInspection(ctx context.Context, ce *connEvents, clientAddr s
 		Target:     target,
 		StartedAt:  time.Now(),
 	}, req)
+}
+
+func (s *HTTP) handleLocalMap(ctx context.Context, client net.Conn, req *http.Request, local *HTTPLocalMapResponse, ce *connEvents) error {
+	ce.emitEstablished()
+	_ = client.SetDeadline(time.Time{})
+	inspection := s.beginInspection(ctx, ce, client.RemoteAddr().String(), req, requestSchemeFromURL(req), requestTargetFromURL(req))
+	if inspection != nil && req.Body != nil {
+		req.Body = inspection.RequestBody(req.Body)
+		_, _ = io.Copy(io.Discard, req.Body)
+	}
+	resp := &http.Response{
+		StatusCode:    local.Status,
+		Status:        fmt.Sprintf("%d %s", local.Status, http.StatusText(local.Status)),
+		Proto:         req.Proto,
+		ProtoMajor:    req.ProtoMajor,
+		ProtoMinor:    req.ProtoMinor,
+		Header:        local.Header.Clone(),
+		Body:          io.NopCloser(bytes.NewReader(local.Body)),
+		ContentLength: int64(len(local.Body)),
+		Request:       req,
+	}
+	if inspection != nil {
+		resp.Body = inspection.ResponseBody(resp.Body)
+	}
+	stripHopByHopHeaders(resp.Header)
+	if err := resp.Write(client); err != nil {
+		if inspection != nil {
+			inspection.Finish(resp, err)
+		}
+		return err
+	}
+	if inspection != nil {
+		inspection.Finish(resp, nil)
+	}
+	return nil
+}
+
+func readAndResetRequestBody(req *http.Request) ([]byte, error) {
+	if req == nil || req.Body == nil || req.Body == http.NoBody {
+		return nil, nil
+	}
+	body, err := io.ReadAll(req.Body)
+	if closeErr := req.Body.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		return nil, err
+	}
+	req.Body = io.NopCloser(bytes.NewReader(body))
+	req.ContentLength = int64(len(body))
+	return body, nil
+}
+
+func readAndReplaceResponseBody(resp *http.Response) ([]byte, error) {
+	if resp == nil || resp.Body == nil || resp.Body == http.NoBody {
+		return nil, nil
+	}
+	body, err := io.ReadAll(resp.Body)
+	if closeErr := resp.Body.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		return nil, err
+	}
+	resp.Body = io.NopCloser(bytes.NewReader(body))
+	resp.ContentLength = int64(len(body))
+	resp.Header.Set("Content-Length", fmt.Sprintf("%d", len(body)))
+	return body, nil
+}
+
+func applyRequestBreakpointEdit(req *http.Request, edit *HTTPBreakpointMessage) error {
+	if req == nil || edit == nil {
+		return nil
+	}
+	if strings.TrimSpace(edit.Method) != "" {
+		req.Method = strings.TrimSpace(edit.Method)
+	}
+	if strings.TrimSpace(edit.URL) != "" {
+		parsed, err := url.Parse(strings.TrimSpace(edit.URL))
+		if err != nil {
+			return err
+		}
+		req.URL = parsed
+		if parsed.Host != "" {
+			req.Host = parsed.Host
+		}
+	}
+	if edit.Headers != nil {
+		req.Header = http.Header{}
+		for _, header := range edit.Headers {
+			if strings.TrimSpace(header.Name) == "" {
+				continue
+			}
+			req.Header.Add(header.Name, header.Value)
+		}
+	}
+	if edit.Body != "" {
+		req.Body = io.NopCloser(strings.NewReader(edit.Body))
+		req.ContentLength = int64(len(edit.Body))
+	}
+	return nil
+}
+
+func applyResponseBreakpointEdit(resp *http.Response, edit *HTTPBreakpointMessage) {
+	if resp == nil || edit == nil {
+		return
+	}
+	if edit.Status > 0 {
+		resp.StatusCode = edit.Status
+		resp.Status = fmt.Sprintf("%d %s", edit.Status, http.StatusText(edit.Status))
+	}
+	if edit.Headers != nil {
+		resp.Header = http.Header{}
+		for _, header := range edit.Headers {
+			if strings.TrimSpace(header.Name) == "" {
+				continue
+			}
+			resp.Header.Add(header.Name, header.Value)
+		}
+	}
+	if edit.Body != "" {
+		resp.Body = io.NopCloser(strings.NewReader(edit.Body))
+		resp.ContentLength = int64(len(edit.Body))
+		resp.Header.Set("Content-Length", fmt.Sprintf("%d", len(edit.Body)))
+	}
+}
+
+func requestSchemeFromURL(req *http.Request) string {
+	if req != nil && req.URL != nil && req.URL.Scheme != "" {
+		return req.URL.Scheme
+	}
+	if req != nil && req.TLS != nil {
+		return "https"
+	}
+	return "http"
+}
+
+func requestTargetFromURL(req *http.Request) string {
+	if req == nil || req.URL == nil {
+		return ""
+	}
+	host := req.URL.Host
+	if host == "" {
+		host = req.Host
+	}
+	if host == "" {
+		return ""
+	}
+	if _, _, err := net.SplitHostPort(host); err == nil {
+		return host
+	}
+	port := "80"
+	if strings.EqualFold(requestSchemeFromURL(req), "https") {
+		port = "443"
+	}
+	return net.JoinHostPort(host, port)
+}
+
+func mitmRequestTarget(req *http.Request, connectTarget string) string {
+	if req != nil && req.URL != nil && req.URL.Host != "" {
+		host := req.URL.Host
+		if _, _, err := net.SplitHostPort(host); err == nil {
+			return host
+		}
+		port := "443"
+		if strings.EqualFold(req.URL.Scheme, "http") {
+			port = "80"
+		}
+		return net.JoinHostPort(host, port)
+	}
+	if req != nil && req.Host != "" {
+		if _, _, err := net.SplitHostPort(req.Host); err == nil {
+			return req.Host
+		}
+		return net.JoinHostPort(req.Host, "443")
+	}
+	return connectTarget
+}
+
+func writeSyntheticResponse(w io.Writer, req *http.Request, status int, headers http.Header, body []byte) error {
+	if status == 0 {
+		status = http.StatusOK
+	}
+	if headers == nil {
+		headers = make(http.Header)
+	}
+	if headers.Get("Content-Type") == "" {
+		headers.Set("Content-Type", "text/plain; charset=utf-8")
+	}
+	resp := &http.Response{
+		StatusCode:    status,
+		Status:        fmt.Sprintf("%d %s", status, http.StatusText(status)),
+		Proto:         req.Proto,
+		ProtoMajor:    req.ProtoMajor,
+		ProtoMinor:    req.ProtoMinor,
+		Header:        headers,
+		Body:          io.NopCloser(bytes.NewReader(body)),
+		ContentLength: int64(len(body)),
+		Request:       req,
+	}
+	return resp.Write(w)
 }
 
 func (s *HTTP) plan(ctx context.Context, network, target, source string) (RoutePlan, error) {

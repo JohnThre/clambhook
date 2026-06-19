@@ -11,4 +11,43 @@ final class SettingsTests: XCTestCase {
         XCTAssertFalse(vpnDataUseDisclosure.contains("HTTPS body capture is opt-in"))
         XCTAssertFalse(vpnDataUseDisclosure.contains("body previews"))
     }
+
+    func testSettingsDecodeNewMacDefaultsFromOldPayload() throws {
+        let data = Data("""
+        {
+          "apiEndpoint": "http://127.0.0.1:9090",
+          "daemonBinaryPath": "",
+          "daemonConfigPath": "",
+          "launchDaemonOnStart": true,
+          "stopDaemonOnQuit": true,
+          "refreshIntervalSeconds": 2,
+          "logRetention": 200,
+          "appGroupIdentifier": "group.org.jpfchang.clambhook"
+        }
+        """.utf8)
+
+        let settings = try JSONDecoder().decode(AppSettings.self, from: data).normalized()
+
+        XCTAssertFalse(settings.systemProxyEnabled)
+        XCTAssertEqual(settings.updateChannel, "stable")
+        XCTAssertEqual(settings.updateManifestURL, defaultStableUpdateManifestURL)
+    }
+
+    func testUpdateComparatorUsesVersionThenBuild() {
+        XCTAssertTrue(MacUpdateComparator.isUpdateAvailable(
+            currentVersion: "1.0",
+            currentBuild: "10",
+            manifest: MacUpdateManifest(version: "1.1", build: "1")
+        ))
+        XCTAssertTrue(MacUpdateComparator.isUpdateAvailable(
+            currentVersion: "1.0",
+            currentBuild: "10",
+            manifest: MacUpdateManifest(version: "1.0", build: "11")
+        ))
+        XCTAssertFalse(MacUpdateComparator.isUpdateAvailable(
+            currentVersion: "1.0",
+            currentBuild: "10",
+            manifest: MacUpdateManifest(version: "1.0", build: "10")
+        ))
+    }
 }

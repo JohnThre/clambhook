@@ -15,7 +15,13 @@ NOTARY_ZIP="$DIST_DIR/ClambhookMac-notary.zip"
 FINAL_ZIP="$DIST_DIR/ClambhookMac-arm64.zip"
 FINAL_DMG="$DIST_DIR/ClambhookMac-arm64.dmg"
 FINAL_DMG_CHECKSUM="$DIST_DIR/ClambhookMac-arm64.dmg.sha256"
-UPDATE_MANIFEST="$DIST_DIR/clambhook-update-manifest.json"
+UPDATE_CHANNEL="${UPDATE_CHANNEL:-stable}"
+if [[ "$UPDATE_CHANNEL" == "beta" ]]; then
+    UPDATE_MANIFEST="$DIST_DIR/clambhook-beta-update-manifest.json"
+else
+    UPDATE_CHANNEL="stable"
+    UPDATE_MANIFEST="$DIST_DIR/clambhook-update-manifest.json"
+fi
 DAEMON="$ROOT_DIR/bin/clambhook"
 SODIUM="$ROOT_DIR/bin/libsodium.26.dylib"
 HELPER_ENTITLEMENTS="$ROOT_DIR/ui/apple/ClambhookMac/ClambhookDaemon.entitlements"
@@ -153,6 +159,7 @@ cat > "$UPDATE_MANIFEST" <<JSON
 {
   "version": "${SHORT_VERSION}",
   "build": "${BUILD_NUMBER}",
+  "channel": "${UPDATE_CHANNEL}",
   "published_at": "${BUILD_DATE}",
   "minimum_os_version": "14.0",
   "url": "https://jpfchang.org/api/clambhook/download",

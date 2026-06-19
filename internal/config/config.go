@@ -53,14 +53,47 @@ func DefaultTrafficConfig() TrafficConfig {
 // separate from TrafficConfig because it can retain headers and bounded body
 // previews, whereas normal traffic history is metadata-only.
 type DeveloperConfig struct {
-	Enabled               bool     `toml:"enabled" json:"enabled"`
-	MITMEnabled           bool     `toml:"mitm_enabled" json:"mitm_enabled"`
-	CaptureLimit          int      `toml:"capture_limit" json:"capture_limit"`
-	BodyLimitBytes        int64    `toml:"body_limit_bytes" json:"body_limit_bytes"`
-	HeaderValueLimitBytes int      `toml:"header_value_limit_bytes" json:"header_value_limit_bytes"`
-	RedactHeaders         []string `toml:"redact_headers" json:"redact_headers"`
-	CACertPath            string   `toml:"ca_cert_path" json:"ca_cert_path,omitempty"`
-	CAKeyPath             string   `toml:"ca_key_path" json:"ca_key_path,omitempty"`
+	Enabled               bool                            `toml:"enabled" json:"enabled"`
+	MITMEnabled           bool                            `toml:"mitm_enabled" json:"mitm_enabled"`
+	CaptureLimit          int                             `toml:"capture_limit" json:"capture_limit"`
+	BodyLimitBytes        int64                           `toml:"body_limit_bytes" json:"body_limit_bytes"`
+	HeaderValueLimitBytes int                             `toml:"header_value_limit_bytes" json:"header_value_limit_bytes"`
+	RedactHeaders         []string                        `toml:"redact_headers" json:"redact_headers"`
+	CACertPath            string                          `toml:"ca_cert_path" json:"ca_cert_path,omitempty"`
+	CAKeyPath             string                          `toml:"ca_key_path" json:"ca_key_path,omitempty"`
+	MapRules              []DeveloperMapRuleConfig        `toml:"map_rule" json:"map_rules,omitempty"`
+	BreakpointRules       []DeveloperBreakpointRuleConfig `toml:"breakpoint_rule" json:"breakpoint_rules,omitempty"`
+}
+
+// DeveloperMatchConfig describes a simple HTTP capture/tooling matcher.
+// Empty fields match all requests.
+type DeveloperMatchConfig struct {
+	Methods     []string `toml:"methods" json:"methods,omitempty"`
+	Host        string   `toml:"host" json:"host,omitempty"`
+	PathPrefix  string   `toml:"path_prefix" json:"path_prefix,omitempty"`
+	URLContains string   `toml:"url_contains" json:"url_contains,omitempty"`
+}
+
+// DeveloperMapRuleConfig rewrites matching HTTP(S) developer traffic.
+type DeveloperMapRuleConfig struct {
+	ID        string               `toml:"id" json:"id"`
+	Name      string               `toml:"name" json:"name,omitempty"`
+	Enabled   bool                 `toml:"enabled" json:"enabled"`
+	Match     DeveloperMatchConfig `toml:"match" json:"match"`
+	Kind      string               `toml:"kind" json:"kind"`
+	LocalPath string               `toml:"local_path" json:"local_path,omitempty"`
+	RemoteURL string               `toml:"remote_url" json:"remote_url,omitempty"`
+	Status    int                  `toml:"status" json:"status,omitempty"`
+	Headers   map[string]string    `toml:"headers" json:"headers,omitempty"`
+}
+
+// DeveloperBreakpointRuleConfig pauses matching developer traffic.
+type DeveloperBreakpointRuleConfig struct {
+	ID      string               `toml:"id" json:"id"`
+	Name    string               `toml:"name" json:"name,omitempty"`
+	Enabled bool                 `toml:"enabled" json:"enabled"`
+	Match   DeveloperMatchConfig `toml:"match" json:"match"`
+	Stage   string               `toml:"stage" json:"stage"`
 }
 
 // DefaultDeveloperConfig keeps developer mode disabled while defining bounded
