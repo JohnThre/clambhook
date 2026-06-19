@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 public let defaultTunnelConfigFileName = "clambhook.toml"
@@ -423,6 +424,126 @@ public struct TunnelNetworkSettingsPayload: Codable, Equatable, Sendable {
         self.excludedRoutes = excludedRoutes
         self.httpProxy = httpProxy
         self.httpsProxy = httpsProxy
+    }
+
+    public var usesFullTunnelRoutes: Bool {
+        let routes = (try? includedRoutePrefixes()) ?? []
+        return routes.contains(where: \.isIPv4DefaultRoute) && routes.contains(where: \.isIPv6DefaultRoute)
+    }
+
+    public func includedRoutePrefixes() throws -> [TunnelRoutePrefix] {
+        try includedRoutes.map(TunnelRoutePrefix.init)
+    }
+
+    public func excludedRoutePrefixes() throws -> [TunnelRoutePrefix] {
+        try excludedRoutes.map(TunnelRoutePrefix.init)
+    }
+}
+
+public enum TunnelRouteAddressFamily: String, Equatable, Sendable {
+    case ipv4
+    case ipv6
+}
+
+public enum TunnelRoutePrefixError: Error, Equatable, LocalizedError {
+    case invalidCIDR(String)
+    case invalidAddress(String)
+    case invalidPrefix(String)
+
+    public var errorDescription: String? {
+        switch self {
+        case .invalidCIDR(let value):
+            return "Invalid tunnel route CIDR: \(value)"
+        case .invalidAddress(let value):
+            return "Invalid tunnel route address: \(value)"
+        case .invalidPrefix(let value):
+            return "Invalid tunnel route prefix: \(value)"
+        }
+    }
+}
+
+public struct TunnelRoutePrefix: Equatable, Sendable {
+    public let rawValue: String
+    public let address: String
+    public let prefixLen: Int
+    public let family: TunnelRouteAddressFamily
+
+    private let isZeroAddress: Bool
+
+    public init(_ rawValue: String) throws {
+        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        let parts = trimmed.split(separator: "/", omittingEmptySubsequences: false).map(String.init)
+        guard parts.count == 2, !parts[0].isEmpty, !parts[1].isEmpty else {
+            throw TunnelRoutePrefixError.invalidCIDR(rawValue)
+        }
+        guard let prefixLen = Int(parts[1]) else {
+            throw TunnelRoutePrefixError.invalidPrefix(rawValue)
+        }
+
+        let address = parts[0]
+        if address.contains(":") {
+            guard (0...128).contains(prefixLen) else {
+                throw TunnelRoutePrefixError.invalidPrefix(rawValue)
+            }
+            guard let zero = Self.validateIPv6Address(address) else {
+                throw TunnelRoutePrefixError.invalidAddress(rawValue)
+            }
+            self.family = .ipv6
+            self.isZeroAddress = zero
+        } else if address.contains(".") {
+            guard (0...32).contains(prefixLen) else {
+                throw TunnelRoutePrefixError.invalidPrefix(rawValue)
+            }
+            guard let zero = Self.validateIPv4Address(address) else {
+                throw TunnelRoutePrefixError.invalidAddress(rawValue)
+            }
+            self.family = .ipv4
+            self.isZeroAddress = zero
+        } else {
+            throw TunnelRoutePrefixError.invalidAddress(rawValue)
+        }
+
+        self.rawValue = trimmed
+        self.address = address
+        self.prefixLen = prefixLen
+    }
+
+    public var isIPv4: Bool { family == .ipv4 }
+    public var isIPv6: Bool { family == .ipv6 }
+    public var isIPv4DefaultRoute: Bool { isIPv4 && prefixLen == 0 && isZeroAddress }
+    public var isIPv6DefaultRoute: Bool { isIPv6 && prefixLen == 0 && isZeroAddress }
+    public var isDefaultRoute: Bool { isIPv4DefaultRoute || isIPv6DefaultRoute }
+
+    private static func validateIPv4Address(_ value: String) -> Bool? {
+        let parts = value.split(separator: ".", omittingEmptySubsequences: false)
+        guard parts.count == 4 else {
+            return nil
+        }
+        var zero = true
+        for part in parts {
+            guard !part.isEmpty,
+                  part.unicodeScalars.allSatisfy({ $0.value >= 48 && $0.value <= 57 }),
+                  let number = Int(part),
+                  (0...255).contains(number)
+            else {
+                return nil
+            }
+            if number != 0 {
+                zero = false
+            }
+        }
+        return zero
+    }
+
+    private static func validateIPv6Address(_ value: String) -> Bool? {
+        var address = in6_addr()
+        let ok = value.withCString { inet_pton(AF_INET6, $0, &address) }
+        guard ok == 1 else {
+            return nil
+        }
+        return withUnsafeBytes(of: address) { bytes in
+            bytes.allSatisfy { $0 == 0 }
+        }
     }
 }
 
