@@ -181,6 +181,167 @@ public struct DeveloperCAPayload: Codable, Equatable, Sendable {
     }
 }
 
+public struct DeveloperMatchPayload: Codable, Equatable, Sendable {
+    public var methods: [String]
+    public var host: String
+    public var pathPrefix: String
+    public var urlContains: String
+
+    enum CodingKeys: String, CodingKey {
+        case methods
+        case host
+        case pathPrefix = "path_prefix"
+        case urlContains = "url_contains"
+    }
+
+    public init(methods: [String] = [], host: String = "", pathPrefix: String = "", urlContains: String = "") {
+        self.methods = methods
+        self.host = host
+        self.pathPrefix = pathPrefix
+        self.urlContains = urlContains
+    }
+}
+
+public struct DeveloperMapRulePayload: Codable, Equatable, Identifiable, Sendable {
+    public var id: String
+    public var name: String
+    public var enabled: Bool
+    public var match: DeveloperMatchPayload
+    public var kind: String
+    public var localPath: String
+    public var remoteURL: String
+    public var status: Int
+    public var headers: [String: String]
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case name
+        case enabled
+        case match
+        case kind
+        case localPath = "local_path"
+        case remoteURL = "remote_url"
+        case status
+        case headers
+    }
+
+    public init(id: String = UUID().uuidString, name: String = "", enabled: Bool = true, match: DeveloperMatchPayload = DeveloperMatchPayload(), kind: String = "local", localPath: String = "", remoteURL: String = "", status: Int = 0, headers: [String: String] = [:]) {
+        self.id = id
+        self.name = name
+        self.enabled = enabled
+        self.match = match
+        self.kind = kind
+        self.localPath = localPath
+        self.remoteURL = remoteURL
+        self.status = status
+        self.headers = headers
+    }
+}
+
+public struct DeveloperBreakpointRulePayload: Codable, Equatable, Identifiable, Sendable {
+    public var id: String
+    public var name: String
+    public var enabled: Bool
+    public var match: DeveloperMatchPayload
+    public var stage: String
+
+    public init(id: String = UUID().uuidString, name: String = "", enabled: Bool = true, match: DeveloperMatchPayload = DeveloperMatchPayload(), stage: String = "both") {
+        self.id = id
+        self.name = name
+        self.enabled = enabled
+        self.match = match
+        self.stage = stage
+    }
+}
+
+public struct DeveloperRuleListPayload<T: Codable & Equatable & Sendable>: Codable, Equatable, Sendable {
+    public var rules: [T]
+
+    public init(rules: [T] = []) {
+        self.rules = rules
+    }
+}
+
+public struct DeveloperRepeatRequestPayload: Codable, Equatable, Sendable {
+    public var entryID: String
+    public var method: String
+    public var url: String
+    public var headers: [DeveloperHeaderPayload]
+    public var body: String?
+
+    enum CodingKeys: String, CodingKey {
+        case entryID = "entry_id"
+        case method
+        case url
+        case headers
+        case body
+    }
+
+    public init(entryID: String, method: String = "", url: String = "", headers: [DeveloperHeaderPayload] = [], body: String? = nil) {
+        self.entryID = entryID
+        self.method = method
+        self.url = url
+        self.headers = headers
+        self.body = body
+    }
+}
+
+public struct DeveloperRepeatResponsePayload: Codable, Equatable, Sendable {
+    public var entry: DeveloperEntryPayload
+}
+
+public struct DeveloperPendingBreakpointsPayload: Codable, Equatable, Sendable {
+    public var breakpoints: [DeveloperPendingBreakpointPayload]
+}
+
+public struct DeveloperPendingBreakpointPayload: Codable, Equatable, Identifiable, Sendable {
+    public var id: String
+    public var ruleID: String
+    public var ruleName: String
+    public var stage: String
+    public var createdAt: String
+    public var request: DeveloperBreakpointMessagePayload
+    public var response: DeveloperBreakpointMessagePayload?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case ruleID = "rule_id"
+        case ruleName = "rule_name"
+        case stage
+        case createdAt = "created_at"
+        case request
+        case response
+    }
+}
+
+public struct DeveloperBreakpointMessagePayload: Codable, Equatable, Sendable {
+    public var method: String
+    public var url: String
+    public var status: Int
+    public var headers: [DeveloperHeaderPayload]
+    public var body: String
+
+    public init(method: String = "", url: String = "", status: Int = 0, headers: [DeveloperHeaderPayload] = [], body: String = "") {
+        self.method = method
+        self.url = url
+        self.status = status
+        self.headers = headers
+        self.body = body
+    }
+}
+
+public struct DeveloperBreakpointResolutionPayload: Codable, Equatable, Sendable {
+    public var action: String
+    public var request: DeveloperBreakpointMessagePayload?
+    public var response: DeveloperBreakpointMessagePayload?
+
+    public init(action: String = "continue", request: DeveloperBreakpointMessagePayload? = nil, response: DeveloperBreakpointMessagePayload? = nil) {
+        self.action = action
+        self.request = request
+        self.response = response
+    }
+}
+
 public let developerCaptureDisclosure = """
 HTTPS body capture is opt-in and local. When enabled, ClambHook creates a local certificate authority for devices you explicitly trust, decrypts traffic routed through the configured HTTP proxy, stores bounded request and response body previews on this device, redacts configured sensitive headers, and exports captures only when you share them.
 """

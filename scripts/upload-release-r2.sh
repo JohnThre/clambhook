@@ -10,6 +10,7 @@ FINAL_DMG_CHECKSUM="${3:-$ROOT_DIR/dist/macos/ClambhookMac-arm64.dmg.sha256}"
 UPDATE_MANIFEST="${4:-$ROOT_DIR/dist/macos/clambhook-update-manifest.json}"
 BUCKET="${CLAMBHOOK_R2_BUCKET:-clambhook-artifacts}"
 VERSION="${VERSION:-$(git -C "$ROOT_DIR" describe --tags --always --dirty 2>/dev/null || echo 'unknown')}"
+UPDATE_CHANNEL="${UPDATE_CHANNEL:-stable}"
 
 if [[ ! -f "$FINAL_ZIP" ]]; then
     echo "Installer not found: $FINAL_ZIP" >&2
@@ -67,7 +68,11 @@ if [[ -f "$FINAL_DMG_CHECKSUM" ]]; then
 fi
 
 if [[ -f "$UPDATE_MANIFEST" ]]; then
-    MANIFEST_KEY="clambhook-update-manifest.json"
+    if [[ "$UPDATE_CHANNEL" == "beta" || "$(basename "$UPDATE_MANIFEST")" == "clambhook-beta-update-manifest.json" ]]; then
+        MANIFEST_KEY="clambhook-beta-update-manifest.json"
+    else
+        MANIFEST_KEY="clambhook-update-manifest.json"
+    fi
     echo "Uploading → r2://$BUCKET/$MANIFEST_KEY"
     wrangler r2 object put "$BUCKET/$MANIFEST_KEY" \
         --file "$UPDATE_MANIFEST" \

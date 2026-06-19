@@ -34,12 +34,14 @@ const redactedValue = "[redacted]"
 
 // Manager owns developer-mode capture state and CA material.
 type Manager struct {
-	mu     sync.RWMutex
-	cfg    config.DeveloperConfig
-	store  *Store
-	ca     *caMaterial
-	certs  map[string]tls.Certificate
-	nextID atomic.Uint64
+	mu          sync.RWMutex
+	cfg         config.DeveloperConfig
+	store       *Store
+	ca          *caMaterial
+	certs       map[string]tls.Certificate
+	pending     map[string]*pendingBreakpoint
+	nextID      atomic.Uint64
+	nextPending atomic.Uint64
 }
 
 // Status describes developer-mode state for API/TUI display.
@@ -58,7 +60,7 @@ type Status struct {
 // and do not create CA material.
 func NewManager(cfg config.DeveloperConfig) (*Manager, error) {
 	cfg = fillConfig(cfg)
-	m := &Manager{cfg: cfg, certs: make(map[string]tls.Certificate)}
+	m := &Manager{cfg: cfg, certs: make(map[string]tls.Certificate), pending: make(map[string]*pendingBreakpoint)}
 	if cfg.Enabled {
 		m.store = NewStore(cfg.CaptureLimit)
 		if cfg.MITMEnabled {
@@ -199,6 +201,16 @@ func (m *Manager) Status() Status {
 		status.CaptureCount = len(m.store.List(0))
 	}
 	return status
+}
+
+// ConfigSnapshot returns the current developer configuration.
+func (m *Manager) ConfigSnapshot() config.DeveloperConfig {
+	if m == nil {
+		return config.DeveloperConfig{}
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.cfg
 }
 
 // CACertPEM returns the CA certificate PEM bytes.

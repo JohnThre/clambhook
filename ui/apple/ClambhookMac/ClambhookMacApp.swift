@@ -21,7 +21,7 @@ struct ClambhookMacApp: App {
 
         Settings {
             AppSettingsView(model: model)
-                .frame(width: 520, height: 420)
+                .frame(width: 620, height: 760)
         }
     }
 }

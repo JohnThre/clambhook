@@ -155,6 +155,10 @@ public final class DashboardStore: ObservableObject {
         trimLogs()
     }
 
+    public func clearLogs() {
+        logs.removeAll()
+    }
+
     public func apply(event: DaemonEvent) async {
         switch event.type {
         case "connection.bytes":

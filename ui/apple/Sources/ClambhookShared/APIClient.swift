@@ -24,6 +24,13 @@ public protocol DeveloperCaptureProviding: AnyObject {
     func developerEntries() async throws -> DeveloperEntriesPayload
     func developerCAPEM() async throws -> String
     func developerHAR() async throws -> String
+    func repeatDeveloperEntry(_ request: DeveloperRepeatRequestPayload) async throws -> DeveloperRepeatResponsePayload
+    func developerMapRules() async throws -> DeveloperRuleListPayload<DeveloperMapRulePayload>
+    func replaceDeveloperMapRules(_ rules: [DeveloperMapRulePayload]) async throws
+    func developerBreakpointRules() async throws -> DeveloperRuleListPayload<DeveloperBreakpointRulePayload>
+    func replaceDeveloperBreakpointRules(_ rules: [DeveloperBreakpointRulePayload]) async throws
+    func developerPendingBreakpoints() async throws -> DeveloperPendingBreakpointsPayload
+    func resolveDeveloperBreakpoint(id: String, resolution: DeveloperBreakpointResolutionPayload) async throws
     func clearDeveloperEntries() async throws
 }
 
@@ -91,6 +98,22 @@ public final class ClambhookAPIClient: ClambhookAPIProviding, ClambhookRuleEditi
 
     public func dns() async throws -> DNSPayload {
         try await getJSON("/api/v1/dns")
+    }
+
+    public func configSettings(profile: String = "") async throws -> ConfigSettingsPayload {
+        if profile.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return try await getJSON("/api/v1/config/settings")
+        }
+        var components = URLComponents()
+        components.path = "/api/v1/config/settings"
+        components.queryItems = [URLQueryItem(name: "profile", value: profile)]
+        return try await getJSON(components.string ?? "/api/v1/config/settings")
+    }
+
+    public func updateConfigSettings(_ request: ConfigSettingsUpdateRequest) async throws -> ConfigSettingsPayload {
+        let body = try encoder.encode(request)
+        let data = try await send(method: "PUT", path: "/api/v1/config/settings", body: body)
+        return try decoder.decode(ConfigSettingsPayload.self, from: data)
     }
 
     public func ruleSets() async throws -> RuleSetsPayload {
@@ -305,6 +328,45 @@ public final class ClambhookAPIClient: ClambhookAPIProviding, ClambhookRuleEditi
     public func developerHAR() async throws -> String {
         let data = try await send(method: "GET", path: "/api/v1/developer/har")
         return String(data: data, encoding: .utf8) ?? "{}"
+    }
+
+    public func repeatDeveloperEntry(_ request: DeveloperRepeatRequestPayload) async throws -> DeveloperRepeatResponsePayload {
+        let body = try encoder.encode(request)
+        let data = try await send(method: "POST", path: "/api/v1/developer/repeat", body: body)
+        return try decoder.decode(DeveloperRepeatResponsePayload.self, from: data)
+    }
+
+    public func developerMapRules() async throws -> DeveloperRuleListPayload<DeveloperMapRulePayload> {
+        try await getJSON("/api/v1/developer/map-rules")
+    }
+
+    public func replaceDeveloperMapRules(_ rules: [DeveloperMapRulePayload]) async throws {
+        struct Request: Encodable {
+            var rules: [DeveloperMapRulePayload]
+        }
+        let body = try encoder.encode(Request(rules: rules))
+        _ = try await send(method: "PUT", path: "/api/v1/developer/map-rules", body: body)
+    }
+
+    public func developerBreakpointRules() async throws -> DeveloperRuleListPayload<DeveloperBreakpointRulePayload> {
+        try await getJSON("/api/v1/developer/breakpoint-rules")
+    }
+
+    public func replaceDeveloperBreakpointRules(_ rules: [DeveloperBreakpointRulePayload]) async throws {
+        struct Request: Encodable {
+            var rules: [DeveloperBreakpointRulePayload]
+        }
+        let body = try encoder.encode(Request(rules: rules))
+        _ = try await send(method: "PUT", path: "/api/v1/developer/breakpoint-rules", body: body)
+    }
+
+    public func developerPendingBreakpoints() async throws -> DeveloperPendingBreakpointsPayload {
+        try await getJSON("/api/v1/developer/breakpoints/pending")
+    }
+
+    public func resolveDeveloperBreakpoint(id: String, resolution: DeveloperBreakpointResolutionPayload) async throws {
+        let body = try encoder.encode(resolution)
+        _ = try await send(method: "POST", path: "/api/v1/developer/breakpoints/\(id)/resolve", body: body)
     }
 
     public func clearDeveloperEntries() async throws {

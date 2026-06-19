@@ -23,8 +23,12 @@
 		4AA3902FB355119E38FC8385 /* MacLicenseManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 861C6B6F1238EBFD62EBA315 /* MacLicenseManager.swift */; };
 		55EB0B85AE3ECF0FD4819B8B /* ClambhookShared in Frameworks */ = {isa = PBXBuildFile; productRef = B64D35EC77B9F6E4644D12DE /* ClambhookShared */; };
 		591061674835E9B22E696123 /* MacMenuBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B7ECD0E4E9DE7440023C997 /* MacMenuBarView.swift */; };
+		6F033E091FAFAE01C347CD49 /* MacUpdateChecker.swift in Sources */ = {isa = PBXBuildFile; fileRef = D51002549457E19CB6EE988D /* MacUpdateChecker.swift */; };
 		751082522AE94AEC0132939B /* ClambhookVisionApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = DDDB54D167062A1D34DD23E1 /* ClambhookVisionApp.swift */; };
+		79218D4F75C5C8C52215171C /* MacCommandRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 243DC274A14C7F31C205BAF8 /* MacCommandRunner.swift */; };
 		796E1CFB4C4751AEF5C1F502 /* VisionNetworkMapScene.swift in Sources */ = {isa = PBXBuildFile; fileRef = C34298B9F0C4CFA97FFDC543 /* VisionNetworkMapScene.swift */; };
+		7B24668699ADCA36A9BB4B45 /* MacCertificateManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = D92091F3B5B6E2E4A8F4665B /* MacCertificateManager.swift */; };
+		A16CDA20F6B7C6F85EE71F1B /* MacSystemProxyManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C4BAA859EE07F11DBF405BF /* MacSystemProxyManager.swift */; };
 		B6415B0956578D75A1C9E598 /* ClambhookWidgetBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E7E93A4404814358F6C95DB /* ClambhookWidgetBundle.swift */; };
 		C57BE413A40A04BB9A3C80B2 /* MacSidebarSections.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B8CD11563D4B3DD735C2E6D /* MacSidebarSections.swift */; };
 		C785B03E1F90EEE06E88309D /* AppleAppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F26A7314DC7A26F275AB285 /* AppleAppModel.swift */; };
@@ -49,9 +53,9 @@
 			isa = PBXCopyFilesBuildPhase;
 			buildActionMask = 2147483647;
 			dstPath = "";
-			dstSubfolderSpec = 10;
+			dstSubfolderSpec = 6;
 			files = (
-				069007F5D0A7675880D40F9B /* libsodium.26.dylib in CopyFiles */,
+				3792B993B246938C4220AC8D /* clambhook in CopyFiles */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -59,9 +63,9 @@
 			isa = PBXCopyFilesBuildPhase;
 			buildActionMask = 2147483647;
 			dstPath = "";
-			dstSubfolderSpec = 6;
+			dstSubfolderSpec = 10;
 			files = (
-				3792B993B246938C4220AC8D /* clambhook in CopyFiles */,
+				069007F5D0A7675880D40F9B /* libsodium.26.dylib in CopyFiles */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -82,10 +86,12 @@
 		02A8B8AC40D9FACBCFC83187 /* ClambhookMacApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClambhookMacApp.swift; sourceTree = "<group>"; };
 		0A1CC5DD0620471B3CCA85A1 /* libsodium.26.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; path = libsodium.26.dylib; sourceTree = "<group>"; };
 		0BFDFE052F0742168D946261 /* apple */ = {isa = PBXFileReference; lastKnownFileType = folder; name = apple; path = .; sourceTree = SOURCE_ROOT; };
+		0C4BAA859EE07F11DBF405BF /* MacSystemProxyManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacSystemProxyManager.swift; sourceTree = "<group>"; };
 		0F26A7314DC7A26F275AB285 /* AppleAppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleAppModel.swift; sourceTree = "<group>"; };
 		11D3A8B6CD3A6119053C8908 /* SettingsViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsViews.swift; sourceTree = "<group>"; };
 		1B067640E07DD0E186D64487 /* ClambhookMacWidgetExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = ClambhookMacWidgetExtension.entitlements; sourceTree = "<group>"; };
 		22F84BCEFC14A14041740CB6 /* ClambhookVision.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = ClambhookVision.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		243DC274A14C7F31C205BAF8 /* MacCommandRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacCommandRunner.swift; sourceTree = "<group>"; };
 		24D15BDA328B4ED0B2A65291 /* ClambhookMac.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ClambhookMac.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		60CD6FD2940A90C4362F5B00 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		6B8CD11563D4B3DD735C2E6D /* MacSidebarSections.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacSidebarSections.swift; sourceTree = "<group>"; };
@@ -102,6 +108,8 @@
 		B79D4C19242D8E6E95224A77 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		C34298B9F0C4CFA97FFDC543 /* VisionNetworkMapScene.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisionNetworkMapScene.swift; sourceTree = "<group>"; };
 		C8D0525C10EE904F2F5523DA /* SupportPurchasesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SupportPurchasesView.swift; sourceTree = "<group>"; };
+		D51002549457E19CB6EE988D /* MacUpdateChecker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacUpdateChecker.swift; sourceTree = "<group>"; };
+		D92091F3B5B6E2E4A8F4665B /* MacCertificateManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacCertificateManager.swift; sourceTree = "<group>"; };
 		DDDB54D167062A1D34DD23E1 /* ClambhookVisionApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClambhookVisionApp.swift; sourceTree = "<group>"; };
 		E0B72BED6576EF183CAD2854 /* ClambhookDaemon.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = ClambhookDaemon.entitlements; sourceTree = "<group>"; };
 		E5D820AE96C5A0080AA5CF1F /* DashboardViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashboardViews.swift; sourceTree = "<group>"; };
@@ -144,9 +152,13 @@
 				02A8B8AC40D9FACBCFC83187 /* ClambhookMacApp.swift */,
 				752B77E9507F4674BBA0E4D8 /* DaemonSupervisor.swift */,
 				B79D4C19242D8E6E95224A77 /* Info.plist */,
+				D92091F3B5B6E2E4A8F4665B /* MacCertificateManager.swift */,
+				243DC274A14C7F31C205BAF8 /* MacCommandRunner.swift */,
 				73930EE75CE83BC0639DF8FB /* MacDashboardWindowView.swift */,
 				8B7ECD0E4E9DE7440023C997 /* MacMenuBarView.swift */,
 				6B8CD11563D4B3DD735C2E6D /* MacSidebarSections.swift */,
+				0C4BAA859EE07F11DBF405BF /* MacSystemProxyManager.swift */,
+				D51002549457E19CB6EE988D /* MacUpdateChecker.swift */,
 			);
 			path = ClambhookMac;
 			sourceTree = "<group>";
@@ -354,10 +366,14 @@
 				095D479A2F5A1084BFB762D0 /* ClambhookMacApp.swift in Sources */,
 				21058FE949E1058BD40B24BC /* DaemonSupervisor.swift in Sources */,
 				3B1AEF48F2085F24D45275D2 /* DashboardViews.swift in Sources */,
+				7B24668699ADCA36A9BB4B45 /* MacCertificateManager.swift in Sources */,
+				79218D4F75C5C8C52215171C /* MacCommandRunner.swift in Sources */,
 				02515828BBDD5E2F458BBC82 /* MacDashboardWindowView.swift in Sources */,
 				4AA3902FB355119E38FC8385 /* MacLicenseManager.swift in Sources */,
 				591061674835E9B22E696123 /* MacMenuBarView.swift in Sources */,
 				C57BE413A40A04BB9A3C80B2 /* MacSidebarSections.swift in Sources */,
+				A16CDA20F6B7C6F85EE71F1B /* MacSystemProxyManager.swift in Sources */,
+				6F033E091FAFAE01C347CD49 /* MacUpdateChecker.swift in Sources */,
 				E20BEBC7404594F87E09BDF7 /* SettingsViews.swift in Sources */,
 				CC0CF0A287AC0E53A37374A7 /* SupportPurchasesView.swift in Sources */,
 			);

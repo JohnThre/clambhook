@@ -8,6 +8,8 @@ public let minRefreshIntervalSeconds: Double = 1
 public let maxRefreshIntervalSeconds: Double = 30
 public let minLogRetention = 50
 public let maxLogRetention = 500
+public let defaultStableUpdateManifestURL = URL(string: "https://jpfchang.org/clambhook/clambhook-update-manifest.json")!
+public let defaultBetaUpdateManifestURL = URL(string: "https://jpfchang.org/clambhook/clambhook-beta-update-manifest.json")!
 public let vpnDataUseDisclosure = """
 ClambHook creates a local VPN configuration to route device network traffic according to your profiles and rules. iPhone v1 inspection is metadata-only: connection targets, routing decisions, byte counts, timing, and hop status. The iPhone app does not install a certificate authority, perform TLS MITM, store request or response bodies, export HAR files, or provide body-level redaction workflows. Profile data, connection metadata, traffic logs, and diagnostics stay on this device unless you export them. ClambHook does not sell, use, or disclose VPN traffic data to third parties. Apple diagnostics may include crash and performance data if enabled.
 """
@@ -26,6 +28,10 @@ public struct AppSettings: Codable, Equatable, Sendable {
     public var inspectionLockEnabled: Bool
     public var pinnedConnectionIDs: [String]
     public var licenseValidationEndpoint: URL
+    public var systemProxyEnabled: Bool
+    public var updateChannel: String
+    public var stableUpdateManifestURL: URL
+    public var betaUpdateManifestURL: URL
 
     public init(
         apiEndpoint: URL = defaultAPIEndpoint,
@@ -40,7 +46,11 @@ public struct AppSettings: Codable, Equatable, Sendable {
         appGroupIdentifier: String = defaultAppGroupIdentifier,
         inspectionLockEnabled: Bool = false,
         pinnedConnectionIDs: [String] = [],
-        licenseValidationEndpoint: URL = defaultLicenseValidationURL
+        licenseValidationEndpoint: URL = defaultLicenseValidationURL,
+        systemProxyEnabled: Bool = false,
+        updateChannel: String = "stable",
+        stableUpdateManifestURL: URL = defaultStableUpdateManifestURL,
+        betaUpdateManifestURL: URL = defaultBetaUpdateManifestURL
     ) {
         self.apiEndpoint = apiEndpoint
         self.daemonBinaryPath = daemonBinaryPath
@@ -55,6 +65,10 @@ public struct AppSettings: Codable, Equatable, Sendable {
         self.inspectionLockEnabled = inspectionLockEnabled
         self.pinnedConnectionIDs = pinnedConnectionIDs
         self.licenseValidationEndpoint = licenseValidationEndpoint
+        self.systemProxyEnabled = systemProxyEnabled
+        self.updateChannel = updateChannel
+        self.stableUpdateManifestURL = stableUpdateManifestURL
+        self.betaUpdateManifestURL = betaUpdateManifestURL
     }
 
     enum CodingKeys: String, CodingKey {
@@ -71,6 +85,10 @@ public struct AppSettings: Codable, Equatable, Sendable {
         case inspectionLockEnabled
         case pinnedConnectionIDs
         case licenseValidationEndpoint
+        case systemProxyEnabled
+        case updateChannel
+        case stableUpdateManifestURL
+        case betaUpdateManifestURL
     }
 
     public init(from decoder: Decoder) throws {
@@ -88,6 +106,10 @@ public struct AppSettings: Codable, Equatable, Sendable {
         self.inspectionLockEnabled = try container.decodeIfPresent(Bool.self, forKey: .inspectionLockEnabled) ?? false
         self.pinnedConnectionIDs = try container.decodeIfPresent([String].self, forKey: .pinnedConnectionIDs) ?? []
         self.licenseValidationEndpoint = try container.decodeIfPresent(URL.self, forKey: .licenseValidationEndpoint) ?? defaultLicenseValidationURL
+        self.systemProxyEnabled = try container.decodeIfPresent(Bool.self, forKey: .systemProxyEnabled) ?? false
+        self.updateChannel = try container.decodeIfPresent(String.self, forKey: .updateChannel) ?? "stable"
+        self.stableUpdateManifestURL = try container.decodeIfPresent(URL.self, forKey: .stableUpdateManifestURL) ?? defaultStableUpdateManifestURL
+        self.betaUpdateManifestURL = try container.decodeIfPresent(URL.self, forKey: .betaUpdateManifestURL) ?? defaultBetaUpdateManifestURL
     }
 
     public func normalized() -> AppSettings {
@@ -105,6 +127,13 @@ public struct AppSettings: Codable, Equatable, Sendable {
         if !Self.isSupportedAPIEndpoint(copy.licenseValidationEndpoint) {
             copy.licenseValidationEndpoint = defaultLicenseValidationURL
         }
+        copy.updateChannel = Self.normalizedUpdateChannel(copy.updateChannel)
+        if !Self.isSupportedAPIEndpoint(copy.stableUpdateManifestURL) {
+            copy.stableUpdateManifestURL = defaultStableUpdateManifestURL
+        }
+        if !Self.isSupportedAPIEndpoint(copy.betaUpdateManifestURL) {
+            copy.betaUpdateManifestURL = defaultBetaUpdateManifestURL
+        }
         copy.pinnedConnectionIDs = Array(Set(copy.pinnedConnectionIDs.map {
             $0.trimmingCharacters(in: .whitespacesAndNewlines)
         }.filter {
@@ -121,6 +150,15 @@ public struct AppSettings: Codable, Equatable, Sendable {
             return false
         }
         return true
+    }
+
+    public static func normalizedUpdateChannel(_ value: String) -> String {
+        let channel = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return channel == "beta" ? "beta" : "stable"
+    }
+
+    public var updateManifestURL: URL {
+        updateChannel == "beta" ? betaUpdateManifestURL : stableUpdateManifestURL
     }
 }
 

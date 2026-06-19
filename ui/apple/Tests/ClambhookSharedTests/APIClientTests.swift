@@ -155,6 +155,56 @@ final class APIClientTests: XCTestCase {
         XCTAssertEqual(dns.upstreamRoutes.first?.chainName, "proxy")
     }
 
+    func testConfigSettingsRequestDecodesPayload() async throws {
+        MockURLProtocol.responseData = Data("""
+        {
+          "profile": "Work",
+          "listen": {"socks5":"127.0.0.1:1080","socks5_chain":"proxy","http":"127.0.0.1:8080","http_chain":"proxy"},
+          "dns": {"enabled":true,"timeout":"5s","upstreams":[{"name":"cf","protocol":"doh","url":"https://cloudflare-dns.com/dns-query"}]}
+        }
+        """.utf8)
+        let client = ClambhookAPIClient(
+            baseURL: URL(string: "http://127.0.0.1:9090")!,
+            session: mockSession()
+        )
+
+        let settings = try await client.configSettings()
+
+        XCTAssertEqual(MockURLProtocol.lastRequest?.url?.absoluteString, "http://127.0.0.1:9090/api/v1/config/settings")
+        XCTAssertEqual(settings.listen.socks5, "127.0.0.1:1080")
+        XCTAssertTrue(settings.dns.enabled)
+        XCTAssertEqual(settings.dns.upstreams.first?.name, "cf")
+    }
+
+    func testUpdateConfigSettingsSendsPartialPayload() async throws {
+        MockURLProtocol.responseData = Data("""
+        {
+          "profile": "Work",
+          "listen": {"socks5":"127.0.0.1:1180","http":"127.0.0.1:18080"},
+          "dns": {"enabled":false,"timeout":"5s","upstreams":[]},
+          "backup_path": "/tmp/clambhook.toml.bak"
+        }
+        """.utf8)
+        let client = ClambhookAPIClient(
+            baseURL: URL(string: "http://127.0.0.1:9090")!,
+            session: mockSession()
+        )
+
+        let response = try await client.updateConfigSettings(ConfigSettingsUpdateRequest(
+            profile: "Work",
+            listen: ConfigListenSettingsPayload(socks5: "127.0.0.1:1180", http: "127.0.0.1:18080")
+        ))
+
+        XCTAssertEqual(response.backupPath, "/tmp/clambhook.toml.bak")
+        XCTAssertEqual(MockURLProtocol.lastRequest?.httpMethod, "PUT")
+        XCTAssertEqual(MockURLProtocol.lastRequest?.url?.absoluteString, "http://127.0.0.1:9090/api/v1/config/settings")
+        let body = try XCTUnwrap(MockURLProtocol.lastBody)
+        let decoded = try JSONDecoder().decode(ConfigSettingsUpdateRequest.self, from: body)
+        XCTAssertEqual(decoded.profile, "Work")
+        XCTAssertEqual(decoded.listen?.socks5, "127.0.0.1:1180")
+        XCTAssertNil(decoded.dns)
+    }
+
     func testRefreshRuleSubscriptionsSendsSelectedNames() async throws {
         MockURLProtocol.responseData = Data("""
         {"profile":"Work","subscriptions":[{"name":"ads","url":"https://lists.example.invalid/ads.txt","format":"auto","action":"block","cached":true,"domain_count":1}]}

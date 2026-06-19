@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/JohnThre/clambhook/internal/config"
+	"github.com/JohnThre/clambhook/internal/developer"
 	"github.com/JohnThre/clambhook/internal/engine"
 	"github.com/JohnThre/clambhook/internal/policy"
 	"github.com/JohnThre/clambhook/internal/protocol"
@@ -34,6 +35,8 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/rule-sets/refresh", s.handleRefreshRuleSets)
 	mux.HandleFunc("GET /api/v1/rules", s.handleRules)
 	mux.HandleFunc("GET /api/v1/dns", s.handleDNS)
+	mux.HandleFunc("GET /api/v1/config/settings", s.handleConfigSettings)
+	mux.HandleFunc("PUT /api/v1/config/settings", s.handleUpdateConfigSettings)
 	mux.HandleFunc("POST /api/v1/rules", s.handleCreateRule)
 	mux.HandleFunc("POST /api/v1/rules/cleanup", s.handleCleanupRule)
 	mux.HandleFunc("POST /api/v1/rules/from-connection", s.handleCreateRuleFromConnection)
@@ -57,6 +60,15 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/developer/entries", s.handleDeveloperEntries)
 	mux.HandleFunc("GET /api/v1/developer/entries/{id}", s.handleDeveloperEntry)
 	mux.HandleFunc("GET /api/v1/developer/har", s.handleDeveloperHAR)
+	mux.HandleFunc("POST /api/v1/developer/repeat", s.handleDeveloperRepeat)
+	mux.HandleFunc("GET /api/v1/developer/map-rules", s.handleDeveloperMapRules)
+	mux.HandleFunc("PUT /api/v1/developer/map-rules", s.handleDeveloperReplaceMapRules)
+	mux.HandleFunc("DELETE /api/v1/developer/map-rules/{id}", s.handleDeveloperDeleteMapRule)
+	mux.HandleFunc("GET /api/v1/developer/breakpoint-rules", s.handleDeveloperBreakpointRules)
+	mux.HandleFunc("PUT /api/v1/developer/breakpoint-rules", s.handleDeveloperReplaceBreakpointRules)
+	mux.HandleFunc("DELETE /api/v1/developer/breakpoint-rules/{id}", s.handleDeveloperDeleteBreakpointRule)
+	mux.HandleFunc("GET /api/v1/developer/breakpoints/pending", s.handleDeveloperPendingBreakpoints)
+	mux.HandleFunc("POST /api/v1/developer/breakpoints/{id}/resolve", s.handleDeveloperResolveBreakpoint)
 	mux.HandleFunc("DELETE /api/v1/developer/entries", s.handleDeveloperClear)
 }
 
@@ -649,6 +661,19 @@ type ruleSubscriptionPersistenceResponse struct {
 	BackupPath    string                          `json:"backup_path"`
 }
 
+type developerMapRulesRequest struct {
+	Rules []config.DeveloperMapRuleConfig `json:"rules"`
+}
+
+type developerBreakpointRulesRequest struct {
+	Rules []config.DeveloperBreakpointRuleConfig `json:"rules"`
+}
+
+type developerRulesPersistenceResponse struct {
+	Developer  config.DeveloperConfig `json:"developer"`
+	BackupPath string                 `json:"backup_path"`
+}
+
 type rulePersistenceError struct {
 	status int
 	err    error
@@ -805,6 +830,39 @@ func (s *Server) persistRuleSubscriptions(profileName string, nextSubscriptions 
 		Profile:       profile.Name,
 		Subscriptions: profile.RuleSubscriptions,
 		BackupPath:    result.BackupPath,
+	}, nil
+}
+
+func (s *Server) persistDeveloperConfig(update func(config.DeveloperConfig) config.DeveloperConfig) (developerRulesPersistenceResponse, error) {
+	cfg, err := config.Load(s.configPath)
+	if err != nil {
+		return developerRulesPersistenceResponse{}, rulePersistenceError{status: http.StatusInternalServerError, err: err}
+	}
+	cfg.Developer = update(cfg.Developer)
+	if err := engine.ValidateConfig(cfg); err != nil {
+		return developerRulesPersistenceResponse{}, rulePersistenceError{status: http.StatusBadRequest, err: err}
+	}
+	result, err := config.WriteAtomicWithBackup(s.configPath, cfg)
+	if err != nil {
+		return developerRulesPersistenceResponse{}, rulePersistenceError{status: http.StatusInternalServerError, err: err}
+	}
+	if err := s.engine.Reload(cfg); err != nil {
+		return developerRulesPersistenceResponse{}, rulePersistenceError{status: http.StatusInternalServerError, err: err}
+	}
+	dev := s.developerManager()
+	if dev == nil {
+		dev, err = developer.NewManager(cfg.Developer)
+		if err != nil {
+			return developerRulesPersistenceResponse{}, rulePersistenceError{status: http.StatusInternalServerError, err: err}
+		}
+	} else if err := dev.Reconfigure(cfg.Developer); err != nil {
+		return developerRulesPersistenceResponse{}, rulePersistenceError{status: http.StatusInternalServerError, err: err}
+	}
+	s.SetDeveloper(dev)
+	s.engine.SetHTTPInspector(dev)
+	return developerRulesPersistenceResponse{
+		Developer:  cfg.Developer,
+		BackupPath: result.BackupPath,
 	}, nil
 }
 
@@ -1058,6 +1116,162 @@ func (s *Server) handleDeveloperHAR(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Disposition", `attachment; filename="clambhook.har"`)
 	writeJSON(w, dev.HAR())
+}
+
+func (s *Server) handleDeveloperRepeat(w http.ResponseWriter, r *http.Request) {
+	dev := s.developerManager()
+	if dev == nil {
+		http.Error(w, "developer mode disabled", http.StatusNotImplemented)
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxJSONRequestBytes)
+	var req developer.RepeatRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	resp, err := dev.Repeat(r.Context(), req)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	writeJSON(w, resp)
+}
+
+func (s *Server) handleDeveloperMapRules(w http.ResponseWriter, r *http.Request) {
+	dev := s.developerManager()
+	if dev == nil {
+		writeJSON(w, map[string]any{"rules": []any{}})
+		return
+	}
+	writeJSON(w, map[string]any{"rules": dev.ConfigSnapshot().MapRules})
+}
+
+func (s *Server) handleDeveloperReplaceMapRules(w http.ResponseWriter, r *http.Request) {
+	if strings.TrimSpace(s.configPath) == "" {
+		http.Error(w, "developer rule persistence requires daemon config path", http.StatusConflict)
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxJSONRequestBytes)
+	var req developerMapRulesRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	resp, err := s.persistDeveloperConfig(func(dev config.DeveloperConfig) config.DeveloperConfig {
+		dev.MapRules = append([]config.DeveloperMapRuleConfig(nil), req.Rules...)
+		return dev
+	})
+	if err != nil {
+		writeRulePersistenceError(w, err)
+		return
+	}
+	writeJSON(w, resp)
+}
+
+func (s *Server) handleDeveloperDeleteMapRule(w http.ResponseWriter, r *http.Request) {
+	if strings.TrimSpace(s.configPath) == "" {
+		http.Error(w, "developer rule persistence requires daemon config path", http.StatusConflict)
+		return
+	}
+	id := strings.TrimSpace(r.PathValue("id"))
+	resp, err := s.persistDeveloperConfig(func(dev config.DeveloperConfig) config.DeveloperConfig {
+		next := make([]config.DeveloperMapRuleConfig, 0, len(dev.MapRules))
+		for _, rule := range dev.MapRules {
+			if rule.ID != id {
+				next = append(next, rule)
+			}
+		}
+		dev.MapRules = next
+		return dev
+	})
+	if err != nil {
+		writeRulePersistenceError(w, err)
+		return
+	}
+	writeJSON(w, resp)
+}
+
+func (s *Server) handleDeveloperBreakpointRules(w http.ResponseWriter, r *http.Request) {
+	dev := s.developerManager()
+	if dev == nil {
+		writeJSON(w, map[string]any{"rules": []any{}})
+		return
+	}
+	writeJSON(w, map[string]any{"rules": dev.ConfigSnapshot().BreakpointRules})
+}
+
+func (s *Server) handleDeveloperReplaceBreakpointRules(w http.ResponseWriter, r *http.Request) {
+	if strings.TrimSpace(s.configPath) == "" {
+		http.Error(w, "developer rule persistence requires daemon config path", http.StatusConflict)
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxJSONRequestBytes)
+	var req developerBreakpointRulesRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	resp, err := s.persistDeveloperConfig(func(dev config.DeveloperConfig) config.DeveloperConfig {
+		dev.BreakpointRules = append([]config.DeveloperBreakpointRuleConfig(nil), req.Rules...)
+		return dev
+	})
+	if err != nil {
+		writeRulePersistenceError(w, err)
+		return
+	}
+	writeJSON(w, resp)
+}
+
+func (s *Server) handleDeveloperDeleteBreakpointRule(w http.ResponseWriter, r *http.Request) {
+	if strings.TrimSpace(s.configPath) == "" {
+		http.Error(w, "developer rule persistence requires daemon config path", http.StatusConflict)
+		return
+	}
+	id := strings.TrimSpace(r.PathValue("id"))
+	resp, err := s.persistDeveloperConfig(func(dev config.DeveloperConfig) config.DeveloperConfig {
+		next := make([]config.DeveloperBreakpointRuleConfig, 0, len(dev.BreakpointRules))
+		for _, rule := range dev.BreakpointRules {
+			if rule.ID != id {
+				next = append(next, rule)
+			}
+		}
+		dev.BreakpointRules = next
+		return dev
+	})
+	if err != nil {
+		writeRulePersistenceError(w, err)
+		return
+	}
+	writeJSON(w, resp)
+}
+
+func (s *Server) handleDeveloperPendingBreakpoints(w http.ResponseWriter, r *http.Request) {
+	dev := s.developerManager()
+	if dev == nil {
+		writeJSON(w, map[string]any{"breakpoints": []any{}})
+		return
+	}
+	writeJSON(w, map[string]any{"breakpoints": dev.PendingBreakpoints()})
+}
+
+func (s *Server) handleDeveloperResolveBreakpoint(w http.ResponseWriter, r *http.Request) {
+	dev := s.developerManager()
+	if dev == nil {
+		http.Error(w, "developer mode disabled", http.StatusNotImplemented)
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxJSONRequestBytes)
+	var req developer.BreakpointResolution
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if !dev.ResolveBreakpoint(r.PathValue("id"), req) {
+		http.Error(w, "breakpoint not found", http.StatusNotFound)
+		return
+	}
+	writeJSON(w, map[string]any{"resolved": true})
 }
 
 func (s *Server) handleDeveloperClear(w http.ResponseWriter, r *http.Request) {

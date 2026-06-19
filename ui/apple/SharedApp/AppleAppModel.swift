@@ -11,6 +11,11 @@ final class AppleAppModel: ObservableObject {
     @Published private(set) var profileMetadata: ProfileMetadataStore
     @Published private(set) var developerStatus = DeveloperStatusPayload()
     @Published private(set) var developerEntries: [DeveloperEntryPayload] = []
+    @Published private(set) var developerMapRules: [DeveloperMapRulePayload] = []
+    @Published private(set) var developerBreakpointRules: [DeveloperBreakpointRulePayload] = []
+    @Published private(set) var developerPendingBreakpoints: [DeveloperPendingBreakpointPayload] = []
+    @Published private(set) var configSettings = ConfigSettingsPayload()
+    @Published private(set) var developerCAPEMText = ""
     @Published var apiToken = ""
     @Published var daemonMessage = ""
 
@@ -24,11 +29,21 @@ final class AppleAppModel: ObservableObject {
     private var attentionChangeCancellable: AnyCancellable?
     private var profileMetadataChangeCancellable: AnyCancellable?
     private var settingsChangeCancellable: AnyCancellable?
+    #if os(macOS)
     private var licenseChangeCancellable: AnyCancellable?
+    private var systemProxyChangeCancellable: AnyCancellable?
+    private var certificateChangeCancellable: AnyCancellable?
+    private var updateChangeCancellable: AnyCancellable?
+    #endif
     private var started = false
 
+    #if os(macOS)
     let daemonSupervisor = DaemonSupervisor()
+    let systemProxyManager = MacSystemProxyManager()
+    let certificateManager = MacCertificateManager()
+    let updateChecker = MacUpdateChecker()
     @Published private(set) var licenseManager: MacLicenseManager
+    #endif
 
     convenience init(platform: AppPlatform) {
         self.init(
@@ -43,11 +58,13 @@ final class AppleAppModel: ObservableObject {
         self.settingsStore = settingsStore
         self.credentialStore = credentialStore
         self.snapshotStore = FileSnapshotStore.appGroupStore(groupIdentifier: settingsStore.settings.appGroupIdentifier)
+        #if os(macOS)
         self.licenseManager = MacLicenseManager(
             defaults: UserDefaults(suiteName: settingsStore.settings.appGroupIdentifier) ?? .standard,
             credentialStore: KeychainCredentialStore(service: "org.jpfchang.clambhook.license"),
             licenseValidationEndpoint: settingsStore.settings.licenseValidationEndpoint
         )
+        #endif
         let initialToken = (try? credentialStore.readToken(account: settingsStore.settings.apiEndpoint.absoluteString)) ?? ""
         self.apiToken = initialToken
         let initialAPIClient = ClambhookAPIClient(baseURL: settingsStore.settings.apiEndpoint, tokenProvider: { initialToken })
@@ -74,18 +91,24 @@ final class AppleAppModel: ObservableObject {
             return
         }
         started = true
+        #if os(macOS)
         licenseManager.start()
+        #endif
         reloadClient()
+        #if os(macOS)
         if settingsStore.settings.launchDaemonOnStart {
             launchDaemon()
         }
+        #endif
         if let apiClient {
             dashboard.startEventStream(from: apiClient)
         }
         startPolling()
         Task {
             await dashboard.refreshDashboard()
+            await refreshConfigSettingsNow()
             await refreshDeveloperCaptureNow()
+            await refreshDeveloperCANow()
             syncProfileRecoveryIssue()
             enforceLicenseState()
         }
@@ -95,9 +118,11 @@ final class AppleAppModel: ObservableObject {
         pollingTask?.cancel()
         pollingTask = nil
         dashboard.stopEventStream()
+        #if os(macOS)
         if settingsStore.settings.stopDaemonOnQuit {
             daemonSupervisor.stop()
         }
+        #endif
         started = false
     }
 
@@ -114,7 +139,9 @@ final class AppleAppModel: ObservableObject {
         }
         Task {
             await dashboard.refreshDashboard()
+            await refreshConfigSettingsNow()
             await refreshDeveloperCaptureNow()
+            await refreshDeveloperCANow()
             syncProfileRecoveryIssue()
         }
     }
@@ -122,13 +149,16 @@ final class AppleAppModel: ObservableObject {
     func refresh() {
         Task {
             await dashboard.refreshDashboard()
+            await refreshConfigSettingsNow()
             syncProfileRecoveryIssue()
         }
     }
 
     func refreshNow() async {
         await dashboard.refreshDashboard()
+        await refreshConfigSettingsNow()
         await refreshDeveloperCaptureNow()
+        await refreshDeveloperCANow()
         syncProfileRecoveryIssue()
     }
 
@@ -397,6 +427,7 @@ final class AppleAppModel: ObservableObject {
     func refreshDeveloperCapture() {
         Task {
             await refreshDeveloperCaptureNow()
+            await refreshDeveloperCANow()
         }
     }
 
@@ -409,9 +440,15 @@ final class AppleAppModel: ObservableObject {
         do {
             developerStatus = try await provider.developerStatus()
             developerEntries = try await provider.developerEntries().entries
+            developerMapRules = try await provider.developerMapRules().rules
+            developerBreakpointRules = try await provider.developerBreakpointRules().rules
+            developerPendingBreakpoints = try await provider.developerPendingBreakpoints().breakpoints
         } catch {
             developerStatus = DeveloperStatusPayload()
             developerEntries = []
+            developerMapRules = []
+            developerBreakpointRules = []
+            developerPendingBreakpoints = []
             daemonMessage = error.localizedDescription
         }
     }
@@ -421,6 +458,62 @@ final class AppleAppModel: ObservableObject {
             throw APIClientError.invalidURL("developer capture unavailable")
         }
         return try await provider.developerCAPEM()
+    }
+
+    func refreshConfigSettings() {
+        Task {
+            await refreshConfigSettingsNow()
+        }
+    }
+
+    func refreshConfigSettingsNow() async {
+        do {
+            guard let apiClient else {
+                throw APIClientError.invalidURL("missing API client")
+            }
+            configSettings = try await apiClient.configSettings()
+        } catch {
+            configSettings = ConfigSettingsPayload()
+        }
+    }
+
+    func saveConfigSettings(listen: ConfigListenSettingsPayload? = nil, dns: ConfigDNSSettingsPayload? = nil) {
+        Task {
+            do {
+                guard let apiClient else {
+                    throw APIClientError.invalidURL("missing API client")
+                }
+                configSettings = try await apiClient.updateConfigSettings(ConfigSettingsUpdateRequest(
+                    profile: configSettings.profile,
+                    listen: listen,
+                    dns: dns
+                ))
+                await dashboard.refreshDashboard()
+                daemonMessage = configSettings.backupPath.isEmpty ? "settings saved" : "settings saved with backup"
+            } catch {
+                daemonMessage = error.localizedDescription
+            }
+        }
+    }
+
+    func refreshDeveloperCA() {
+        Task {
+            await refreshDeveloperCANow()
+        }
+    }
+
+    func refreshDeveloperCANow() async {
+        do {
+            developerCAPEMText = try await developerCAPEM()
+            #if os(macOS)
+            certificateManager.refreshFingerprint(pem: developerCAPEMText)
+            #endif
+        } catch {
+            developerCAPEMText = ""
+            #if os(macOS)
+            certificateManager.refreshFingerprint(pem: "")
+            #endif
+        }
     }
 
     func developerHAR() async throws -> String {
@@ -437,6 +530,69 @@ final class AppleAppModel: ObservableObject {
             }
             do {
                 try await provider.clearDeveloperEntries()
+                await refreshDeveloperCaptureNow()
+            } catch {
+                daemonMessage = error.localizedDescription
+            }
+        }
+    }
+
+    func repeatDeveloperEntry(_ entry: DeveloperEntryPayload) {
+        Task {
+            guard let provider = dashboardAPI as? DeveloperCaptureProviding else {
+                return
+            }
+            do {
+                _ = try await provider.repeatDeveloperEntry(DeveloperRepeatRequestPayload(entryID: entry.id))
+                await refreshDeveloperCaptureNow()
+            } catch {
+                daemonMessage = error.localizedDescription
+            }
+        }
+    }
+
+    func addDeveloperMapRule(_ rule: DeveloperMapRulePayload) {
+        Task {
+            guard let provider = dashboardAPI as? DeveloperCaptureProviding else {
+                return
+            }
+            do {
+                try await provider.replaceDeveloperMapRules(developerMapRules + [rule])
+                await refreshDeveloperCaptureNow()
+            } catch {
+                daemonMessage = error.localizedDescription
+            }
+        }
+    }
+
+    func addDeveloperBreakpointRule(_ rule: DeveloperBreakpointRulePayload) {
+        Task {
+            guard let provider = dashboardAPI as? DeveloperCaptureProviding else {
+                return
+            }
+            do {
+                try await provider.replaceDeveloperBreakpointRules(developerBreakpointRules + [rule])
+                await refreshDeveloperCaptureNow()
+            } catch {
+                daemonMessage = error.localizedDescription
+            }
+        }
+    }
+
+    func resolveDeveloperBreakpoint(_ breakpoint: DeveloperPendingBreakpointPayload, action: String) {
+        resolveDeveloperBreakpoint(
+            breakpoint,
+            resolution: DeveloperBreakpointResolutionPayload(action: action, request: breakpoint.request, response: breakpoint.response)
+        )
+    }
+
+    func resolveDeveloperBreakpoint(_ breakpoint: DeveloperPendingBreakpointPayload, resolution: DeveloperBreakpointResolutionPayload) {
+        Task {
+            guard let provider = dashboardAPI as? DeveloperCaptureProviding else {
+                return
+            }
+            do {
+                try await provider.resolveDeveloperBreakpoint(id: breakpoint.id, resolution: resolution)
                 await refreshDeveloperCaptureNow()
             } catch {
                 daemonMessage = error.localizedDescription
@@ -516,6 +672,7 @@ final class AppleAppModel: ObservableObject {
         }
     }
 
+    #if os(macOS)
     func launchDaemon() {
         Task {
             do {
@@ -533,6 +690,7 @@ final class AppleAppModel: ObservableObject {
         daemonSupervisor.stop()
         daemonMessage = "daemon stopped"
     }
+    #endif
 
     private func reloadClient() {
         let settings = settingsStore.settings.normalized()
@@ -548,6 +706,11 @@ final class AppleAppModel: ObservableObject {
         profileMetadata = ProfileMetadataStore.appGroupStore(groupIdentifier: settings.appGroupIdentifier)
         developerStatus = DeveloperStatusPayload()
         developerEntries = []
+        developerMapRules = []
+        developerBreakpointRules = []
+        developerPendingBreakpoints = []
+        configSettings = ConfigSettingsPayload()
+        developerCAPEMText = ""
         bindDashboardStore()
         bindAttentionStore()
         bindProfileMetadataStore()
@@ -564,6 +727,7 @@ final class AppleAppModel: ObservableObject {
         }
         #if os(macOS)
         bindLicenseManager()
+        bindMacManagers()
         #endif
     }
 
@@ -598,6 +762,18 @@ final class AppleAppModel: ObservableObject {
                 self?.objectWillChange.send()
                 self?.enforceLicenseState()
             }
+        }
+    }
+
+    private func bindMacManagers() {
+        systemProxyChangeCancellable = systemProxyManager.objectWillChange.sink { [weak self] _ in
+            Task { @MainActor in self?.objectWillChange.send() }
+        }
+        certificateChangeCancellable = certificateManager.objectWillChange.sink { [weak self] _ in
+            Task { @MainActor in self?.objectWillChange.send() }
+        }
+        updateChangeCancellable = updateChecker.objectWillChange.sink { [weak self] _ in
+            Task { @MainActor in self?.objectWillChange.send() }
         }
     }
     #endif
