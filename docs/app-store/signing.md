@@ -1,6 +1,9 @@
-# iPhone App Store Signing
+# macOS Developer ID Signing
 
-ClambHook keeps `DEVELOPMENT_TEAM` empty in `ui/apple/project.yml` so the XcodeGen source remains team-agnostic. The final iPhone App Store archive is signed by `scripts/archive-ios-app-store.sh` with command-line signing overrides.
+ClambHook keeps `DEVELOPMENT_TEAM` empty in `ui/apple/project.yml` so the
+XcodeGen source remains team-agnostic. The public macOS archive is signed,
+notarized, stapled, packaged as a DMG, and uploaded to the website artifact
+bucket through the macOS release scripts.
 
 ## Required Apple Identifiers
 
@@ -8,59 +11,50 @@ Use Apple Developer Team ID `V6GG4HYABJ`.
 
 Create and enable these identifiers in the Apple Developer portal:
 
-- App ID: `org.jpfchang.clambhook`
-- Packet tunnel extension App ID: `org.jpfchang.clambhook.tunnel`
-- iOS widget extension App ID: `org.jpfchang.clambhook.widgets`
-- App Group: `group.org.jpfchang.clambhook`
-- Keychain group: `V6GG4HYABJ.org.jpfchang.clambhook`
+- macOS app: `org.jpfchang.clambhook.mac`
+- Packet tunnel system extension: `org.jpfchang.clambhook.mac.tunnel`
+- macOS widget extension: `org.jpfchang.clambhook.mac.widgets`
+- App Group: `group.org.jpfchang.clambhook.mac`
+- Keychain group: `V6GG4HYABJ.org.jpfchang.clambhook.mac`
+- Privileged helper LaunchDaemon and Mach service:
+  `org.jpfchang.clambhook.mac.helper`
 
-Enable these capabilities on the app, packet tunnel extension, and iOS widget extension App IDs:
+Enable these capabilities where applicable:
 
-- App Groups: `group.org.jpfchang.clambhook`
-- Keychain Sharing: `V6GG4HYABJ.org.jpfchang.clambhook`
-- Network Extension: `packet-tunnel-provider`
-
-The widget intentionally keeps Connect, Disconnect, and Next Profile actions. Because those actions use `NETunnelProviderManager`, the widget App ID also needs the Network Extension entitlement for the v1 release.
+- Network Extension: `packet-tunnel-provider-systemextension`
+- System Extension install entitlement:
+  `com.apple.developer.system-extension.install`
+- App Groups: `group.org.jpfchang.clambhook.mac`
+- Keychain Sharing: `V6GG4HYABJ.org.jpfchang.clambhook.mac`
 
 ## Required Environment
 
-The archive script uses App Store Connect API automatic provisioning. Set all variables before archiving:
+Set these variables before building a notarized macOS release:
 
 ```sh
 export CLAMBHOOK_DEVELOPMENT_TEAM=V6GG4HYABJ
-export CLAMBHOOK_APP_STORE_CONNECT_API_KEY_PATH=/path/to/AuthKey_XXXXXXXXXX.p8
-export CLAMBHOOK_APP_STORE_CONNECT_API_KEY_ID=XXXXXXXXXX
-export CLAMBHOOK_APP_STORE_CONNECT_API_ISSUER_ID=00000000-0000-0000-0000-000000000000
-export CLAMBHOOK_APP_REVIEW_DEMO_PASSWORD=replace-with-review-demo-password
+export NOTARYTOOL_PROFILE=clambhook-notary
+export CLAMBHOOK_R2_BUCKET=clambhook-artifacts
 ```
 
-Before App Store submission, run `make app-review-release-check` locally or the manual App Review Compliance GitHub Actions workflow. The workflow requires the `CLAMBHOOK_APP_REVIEW_DEMO_PASSWORD` repository secret and validates a temp-rendered demo profile without writing the password into source.
+Do not commit private keys, notary credentials, provisioning profiles, generated
+archives, exported apps, ZIPs, DMGs, checksums, or update manifests.
 
-Do not commit the API key, private keys, demo profile password, provisioning profiles, or generated archives.
-Generated App Store archives and exported IPAs are for App Store Connect submission only. Do not publish `.ipa` files or any other installer/package artifact on GitHub for end users.
-
-## Archive Proof
+## Release Proof
 
 Run:
 
 ```sh
-scripts/archive-ios-app-store.sh
+make release-macos
 ```
 
-On success, the script writes:
+On success, the script writes release artifacts under `dist/macos/`, including:
 
-- `dist/ios/export/*.ipa`
-- `dist/ios/signing-proof.txt`
+- `ClambhookMac-arm64.dmg`
+- `ClambhookMac-arm64.dmg.sha256`
+- `ClambhookMac-arm64.zip`
+- `clambhook-update-manifest.json` or `clambhook-beta-update-manifest.json`
 
-The proof file records resolved build settings and verifies the signed archive/export products for Team ID, bundle IDs, app group, keychain group, and `packet-tunnel-provider`.
-
-## macOS Developer ID Identifiers
-
-The macOS Developer ID build uses separate bundle identifiers from the iPhone App Store app:
-
-- macOS app: `org.jpfchang.clambhook.mac`
-- Packet tunnel system extension: `org.jpfchang.clambhook.mac.tunnel`
-- macOS widget extension: `org.jpfchang.clambhook.mac.widgets`
-- Privileged helper LaunchDaemon and Mach service: `org.jpfchang.clambhook.mac.helper`
-
-The macOS app and tunnel extension need the `packet-tunnel-provider-systemextension` Network Extension entitlement. The macOS app also needs `com.apple.developer.system-extension.install`, App Groups, and Keychain Sharing. The privileged helper is packaged in the app bundle with `SMAppService.daemon(plistName:)` and requires notarization plus admin approval in System Settings before launchd bootstraps it.
+`make release-macos` verifies signing, notarization, stapling, Gatekeeper
+assessment, checksum generation, and update manifest generation before optional
+R2 upload.

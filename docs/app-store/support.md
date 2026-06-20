@@ -1,7 +1,15 @@
 # ClambHook Support
 
-For Apple App Store support, contact clambhook@jpfchang.org.
+For ClambHook for macOS support, contact clambhook@jpfchang.org.
 
-ClambHook for iPhone requires iOS 17.0 or later.
+ClambHook for macOS requires an Apple Silicon Mac running macOS 14 or later.
+The installer is distributed from jpfchang.org.
 
-Include the app version, iOS version, device model, active profile name, and a short description of the connection issue. Do not send proxy passwords, private keys, WireGuard keys, OpenVPN client keys or certificates, or full configuration files unless explicitly requested.
+Include the ClambHook version, macOS version, Mac model, active profile name,
+and a short description of what happened instead of what you expected. For
+license questions, include the purchase email and a redacted license key prefix
+only when needed.
+
+Do not send proxy passwords, private keys, WireGuard keys, OpenVPN client keys
+or certificates, or full configuration files unless support explicitly asks for
+a safe redacted example.

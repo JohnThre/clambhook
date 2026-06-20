@@ -14,7 +14,9 @@ The macOS app uses Network Extension packet tunnel mode for device-wide routing.
 
 ## End-user Distribution
 
-The iOS and iPadOS app is distributed only through the Apple App Store as a free download with non-consumable In-App Purchases for premium access and paid feature updates. tvOS and visionOS builds are compile-first Apple targets until their platform-specific runtime surfaces are completed.
+The end-user macOS app is distributed only from `https://jpfchang.org/clambhook/`. It is a direct website download for Apple Silicon Macs running macOS 14 or later, with a two-month free trial and direct-sale licensing handled on jpfchang.org.
+
+ClambHook is not distributed to end users through app marketplaces, GitHub Releases, Homebrew, package registries, or third-party mirrors. Other platform builds are internal developer QA targets until a separate distribution plan is approved.
 
 GitHub is source-only and view-only for end users. The source is proprietary to Pengfan Chang, all rights reserved, and may not be copied, modified, built, run, contributed to, redistributed, packaged, released, hosted, sublicensed, or used to create derivative works without separate prior written permission from Pengfan Chang.
 
