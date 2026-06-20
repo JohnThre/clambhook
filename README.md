@@ -21,6 +21,7 @@ Official public website routes:
 - Product: `https://jpfchang.org/clambhook/`
 - Download: `https://jpfchang.org/clambhook/download/`
 - Buy or upgrade: `https://jpfchang.org/clambhook/buy/`
+- License portal: `https://jpfchang.org/clambhook/portal/`
 - License terms: `https://jpfchang.org/clambhook/license/`
 - Privacy policy: `https://jpfchang.org/clambhook/privacy/`
 - Support: `https://jpfchang.org/clambhook/support/`

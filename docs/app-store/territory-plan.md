@@ -16,6 +16,7 @@ expansion without a fresh review.
 
 - Product page: `https://jpfchang.org/clambhook/`
 - Buy page: `https://jpfchang.org/clambhook/buy/`
+- License portal: `https://jpfchang.org/clambhook/portal/`
 - Download endpoint: `https://jpfchang.org/api/clambhook/download`
 - Update manifest endpoint: `https://jpfchang.org/api/clambhook/update-manifest`
 - Artifact storage: configured private R2 bucket served through the website

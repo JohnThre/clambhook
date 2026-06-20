@@ -2539,6 +2539,10 @@ private struct MacLicenseControls: View {
                 Label("Buy ClambHook USD \(MobileLicenseCommercialTerms.lifetimePriceUSD)", systemImage: "cart")
             }
 
+            Link(destination: defaultLicensePortalURL) {
+                Label("License Portal", systemImage: "safari")
+            }
+
             if manager.isLoading {
                 ProgressView()
             }

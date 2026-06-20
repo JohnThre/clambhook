@@ -33,10 +33,14 @@ license activation.
   when policy allows it.
 - `POST /clambhook/license/v1/macos/transfer` records a transfer between Mac
   seats.
+- `POST /clambhook/license/v1/macos/portal` powers the browser license portal
+  for device listing, web activation, deactivation, and transfer.
 
 Website checkout and claim flows are exposed through `/api/clambhook/checkout`,
 `/api/clambhook/claim`, `/api/clambhook/nowpayments-webhook`, and the shared
 Creem webhook handler in the jpfchang.org site.
+
+Users can manage device seats from `https://jpfchang.org/clambhook/portal/`.
 
 ## Distribution Contract
 
