@@ -1,53 +1,63 @@
-# App Store Connect Commercial Setup
+# Website Commercial Setup
 
-This checklist is the source of truth for the v1 iPhone commercial setup in App Store Connect. It covers account-side actions only; repository release builds still use `make archive-iphone`.
+This checklist is the source of truth for the ClambHook for macOS direct-sale
+setup on jpfchang.org. It covers product-page, checkout, artifact, and license
+backend configuration for the website distribution path.
 
 ## Account Prerequisites
 
-- Confirm the Paid Apps Agreement is active.
-- Confirm tax and banking are complete.
-- Use an Apple ID with Account Holder, Admin, or App Manager permissions.
+- Confirm the production jpfchang.org deployment has the `DB` binding.
+- Confirm the `CLAMBHOOK_ARTIFACTS` R2 bucket is configured.
+- Confirm the ClambHook macOS license migrations have been applied.
+- Confirm Creem product IDs are configured for the lifetime license and paid
+  feature update.
+- Confirm NowPayments credentials are configured if crypto checkout is enabled.
+- Confirm license grant email delivery is configured before accepting purchases.
 
-## App Record
+## Product Page
 
-- App name: `ClambHook`
-- Bundle ID: `org.jpfchang.clambhook`
-- SKU: `org.jpfchang.clambhook`
-- Platform: iOS
-- Price: Free
-- Availability: `Specific Countries or Regions` -> `United States` only
-- Support URL: `https://jpfchang.org/clambhook/support`
-- Privacy Policy URL: `https://jpfchang.org/clambhook/privacy`
+- Product name: `ClambHook for macOS`.
+- Official URL: `https://jpfchang.org/clambhook/`.
+- Buy URL: `https://jpfchang.org/clambhook/buy/`.
+- Support URL: `https://jpfchang.org/clambhook/support/`.
+- Privacy Policy URL: `https://jpfchang.org/clambhook/privacy/`.
+- Platform copy: Apple Silicon Mac, macOS 14 or later.
+- Distribution copy: direct website download from jpfchang.org.
 
-Do not select `All Countries or Regions` for v1. See `docs/app-store/territory-plan.md` before adding any future territory.
+Do not describe the current public release as an alternate-platform app,
+subscription, or marketplace purchase. The public copy should point users to the
+website download, the two-month trial, and direct-sale licensing.
 
-## In-App Purchases
+## License Products
 
-Create exactly these two products. Do not create placeholders, subscriptions, consumables, or non-renewing subscriptions.
+Create and keep stable these website product identifiers:
 
-| Display name | Product ID | Type | US base price | Family Sharing |
-| --- | --- | --- | --- | --- |
-| ClambHook Lifetime Unlock | `org.jpfchang.clambhook.unlock.lifetime` | Non-Consumable | USD 99.99 | On |
-| ClambHook 2027 Feature Update | `org.jpfchang.clambhook.feature_update.2027` | Non-Consumable | USD 8.99 | On |
+| Display name | Product ID | Type | US base price |
+| --- | --- | --- | --- |
+| ClambHook for macOS Lifetime License | `org.jpfchang.clambhook.unlock.lifetime` | Direct-sale license | USD 99.99 |
+| ClambHook for macOS 2027 Feature Update | `org.jpfchang.clambhook.feature_update.2027` | Direct-sale paid update | USD 8.99 |
 
-Descriptions:
+Future paid feature update products use the pattern
+`org.jpfchang.clambhook.feature_update.YYYY`.
 
-- `ClambHook Lifetime Unlock`: `Unlocks lifetime mobile access for ClambHook.`
-- `ClambHook 2027 Feature Update`: `Unlocks ClambHook mobile features released in the 2027 update cycle.`
+The lifetime license includes purchased features forever and includes one year
+of new feature releases. Paid feature updates extend the feature-release window.
+Bug fixes and security fixes remain included.
 
-Important: App Store Connect product IDs cannot be reused after assignment. Family Sharing cannot be turned off after it is enabled for an In-App Purchase.
+## Checkout
 
-## Review Submission
-
-- Attach both In-App Purchases to the first app version submission if they have not been approved before.
-- Paste the pricing and In-App Purchase text from `docs/app-store/review-notes.md` into App Review Notes.
-- Paste only the App Review demo profile credentials into App Store Connect. Do not commit them.
-- Run `make app-review-release-check` with `CLAMBHOOK_APP_REVIEW_DEMO_PASSWORD` set before archiving.
+- Creem is the default checkout provider.
+- NowPayments is the optional crypto checkout provider.
+- The checkout page posts to `/api/clambhook/checkout`.
+- License claim links return to `/clambhook/success`.
+- License issue and paid-update application happen through `/api/clambhook/claim`
+  after a valid checkout redirect or confirmed NowPayments request.
 
 ## Verification
 
-- Confirm StoreKit can fetch exactly:
-  - `org.jpfchang.clambhook.unlock.lifetime`
-  - `org.jpfchang.clambhook.feature_update.2027`
-- Confirm sandbox purchase, restore, Family Sharing entitlement, and refund/revocation handling before release.
-- Confirm the Settings/Purchases screen displays the product names and localized prices from App Store Connect.
+- Confirm `/api/clambhook/download` returns the current notarized macOS DMG.
+- Confirm `/api/clambhook/update-manifest` returns the current update manifest.
+- Confirm lifetime checkout creates a license and sends the license email.
+- Confirm paid update checkout requires an existing license key.
+- Confirm activation accepts only macOS Apple Silicon device registrations.
+- Confirm deactivation, reactivation, and transfer flows update device seats.

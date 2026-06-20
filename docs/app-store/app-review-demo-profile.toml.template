@@ -1,13 +1,13 @@
-# App Review demo tunnel profile template.
+# Support demo tunnel profile template.
 #
-# This template is intentionally non-operational until rendered by
-# scripts/app-review-compliance-check.sh with CLAMBHOOK_APP_REVIEW_DEMO_PASSWORD.
+# Keep credentials out of git. Render this template only in a temp directory
+# when support or release validation needs a disposable profile.
 # Do not replace the placeholder in this tracked file.
 
-active = "App Review Demo"
+active = "Support Demo"
 
 [[profile]]
-name = "App Review Demo"
+name = "Support Demo"
 
   [profile.listen]
 
@@ -18,7 +18,7 @@ name = "App Review Demo"
   exclude_cidrs = ["127.0.0.0/8", "::1/128"]
 
   [[profile.chain]]
-  name = "app-review"
+  name = "support-demo"
 
     [[profile.chain.server]]
     name = "review-vpn"
@@ -26,4 +26,4 @@ name = "App Review Demo"
     protocol = "clambback"
 
       [profile.chain.server.settings]
-      password = "__CLAMBHOOK_APP_REVIEW_DEMO_PASSWORD__"
+      password = "__CLAMBHOOK_SUPPORT_DEMO_PASSWORD__"
