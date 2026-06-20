@@ -10,6 +10,7 @@ ClambHook's end-user macOS release is distributed only from jpfchang.org.
 - A USD 99.99 direct-sale lifetime license unlocks purchased features forever on up to four active Apple Silicon Macs.
 - A USD 8.99 paid feature update unlocks new features released after the included first year.
 - Checkout and license delivery are handled on jpfchang.org through the configured direct-sale payment providers.
+- License device listing, activation, deactivation, and transfer are available from `https://jpfchang.org/clambhook/portal/`.
 - GitHub is source-only and view-only for end users.
 - Public ClambHook copy must describe the macOS website download and direct-sale license. Do not describe current ClambHook distribution as an alternate-platform release, marketplace listing, subscription, or bundled purchase flow.
 

@@ -50,6 +50,7 @@ Shadowsocks,Tor,Trojan
 
 - Product URL: https://jpfchang.org/clambhook/
 - Buy URL: https://jpfchang.org/clambhook/buy/
+- License Portal URL: https://jpfchang.org/clambhook/portal/
 - Support URL: https://jpfchang.org/clambhook/support/
 - Privacy Policy URL: https://jpfchang.org/clambhook/privacy/
 

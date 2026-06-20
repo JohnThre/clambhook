@@ -19,6 +19,7 @@ backend configuration for the website distribution path.
 - Product name: `ClambHook for macOS`.
 - Official URL: `https://jpfchang.org/clambhook/`.
 - Buy URL: `https://jpfchang.org/clambhook/buy/`.
+- License Portal URL: `https://jpfchang.org/clambhook/portal/`.
 - Support URL: `https://jpfchang.org/clambhook/support/`.
 - Privacy Policy URL: `https://jpfchang.org/clambhook/privacy/`.
 - Platform copy: Apple Silicon Mac, macOS 14 or later.
@@ -61,3 +62,5 @@ Bug fixes and security fixes remain included.
 - Confirm paid update checkout requires an existing license key.
 - Confirm activation accepts only macOS Apple Silicon device registrations.
 - Confirm deactivation, reactivation, and transfer flows update device seats.
+- Confirm the license portal can list devices, activate by install ID,
+  deactivate a selected device, and mark a selected device for transfer.

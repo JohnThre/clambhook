@@ -38,5 +38,6 @@ Public URLs:
 
 - Product URL: https://jpfchang.org/clambhook/
 - Buy URL: https://jpfchang.org/clambhook/buy/
+- License Portal URL: https://jpfchang.org/clambhook/portal/
 - Privacy Policy URL: https://jpfchang.org/clambhook/privacy/
 - Support URL: https://jpfchang.org/clambhook/support/

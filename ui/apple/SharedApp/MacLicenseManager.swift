@@ -88,7 +88,7 @@ final class MacLicenseManager: ObservableObject {
 
     func reactivateCurrentDevice() async {
         guard deviceState.canActivateCurrentDevice || deviceState.canReactivateCurrentDevice else {
-            statusMessage = "All \(deviceState.maxActiveDevices) device seats are active. Deactivate another device before reactivating this Mac."
+            statusMessage = "All \(deviceState.maxActiveDevices) device seats are active. Deactivate another device in ClambHook or the License Portal before reactivating this Mac."
             return
         }
         await performDeviceAction(path: "reactivate", message: "This Mac was reactivated.")

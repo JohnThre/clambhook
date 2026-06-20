@@ -1,6 +1,7 @@
 import Foundation
 
 public let defaultLicenseValidationURL = URL(string: "https://jpfchang.org/clambhook/license")!
+public let defaultLicensePortalURL = URL(string: "https://jpfchang.org/clambhook/portal")!
 public let mobileLicenseServerGrantDefaultsKey = "clambhook.apple.license.server-grant"
 
 public struct MobileServerLicenseGrantResponse: Codable, Equatable, Sendable {
