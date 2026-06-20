@@ -16,6 +16,15 @@ The macOS app uses Network Extension packet tunnel mode for device-wide routing.
 
 The end-user macOS app is distributed only from `https://jpfchang.org/clambhook/`. It is a direct website download for Apple Silicon Macs running macOS 14 or later, with a two-month free trial and direct-sale licensing handled on jpfchang.org.
 
+Official public website routes:
+
+- Product: `https://jpfchang.org/clambhook/`
+- Download: `https://jpfchang.org/clambhook/download/`
+- Buy or upgrade: `https://jpfchang.org/clambhook/buy/`
+- License terms: `https://jpfchang.org/clambhook/license/`
+- Privacy policy: `https://jpfchang.org/clambhook/privacy/`
+- Support: `https://jpfchang.org/clambhook/support/`
+
 ClambHook is not distributed to end users through app marketplaces, GitHub Releases, Homebrew, package registries, or third-party mirrors. Other platform builds are internal developer QA targets until a separate distribution plan is approved.
 
 GitHub is source-only and view-only for end users. The source is proprietary to Pengfan Chang, all rights reserved, and may not be copied, modified, built, run, contributed to, redistributed, packaged, released, hosted, sublicensed, or used to create derivative works without separate prior written permission from Pengfan Chang.
