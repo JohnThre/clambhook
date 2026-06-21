@@ -4,7 +4,7 @@ public enum AppRecoveryStateKind: String, Codable, Equatable, Sendable {
     case missingProfile = "missing_profile"
     case invalidVPNEntitlementOrProfile = "invalid_vpn_entitlement_or_profile"
     case expiredTrial = "expired_trial"
-    case storeKitUnavailable = "storekit_unavailable"
+    case licenseBackendUnavailable = "license_backend_unavailable"
 }
 
 public enum AppRecoveryStateSeverity: String, Codable, Equatable, Sendable {
@@ -21,9 +21,9 @@ public enum AppRecoveryStateAction: String, Codable, Equatable, Identifiable, Se
     case refresh
     case rebuildVPNProfile = "rebuild_vpn_profile"
     case openAppSettings = "open_app_settings"
-    case purchaseLifetime = "purchase_lifetime"
-    case restorePurchases = "restore_purchases"
-    case repairPurchaseHistory = "repair_purchase_history"
+    case buyLicense = "buy_license"
+    case activateLicense = "activate_license"
+    case openLicensePortal = "open_license_portal"
     case support
     case privacy
 
@@ -45,12 +45,12 @@ public enum AppRecoveryStateAction: String, Codable, Equatable, Identifiable, Se
             return "Rebuild VPN Profile"
         case .openAppSettings:
             return "Settings"
-        case .purchaseLifetime:
-            return "Unlock Lifetime"
-        case .restorePurchases:
-            return "Restore Purchases"
-        case .repairPurchaseHistory:
-            return "Repair Purchase History"
+        case .buyLicense:
+            return "Buy License"
+        case .activateLicense:
+            return "Activate License"
+        case .openLicensePortal:
+            return "License Portal"
         case .support:
             return "Support"
         case .privacy:
@@ -74,11 +74,11 @@ public enum AppRecoveryStateAction: String, Codable, Equatable, Identifiable, Se
             return "arrow.triangle.2.circlepath"
         case .openAppSettings:
             return "gearshape"
-        case .purchaseLifetime:
+        case .buyLicense:
             return "checkmark.seal.fill"
-        case .restorePurchases:
+        case .activateLicense:
             return "arrow.clockwise"
-        case .repairPurchaseHistory:
+        case .openLicensePortal:
             return "wrench.and.screwdriver"
         case .support:
             return "questionmark.circle"
@@ -120,28 +120,28 @@ public struct AppRecoveryState: Codable, Equatable, Identifiable, Sendable {
     }
 }
 
-public enum StoreKitAvailabilityKind: String, Codable, Equatable, Sendable {
+public enum LicensePurchaseAvailabilityKind: String, Codable, Equatable, Sendable {
     case unknown
     case loading
     case available
     case unavailable
 }
 
-public struct StoreKitAvailability: Codable, Equatable, Sendable {
-    public var kind: StoreKitAvailabilityKind
+public struct LicensePurchaseAvailability: Codable, Equatable, Sendable {
+    public var kind: LicensePurchaseAvailabilityKind
     public var message: String
 
-    public init(kind: StoreKitAvailabilityKind = .unknown, message: String = "") {
+    public init(kind: LicensePurchaseAvailabilityKind = .unknown, message: String = "") {
         self.kind = kind
         self.message = message
     }
 
-    public static let unknown = StoreKitAvailability(kind: .unknown)
-    public static let loading = StoreKitAvailability(kind: .loading)
-    public static let available = StoreKitAvailability(kind: .available)
+    public static let unknown = LicensePurchaseAvailability(kind: .unknown)
+    public static let loading = LicensePurchaseAvailability(kind: .loading)
+    public static let available = LicensePurchaseAvailability(kind: .available)
 
-    public static func unavailable(_ message: String) -> StoreKitAvailability {
-        StoreKitAvailability(kind: .unavailable, message: message)
+    public static func unavailable(_ message: String) -> LicensePurchaseAvailability {
+        LicensePurchaseAvailability(kind: .unavailable, message: message)
     }
 
     public var isUnavailable: Bool {
@@ -185,13 +185,13 @@ public enum AppRecoveryStateBuilder {
 
     public static func expiredTrial(
         decision: MobileLicenseDecision,
-        storeKitAvailability: StoreKitAvailability = .unknown
+        purchaseAvailability: LicensePurchaseAvailability = .unknown
     ) -> AppRecoveryState? {
         guard !decision.canUseApp else {
             return nil
         }
-        if storeKitAvailability.isUnavailable {
-            return storeKitUnavailable(message: storeKitAvailability.message)
+        if purchaseAvailability.isUnavailable {
+            return licenseBackendUnavailable(message: purchaseAvailability.message)
         }
         return AppRecoveryState(
             kind: .expiredTrial,
@@ -199,30 +199,30 @@ public enum AppRecoveryStateBuilder {
             title: "Free access ended",
             message: expiredTrialMessage(decision: decision),
             systemImage: "lock.fill",
-            primaryAction: .purchaseLifetime,
-            secondaryActions: [.restorePurchases, .repairPurchaseHistory, .support],
+            primaryAction: .buyLicense,
+            secondaryActions: [.activateLicense, .openLicensePortal, .support],
             diagnosticText: ""
         )
     }
 
-    public static func storeKitUnavailable(message: String) -> AppRecoveryState {
+    public static func licenseBackendUnavailable(message: String) -> AppRecoveryState {
         let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
         return AppRecoveryState(
-            kind: .storeKitUnavailable,
+            kind: .licenseBackendUnavailable,
             severity: .error,
-            title: "Purchases unavailable",
-            message: "The App Store purchase catalog is not available right now. Restore or repair purchase history, or try again after the store is reachable.",
+            title: "License service unavailable",
+            message: "The jpfchang.org license service is not reachable right now. Activate with an existing key or try again after the service is reachable.",
             systemImage: "cart.badge.exclamationmark",
-            primaryAction: .restorePurchases,
-            secondaryActions: [.repairPurchaseHistory, .refresh, .support],
+            primaryAction: .activateLicense,
+            secondaryActions: [.openLicensePortal, .refresh, .support],
             diagnosticText: trimmed
         )
     }
 
     private static func expiredTrialMessage(decision: MobileLicenseDecision) -> String {
         if let trialEndsAt = decision.trialEndsAt {
-            return "Server-controlled free access ended \(trialEndsAt.formatted(date: .abbreviated, time: .omitted)). Purchase or restore the lifetime unlock to continue."
+            return "Server-controlled free access ended \(trialEndsAt.formatted(date: .abbreviated, time: .omitted)). Buy or activate a ClambHook macOS license to continue."
         }
-        return "Purchase or restore the lifetime unlock to continue."
+        return "Buy or activate a ClambHook macOS license to continue."
     }
 }

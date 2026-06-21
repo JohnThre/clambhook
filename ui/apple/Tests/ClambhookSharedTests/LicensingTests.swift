@@ -338,7 +338,7 @@ final class LicensingTests: XCTestCase {
     func testPaidUpdatePolicyCopyIncludesCutoffAndBugFixLanguage() {
         let copy = MobileLicenseCopy.paidUpdatePolicy(cutoffDate: mobileLicenseUTCDate(year: 2027, month: 6, day: 3))
 
-        XCTAssertTrue(copy.hasPrefix("One-time unlock includes features released through "))
+        XCTAssertTrue(copy.hasPrefix("The macOS license includes feature updates through "))
         XCTAssertTrue(copy.contains("Paid updates unlock later feature releases."))
         XCTAssertTrue(copy.contains("Bug fixes/security fixes remain included."))
     }
@@ -381,7 +381,7 @@ final class LicensingTests: XCTestCase {
         XCTAssertEqual(decision.reason, .trial)
         XCTAssertTrue(trial.isActive)
         XCTAssertTrue(lifetime.isActive)
-        XCTAssertEqual(lifetime.title, "Lifetime unlocked")
+        XCTAssertEqual(lifetime.title, "macOS license")
     }
 
     func testProductStatesShowPaidUpdateWindowDate() throws {
@@ -498,7 +498,7 @@ final class LicensingTests: XCTestCase {
     }
 
     func testCommercialTermsMatchMacLicensePolicy() {
-        XCTAssertEqual(MobileLicenseCommercialTerms.lifetimePriceUSD, "99.99")
+        XCTAssertEqual(MobileLicenseCommercialTerms.licensePriceUSD, "99.99")
         XCTAssertEqual(MobileLicenseCommercialTerms.paidFeatureUpdatePriceUSD, "8.99")
         XCTAssertEqual(MobileLicenseCommercialTerms.includedFeatureUpdateYears, 1)
         XCTAssertEqual(MobileLicenseCommercialTerms.maxActiveDevices, 4)

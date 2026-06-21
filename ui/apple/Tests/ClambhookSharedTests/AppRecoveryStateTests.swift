@@ -26,17 +26,17 @@ final class AppRecoveryStateTests: XCTestCase {
             now: mobileLicenseUTCDate(year: 2026, month: 8, day: 4)
         )
 
-        let state = try XCTUnwrap(AppRecoveryStateBuilder.expiredTrial(decision: decision, storeKitAvailability: .available))
+        let state = try XCTUnwrap(AppRecoveryStateBuilder.expiredTrial(decision: decision, purchaseAvailability: .available))
 
         XCTAssertEqual(state.kind, .expiredTrial)
         XCTAssertEqual(state.title, "Free access ended")
-        XCTAssertEqual(state.primaryAction, .purchaseLifetime)
-        XCTAssertTrue(state.secondaryActions.contains(.restorePurchases))
+        XCTAssertEqual(state.primaryAction, .buyLicense)
+        XCTAssertTrue(state.secondaryActions.contains(.activateLicense))
         XCTAssertTrue(state.message.contains("Server-controlled free access ended"))
         XCTAssertTrue(state.message.contains("2026"))
     }
 
-    func testStoreKitUnavailableTakesPrecedenceOverExpiredTrialPurchaseState() throws {
+    func testLicenseBackendUnavailableTakesPrecedenceOverExpiredTrialPurchaseState() throws {
         let decision = MobileLicenseEvaluator.evaluate(
             snapshot: MobileLicenseSnapshot(trialStartDate: mobileLicenseUTCDate(year: 2026, month: 6, day: 3)),
             now: mobileLicenseUTCDate(year: 2026, month: 8, day: 4)
@@ -44,11 +44,11 @@ final class AppRecoveryStateTests: XCTestCase {
 
         let state = try XCTUnwrap(AppRecoveryStateBuilder.expiredTrial(
             decision: decision,
-            storeKitAvailability: .unavailable("Products are not configured.")
+            purchaseAvailability: .unavailable("License backend is not configured.")
         ))
 
-        XCTAssertEqual(state.kind, .storeKitUnavailable)
-        XCTAssertEqual(state.primaryAction, .restorePurchases)
-        XCTAssertEqual(state.diagnosticText, "Products are not configured.")
+        XCTAssertEqual(state.kind, .licenseBackendUnavailable)
+        XCTAssertEqual(state.primaryAction, .activateLicense)
+        XCTAssertEqual(state.diagnosticText, "License backend is not configured.")
     }
 }
