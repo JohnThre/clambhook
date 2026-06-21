@@ -7,8 +7,9 @@ ClambHook's end-user macOS release is distributed only from jpfchang.org.
 - Official product page: `https://jpfchang.org/clambhook/`.
 - The public installer is the Apple Silicon macOS build for macOS 14 or later.
 - The website download starts a two-month free trial.
-- A USD 99.99 direct-sale macOS license includes one year of feature updates on up to four active Apple Silicon Macs.
-- Versions and features included during a user's paid update window remain usable after the update window ends.
+- A USD 99.99 direct-sale macOS license includes one year of feature updates.
+- Versions released during that year remain usable after the update year ends.
+- Each license covers up to 4 active devices and is transferable between devices.
 - A USD 8.99 paid feature update unlocks new features released after the included first year and extends the update window by one year.
 - Checkout and license delivery are handled on jpfchang.org through the configured direct-sale payment providers.
 - License device listing, activation, deactivation, and transfer are available from `https://jpfchang.org/clambhook/portal/`.
@@ -26,7 +27,7 @@ The source is proprietary to Pengfan Chang, all rights reserved, and may not be 
 
 Future paid feature update products use `org.jpfchang.clambhook.feature_update.YYYY`.
 
-The macOS license includes feature releases through the purchase date plus one year. Each paid feature update extends that feature-release cutoff by one year. Existing included features remain enabled; only features released after the user's paid window require a USD 8.99 feature update. Bug fixes and security fixes remain included.
+The macOS license includes feature releases through the purchase date plus one year. Versions released during that year remain usable after the update window ends. Each paid feature update extends that feature-release cutoff by one year. Only feature releases after the user's paid window require a USD 8.99 feature update. Bug fixes and security fixes remain included.
 
 ## GitHub Release Rule
 

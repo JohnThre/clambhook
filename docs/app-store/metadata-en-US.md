@@ -4,7 +4,7 @@
 
 - Title: ClambHook for macOS.
 - Description: Network proxy client for Apple Silicon Mac. Direct download from
-  jpfchang.org with a two-month free trial, then a one-time license.
+  jpfchang.org with a two-month free trial, then a direct-sale macOS license.
 - Primary action: Free Download.
 - Secondary action: Licensing & Pricing.
 
@@ -19,10 +19,12 @@
 ## Pricing
 
 - Two-month free trial from first launch.
-- Lifetime license: USD 99.99.
+- USD 99.99 direct-sale macOS license.
+- Includes one year of feature updates.
+- Versions released during that year remain usable after the update
+  year ends.
+- Covers up to 4 active devices and is transferable between devices.
 - Paid feature update: USD 8.99.
-- One license covers up to four active Apple Silicon Macs.
-- Purchased features continue working forever.
 - New features released after the included first year require a paid feature
   update. Bug fixes and security fixes remain included.
 
@@ -57,7 +59,7 @@ Shadowsocks,Tor,Trojan
 ## Copy Guardrails
 
 - Use "ClambHook for macOS" for public product references.
-- Use "direct download", "two-month trial", "lifetime license", and "paid
-  feature update" for commercial copy.
+- Use "direct download", "two-month trial", "USD 99.99 direct-sale macOS
+  license", and "paid feature update" for commercial copy.
 - Do not describe the current public release as a non-macOS app, subscription,
   marketplace purchase, or hosted account service.

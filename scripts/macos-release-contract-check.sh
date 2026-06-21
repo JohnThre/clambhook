@@ -47,10 +47,20 @@ app_model="$ROOT_DIR/ui/apple/SharedApp/AppleAppModel.swift"
 purchase_view="$ROOT_DIR/ui/apple/SharedApp/SupportPurchasesView.swift"
 mobile_support="$ROOT_DIR/ui/apple/Sources/ClambhookShared/MobileSupport.swift"
 product_fixture="$ROOT_DIR/ui/apple/ClambhookProducts.json"
+commercial_setup="$ROOT_DIR/docs/app-store/commercial-setup.md"
+metadata_en_us="$ROOT_DIR/docs/app-store/metadata-en-US.md"
+review_notes="$ROOT_DIR/docs/app-store/review-notes.md"
+privacy="$ROOT_DIR/docs/app-store/privacy.md"
+license_validation="$ROOT_DIR/docs/license-validation.md"
 
 for path in \
     "$distribution" \
     "$readme" \
+    "$commercial_setup" \
+    "$metadata_en_us" \
+    "$review_notes" \
+    "$privacy" \
+    "$license_validation" \
     "$settings" \
     "$licensing" \
     "$recovery" \
@@ -62,22 +72,36 @@ for path in \
 done
 
 require_text "$readme" "distributed only from \`https://jpfchang.org/clambhook/\`" "README distribution policy"
+product_promise="USD 99.99"
+versions_promise="during that year remain usable"
+device_promise="up to 4 active"
+transfer_promise="transferable"
+
 require_text "$readme" "USD 99.99 macOS license includes one year of feature updates" "README license policy"
-require_text "$readme" "supports up to four active devices" "README device policy"
-require_text "$readme" "allows device-seat transfers" "README transfer policy"
+require_text "$readme" "$versions_promise" "README version-usability policy"
+require_text "$readme" "$device_promise" "README device policy"
+require_text "$readme" "$transfer_promise" "README transfer policy"
 
 require_text "$distribution" "A USD 99.99 direct-sale macOS license includes one year of feature updates" "distribution policy"
-require_text "$distribution" "Versions and features included during a user's paid update window remain usable" "distribution policy"
+require_text "$distribution" "$versions_promise" "distribution policy"
 require_text "$distribution" "A USD 8.99 paid feature update unlocks new features released after the included first year" "distribution policy"
 require_text "$distribution" "License device listing, activation, deactivation, and transfer" "distribution policy"
 require_text "$distribution" "ClambHook for macOS License" "distribution products"
-require_text "$distribution" "Existing included features remain enabled" "distribution update policy"
 require_text "$distribution" "Bug fixes and security fixes remain included" "distribution update policy"
 reject_text "$distribution" "In-App Purchase" "distribution policy"
 reject_text "$distribution" "StoreKit" "distribution policy"
 reject_text "$distribution" "App Store" "distribution policy"
 reject_text "$distribution" "lifetime license" "distribution policy"
 reject_text "$distribution" "lifetime unlock" "distribution policy"
+
+for public_copy_file in "$commercial_setup" "$metadata_en_us" "$review_notes" "$privacy" "$license_validation"; do
+    require_text "$public_copy_file" "$product_promise" "public product promise"
+    require_text "$public_copy_file" "$versions_promise" "public version-usability promise"
+    require_text "$public_copy_file" "$device_promise" "public device promise"
+    require_text "$public_copy_file" "$transfer_promise" "public transfer promise"
+    reject_text "$public_copy_file" "Lifetime license" "public product copy"
+    reject_text "$public_copy_file" "lifetime license" "public product copy"
+done
 
 require_text "$settings" "https://jpfchang.org/api/clambhook/update-manifest" "stable update manifest"
 require_text "$settings" "https://jpfchang.org/api/clambhook/update-manifest?channel=beta" "beta update manifest"
@@ -108,7 +132,7 @@ expected = [
         "kind": "license",
         "displayPrice": "99.99",
         "displayName": "ClambHook macOS License",
-        "description": "Includes one year of feature updates. Included features remain usable after the update window.",
+        "description": "USD 99.99 includes one year of feature updates; versions released during that year remain usable; up to 4 active devices; transferable.",
     },
     {
         "productID": "org.jpfchang.clambhook.feature_update.2027",

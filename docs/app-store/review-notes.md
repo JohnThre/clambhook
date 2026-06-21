@@ -26,13 +26,17 @@ Commercial copy:
 
 - Direct download from `https://jpfchang.org/clambhook/`.
 - Two-month free trial from first launch.
-- Lifetime license: `org.jpfchang.clambhook.unlock.lifetime`, USD 99.99.
+- Direct-sale macOS license: `org.jpfchang.clambhook.unlock.lifetime`, USD 99.99.
 - 2027 feature update: `org.jpfchang.clambhook.feature_update.2027`, USD 8.99.
 - Future paid feature update products use
   `org.jpfchang.clambhook.feature_update.YYYY`.
-- One license covers up to four active Apple Silicon Macs.
-- Existing purchased features remain enabled forever. Paid updates unlock later
-  feature releases. Bug fixes and security fixes remain included.
+- The USD 99.99 license includes one year of feature updates.
+- Versions released during that year remain usable after the update
+  year ends.
+- One license covers up to 4 active devices and is transferable between
+  devices.
+- Paid updates unlock later feature releases. Bug fixes and security fixes
+  remain included.
 
 Public URLs:
 

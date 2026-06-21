@@ -307,7 +307,7 @@ public enum MobileLicenseTrialStore {
 
 public enum MobileLicenseCopy {
     public static func paidUpdatePolicy(cutoffDate: Date) -> String {
-        "The macOS license includes feature updates through \(cutoffDate.formatted(date: .abbreviated, time: .omitted)). Paid updates unlock later feature releases. Bug fixes/security fixes remain included."
+        "The macOS license includes feature updates through \(cutoffDate.formatted(date: .abbreviated, time: .omitted)). Versions released during that window remain usable. Paid updates unlock later feature releases. Bug fixes/security fixes remain included."
     }
 }
 
@@ -363,8 +363,8 @@ public enum MobileLicenseProductStateBuilder {
             kind: .lifetimeUnlocked,
             title: "macOS license",
             detail: decision.hasLifetimeUnlock
-                ? "Included features remain usable after the paid update window ends."
-                : "Buy or activate a ClambHook macOS license to keep using clambhook after free access.",
+                ? "Versions released during the paid update window remain usable."
+                : "Buy or activate a ClambHook macOS license to keep using ClambHook after free access.",
             isActive: decision.hasLifetimeUnlock
         ))
 
@@ -372,7 +372,7 @@ public enum MobileLicenseProductStateBuilder {
             states.append(MobileLicenseProductState(
                 kind: .paidUpdateWindow,
                 title: "Paid-update window through \(cutoffDate.formatted(date: .abbreviated, time: .omitted))",
-                detail: "Features released on or before this date are included.",
+                detail: "Versions released on or before this date are included and remain usable.",
                 isActive: decision.hasLifetimeUnlock
             ))
         } else {

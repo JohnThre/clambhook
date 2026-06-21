@@ -98,7 +98,7 @@ final class MobileSupportTests: XCTestCase {
             productsByID[MobilePurchaseCatalog.lifetimeUnlockID],
             displayPrice: "99.99",
             displayName: "ClambHook macOS License",
-            description: "Includes one year of feature updates. Included features remain usable after the update window."
+            description: "USD 99.99 includes one year of feature updates; versions released during that year remain usable; up to 4 active devices; transferable."
         )
         try assertDirectSaleProduct(
             productsByID[MobilePurchaseCatalog.featureUpdate2027ID],
