@@ -12,6 +12,7 @@ settings:
     SWIFT_VERSION: "5.0"
     DEVELOPMENT_TEAM: ""
     CODE_SIGN_STYLE: Automatic
+    CODE_SIGN_IDENTITY: Apple Development
     ARCHS: arm64
     "EXCLUDED_ARCHS[sdk=macosx*]": "x86_64 i386"
     ONLY_ACTIVE_ARCH: NO
