@@ -18,6 +18,13 @@ public let minLogRetention = 50
 public let maxLogRetention = 500
 public let defaultStableUpdateManifestURL = URL(string: "https://jpfchang.org/api/clambhook/update-manifest")!
 public let defaultBetaUpdateManifestURL = URL(string: "https://jpfchang.org/api/clambhook/update-manifest?channel=beta")!
+private let legacyStableUpdateManifestURLStrings: Set<String> = [
+    "https://jpfchang.org/clambhook/clambhook-update-manifest.json",
+]
+private let legacyBetaUpdateManifestURLStrings: Set<String> = [
+    "https://jpfchang.org/clambhook/clambhook-beta-update-manifest.json",
+    "https://jpfchang.org/clambhook/clambhook-update-manifest.json?channel=beta",
+]
 public let vpnDataUseDisclosure = """
 ClambHook creates a local VPN configuration to route device network traffic according to your profiles and rules. iPhone v1 inspection is metadata-only: connection targets, routing decisions, byte counts, timing, and hop status. The iPhone app does not install a certificate authority, perform TLS MITM, store request or response bodies, export HAR files, or provide body-level redaction workflows. Profile data, connection metadata, traffic logs, and diagnostics stay on this device unless you export them. ClambHook does not sell, use, or disclose VPN traffic data to third parties. Apple diagnostics may include crash and performance data if enabled.
 """
@@ -167,12 +174,16 @@ public struct AppSettings: Codable, Equatable, Sendable {
             copy.licenseValidationEndpoint = defaultLicenseValidationURL
         }
         copy.updateChannel = Self.normalizedUpdateChannel(copy.updateChannel)
-        if !Self.isSupportedAPIEndpoint(copy.stableUpdateManifestURL) {
-            copy.stableUpdateManifestURL = defaultStableUpdateManifestURL
-        }
-        if !Self.isSupportedAPIEndpoint(copy.betaUpdateManifestURL) {
-            copy.betaUpdateManifestURL = defaultBetaUpdateManifestURL
-        }
+        copy.stableUpdateManifestURL = Self.normalizedUpdateManifestEndpoint(
+            copy.stableUpdateManifestURL,
+            defaultURL: defaultStableUpdateManifestURL,
+            legacyAbsoluteStrings: legacyStableUpdateManifestURLStrings
+        )
+        copy.betaUpdateManifestURL = Self.normalizedUpdateManifestEndpoint(
+            copy.betaUpdateManifestURL,
+            defaultURL: defaultBetaUpdateManifestURL,
+            legacyAbsoluteStrings: legacyBetaUpdateManifestURLStrings
+        )
         copy.pinnedConnectionIDs = Array(Set(copy.pinnedConnectionIDs.map {
             $0.trimmingCharacters(in: .whitespacesAndNewlines)
         }.filter {
@@ -194,6 +205,20 @@ public struct AppSettings: Codable, Equatable, Sendable {
     public static func normalizedUpdateChannel(_ value: String) -> String {
         let channel = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         return channel == "beta" ? "beta" : "stable"
+    }
+
+    private static func normalizedUpdateManifestEndpoint(
+        _ url: URL,
+        defaultURL: URL,
+        legacyAbsoluteStrings: Set<String>
+    ) -> URL {
+        if legacyAbsoluteStrings.contains(url.absoluteString) {
+            return defaultURL
+        }
+        if !isSupportedAPIEndpoint(url) {
+            return defaultURL
+        }
+        return url
     }
 
     public var updateManifestURL: URL {
