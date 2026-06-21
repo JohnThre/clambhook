@@ -339,6 +339,7 @@ final class LicensingTests: XCTestCase {
         let copy = MobileLicenseCopy.paidUpdatePolicy(cutoffDate: mobileLicenseUTCDate(year: 2027, month: 6, day: 3))
 
         XCTAssertTrue(copy.hasPrefix("The macOS license includes feature updates through "))
+        XCTAssertTrue(copy.contains("Versions released during that window remain usable."))
         XCTAssertTrue(copy.contains("Paid updates unlock later feature releases."))
         XCTAssertTrue(copy.contains("Bug fixes/security fixes remain included."))
     }
@@ -404,7 +405,7 @@ final class LicensingTests: XCTestCase {
         XCTAssertTrue(paidUpdateWindow.isActive)
         XCTAssertTrue(paidUpdateWindow.title.hasPrefix("Paid-update window through "))
         XCTAssertTrue(paidUpdateWindow.title.contains("2027"))
-        XCTAssertTrue(paidUpdateWindow.detail.contains("Features released on or before this date are included."))
+        XCTAssertTrue(paidUpdateWindow.detail.contains("Versions released on or before this date are included and remain usable."))
     }
 
     func testProductStatesAlwaysShowNewFeaturesLockedPolicyRow() throws {

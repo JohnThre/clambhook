@@ -45,5 +45,8 @@ Users can manage device seats from `https://jpfchang.org/clambhook/portal/`.
 ## Distribution Contract
 
 Direct-sale ClambHook licenses are valid only for macOS on Apple Silicon. The
-public installer is downloaded from jpfchang.org, and generated installer
-artifacts must not be published from GitHub or package mirrors.
+USD 99.99 license includes one year of feature updates; versions released
+during that year remain usable; each license covers up to 4 active devices and
+is transferable between devices. The public installer is downloaded from
+jpfchang.org, and generated installer artifacts must not be published from
+GitHub or package mirrors.

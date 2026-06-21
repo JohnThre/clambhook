@@ -26,11 +26,14 @@ display name, platform, architecture, app version, activation time, and
 deactivation state. License keys are hashed before storage. Profile contents are
 not uploaded for license activation.
 
-ClambHook for macOS uses a USD 99.99 one-time license with optional USD 8.99
-paid feature updates. Creem is the default checkout provider, and NowPayments
-may be used when enabled. Payment providers process payment details; jpfchang.org
-stores checkout IDs, order IDs, product IDs, license state, and purchase
-timestamps needed to deliver and support the license.
+ClambHook for macOS uses a USD 99.99 direct-sale macOS license: it includes one
+year of feature updates, versions released during that year remain usable, it
+covers up to 4 active devices, and it is transferable between devices. Optional
+USD 8.99 paid feature updates extend the feature-update window. Creem is the
+default checkout provider, and NowPayments may be used when enabled. Payment
+providers process payment details; jpfchang.org stores checkout IDs, order IDs,
+product IDs, license state, and purchase timestamps needed to deliver and
+support the license.
 
 Apple diagnostics may include crash and performance data if the user has enabled
 sharing diagnostics with developers through Apple. ClambHook does not include

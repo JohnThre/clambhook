@@ -2536,7 +2536,7 @@ private struct MacLicenseControls: View {
             }
 
             Link(destination: URL(string: "https://jpfchang.org/clambhook/buy")!) {
-                Label("Buy ClambHook USD \(MobileLicenseCommercialTerms.lifetimePriceUSD)", systemImage: "cart")
+                Label("Buy ClambHook License USD \(MobileLicenseCommercialTerms.licensePriceUSD)", systemImage: "cart")
             }
 
             Link(destination: defaultLicensePortalURL) {
