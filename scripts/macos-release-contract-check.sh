@@ -47,19 +47,28 @@ app_model="$ROOT_DIR/ui/apple/SharedApp/AppleAppModel.swift"
 purchase_view="$ROOT_DIR/ui/apple/SharedApp/SupportPurchasesView.swift"
 mobile_support="$ROOT_DIR/ui/apple/Sources/ClambhookShared/MobileSupport.swift"
 product_fixture="$ROOT_DIR/ui/apple/ClambhookProducts.json"
-commercial_setup="$ROOT_DIR/docs/app-store/commercial-setup.md"
-metadata_en_us="$ROOT_DIR/docs/app-store/metadata-en-US.md"
-review_notes="$ROOT_DIR/docs/app-store/review-notes.md"
-privacy="$ROOT_DIR/docs/app-store/privacy.md"
+website_release_dir="$ROOT_DIR/docs/website-release"
+commercial_setup="$website_release_dir/commercial-setup.md"
+product_copy_en_us="$website_release_dir/product-copy-en-US.md"
+copy_notes="$website_release_dir/copy-notes.md"
+privacy="$website_release_dir/privacy.md"
+signing="$website_release_dir/signing.md"
+support="$website_release_dir/support.md"
+availability_plan="$website_release_dir/availability-plan.md"
+support_demo_profile="$website_release_dir/support-demo-profile.toml.template"
 license_validation="$ROOT_DIR/docs/license-validation.md"
 
 for path in \
     "$distribution" \
     "$readme" \
     "$commercial_setup" \
-    "$metadata_en_us" \
-    "$review_notes" \
+    "$product_copy_en_us" \
+    "$copy_notes" \
     "$privacy" \
+    "$signing" \
+    "$support" \
+    "$availability_plan" \
+    "$support_demo_profile" \
     "$license_validation" \
     "$settings" \
     "$licensing" \
@@ -91,10 +100,11 @@ require_text "$distribution" "Bug fixes and security fixes remain included" "dis
 reject_text "$distribution" "In-App Purchase" "distribution policy"
 reject_text "$distribution" "StoreKit" "distribution policy"
 reject_text "$distribution" "App Store" "distribution policy"
+reject_text "$distribution" "App Review" "distribution policy"
 reject_text "$distribution" "lifetime license" "distribution policy"
 reject_text "$distribution" "lifetime unlock" "distribution policy"
 
-for public_copy_file in "$commercial_setup" "$metadata_en_us" "$review_notes" "$privacy" "$license_validation"; do
+for public_copy_file in "$commercial_setup" "$product_copy_en_us" "$copy_notes" "$privacy" "$license_validation"; do
     require_text "$public_copy_file" "$product_promise" "public product promise"
     require_text "$public_copy_file" "$versions_promise" "public version-usability promise"
     require_text "$public_copy_file" "$device_promise" "public device promise"
@@ -103,12 +113,30 @@ for public_copy_file in "$commercial_setup" "$metadata_en_us" "$review_notes" "$
     reject_text "$public_copy_file" "lifetime license" "public product copy"
 done
 
+for website_release_file in \
+    "$commercial_setup" \
+    "$product_copy_en_us" \
+    "$copy_notes" \
+    "$privacy" \
+    "$signing" \
+    "$support" \
+    "$availability_plan" \
+    "$support_demo_profile" \
+    "$license_validation"; do
+    reject_text "$website_release_file" "StoreKit" "macOS website release copy"
+    reject_text "$website_release_file" "App Store" "macOS website release copy"
+    reject_text "$website_release_file" "App Review" "macOS website release copy"
+    reject_text "$website_release_file" "app-store" "macOS website release copy"
+    reject_text "$website_release_file" "app-review" "macOS website release copy"
+done
+
 require_text "$settings" "https://jpfchang.org/api/clambhook/update-manifest" "stable update manifest"
 require_text "$settings" "https://jpfchang.org/api/clambhook/update-manifest?channel=beta" "beta update manifest"
 
 for ui_copy_file in "$licensing" "$recovery" "$app_model" "$purchase_view" "$mobile_support"; do
     reject_text "$ui_copy_file" "StoreKit" "macOS website license UI copy"
     reject_text "$ui_copy_file" "App Store purchase" "macOS website license UI copy"
+    reject_text "$ui_copy_file" "App Review" "macOS website license UI copy"
     reject_text "$ui_copy_file" "Unlock Lifetime" "macOS website license UI copy"
     reject_text "$ui_copy_file" "lifetime unlock" "macOS website license UI copy"
     reject_text "$ui_copy_file" "Lifetime Unlock" "macOS website license UI copy"

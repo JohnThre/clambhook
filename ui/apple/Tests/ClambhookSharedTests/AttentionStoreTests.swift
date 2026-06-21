@@ -109,15 +109,15 @@ final class AttentionStoreTests: XCTestCase {
         let store = ProfileMetadataStore(fileURL: url)
         let expiresAt = Date(timeIntervalSince1970: 1_700_000_000)
 
-        store.setMetadata(ProfileMetadata(tags: ["demo"], expiresAt: expiresAt), for: "App Review Demo")
+        store.setMetadata(ProfileMetadata(tags: ["demo"], expiresAt: expiresAt), for: "Support Demo")
 
         let reloaded = ProfileMetadataStore(fileURL: url)
-        XCTAssertEqual(reloaded.tags(for: "App Review Demo"), ["demo"])
-        XCTAssertEqual(try XCTUnwrap(reloaded.expiration(for: "App Review Demo")).timeIntervalSince1970, expiresAt.timeIntervalSince1970, accuracy: 1)
+        XCTAssertEqual(reloaded.tags(for: "Support Demo"), ["demo"])
+        XCTAssertEqual(try XCTUnwrap(reloaded.expiration(for: "Support Demo")).timeIntervalSince1970, expiresAt.timeIntervalSince1970, accuracy: 1)
 
-        reloaded.setExpiration(nil, for: "App Review Demo")
-        reloaded.setTags([], for: "App Review Demo")
-        XCTAssertEqual(reloaded.metadata(for: "App Review Demo"), ProfileMetadata())
+        reloaded.setExpiration(nil, for: "Support Demo")
+        reloaded.setTags([], for: "Support Demo")
+        XCTAssertEqual(reloaded.metadata(for: "Support Demo"), ProfileMetadata())
     }
 }
 

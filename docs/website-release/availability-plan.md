@@ -56,6 +56,6 @@ Issuing regulator:
 License number:
 Effective date:
 Expiry date:
-Review Notes text:
+Public copy notes:
 Source materials:
 ```

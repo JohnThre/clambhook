@@ -21,8 +21,8 @@ name = "Support Demo"
   name = "support-demo"
 
     [[profile.chain.server]]
-    name = "review-vpn"
-    address = "review-vpn.jpfchang.org:443"
+    name = "support-demo-vpn"
+    address = "support-demo-vpn.jpfchang.org:443"
     protocol = "clambback"
 
       [profile.chain.server.settings]
