@@ -58,6 +58,47 @@ final class SettingsTests: XCTestCase {
         XCTAssertEqual(settings.updateManifestURL, defaultStableUpdateManifestURL)
     }
 
+    func testDefaultUpdateManifestURLsUseReleaseAPIEndpoints() {
+        XCTAssertEqual(
+            defaultStableUpdateManifestURL.absoluteString,
+            "https://jpfchang.org/api/clambhook/update-manifest"
+        )
+        XCTAssertEqual(
+            defaultBetaUpdateManifestURL.absoluteString,
+            "https://jpfchang.org/api/clambhook/update-manifest?channel=beta"
+        )
+    }
+
+    func testNormalizingLegacyManifestURLsMigratesToReleaseAPIEndpoints() {
+        let settings = AppSettings(
+            stableUpdateManifestURL: URL(string: "https://jpfchang.org/clambhook/clambhook-update-manifest.json")!,
+            betaUpdateManifestURL: URL(string: "https://jpfchang.org/clambhook/clambhook-beta-update-manifest.json")!
+        ).normalized()
+
+        XCTAssertEqual(settings.stableUpdateManifestURL, defaultStableUpdateManifestURL)
+        XCTAssertEqual(settings.betaUpdateManifestURL, defaultBetaUpdateManifestURL)
+    }
+
+    func testNormalizingLegacyBetaManifestURLWithChannelQueryMigratesToReleaseAPIEndpoint() {
+        let settings = AppSettings(
+            betaUpdateManifestURL: URL(string: "https://jpfchang.org/clambhook/clambhook-update-manifest.json?channel=beta")!
+        ).normalized()
+
+        XCTAssertEqual(settings.betaUpdateManifestURL, defaultBetaUpdateManifestURL)
+    }
+
+    func testNormalizingCustomManifestURLsKeepsSupportedEndpoints() {
+        let stableURL = URL(string: "https://updates.example.com/clambhook/stable.json")!
+        let betaURL = URL(string: "https://updates.example.com/clambhook/beta.json")!
+        let settings = AppSettings(
+            stableUpdateManifestURL: stableURL,
+            betaUpdateManifestURL: betaURL
+        ).normalized()
+
+        XCTAssertEqual(settings.stableUpdateManifestURL, stableURL)
+        XCTAssertEqual(settings.betaUpdateManifestURL, betaURL)
+    }
+
     func testMacOSIdentifiersUseJPFChangNamespace() {
         XCTAssertEqual(clambhookMacAppBundleIdentifier, "org.jpfchang.clambhook.mac")
         XCTAssertEqual(clambhookMacTunnelBundleIdentifier, "org.jpfchang.clambhook.mac.tunnel")

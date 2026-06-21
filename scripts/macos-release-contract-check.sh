@@ -132,6 +132,8 @@ done
 
 require_text "$settings" "https://jpfchang.org/api/clambhook/update-manifest" "stable update manifest"
 require_text "$settings" "https://jpfchang.org/api/clambhook/update-manifest?channel=beta" "beta update manifest"
+reject_text "$settings" "public let defaultStableUpdateManifestURL = URL(string: \"https://jpfchang.org/clambhook/clambhook-update-manifest.json\")!" "stable update manifest"
+reject_text "$settings" "public let defaultBetaUpdateManifestURL = URL(string: \"https://jpfchang.org/clambhook/clambhook-beta-update-manifest.json\")!" "beta update manifest"
 
 for ui_copy_file in "$licensing" "$recovery" "$app_model" "$purchase_view" "$mobile_support"; do
     reject_text "$ui_copy_file" "StoreKit" "macOS website license UI copy"
