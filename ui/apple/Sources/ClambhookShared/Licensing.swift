@@ -307,7 +307,7 @@ public enum MobileLicenseTrialStore {
 
 public enum MobileLicenseCopy {
     public static func paidUpdatePolicy(cutoffDate: Date) -> String {
-        "One-time unlock includes features released through \(cutoffDate.formatted(date: .abbreviated, time: .omitted)). Paid updates unlock later feature releases. Bug fixes/security fixes remain included."
+        "The macOS license includes feature updates through \(cutoffDate.formatted(date: .abbreviated, time: .omitted)). Paid updates unlock later feature releases. Bug fixes/security fixes remain included."
     }
 }
 
@@ -361,10 +361,10 @@ public enum MobileLicenseProductStateBuilder {
 
         states.append(MobileLicenseProductState(
             kind: .lifetimeUnlocked,
-            title: "Lifetime unlocked",
+            title: "macOS license",
             detail: decision.hasLifetimeUnlock
-                ? "Purchased features remain enabled forever."
-                : "Purchase or restore the lifetime unlock to keep using clambhook after free access.",
+                ? "Included features remain usable after the paid update window ends."
+                : "Buy or activate a ClambHook macOS license to keep using clambhook after free access.",
             isActive: decision.hasLifetimeUnlock
         ))
 
@@ -379,7 +379,7 @@ public enum MobileLicenseProductStateBuilder {
             states.append(MobileLicenseProductState(
                 kind: .paidUpdateWindow,
                 title: "Paid-update window through DATE",
-                detail: "A lifetime unlock sets this date to the purchase date plus one year.",
+                detail: "A macOS license sets this date to the purchase date plus one year.",
                 isActive: false
             ))
         }
@@ -434,7 +434,7 @@ public enum MobileLicenseRuntimeError: Error, LocalizedError {
     public var errorDescription: String? {
         switch self {
         case .locked:
-            return "Free access has ended. Purchase or restore the lifetime unlock to keep using clambhook."
+            return "Free access has ended. Buy or activate a ClambHook macOS license to keep using clambhook."
         }
     }
 }

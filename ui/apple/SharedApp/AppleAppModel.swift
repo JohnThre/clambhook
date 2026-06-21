@@ -928,7 +928,7 @@ enum AppleAppModelError: Error, LocalizedError {
         case .invalidRules:
             return "The rule changes could not be encoded."
         case .licenseLocked:
-            return "Free access has ended. Purchase or restore the lifetime unlock to keep using clambhook."
+            return "Free access has ended. Buy or activate a ClambHook macOS license to keep using clambhook."
         }
     }
 }

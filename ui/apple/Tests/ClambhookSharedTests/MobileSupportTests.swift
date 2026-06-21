@@ -73,18 +73,17 @@ final class MobileSupportTests: XCTestCase {
         )
     }
 
-    func testLocalStoreKitConfigurationMatchesPurchaseCatalog() throws {
+    func testDirectSaleProductFixtureMatchesPurchaseCatalog() throws {
         let configURL = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
-            .appendingPathComponent("ClambhookProducts.storekit")
+            .appendingPathComponent("ClambhookProducts.json")
         let data = try Data(contentsOf: configURL)
         let config = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
 
-        XCTAssertEqual(config["type"] as? String, "local")
-        XCTAssertEqual(config["version"] as? Int, 3)
-        XCTAssertEqual((config["settings"] as? [String: Any])?["_storefront"] as? String, "USA")
+        XCTAssertEqual(config["type"] as? String, "direct-sale")
+        XCTAssertEqual(config["version"] as? Int, 1)
 
         let products = try XCTUnwrap(config["products"] as? [[String: Any]])
         let productsByID = Dictionary(uniqueKeysWithValues: products.compactMap { product -> (String, [String: Any])? in
@@ -95,34 +94,29 @@ final class MobileSupportTests: XCTestCase {
         })
         XCTAssertEqual(MobilePurchaseCatalog.orderedIDs(productsByID.keys), MobilePurchaseCatalog.productIDs)
 
-        try assertStoreKitProduct(
+        try assertDirectSaleProduct(
             productsByID[MobilePurchaseCatalog.lifetimeUnlockID],
             displayPrice: "99.99",
-            displayName: "ClambHook Lifetime Unlock",
-            description: "Unlocks lifetime mobile access for ClambHook."
+            displayName: "ClambHook macOS License",
+            description: "Includes one year of feature updates. Included features remain usable after the update window."
         )
-        try assertStoreKitProduct(
+        try assertDirectSaleProduct(
             productsByID[MobilePurchaseCatalog.featureUpdate2027ID],
             displayPrice: "8.99",
             displayName: "ClambHook 2027 Feature Update",
-            description: "Unlocks ClambHook mobile features released in the 2027 update cycle."
+            description: "Extends the ClambHook macOS feature-update window by one year."
         )
     }
 
-    private func assertStoreKitProduct(
+    private func assertDirectSaleProduct(
         _ product: [String: Any]?,
         displayPrice: String,
         displayName: String,
         description: String
     ) throws {
         let product = try XCTUnwrap(product)
-        XCTAssertEqual(product["type"] as? String, "NonConsumable")
         XCTAssertEqual(product["displayPrice"] as? String, displayPrice)
-        XCTAssertEqual(product["familyShareable"] as? Bool, true)
-
-        let localizations = try XCTUnwrap(product["localizations"] as? [[String: Any]])
-        let englishLocalization = try XCTUnwrap(localizations.first { $0["locale"] as? String == "en_US" })
-        XCTAssertEqual(englishLocalization["displayName"] as? String, displayName)
-        XCTAssertEqual(englishLocalization["description"] as? String, description)
+        XCTAssertEqual(product["displayName"] as? String, displayName)
+        XCTAssertEqual(product["description"] as? String, description)
     }
 }
