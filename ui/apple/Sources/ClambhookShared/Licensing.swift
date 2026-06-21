@@ -44,27 +44,19 @@ public enum MobileLicenseProductKind: Equatable, Sendable {
     case unknown
 }
 
-public enum MobileLicenseTransactionOwnership: String, Codable, Equatable, Sendable {
-    case purchased
-    case familyShared
-}
-
 public struct MobileLicenseTransaction: Codable, Equatable, Sendable {
     public var productID: String
     public var purchaseDate: Date
     public var revocationDate: Date?
-    public var ownershipType: MobileLicenseTransactionOwnership
 
     public init(
         productID: String,
         purchaseDate: Date,
-        revocationDate: Date? = nil,
-        ownershipType: MobileLicenseTransactionOwnership = .purchased
+        revocationDate: Date? = nil
     ) {
         self.productID = productID
         self.purchaseDate = purchaseDate
         self.revocationDate = revocationDate
-        self.ownershipType = ownershipType
     }
 
     public var productKind: MobileLicenseProductKind {
@@ -79,7 +71,6 @@ public struct MobileLicenseTransaction: Codable, Equatable, Sendable {
         case productID
         case purchaseDate
         case revocationDate
-        case ownershipType
     }
 
     public init(from decoder: Decoder) throws {
@@ -87,7 +78,6 @@ public struct MobileLicenseTransaction: Codable, Equatable, Sendable {
         self.productID = try container.decode(String.self, forKey: .productID)
         self.purchaseDate = try container.decode(Date.self, forKey: .purchaseDate)
         self.revocationDate = try container.decodeIfPresent(Date.self, forKey: .revocationDate)
-        self.ownershipType = try container.decodeIfPresent(MobileLicenseTransactionOwnership.self, forKey: .ownershipType) ?? .purchased
     }
 }
 

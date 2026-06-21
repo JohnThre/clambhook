@@ -156,54 +156,6 @@ final class LicensingTests: XCTestCase {
         XCTAssertFalse(decision.hasLifetimeUnlock)
     }
 
-    func testActiveFamilySharingTransactionUnlocksLifetimeWindow() {
-        let purchaseDate = mobileLicenseUTCDate(year: 2026, month: 6, day: 3)
-        let snapshot = MobileLicenseSnapshot(
-            transactions: [
-                MobileLicenseTransaction(
-                    productID: MobilePurchaseCatalog.lifetimeUnlockID,
-                    purchaseDate: purchaseDate,
-                    ownershipType: .familyShared
-                ),
-            ],
-            lastVerifiedAt: mobileLicenseUTCDate(year: 2026, month: 6, day: 10)
-        )
-
-        let decision = MobileLicenseEvaluator.evaluate(
-            snapshot: snapshot,
-            now: mobileLicenseUTCDate(year: 2026, month: 6, day: 11)
-        )
-
-        XCTAssertEqual(decision.reason, .lifetime)
-        XCTAssertTrue(decision.hasLifetimeUnlock)
-        XCTAssertEqual(decision.updateCutoffDate, mobileLicenseUTCDate(year: 2027, month: 6, day: 3))
-        XCTAssertTrue(decision.canUseFeature(.tunnelRouting))
-    }
-
-    func testRevokedFamilyEntitlementDoesNotUnlock() {
-        let purchaseDate = mobileLicenseUTCDate(year: 2026, month: 6, day: 3)
-        let snapshot = MobileLicenseSnapshot(
-            transactions: [
-                MobileLicenseTransaction(
-                    productID: MobilePurchaseCatalog.lifetimeUnlockID,
-                    purchaseDate: purchaseDate,
-                    revocationDate: mobileLicenseUTCDate(year: 2026, month: 9, day: 1),
-                    ownershipType: .familyShared
-                ),
-            ],
-            lastVerifiedAt: mobileLicenseUTCDate(year: 2026, month: 9, day: 1)
-        )
-
-        let decision = MobileLicenseEvaluator.evaluate(
-            snapshot: snapshot,
-            now: mobileLicenseUTCDate(year: 2026, month: 9, day: 2)
-        )
-
-        XCTAssertEqual(decision.reason, .locked)
-        XCTAssertFalse(decision.hasLifetimeUnlock)
-        XCTAssertFalse(decision.canUseFeature(.tunnelRouting))
-    }
-
     func testPaidUpdatesExtendFeatureWindow() throws {
         let lifetimeDate = mobileLicenseUTCDate(year: 2026, month: 6, day: 3)
         let snapshot = MobileLicenseSnapshot(
@@ -457,7 +409,7 @@ final class LicensingTests: XCTestCase {
         XCTAssertTrue(locked.detail.contains("Future Widgets"))
     }
 
-    func testCachedTransactionsDecodeWithPurchasedOwnershipDefault() throws {
+    func testCachedTransactionsDecodeDirectSaleFields() throws {
         let json = """
         {
           "trialStartDate": null,
@@ -477,7 +429,7 @@ final class LicensingTests: XCTestCase {
         decoder.dateDecodingStrategy = .iso8601
         let snapshot = try decoder.decode(MobileLicenseSnapshot.self, from: Data(json.utf8))
 
-        XCTAssertEqual(snapshot.transactions.first?.ownershipType, .purchased)
+        XCTAssertEqual(snapshot.transactions.first?.productID, MobilePurchaseCatalog.lifetimeUnlockID)
     }
 
     func testDeviceStateHonorsFourActiveDeviceLimit() {

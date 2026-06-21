@@ -675,10 +675,10 @@ func TestValidateUsableTunnelConfigAcceptsRealProfile(t *testing.T) {
 	}
 }
 
-func TestValidateAppReviewDemoProfile(t *testing.T) {
-	path := strings.TrimSpace(os.Getenv("CLAMBHOOK_APP_REVIEW_DEMO_CONFIG"))
+func TestValidateSupportDemoProfile(t *testing.T) {
+	path := strings.TrimSpace(os.Getenv("CLAMBHOOK_SUPPORT_DEMO_CONFIG"))
 	if path == "" {
-		t.Skip("set CLAMBHOOK_APP_REVIEW_DEMO_CONFIG to validate the rendered App Review demo profile")
+		t.Skip("set CLAMBHOOK_SUPPORT_DEMO_CONFIG to validate the rendered support demo profile")
 	}
 	if err := ValidateUsableTunnelConfig(path); err != nil {
 		t.Fatalf("ValidateUsableTunnelConfig(%q): %v", path, err)

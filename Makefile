@@ -1,4 +1,4 @@
-.PHONY: all build build-clib build-daemon build-tui install install-linux prepare-apple-runtime build-apple-mobile-xcframework generate-apple build-apple check-macos-signing release-macos upload-release-r2 release-check macos-release-contract-check app-review-release-check package-smoke test-apple test-android build-android-mobile-aar build-android build-android-release build-android-play-release check-linux-ui-deps test-linux build-linux test e2e e2e-release lint clean
+.PHONY: all build build-clib build-daemon build-tui install install-linux prepare-apple-runtime build-apple-mobile-xcframework generate-apple build-apple check-macos-signing release-macos upload-release-r2 release-check macos-release-contract-check package-smoke test-apple test-android build-android-mobile-aar build-android build-android-release build-android-play-release check-linux-ui-deps test-linux build-linux test e2e e2e-release lint clean
 
 export CGO_ENABLED=1
 PREFIX ?= /usr/local
@@ -72,11 +72,6 @@ release-check:
 macos-release-contract-check:
 	$(internal-release-notice)
 	./scripts/macos-release-contract-check.sh
-
-app-review-release-check:
-	$(internal-release-notice)
-	@printf '%s\n' "website-only macOS release: running macos-release-contract-check instead of App Review checks."
-	$(MAKE) macos-release-contract-check
 
 package-smoke:
 	$(internal-release-notice)

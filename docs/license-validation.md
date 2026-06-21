@@ -15,8 +15,8 @@ deployment, persistent storage, backups, rate limiting, payment webhooks,
 email delivery, monitoring, and log redaction are maintained in the
 `jpfchang.org` production infrastructure.
 
-The app stores and transmits stable identifiers only through the hosted license
-flow. The backend stores hashed license keys, checkout records, license
+The application stores and transmits stable identifiers only through the hosted
+license flow. The backend stores hashed license keys, checkout records, license
 transactions, entitlement windows, generated install IDs, device display names,
 platform and architecture values, app version values, activation state, and
 transfer/deactivation events needed to support the direct-sale license. Profile
