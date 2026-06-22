@@ -22,7 +22,7 @@ struct ClambhookMacApp: App {
         Window("clambhook", id: "dashboard") {
             MacDashboardWindowView(model: model)
         }
-        .defaultSize(width: 960, height: 680)
+        .defaultSize(width: 1060, height: 700)
         .defaultPosition(.center)
 
         Settings {
