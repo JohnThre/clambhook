@@ -62,6 +62,7 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/developer/settings", s.handleDeveloperSettings)
 	mux.HandleFunc("PUT /api/v1/developer/settings", s.handleUpdateDeveloperSettings)
 	mux.HandleFunc("GET /api/v1/developer/ca.pem", s.handleDeveloperCA)
+	mux.HandleFunc("POST /api/v1/developer/ca/regenerate", s.handleDeveloperRegenerateCA)
 	mux.HandleFunc("GET /api/v1/developer/entries", s.handleDeveloperEntries)
 	mux.HandleFunc("GET /api/v1/developer/entries/{id}", s.handleDeveloperEntry)
 	mux.HandleFunc("GET /api/v1/developer/har", s.handleDeveloperHAR)
@@ -1108,6 +1109,20 @@ func (s *Server) handleDeveloperCA(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/x-pem-file")
 	w.Header().Set("Content-Disposition", `attachment; filename="clambhook-developer-ca.pem"`)
 	_, _ = w.Write(cert)
+}
+
+func (s *Server) handleDeveloperRegenerateCA(w http.ResponseWriter, r *http.Request) {
+	dev := s.developerManager()
+	if dev == nil {
+		http.Error(w, "developer mode disabled", http.StatusNotImplemented)
+		return
+	}
+	status, err := dev.RegenerateCA()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	writeJSON(w, status)
 }
 
 func (s *Server) handleDeveloperEntries(w http.ResponseWriter, r *http.Request) {

@@ -3,6 +3,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -73,14 +74,14 @@ type model struct {
 	apiAddr string
 	client  apiClient
 
-	status            statusPayload
-	profiles          profilesPayload
-	servers           serversPayload
-	policies          policyGroupsPayload
-	subscriptions     ruleSubscriptionsPayload
-	traffic           trafficSnapshotPayload
-	dev               developerStatusPayload
-	devRows           []developerEntryPayload
+	status        statusPayload
+	profiles      profilesPayload
+	servers       serversPayload
+	policies      policyGroupsPayload
+	subscriptions ruleSubscriptionsPayload
+	traffic       trafficSnapshotPayload
+	dev           developerStatusPayload
+	devRows       []developerEntryPayload
 
 	selectedProfile      int
 	viewMode             viewMode
@@ -97,6 +98,7 @@ type model struct {
 	suggestionFocus      bool
 	cleanupFocus         bool
 	selectedDeveloper    int
+	selectedDeveloperTab int
 	selectedPolicyGroup  int
 	selectedPolicyMember int
 	policyFocus          bool
@@ -154,8 +156,8 @@ type pendingRule struct {
 }
 
 type dashboardLoadedMsg struct {
-	Status    statusPayload
-	Profiles  profilesPayload
+	Status        statusPayload
+	Profiles      profilesPayload
 	Servers       serversPayload
 	Policies      policyGroupsPayload
 	Subscriptions ruleSubscriptionsPayload
@@ -347,6 +349,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			case "down", "j":
 				m.moveDeveloperSelection(1)
+				return m, nil
+			case "tab", "]":
+				m.selectedDeveloperTab = (m.selectedDeveloperTab + 1) % len(developerDetailTabs)
+				return m, nil
+			case "[":
+				m.selectedDeveloperTab = (m.selectedDeveloperTab + len(developerDetailTabs) - 1) % len(developerDetailTabs)
 				return m, nil
 			case "e":
 				return m, m.exportDeveloperHARCmd()
@@ -924,7 +932,7 @@ func (m model) developerView() string {
 		renderSection("HTTP Inspector", m.developerEntryLines(width)),
 		m.renderFooter(
 			"Keys: up/down select  e export HAR  c clear  r refresh  1 now  2 activity  3 library  4 settings  q quit",
-			"Keys: up/down  e export  c clear  r  1 now  2 activity  q",
+			"Keys: up/down  tab detail  e export  c clear  r  1 now  2 activity  q",
 		),
 	)
 	return joinSections(sections)
@@ -939,15 +947,22 @@ func (m model) developerStatusLines(width int) []string {
 	if m.dev.MITMEnabled {
 		mitm = "on"
 	}
+	noCache := "off"
+	if m.dev.NoCacheEnabled {
+		noCache = "on"
+	}
 	lines := []string{
-		truncate(fmt.Sprintf("  State %s  MITM %s  Captures %d/%d  Body cap %s",
-			state, mitm, m.dev.CaptureCount, m.dev.CaptureLimit, formatBytes(uint64(maxInt64(0, m.dev.BodyLimitBytes)))), width),
+		truncate(fmt.Sprintf("  State %s  MITM %s  No-cache %s  Captures %d/%d  Body cap %s",
+			state, mitm, noCache, m.dev.CaptureCount, m.dev.CaptureLimit, formatBytes(uint64(maxInt64(0, m.dev.BodyLimitBytes)))), width),
 	}
 	if m.dev.CACertPath != "" {
 		lines = append(lines, truncate("  CA "+m.dev.CACertPath, width))
 	}
 	if m.dev.CAFingerprintSHA256 != "" {
 		lines = append(lines, subtleStyle.Render(truncate("  SHA256 "+m.dev.CAFingerprintSHA256, width)))
+	}
+	if m.dev.CANotBefore != "" || m.dev.CANotAfter != "" {
+		lines = append(lines, subtleStyle.Render(truncate("  Valid "+emptyDash(m.dev.CANotBefore)+" -> "+emptyDash(m.dev.CANotAfter), width)))
 	}
 	if !m.dev.Enabled {
 		lines = append(lines, subtleStyle.Render(truncate("  Enable [developer] in TOML to capture HTTP(S) transactions.", width)))
@@ -985,13 +1000,177 @@ func (m model) developerEntryLines(width int) []string {
 		lines = append(lines, "")
 		lines = append(lines, tableHeaderStyle.Render(truncate("  Request Detail", width)))
 		lines = append(lines, truncate(fmt.Sprintf("  %s %s  Status %s  Profile %s  Chain %s", entry.Method, entry.URL, statusText(entry.Status), emptyDash(entry.Profile), emptyDash(entry.ChainName)), width))
-		lines = append(lines, truncate(fmt.Sprintf("  Request body %s preview %s%s", formatBytes(uint64(maxInt64(0, entry.Request.Body.Size))), formatBytes(uint64(maxInt64(0, entry.Request.Body.PreviewBytes))), truncSuffix(entry.Request.Body.Truncated)), width))
-		lines = append(lines, truncate(fmt.Sprintf("  Response body %s preview %s%s", formatBytes(uint64(maxInt64(0, entry.Response.Body.Size))), formatBytes(uint64(maxInt64(0, entry.Response.Body.PreviewBytes))), truncSuffix(entry.Response.Body.Truncated)), width))
+		lines = append(lines, subtleStyle.Render(truncate("  "+developerTabsLine(m.selectedDeveloperTab), width)))
+		lines = append(lines, developerDetailTabLines(entry, m.selectedDeveloperTab, width)...)
 		if entry.Error != "" {
 			lines = append(lines, errorStyle.Render(truncate("  Error "+entry.Error, width)))
 		}
 	}
 	return lines
+}
+
+var developerDetailTabs = []string{"Headers", "Body", "JSON", "Cookies"}
+
+func developerTabsLine(active int) string {
+	parts := make([]string, 0, len(developerDetailTabs))
+	for i, tab := range developerDetailTabs {
+		if i == active {
+			parts = append(parts, "["+tab+"]")
+		} else {
+			parts = append(parts, tab)
+		}
+	}
+	return strings.Join(parts, "  ")
+}
+
+func developerDetailTabLines(entry developerEntryPayload, active, width int) []string {
+	switch developerDetailTabs[active%len(developerDetailTabs)] {
+	case "Headers":
+		return developerHeaderLines(entry, width)
+	case "Body":
+		return developerBodyLines(entry, width)
+	case "JSON":
+		return developerJSONLines(entry, width)
+	case "Cookies":
+		return developerCookieLines(entry, width)
+	default:
+		return nil
+	}
+}
+
+func developerHeaderLines(entry developerEntryPayload, width int) []string {
+	lines := []string{subtleStyle.Render(truncate("  Request headers", width))}
+	lines = append(lines, developerHeaderRows(entry.Request.Headers, width)...)
+	lines = append(lines, subtleStyle.Render(truncate("  Response headers", width)))
+	lines = append(lines, developerHeaderRows(entry.Response.Headers, width)...)
+	return lines
+}
+
+func developerHeaderRows(headers []developerHeaderPayload, width int) []string {
+	if len(headers) == 0 {
+		return []string{subtleStyle.Render(truncate("    none", width))}
+	}
+	lines := make([]string, 0, minInt(len(headers), 8)+1)
+	for _, header := range headers[:minInt(len(headers), 8)] {
+		value := header.Value
+		if header.Redacted {
+			value += " redacted"
+		}
+		if header.Truncated {
+			value += " truncated"
+		}
+		lines = append(lines, truncate(fmt.Sprintf("    %s: %s", header.Name, value), width))
+	}
+	if len(headers) > 8 {
+		lines = append(lines, subtleStyle.Render(truncate(fmt.Sprintf("    +%d more", len(headers)-8), width)))
+	}
+	return lines
+}
+
+func developerBodyLines(entry developerEntryPayload, width int) []string {
+	lines := developerOneBodyLines("Request", entry.Request.Body, width)
+	lines = append(lines, developerOneBodyLines("Response", entry.Response.Body, width)...)
+	return lines
+}
+
+func developerOneBodyLines(title string, body developerBodyPayload, width int) []string {
+	mime := body.MimeType
+	if mime == "" {
+		mime = "unknown"
+	}
+	lines := []string{
+		subtleStyle.Render(truncate(fmt.Sprintf("  %s body %s preview %s%s  %s %s", title, formatBytes(uint64(maxInt64(0, body.Size))), formatBytes(uint64(maxInt64(0, body.PreviewBytes))), truncSuffix(body.Truncated), mime, emptyDash(body.Encoding)), width)),
+	}
+	text := developerBodyText(body)
+	if text != "" {
+		for _, line := range previewLines(text, 3) {
+			lines = append(lines, truncate("    "+line, width))
+		}
+	}
+	return lines
+}
+
+func developerJSONLines(entry developerEntryPayload, width int) []string {
+	lines := developerOneJSONLines("Request", entry.Request.Body, width)
+	lines = append(lines, developerOneJSONLines("Response", entry.Response.Body, width)...)
+	return lines
+}
+
+func developerOneJSONLines(title string, body developerBodyPayload, width int) []string {
+	text := body.Preview
+	if strings.TrimSpace(text) == "" {
+		return []string{subtleStyle.Render(truncate("  "+title+" JSON none", width))}
+	}
+	var buf bytes.Buffer
+	if err := json.Indent(&buf, []byte(text), "", "  "); err != nil {
+		return []string{subtleStyle.Render(truncate("  "+title+" JSON invalid or unavailable", width))}
+	}
+	lines := []string{subtleStyle.Render(truncate("  "+title+" JSON", width))}
+	for _, line := range previewLines(buf.String(), 6) {
+		lines = append(lines, truncate("    "+line, width))
+	}
+	return lines
+}
+
+func developerCookieLines(entry developerEntryPayload, width int) []string {
+	lines := []string{subtleStyle.Render(truncate("  Request cookies", width))}
+	lines = append(lines, developerCookieRows(entry.Request.Cookies, width)...)
+	lines = append(lines, subtleStyle.Render(truncate("  Response cookies", width)))
+	lines = append(lines, developerCookieRows(entry.Response.Cookies, width)...)
+	return lines
+}
+
+func developerCookieRows(cookies []developerCookiePayload, width int) []string {
+	if len(cookies) == 0 {
+		return []string{subtleStyle.Render(truncate("    none", width))}
+	}
+	lines := make([]string, 0, minInt(len(cookies), 8)+1)
+	for _, cookie := range cookies[:minInt(len(cookies), 8)] {
+		attrs := make([]string, 0, 4)
+		if cookie.Domain != "" {
+			attrs = append(attrs, "domain="+cookie.Domain)
+		}
+		if cookie.Path != "" {
+			attrs = append(attrs, "path="+cookie.Path)
+		}
+		if cookie.Secure {
+			attrs = append(attrs, "secure")
+		}
+		if cookie.HTTPOnly {
+			attrs = append(attrs, "httponly")
+		}
+		value := cookie.Value
+		if cookie.Redacted {
+			value += " redacted"
+		}
+		if len(attrs) > 0 {
+			value += "  " + strings.Join(attrs, " ")
+		}
+		lines = append(lines, truncate(fmt.Sprintf("    %s=%s", cookie.Name, value), width))
+	}
+	if len(cookies) > 8 {
+		lines = append(lines, subtleStyle.Render(truncate(fmt.Sprintf("    +%d more", len(cookies)-8), width)))
+	}
+	return lines
+}
+
+func developerBodyText(body developerBodyPayload) string {
+	if body.Preview != "" {
+		return body.Preview
+	}
+	if body.PreviewBase64 != "" {
+		return "[base64] " + body.PreviewBase64
+	}
+	return ""
+}
+
+func previewLines(text string, limit int) []string {
+	raw := strings.Split(strings.TrimRight(text, "\n"), "\n")
+	if len(raw) > limit {
+		raw = raw[:limit]
+		raw = append(raw, "...")
+	}
+	return raw
 }
 
 func (m model) selectedDeveloperEntry() (developerEntryPayload, bool) {

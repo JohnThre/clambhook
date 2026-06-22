@@ -50,6 +50,39 @@ final class MacTunnelProviderClient: NSObject, ClambhookDashboardProviding, Clam
         try await dashboard().dns
     }
 
+    func testPolicyGroup(group: String, profile: String) async throws -> PolicyGroupsPayload {
+        throw MacTunnelProviderError.unsupported("Policy group health checks are only available in daemon mode.")
+    }
+
+    func updateDNS(_ request: DNSUpdateRequest, profile: String) async throws -> DNSPayload {
+        throw MacTunnelProviderError.unsupported("DNS settings are only editable in daemon mode.")
+    }
+
+    func exportConfig() async throws -> String {
+        try TunnelConfigStore.loadOrCreateConfig(groupIdentifier: groupIdentifier)
+    }
+
+    func importConfig(_ toml: String) async throws -> ConfigImportResponse {
+        let previous = try? TunnelConfigStore.loadOrCreateConfig(groupIdentifier: groupIdentifier)
+        do {
+            try TunnelConfigStore.save(toml, groupIdentifier: groupIdentifier)
+            if try await isConnected() {
+                try await restartTunnel()
+            }
+            let profiles = try await self.profiles()
+            return ConfigImportResponse(
+                profiles: profiles.profiles,
+                active: profiles.active,
+                message: "configuration imported"
+            )
+        } catch {
+            if let previous {
+                try? TunnelConfigStore.save(previous, groupIdentifier: groupIdentifier)
+            }
+            throw error
+        }
+    }
+
     func traffic() async throws -> TrafficSnapshotPayload {
         try await dashboard().traffic
     }

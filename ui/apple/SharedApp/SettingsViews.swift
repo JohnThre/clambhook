@@ -21,12 +21,14 @@ struct AppSettingsView: View {
     @State private var dnsUpstreams: [EditableDNSUpstream] = []
     @State private var developerCaptureEnabled = false
     @State private var httpsCaptureEnabled = false
+    @State private var noCacheEnabled = false
     @State private var captureLimit = 200
     @State private var bodyLimitBytes = 65_536
     @State private var headerValueLimitBytes = 8_192
     @State private var redactHeadersText = developerDefaultRedactHeaders.joined(separator: ", ")
     @State private var redactQueryParamsText = developerDefaultRedactQueryParams.joined(separator: ", ")
     @State private var showingHTTPSCaptureConfirmation = false
+    @State private var showingCARegenerationConfirmation = false
     @State private var stableManifestURL = ""
     @State private var betaManifestURL = ""
 
@@ -73,6 +75,18 @@ struct AppSettingsView: View {
             }
         } message: {
             Text(developerHTTPSCaptureDisclosure)
+        }
+        .confirmationDialog(
+            "Regenerate Developer CA?",
+            isPresented: $showingCARegenerationConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Regenerate CA", role: .destructive) {
+                model.regenerateDeveloperCA()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Regenerating the developer CA replaces the certificate used for HTTPS capture. You will need to trust the new certificate before HTTPS clients accept intercepted traffic.")
         }
     }
 
@@ -355,8 +369,9 @@ struct AppSettingsView: View {
                     developerCaptureEnabled = enabled
                     if !enabled {
                         httpsCaptureEnabled = false
+                        noCacheEnabled = false
                     }
-                    saveDeveloperSettings(enabled: enabled, mitmEnabled: false)
+                    saveDeveloperSettings(enabled: enabled, mitmEnabled: false, noCacheEnabled: enabled ? nil : false)
                 }
             ))
             Text(developerCaptureDisclosure)
@@ -366,6 +381,14 @@ struct AppSettingsView: View {
             Stepper("Keep \(captureLimit) captures", value: $captureLimit, in: 0...5_000, step: 50)
             Stepper("Body preview \(bodyLimitBytes) bytes", value: $bodyLimitBytes, in: 0...1_048_576, step: 4_096)
             Stepper("Header value limit \(headerValueLimitBytes) bytes", value: $headerValueLimitBytes, in: 0...65_536, step: 512)
+            Toggle("No-cache inspected traffic", isOn: Binding(
+                get: { noCacheEnabled },
+                set: { enabled in
+                    noCacheEnabled = enabled
+                    saveDeveloperSettings(noCacheEnabled: enabled)
+                }
+            ))
+            .disabled(!developerCaptureEnabled)
             TextField("Redacted headers", text: $redactHeadersText)
             TextField("Redacted query parameters", text: $redactQueryParamsText)
             Button {
@@ -406,6 +429,12 @@ struct AppSettingsView: View {
                     .font(.caption)
                     .textSelection(.enabled)
             }
+            if !model.developerStatus.caNotBefore.isEmpty || !model.developerStatus.caNotAfter.isEmpty {
+                Text("Valid \(emptyDash(model.developerStatus.caNotBefore)) – \(emptyDash(model.developerStatus.caNotAfter))")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+            }
             HStack {
                 Button {
                     model.refreshDeveloperCapture()
@@ -422,6 +451,12 @@ struct AppSettingsView: View {
                     model.certificateManager.remove(pem: model.developerCAPEMText)
                 } label: {
                     Label("Remove Trust", systemImage: "xmark.shield")
+                }
+                .disabled(!canManageCA)
+                Button(role: .destructive) {
+                    showingCARegenerationConfirmation = true
+                } label: {
+                    Label("Regenerate CA", systemImage: "arrow.triangle.2.circlepath")
                 }
                 .disabled(!canManageCA)
             }
@@ -567,6 +602,7 @@ struct AppSettingsView: View {
     private func loadDeveloperSettings(_ settings: DeveloperSettingsPayload) {
         developerCaptureEnabled = settings.enabled
         httpsCaptureEnabled = settings.mitmEnabled
+        noCacheEnabled = settings.noCacheEnabled
         captureLimit = settings.captureLimit
         bodyLimitBytes = Int(min(settings.bodyLimitBytes, UInt64(Int.max)))
         headerValueLimitBytes = settings.headerValueLimitBytes
@@ -606,10 +642,11 @@ struct AppSettingsView: View {
         ))
     }
 
-    private func saveDeveloperSettings(enabled: Bool? = nil, mitmEnabled: Bool? = nil, httpsCaptureAck: Bool = false) {
+    private func saveDeveloperSettings(enabled: Bool? = nil, mitmEnabled: Bool? = nil, noCacheEnabled: Bool? = nil, httpsCaptureAck: Bool = false) {
         model.saveDeveloperSettings(DeveloperSettingsUpdateRequest(
             enabled: enabled,
             mitmEnabled: mitmEnabled,
+            noCacheEnabled: noCacheEnabled,
             captureLimit: captureLimit,
             bodyLimitBytes: UInt64(max(0, bodyLimitBytes)),
             headerValueLimitBytes: headerValueLimitBytes,

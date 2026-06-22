@@ -13,18 +13,37 @@ type Header struct {
 	Truncated bool   `json:"truncated,omitempty"`
 }
 
+// Cookie is a captured HTTP cookie. Sensitive values may be redacted while
+// retaining non-secret attributes useful for debugging.
+type Cookie struct {
+	Name     string `json:"name"`
+	Value    string `json:"value"`
+	Redacted bool   `json:"redacted,omitempty"`
+	Domain   string `json:"domain,omitempty"`
+	Path     string `json:"path,omitempty"`
+	Expires  string `json:"expires,omitempty"`
+	MaxAge   int    `json:"max_age,omitempty"`
+	Secure   bool   `json:"secure,omitempty"`
+	HTTPOnly bool   `json:"http_only,omitempty"`
+	SameSite string `json:"same_site,omitempty"`
+}
+
 // Body is a bounded body preview.
 type Body struct {
 	Size           int64  `json:"size"`
 	Preview        string `json:"preview,omitempty"`
+	PreviewBase64  string `json:"preview_base64,omitempty"`
 	PreviewBytes   int64  `json:"preview_bytes"`
 	Truncated      bool   `json:"truncated"`
 	TruncatedAfter int64  `json:"truncated_after"`
+	MimeType       string `json:"mime_type,omitempty"`
+	Encoding       string `json:"encoding,omitempty"`
 }
 
 // Message contains captured request or response data.
 type Message struct {
 	Headers []Header `json:"headers,omitempty"`
+	Cookies []Cookie `json:"cookies,omitempty"`
 	Body    Body     `json:"body"`
 }
 
@@ -130,7 +149,9 @@ func (s *Store) Clear() {
 
 func cloneEntry(entry Entry) Entry {
 	entry.Request.Headers = cloneHeaderSlice(entry.Request.Headers)
+	entry.Request.Cookies = cloneCookieSlice(entry.Request.Cookies)
 	entry.Response.Headers = cloneHeaderSlice(entry.Response.Headers)
+	entry.Response.Cookies = cloneCookieSlice(entry.Response.Cookies)
 	return entry
 }
 
@@ -140,5 +161,14 @@ func cloneHeaderSlice(headers []Header) []Header {
 	}
 	out := make([]Header, len(headers))
 	copy(out, headers)
+	return out
+}
+
+func cloneCookieSlice(cookies []Cookie) []Cookie {
+	if len(cookies) == 0 {
+		return nil
+	}
+	out := make([]Cookie, len(cookies))
+	copy(out, cookies)
 	return out
 }

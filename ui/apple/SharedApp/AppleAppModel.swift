@@ -571,6 +571,23 @@ final class AppleAppModel: ObservableObject {
         }
     }
 
+    func regenerateDeveloperCA() {
+        Task {
+            do {
+                guard let provider = dashboardAPI as? DeveloperCaptureProviding else {
+                    throw APIClientError.invalidURL("developer capture unavailable")
+                }
+                developerStatus = try await provider.regenerateDeveloperCA()
+                await refreshDeveloperCANow()
+                daemonMessage = "developer CA regenerated"
+            } catch {
+                daemonMessage = error.localizedDescription
+                await refreshDeveloperCaptureNow()
+                await refreshDeveloperCANow()
+            }
+        }
+    }
+
     func developerHAR() async throws -> String {
         guard let provider = dashboardAPI as? DeveloperCaptureProviding else {
             throw APIClientError.invalidURL("developer capture unavailable")
@@ -607,12 +624,16 @@ final class AppleAppModel: ObservableObject {
     }
 
     func addDeveloperMapRule(_ rule: DeveloperMapRulePayload) {
+        replaceDeveloperMapRules(developerMapRules + [rule])
+    }
+
+    func replaceDeveloperMapRules(_ rules: [DeveloperMapRulePayload]) {
         Task {
             guard let provider = dashboardAPI as? DeveloperCaptureProviding else {
                 return
             }
             do {
-                try await provider.replaceDeveloperMapRules(developerMapRules + [rule])
+                try await provider.replaceDeveloperMapRules(rules)
                 await refreshDeveloperCaptureNow()
             } catch {
                 daemonMessage = error.localizedDescription
@@ -621,12 +642,16 @@ final class AppleAppModel: ObservableObject {
     }
 
     func addDeveloperBreakpointRule(_ rule: DeveloperBreakpointRulePayload) {
+        replaceDeveloperBreakpointRules(developerBreakpointRules + [rule])
+    }
+
+    func replaceDeveloperBreakpointRules(_ rules: [DeveloperBreakpointRulePayload]) {
         Task {
             guard let provider = dashboardAPI as? DeveloperCaptureProviding else {
                 return
             }
             do {
-                try await provider.replaceDeveloperBreakpointRules(developerBreakpointRules + [rule])
+                try await provider.replaceDeveloperBreakpointRules(rules)
                 await refreshDeveloperCaptureNow()
             } catch {
                 daemonMessage = error.localizedDescription

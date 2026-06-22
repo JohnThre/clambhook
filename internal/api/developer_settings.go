@@ -12,6 +12,7 @@ import (
 type developerSettingsPayload struct {
 	Enabled               bool     `json:"enabled"`
 	MITMEnabled           bool     `json:"mitm_enabled"`
+	NoCacheEnabled        bool     `json:"no_cache_enabled"`
 	CaptureLimit          int      `json:"capture_limit"`
 	BodyLimitBytes        int64    `json:"body_limit_bytes"`
 	HeaderValueLimitBytes int      `json:"header_value_limit_bytes"`
@@ -23,6 +24,7 @@ type developerSettingsPayload struct {
 type updateDeveloperSettingsRequest struct {
 	Enabled               *bool    `json:"enabled,omitempty"`
 	MITMEnabled           *bool    `json:"mitm_enabled,omitempty"`
+	NoCacheEnabled        *bool    `json:"no_cache_enabled,omitempty"`
 	CaptureLimit          *int     `json:"capture_limit,omitempty"`
 	BodyLimitBytes        *int64   `json:"body_limit_bytes,omitempty"`
 	HeaderValueLimitBytes *int     `json:"header_value_limit_bytes,omitempty"`
@@ -87,6 +89,9 @@ func applyDeveloperSettingsUpdate(current config.DeveloperConfig, req updateDeve
 		}
 		next.MITMEnabled = *req.MITMEnabled
 	}
+	if req.NoCacheEnabled != nil {
+		next.NoCacheEnabled = *req.NoCacheEnabled
+	}
 	if req.CaptureLimit != nil {
 		next.CaptureLimit = *req.CaptureLimit
 	}
@@ -133,6 +138,7 @@ func developerSettingsSnapshot(dev config.DeveloperConfig, backupPath string) de
 	return developerSettingsPayload{
 		Enabled:               dev.Enabled,
 		MITMEnabled:           dev.MITMEnabled,
+		NoCacheEnabled:        dev.NoCacheEnabled,
 		CaptureLimit:          dev.CaptureLimit,
 		BodyLimitBytes:        dev.BodyLimitBytes,
 		HeaderValueLimitBytes: dev.HeaderValueLimitBytes,

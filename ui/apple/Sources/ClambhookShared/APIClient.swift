@@ -56,6 +56,7 @@ public protocol DeveloperCaptureProviding: AnyObject {
     func updateDeveloperSettings(_ request: DeveloperSettingsUpdateRequest) async throws -> DeveloperSettingsPayload
     func developerEntries() async throws -> DeveloperEntriesPayload
     func developerCAPEM() async throws -> String
+    func regenerateDeveloperCA() async throws -> DeveloperStatusPayload
     func developerHAR() async throws -> String
     func repeatDeveloperEntry(_ request: DeveloperRepeatRequestPayload) async throws -> DeveloperRepeatResponsePayload
     func developerMapRules() async throws -> DeveloperRuleListPayload<DeveloperMapRulePayload>
@@ -366,6 +367,11 @@ public final class ClambhookAPIClient: ClambhookAPIProviding, ClambhookRuleEditi
     public func developerCAPEM() async throws -> String {
         let data = try await send(method: "GET", path: "/api/v1/developer/ca.pem")
         return String(data: data, encoding: .utf8) ?? ""
+    }
+
+    public func regenerateDeveloperCA() async throws -> DeveloperStatusPayload {
+        let data = try await send(method: "POST", path: "/api/v1/developer/ca/regenerate")
+        return try decoder.decode(DeveloperStatusPayload.self, from: data)
     }
 
     public func developerHAR() async throws -> String {
