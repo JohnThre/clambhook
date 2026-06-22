@@ -13,6 +13,10 @@ public protocol ClambhookAPIProviding: AnyObject {
     func disconnect() async throws
     func setActiveProfile(_ name: String) async throws
     func selectPolicyGroup(profile: String, group: String, chain: String) async throws -> PolicyGroupsPayload
+    func testPolicyGroup(group: String, profile: String) async throws -> PolicyGroupsPayload
+    func updateDNS(_ request: DNSUpdateRequest, profile: String) async throws -> DNSPayload
+    func exportConfig() async throws -> String
+    func importConfig(_ toml: String) async throws -> ConfigImportResponse
 }
 
 public protocol ClambhookRuleEditing: AnyObject {
@@ -453,6 +457,48 @@ public final class ClambhookAPIClient: ClambhookAPIProviding, ClambhookRuleEditi
         return try decoder.decode(SelectPolicyGroupResponse.self, from: data).policyGroups
     }
 
+    public func testPolicyGroup(group: String = "", profile: String = "") async throws -> PolicyGroupsPayload {
+        struct TestPolicyGroupRequest: Encodable {
+            var group: String
+            var profile: String
+        }
+        let body = try encoder.encode(TestPolicyGroupRequest(group: group, profile: profile))
+        let data = try await send(method: "POST", path: "/api/v1/policy-groups/test", body: body)
+        return try decoder.decode(PolicyGroupsPayload.self, from: data)
+    }
+
+    public func updateDNS(_ request: DNSUpdateRequest, profile: String = "") async throws -> DNSPayload {
+        struct Wrapper: Encodable {
+            var profile: String
+            var enabled: Bool
+            var timeout: String
+            var upstreams: [DNSUpstreamPayload]
+            enum CodingKeys: String, CodingKey {
+                case profile, enabled, timeout, upstreams
+            }
+        }
+        let wrapped = Wrapper(
+            profile: profile,
+            enabled: request.enabled,
+            timeout: request.timeout,
+            upstreams: request.upstreams
+        )
+        let body = try encoder.encode(wrapped)
+        let data = try await send(method: "PUT", path: "/api/v1/dns", body: body)
+        return try decoder.decode(DNSPayload.self, from: data)
+    }
+
+    public func exportConfig() async throws -> String {
+        let data = try await send(method: "GET", path: "/api/v1/config/export")
+        return String(data: data, encoding: .utf8) ?? ""
+    }
+
+    public func importConfig(_ toml: String) async throws -> ConfigImportResponse {
+        let body = Data(toml.utf8)
+        let data = try await send(method: "POST", path: "/api/v1/config/import", body: body, contentType: "text/plain")
+        return try decoder.decode(ConfigImportResponse.self, from: data)
+    }
+
     public func connect() async throws {
         _ = try await send(method: "POST", path: "/api/v1/connect")
     }
@@ -513,7 +559,7 @@ public final class ClambhookAPIClient: ClambhookAPIProviding, ClambhookRuleEditi
         return try decoder.decode(T.self, from: data)
     }
 
-    private func send(method: String, path: String, body: Data? = nil) async throws -> Data {
+    private func send(method: String, path: String, body: Data? = nil, contentType: String = "application/json") async throws -> Data {
         guard let url = URL(string: path, relativeTo: baseURL)?.absoluteURL else {
             throw APIClientError.invalidURL(path)
         }
@@ -525,7 +571,7 @@ public final class ClambhookAPIClient: ClambhookAPIProviding, ClambhookRuleEditi
         }
         if let body {
             request.httpBody = body
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.setValue(contentType, forHTTPHeaderField: "Content-Type")
         }
         if method == "DELETE" {
             request.httpBody = body

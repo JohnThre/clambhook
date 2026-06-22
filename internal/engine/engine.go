@@ -37,9 +37,10 @@ type protocolDialerCloser interface {
 
 // Status represents the engine's current state.
 type Status struct {
-	Running   bool             `json:"running"`
-	Profile   string           `json:"profile"`
-	Listeners []ListenerStatus `json:"listeners,omitempty"`
+	Running    bool             `json:"running"`
+	Profile    string           `json:"profile"`
+	Listeners  []ListenerStatus `json:"listeners,omitempty"`
+	TunnelMode string           `json:"tunnel_mode,omitempty"`
 }
 
 // ListenerStatus reports a single active listener.
@@ -357,12 +358,22 @@ func (e *Engine) Status() Status {
 	if profile, err := e.cfg.ActiveProfile(); err == nil {
 		s.Profile = profile.Name
 	}
+	hasTUN := false
 	for _, l := range e.listeners {
+		proto := l.Protocol()
 		s.Listeners = append(s.Listeners, ListenerStatus{
-			Protocol:    l.Protocol(),
+			Protocol:    proto,
 			Addr:        l.Addr(),
 			ActiveConns: l.ActiveConns(),
 		})
+		if strings.EqualFold(proto, "tun") {
+			hasTUN = true
+		}
+	}
+	if hasTUN {
+		s.TunnelMode = "tun"
+	} else if len(e.listeners) > 0 {
+		s.TunnelMode = "proxy"
 	}
 	return s
 }

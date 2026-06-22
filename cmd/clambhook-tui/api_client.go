@@ -20,9 +20,10 @@ type apiClient struct {
 }
 
 type statusPayload struct {
-	Running   bool                    `json:"running"`
-	Profile   string                  `json:"profile"`
-	Listeners []listenerStatusPayload `json:"listeners,omitempty"`
+	Running    bool                    `json:"running"`
+	Profile    string                  `json:"profile"`
+	Listeners  []listenerStatusPayload `json:"listeners,omitempty"`
+	TunnelMode string                  `json:"tunnel_mode,omitempty"`
 }
 
 type listenerStatusPayload struct {
@@ -644,4 +645,79 @@ func responseError(resp *http.Response) error {
 		text = resp.Status
 	}
 	return fmt.Errorf("%s: %s", resp.Status, text)
+}
+
+// --- rule subscriptions ---
+
+type ruleSubscriptionsPayload struct {
+	Profile       string                      `json:"profile"`
+	Subscriptions []ruleSubscriptionPayload   `json:"subscriptions"`
+}
+
+type ruleSubscriptionPayload struct {
+	Name     string                       `json:"name"`
+	URL      string                       `json:"url"`
+	Format   string                       `json:"format"`
+	Action   string                       `json:"action"`
+	Disabled bool                         `json:"disabled"`
+	Status   ruleSubscriptionStatusPayload `json:"status"`
+}
+
+type ruleSubscriptionStatusPayload struct {
+	EntryCount   int    `json:"entry_count"`
+	LastFetchErr string `json:"last_fetch_error,omitempty"`
+	FetchedAt    int64  `json:"fetched_at_ts_ns,omitempty"`
+}
+
+func (c apiClient) ruleSubscriptions(profile string) (ruleSubscriptionsPayload, error) {
+	path := "/api/v1/rule-subscriptions"
+	if profile != "" {
+		path += "?profile=" + profile
+	}
+	var out ruleSubscriptionsPayload
+	err := c.getJSON(path, &out)
+	return out, err
+}
+
+func (c apiClient) refreshRuleSubscriptions(profile string, names []string) error {
+	body, err := json.Marshal(map[string]any{"profile": profile, "names": names})
+	if err != nil {
+		return err
+	}
+	return c.doNoBody(http.MethodPost, "/api/v1/rule-subscriptions/refresh", bytes.NewReader(body))
+}
+
+// --- config import/export ---
+
+type configImportResponse struct {
+	Profiles   []string `json:"profiles"`
+	Active     string   `json:"active"`
+	BackupPath string   `json:"backup_path"`
+	Message    string   `json:"message"`
+}
+
+func (c apiClient) exportConfig() (string, error) {
+	req, err := http.NewRequest(http.MethodGet, c.baseURL+"/api/v1/config/export", nil)
+	if err != nil {
+		return "", err
+	}
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		return "", responseError(resp)
+	}
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
+}
+
+func (c apiClient) importConfig(toml string) (configImportResponse, error) {
+	var out configImportResponse
+	err := c.doJSON(http.MethodPost, "/api/v1/config/import", strings.NewReader(toml), &out)
+	return out, err
 }
