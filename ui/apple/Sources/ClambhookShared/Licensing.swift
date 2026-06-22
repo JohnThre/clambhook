@@ -297,7 +297,7 @@ public enum MobileLicenseTrialStore {
 
 public enum MobileLicenseCopy {
     public static func paidUpdatePolicy(cutoffDate: Date) -> String {
-        "The macOS license includes feature updates through \(cutoffDate.formatted(date: .abbreviated, time: .omitted)). Versions released during that window remain usable. Paid updates unlock later feature releases. Bug fixes/security fixes remain included."
+        "The macOS license includes feature updates through \(cutoffDate.formatted(date: .abbreviated, time: .omitted)). Versions released during that window remain usable. Paid feature updates unlock later feature releases. Bug fixes and security fixes remain included."
     }
 }
 
@@ -334,17 +334,17 @@ public enum MobileLicenseProductStateBuilder {
         if let trialEndsAt = decision.trialEndsAt {
             states.append(MobileLicenseProductState(
                 kind: .trial,
-                title: "Free access",
+                title: "Two-month trial",
                 detail: decision.isTrialActive
-                    ? "Server-controlled free access ends \(trialEndsAt.formatted(date: .abbreviated, time: .omitted))."
-                    : "Free access ended \(trialEndsAt.formatted(date: .abbreviated, time: .omitted)).",
+                    ? "Trial ends \(trialEndsAt.formatted(date: .abbreviated, time: .omitted))."
+                    : "Trial ended \(trialEndsAt.formatted(date: .abbreviated, time: .omitted)).",
                 isActive: decision.isTrialActive
             ))
         } else {
             states.append(MobileLicenseProductState(
                 kind: .trial,
-                title: "Free access",
-                detail: "Server-controlled free access starts the first time this app records an access date.",
+                title: "Two-month trial",
+                detail: "Trial starts the first time this app records an access date.",
                 isActive: false
             ))
         }
@@ -382,10 +382,10 @@ public enum MobileLicenseProductStateBuilder {
         }
         states.append(MobileLicenseProductState(
             kind: .newFeaturesLocked,
-            title: "New features locked until update",
+            title: "New features require paid update",
             detail: lockedFeatures.isEmpty
-                ? "Feature releases after the paid-update window require a paid update. Bug fixes/security fixes remain included."
-                : "Locked feature releases: \(lockedFeatures.map(\.displayName).joined(separator: ", ")).",
+                ? "New features released after the paid update window require a paid feature update. Bug fixes and security fixes remain included."
+                : "Feature releases requiring a paid update: \(lockedFeatures.map(\.displayName).joined(separator: ", ")).",
             isActive: !lockedFeatures.isEmpty
         ))
 
@@ -424,7 +424,7 @@ public enum MobileLicenseRuntimeError: Error, LocalizedError {
     public var errorDescription: String? {
         switch self {
         case .locked:
-            return "Free access has ended. Buy or activate a ClambHook macOS license to keep using clambhook."
+            return "Trial has ended. Buy or activate a ClambHook macOS license to keep using ClambHook."
         }
     }
 }

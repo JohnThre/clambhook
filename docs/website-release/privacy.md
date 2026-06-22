@@ -28,8 +28,9 @@ not uploaded for license activation.
 
 ClambHook for macOS uses a USD 99.99 direct-sale macOS license: it includes one
 year of feature updates, versions released during that year remain usable, it
-covers up to 4 active devices, and it is transferable between devices. Optional
-USD 8.99 paid feature updates extend the feature-update window. Creem is the
+covers up to 4 active Apple Silicon Macs, and it is transferable between
+devices. Optional USD 8.99 paid feature updates extend the feature-update
+window. Creem is the
 default checkout provider, and NowPayments may be used when enabled. Payment
 providers process payment details; jpfchang.org stores checkout IDs, order IDs,
 product IDs, license state, and purchase timestamps needed to deliver and
