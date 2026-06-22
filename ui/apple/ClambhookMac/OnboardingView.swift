@@ -1,0 +1,707 @@
+import AppKit
+import ClambhookShared
+import SwiftUI
+
+// MARK: - Root
+
+struct OnboardingView: View {
+    @ObservedObject var model: AppleAppModel
+    @ObservedObject var manager: OnboardingManager
+
+    var body: some View {
+        VStack(spacing: 0) {
+            stepContent
+            Divider()
+            navigationBar
+        }
+        .frame(width: 560, height: 480)
+    }
+
+    @ViewBuilder
+    private var stepContent: some View {
+        switch manager.currentStep {
+        case .welcome:
+            OnboardingWelcomeStep(model: model)
+        case .networkExtension:
+            OnboardingNetworkExtensionStep(model: model)
+        case .profileImport:
+            OnboardingProfileImportStep(model: model)
+        case .httpsCA:
+            OnboardingHTTPSCAStep(model: model)
+        case .done:
+            OnboardingDoneStep(model: model)
+        }
+    }
+
+    private var navigationBar: some View {
+        HStack {
+            if manager.currentStep != .welcome {
+                Button("Back") { manager.back() }
+                    .keyboardShortcut(.cancelAction)
+            }
+            Spacer()
+            stepIndicator
+            Spacer()
+            if manager.currentStep == .done {
+                Button("Finish") { manager.complete() }
+                    .keyboardShortcut(.defaultAction)
+                    .buttonStyle(.borderedProminent)
+            } else {
+                skipButton
+                Button("Continue") { manager.advance() }
+                    .keyboardShortcut(.defaultAction)
+                    .buttonStyle(.borderedProminent)
+            }
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 14)
+    }
+
+    private var stepIndicator: some View {
+        HStack(spacing: 6) {
+            ForEach(OnboardingStep.allCases, id: \.self) { step in
+                Circle()
+                    .fill(step == manager.currentStep ? Color.accentColor : Color.secondary.opacity(0.3))
+                    .frame(width: 6, height: 6)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var skipButton: some View {
+        switch manager.currentStep {
+        case .profileImport, .httpsCA:
+            Button("Skip") { manager.advance() }
+                .foregroundStyle(.secondary)
+        default:
+            EmptyView()
+        }
+    }
+}
+
+// MARK: - Step container
+
+private struct OnboardingStepContainer<Content: View>: View {
+    var systemImage: String
+    var title: String
+    var subtitle: String
+    @ViewBuilder var content: () -> Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 14) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 36))
+                    .foregroundStyle(.tint)
+                    .frame(width: 48, height: 48)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(title)
+                        .font(.title2.bold())
+                    Text(subtitle)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .padding(.bottom, 20)
+            content()
+        }
+        .padding(28)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+}
+
+// MARK: - Welcome step
+
+private struct OnboardingWelcomeStep: View {
+    @ObservedObject var model: AppleAppModel
+
+    var body: some View {
+        OnboardingStepContainer(
+            systemImage: "network",
+            title: "Welcome to ClambHook",
+            subtitle: "Route, inspect, and control your Mac's network traffic."
+        ) {
+            VStack(alignment: .leading, spacing: 14) {
+                trialStatusRow
+                licenseActivationArea
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var trialStatusRow: some View {
+        let decision = model.licenseManager.decision
+        switch decision.reason {
+        case .trial:
+            OnboardingInfoRow(
+                systemImage: "clock.fill",
+                tint: .orange,
+                title: "Trial active",
+                detail: trialDetail(decision)
+            )
+        case .lifetime:
+            OnboardingInfoRow(
+                systemImage: "checkmark.seal.fill",
+                tint: .green,
+                title: "License active",
+                detail: "Full access unlocked on this Mac."
+            )
+        case .offlineGrace:
+            OnboardingInfoRow(
+                systemImage: "wifi.slash",
+                tint: .orange,
+                title: "Offline grace period",
+                detail: offlineGraceDetail(decision)
+            )
+        case .locked:
+            OnboardingInfoRow(
+                systemImage: "lock.fill",
+                tint: .red,
+                title: "Trial ended",
+                detail: "Activate a license key below to continue using ClambHook."
+            )
+        }
+    }
+
+    private func trialDetail(_ d: MobileLicenseDecision) -> String {
+        if d.trialDaysRemaining > 0 {
+            return "\(d.trialDaysRemaining) day\(d.trialDaysRemaining == 1 ? "" : "s") remaining in your free trial."
+        }
+        return "Your trial ends today."
+    }
+
+    private func offlineGraceDetail(_ d: MobileLicenseDecision) -> String {
+        if let ends = d.offlineGraceEndsAt {
+            let formatter = DateFormatter()
+            formatter.dateStyle = .medium
+            formatter.timeStyle = .none
+            return "License grace period active until \(formatter.string(from: ends))."
+        }
+        return "License grace period active."
+    }
+
+    @ViewBuilder
+    private var licenseActivationArea: some View {
+        if model.licenseManager.decision.reason != .lifetime {
+            OnboardingLicenseActivationInline(manager: model.licenseManager)
+        }
+    }
+}
+
+// MARK: - Inline license activation
+
+private struct OnboardingLicenseActivationInline: View {
+    @ObservedObject var manager: MacLicenseManager
+    @State private var licenseKey = ""
+    @State private var email = ""
+    @State private var expanded = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Button {
+                expanded.toggle()
+            } label: {
+                Label(
+                    expanded ? "Hide license activation" : "Activate a license key",
+                    systemImage: expanded ? "chevron.up" : "checkmark.seal"
+                )
+                .font(.subheadline)
+            }
+            .buttonStyle(.borderless)
+
+            if expanded {
+                SecureField("License key", text: $licenseKey)
+                    .textFieldStyle(.roundedBorder)
+                TextField("Email (optional)", text: $email)
+                    .textFieldStyle(.roundedBorder)
+                HStack(spacing: 8) {
+                    Button("Activate") {
+                        Task { await manager.activate(licenseKey: licenseKey, email: email) }
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(manager.isLoading || licenseKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    if manager.isLoading {
+                        ProgressView().controlSize(.small)
+                    }
+                    Link("Buy license", destination: URL(string: "https://jpfchang.org/clambhook/buy")!)
+                        .font(.subheadline)
+                }
+                if !manager.statusMessage.isEmpty {
+                    Text(manager.statusMessage)
+                        .font(.caption)
+                        .foregroundStyle(manager.decision.reason == .lifetime ? .green : .secondary)
+                }
+            }
+        }
+        .onAppear {
+            licenseKey = manager.savedLicenseKey()
+            email = manager.savedEmail()
+        }
+    }
+}
+
+// MARK: - Network Extension step
+
+private struct OnboardingNetworkExtensionStep: View {
+    @ObservedObject var model: AppleAppModel
+
+    var body: some View {
+        OnboardingStepContainer(
+            systemImage: "network.badge.shield.half.filled",
+            title: "Network Extension",
+            subtitle: "ClambHook uses a Network Extension to route device traffic. macOS requires your approval."
+        ) {
+            VStack(alignment: .leading, spacing: 14) {
+                extensionStatusRow
+                actionButtons
+                fallbackSection
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var extensionStatusRow: some View {
+        let installer = model.systemExtensionInstaller
+        switch installer.status {
+        case .notActivated:
+            OnboardingInfoRow(
+                systemImage: "circle",
+                tint: .secondary,
+                title: "Extension not activated",
+                detail: "Click Activate below to request system extension approval."
+            )
+        case .activating:
+            OnboardingInfoRow(
+                systemImage: "hourglass",
+                tint: .orange,
+                title: "Activating\u{2026}",
+                detail: "Waiting for macOS to process the extension request."
+            )
+        case .activated:
+            OnboardingInfoRow(
+                systemImage: "checkmark.circle.fill",
+                tint: .green,
+                title: "Extension activated",
+                detail: "The Network Extension is ready."
+            )
+        case .requiresApproval:
+            OnboardingInfoRow(
+                systemImage: "exclamationmark.triangle.fill",
+                tint: .orange,
+                title: "Approval required",
+                detail: "macOS blocked the extension. Open System Settings \u{203A} Privacy & Security and allow the ClambHook system extension, then click Activate again."
+            )
+        case .rebootRequired:
+            OnboardingInfoRow(
+                systemImage: "restart.circle",
+                tint: .orange,
+                title: "Restart required",
+                detail: "A macOS restart is needed to finish activating the extension."
+            )
+        case .failed(let msg):
+            OnboardingInfoRow(
+                systemImage: "xmark.circle.fill",
+                tint: .red,
+                title: "Activation failed",
+                detail: msg
+            )
+        }
+    }
+
+    @ViewBuilder
+    private var actionButtons: some View {
+        let installer = model.systemExtensionInstaller
+        HStack(spacing: 10) {
+            Button {
+                Task { await installer.activate() }
+            } label: {
+                Label("Activate Extension", systemImage: "network")
+            }
+            .buttonStyle(.bordered)
+            .disabled(installer.isWorking || installer.status == .activated)
+
+            if installer.status == .requiresApproval || installer.status == .rebootRequired {
+                Button {
+                    installer.openSystemSettings()
+                } label: {
+                    Label("Open System Settings", systemImage: "gear")
+                }
+                .buttonStyle(.bordered)
+            }
+
+            if installer.isWorking {
+                ProgressView().controlSize(.small)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var fallbackSection: some View {
+        let installer = model.systemExtensionInstaller
+        if showFallback(installer.status) {
+            Divider()
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Using proxy mode instead")
+                    .font(.subheadline.bold())
+                Text("If you cannot approve the extension, you can run ClambHook as a daemon with a system proxy. Some apps that ignore proxy settings will not be routed.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Button {
+                    model.settingsStore.settings.routingMode = .daemonProxy
+                    model.applySettings()
+                } label: {
+                    Label("Switch to Daemon + Proxy mode", systemImage: "arrow.right.arrow.left")
+                }
+                .buttonStyle(.bordered)
+                .disabled(model.settingsStore.settings.routingMode == .daemonProxy)
+
+                if model.settingsStore.settings.routingMode == .daemonProxy {
+                    Text("Routing mode set to Daemon + Proxy.")
+                        .font(.caption)
+                        .foregroundStyle(.green)
+                }
+            }
+        }
+    }
+
+    private func showFallback(_ status: MacSystemExtensionInstallStatus) -> Bool {
+        switch status {
+        case .requiresApproval, .notActivated, .failed:
+            return true
+        default:
+            return false
+        }
+    }
+}
+
+// MARK: - Profile import step
+
+private struct OnboardingProfileImportStep: View {
+    @ObservedObject var model: AppleAppModel
+    @State private var importedProfiles: [String] = []
+    @State private var importError = ""
+    @State private var importSuccess = false
+    @State private var pendingText = ""
+
+    var body: some View {
+        OnboardingStepContainer(
+            systemImage: "tray.and.arrow.down.fill",
+            title: "Import a Profile",
+            subtitle: "Import a ClambHook TOML configuration file containing your proxy profiles and rules. You can skip this and import later."
+        ) {
+            VStack(alignment: .leading, spacing: 14) {
+                if importSuccess {
+                    OnboardingInfoRow(
+                        systemImage: "checkmark.circle.fill",
+                        tint: .green,
+                        title: "Config imported",
+                        detail: importedProfiles.isEmpty
+                            ? "Configuration staged for import."
+                            : "Profiles queued: \(importedProfiles.joined(separator: ", "))."
+                    )
+                } else {
+                    OnboardingInfoRow(
+                        systemImage: "doc.badge.plus",
+                        tint: .accentColor,
+                        title: "No config imported",
+                        detail: "Click below to select a .toml configuration file."
+                    )
+                }
+
+                HStack(spacing: 10) {
+                    Button {
+                        pickFile()
+                    } label: {
+                        Label("Choose Config File", systemImage: "folder")
+                    }
+                    .buttonStyle(.bordered)
+
+                    if importSuccess {
+                        Button(role: .destructive) {
+                            importedProfiles = []
+                            pendingText = ""
+                            importError = ""
+                            importSuccess = false
+                        } label: {
+                            Label("Clear", systemImage: "xmark.circle")
+                        }
+                        .buttonStyle(.borderless)
+                    }
+                }
+
+                if !importError.isEmpty {
+                    Text(importError)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+        .onDisappear {
+            applyPendingImport()
+        }
+    }
+
+    private func pickFile() {
+        let panel = NSOpenPanel()
+        panel.title = "Import clambhook config"
+        panel.allowedContentTypes = [.init(filenameExtension: "toml") ?? .data]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            let text = try String(contentsOf: url, encoding: .utf8)
+            _ = try TunnelImportDecoder.decode(text)
+            pendingText = text
+            importedProfiles = profileNames(in: text)
+            importError = ""
+            importSuccess = true
+        } catch {
+            importError = error.localizedDescription
+            importSuccess = false
+        }
+    }
+
+    private func applyPendingImport() {
+        guard !pendingText.isEmpty else { return }
+        let configPath = model.settingsStore.settings.daemonConfigPath
+        if !configPath.isEmpty, (try? model.writeConfigFile(pendingText)) != nil {
+            model.reloadDaemon()
+        } else {
+            try? model.attention.captureImport(rawValue: pendingText, source: .file)
+        }
+    }
+
+    private func profileNames(in toml: String) -> [String] {
+        var names: [String] = []
+        for line in toml.components(separatedBy: .newlines) {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix("name") {
+                let parts = trimmed.components(separatedBy: "=")
+                if parts.count >= 2 {
+                    let name = parts[1]
+                        .trimmingCharacters(in: .whitespaces)
+                        .trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
+                    if !name.isEmpty { names.append(name) }
+                }
+            }
+        }
+        return names
+    }
+}
+
+// MARK: - HTTPS CA step
+
+private struct OnboardingHTTPSCAStep: View {
+    @ObservedObject var model: AppleAppModel
+
+    var body: some View {
+        OnboardingStepContainer(
+            systemImage: "lock.shield",
+            title: "HTTPS Certificate",
+            subtitle: "To inspect HTTPS traffic, ClambHook uses a local Certificate Authority. Install it to trust HTTPS captures."
+        ) {
+            VStack(alignment: .leading, spacing: 14) {
+                if model.developerCAPEMText.isEmpty {
+                    OnboardingInfoRow(
+                        systemImage: "info.circle",
+                        tint: .secondary,
+                        title: "CA not available yet",
+                        detail: "Start the daemon and enable HTTPS capture in Settings to generate the CA certificate. You can install it later from Settings \u{203A} Developer."
+                    )
+                } else {
+                    caAvailableContent
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var caAvailableContent: some View {
+        let cert = model.certificateManager
+        if !cert.fingerprint.isEmpty {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Certificate fingerprint (SHA-256)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text(cert.fingerprint)
+                    .font(.system(.caption, design: .monospaced))
+                    .textSelection(.enabled)
+                    .lineLimit(4)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+
+        Text("Installing the CA certificate trusts it only in your login keychain for SSL connections.")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+
+        HStack(spacing: 10) {
+            Button {
+                model.certificateManager.install(pem: model.developerCAPEMText)
+            } label: {
+                Label("Trust Certificate", systemImage: "lock.shield.fill")
+            }
+            .buttonStyle(.bordered)
+            .disabled(cert.isWorking || model.developerCAPEMText.isEmpty)
+
+            if cert.isWorking {
+                ProgressView().controlSize(.small)
+            }
+        }
+
+        if !cert.statusMessage.isEmpty {
+            Text(cert.statusMessage)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+
+        warningBox
+    }
+
+    private var warningBox: some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "exclamationmark.triangle")
+                .foregroundStyle(.orange)
+                .font(.subheadline)
+            Text("Only install this certificate if you intentionally use HTTPS inspection. Remove it from Keychain Access when you no longer need it.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(10)
+        .background(Color.orange.opacity(0.08))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+    }
+}
+
+// MARK: - Done step
+
+private struct OnboardingDoneStep: View {
+    @ObservedObject var model: AppleAppModel
+
+    var body: some View {
+        OnboardingStepContainer(
+            systemImage: "checkmark.circle.fill",
+            title: "You're ready",
+            subtitle: "ClambHook is set up. Connect to start routing traffic."
+        ) {
+            VStack(alignment: .leading, spacing: 12) {
+                summaryRow(
+                    systemImage: routingModeImage,
+                    tint: .blue,
+                    title: routingModeTitle,
+                    detail: routingModeDetail
+                )
+                summaryRow(
+                    systemImage: licenseImage,
+                    tint: licenseColor,
+                    title: licenseTitle,
+                    detail: licenseDetail
+                )
+                Spacer()
+                Text("You can adjust all settings at any time from the Settings window.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private var routingModeImage: String {
+        model.settingsStore.settings.routingMode == .networkExtension ? "network.badge.shield.half.filled" : "server.rack"
+    }
+
+    private var routingModeTitle: String {
+        model.settingsStore.settings.routingMode == .networkExtension ? "Network Extension routing" : "Daemon + Proxy routing"
+    }
+
+    private var routingModeDetail: String {
+        model.settingsStore.settings.routingMode == .networkExtension
+            ? "Device-wide traffic routing via tunnel extension."
+            : "System proxy mode. Apps that ignore proxy settings will not be routed."
+    }
+
+    private var licenseImage: String {
+        switch model.licenseManager.decision.reason {
+        case .lifetime: return "checkmark.seal.fill"
+        case .trial: return "clock"
+        case .offlineGrace: return "wifi.slash"
+        case .locked: return "lock.fill"
+        }
+    }
+
+    private var licenseColor: Color {
+        switch model.licenseManager.decision.reason {
+        case .lifetime: return .green
+        case .trial: return .orange
+        case .offlineGrace: return .orange
+        case .locked: return .red
+        }
+    }
+
+    private var licenseTitle: String {
+        switch model.licenseManager.decision.reason {
+        case .lifetime: return "License active"
+        case .trial: return "Trial active"
+        case .offlineGrace: return "Offline grace period"
+        case .locked: return "Trial ended"
+        }
+    }
+
+    private var licenseDetail: String {
+        let d = model.licenseManager.decision
+        switch d.reason {
+        case .lifetime:
+            return "Full access unlocked."
+        case .trial:
+            return "\(d.trialDaysRemaining) day\(d.trialDaysRemaining == 1 ? "" : "s") remaining."
+        case .offlineGrace:
+            return "Verify your license when back online."
+        case .locked:
+            return "Activate a license key in Settings \u{203A} License."
+        }
+    }
+
+    private func summaryRow(systemImage: String, tint: Color, title: String, detail: String) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: systemImage)
+                .foregroundStyle(tint)
+                .frame(width: 20)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.subheadline.weight(.semibold))
+                Text(detail).font(.caption).foregroundStyle(.secondary)
+            }
+        }
+    }
+}
+
+// MARK: - Shared row component
+
+private struct OnboardingInfoRow: View {
+    var systemImage: String
+    var tint: Color
+    var title: String
+    var detail: String
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: systemImage)
+                .foregroundStyle(tint)
+                .frame(width: 20, height: 20)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(.subheadline.weight(.semibold))
+                Text(detail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(10)
+        .background(Color(nsColor: .quaternarySystemFill))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+    }
+}
