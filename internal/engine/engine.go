@@ -15,6 +15,7 @@ import (
 	"github.com/JohnThre/clambhook/internal/events"
 	"github.com/JohnThre/clambhook/internal/geo"
 	"github.com/JohnThre/clambhook/internal/listener"
+	"github.com/JohnThre/clambhook/internal/netwatch"
 	"github.com/JohnThre/clambhook/internal/policy"
 	"github.com/JohnThre/clambhook/internal/protocol"
 	"github.com/JohnThre/clambhook/internal/rules"
@@ -63,6 +64,9 @@ type Engine struct {
 	bus       *events.Bus
 	inspector listener.HTTPInspector
 	tempRules *temprules.Manager
+	watcher   *netwatch.Watcher
+	// currentNetwork tracks the last observed network for status reporting.
+	currentNetwork netwatch.NetworkInfo
 }
 
 // New creates a new engine with the given configuration and (optional)
@@ -74,7 +78,7 @@ type Engine struct {
 // and geo stays disabled — a bad geo path must never prevent the daemon
 // from starting.
 func New(cfg *config.Config, bus *events.Bus) *Engine {
-	e := &Engine{cfg: cfg, bus: bus, tempRules: temprules.New()}
+	e := &Engine{cfg: cfg, bus: bus, tempRules: temprules.New(), watcher: netwatch.New()}
 	if r, err := geo.Open(cfg.Geo.Database); err != nil {
 		log.Printf("geo: %v; continuing without geo lookups", err)
 	} else if r != nil {
@@ -261,6 +265,9 @@ func (e *Engine) startLocked() error {
 		e.policies.Start(ctx)
 	}
 	e.running = true
+	if e.watcher != nil {
+		go e.runNetworkWatch(ctx)
+	}
 	log.Printf("engine started with profile %q (%d listeners)", profile.Name, len(listeners))
 	return nil
 }
@@ -462,6 +469,53 @@ func (e *Engine) SelectedPolicyChain(groupName string, sel policy.SelectionConte
 		return "", true, err
 	}
 	return selected, true, nil
+}
+
+// NetworkInfo returns the most recently detected network. The zero value is
+// returned when netwatch has not yet reported or is not available.
+func (e *Engine) NetworkInfo() netwatch.NetworkInfo {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return e.currentNetwork
+}
+
+// runNetworkWatch monitors for network changes and auto-switches profiles
+// when a matching NetworkTrigger is found in the config. It runs as a
+// goroutine launched by startLocked and exits when ctx is cancelled.
+func (e *Engine) runNetworkWatch(ctx context.Context) {
+	for info := range e.watcher.Watch(ctx) {
+		e.mu.Lock()
+		e.currentNetwork = info
+		cfg := e.cfg
+		oldActive := cfg.Active
+		e.mu.Unlock()
+
+		for _, profile := range cfg.Profiles {
+			if profile.Name == oldActive {
+				continue
+			}
+			for _, trigger := range profile.NetworkTriggers {
+				if !info.MatchesTrigger(trigger.SSID, trigger.Interface) {
+					continue
+				}
+				log.Printf("netwatch: network %q (iface %q) matches trigger for profile %q; switching",
+					info.SSID, info.InterfaceName, profile.Name)
+				if err := e.SetActiveProfile(profile.Name); err != nil {
+					log.Printf("netwatch: auto-switch to profile %q failed: %v", profile.Name, err)
+					break
+				}
+				e.bus.PublishListener(events.TypeProfileNetworkSwitch, events.ProfileNetworkSwitchData{
+					OldProfile:    oldActive,
+					NewProfile:    profile.Name,
+					TriggerSSID:   trigger.SSID,
+					TriggerIface:  trigger.Interface,
+					DetectedSSID:  info.SSID,
+					DetectedIface: info.InterfaceName,
+				})
+				break
+			}
+		}
+	}
 }
 
 // GeoReader returns the current geo reader. The returned value may be nil
