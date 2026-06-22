@@ -414,6 +414,20 @@ private class FakeAPIClient: ClambhookAPIProviding {
         selectedPolicyGroups.append((profile, group, chain))
         return policyGroupsResult
     }
+
+    func testPolicyGroup(group: String, profile: String) async throws -> PolicyGroupsPayload {
+        return policyGroupsResult
+    }
+
+    func updateDNS(_ request: DNSUpdateRequest, profile: String) async throws -> DNSPayload {
+        return DNSPayload()
+    }
+
+    func exportConfig() async throws -> String { return "" }
+
+    func importConfig(_ toml: String) async throws -> ConfigImportResponse {
+        return ConfigImportResponse()
+    }
 }
 
 private final class FakeDashboardAPI: FakeAPIClient, ClambhookDashboardProviding {

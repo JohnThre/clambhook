@@ -63,6 +63,7 @@ struct MacDashboardSection: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
+                tunnelModeBadge
                 if bestLatency != "--" {
                     Text(bestLatency)
                         .font(.caption.weight(.semibold))
@@ -123,6 +124,23 @@ struct MacDashboardSection: View {
             (model.dashboard.apiOnline ? Color.green : Color.red).opacity(0.12),
             in: Capsule()
         )
+    }
+
+    @ViewBuilder
+    private var tunnelModeBadge: some View {
+        let mode = model.dashboard.status.tunnelMode
+        if mode == "tun" {
+            Label("Full Tunnel", systemImage: "network.badge.shield.half.filled")
+                .font(.caption.weight(.medium))
+                .foregroundStyle(Color.green)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 3)
+                .background(Color.green.opacity(0.12), in: Capsule())
+        } else if mode == "proxy" {
+            Label("Proxy", systemImage: "globe")
+                .font(.caption.weight(.medium))
+                .foregroundStyle(Color.secondary)
+        }
     }
 
     private var statusDotColor: Color {
@@ -700,7 +718,13 @@ struct MacProfilesSection: View {
                     .foregroundStyle(.secondary)
             } else {
                 ForEach(model.dashboard.ruleSubscriptions.subscriptions) { sub in
-                    MacSubscriptionRow(subscription: sub)
+                    MacSubscriptionRow(subscription: sub) { updated in
+                        var subs = model.dashboard.ruleSubscriptions.subscriptions
+                        if let idx = subs.firstIndex(where: { $0.id == updated.id }) {
+                            subs[idx] = updated
+                        }
+                        try? model.replaceActiveProfileRuleSubscriptions(subs)
+                    }
                 }
             }
         }
@@ -760,6 +784,7 @@ struct MacProfilesSection: View {
 
 private struct MacSubscriptionRow: View {
     var subscription: RuleSubscriptionPayload
+    var onUpdate: ((RuleSubscriptionPayload) -> Void)?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
@@ -768,6 +793,17 @@ private struct MacSubscriptionRow: View {
                     .font(.caption.weight(.semibold))
                     .lineLimit(1)
                 Spacer()
+                Toggle("", isOn: Binding(
+                    get: { !subscription.disabled },
+                    set: { enabled in
+                        var updated = subscription
+                        updated.disabled = !enabled
+                        onUpdate?(updated)
+                    }
+                ))
+                .toggleStyle(.switch)
+                .controlSize(.mini)
+                .labelsHidden()
                 statusChip
             }
             if !subscription.url.isEmpty {
@@ -851,15 +887,36 @@ private struct MacIssueCard: View {
 
 struct MacPolicyGroupsSection: View {
     @ObservedObject var model: AppleAppModel
+    @State private var testingGroup: String = ""
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
+                HStack {
+                    Text("Policy Groups")
+                        .font(.headline)
+                    Spacer()
+                    Button {
+                        testingGroup = ""
+                        Task { await model.dashboard.testPolicyGroup() }
+                    } label: {
+                        Label("Test All", systemImage: "speedometer")
+                    }
+                    .buttonStyle(.borderless)
+                    .font(.caption)
+                }
                 CompactPolicySelectorView(
                     summary: model.dashboard.policySelectorSummary,
                     groups: model.dashboard.policyGroups.groups,
                     onSelect: { group, chain in
                         model.selectPolicyGroup(group: group, chain: chain)
+                    },
+                    onTest: { group in
+                        testingGroup = group
+                        Task {
+                            await model.dashboard.testPolicyGroup(group: group)
+                            testingGroup = ""
+                        }
                     }
                 )
             }
@@ -1481,15 +1538,15 @@ struct MacRuleAddSheet: View {
 
 struct MacDNSSection: View {
     @ObservedObject var model: AppleAppModel
+    @State private var showAddUpstreamSheet = false
+    @State private var saveError = ""
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 dnsOverview
-                if !model.dashboard.dns.upstreams.isEmpty {
-                    Divider()
-                    upstreamsTable
-                }
+                Divider()
+                upstreamsSection
                 if !model.dashboard.dns.upstreamRoutes.isEmpty {
                     Divider()
                     routesTable
@@ -1497,12 +1554,43 @@ struct MacDNSSection: View {
             }
             .padding(20)
         }
+        .sheet(isPresented: $showAddUpstreamSheet) {
+            MacDNSUpstreamSheet { upstream in
+                var upstreams = model.dashboard.dns.upstreams
+                upstreams.append(upstream)
+                Task {
+                    await model.dashboard.updateDNS(
+                        enabled: model.dashboard.dns.enabled,
+                        timeout: model.dashboard.dns.timeout,
+                        upstreams: upstreams
+                    )
+                }
+            }
+        }
     }
 
     private var dnsOverview: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("DNS Configuration")
-                .font(.headline)
+            HStack {
+                Text("DNS Configuration")
+                    .font(.headline)
+                Spacer()
+                Toggle("Encrypted DNS", isOn: Binding(
+                    get: { model.dashboard.dns.enabled },
+                    set: { enabled in
+                        Task {
+                            await model.dashboard.updateDNS(
+                                enabled: enabled,
+                                timeout: model.dashboard.dns.timeout,
+                                upstreams: model.dashboard.dns.upstreams
+                            )
+                        }
+                    }
+                ))
+                .toggleStyle(.switch)
+                .controlSize(.small)
+                .labelsHidden()
+            }
             HStack(spacing: 16) {
                 Label(model.dashboard.dns.enabled ? "Enabled" : "Disabled", systemImage: model.dashboard.dns.enabled ? "checkmark.circle.fill" : "xmark.circle")
                     .foregroundStyle(model.dashboard.dns.enabled ? .green : .secondary)
@@ -1518,6 +1606,71 @@ struct MacDNSSection: View {
                 }
             }
             .font(.subheadline)
+        }
+    }
+
+    private var upstreamsSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("Upstreams")
+                    .font(.headline)
+                Spacer()
+                Button {
+                    showAddUpstreamSheet = true
+                } label: {
+                    Label("Add", systemImage: "plus")
+                }
+                .buttonStyle(.borderless)
+                .font(.caption)
+            }
+            if model.dashboard.dns.upstreams.isEmpty {
+                Text("No upstreams configured. Add a DoH, DoT, or DoQ upstream.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(model.dashboard.dns.upstreams) { upstream in
+                    HStack(spacing: 10) {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(upstream.name.isEmpty ? upstream.id : upstream.name)
+                                .font(.subheadline.weight(.medium))
+                                .lineLimit(1)
+                            HStack(spacing: 6) {
+                                Text(upstream.protocol.uppercased())
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                Text(upstream.targetDescription)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                            }
+                        }
+                        Spacer(minLength: 8)
+                        Button(role: .destructive) {
+                            let remaining = model.dashboard.dns.upstreams.filter { $0.id != upstream.id }
+                            Task {
+                                await model.dashboard.updateDNS(
+                                    enabled: model.dashboard.dns.enabled,
+                                    timeout: model.dashboard.dns.timeout,
+                                    upstreams: remaining
+                                )
+                            }
+                        } label: {
+                            Image(systemName: "trash")
+                                .foregroundStyle(.red)
+                        }
+                        .buttonStyle(.plain)
+                        .help("Remove \(upstream.name.isEmpty ? upstream.id : upstream.name)")
+                    }
+                    .padding(.vertical, 2)
+                    Divider()
+                }
+            }
+            if !saveError.isEmpty {
+                Text(saveError)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+            }
         }
     }
 
@@ -1569,6 +1722,93 @@ struct MacDNSSection: View {
                 }
             }
         }
+    }
+}
+
+// MARK: - DNS Upstream Add Sheet
+
+struct MacDNSUpstreamSheet: View {
+    var onAdd: (DNSUpstreamPayload) -> Void
+    @Environment(\.dismiss) private var dismiss
+    @State private var name = ""
+    @State private var proto = "doh"
+    @State private var url = ""
+    @State private var address = ""
+    @State private var serverName = ""
+    @State private var bootstrapIPs = ""
+    @State private var validationError = ""
+
+    private let protocols = ["doh", "dot", "doq"]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Text("Add DNS Upstream")
+                    .font(.headline)
+                Spacer()
+                Button("Cancel") { dismiss() }
+            }
+            .padding([.horizontal, .top], 16)
+            .padding(.bottom, 8)
+            Divider()
+            Form {
+                TextField("Name (optional)", text: $name)
+                Picker("Protocol", selection: $proto) {
+                    ForEach(protocols, id: \.self) { p in
+                        Text(p.uppercased()).tag(p)
+                    }
+                }
+                if proto == "doh" {
+                    TextField("URL (https://...)", text: $url)
+                } else {
+                    TextField("Address (host:port)", text: $address)
+                    TextField("Server Name (TLS SNI, optional)", text: $serverName)
+                }
+                TextField("Bootstrap IPs (comma-separated, optional)", text: $bootstrapIPs)
+            }
+            .padding(12)
+            Divider()
+            VStack(alignment: .leading, spacing: 6) {
+                if !validationError.isEmpty {
+                    Text(validationError)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                }
+                HStack {
+                    Spacer()
+                    Button("Add Upstream") {
+                        guard validate() else { return }
+                        let ips = bootstrapIPs.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+                        let upstream = DNSUpstreamPayload(
+                            name: name,
+                            protocol: proto,
+                            url: proto == "doh" ? url : "",
+                            address: proto != "doh" ? address : "",
+                            serverName: serverName,
+                            bootstrapIPs: ips
+                        )
+                        onAdd(upstream)
+                        dismiss()
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+            }
+            .padding(12)
+        }
+        .frame(width: 440, height: 340)
+    }
+
+    private func validate() -> Bool {
+        if proto == "doh" && url.isEmpty {
+            validationError = "URL is required for DoH"
+            return false
+        }
+        if proto != "doh" && address.isEmpty {
+            validationError = "Address is required for \(proto.uppercased())"
+            return false
+        }
+        validationError = ""
+        return true
     }
 }
 

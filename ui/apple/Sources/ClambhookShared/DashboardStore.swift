@@ -127,6 +127,25 @@ public final class DashboardStore: ObservableObject {
         }
     }
 
+    public func testPolicyGroup(group: String = "", profile: String = "") async {
+        await performAction {
+            let next = try await api.testPolicyGroup(group: group, profile: profile)
+            await MainActor.run {
+                self.policyGroups = next
+            }
+        }
+    }
+
+    public func updateDNS(enabled: Bool, timeout: String = "", upstreams: [DNSUpstreamPayload], profile: String = "") async {
+        await performAction {
+            let request = DNSUpdateRequest(enabled: enabled, timeout: timeout, upstreams: upstreams)
+            let next = try await api.updateDNS(request, profile: profile)
+            await MainActor.run {
+                self.dns = next
+            }
+        }
+    }
+
     public func startEventStream(from client: ClambhookAPIClient, reconnectDelay: Duration = .seconds(2)) {
         eventTask?.cancel()
         eventTask = Task { [weak self] in

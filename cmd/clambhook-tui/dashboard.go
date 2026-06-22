@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"math"
 	"net/netip"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -59,13 +60,14 @@ type model struct {
 	apiAddr string
 	client  apiClient
 
-	status   statusPayload
-	profiles profilesPayload
-	servers  serversPayload
-	policies policyGroupsPayload
-	traffic  trafficSnapshotPayload
-	dev      developerStatusPayload
-	devRows  []developerEntryPayload
+	status            statusPayload
+	profiles          profilesPayload
+	servers           serversPayload
+	policies          policyGroupsPayload
+	subscriptions     ruleSubscriptionsPayload
+	traffic           trafficSnapshotPayload
+	dev               developerStatusPayload
+	devRows           []developerEntryPayload
 
 	selectedProfile      int
 	viewMode             viewMode
@@ -89,6 +91,12 @@ type model struct {
 	pendingCleanup       *cleanupSuggestionPayload
 	width                int
 	height               int
+
+	configImportInput   string
+	configImportEditing bool
+	configExportInput   string
+	configExportEditing bool
+	configActionMsg     string
 
 	bandwidth bandwidthSeries
 	logs      []string
@@ -121,12 +129,13 @@ type pendingRule struct {
 type dashboardLoadedMsg struct {
 	Status    statusPayload
 	Profiles  profilesPayload
-	Servers   serversPayload
-	Policies  policyGroupsPayload
-	Traffic   trafficSnapshotPayload
-	Developer developerStatusPayload
-	DevRows   []developerEntryPayload
-	Err       error
+	Servers       serversPayload
+	Policies      policyGroupsPayload
+	Subscriptions ruleSubscriptionsPayload
+	Traffic       trafficSnapshotPayload
+	Developer     developerStatusPayload
+	DevRows       []developerEntryPayload
+	Err           error
 }
 
 type statusLoadedMsg struct {
@@ -159,6 +168,21 @@ type ruleTestDoneMsg struct {
 type policyGroupsDoneMsg struct {
 	Policies policyGroupsPayload
 	Err      error
+}
+
+type subscriptionsLoadedMsg struct {
+	Subscriptions ruleSubscriptionsPayload
+	Err           error
+}
+
+type configExportDoneMsg struct {
+	Path string
+	Err  error
+}
+
+type configImportDoneMsg struct {
+	Result configImportResponse
+	Err    error
 }
 
 type eventMsg struct {
@@ -202,6 +226,63 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.clampLogScroll()
 		return m, nil
 	case tea.KeyMsg:
+		// Handle Settings import/export editing modes before global key dispatch.
+		if m.viewMode == viewModeSettings {
+			if m.configExportEditing {
+				switch msg.String() {
+				case "esc":
+					m.configExportEditing = false
+				case "enter":
+					path := strings.TrimSpace(m.configExportInput)
+					if path == "" {
+						m.configActionMsg = "enter a file path"
+					} else {
+						m.configExportEditing = false
+						return m, m.exportConfigCmd(path)
+					}
+				case "backspace", "ctrl+h":
+					if len(m.configExportInput) > 0 {
+						m.configExportInput = m.configExportInput[:len(m.configExportInput)-1]
+					}
+				default:
+					if len(msg.Runes) > 0 {
+						m.configExportInput += string(msg.Runes)
+					}
+				}
+				return m, nil
+			}
+			if m.configImportEditing {
+				switch msg.String() {
+				case "esc":
+					m.configImportEditing = false
+				case "enter":
+					path := strings.TrimSpace(m.configImportInput)
+					if path == "" {
+						m.configActionMsg = "enter a file path"
+					} else {
+						m.configImportEditing = false
+						return m, m.importConfigCmd(path)
+					}
+				case "backspace", "ctrl+h":
+					if len(m.configImportInput) > 0 {
+						m.configImportInput = m.configImportInput[:len(m.configImportInput)-1]
+					}
+				default:
+					if len(msg.Runes) > 0 {
+						m.configImportInput += string(msg.Runes)
+					}
+				}
+				return m, nil
+			}
+		}
+		// Intercept "t" for latency test when in Library+policyFocus mode.
+		if msg.String() == "t" && m.viewMode == viewModeLibrary && m.policyFocus {
+			group, ok := m.selectedPolicyGroupPayload()
+			if ok {
+				return m, m.testPolicyGroupCmd(group.Name)
+			}
+			return m, nil
+		}
 		switch msg.String() {
 		case "q", "ctrl+c":
 			if m.cancelEvents != nil {
@@ -488,6 +569,25 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.moveProfileSelection(1)
 			}
 			return m, nil
+		case "f":
+			if m.viewMode == viewModeLibrary {
+				return m, m.refreshSubscriptionsCmd()
+			}
+		case "e":
+			if m.viewMode == viewModeSettings {
+				if m.configExportInput == "" {
+					m.configExportInput = "clambhook-export.toml"
+				}
+				m.configExportEditing = true
+				m.configActionMsg = ""
+				return m, nil
+			}
+		case "i":
+			if m.viewMode == viewModeSettings {
+				m.configImportEditing = true
+				m.configActionMsg = ""
+				return m, nil
+			}
 		case "enter":
 			if m.viewMode != viewModeLibrary {
 				return m, nil
@@ -511,6 +611,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.profiles = msg.Profiles
 		m.servers = msg.Servers
 		m.policies = msg.Policies
+		m.subscriptions = msg.Subscriptions
 		m.traffic = msg.Traffic
 		m.dev = msg.Developer
 		m.devRows = msg.DevRows
@@ -581,6 +682,27 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.policies = msg.Policies
 		m.clampPolicySelection()
 		return m, nil
+	case subscriptionsLoadedMsg:
+		if msg.Err != nil {
+			m.errText = msg.Err.Error()
+			return m, nil
+		}
+		m.subscriptions = msg.Subscriptions
+		return m, nil
+	case configExportDoneMsg:
+		if msg.Err != nil {
+			m.configActionMsg = "export error: " + msg.Err.Error()
+			return m, nil
+		}
+		m.configActionMsg = "exported to " + msg.Path
+		return m, nil
+	case configImportDoneMsg:
+		if msg.Err != nil {
+			m.configActionMsg = "import error: " + msg.Err.Error()
+			return m, nil
+		}
+		m.configActionMsg = msg.Result.Message
+		return m, m.loadDashboardCmd()
 	case eventMsg:
 		needsRefresh := m.applyEvent(msg.Event)
 		if needsRefresh {
@@ -676,10 +798,11 @@ func (m model) libraryView() string {
 	sections = append(sections,
 		m.renderProfileListenerSections(width),
 		m.renderPolicyGroupsSection(width),
+		m.renderSubscriptionsSection(width),
 		m.renderServersSection(width),
 		m.renderFooter(
-			"Keys: tab policy focus  [ prev profile  ] next profile  up/down select  enter apply/test  r refresh  1 now  2 activity  5 developer  q quit",
-			"Keys: tab focus  [/] profile  up/down  enter  r  1 now  2 activity  q",
+			"Keys: tab policy focus  [ prev profile  ] next profile  up/down select  enter apply  t test latency  f refresh subs  r refresh  1 now  2 activity  5 developer  q quit",
+			"Keys: tab focus  [/] profile  up/down  enter  t test  f subs  r  1 now  2 activity  q",
 		),
 	)
 	return joinSections(sections)
@@ -701,11 +824,13 @@ func (m model) settingsView() string {
 		truncate("  Event stream  "+eventStatus, width),
 		subtleStyle.Render(truncate("  Edit daemon config in your TOML file or platform settings UI.", width)),
 	}
+	configLines := m.configImportExportLines(width)
 	sections = append(sections,
 		renderSection("Settings", lines),
+		renderSection("Config Import / Export", configLines),
 		m.renderFooter(
-			"Keys: r refresh  1 now  2 activity  3 library  5 developer  q quit",
-			"Keys: r  1 now  2 activity  3 library  5 dev  q",
+			"Keys: e export config  i import config  r refresh  1 now  2 activity  3 library  5 developer  q quit",
+			"Keys: e export  i import  r  1 now  2 activity  3 library  5 dev  q",
 		),
 	)
 	return joinSections(sections)
@@ -863,12 +988,18 @@ func (m model) renderHeader(title string) string {
 }
 
 func (m model) renderStatusSummary(width int) string {
-	line := strings.Join([]string{
+	parts := []string{
 		m.runningBadge(),
 		m.apiBadge(),
 		"Profile " + truncate(emptyDash(m.activeProfile()), maxInt(8, width/3)),
 		fmt.Sprintf("%d active connections", m.activeConnections()),
-	}, "  ")
+	}
+	if m.status.TunnelMode == "tun" {
+		parts = append(parts, runningBadgeStyle.Render("TUN"))
+	} else if m.status.TunnelMode == "proxy" {
+		parts = append(parts, subtleStyle.Render("PROXY"))
+	}
+	line := strings.Join(parts, "  ")
 	if lipgloss.Width(line) <= width {
 		return line
 	}
@@ -959,11 +1090,25 @@ func (m model) profileLines(width int) []string {
 	return lines
 }
 
+func (m model) tunnelModeLine(width int) string {
+	switch m.status.TunnelMode {
+	case "tun":
+		return runningBadgeStyle.Render(truncate("  FULL TUNNEL (TUN)", width))
+	case "proxy":
+		return stoppedBadgeStyle.Render(truncate("  PROXY (SOCKS5 / HTTP)", width))
+	default:
+		return ""
+	}
+}
+
 func (m model) listenerLines(width int) []string {
 	if len(m.status.Listeners) == 0 {
 		return emptyStateLines("No listeners active", "Connect to start the configured listeners.", width)
 	}
-	lines := make([]string, 0, len(m.status.Listeners))
+	lines := make([]string, 0, len(m.status.Listeners)+1)
+	if modeLine := m.tunnelModeLine(width); modeLine != "" {
+		lines = append(lines, modeLine)
+	}
 	for _, l := range m.status.Listeners {
 		if width < 54 {
 			line := fmt.Sprintf("  %s %s (%d)", l.Protocol, l.Addr, l.ActiveConns)
@@ -987,6 +1132,68 @@ func (m model) renderServersSection(width int) string {
 
 func (m model) renderPolicyGroupsSection(width int) string {
 	return renderSection("Policy Groups", m.policyGroupLines(width))
+}
+
+func (m model) renderSubscriptionsSection(width int) string {
+	return renderSection("Rule Subscriptions", m.subscriptionLines(width))
+}
+
+func (m model) subscriptionLines(width int) []string {
+	if len(m.subscriptions.Subscriptions) == 0 {
+		return emptyStateLines("No rule subscriptions", "Add subscriptions to the active profile to block domains.", width)
+	}
+	lines := make([]string, 0, len(m.subscriptions.Subscriptions))
+	for _, sub := range m.subscriptions.Subscriptions {
+		state := "enabled"
+		stateStyle := subtleStyle
+		if sub.Disabled {
+			state = "disabled"
+		} else {
+			stateStyle = activeLineStyle
+		}
+		counts := ""
+		if sub.Status.EntryCount > 0 {
+			counts = fmt.Sprintf("  %d entries", sub.Status.EntryCount)
+		}
+		errPart := ""
+		if sub.Status.LastFetchErr != "" {
+			errPart = "  err: " + truncate(sub.Status.LastFetchErr, 30)
+		}
+		line := fmt.Sprintf("  %-20s  %-8s  %s  %s%s%s",
+			truncate(sub.Name, 20),
+			sub.Action,
+			sub.Format,
+			state,
+			counts,
+			errPart,
+		)
+		lines = append(lines, stateStyle.Render(truncate(line, width)))
+	}
+	lines = append(lines, subtleStyle.Render(truncate("  f to refresh all", width)))
+	return lines
+}
+
+func (m model) configImportExportLines(width int) []string {
+	lines := []string{}
+	if m.configExportEditing {
+		hint := "  Export to file  " + m.configExportInput + "  (enter confirm, esc cancel)"
+		lines = append(lines, selectedLineStyle.Render(truncate(hint, width)))
+		return lines
+	}
+	if m.configImportEditing {
+		hint := "  Import from file  " + m.configImportInput + "  (enter confirm, esc cancel)"
+		lines = append(lines, selectedLineStyle.Render(truncate(hint, width)))
+		return lines
+	}
+	if m.configActionMsg != "" {
+		style := activeLineStyle
+		if strings.HasPrefix(m.configActionMsg, "export error") || strings.HasPrefix(m.configActionMsg, "import error") {
+			style = errorStyle
+		}
+		lines = append(lines, style.Render(truncate("  "+m.configActionMsg, width)))
+	}
+	lines = append(lines, subtleStyle.Render(truncate("  e to export active config  i to import a TOML file", width)))
+	return lines
 }
 
 func (m model) renderNowPolicySection(width int) string {
@@ -2135,6 +2342,10 @@ func (m model) loadDashboardCmd() tea.Cmd {
 		if err != nil {
 			return dashboardLoadedMsg{Err: err}
 		}
+		subs, err := client.ruleSubscriptions("")
+		if err != nil {
+			subs = ruleSubscriptionsPayload{}
+		}
 		traffic, err := client.traffic()
 		if err != nil {
 			return dashboardLoadedMsg{Err: err}
@@ -2143,7 +2354,7 @@ func (m model) loadDashboardCmd() tea.Cmd {
 		if err != nil {
 			return dashboardLoadedMsg{Err: err}
 		}
-		return dashboardLoadedMsg{Status: status, Profiles: profiles, Servers: servers, Policies: policies, Traffic: traffic, Developer: dev, DevRows: devRows}
+		return dashboardLoadedMsg{Status: status, Profiles: profiles, Servers: servers, Policies: policies, Subscriptions: subs, Traffic: traffic, Developer: dev, DevRows: devRows}
 	}
 }
 
@@ -2201,6 +2412,51 @@ func (m model) ruleTestCmd(network, target string) tea.Cmd {
 	return func() tea.Msg {
 		result, err := client.testRule(network, target)
 		return ruleTestDoneMsg{Result: result, Err: err}
+	}
+}
+
+func (m model) testPolicyGroupCmd(group string) tea.Cmd {
+	client := m.client
+	return func() tea.Msg {
+		policies, err := client.testPolicyGroup(group)
+		return policyGroupsDoneMsg{Policies: policies, Err: err}
+	}
+}
+
+func (m model) refreshSubscriptionsCmd() tea.Cmd {
+	client := m.client
+	return func() tea.Msg {
+		if err := client.refreshRuleSubscriptions("", nil); err != nil {
+			return subscriptionsLoadedMsg{Err: err}
+		}
+		subs, err := client.ruleSubscriptions("")
+		return subscriptionsLoadedMsg{Subscriptions: subs, Err: err}
+	}
+}
+
+func (m model) exportConfigCmd(path string) tea.Cmd {
+	client := m.client
+	return func() tea.Msg {
+		toml, err := client.exportConfig()
+		if err != nil {
+			return configExportDoneMsg{Err: err}
+		}
+		if err := os.WriteFile(path, []byte(toml), 0o600); err != nil {
+			return configExportDoneMsg{Err: err}
+		}
+		return configExportDoneMsg{Path: path}
+	}
+}
+
+func (m model) importConfigCmd(path string) tea.Cmd {
+	client := m.client
+	return func() tea.Msg {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return configImportDoneMsg{Err: err}
+		}
+		result, err := client.importConfig(string(data))
+		return configImportDoneMsg{Result: result, Err: err}
 	}
 }
 

@@ -57,6 +57,9 @@ struct DashboardContentView: View {
                     groups: model.dashboard.policyGroups.groups,
                     onSelect: { group, chain in
                         model.selectPolicyGroup(group: group, chain: chain)
+                    },
+                    onTest: { group in
+                        Task { await model.dashboard.testPolicyGroup(group: group) }
                     }
                 )
             }
@@ -308,6 +311,7 @@ struct CompactPolicySelectorView: View {
     var summary: PolicySelectorSummary
     var groups: [PolicyGroupPayload] = []
     var onSelect: ((String, String) -> Void)?
+    var onTest: ((String) -> Void)?
     var routeLimit = 4
 
     var body: some View {
@@ -327,7 +331,7 @@ struct CompactPolicySelectorView: View {
                     .foregroundStyle(.secondary)
             } else if !groups.isEmpty {
                 ForEach(Array(groups.prefix(routeLimit))) { group in
-                    CompactPolicyGroupRow(group: group, onSelect: onSelect)
+                    CompactPolicyGroupRow(group: group, onSelect: onSelect, onTest: onTest)
                 }
             } else {
                 ForEach(Array(summary.routes.prefix(routeLimit))) { route in
@@ -371,6 +375,7 @@ struct CompactPolicySelectorView: View {
 private struct CompactPolicyGroupRow: View {
     var group: PolicyGroupPayload
     var onSelect: ((String, String) -> Void)?
+    var onTest: ((String) -> Void)?
 
     private var selected: String {
         if !group.selectedChain.isEmpty {
@@ -405,6 +410,17 @@ private struct CompactPolicyGroupRow: View {
                 }
 
                 Spacer(minLength: 8)
+
+                if let onTest {
+                    Button {
+                        onTest(group.name)
+                    } label: {
+                        Image(systemName: "bolt.horizontal")
+                            .foregroundStyle(.orange)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Test latency for \(group.name)")
+                }
 
                 CompactPolicyGroupHealthBadge(group: group)
             }
