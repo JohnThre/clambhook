@@ -922,7 +922,26 @@ func (s *Server) handleDecisions(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, s.engine.Status())
+	status := s.engine.Status()
+	netInfo := s.engine.NetworkInfo()
+	type statusWithNetwork struct {
+		engine.Status
+		NetworkInfo networkInfoPayload `json:"network_info,omitempty"`
+	}
+	writeJSON(w, statusWithNetwork{
+		Status: status,
+		NetworkInfo: networkInfoPayload{
+			InterfaceName: netInfo.InterfaceName,
+			SSID:          netInfo.SSID,
+			IsWiFi:        netInfo.IsWiFi,
+		},
+	})
+}
+
+type networkInfoPayload struct {
+	InterfaceName string `json:"interface_name,omitempty"`
+	SSID          string `json:"ssid,omitempty"`
+	IsWiFi        bool   `json:"is_wifi,omitempty"`
 }
 
 func (s *Server) handleProfiles(w http.ResponseWriter, r *http.Request) {
@@ -1047,6 +1066,8 @@ func (s *Server) handleTraffic(w http.ResponseWriter, r *http.Request) {
 		Country:        query.Get("country"),
 		Port:           query.Get("port"),
 		Query:          query.Get("query"),
+		App:            query.Get("app"),
+		Domain:         query.Get("domain"),
 		ActiveProfile:  activeProfile,
 		Profiles:       profileNames,
 		Rules:          activeRules,

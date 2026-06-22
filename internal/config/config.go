@@ -137,6 +137,14 @@ func DefaultDeveloperConfig() DeveloperConfig {
 	}
 }
 
+// NetworkTriggerConfig causes the engine to auto-switch to this profile when
+// the detected network matches. SSID matches are case-insensitive. An empty
+// field is a wildcard; both fields empty is invalid and is ignored at runtime.
+type NetworkTriggerConfig struct {
+	SSID      string `toml:"ssid" json:"ssid,omitempty"`
+	Interface string `toml:"interface" json:"interface,omitempty"`
+}
+
 // Profile represents a named configuration profile.
 type Profile struct {
 	Name              string                   `toml:"name"`
@@ -148,6 +156,7 @@ type Profile struct {
 	RuleSets          []RuleSetConfig          `toml:"rule_set"`
 	Rules             []RuleConfig             `toml:"rule"`
 	RuleSubscriptions []RuleSubscriptionConfig `toml:"rule_subscription"`
+	NetworkTriggers   []NetworkTriggerConfig   `toml:"network_trigger" json:"network_triggers,omitempty"`
 }
 
 // DNSConfig controls the profile-local encrypted DNS proxy used by TUN mode.

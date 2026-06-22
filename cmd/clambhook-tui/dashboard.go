@@ -54,7 +54,20 @@ const (
 	viewModeLibrary
 	viewModeSettings
 	viewModeDeveloper
+	viewModeNetwork
 )
+
+type filterToken struct {
+	Key   string // "app", "domain", "country", "action", "port", "ip", or "" for plain text
+	Value string
+}
+
+// tempRuleTTLOptions defines TTL choices for the pending rule dialog.
+// Seconds=0 means a persistent (non-expiring) rule.
+var tempRuleTTLOptions = []struct {
+	Seconds int64
+	Label   string
+}{{0, "persist"}, {900, "15m"}, {3600, "1h"}, {28800, "8h"}, {86400, "24h"}}
 
 type model struct {
 	apiAddr string
@@ -89,8 +102,22 @@ type model struct {
 	policyFocus          bool
 	pendingRule          *pendingRule
 	pendingCleanup       *cleanupSuggestionPayload
+	pendingRuleTTLIdx    int // index into tempRuleTTLOptions; 0 = 15m
 	width                int
 	height               int
+
+	// Network view state.
+	netTreeAppIdx     int
+	netTreeDomainIdx  int
+	netTreeCountryIdx int
+	netTreeDepth      int // 0=app, 1=domain, 2=country
+	netTreeExpanded   map[int]bool
+	netDetailConnIdx  int
+
+	// Token-based filter (shared between Activity and Network views).
+	filterTokens  []filterToken
+	filterEditing bool
+	filterInput   string
 
 	configImportInput   string
 	configImportEditing bool
@@ -304,6 +331,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "5", "v":
 			m.viewMode = viewModeDeveloper
 			return m, m.loadDeveloperCmd()
+		case "6":
+			m.viewMode = viewModeNetwork
+			return m, nil
+		}
+		if m.viewMode == viewModeNetwork {
+			return m.updateNetworkView(msg)
 		}
 		if m.viewMode == viewModeDeveloper {
 			switch msg.String() {
@@ -346,6 +379,30 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.ruleTestInput += string(msg.Runes)
 					}
 				}
+				return m, nil
+			}
+			if m.filterEditing {
+				switch msg.String() {
+				case "esc":
+					m.filterEditing = false
+					m.filterInput = ""
+				case "enter":
+					m.filterTokens = parseFilterTokens(m.filterInput)
+					m.filterEditing = false
+					m.filterInput = ""
+					m.clampTrafficSelection()
+				case "backspace", "ctrl+h":
+					if len(m.filterInput) > 0 {
+						m.filterInput = m.filterInput[:len(m.filterInput)-1]
+					} else if len(m.filterTokens) > 0 {
+						m.filterTokens = m.filterTokens[:len(m.filterTokens)-1]
+					}
+				default:
+					if len(msg.Runes) > 0 {
+						m.filterInput += string(msg.Runes)
+					}
+				}
+				m.clampTrafficSelection()
 				return m, nil
 			}
 			if m.searchEditing {
@@ -395,6 +452,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						}
 					}
 					return m, nil
+				case "left":
+					if m.pendingRuleTTLIdx > 0 {
+						m.pendingRuleTTLIdx--
+					}
+					return m, nil
+				case "right":
+					if m.pendingRuleTTLIdx < len(tempRuleTTLOptions)-1 {
+						m.pendingRuleTTLIdx++
+					}
+					return m, nil
 				}
 			}
 			if m.pendingCleanup != nil {
@@ -412,11 +479,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "r":
 				return m, m.loadDashboardCmd()
 			case "/":
-				m.searchEditing = true
+				m.filterEditing = true
+				m.filterInput = ""
 				return m, nil
 			case "esc":
 				m.searchText = ""
 				m.trafficFilter = ""
+				m.filterTokens = nil
+				m.filterEditing = false
+				m.filterInput = ""
 				m.suggestionFocus = false
 				m.cleanupFocus = false
 				m.clampTrafficSelection()
@@ -598,6 +669,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.switchSelectedProfileCmd()
 		case "r":
 			return m, m.loadDashboardCmd()
+		case "n":
+			m.viewMode = viewModeNetwork
+			return m, nil
 		}
 	case dashboardLoadedMsg:
 		if msg.Err != nil {
@@ -735,6 +809,8 @@ func (m model) View() string {
 		return m.settingsView()
 	case viewModeDeveloper:
 		return m.developerView()
+	case viewModeNetwork:
+		return m.networkView()
 	}
 
 	width := m.contentWidth()
@@ -750,8 +826,8 @@ func (m model) View() string {
 		m.renderLiveTrafficSection(width),
 		m.renderRecentDecisionsSection(width),
 		m.renderFooter(
-			"Keys: c connect  d disconnect  r refresh  2 activity  3 library  4 settings  5 developer  q quit",
-			"Keys: c/d  r  2 activity  3 library  4 settings  5 dev  q",
+			"Keys: c connect  d disconnect  r refresh  2 activity  3 library  4 settings  5 developer  6 network  q quit",
+			"Keys: c/d  r  2 act  3 lib  4 set  5 dev  6 net  q",
 		),
 	)
 	return joinSections(sections)
@@ -767,8 +843,8 @@ func (m model) activityView() string {
 		m.renderTrafficDetailSection(width),
 		m.renderLogsSection(width),
 		m.renderFooter(
-			"Keys: a all  b block  d direct  p proxy  / search  x test route  tab focus  up/down select  enter/n rule  c cleanup  r refresh  1 now  3 library  q quit",
-			"Keys: a/b/d/p  / search  x test  tab  up/down  enter/n rule  c clean  r  1 now  3 lib  q",
+			"Keys: a all  b block  d direct  p proxy  / filter  x test route  tab focus  up/down select  enter/n rule  c cleanup  r refresh  1 now  3 library  6 network  q quit",
+			"Keys: a/b/d/p  / filter  x test  tab  up/down  enter/n rule  c clean  r  1 now  3 lib  6 net  q",
 		),
 	)
 	return joinSections(sections)
@@ -799,10 +875,11 @@ func (m model) libraryView() string {
 		m.renderProfileListenerSections(width),
 		m.renderPolicyGroupsSection(width),
 		m.renderSubscriptionsSection(width),
+		m.renderRuleHitsSection(width),
 		m.renderServersSection(width),
 		m.renderFooter(
-			"Keys: tab policy focus  [ prev profile  ] next profile  up/down select  enter apply  t test latency  f refresh subs  r refresh  1 now  2 activity  5 developer  q quit",
-			"Keys: tab focus  [/] profile  up/down  enter  t test  f subs  r  1 now  2 activity  q",
+			"Keys: tab policy focus  [ prev profile  ] next profile  up/down select  enter apply  t test latency  f refresh subs  r refresh  1 now  2 activity  6 network  q quit",
+			"Keys: tab focus  [/] profile  up/down  enter  t test  f subs  r  1 now  2 act  6 net  q",
 		),
 	)
 	return joinSections(sections)
@@ -1669,7 +1746,19 @@ func (m model) pendingRuleLine(width int) string {
 	if rule.ConnID != "" {
 		keys = "y save, a allow, b/d/p action, esc cancel"
 	}
-	return selectedLineStyle.Render(truncate(fmt.Sprintf("  New rule: %s  %s  %s  (%s)", rule.Name, rule.Action, match, keys), width))
+	ttlStr := ""
+	if rule.ConnID != "" && m.pendingRuleTTLIdx >= 0 && m.pendingRuleTTLIdx < len(tempRuleTTLOptions) {
+		opts := make([]string, len(tempRuleTTLOptions))
+		for i, opt := range tempRuleTTLOptions {
+			if i == m.pendingRuleTTLIdx {
+				opts[i] = "[" + opt.Label + "]"
+			} else {
+				opts[i] = opt.Label
+			}
+		}
+		ttlStr = "  TTL: " + strings.Join(opts, " ") + "  (left/right)"
+	}
+	return selectedLineStyle.Render(truncate(fmt.Sprintf("  New rule: %s  %s  %s  (%s)%s", rule.Name, rule.Action, match, keys, ttlStr), width))
 }
 
 func (m model) pendingCleanupLine(width int) string {
@@ -2381,7 +2470,14 @@ func (m model) actionCmd(fn func() error) tea.Cmd {
 }
 
 func (m model) savePendingRuleCmd(rule pendingRule) tea.Cmd {
+	ttlIdx := m.pendingRuleTTLIdx
 	return m.actionCmd(func() error {
+		if ttlIdx >= 0 && ttlIdx < len(tempRuleTTLOptions) && tempRuleTTLOptions[ttlIdx].Seconds > 0 && rule.ConnID != "" {
+			return m.client.createTemporaryRuleFromConnection(
+				rule.ConnID, rule.Profile, rule.Name, rule.Action, rule.Scope,
+				tempRuleTTLOptions[ttlIdx].Seconds,
+			)
+		}
 		if rule.ConnID != "" {
 			return m.client.createRuleFromConnection(createRuleFromConnectionRequest{
 				ConnID:  rule.ConnID,
@@ -3280,4 +3376,556 @@ func maxInt64(a, b int64) int64 {
 		return a
 	}
 	return b
+}
+
+// parseFilterTokens splits a filter input string into typed tokens.
+// Recognized keys: app, domain, country, action, port, ip.
+// Bare words (no key:) become a plain-text search token.
+func parseFilterTokens(input string) []filterToken {
+	input = strings.TrimSpace(input)
+	if input == "" {
+		return nil
+	}
+	parts := strings.Fields(input)
+	tokens := make([]filterToken, 0, len(parts))
+	for _, part := range parts {
+		colon := strings.IndexByte(part, ':')
+		if colon > 0 {
+			key := strings.ToLower(part[:colon])
+			value := part[colon+1:]
+			switch key {
+			case "app", "domain", "country", "action", "port", "ip":
+				tokens = append(tokens, filterToken{Key: key, Value: value})
+				continue
+			}
+		}
+		tokens = append(tokens, filterToken{Key: "", Value: part})
+	}
+	return tokens
+}
+
+// filterTokenAction returns the action value from tokens, or "".
+func filterTokenAction(tokens []filterToken) string {
+	for _, t := range tokens {
+		if t.Key == "action" {
+			return t.Value
+		}
+	}
+	return ""
+}
+
+// filterTokenText returns the concatenation of plain-text tokens.
+func filterTokenText(tokens []filterToken) string {
+	var parts []string
+	for _, t := range tokens {
+		if t.Key == "" {
+			parts = append(parts, t.Value)
+		}
+	}
+	return strings.Join(parts, " ")
+}
+
+// filterTokenByKey returns the value for a specific key, or "".
+func filterTokenByKey(tokens []filterToken, key string) string {
+	for _, t := range tokens {
+		if t.Key == key {
+			return t.Value
+		}
+	}
+	return ""
+}
+
+// filteredTraffic fetches traffic from the API with the current filter tokens.
+func (m model) filteredTraffic() (trafficSnapshotPayload, error) {
+	return m.client.trafficWithFilters(
+		filterTokenAction(m.filterTokens),
+		filterTokenByKey(m.filterTokens, "app"),
+		filterTokenByKey(m.filterTokens, "domain"),
+		filterTokenByKey(m.filterTokens, "country"),
+		filterTokenByKey(m.filterTokens, "port"),
+		filterTokenText(m.filterTokens),
+	)
+}
+
+// networkView renders the Little Snitch-style hierarchy view.
+func (m model) networkView() string {
+	width := m.contentWidth()
+	sections := []string{m.renderHeader("Network")}
+	if m.errText != "" {
+		sections = append(sections, m.renderError(width))
+	}
+	sections = append(sections,
+		m.renderNetworkTreeSection(width),
+		m.renderFooter(
+			"Keys: up/down move  right/left expand/collapse  enter select  a/b/d action  / filter  r refresh  1 now  2 activity  3 library  q quit",
+			"Keys: up/down  right/left  enter  a/b/d  / filter  r  1 now  2 act  3 lib  q",
+		),
+	)
+	return joinSections(sections)
+}
+
+func (m model) renderNetworkTreeSection(width int) string {
+	hierarchy := m.traffic.NetworkHierarchy
+	if len(hierarchy) == 0 {
+		return renderSection("Network", emptyStateLines("No connections yet", "Live app/domain/country hierarchy will appear here.", width))
+	}
+
+	lines := []string{}
+
+	// Render filter bar.
+	filterLine := m.renderFilterBar(width)
+	if filterLine != "" {
+		lines = append(lines, filterLine)
+	}
+
+	halfWidth := width / 2
+	if halfWidth < 20 {
+		halfWidth = 20
+	}
+
+	// Left: tree. Right: detail.
+	treeLines := m.renderNetworkTree(halfWidth)
+	detailLines := m.renderNetworkDetail(halfWidth)
+
+	maxLines := len(treeLines)
+	if len(detailLines) > maxLines {
+		maxLines = len(detailLines)
+	}
+
+	for i := 0; i < maxLines; i++ {
+		left := ""
+		right := ""
+		if i < len(treeLines) {
+			left = treeLines[i]
+		}
+		if i < len(detailLines) {
+			right = detailLines[i]
+		}
+		lines = append(lines, fmt.Sprintf("%-*s  %s", halfWidth, left, right))
+	}
+
+	return renderSection("Network", lines)
+}
+
+func (m model) renderFilterBar(width int) string {
+	var parts []string
+	for _, t := range m.filterTokens {
+		var label string
+		if t.Key != "" {
+			label = t.Key + ":" + t.Value
+		} else {
+			label = t.Value
+		}
+		style := subtleStyle
+		switch t.Key {
+		case "action":
+			if t.Value == "block" {
+				style = errorStyle
+			} else if t.Value == "direct" {
+				style = activeLineStyle
+			}
+		case "country":
+			style = onlineBadgeStyle
+		}
+		parts = append(parts, style.Render("["+label+"]"))
+	}
+	if m.filterEditing {
+		parts = append(parts, selectedLineStyle.Render(m.filterInput+"_"))
+	} else if len(parts) == 0 {
+		return ""
+	}
+	return "  Filter: " + strings.Join(parts, " ")
+}
+
+func (m model) renderNetworkTree(width int) []string {
+	hierarchy := m.traffic.NetworkHierarchy
+	lines := []string{}
+	if m.netTreeExpanded == nil {
+		m.netTreeExpanded = make(map[int]bool)
+	}
+
+	for i, app := range hierarchy {
+		prefix := "  "
+		cursor := " "
+		if i == m.netTreeAppIdx && m.netTreeDepth == 0 {
+			cursor = ">"
+		}
+		expanded := m.netTreeExpanded[i]
+		arrow := "+"
+		if expanded {
+			arrow = "-"
+		}
+		if len(app.Domains) > 0 {
+			lines = append(lines, truncate(fmt.Sprintf("%s%s %s %s  %dc  %s",
+				cursor, arrow, prefix, app.Application, app.ConnCount, formatBytes(app.RxTotal+app.TxTotal)), width))
+		} else {
+			lines = append(lines, truncate(fmt.Sprintf("%s  %s %s  %dc  %s",
+				cursor, prefix, app.Application, app.ConnCount, formatBytes(app.RxTotal+app.TxTotal)), width))
+		}
+
+		if expanded {
+			for j, domain := range app.Domains {
+				dPrefix := "    "
+				dCursor := " "
+				if i == m.netTreeAppIdx && j == m.netTreeDomainIdx && m.netTreeDepth == 1 {
+					dCursor = ">"
+				}
+				dArrow := "+"
+				dExpanded := m.netTreeExpanded[i*1000+j+1]
+				if dExpanded {
+					dArrow = "-"
+				}
+				if len(domain.Countries) > 0 {
+					lines = append(lines, truncate(fmt.Sprintf("%s%s %s %s  %dc  %s",
+						dCursor, dArrow, dPrefix, domain.Domain, domain.ConnCount, formatBytes(domain.RxTotal+domain.TxTotal)), width))
+				} else {
+					lines = append(lines, truncate(fmt.Sprintf("%s  %s %s  %dc  %s",
+						dCursor, dPrefix, domain.Domain, domain.ConnCount, formatBytes(domain.RxTotal+domain.TxTotal)), width))
+				}
+
+				if dExpanded {
+					for k, country := range domain.Countries {
+						cPrefix := "      "
+						cCursor := " "
+						if i == m.netTreeAppIdx && j == m.netTreeDomainIdx && k == m.netTreeCountryIdx && m.netTreeDepth == 2 {
+							cCursor = ">"
+						}
+						lines = append(lines, truncate(fmt.Sprintf("%s  %s %s  %dc", cCursor, cPrefix, country.Code, country.ConnCount), width))
+					}
+				}
+			}
+		}
+	}
+
+	return lines
+}
+
+func (m model) renderNetworkDetail(width int) []string {
+	hierarchy := m.traffic.NetworkHierarchy
+	if m.netTreeAppIdx < 0 || m.netTreeAppIdx >= len(hierarchy) {
+		return []string{subtleStyle.Render("Select a node to see details")}
+	}
+	app := hierarchy[m.netTreeAppIdx]
+
+	lines := []string{tableHeaderStyle.Render("Details")}
+
+	switch m.netTreeDepth {
+	case 0:
+		lines = append(lines,
+			fmt.Sprintf("App:      %s", app.Application),
+			fmt.Sprintf("Conns:    %d (active: %d)", app.ConnCount, app.ActiveCount),
+			fmt.Sprintf("Bytes:    %s", formatBytes(app.RxTotal+app.TxTotal)),
+			fmt.Sprintf("Domains:  %d", len(app.Domains)),
+		)
+	case 1:
+		if m.netTreeDomainIdx >= 0 && m.netTreeDomainIdx < len(app.Domains) {
+			domain := app.Domains[m.netTreeDomainIdx]
+			lines = append(lines,
+				fmt.Sprintf("Domain:   %s", domain.Domain),
+				fmt.Sprintf("Conns:    %d", domain.ConnCount),
+				fmt.Sprintf("Bytes:    %s", formatBytes(domain.RxTotal+domain.TxTotal)),
+				fmt.Sprintf("Countries: %d", len(domain.Countries)),
+			)
+		}
+	case 2:
+		if m.netTreeDomainIdx >= 0 && m.netTreeDomainIdx < len(app.Domains) {
+			domain := app.Domains[m.netTreeDomainIdx]
+			if m.netTreeCountryIdx >= 0 && m.netTreeCountryIdx < len(domain.Countries) {
+				country := domain.Countries[m.netTreeCountryIdx]
+				lines = append(lines,
+					fmt.Sprintf("Country:  %s (%s)", country.Name, country.Code),
+					fmt.Sprintf("Conns:    %d", country.ConnCount),
+					fmt.Sprintf("Bytes:    %s", formatBytes(country.RxTotal+country.TxTotal)),
+				)
+			}
+		}
+	}
+
+	// Show matching connections.
+	conns := m.connectionsForNetworkNode()
+	if len(conns) > 0 {
+		lines = append(lines, "", tableHeaderStyle.Render("Connections"))
+		limit := minInt(6, len(conns))
+		for i, conn := range conns[:limit] {
+			cursor := " "
+			if i == m.netDetailConnIdx {
+				cursor = ">"
+			}
+			lines = append(lines, truncate(fmt.Sprintf("%s %s  %s  %s",
+				cursor, conn.Target, conn.RuleAction, conn.RuleName), width))
+		}
+		if len(conns) > limit {
+			lines = append(lines, subtleStyle.Render(fmt.Sprintf("  +%d more", len(conns)-limit)))
+		}
+	}
+
+	return lines
+}
+
+// connectionsForNetworkNode returns connections matching the selected tree node.
+func (m model) connectionsForNetworkNode() []trafficConnectionPayload {
+	hierarchy := m.traffic.NetworkHierarchy
+	if m.netTreeAppIdx < 0 || m.netTreeAppIdx >= len(hierarchy) {
+		return nil
+	}
+	app := hierarchy[m.netTreeAppIdx]
+	var result []trafficConnectionPayload
+	for _, conn := range m.traffic.Connections {
+		if !strings.EqualFold(conn.Application, app.Application) {
+			continue
+		}
+		if m.netTreeDepth >= 1 && m.netTreeDomainIdx >= 0 && m.netTreeDomainIdx < len(app.Domains) {
+			domain := app.Domains[m.netTreeDomainIdx]
+			host := strings.ToLower(conn.TargetHost)
+			if !strings.HasSuffix(host, domain.Domain) {
+				continue
+			}
+		}
+		if m.netTreeDepth >= 2 && m.netTreeDomainIdx >= 0 && m.netTreeDomainIdx < len(app.Domains) {
+			domain := app.Domains[m.netTreeDomainIdx]
+			if m.netTreeCountryIdx >= 0 && m.netTreeCountryIdx < len(domain.Countries) {
+				country := domain.Countries[m.netTreeCountryIdx]
+				if !strings.EqualFold(conn.Geo.CountryCode, country.Code) {
+					continue
+				}
+			}
+		}
+		result = append(result, conn)
+	}
+	return result
+}
+
+// updateNetworkView handles key events for the network view.
+func (m model) updateNetworkView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.filterEditing {
+		switch msg.String() {
+		case "esc":
+			m.filterEditing = false
+			m.filterInput = ""
+		case "enter":
+			m.filterTokens = parseFilterTokens(m.filterInput)
+			m.filterEditing = false
+			m.filterInput = ""
+			return m, m.loadDashboardCmd()
+		case "backspace", "ctrl+h":
+			if len(m.filterInput) > 0 {
+				m.filterInput = m.filterInput[:len(m.filterInput)-1]
+			} else if len(m.filterTokens) > 0 {
+				m.filterTokens = m.filterTokens[:len(m.filterTokens)-1]
+			}
+		default:
+			if len(msg.Runes) > 0 {
+				m.filterInput += string(msg.Runes)
+			}
+		}
+		return m, nil
+	}
+
+	if m.pendingRule != nil {
+		switch msg.String() {
+		case "esc":
+			m.pendingRule = nil
+			return m, nil
+		case "y":
+			rule := *m.pendingRule
+			m.pendingRule = nil
+			return m, m.savePendingRuleCmd(rule)
+		case "b":
+			m.pendingRule.Action = "block"
+			return m, nil
+		case "d":
+			m.pendingRule.Action = "direct"
+			return m, nil
+		case "left":
+			if m.pendingRuleTTLIdx > 0 {
+				m.pendingRuleTTLIdx--
+			}
+			return m, nil
+		case "right":
+			if m.pendingRuleTTLIdx < len(tempRuleTTLOptions)-1 {
+				m.pendingRuleTTLIdx++
+			}
+			return m, nil
+		}
+		return m, nil
+	}
+
+	hierarchy := m.traffic.NetworkHierarchy
+	if m.netTreeExpanded == nil {
+		m.netTreeExpanded = make(map[int]bool)
+	}
+
+	switch msg.String() {
+	case "r":
+		return m, m.loadDashboardCmd()
+	case "/":
+		m.filterEditing = true
+		m.filterInput = ""
+		return m, nil
+	case "esc":
+		m.filterTokens = nil
+		m.filterEditing = false
+		m.filterInput = ""
+		return m, nil
+	case "up", "k":
+		if m.netTreeDepth == 0 {
+			if m.netTreeAppIdx > 0 {
+				m.netTreeAppIdx--
+			}
+		} else if m.netTreeDepth == 1 {
+			if m.netTreeDomainIdx > 0 {
+				m.netTreeDomainIdx--
+			} else {
+				m.netTreeDepth = 0
+			}
+		} else if m.netTreeDepth == 2 {
+			if m.netTreeCountryIdx > 0 {
+				m.netTreeCountryIdx--
+			} else {
+				m.netTreeDepth = 1
+			}
+		}
+		return m, nil
+	case "down", "j":
+		if m.netTreeDepth == 0 {
+			if m.netTreeAppIdx < len(hierarchy)-1 {
+				m.netTreeAppIdx++
+			}
+		} else if m.netTreeDepth == 1 {
+			if m.netTreeAppIdx < len(hierarchy) && m.netTreeDomainIdx < len(hierarchy[m.netTreeAppIdx].Domains)-1 {
+				m.netTreeDomainIdx++
+			}
+		} else if m.netTreeDepth == 2 {
+			if m.netTreeAppIdx < len(hierarchy) && m.netTreeDomainIdx < len(hierarchy[m.netTreeAppIdx].Domains) {
+				domain := hierarchy[m.netTreeAppIdx].Domains[m.netTreeDomainIdx]
+				if m.netTreeCountryIdx < len(domain.Countries)-1 {
+					m.netTreeCountryIdx++
+				}
+			}
+		}
+		return m, nil
+	case "right", "enter":
+		if m.netTreeDepth == 0 && m.netTreeAppIdx < len(hierarchy) {
+			if len(hierarchy[m.netTreeAppIdx].Domains) > 0 {
+				m.netTreeExpanded[m.netTreeAppIdx] = true
+				m.netTreeDepth = 1
+				m.netTreeDomainIdx = 0
+			}
+		} else if m.netTreeDepth == 1 && m.netTreeAppIdx < len(hierarchy) {
+			if m.netTreeDomainIdx < len(hierarchy[m.netTreeAppIdx].Domains) {
+				domain := hierarchy[m.netTreeAppIdx].Domains[m.netTreeDomainIdx]
+				if len(domain.Countries) > 0 {
+					m.netTreeExpanded[m.netTreeAppIdx*1000+m.netTreeDomainIdx+1] = true
+					m.netTreeDepth = 2
+					m.netTreeCountryIdx = 0
+				} else if msg.String() == "enter" {
+					return m.ruleDraftFromNetworkNode()
+				}
+			}
+		} else if msg.String() == "enter" {
+			return m.ruleDraftFromNetworkNode()
+		}
+		return m, nil
+	case "left":
+		if m.netTreeDepth == 2 {
+			if m.netTreeAppIdx < len(hierarchy) && m.netTreeDomainIdx < len(hierarchy[m.netTreeAppIdx].Domains) {
+				m.netTreeExpanded[m.netTreeAppIdx*1000+m.netTreeDomainIdx+1] = false
+			}
+			m.netTreeDepth = 1
+		} else if m.netTreeDepth == 1 {
+			if m.netTreeAppIdx < len(hierarchy) {
+				m.netTreeExpanded[m.netTreeAppIdx] = false
+			}
+			m.netTreeDepth = 0
+		}
+		return m, nil
+	case "b":
+		return m.ruleDraftFromNetworkNode("block")
+	case "d":
+		return m.ruleDraftFromNetworkNode("direct")
+	case "a":
+		return m.ruleDraftFromNetworkNode("allow")
+	}
+	return m, nil
+}
+
+// ruleDraftFromNetworkNode creates a pending rule from the selected network node.
+func (m model) ruleDraftFromNetworkNode(action ...string) (tea.Model, tea.Cmd) {
+	hierarchy := m.traffic.NetworkHierarchy
+	if m.netTreeAppIdx < 0 || m.netTreeAppIdx >= len(hierarchy) {
+		m.errText = "select a node before creating a rule"
+		return m, nil
+	}
+	app := hierarchy[m.netTreeAppIdx]
+	act := "block"
+	if len(action) > 0 && action[0] != "" {
+		act = action[0]
+	}
+
+	var domain string
+	if m.netTreeDepth >= 1 && m.netTreeDomainIdx >= 0 && m.netTreeDomainIdx < len(app.Domains) {
+		domain = app.Domains[m.netTreeDomainIdx].Domain
+	}
+
+	rule := pendingRule{
+		rulePayload: rulePayload{
+			Name:   fmt.Sprintf("NET-%s-%s", strings.ToUpper(act), app.Application),
+			Action: act,
+		},
+		Profile: m.traffic.ProfileContext.Active,
+	}
+	if domain != "" {
+		rule.rulePayload.DomainSuffixes = []string{domain}
+		rule.Name = fmt.Sprintf("NET-%s-%s", strings.ToUpper(act), domain)
+	}
+	m.pendingRule = &rule
+	m.pendingRuleTTLIdx = 0
+	return m, nil
+}
+
+// renderRuleHitsSection renders rule usage stats in the Library view.
+func (m model) renderRuleHitsSection(width int) string {
+	hits := m.traffic.RuleHits
+	if len(hits) == 0 {
+		return ""
+	}
+	limit := minInt(10, len(hits))
+	lines := []string{tableHeaderStyle.Render(truncate("  Rule Activity", width))}
+	for _, hit := range hits[:limit] {
+		lastHit := ""
+		if hit.LastHitTsNs > 0 {
+			lastHit = formatAge(time.Unix(0, hit.LastHitTsNs))
+		}
+		tempTag := ""
+		if hit.Temporary {
+			tempTag = " (temp)"
+		}
+		lines = append(lines, truncate(fmt.Sprintf("  %s  %s  %d hits  %s  %s%s",
+			emptyDash(hit.RuleName),
+			hit.Action,
+			hit.Count,
+			formatBytes(hit.RxTotal+hit.TxTotal),
+			lastHit,
+			tempTag,
+		), width))
+	}
+	if len(hits) > limit {
+		lines = append(lines, subtleStyle.Render(fmt.Sprintf("  +%d more rules", len(hits)-limit)))
+	}
+	return renderSection("Rule Activity", lines)
+}
+
+// formatAge returns a human-readable age string.
+func formatAge(t time.Time) string {
+	d := time.Since(t)
+	if d < time.Minute {
+		return "just now"
+	}
+	if d < time.Hour {
+		return fmt.Sprintf("%dm ago", int(d.Minutes()))
+	}
+	if d < 24*time.Hour {
+		return fmt.Sprintf("%dh ago", int(d.Hours()))
+	}
+	return fmt.Sprintf("%dd ago", int(d.Hours()/24))
 }

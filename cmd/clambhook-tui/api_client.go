@@ -19,11 +19,18 @@ type apiClient struct {
 	httpClient *http.Client
 }
 
+type networkInfoPayload struct {
+	InterfaceName string `json:"interface_name,omitempty"`
+	SSID          string `json:"ssid,omitempty"`
+	IsWiFi        bool   `json:"is_wifi,omitempty"`
+}
+
 type statusPayload struct {
-	Running    bool                    `json:"running"`
-	Profile    string                  `json:"profile"`
-	Listeners  []listenerStatusPayload `json:"listeners,omitempty"`
-	TunnelMode string                  `json:"tunnel_mode,omitempty"`
+	Running     bool                    `json:"running"`
+	Profile     string                  `json:"profile"`
+	Listeners   []listenerStatusPayload `json:"listeners,omitempty"`
+	TunnelMode  string                  `json:"tunnel_mode,omitempty"`
+	NetworkInfo networkInfoPayload      `json:"network_info,omitempty"`
 }
 
 type listenerStatusPayload struct {
@@ -122,6 +129,32 @@ type trafficSnapshotPayload struct {
 	CleanupSuggestions []cleanupSuggestionPayload `json:"cleanup_suggestions,omitempty"`
 	RuleSuggestions    []ruleSuggestionPayload    `json:"rule_suggestions,omitempty"`
 	Breakdowns         trafficBreakdownsPayload   `json:"breakdowns,omitempty"`
+	NetworkHierarchy   []appNodePayload           `json:"network_hierarchy,omitempty"`
+}
+
+type appNodePayload struct {
+	Application string            `json:"application"`
+	ConnCount   int               `json:"conn_count"`
+	ActiveCount int               `json:"active_count"`
+	RxTotal     uint64            `json:"rx_total"`
+	TxTotal     uint64            `json:"tx_total"`
+	Domains     []domainNodePayload `json:"domains,omitempty"`
+}
+
+type domainNodePayload struct {
+	Domain    string              `json:"domain"`
+	ConnCount int                 `json:"conn_count"`
+	RxTotal   uint64              `json:"rx_total"`
+	TxTotal   uint64              `json:"tx_total"`
+	Countries []countryNodePayload `json:"countries,omitempty"`
+}
+
+type countryNodePayload struct {
+	Code      string `json:"code"`
+	Name      string `json:"name"`
+	ConnCount int    `json:"conn_count"`
+	RxTotal   uint64 `json:"rx_total"`
+	TxTotal   uint64 `json:"tx_total"`
 }
 
 type trafficSummaryPayload struct {
@@ -222,6 +255,7 @@ type ruleHitPayload struct {
 	TxTotal     uint64 `json:"tx_total"`
 	LastTarget  string `json:"last_target,omitempty"`
 	Default     bool   `json:"default,omitempty"`
+	Temporary   bool   `json:"temporary,omitempty"`
 }
 
 type blockDecisionPayload struct {
@@ -468,6 +502,32 @@ func (c apiClient) traffic() (trafficSnapshotPayload, error) {
 	return out, err
 }
 
+// trafficWithFilters fetches traffic with optional token-based filter params.
+func (c apiClient) trafficWithFilters(action, app, domain, country, port, query string) (trafficSnapshotPayload, error) {
+	path := "/api/v1/traffic?limit=200"
+	if action != "" {
+		path += "&action=" + action
+	}
+	if app != "" {
+		path += "&app=" + app
+	}
+	if domain != "" {
+		path += "&domain=" + domain
+	}
+	if country != "" {
+		path += "&country=" + country
+	}
+	if port != "" {
+		path += "&port=" + port
+	}
+	if query != "" {
+		path += "&query=" + query
+	}
+	var out trafficSnapshotPayload
+	err := c.getJSON(path, &out)
+	return out, err
+}
+
 func (c apiClient) developer() (developerStatusPayload, []developerEntryPayload, error) {
 	status, err := c.developerStatus()
 	if err != nil {
@@ -572,6 +632,21 @@ func (c apiClient) createRuleFromConnection(req createRuleFromConnectionRequest)
 		return err
 	}
 	return c.doNoBody(http.MethodPost, "/api/v1/rules/from-connection", bytes.NewReader(body))
+}
+
+func (c apiClient) createTemporaryRuleFromConnection(connID, profile, name, action, scope string, ttlSeconds int64) error {
+	body, err := json.Marshal(map[string]any{
+		"conn_id":     connID,
+		"profile":     profile,
+		"name":        name,
+		"action":      action,
+		"scope":       scope,
+		"ttl_seconds": ttlSeconds,
+	})
+	if err != nil {
+		return err
+	}
+	return c.doNoBody(http.MethodPost, "/api/v1/rules/temporary/from-connection", bytes.NewReader(body))
 }
 
 func (c apiClient) cleanupRule(req cleanupRuleRequest) error {
