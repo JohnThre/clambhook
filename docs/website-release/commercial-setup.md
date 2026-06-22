@@ -36,16 +36,16 @@ Create and keep stable these website product identifiers:
 | Display name | Product ID | Type | US base price |
 | --- | --- | --- | --- |
 | ClambHook for macOS License | `org.jpfchang.clambhook.unlock.lifetime` | Direct-sale license | USD 99.99 |
-| ClambHook for macOS 2027 Feature Update | `org.jpfchang.clambhook.feature_update.2027` | Direct-sale paid update | USD 8.99 |
+| ClambHook for macOS 2027 Feature Update | `org.jpfchang.clambhook.feature_update.2027` | Direct-sale paid feature update | USD 8.99 |
 
 Future paid feature update products use the pattern
 `org.jpfchang.clambhook.feature_update.YYYY`.
 
 The USD 99.99 license includes one year of feature updates. Versions released
 during that year remain usable after the update year ends. Each license covers
-up to 4 active devices and is transferable between devices.
-Paid feature updates extend the feature-release window. Bug fixes and security
-fixes remain included.
+up to 4 active Apple Silicon Macs and is transferable between devices. Paid
+feature updates extend the feature-release window. Bug fixes and security fixes
+remain included.
 
 ## Checkout
 

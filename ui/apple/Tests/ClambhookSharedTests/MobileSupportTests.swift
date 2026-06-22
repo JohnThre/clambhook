@@ -21,7 +21,7 @@ final class MobileSupportTests: XCTestCase {
         )
     }
 
-    func testPurchaseOffersShowLifetimeFirstBeforeUnlock() {
+    func testPurchaseOffersShowMacLicenseBeforeActivation() {
         let decision = MobileLicenseEvaluator.evaluate(
             snapshot: MobileLicenseSnapshot(trialStartDate: mobileLicenseUTCDate(year: 2026, month: 6, day: 3)),
             now: mobileLicenseUTCDate(year: 2026, month: 7, day: 1)
@@ -29,16 +29,16 @@ final class MobileSupportTests: XCTestCase {
 
         XCTAssertEqual(
             MobilePurchaseCatalog.purchaseOfferIDs(for: decision),
-            [MobilePurchaseCatalog.lifetimeUnlockID]
+            [MobilePurchaseCatalog.macLicenseProductID]
         )
     }
 
-    func testPurchaseOffersHidePaidUpdateWhenLifetimeHasNoLockedFeatures() {
+    func testPurchaseOffersHidePaidUpdateWhenMacLicenseHasNoLockedFeatures() {
         let decision = MobileLicenseEvaluator.evaluate(
             snapshot: MobileLicenseSnapshot(
                 transactions: [
                     MobileLicenseTransaction(
-                        productID: MobilePurchaseCatalog.lifetimeUnlockID,
+                        productID: MobilePurchaseCatalog.macLicenseProductID,
                         purchaseDate: mobileLicenseUTCDate(year: 2026, month: 6, day: 3)
                     ),
                 ]
@@ -49,12 +49,12 @@ final class MobileSupportTests: XCTestCase {
         XCTAssertEqual(MobilePurchaseCatalog.purchaseOfferIDs(for: decision), [])
     }
 
-    func testPurchaseOffersShowPaidUpdateOnlyForLifetimeWithLockedPostCutoffFeatures() {
+    func testPurchaseOffersShowPaidUpdateOnlyForMacLicenseWithLockedPostCutoffFeatures() {
         let decision = MobileLicenseEvaluator.evaluate(
             snapshot: MobileLicenseSnapshot(
                 transactions: [
                     MobileLicenseTransaction(
-                        productID: MobilePurchaseCatalog.lifetimeUnlockID,
+                        productID: MobilePurchaseCatalog.macLicenseProductID,
                         purchaseDate: mobileLicenseUTCDate(year: 2026, month: 6, day: 3)
                     ),
                 ]
@@ -95,15 +95,15 @@ final class MobileSupportTests: XCTestCase {
         XCTAssertEqual(MobilePurchaseCatalog.orderedIDs(productsByID.keys), MobilePurchaseCatalog.productIDs)
 
         try assertDirectSaleProduct(
-            productsByID[MobilePurchaseCatalog.lifetimeUnlockID],
+            productsByID[MobilePurchaseCatalog.macLicenseProductID],
             displayPrice: "99.99",
-            displayName: "ClambHook macOS License",
-            description: "USD 99.99 includes one year of feature updates; versions released during that year remain usable; up to 4 active devices; transferable."
+            displayName: "ClambHook for macOS License",
+            description: "USD 99.99 direct-sale macOS license includes one year of feature updates; versions released during that year remain usable; up to 4 active Apple Silicon Macs; transferable."
         )
         try assertDirectSaleProduct(
             productsByID[MobilePurchaseCatalog.featureUpdate2027ID],
             displayPrice: "8.99",
-            displayName: "ClambHook 2027 Feature Update",
+            displayName: "ClambHook for macOS 2027 Feature Update",
             description: "Extends the ClambHook macOS feature-update window by one year."
         )
     }

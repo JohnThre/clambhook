@@ -9,7 +9,7 @@ ClambHook's end-user macOS release is distributed only from jpfchang.org.
 - The website download starts a two-month free trial.
 - A USD 99.99 direct-sale macOS license includes one year of feature updates.
 - Versions released during that year remain usable after the update year ends.
-- Each license covers up to 4 active devices and is transferable between devices.
+- Each license covers up to 4 active Apple Silicon Macs and is transferable between devices.
 - A USD 8.99 paid feature update unlocks new features released after the included first year and extends the update window by one year.
 - Checkout and license delivery are handled on jpfchang.org through the configured direct-sale payment providers.
 - License device listing, activation, deactivation, and transfer are available from `https://jpfchang.org/clambhook/portal/`.
@@ -23,7 +23,7 @@ The source is proprietary to Pengfan Chang, all rights reserved, and may not be 
 | Display name | Product ID | Type | US base price |
 | --- | --- | --- | --- |
 | ClambHook for macOS License | `org.jpfchang.clambhook.unlock.lifetime` | Direct-sale license | USD 99.99 |
-| ClambHook for macOS 2027 Feature Update | `org.jpfchang.clambhook.feature_update.2027` | Direct-sale paid update | USD 8.99 |
+| ClambHook for macOS 2027 Feature Update | `org.jpfchang.clambhook.feature_update.2027` | Direct-sale paid feature update | USD 8.99 |
 
 Future paid feature update products use `org.jpfchang.clambhook.feature_update.YYYY`.
 

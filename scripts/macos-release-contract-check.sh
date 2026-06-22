@@ -86,7 +86,7 @@ versions_promise="during that year remain usable"
 device_promise="up to 4 active"
 transfer_promise="transferable"
 
-require_text "$readme" "USD 99.99 macOS license includes one year of feature updates" "README license policy"
+require_text "$readme" "USD 99.99 direct-sale macOS license includes one year of feature updates" "README license policy"
 require_text "$readme" "$versions_promise" "README version-usability policy"
 require_text "$readme" "$device_promise" "README device policy"
 require_text "$readme" "$transfer_promise" "README transfer policy"
@@ -144,6 +144,13 @@ for ui_copy_file in "$licensing" "$recovery" "$app_model" "$purchase_view" "$mob
     reject_text "$ui_copy_file" "Lifetime Unlock" "macOS website license UI copy"
 done
 
+require_text "$licensing" "Two-month trial" "macOS website license UI copy"
+require_text "$licensing" "Paid feature updates unlock later feature releases" "macOS website license UI copy"
+require_text "$recovery" "Trial ended" "macOS website license recovery copy"
+require_text "$app_model" "Trial has ended" "macOS website license app copy"
+require_text "$purchase_view" "Buy macOS license - USD" "macOS website license purchase copy"
+require_text "$mobile_support" "ClambHook for macOS License" "macOS website license product copy"
+
 python3 - "$product_fixture" <<'PY'
 import json
 import pathlib
@@ -161,14 +168,14 @@ expected = [
         "productID": "org.jpfchang.clambhook.unlock.lifetime",
         "kind": "license",
         "displayPrice": "99.99",
-        "displayName": "ClambHook macOS License",
-        "description": "USD 99.99 includes one year of feature updates; versions released during that year remain usable; up to 4 active devices; transferable.",
+        "displayName": "ClambHook for macOS License",
+        "description": "USD 99.99 direct-sale macOS license includes one year of feature updates; versions released during that year remain usable; up to 4 active Apple Silicon Macs; transferable.",
     },
     {
         "productID": "org.jpfchang.clambhook.feature_update.2027",
         "kind": "feature_update",
         "displayPrice": "8.99",
-        "displayName": "ClambHook 2027 Feature Update",
+        "displayName": "ClambHook for macOS 2027 Feature Update",
         "description": "Extends the ClambHook macOS feature-update window by one year.",
     },
 ]

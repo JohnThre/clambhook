@@ -2,15 +2,15 @@
   "identifier": "CLAMBHOOK_DIRECT_SALE_PRODUCTS",
   "products": [
     {
-      "description": "USD 99.99 includes one year of feature updates; versions released during that year remain usable; up to 4 active devices; transferable.",
-      "displayName": "ClambHook macOS License",
+      "description": "USD 99.99 direct-sale macOS license includes one year of feature updates; versions released during that year remain usable; up to 4 active Apple Silicon Macs; transferable.",
+      "displayName": "ClambHook for macOS License",
       "displayPrice": "99.99",
       "kind": "license",
       "productID": "org.jpfchang.clambhook.unlock.lifetime"
     },
     {
       "description": "Extends the ClambHook macOS feature-update window by one year.",
-      "displayName": "ClambHook 2027 Feature Update",
+      "displayName": "ClambHook for macOS 2027 Feature Update",
       "displayPrice": "8.99",
       "kind": "feature_update",
       "productID": "org.jpfchang.clambhook.feature_update.2027"

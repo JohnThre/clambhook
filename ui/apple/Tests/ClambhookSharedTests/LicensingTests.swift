@@ -47,11 +47,11 @@ final class LicensingTests: XCTestCase {
         XCTAssertFalse(decision.canUseFeature(.routingRules))
     }
 
-    func testLifetimeUnlockRemainsUsableWithoutRecentVerification() {
+    func testMacLicenseRemainsUsableWithoutRecentVerification() {
         let purchaseDate = mobileLicenseUTCDate(year: 2026, month: 6, day: 3)
         let snapshot = MobileLicenseSnapshot(
             transactions: [
-                MobileLicenseTransaction(productID: MobilePurchaseCatalog.lifetimeUnlockID, purchaseDate: purchaseDate),
+                MobileLicenseTransaction(productID: MobilePurchaseCatalog.macLicenseProductID, purchaseDate: purchaseDate),
             ],
             lastVerifiedAt: mobileLicenseUTCDate(year: 2026, month: 6, day: 10)
         )
@@ -66,7 +66,7 @@ final class LicensingTests: XCTestCase {
         XCTAssertTrue(decision.canUseFeature(.tunnelRouting))
     }
 
-    func testRecentVerificationFailureUsesOfflineGraceForCachedLifetime() {
+    func testRecentVerificationFailureUsesOfflineGraceForCachedMacLicense() {
         let purchaseDate = mobileLicenseUTCDate(year: 2026, month: 6, day: 3)
         let failedAt = mobileLicenseUTCDate(year: 2026, month: 7, day: 2)
         let includedFeature = MobileLicenseFeature(
@@ -81,7 +81,7 @@ final class LicensingTests: XCTestCase {
         )
         let snapshot = MobileLicenseSnapshot(
             transactions: [
-                MobileLicenseTransaction(productID: MobilePurchaseCatalog.lifetimeUnlockID, purchaseDate: purchaseDate),
+                MobileLicenseTransaction(productID: MobilePurchaseCatalog.macLicenseProductID, purchaseDate: purchaseDate),
             ],
             lastVerifiedAt: mobileLicenseUTCDate(year: 2026, month: 7, day: 1),
             lastVerificationFailedAt: failedAt
@@ -116,7 +116,7 @@ final class LicensingTests: XCTestCase {
         )
         let snapshot = MobileLicenseSnapshot(
             transactions: [
-                MobileLicenseTransaction(productID: MobilePurchaseCatalog.lifetimeUnlockID, purchaseDate: purchaseDate),
+                MobileLicenseTransaction(productID: MobilePurchaseCatalog.macLicenseProductID, purchaseDate: purchaseDate),
             ],
             lastVerifiedAt: mobileLicenseUTCDate(year: 2026, month: 6, day: 10),
             lastVerificationFailedAt: mobileLicenseUTCDate(year: 2026, month: 6, day: 12)
@@ -135,12 +135,12 @@ final class LicensingTests: XCTestCase {
         XCTAssertFalse(decision.canUseFeature(.activityInspection))
     }
 
-    func testRevokedLifetimeDoesNotUnlock() {
+    func testRevokedMacLicenseDoesNotUnlock() {
         let purchaseDate = mobileLicenseUTCDate(year: 2026, month: 6, day: 3)
         let snapshot = MobileLicenseSnapshot(
             transactions: [
                 MobileLicenseTransaction(
-                    productID: MobilePurchaseCatalog.lifetimeUnlockID,
+                    productID: MobilePurchaseCatalog.macLicenseProductID,
                     purchaseDate: purchaseDate,
                     revocationDate: mobileLicenseUTCDate(year: 2026, month: 7, day: 1)
                 ),
@@ -157,10 +157,10 @@ final class LicensingTests: XCTestCase {
     }
 
     func testPaidUpdatesExtendFeatureWindow() throws {
-        let lifetimeDate = mobileLicenseUTCDate(year: 2026, month: 6, day: 3)
+        let licensePurchaseDate = mobileLicenseUTCDate(year: 2026, month: 6, day: 3)
         let snapshot = MobileLicenseSnapshot(
             transactions: [
-                MobileLicenseTransaction(productID: MobilePurchaseCatalog.lifetimeUnlockID, purchaseDate: lifetimeDate),
+                MobileLicenseTransaction(productID: MobilePurchaseCatalog.macLicenseProductID, purchaseDate: licensePurchaseDate),
                 MobileLicenseTransaction(productID: MobilePurchaseCatalog.featureUpdate2027ID, purchaseDate: mobileLicenseUTCDate(year: 2027, month: 8, day: 1)),
             ],
             lastVerifiedAt: mobileLicenseUTCDate(year: 2027, month: 8, day: 1)
@@ -182,11 +182,11 @@ final class LicensingTests: XCTestCase {
     }
 
     func testMultiplePaidUpdateYearsGateFeaturesByReleaseDate() {
-        let lifetimeDate = mobileLicenseUTCDate(year: 2026, month: 6, day: 3)
+        let licensePurchaseDate = mobileLicenseUTCDate(year: 2026, month: 6, day: 3)
         let featureUpdate2028ID = "\(MobilePurchaseCatalog.featureUpdatePrefix)2028"
         let snapshot = MobileLicenseSnapshot(
             transactions: [
-                MobileLicenseTransaction(productID: MobilePurchaseCatalog.lifetimeUnlockID, purchaseDate: lifetimeDate),
+                MobileLicenseTransaction(productID: MobilePurchaseCatalog.macLicenseProductID, purchaseDate: licensePurchaseDate),
                 MobileLicenseTransaction(productID: MobilePurchaseCatalog.featureUpdate2027ID, purchaseDate: mobileLicenseUTCDate(year: 2027, month: 8, day: 1)),
                 MobileLicenseTransaction(productID: featureUpdate2028ID, purchaseDate: mobileLicenseUTCDate(year: 2028, month: 8, day: 15)),
             ],
@@ -222,10 +222,10 @@ final class LicensingTests: XCTestCase {
     }
 
     func testRefundedPaidUpdateDoesNotExtendFeatureWindow() {
-        let lifetimeDate = mobileLicenseUTCDate(year: 2026, month: 6, day: 3)
+        let licensePurchaseDate = mobileLicenseUTCDate(year: 2026, month: 6, day: 3)
         let snapshot = MobileLicenseSnapshot(
             transactions: [
-                MobileLicenseTransaction(productID: MobilePurchaseCatalog.lifetimeUnlockID, purchaseDate: lifetimeDate),
+                MobileLicenseTransaction(productID: MobilePurchaseCatalog.macLicenseProductID, purchaseDate: licensePurchaseDate),
                 MobileLicenseTransaction(
                     productID: MobilePurchaseCatalog.featureUpdate2027ID,
                     purchaseDate: mobileLicenseUTCDate(year: 2027, month: 8, day: 1),
@@ -251,7 +251,7 @@ final class LicensingTests: XCTestCase {
         XCTAssertFalse(decision.canUseFeature(.widgets))
     }
 
-    func testPaidUpdateWithoutLifetimeDoesNotUnlock() {
+    func testPaidUpdateWithoutMacLicenseDoesNotUnlock() {
         let snapshot = MobileLicenseSnapshot(
             transactions: [
                 MobileLicenseTransaction(productID: MobilePurchaseCatalog.featureUpdate2027ID, purchaseDate: mobileLicenseUTCDate(year: 2027, month: 8, day: 1)),
@@ -292,8 +292,8 @@ final class LicensingTests: XCTestCase {
 
         XCTAssertTrue(copy.hasPrefix("The macOS license includes feature updates through "))
         XCTAssertTrue(copy.contains("Versions released during that window remain usable."))
-        XCTAssertTrue(copy.contains("Paid updates unlock later feature releases."))
-        XCTAssertTrue(copy.contains("Bug fixes/security fixes remain included."))
+        XCTAssertTrue(copy.contains("Paid feature updates unlock later feature releases."))
+        XCTAssertTrue(copy.contains("Bug fixes and security fixes remain included."))
     }
 
     func testProductStatesShowActiveTrial() throws {
@@ -306,18 +306,18 @@ final class LicensingTests: XCTestCase {
         let states = MobileLicenseProductStateBuilder.states(for: decision)
         let trial = try XCTUnwrap(states.first { $0.kind == .trial })
 
-        XCTAssertEqual(trial.title, "Free access")
+        XCTAssertEqual(trial.title, "Two-month trial")
         XCTAssertTrue(trial.isActive)
-        XCTAssertTrue(trial.detail.contains("Server-controlled free access ends"))
+        XCTAssertTrue(trial.detail.contains("Trial ends"))
         XCTAssertTrue(trial.detail.contains("2026"))
     }
 
-    func testProductStatesShowLifetimeDuringActiveTrial() throws {
+    func testProductStatesShowMacLicenseDuringActiveTrial() throws {
         let snapshot = MobileLicenseSnapshot(
             trialStartDate: mobileLicenseUTCDate(year: 2026, month: 6, day: 3),
             transactions: [
                 MobileLicenseTransaction(
-                    productID: MobilePurchaseCatalog.lifetimeUnlockID,
+                    productID: MobilePurchaseCatalog.macLicenseProductID,
                     purchaseDate: mobileLicenseUTCDate(year: 2026, month: 6, day: 10)
                 ),
             ]
@@ -329,19 +329,19 @@ final class LicensingTests: XCTestCase {
 
         let states = MobileLicenseProductStateBuilder.states(for: decision)
         let trial = try XCTUnwrap(states.first { $0.kind == .trial })
-        let lifetime = try XCTUnwrap(states.first { $0.kind == .lifetimeUnlocked })
+        let macLicense = try XCTUnwrap(states.first { $0.kind == .lifetimeUnlocked })
 
         XCTAssertEqual(decision.reason, .trial)
         XCTAssertTrue(trial.isActive)
-        XCTAssertTrue(lifetime.isActive)
-        XCTAssertEqual(lifetime.title, "macOS license")
+        XCTAssertTrue(macLicense.isActive)
+        XCTAssertEqual(macLicense.title, "macOS license")
     }
 
     func testProductStatesShowPaidUpdateWindowDate() throws {
         let snapshot = MobileLicenseSnapshot(
             transactions: [
                 MobileLicenseTransaction(
-                    productID: MobilePurchaseCatalog.lifetimeUnlockID,
+                    productID: MobilePurchaseCatalog.macLicenseProductID,
                     purchaseDate: mobileLicenseUTCDate(year: 2026, month: 6, day: 3)
                 ),
             ]
@@ -364,7 +364,7 @@ final class LicensingTests: XCTestCase {
         let snapshot = MobileLicenseSnapshot(
             transactions: [
                 MobileLicenseTransaction(
-                    productID: MobilePurchaseCatalog.lifetimeUnlockID,
+                    productID: MobilePurchaseCatalog.macLicenseProductID,
                     purchaseDate: mobileLicenseUTCDate(year: 2026, month: 6, day: 3)
                 ),
             ]
@@ -377,17 +377,17 @@ final class LicensingTests: XCTestCase {
         let states = MobileLicenseProductStateBuilder.states(for: decision)
         let locked = try XCTUnwrap(states.first { $0.kind == .newFeaturesLocked })
 
-        XCTAssertEqual(locked.title, "New features locked until update")
+        XCTAssertEqual(locked.title, "New features require paid update")
         XCTAssertFalse(locked.isActive)
-        XCTAssertTrue(locked.detail.contains("Feature releases after the paid-update window require a paid update."))
-        XCTAssertTrue(locked.detail.contains("Bug fixes/security fixes remain included."))
+        XCTAssertTrue(locked.detail.contains("New features released after the paid update window require a paid feature update."))
+        XCTAssertTrue(locked.detail.contains("Bug fixes and security fixes remain included."))
     }
 
     func testProductStatesMarkFutureFeaturesLockedAfterPaidWindow() throws {
         let snapshot = MobileLicenseSnapshot(
             transactions: [
                 MobileLicenseTransaction(
-                    productID: MobilePurchaseCatalog.lifetimeUnlockID,
+                    productID: MobilePurchaseCatalog.macLicenseProductID,
                     purchaseDate: mobileLicenseUTCDate(year: 2026, month: 6, day: 3)
                 ),
             ]
@@ -429,7 +429,7 @@ final class LicensingTests: XCTestCase {
         decoder.dateDecodingStrategy = .iso8601
         let snapshot = try decoder.decode(MobileLicenseSnapshot.self, from: Data(json.utf8))
 
-        XCTAssertEqual(snapshot.transactions.first?.productID, MobilePurchaseCatalog.lifetimeUnlockID)
+        XCTAssertEqual(snapshot.transactions.first?.productID, MobilePurchaseCatalog.macLicenseProductID)
     }
 
     func testDeviceStateHonorsFourActiveDeviceLimit() {

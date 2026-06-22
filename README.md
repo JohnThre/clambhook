@@ -14,7 +14,7 @@ The macOS app uses Network Extension packet tunnel mode for device-wide routing.
 
 ## End-user Distribution
 
-The end-user macOS app is distributed only from `https://jpfchang.org/clambhook/`. It is a direct website download for Apple Silicon Macs running macOS 14 or later, with a two-month free trial and direct-sale licensing handled on jpfchang.org. The USD 99.99 macOS license includes one year of feature updates; versions released during that year remain usable after the update year ends; it covers up to 4 active devices and is transferable between devices.
+The end-user macOS app is distributed only from `https://jpfchang.org/clambhook/`. It is a direct website download for Apple Silicon Macs running macOS 14 or later, with a two-month free trial and direct-sale licensing handled on jpfchang.org. The USD 99.99 direct-sale macOS license includes one year of feature updates; versions released during that year remain usable after the update year ends; it covers up to 4 active Apple Silicon Macs and is transferable between devices. A USD 8.99 paid feature update unlocks new features released after the included first year and extends the update window by one year.
 
 Official public website routes:
 

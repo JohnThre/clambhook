@@ -196,7 +196,7 @@ public enum AppRecoveryStateBuilder {
         return AppRecoveryState(
             kind: .expiredTrial,
             severity: .warning,
-            title: "Free access ended",
+            title: "Trial ended",
             message: expiredTrialMessage(decision: decision),
             systemImage: "lock.fill",
             primaryAction: .buyLicense,
@@ -221,7 +221,7 @@ public enum AppRecoveryStateBuilder {
 
     private static func expiredTrialMessage(decision: MobileLicenseDecision) -> String {
         if let trialEndsAt = decision.trialEndsAt {
-            return "Server-controlled free access ended \(trialEndsAt.formatted(date: .abbreviated, time: .omitted)). Buy or activate a ClambHook macOS license to continue."
+            return "The two-month trial ended \(trialEndsAt.formatted(date: .abbreviated, time: .omitted)). Buy or activate a ClambHook macOS license to continue."
         }
         return "Buy or activate a ClambHook macOS license to continue."
     }

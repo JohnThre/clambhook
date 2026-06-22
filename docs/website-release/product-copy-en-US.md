@@ -23,7 +23,7 @@
 - Includes one year of feature updates.
 - Versions released during that year remain usable after the update
   year ends.
-- Covers up to 4 active devices and is transferable between devices.
+- Covers up to 4 active Apple Silicon Macs and is transferable between devices.
 - Paid feature update: USD 8.99.
 - New features released after the included first year require a paid feature
   update. Bug fixes and security fixes remain included.
