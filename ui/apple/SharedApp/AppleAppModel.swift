@@ -47,6 +47,7 @@ final class AppleAppModel: ObservableObject {
     let updateChecker = MacUpdateChecker()
     let privilegedHelperManager = MacPrivilegedHelperManager()
     let systemExtensionInstaller = MacSystemExtensionInstaller.shared
+    let onboardingManager = OnboardingManager()
     @Published private(set) var licenseManager: MacLicenseManager
 
     private var usesNetworkExtensionRouting: Bool {

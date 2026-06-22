@@ -10,6 +10,12 @@ struct ClambhookMacApp: App {
             MacMenuBarView(model: model)
                 .frame(width: 420, height: 640)
                 .onDisappear { model.refresh() }
+                .sheet(isPresented: Binding(
+                    get: { !model.onboardingManager.isComplete },
+                    set: { if !$0 { model.onboardingManager.complete() } }
+                )) {
+                    OnboardingView(model: model, manager: model.onboardingManager)
+                }
         }
         .menuBarExtraStyle(.window)
 
