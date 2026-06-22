@@ -32,6 +32,9 @@ struct MacMenuBarView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     quickConnectPanel
+                    if !model.appRecoveryStates.isEmpty {
+                        recoveryPanel
+                    }
                     profilePolicyPanel
                     trafficRatePanel
                     recentBlockedPanel
@@ -59,6 +62,18 @@ struct MacMenuBarView: View {
         }
         .sheet(item: $draftRule) { rule in
             MacRuleCreateSheet(model: model, initialRule: rule, sourceConnection: sourceConnection)
+        }
+    }
+
+    private var recoveryPanel: some View {
+        MacSection(title: "Attention") {
+            VStack(alignment: .leading, spacing: 10) {
+                ForEach(model.appRecoveryStates) { state in
+                    AppRecoveryStatePanel(state: state) { action in
+                        handleRecoveryAction(action)
+                    }
+                }
+            }
         }
     }
 
@@ -652,6 +667,20 @@ struct MacMenuBarView: View {
         } else {
             model.connectOrDisconnect()
         }
+    }
+
+    private func handleRecoveryAction(_ action: AppRecoveryStateAction) {
+        switch action {
+        case .openAppSettings, .openSettings, .openSystemSettings:
+            openSettings()
+        case .createProfile, .importProfile, .openProfiles, .buyLicense, .activateLicense, .openLicensePortal, .renewUpdates:
+            NSApp.setActivationPolicy(.regular)
+            NSApp.activate(ignoringOtherApps: true)
+            openWindow(id: "dashboard")
+        default:
+            break
+        }
+        model.performAppRecoveryAction(action)
     }
 
     private var privilegedHelperIcon: String {

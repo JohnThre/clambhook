@@ -209,6 +209,11 @@ struct AppSettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+            if let state = model.daemonFallbackUnavailableState {
+                AppRecoveryStatePanel(state: state) { action in
+                    model.performAppRecoveryAction(action)
+                }
+            }
             HStack {
                 Button {
                     Task { await model.privilegedHelperManager.registerHelper() }
@@ -245,6 +250,11 @@ struct AppSettingsView: View {
                 if model.systemExtensionInstaller.isWorking {
                     ProgressView()
                         .controlSize(.small)
+                }
+            }
+            if let state = model.systemExtensionAwaitingApprovalState {
+                AppRecoveryStatePanel(state: state) { action in
+                    model.performAppRecoveryAction(action)
                 }
             }
             HStack {
@@ -420,6 +430,19 @@ struct AppSettingsView: View {
                 systemImage: httpsCaptureEnabled ? "lock.open" : "lock"
             )
             .foregroundStyle(httpsCaptureEnabled ? .orange : .secondary)
+            if developerCaptureEnabled, httpsCaptureEnabled {
+                Label(
+                    model.certificateManager.trustStatus.label,
+                    systemImage: certificateTrustStatusImage
+                )
+                .font(.caption)
+                .foregroundStyle(certificateTrustStatusColor)
+            }
+            if let state = model.certificateNotTrustedState {
+                AppRecoveryStatePanel(state: state) { action in
+                    model.performAppRecoveryAction(action)
+                }
+            }
             if model.certificateManager.fingerprint.isEmpty {
                 Text("No developer CA is available from the daemon.")
                     .font(.caption)
@@ -525,6 +548,11 @@ struct AppSettingsView: View {
                     .foregroundStyle(.secondary)
                     .textSelection(.enabled)
             }
+            if let state = model.licenseExpiredForUpdatesState {
+                AppRecoveryStatePanel(state: state) { action in
+                    model.performAppRecoveryAction(action)
+                }
+            }
             if case .failed(let message) = model.updateChecker.state {
                 Text(message)
                     .font(.caption)
@@ -571,6 +599,34 @@ struct AppSettingsView: View {
         case .failed:
             return .red
         default:
+            return .secondary
+        }
+    }
+
+    private var certificateTrustStatusImage: String {
+        switch model.certificateManager.trustStatus {
+        case .trusted:
+            return "checkmark.shield.fill"
+        case .checking:
+            return "hourglass"
+        case .notTrusted:
+            return "xmark.shield.fill"
+        case .failed:
+            return "exclamationmark.triangle.fill"
+        case .unavailable:
+            return "shield.slash"
+        }
+    }
+
+    private var certificateTrustStatusColor: Color {
+        switch model.certificateManager.trustStatus {
+        case .trusted:
+            return .green
+        case .checking:
+            return .orange
+        case .notTrusted, .failed:
+            return .red
+        case .unavailable:
             return .secondary
         }
     }

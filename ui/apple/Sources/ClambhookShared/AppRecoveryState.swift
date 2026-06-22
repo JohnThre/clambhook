@@ -5,6 +5,10 @@ public enum AppRecoveryStateKind: String, Codable, Equatable, Sendable {
     case invalidVPNEntitlementOrProfile = "invalid_vpn_entitlement_or_profile"
     case expiredTrial = "expired_trial"
     case licenseBackendUnavailable = "license_backend_unavailable"
+    case licenseExpiredForUpdates = "license_expired_for_updates"
+    case systemExtensionAwaitingApproval = "system_extension_awaiting_approval"
+    case certificateNotTrusted = "certificate_not_trusted"
+    case daemonFallbackUnavailable = "daemon_fallback_unavailable"
 }
 
 public enum AppRecoveryStateSeverity: String, Codable, Equatable, Sendable {
@@ -24,6 +28,11 @@ public enum AppRecoveryStateAction: String, Codable, Equatable, Identifiable, Se
     case buyLicense = "buy_license"
     case activateLicense = "activate_license"
     case openLicensePortal = "open_license_portal"
+    case renewUpdates = "renew_updates"
+    case openSystemSettings = "open_system_settings"
+    case trustCertificate = "trust_certificate"
+    case launchDaemon = "launch_daemon"
+    case openSettings = "open_settings"
     case support
     case privacy
 
@@ -51,6 +60,16 @@ public enum AppRecoveryStateAction: String, Codable, Equatable, Identifiable, Se
             return "Activate License"
         case .openLicensePortal:
             return "License Portal"
+        case .renewUpdates:
+            return "Renew Updates"
+        case .openSystemSettings:
+            return "Open System Settings"
+        case .trustCertificate:
+            return "Trust Certificate"
+        case .launchDaemon:
+            return "Launch Daemon"
+        case .openSettings:
+            return "Settings"
         case .support:
             return "Support"
         case .privacy:
@@ -80,6 +99,16 @@ public enum AppRecoveryStateAction: String, Codable, Equatable, Identifiable, Se
             return "arrow.clockwise"
         case .openLicensePortal:
             return "wrench.and.screwdriver"
+        case .renewUpdates:
+            return "arrow.triangle.2.circlepath.circle.fill"
+        case .openSystemSettings:
+            return "gearshape.fill"
+        case .trustCertificate:
+            return "checkmark.shield.fill"
+        case .launchDaemon:
+            return "terminal"
+        case .openSettings:
+            return "gearshape"
         case .support:
             return "questionmark.circle"
         case .privacy:
@@ -150,6 +179,19 @@ public struct LicensePurchaseAvailability: Codable, Equatable, Sendable {
 }
 
 public enum AppRecoveryStateBuilder {
+    public static func noProfile(diagnosticText: String = "") -> AppRecoveryState {
+        AppRecoveryState(
+            kind: .missingProfile,
+            severity: .info,
+            title: "No profile yet",
+            message: "Import or create a tunnel profile before connecting. Profile credentials stay on this Mac.",
+            systemImage: "person.crop.rectangle.stack",
+            primaryAction: .importProfile,
+            secondaryActions: [.createProfile, .refresh],
+            diagnosticText: diagnosticText.trimmingCharacters(in: .whitespacesAndNewlines)
+        )
+    }
+
     public static func missingProfile(readinessMessage: String) -> AppRecoveryState? {
         let trimmed = readinessMessage.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
@@ -215,6 +257,83 @@ public enum AppRecoveryStateBuilder {
             systemImage: "cart.badge.exclamationmark",
             primaryAction: .activateLicense,
             secondaryActions: [.openLicensePortal, .refresh, .support],
+            diagnosticText: trimmed
+        )
+    }
+
+    public static func licenseExpiredForUpdates(
+        decision: MobileLicenseDecision,
+        manifestPublishedAt: Date? = nil,
+        now: Date = Date()
+    ) -> AppRecoveryState? {
+        guard decision.hasLifetimeUnlock, let cutoffDate = decision.updateCutoffDate else {
+            return nil
+        }
+        let releaseDate = manifestPublishedAt ?? now
+        guard releaseDate > cutoffDate else {
+            return nil
+        }
+        let cutoff = cutoffDate.formatted(date: .abbreviated, time: .omitted)
+        let release = manifestPublishedAt.map { $0.formatted(date: .abbreviated, time: .omitted) }
+        let message: String
+        if let release {
+            message = "This update was published \(release), after your included feature-update window ended \(cutoff). Your installed version keeps working; renew feature updates to install later feature releases."
+        } else {
+            message = "Your included feature-update window ended \(cutoff). Your installed version keeps working; renew feature updates to install later feature releases."
+        }
+        return AppRecoveryState(
+            kind: .licenseExpiredForUpdates,
+            severity: .warning,
+            title: "Update window ended",
+            message: message,
+            systemImage: "calendar.badge.exclamationmark",
+            primaryAction: .renewUpdates,
+            secondaryActions: [.openLicensePortal, .activateLicense, .support],
+            diagnosticText: MobileLicenseCopy.paidUpdatePolicy(cutoffDate: cutoffDate)
+        )
+    }
+
+    public static func systemExtensionAwaitingApproval(message: String = "") -> AppRecoveryState {
+        let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        return AppRecoveryState(
+            kind: .systemExtensionAwaitingApproval,
+            severity: .warning,
+            title: "Approve system extension",
+            message: "macOS is waiting for approval before ClambHook can start device-wide routing. Approve ClambHook in Privacy & Security, then connect again.",
+            systemImage: "puzzlepiece.extension.fill",
+            primaryAction: .openSystemSettings,
+            secondaryActions: [.retry, .refresh],
+            diagnosticText: trimmed
+        )
+    }
+
+    public static func certificateNotTrusted(fingerprint: String) -> AppRecoveryState? {
+        let trimmed = fingerprint.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return nil
+        }
+        return AppRecoveryState(
+            kind: .certificateNotTrusted,
+            severity: .warning,
+            title: "Certificate not trusted",
+            message: "HTTPS capture needs the local ClambHook CA trusted in your login keychain before test traffic will accept inspected connections.",
+            systemImage: "xmark.shield.fill",
+            primaryAction: .trustCertificate,
+            secondaryActions: [.refresh, .support],
+            diagnosticText: "SHA-256 \(trimmed)"
+        )
+    }
+
+    public static func daemonFallbackUnavailable(message: String = "") -> AppRecoveryState {
+        let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        return AppRecoveryState(
+            kind: .daemonFallbackUnavailable,
+            severity: .error,
+            title: "Daemon fallback unavailable",
+            message: "System proxy fallback needs the ClambHook daemon API. Launch the daemon or fix the daemon helper settings before using proxy routing.",
+            systemImage: "terminal.fill",
+            primaryAction: .launchDaemon,
+            secondaryActions: [.openSettings, .refresh, .support],
             diagnosticText: trimmed
         )
     }
