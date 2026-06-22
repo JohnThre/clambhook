@@ -31,8 +31,10 @@ struct MacMenuBarView: View {
             Divider()
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    statusPanel
-                    metricsPanel
+                    quickConnectPanel
+                    profilePolicyPanel
+                    trafficRatePanel
+                    recentBlockedPanel
                     DisclosureGroup("Activity", isExpanded: $showLogbook) {
                         VStack(alignment: .leading, spacing: 14) {
                             trafficPanel
@@ -85,8 +87,8 @@ struct MacMenuBarView: View {
         .padding(.vertical, 12)
     }
 
-    private var statusPanel: some View {
-        MacSection(title: "Status") {
+    private var quickConnectPanel: some View {
+        MacSection(title: "Quick Connect") {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 8) {
                     MacStatusPill(
@@ -127,28 +129,132 @@ struct MacMenuBarView: View {
                 }
                 HStack(spacing: 8) {
                     Button {
-                        model.connectOrDisconnect()
+                        performQuickConnect()
                     } label: {
                         Label(
-                            model.dashboard.status.running ? "Disconnect" : "Connect",
-                            systemImage: model.dashboard.status.running ? "stop.fill" : "play.fill"
+                            quickConnectTitle,
+                            systemImage: quickConnectIcon
                         )
                     }
                     .buttonStyle(.borderedProminent)
-                    .disabled(!model.dashboard.apiOnline && !model.dashboard.status.running)
+                    .disabled(quickConnectDisabled)
+                    if model.dashboard.apiOnline {
+                        Button {
+                            model.refresh()
+                        } label: {
+                            Label("Refresh", systemImage: "arrow.clockwise")
+                        }
+                        .buttonStyle(.bordered)
+                    }
+                    Spacer()
+                    Text(connectionSummaryText)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
                 }
             }
         }
     }
 
-    private var metricsPanel: some View {
-        let sample = model.dashboard.currentBandwidth
+    private var profilePolicyPanel: some View {
+        MacSection(title: "Current Profile & Active Policy") {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 10) {
+                    Label("Profile", systemImage: "person.crop.square")
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.secondary)
+                    Spacer(minLength: 8)
+                    if model.dashboard.profiles.profiles.isEmpty {
+                        Text("No profiles")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Picker("Profile", selection: Binding(
+                            get: { model.dashboard.activeProfile },
+                            set: { model.selectProfile($0) }
+                        )) {
+                            ForEach(model.dashboard.profiles.profiles, id: \.self) { profile in
+                                Text(profile).tag(profile)
+                            }
+                        }
+                        .labelsHidden()
+                        .pickerStyle(.menu)
+                        .frame(maxWidth: 220, alignment: .trailing)
+                    }
+                }
+
+                if visiblePolicyGroups.isEmpty {
+                    HStack(spacing: 8) {
+                        Image(systemName: "arrow.triangle.branch")
+                            .foregroundStyle(.secondary)
+                            .frame(width: 18)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(defaultPolicyTitle)
+                                .font(.caption.weight(.semibold))
+                                .lineLimit(1)
+                            Text("Static route")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                } else {
+                    VStack(alignment: .leading, spacing: 8) {
+                        ForEach(visiblePolicyGroups.prefix(3)) { group in
+                            MacMenuPolicyRow(
+                                group: group,
+                                selected: selectedPolicyChain(group),
+                                canSelect: canSelectPolicy(group),
+                                onSelect: { chain in
+                                    model.selectPolicyGroup(group: group.name, chain: chain)
+                                },
+                                onTest: {
+                                    Task { await model.dashboard.testPolicyGroup(group: group.name) }
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private var trafficRatePanel: some View {
+        let sample = currentTrafficRate
         let activeConnections = model.dashboard.status.listeners.reduce(0) { $0 + $1.activeConns }
-        return LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
-            MacMetricTile(title: "Down", value: formatRate(sample.rxBps), systemImage: "arrow.down")
-            MacMetricTile(title: "Up", value: formatRate(sample.txBps), systemImage: "arrow.up")
-            MacMetricTile(title: "Active", value: "\(activeConnections)", systemImage: "point.3.connected.trianglepath.dotted")
-            MacMetricTile(title: "Listeners", value: "\(model.dashboard.status.listeners.count)", systemImage: "antenna.radiowaves.left.and.right")
+        return MacSection(title: "Traffic Rate") {
+            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
+                MacMetricTile(title: "Down", value: formatRate(sample.rxBps), systemImage: "arrow.down")
+                MacMetricTile(title: "Up", value: formatRate(sample.txBps), systemImage: "arrow.up")
+                MacMetricTile(title: "Active", value: "\(activeConnections)", systemImage: "point.3.connected.trianglepath.dotted")
+                MacMetricTile(title: "Blocked", value: "\(model.dashboard.monitorActionCounts["block", default: 0])", systemImage: "hand.raised.fill")
+            }
+        }
+    }
+
+    private var recentBlockedPanel: some View {
+        MacSection(title: "Recent Blocks & Rule Actions") {
+            VStack(alignment: .leading, spacing: 10) {
+                if recentBlockedConnections.isEmpty && unmatchedBlockDecisions.isEmpty {
+                    MacEmptyRow(text: "No recent blocked requests")
+                } else {
+                    ForEach(recentBlockedConnections.prefix(3)) { connection in
+                        MacBlockedRequestRow(
+                            connection: connection,
+                            fallbackChain: fallbackProxyChain,
+                            onTemporaryAction: { action in
+                                model.createTemporaryRuleFromConnection(connection, action: action)
+                            },
+                            onRule: { rule in
+                                sourceConnection = connection
+                                draftRule = rule
+                            }
+                        )
+                    }
+                    ForEach(Array(unmatchedBlockDecisions.prefix(max(0, 3 - recentBlockedConnections.count)).enumerated()), id: \.offset) { _, decision in
+                        MacBlockedDecisionRow(decision: decision)
+                    }
+                }
+            }
         }
     }
 
@@ -512,6 +618,42 @@ struct MacMenuBarView: View {
         daemon.isRunning || model.privilegedHelperManager.daemonRunning
     }
 
+    private var shouldLaunchDaemonForQuickConnect: Bool {
+        let settings = model.settingsStore.settings.normalized()
+        return settings.routingMode == .daemonProxy &&
+            !model.dashboard.apiOnline &&
+            !managedDaemonRunning
+    }
+
+    private var quickConnectTitle: String {
+        if shouldLaunchDaemonForQuickConnect {
+            return "Launch Daemon"
+        }
+        return model.dashboard.status.running ? "Disconnect" : "Connect"
+    }
+
+    private var quickConnectIcon: String {
+        if shouldLaunchDaemonForQuickConnect {
+            return "terminal"
+        }
+        return model.dashboard.status.running ? "stop.fill" : "play.fill"
+    }
+
+    private var quickConnectDisabled: Bool {
+        if shouldLaunchDaemonForQuickConnect {
+            return daemon.state.isBusy || model.privilegedHelperManager.isWorking
+        }
+        return !model.dashboard.apiOnline && !model.dashboard.status.running
+    }
+
+    private func performQuickConnect() {
+        if shouldLaunchDaemonForQuickConnect {
+            model.launchDaemon()
+        } else {
+            model.connectOrDisconnect()
+        }
+    }
+
     private var privilegedHelperIcon: String {
         switch model.privilegedHelperManager.serviceStatus {
         case .enabled:
@@ -536,6 +678,68 @@ struct MacMenuBarView: View {
         case .notRegistered:
             return .secondary
         }
+    }
+
+    private var connectionSummaryText: String {
+        let activeConnections = model.dashboard.status.listeners.reduce(0) { $0 + $1.activeConns }
+        return "\(activeConnections) active / \(model.dashboard.status.listeners.count) listeners"
+    }
+
+    private var currentTrafficRate: BandwidthSample {
+        let eventSample = model.dashboard.currentBandwidth
+        if eventSample.rxBps > 0 || eventSample.txBps > 0 {
+            return eventSample
+        }
+        return BandwidthSample(
+            rxBps: model.dashboard.traffic.summary.rxBps,
+            txBps: model.dashboard.traffic.summary.txBps
+        )
+    }
+
+    private var visiblePolicyGroups: [PolicyGroupPayload] {
+        model.dashboard.policyGroups.groups.filter { !$0.hidden }
+    }
+
+    private var defaultPolicyTitle: String {
+        fallbackProxyChain.isEmpty ? "No route selected" : fallbackProxyChain
+    }
+
+    private func selectedPolicyChain(_ group: PolicyGroupPayload) -> String {
+        if !group.selectedChain.isEmpty {
+            return group.selectedChain
+        }
+        if !group.selected.isEmpty {
+            return group.selected
+        }
+        return group.chains.first ?? ""
+    }
+
+    private func canSelectPolicy(_ group: PolicyGroupPayload) -> Bool {
+        group.type.caseInsensitiveCompare("select") == .orderedSame ||
+            group.selectionMode.caseInsensitiveCompare("manual") == .orderedSame
+    }
+
+    private var fallbackProxyChain: String {
+        for group in visiblePolicyGroups {
+            let selected = selectedPolicyChain(group)
+            if !selected.isEmpty {
+                return selected
+            }
+        }
+        return model.dashboard.servers.chains.first?.name ?? ""
+    }
+
+    private var recentBlockedConnections: [TrafficConnectionPayload] {
+        model.dashboard.traffic.connections
+            .filter { $0.actionFamily == "block" }
+            .sorted { $0.updatedTsNs > $1.updatedTsNs }
+    }
+
+    private var unmatchedBlockDecisions: [TrafficBlockDecisionPayload] {
+        let connectionIDs = Set(recentBlockedConnections.map(\.connID))
+        return model.dashboard.traffic.blockDecisions
+            .filter { $0.connID.isEmpty || !connectionIDs.contains($0.connID) }
+            .sorted { $0.tsNs > $1.tsNs }
     }
 
     private var serverRows: [ServerRow] {
@@ -571,6 +775,242 @@ private struct ServerRow: Identifiable {
     var chain: String
     var capabilities: ProtocolCapabilitiesPayload
     var server: ServerPayload
+}
+
+private struct MacMenuPolicyRow: View {
+    var group: PolicyGroupPayload
+    var selected: String
+    var canSelect: Bool
+    var onSelect: (String) -> Void
+    var onTest: () -> Void
+
+    private var pickerSelection: String {
+        selected.isEmpty ? (group.chains.first ?? "") : selected
+    }
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 8) {
+            Image(systemName: "point.3.connected.trianglepath.dotted")
+                .foregroundStyle(.secondary)
+                .frame(width: 18)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(group.name.isEmpty ? "Policy group" : group.name)
+                    .font(.caption.weight(.semibold))
+                    .lineLimit(1)
+                Text(policySubtitle)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 8)
+            MacStatusPill(text: healthText, systemImage: healthIcon, tint: healthTint)
+            Button(action: onTest) {
+                Image(systemName: "bolt.horizontal")
+            }
+            .buttonStyle(.plain)
+            .help("Test \(group.name)")
+            if canSelect && !group.chains.isEmpty {
+                Picker("Chain", selection: Binding(
+                    get: { pickerSelection },
+                    set: { onSelect($0) }
+                )) {
+                    ForEach(group.chains, id: \.self) { chain in
+                        Text(chain).tag(chain)
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .frame(width: 118, alignment: .trailing)
+            } else {
+                Text(emptyDash(selected))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .frame(width: 118, alignment: .trailing)
+            }
+        }
+    }
+
+    private var policySubtitle: String {
+        let mode = group.selectionMode.isEmpty ? group.type : group.selectionMode
+        let route = selected.isEmpty ? "No chain selected" : "selected \(selected)"
+        if mode.isEmpty {
+            return route
+        }
+        return "\(mode.replacingOccurrences(of: "-", with: " ")) / \(route)"
+    }
+
+    private var selectedResult: PolicyProbeResultPayload? {
+        group.results.first { $0.chainName == selected }
+    }
+
+    private var healthText: String {
+        guard !group.results.isEmpty else {
+            return "Pending"
+        }
+        guard let selectedResult else {
+            return "Unknown"
+        }
+        if selectedResult.healthy {
+            return selectedResult.latencyNs > 0 ? formatDurationNs(selectedResult.latencyNs) : "Healthy"
+        }
+        return "Fallback"
+    }
+
+    private var healthIcon: String {
+        guard !group.results.isEmpty else {
+            return "clock"
+        }
+        return selectedResult?.healthy == true ? "checkmark.circle.fill" : "exclamationmark.triangle.fill"
+    }
+
+    private var healthTint: Color {
+        guard !group.results.isEmpty else {
+            return .secondary
+        }
+        return selectedResult?.healthy == true ? .green : .orange
+    }
+}
+
+private struct MacBlockedRequestRow: View {
+    var connection: TrafficConnectionPayload
+    var fallbackChain: String
+    var onTemporaryAction: (String) -> Void
+    var onRule: (RulePayload) -> Void
+
+    private var canCreateTemporaryRule: Bool {
+        !connection.connID.isEmpty && !connection.monitorHost.isEmpty
+    }
+
+    private var hostLabel: String {
+        let host = connection.targetHost.isEmpty ? connection.target : connection.targetHost
+        if !connection.targetPort.isEmpty && connection.targetPort != "0" {
+            return "\(host):\(connection.targetPort)"
+        }
+        return host
+    }
+
+    private var proxyAction: String {
+        connection.temporaryProxyAction(fallbackChain: fallbackChain)
+    }
+
+    private var allowRule: RulePayload? {
+        connection.ruleDraft(actionOverride: "direct") ?? connection.ruleDraft()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(emptyDash(hostLabel))
+                    .font(.caption.weight(.semibold))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Spacer(minLength: 8)
+                Text("BLOCKED")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.red)
+            }
+            Text(subtitle)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 8) {
+                    actionButtons
+                }
+                VStack(alignment: .leading, spacing: 6) {
+                    actionButtons
+                }
+            }
+            .font(.caption)
+        }
+        .padding(.vertical, 2)
+    }
+
+    private var subtitle: String {
+        let decision = [connection.ruleName, connection.ruleAction]
+            .filter { !$0.isEmpty }
+            .joined(separator: " / ")
+        let parts = [connection.application, connection.network.uppercased(), decision]
+            .filter { !$0.isEmpty }
+        return parts.isEmpty ? "Blocked request" : parts.joined(separator: " / ")
+    }
+
+    private var actionButtons: some View {
+        Group {
+            Button {
+                onTemporaryAction("allow")
+            } label: {
+                Label("Allow", systemImage: "checkmark.shield")
+            }
+            .disabled(!canCreateTemporaryRule)
+
+            Button {
+                onTemporaryAction("direct")
+            } label: {
+                Label("Direct", systemImage: "arrow.up.right")
+            }
+            .disabled(!canCreateTemporaryRule)
+
+            Button {
+                if !proxyAction.isEmpty {
+                    onTemporaryAction(proxyAction)
+                }
+            } label: {
+                Label("Proxy", systemImage: "shield.lefthalf.filled")
+            }
+            .disabled(!canCreateTemporaryRule || proxyAction.isEmpty)
+
+            Button {
+                if let allowRule {
+                    onRule(allowRule)
+                }
+            } label: {
+                Label("Rule", systemImage: "plus.circle")
+            }
+            .disabled(allowRule == nil)
+        }
+        .buttonStyle(.borderless)
+    }
+}
+
+private struct MacBlockedDecisionRow: View {
+    var decision: TrafficBlockDecisionPayload
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "hand.raised.fill")
+                .foregroundStyle(.red)
+                .frame(width: 18)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(emptyDash(target))
+                    .font(.caption.weight(.semibold))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Text(subtitle)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 8)
+        }
+    }
+
+    private var target: String {
+        if !decision.targetHost.isEmpty {
+            if !decision.targetPort.isEmpty && decision.targetPort != "0" {
+                return "\(decision.targetHost):\(decision.targetPort)"
+            }
+            return decision.targetHost
+        }
+        return decision.target
+    }
+
+    private var subtitle: String {
+        let parts = [decision.profile, decision.network.uppercased(), decision.ruleName, decision.action]
+            .filter { !$0.isEmpty }
+        return parts.isEmpty ? "Blocked request" : parts.joined(separator: " / ")
+    }
 }
 
 private struct MacSection<Content: View>: View {
