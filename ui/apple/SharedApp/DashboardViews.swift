@@ -10,10 +10,23 @@ struct DashboardContentView: View {
             Section {
                 StatusHeaderView(model: model)
             }
+            if !model.appRecoveryStates.isEmpty {
+                Section("Attention") {
+                    ForEach(model.appRecoveryStates) { state in
+                        AppRecoveryStatePanel(state: state) { action in
+                            model.performAppRecoveryAction(action)
+                        }
+                    }
+                }
+            }
             Section("Profiles") {
                 if model.dashboard.profiles.profiles.isEmpty {
-                    Text("No profiles")
-                        .foregroundStyle(.secondary)
+                    AppRecoveryStatePanel(
+                        state: AppRecoveryStateBuilder.noProfile(),
+                        showsDiagnostic: false
+                    ) { action in
+                        model.performAppRecoveryAction(action)
+                    }
                 } else {
                     ForEach(model.dashboard.profiles.profiles, id: \.self) { profile in
                         Button {
@@ -636,6 +649,90 @@ private struct CompactPolicyActionDot: View {
             return .red
         default:
             return .green
+        }
+    }
+}
+
+struct AppRecoveryStatePanel: View {
+    var state: AppRecoveryState
+    var showsDiagnostic = true
+    var onAction: (AppRecoveryStateAction) -> Void
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: state.systemImage)
+                .font(.title3.weight(.semibold))
+                .foregroundStyle(tint)
+                .frame(width: 34, height: 34)
+                .background(tint.opacity(0.14), in: RoundedRectangle(cornerRadius: 8))
+
+            VStack(alignment: .leading, spacing: 9) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(state.title)
+                        .font(.subheadline.weight(.semibold))
+                    Text(state.message)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 8) {
+                        actionButtons
+                    }
+                    VStack(alignment: .leading, spacing: 7) {
+                        actionButtons
+                    }
+                }
+
+                if showsDiagnostic, !state.diagnosticText.isEmpty {
+                    Text(state.diagnosticText)
+                        .font(.caption2.monospaced())
+                        .foregroundStyle(.secondary)
+                        .lineLimit(3)
+                        .textSelection(.enabled)
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(12)
+        .background(tint.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(tint.opacity(0.18), lineWidth: 1)
+        )
+    }
+
+    @ViewBuilder
+    private var actionButtons: some View {
+        Button {
+            onAction(state.primaryAction)
+        } label: {
+            Label(state.primaryAction.title, systemImage: state.primaryAction.systemImage)
+        }
+        .buttonStyle(.borderedProminent)
+        .controlSize(.small)
+        .tint(tint)
+
+        ForEach(state.secondaryActions.filter { $0 != state.primaryAction }) { action in
+            Button {
+                onAction(action)
+            } label: {
+                Label(action.title, systemImage: action.systemImage)
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+        }
+    }
+
+    private var tint: Color {
+        switch state.severity {
+        case .info:
+            return .blue
+        case .warning:
+            return .orange
+        case .error:
+            return .red
         }
     }
 }

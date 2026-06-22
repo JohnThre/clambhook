@@ -21,6 +21,10 @@ struct MacDashboardSection: View {
             Divider()
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
+                    if !model.appRecoveryStates.isEmpty {
+                        recoveryStates
+                        Divider()
+                    }
                     if !model.dashboard.policyGroups.groups.isEmpty {
                         policyGroupHealth
                         Divider()
@@ -171,6 +175,32 @@ struct MacDashboardSection: View {
             }
         }
         return "--"
+    }
+
+    private var recoveryStates: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Attention")
+                .font(.headline)
+            ForEach(model.appRecoveryStates) { state in
+                AppRecoveryStatePanel(state: state) { action in
+                    handleRecoveryAction(action)
+                }
+            }
+        }
+    }
+
+    private func handleRecoveryAction(_ action: AppRecoveryStateAction) {
+        switch action {
+        case .createProfile, .importProfile, .openProfiles:
+            onNavigate?(.profile(model.dashboard.activeProfile))
+        case .openAppSettings, .openSettings, .openSystemSettings:
+            onNavigate?(.settings)
+        case .buyLicense, .activateLicense, .openLicensePortal, .renewUpdates:
+            onNavigate?(.license)
+        default:
+            break
+        }
+        model.performAppRecoveryAction(action)
     }
 
     // MARK: Policy group health
@@ -466,8 +496,12 @@ struct MacProfilesSection: View {
             Text("Active Profile")
                 .font(.headline)
             if model.dashboard.profiles.profiles.isEmpty {
-                Text("No profiles")
-                    .foregroundStyle(.secondary)
+                AppRecoveryStatePanel(
+                    state: model.noProfileRecoveryState ?? AppRecoveryStateBuilder.noProfile(),
+                    showsDiagnostic: false
+                ) { action in
+                    model.performAppRecoveryAction(action)
+                }
             } else {
                 Picker("Profile", selection: Binding(
                     get: { model.dashboard.activeProfile },

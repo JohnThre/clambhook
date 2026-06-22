@@ -3,6 +3,10 @@ import Combine
 import Foundation
 import SwiftUI
 
+#if os(macOS)
+import AppKit
+#endif
+
 @MainActor
 final class AppleAppModel: ObservableObject {
     @Published var settingsStore: AppSettingsStore
@@ -418,6 +422,162 @@ final class AppleAppModel: ObservableObject {
         #else
         return MobileLicenseEvaluator.evaluate(snapshot: MobileLicenseSnapshot(trialStartDate: Date()))
         #endif
+    }
+
+    var noProfileRecoveryState: AppRecoveryState? {
+        guard dashboard.apiOnline, dashboard.profiles.profiles.isEmpty else {
+            return nil
+        }
+        return AppRecoveryStateBuilder.noProfile(diagnosticText: dashboard.errorText)
+    }
+
+    var licenseExpiredForUpdatesState: AppRecoveryState? {
+        #if os(macOS)
+        guard updateChecker.state == .available else {
+            return nil
+        }
+        return AppRecoveryStateBuilder.licenseExpiredForUpdates(
+            decision: mobileLicenseDecision,
+            manifestPublishedAt: updateChecker.manifest?.publishedAt
+        )
+        #else
+        return nil
+        #endif
+    }
+
+    var appRecoveryStates: [AppRecoveryState] {
+        var states: [AppRecoveryState] = []
+        if let state = noProfileRecoveryState {
+            states.append(state)
+        }
+        if let issue = dashboard.recoveryIssue,
+           let state = AppRecoveryStateBuilder.invalidVPNEntitlementOrProfile(issue: issue) {
+            states.append(state)
+        }
+        if let state = AppRecoveryStateBuilder.expiredTrial(decision: mobileLicenseDecision) {
+            states.append(state)
+        }
+        if let state = licenseExpiredForUpdatesState {
+            states.append(state)
+        }
+        #if os(macOS)
+        if let state = systemExtensionAwaitingApprovalState {
+            states.append(state)
+        }
+        if let state = certificateNotTrustedState {
+            states.append(state)
+        }
+        if let state = daemonFallbackUnavailableState {
+            states.append(state)
+        }
+        #endif
+        return states
+    }
+
+    #if os(macOS)
+    var systemExtensionAwaitingApprovalState: AppRecoveryState? {
+        guard settingsStore.settings.normalized().routingMode == .networkExtension else {
+            return nil
+        }
+        guard case .requiresApproval = systemExtensionInstaller.status else {
+            return nil
+        }
+        return AppRecoveryStateBuilder.systemExtensionAwaitingApproval(
+            message: systemExtensionInstaller.statusMessage
+        )
+    }
+
+    var certificateNotTrustedState: AppRecoveryState? {
+        guard developerSettings.enabled, developerSettings.mitmEnabled else {
+            return nil
+        }
+        guard case .notTrusted = certificateManager.trustStatus else {
+            return nil
+        }
+        return AppRecoveryStateBuilder.certificateNotTrusted(fingerprint: certificateManager.fingerprint)
+    }
+
+    var daemonFallbackUnavailableState: AppRecoveryState? {
+        let settings = settingsStore.settings.normalized()
+        guard settings.routingMode == .daemonProxy,
+              !dashboard.apiOnline,
+              !dashboard.status.running,
+              !daemonSupervisor.state.isBusy,
+              !privilegedHelperManager.isWorking
+        else {
+            return nil
+        }
+
+        if settings.usePrivilegedHelper {
+            switch privilegedHelperManager.serviceStatus {
+            case .enabled:
+                if privilegedHelperManager.daemonRunning {
+                    return nil
+                }
+            case .requiresApproval, .notFound, .unknown, .notRegistered:
+                break
+            }
+            return AppRecoveryStateBuilder.daemonFallbackUnavailable(
+                message: privilegedHelperManager.statusMessage.isEmpty
+                    ? privilegedHelperManager.serviceStatus.label
+                    : privilegedHelperManager.statusMessage
+            )
+        }
+
+        switch daemonSupervisor.state {
+        case .failed(let message):
+            return AppRecoveryStateBuilder.daemonFallbackUnavailable(message: message)
+        case .stopped:
+            return AppRecoveryStateBuilder.daemonFallbackUnavailable(message: daemonSupervisor.state.label)
+        case .running:
+            return AppRecoveryStateBuilder.daemonFallbackUnavailable(message: dashboard.errorText)
+        case .starting, .stopping:
+            return nil
+        }
+    }
+    #endif
+
+    func performAppRecoveryAction(_ action: AppRecoveryStateAction) {
+        switch action {
+        case .createProfile, .importProfile, .openProfiles:
+            daemonMessage = action == .importProfile ? "open imports" : "open profiles"
+        case .retry:
+            connectOrDisconnect()
+        case .refresh:
+            refresh()
+        case .rebuildVPNProfile:
+            performRecoveryAction(.rebuildVPNProfile)
+        case .openAppSettings, .openSettings:
+            daemonMessage = "open settings"
+        case .buyLicense:
+            openExternalURL(URL(string: "https://jpfchang.org/clambhook/buy")!)
+        case .activateLicense:
+            daemonMessage = "open license"
+        case .openLicensePortal, .renewUpdates:
+            openExternalURL(defaultLicensePortalURL)
+        case .openSystemSettings:
+            #if os(macOS)
+            systemExtensionInstaller.openSystemSettings()
+            #else
+            daemonMessage = "open settings"
+            #endif
+        case .trustCertificate:
+            #if os(macOS)
+            certificateManager.install(pem: developerCAPEMText)
+            #else
+            daemonMessage = "trust certificate"
+            #endif
+        case .launchDaemon:
+            #if os(macOS)
+            launchDaemon()
+            #else
+            daemonMessage = "launch daemon"
+            #endif
+        case .support:
+            openExternalURL(defaultSupportURL)
+        case .privacy:
+            openExternalURL(defaultPrivacyPolicyURL)
+        }
     }
 
     func canUseLicensedFeature(_ featureID: MobileLicenseFeatureID) -> Bool {
@@ -931,6 +1091,14 @@ final class AppleAppModel: ObservableObject {
             try? await Task.sleep(nanoseconds: 250_000_000)
         }
         return false
+    }
+
+    private func openExternalURL(_ url: URL) {
+        #if os(macOS)
+        NSWorkspace.shared.open(url)
+        #else
+        daemonMessage = url.absoluteString
+        #endif
     }
 }
 
