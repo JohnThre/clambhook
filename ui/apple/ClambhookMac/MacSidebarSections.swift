@@ -7,54 +7,85 @@ import SwiftUI
 struct MacDashboardSection: View {
     @ObservedObject var model: AppleAppModel
     @ObservedObject private var daemon: DaemonSupervisor
+    var onNavigate: ((SidebarItem) -> Void)?
 
-    init(model: AppleAppModel) {
+    init(model: AppleAppModel, onNavigate: ((SidebarItem) -> Void)? = nil) {
         self.model = model
+        self.onNavigate = onNavigate
         self._daemon = ObservedObject(wrappedValue: model.daemonSupervisor)
     }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 22) {
-                connectionControl
-                Divider()
-                metricsGrid
-                if !model.dashboard.policyGroups.groups.isEmpty {
-                    Divider()
-                    policyGroupHealth
+        VStack(spacing: 0) {
+            statusStrip
+            Divider()
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    if !model.dashboard.policyGroups.groups.isEmpty {
+                        policyGroupHealth
+                        Divider()
+                    }
+                    miniActivityFeed
                 }
-                Divider()
-                recentRequests
+                .padding(20)
             }
-            .padding(20)
         }
     }
 
-    // MARK: Connection control
+    // MARK: Status strip
 
-    private var connectionControl: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(spacing: 12) {
-                profilePicker
-                Spacer()
-                apiPill
+    private var statusStrip: some View {
+        HStack(spacing: 10) {
+            Circle()
+                .fill(statusDotColor)
+                .frame(width: 8, height: 8)
+            Text(statusText)
+                .font(.subheadline.weight(.medium))
+                .lineLimit(1)
+            profilePicker
+            if daemon.state.isBusy {
+                ProgressView()
+                    .controlSize(.small)
+                    .scaleEffect(0.75)
             }
-            HStack(spacing: 10) {
-                Button {
-                    model.connectOrDisconnect()
-                } label: {
-                    Label(
-                        model.dashboard.status.running ? "Disconnect" : "Connect",
-                        systemImage: model.dashboard.status.running ? "stop.fill" : "play.fill"
-                    )
+            Spacer(minLength: 8)
+            if model.dashboard.status.running {
+                let bw = model.dashboard.currentBandwidth
+                Text("↓ \(formatRate(bw.rxBps))")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                Text("↑ \(formatRate(bw.txBps))")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                let activeConns = model.dashboard.status.listeners.reduce(0) { $0 + $1.activeConns }
+                if activeConns > 0 {
+                    Text("\(activeConns) active")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(model.dashboard.status.running ? .red : .green)
-                .disabled(!model.dashboard.apiOnline && !model.dashboard.status.running)
-
-                statusLabel
+                if bestLatency != "--" {
+                    Text(bestLatency)
+                        .font(.caption.weight(.semibold))
+                        .monospacedDigit()
+                        .foregroundStyle(.orange)
+                }
             }
+            apiPill
+            Button {
+                model.connectOrDisconnect()
+            } label: {
+                Label(
+                    model.dashboard.status.running ? "Disconnect" : "Connect",
+                    systemImage: model.dashboard.status.running ? "stop.fill" : "play.fill"
+                )
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(model.dashboard.status.running ? .red : .green)
+            .controlSize(.small)
+            .disabled(!model.dashboard.apiOnline && !model.dashboard.status.running)
         }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
     }
 
     private var profilePicker: some View {
@@ -94,22 +125,6 @@ struct MacDashboardSection: View {
         )
     }
 
-    private var statusLabel: some View {
-        HStack(spacing: 6) {
-            Circle()
-                .fill(statusDotColor)
-                .frame(width: 8, height: 8)
-            Text(statusText)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-            if daemon.state.isBusy {
-                ProgressView()
-                    .controlSize(.small)
-                    .scaleEffect(0.75)
-            }
-        }
-    }
-
     private var statusDotColor: Color {
         if model.dashboard.status.running { return .green }
         switch daemon.state {
@@ -120,31 +135,13 @@ struct MacDashboardSection: View {
     }
 
     private var statusText: String {
-        if model.dashboard.status.running {
-            return "Connected"
-        }
+        if model.dashboard.status.running { return "Connected" }
         switch daemon.state {
         case .running: return "Daemon running"
         case .starting: return "Starting…"
         case .stopping: return "Stopping…"
         case .failed: return "Daemon failed"
         case .stopped: return "Disconnected"
-        }
-    }
-
-    // MARK: Metrics grid
-
-    private var metricsGrid: some View {
-        let sample = model.dashboard.currentBandwidth
-        let activeConnections = model.dashboard.status.listeners.reduce(0) { $0 + $1.activeConns }
-        let latency = bestLatency
-        return LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
-            MacMetricCard(title: "Download", value: formatRate(sample.rxBps), systemImage: "arrow.down", tint: .blue)
-            MacMetricCard(title: "Upload", value: formatRate(sample.txBps), systemImage: "arrow.up", tint: .green)
-            MacMetricCard(title: "Latency", value: latency, systemImage: "timer", tint: latency == "--" ? .secondary : .orange)
-            MacMetricCard(title: "Active", value: "\(activeConnections)", systemImage: "point.3.connected.trianglepath.dotted", tint: .purple)
-            MacMetricCard(title: "Total ↓", value: formatBytes(model.dashboard.traffic.summary.rxTotal), systemImage: "internaldrive", tint: .blue)
-            MacMetricCard(title: "Total ↑", value: formatBytes(model.dashboard.traffic.summary.txTotal), systemImage: "internaldrive", tint: .green)
         }
     }
 
@@ -172,12 +169,12 @@ struct MacDashboardSection: View {
         }
     }
 
-    // MARK: Recent requests
+    // MARK: Mini activity feed
 
-    private var recentRequests: some View {
-        VStack(alignment: .leading, spacing: 10) {
+    private var miniActivityFeed: some View {
+        VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Text("Recent Requests")
+                Text("Activity")
                     .font(.headline)
                 Spacer()
                 let counts = model.dashboard.monitorActionCounts
@@ -186,16 +183,27 @@ struct MacDashboardSection: View {
                     MacActionBadge(label: "D \(counts["direct", default: 0])", color: .blue)
                     MacActionBadge(label: "B \(counts["block", default: 0])", color: .red)
                 }
+                if onNavigate != nil {
+                    Button("View All") { onNavigate?(.activity) }
+                        .buttonStyle(.borderless)
+                        .font(.caption)
+                        .foregroundStyle(.accentColor)
+                }
             }
-            if model.dashboard.recentDecisions.isEmpty {
+            let connections = Array(model.dashboard.traffic.connections.prefix(20))
+            if connections.isEmpty && model.dashboard.recentDecisions.isEmpty {
                 Text("No recent traffic")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+            } else if !connections.isEmpty {
+                ForEach(connections.prefix(15)) { conn in
+                    MiniActivityRow(connection: conn)
+                }
             } else {
-                ForEach(model.dashboard.recentDecisions) { decision in
+                ForEach(model.dashboard.recentDecisions.prefix(15)) { decision in
                     HStack(spacing: 8) {
                         Circle()
-                            .fill(actionColor(decision.action))
+                            .fill(decisionColor(decision.action))
                             .frame(width: 8, height: 8)
                         Text(emptyDash(decision.target))
                             .font(.caption)
@@ -212,7 +220,7 @@ struct MacDashboardSection: View {
         }
     }
 
-    private func actionColor(_ action: String) -> Color {
+    private func decisionColor(_ action: String) -> Color {
         switch action.lowercased() {
         case "direct": return .blue
         case "block", "reject": return .red
@@ -298,31 +306,59 @@ private struct MacPolicyGroupHealthRow: View {
     }
 }
 
-private struct MacMetricCard: View {
-    var title: String
-    var value: String
-    var systemImage: String
-    var tint: Color
+private struct MiniActivityRow: View {
+    var connection: TrafficConnectionPayload
+
+    private var isActive: Bool { connection.state.lowercased() == "active" }
+
+    private var hostLabel: String {
+        let host = connection.targetHost.isEmpty ? connection.target : connection.targetHost
+        if !connection.targetPort.isEmpty && connection.targetPort != "0" {
+            return "\(host):\(connection.targetPort)"
+        }
+        return host
+    }
+
+    private var actionColor: Color {
+        switch connection.actionFamily {
+        case "block": return .red
+        case "direct": return .blue
+        default: return .green
+        }
+    }
 
     var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: systemImage)
-                .font(.subheadline)
-                .foregroundStyle(tint)
-                .frame(width: 22)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                Text(value)
-                    .font(.subheadline.weight(.semibold))
-                    .monospacedDigit()
+        HStack(spacing: 8) {
+            Circle()
+                .fill(actionColor)
+                .frame(width: 8, height: 8)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(emptyDash(hostLabel))
+                    .font(.caption)
                     .lineLimit(1)
+                    .truncationMode(.middle)
+                if !connection.application.isEmpty {
+                    Text(connection.application)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
             }
-            Spacer(minLength: 0)
+            Spacer(minLength: 8)
+            VStack(alignment: .trailing, spacing: 1) {
+                if isActive {
+                    HStack(spacing: 3) {
+                        Circle().fill(Color.green).frame(width: 5, height: 5)
+                        Text("active").font(.caption2).foregroundStyle(.green)
+                    }
+                } else {
+                    Text(timeAgoShort(connection.startTsNs))
+                        .font(.caption2.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
+            }
         }
-        .padding(12)
-        .background(Color.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 10))
+        .padding(.vertical, 1)
     }
 }
 
@@ -2427,33 +2463,62 @@ struct MacHTTPCaptureSection: View {
 
 struct MacLogsSection: View {
     @ObservedObject var model: AppleAppModel
+    @State private var logSearch = ""
+
+    private var filteredLogs: [(offset: Int, element: String)] {
+        let query = logSearch.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let all = Array(model.dashboard.logs.enumerated())
+        guard !query.isEmpty else { return all }
+        return all.filter { $0.element.lowercased().contains(query) }
+    }
 
     var body: some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 2) {
-                    if model.dashboard.logs.isEmpty {
-                        Text("No logs yet")
-                            .foregroundStyle(.secondary)
-                            .padding(20)
-                    } else {
-                        ForEach(Array(model.dashboard.logs.enumerated()), id: \.offset) { index, line in
-                            Text(line)
-                                .font(.system(.caption, design: .monospaced))
+        VStack(spacing: 0) {
+            HStack(spacing: 8) {
+                TextField("Filter logs…", text: $logSearch)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.caption)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            Divider()
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 2) {
+                        if filteredLogs.isEmpty {
+                            Text(logSearch.isEmpty ? "No logs yet" : "No matches")
                                 .foregroundStyle(.secondary)
-                                .textSelection(.enabled)
-                                .id(index)
+                                .padding(20)
+                        } else {
+                            ForEach(filteredLogs, id: \.offset) { item in
+                                Text(item.element)
+                                    .font(.system(.caption, design: .monospaced))
+                                    .foregroundStyle(logLineColor(item.element))
+                                    .textSelection(.enabled)
+                                    .id(item.offset)
+                            }
                         }
                     }
+                    .padding(12)
                 }
-                .padding(12)
-            }
-            .onChange(of: model.dashboard.logs.count) {
-                if !model.dashboard.logs.isEmpty {
-                    proxy.scrollTo(model.dashboard.logs.count - 1, anchor: .bottom)
+                .onChange(of: model.dashboard.logs.count) {
+                    if let last = filteredLogs.last {
+                        proxy.scrollTo(last.offset, anchor: .bottom)
+                    }
                 }
             }
         }
+    }
+
+    private func logLineColor(_ line: String) -> Color {
+        let lower = line.lowercased()
+        if lower.contains("error") || lower.contains("err]") || lower.contains("[err") {
+            return .red
+        }
+        if lower.contains("warn") {
+            return .orange
+        }
+        return .secondary
     }
 }
 
@@ -2576,4 +2641,15 @@ private func dashboardFallbackProxyChain(_ dashboard: DashboardStore) -> String 
         if !group.selected.isEmpty { return group.selected }
     }
     return dashboard.servers.chains.first?.name ?? ""
+}
+
+private func timeAgoShort(_ startTsNs: Int64) -> String {
+    guard startTsNs > 0 else { return "--" }
+    let nowNs = Int64(Date().timeIntervalSince1970 * 1_000_000_000)
+    let elapsed = max(0, nowNs - startTsNs)
+    let secs = elapsed / 1_000_000_000
+    if secs < 60 { return "\(secs)s ago" }
+    let mins = secs / 60
+    if mins < 60 { return "\(mins)m ago" }
+    return "\(mins / 60)h ago"
 }
