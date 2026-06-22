@@ -88,6 +88,7 @@ func TestDeveloperSettingsPersistsHTTPSCaptureWithAck(t *testing.T) {
 	body := []byte(`{
 		"enabled": true,
 		"mitm_enabled": true,
+		"no_cache_enabled": true,
 		"https_capture_ack": true,
 		"redact_query_params": [" Access_Token ", "SECRET"]
 	}`)
@@ -102,7 +103,7 @@ func TestDeveloperSettingsPersistsHTTPSCaptureWithAck(t *testing.T) {
 	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
 		t.Fatal(err)
 	}
-	if !resp.Enabled || !resp.MITMEnabled || resp.BackupPath == "" {
+	if !resp.Enabled || !resp.MITMEnabled || !resp.NoCacheEnabled || resp.BackupPath == "" {
 		t.Fatalf("settings response = %+v", resp)
 	}
 	if got := strings.Join(resp.RedactQueryParams, ","); got != "access_token,secret" {
@@ -112,7 +113,7 @@ func TestDeveloperSettingsPersistsHTTPSCaptureWithAck(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load persisted config: %v", err)
 	}
-	if !reloaded.Developer.Enabled || !reloaded.Developer.MITMEnabled {
+	if !reloaded.Developer.Enabled || !reloaded.Developer.MITMEnabled || !reloaded.Developer.NoCacheEnabled {
 		t.Fatalf("persisted developer config = %+v", reloaded.Developer)
 	}
 	if !srv.developerManager().MITMEnabled() {
@@ -148,6 +149,33 @@ func TestDeveloperSettingsRequiresAckForStaleHTTPSCaptureFlag(t *testing.T) {
 	})
 	if err == nil || !strings.Contains(err.Error(), "https_capture_ack") {
 		t.Fatalf("applyDeveloperSettingsUpdate error = %v, want acknowledgement error", err)
+	}
+}
+
+func TestDeveloperRegenerateCAEndpoint(t *testing.T) {
+	cfg := testDeveloperSettingsConfig(t)
+	cfg.Developer.Enabled = true
+	cfg.Developer.MITMEnabled = true
+	dev, err := developer.NewManager(cfg.Developer)
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+	before := dev.Status().CAFingerprintSHA256
+	srv := NewWithOptions(engine.New(cfg, nil), nil, Options{Developer: dev})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/developer/ca/regenerate", nil)
+	rec := httptest.NewRecorder()
+	srv.server.Handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%q, want 200", rec.Code, rec.Body.String())
+	}
+	var resp developer.Status
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp.CAFingerprintSHA256 == "" || resp.CAFingerprintSHA256 == before || resp.CANotAfter == "" {
+		t.Fatalf("regenerate response = %+v, before=%s", resp, before)
 	}
 }
 

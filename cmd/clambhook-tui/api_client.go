@@ -133,19 +133,19 @@ type trafficSnapshotPayload struct {
 }
 
 type appNodePayload struct {
-	Application string            `json:"application"`
-	ConnCount   int               `json:"conn_count"`
-	ActiveCount int               `json:"active_count"`
-	RxTotal     uint64            `json:"rx_total"`
-	TxTotal     uint64            `json:"tx_total"`
+	Application string              `json:"application"`
+	ConnCount   int                 `json:"conn_count"`
+	ActiveCount int                 `json:"active_count"`
+	RxTotal     uint64              `json:"rx_total"`
+	TxTotal     uint64              `json:"tx_total"`
 	Domains     []domainNodePayload `json:"domains,omitempty"`
 }
 
 type domainNodePayload struct {
-	Domain    string              `json:"domain"`
-	ConnCount int                 `json:"conn_count"`
-	RxTotal   uint64              `json:"rx_total"`
-	TxTotal   uint64              `json:"tx_total"`
+	Domain    string               `json:"domain"`
+	ConnCount int                  `json:"conn_count"`
+	RxTotal   uint64               `json:"rx_total"`
+	TxTotal   uint64               `json:"tx_total"`
 	Countries []countryNodePayload `json:"countries,omitempty"`
 }
 
@@ -299,11 +299,14 @@ type ruleSuggestionPayload struct {
 type developerStatusPayload struct {
 	Enabled               bool   `json:"enabled"`
 	MITMEnabled           bool   `json:"mitm_enabled"`
+	NoCacheEnabled        bool   `json:"no_cache_enabled"`
 	CaptureLimit          int    `json:"capture_limit"`
 	BodyLimitBytes        int64  `json:"body_limit_bytes"`
 	HeaderValueLimitBytes int    `json:"header_value_limit_bytes"`
 	CACertPath            string `json:"ca_cert_path,omitempty"`
 	CAFingerprintSHA256   string `json:"ca_fingerprint_sha256,omitempty"`
+	CANotBefore           string `json:"ca_not_before,omitempty"`
+	CANotAfter            string `json:"ca_not_after,omitempty"`
 	CaptureCount          int    `json:"capture_count"`
 }
 
@@ -329,6 +332,7 @@ type developerEntryPayload struct {
 
 type developerMessagePayload struct {
 	Headers []developerHeaderPayload `json:"headers,omitempty"`
+	Cookies []developerCookiePayload `json:"cookies,omitempty"`
 	Body    developerBodyPayload     `json:"body"`
 }
 
@@ -342,9 +346,25 @@ type developerHeaderPayload struct {
 type developerBodyPayload struct {
 	Size           int64  `json:"size"`
 	Preview        string `json:"preview,omitempty"`
+	PreviewBase64  string `json:"preview_base64,omitempty"`
 	PreviewBytes   int64  `json:"preview_bytes"`
 	Truncated      bool   `json:"truncated"`
 	TruncatedAfter int64  `json:"truncated_after"`
+	MimeType       string `json:"mime_type,omitempty"`
+	Encoding       string `json:"encoding,omitempty"`
+}
+
+type developerCookiePayload struct {
+	Name     string `json:"name"`
+	Value    string `json:"value"`
+	Redacted bool   `json:"redacted,omitempty"`
+	Domain   string `json:"domain,omitempty"`
+	Path     string `json:"path,omitempty"`
+	Expires  string `json:"expires,omitempty"`
+	MaxAge   int    `json:"max_age,omitempty"`
+	Secure   bool   `json:"secure,omitempty"`
+	HTTPOnly bool   `json:"http_only,omitempty"`
+	SameSite string `json:"same_site,omitempty"`
 }
 
 type rulePayload struct {
@@ -725,16 +745,16 @@ func responseError(resp *http.Response) error {
 // --- rule subscriptions ---
 
 type ruleSubscriptionsPayload struct {
-	Profile       string                      `json:"profile"`
-	Subscriptions []ruleSubscriptionPayload   `json:"subscriptions"`
+	Profile       string                    `json:"profile"`
+	Subscriptions []ruleSubscriptionPayload `json:"subscriptions"`
 }
 
 type ruleSubscriptionPayload struct {
-	Name     string                       `json:"name"`
-	URL      string                       `json:"url"`
-	Format   string                       `json:"format"`
-	Action   string                       `json:"action"`
-	Disabled bool                         `json:"disabled"`
+	Name     string                        `json:"name"`
+	URL      string                        `json:"url"`
+	Format   string                        `json:"format"`
+	Action   string                        `json:"action"`
+	Disabled bool                          `json:"disabled"`
 	Status   ruleSubscriptionStatusPayload `json:"status"`
 }
 
