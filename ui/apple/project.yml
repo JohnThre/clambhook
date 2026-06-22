@@ -115,6 +115,7 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: org.jpfchang.clambhook.mac.helper
         CODE_SIGN_ENTITLEMENTS: ClambhookMacHelper/ClambhookMacHelper.entitlements
         ENABLE_APP_SANDBOX: NO
+        SKIP_INSTALL: YES
   ClambhookMacWidgetExtension:
     type: app-extension
     platform: macOS
@@ -129,3 +130,43 @@ targets:
         CODE_SIGN_ENTITLEMENTS: ClambhookWidgets/ClambhookMacWidgetExtension.entitlements
         ENABLE_APP_SANDBOX: YES
         SKIP_INSTALL: YES
+schemes:
+  ClambhookMac:
+    build:
+      targets:
+        ClambhookMac: all
+    run:
+      config: Debug
+    profile:
+      config: Release
+    analyze:
+      config: Debug
+    archive:
+      config: Release
+  ClambhookMacTunnel:
+    build:
+      targets:
+        ClambhookMacTunnel: all
+    run:
+      config: Debug
+    profile:
+      config: Release
+    analyze:
+      config: Debug
+    archive:
+      config: Release
+  ClambhookMacWidgetExtension:
+    build:
+      targets:
+        ClambhookMacWidgetExtension: all
+        ClambhookMac: all
+    run:
+      config: Debug
+      askForAppToLaunch: true
+    profile:
+      config: Release
+      askForAppToLaunch: true
+    analyze:
+      config: Debug
+    archive:
+      config: Release

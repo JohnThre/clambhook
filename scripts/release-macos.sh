@@ -83,15 +83,16 @@ xcodebuild archive \
     -configuration Release \
     -destination 'generic/platform=macOS' \
     -archivePath "$ARCHIVE_PATH" \
+    -allowProvisioningUpdates \
     DEVELOPMENT_TEAM="$TEAM_ID" \
     CODE_SIGN_STYLE=Automatic \
-    CODE_SIGN_IDENTITY="$IDENTITY" \
     OTHER_CODE_SIGN_FLAGS="--timestamp"
 
 xcodebuild -exportArchive \
     -archivePath "$ARCHIVE_PATH" \
     -exportOptionsPlist "$EXPORT_OPTIONS" \
     -exportPath "$EXPORT_PATH" \
+    -allowProvisioningUpdates \
     DEVELOPMENT_TEAM="$TEAM_ID"
 
 if [[ ! -d "$APP_PATH" ]]; then

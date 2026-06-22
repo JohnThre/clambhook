@@ -11,7 +11,7 @@ EXPECTED_WIDGET_ID="org.jpfchang.clambhook.mac.widgets"
 EXPECTED_HELPER_LABEL="org.jpfchang.clambhook.mac.helper"
 EXPECTED_APP_GROUP="group.org.jpfchang.clambhook"
 EXPECTED_KEYCHAIN_GROUP='$(AppIdentifierPrefix)org.jpfchang.clambhook'
-EXPECTED_NETWORK_EXTENSION="packet-tunnel-provider"
+EXPECTED_NETWORK_EXTENSION="packet-tunnel-provider-systemextension"
 
 fail() {
     echo "$1" >&2

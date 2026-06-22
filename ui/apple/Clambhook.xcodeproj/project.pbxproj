@@ -84,9 +84,9 @@
 			isa = PBXCopyFilesBuildPhase;
 			buildActionMask = 2147483647;
 			dstPath = "";
-			dstSubfolderSpec = 10;
+			dstSubfolderSpec = 6;
 			files = (
-				069007F5D0A7675880D40F9B /* libsodium.26.dylib in CopyFiles */,
+				3792B993B246938C4220AC8D /* clambhook in CopyFiles */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -105,9 +105,9 @@
 			isa = PBXCopyFilesBuildPhase;
 			buildActionMask = 2147483647;
 			dstPath = "";
-			dstSubfolderSpec = 6;
+			dstSubfolderSpec = 10;
 			files = (
-				3792B993B246938C4220AC8D /* clambhook in CopyFiles */,
+				069007F5D0A7675880D40F9B /* libsodium.26.dylib in CopyFiles */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -147,7 +147,7 @@
 		12F5B3C049819652D51B60F7 /* ClambhookMobile.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = ClambhookMobile.xcframework; path = Frameworks/ClambhookMobile.xcframework; sourceTree = "<group>"; };
 		140F17EF442ACC422CCBAC04 /* MacPrivilegedHelperProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacPrivilegedHelperProtocol.swift; sourceTree = "<group>"; };
 		1B067640E07DD0E186D64487 /* ClambhookMacWidgetExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = ClambhookMacWidgetExtension.entitlements; sourceTree = "<group>"; };
-		22F84BCEFC14A14041740CB6 /* ClambhookVision.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ClambhookVision.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		22F84BCEFC14A14041740CB6 /* ClambhookVision.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = ClambhookVision.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		243DC274A14C7F31C205BAF8 /* MacCommandRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacCommandRunner.swift; sourceTree = "<group>"; };
 		24D15BDA328B4ED0B2A65291 /* ClambhookMac.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ClambhookMac.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		3294D889469E82D788955D1C /* NetworkExtension.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = NetworkExtension.framework; path = System/Library/Frameworks/NetworkExtension.framework; sourceTree = SDKROOT; };
@@ -165,11 +165,11 @@
 		962836E5FF857FC15720D328 /* ClambhookVision.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = ClambhookVision.entitlements; sourceTree = "<group>"; };
 		9A9A34557D90A7B2D48D34A7 /* ClambhookMacWidgetExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = ClambhookMacWidgetExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		A047F5F6C10292C5DE346662 /* MacPrivilegedHelperManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacPrivilegedHelperManager.swift; sourceTree = "<group>"; };
-		A94F492377279C40EF5D0E2D /* clambhook */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; path = clambhook; sourceTree = "<group>"; };
+		A94F492377279C40EF5D0E2D /* clambhook */ = {isa = PBXFileReference; path = clambhook; sourceTree = "<group>"; };
 		AF165252C4DFE1FEA613EE90 /* SystemExtensions.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SystemExtensions.framework; path = System/Library/Frameworks/SystemExtensions.framework; sourceTree = SDKROOT; };
 		B195ED48F3A788CDAF45383A /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		B1CF51F1CEED770CC79EBC8C /* ClambhookMac.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = ClambhookMac.entitlements; sourceTree = "<group>"; };
-		B33D5B9DDCCFDE4BA191B5A7 /* ClambhookMacHelper */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = ClambhookMacHelper; sourceTree = BUILT_PRODUCTS_DIR; };
+		B33D5B9DDCCFDE4BA191B5A7 /* ClambhookMacHelper */ = {isa = PBXFileReference; includeInIndex = 0; path = ClambhookMacHelper; sourceTree = BUILT_PRODUCTS_DIR; };
 		B79D4C19242D8E6E95224A77 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		C34298B9F0C4CFA97FFDC543 /* VisionNetworkMapScene.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisionNetworkMapScene.swift; sourceTree = "<group>"; };
 		C8D0525C10EE904F2F5523DA /* SupportPurchasesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SupportPurchasesView.swift; sourceTree = "<group>"; };
@@ -490,18 +490,23 @@
 				LastUpgradeCheck = 1430;
 				TargetAttributes = {
 					04F6C6CEBBA59499FBD06EEF = {
+						DevelopmentTeam = "";
 						ProvisioningStyle = Automatic;
 					};
 					088461658E40F91573E4319B = {
+						DevelopmentTeam = "";
 						ProvisioningStyle = Automatic;
 					};
 					19751D07998537D49377F457 = {
+						DevelopmentTeam = "";
 						ProvisioningStyle = Automatic;
 					};
 					41A94BC1E503BFF6BD544A2A = {
+						DevelopmentTeam = "";
 						ProvisioningStyle = Automatic;
 					};
 					664DC3F4FCA7E52B6CBC7610 = {
+						DevelopmentTeam = "";
 						ProvisioningStyle = Automatic;
 					};
 				};
@@ -648,9 +653,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = ClambhookMac/ClambhookMac.entitlements;
-				CODE_SIGN_IDENTITY = "Apple Development";
 				COMBINE_HIDPI_IMAGES = YES;
-				DEVELOPMENT_TEAM = V6GG4HYABJ;
 				ENABLE_APP_SANDBOX = YES;
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",
@@ -670,9 +673,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = ClambhookWidgets/ClambhookMacWidgetExtension.entitlements;
-				CODE_SIGN_IDENTITY = "Apple Development";
 				COMBINE_HIDPI_IMAGES = YES;
-				DEVELOPMENT_TEAM = V6GG4HYABJ;
 				ENABLE_APP_SANDBOX = YES;
 				INFOPLIST_FILE = ClambhookWidgets/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -753,9 +754,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = ClambhookMacTunnel/ClambhookMacTunnel.entitlements;
-				CODE_SIGN_IDENTITY = "Apple Development";
 				COMBINE_HIDPI_IMAGES = YES;
-				DEVELOPMENT_TEAM = V6GG4HYABJ;
 				ENABLE_APP_SANDBOX = YES;
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",
@@ -776,9 +775,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = ClambhookWidgets/ClambhookMacWidgetExtension.entitlements;
-				CODE_SIGN_IDENTITY = "Apple Development";
 				COMBINE_HIDPI_IMAGES = YES;
-				DEVELOPMENT_TEAM = V6GG4HYABJ;
 				ENABLE_APP_SANDBOX = YES;
 				INFOPLIST_FILE = ClambhookWidgets/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -866,8 +863,6 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = ClambhookVision/ClambhookVision.entitlements;
-				CODE_SIGN_IDENTITY = "Apple Development";
-				DEVELOPMENT_TEAM = V6GG4HYABJ;
 				INFOPLIST_FILE = ClambhookVision/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -885,9 +880,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = ClambhookMacHelper/ClambhookMacHelper.entitlements;
-				CODE_SIGN_IDENTITY = "Apple Development";
 				COMBINE_HIDPI_IMAGES = YES;
-				DEVELOPMENT_TEAM = V6GG4HYABJ;
 				ENABLE_APP_SANDBOX = NO;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -895,6 +888,7 @@
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = org.jpfchang.clambhook.mac.helper;
 				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
 			};
 			name = Debug;
 		};
@@ -902,9 +896,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = ClambhookMacHelper/ClambhookMacHelper.entitlements;
-				CODE_SIGN_IDENTITY = "Apple Development";
 				COMBINE_HIDPI_IMAGES = YES;
-				DEVELOPMENT_TEAM = V6GG4HYABJ;
 				ENABLE_APP_SANDBOX = NO;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -912,6 +904,7 @@
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = org.jpfchang.clambhook.mac.helper;
 				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
 			};
 			name = Release;
 		};
@@ -920,9 +913,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = ClambhookMac/ClambhookMac.entitlements;
-				CODE_SIGN_IDENTITY = "Apple Development";
 				COMBINE_HIDPI_IMAGES = YES;
-				DEVELOPMENT_TEAM = V6GG4HYABJ;
 				ENABLE_APP_SANDBOX = YES;
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",
@@ -942,9 +933,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = ClambhookMacTunnel/ClambhookMacTunnel.entitlements;
-				CODE_SIGN_IDENTITY = "Apple Development";
 				COMBINE_HIDPI_IMAGES = YES;
-				DEVELOPMENT_TEAM = V6GG4HYABJ;
 				ENABLE_APP_SANDBOX = YES;
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",
@@ -966,8 +955,6 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = ClambhookVision/ClambhookVision.entitlements;
-				CODE_SIGN_IDENTITY = "Apple Development";
-				DEVELOPMENT_TEAM = V6GG4HYABJ;
 				INFOPLIST_FILE = ClambhookVision/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
