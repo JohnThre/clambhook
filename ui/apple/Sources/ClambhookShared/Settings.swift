@@ -5,8 +5,6 @@ public let defaultAppGroupIdentifier = "group.org.jpfchang.clambhook"
 public let defaultAppleDeveloperTeamIdentifier = "V6GG4HYABJ"
 public let defaultAppleKeychainAccessGroup = "\(defaultAppleDeveloperTeamIdentifier).org.jpfchang.clambhook"
 public let clambhookMacAppBundleIdentifier = "org.jpfchang.clambhook.mac"
-public let clambhookMacTunnelBundleIdentifier = "org.jpfchang.clambhook.mac.tunnel"
-public let clambhookLegacyMacTunnelBundleIdentifier = "com.clambhook.mac.tunnel"
 public let clambhookMacWidgetBundleIdentifier = "org.jpfchang.clambhook.mac.widgets"
 public let clambhookMacPrivilegedHelperLabel = "org.jpfchang.clambhook.mac.helper"
 public let clambhookMacPrivilegedHelperPlistName = "\(clambhookMacPrivilegedHelperLabel).plist"
@@ -18,6 +16,8 @@ public let minLogRetention = 50
 public let maxLogRetention = 500
 public let defaultStableUpdateManifestURL = URL(string: "https://jpfchang.org/api/clambhook/update-manifest")!
 public let defaultBetaUpdateManifestURL = URL(string: "https://jpfchang.org/api/clambhook/update-manifest?channel=beta")!
+public let defaultStableAppcastURL = URL(string: "https://jpfchang.org/api/clambhook/appcast.xml")!
+public let defaultBetaAppcastURL = URL(string: "https://jpfchang.org/api/clambhook/appcast.xml?channel=beta")!
 private let legacyStableUpdateManifestURLStrings: Set<String> = [
     "https://jpfchang.org/clambhook/clambhook-update-manifest.json",
 ]
@@ -26,25 +26,40 @@ private let legacyBetaUpdateManifestURLStrings: Set<String> = [
     "https://jpfchang.org/clambhook/clambhook-update-manifest.json?channel=beta",
 ]
 public let vpnDataUseDisclosure = """
-ClambHook creates a local VPN configuration to route device network traffic according to your profiles and rules. iPhone v1 inspection is metadata-only: connection targets, routing decisions, byte counts, timing, and hop status. The iPhone app does not install a certificate authority, perform TLS MITM, store request or response bodies, export HAR files, or provide body-level redaction workflows. Profile data, connection metadata, traffic logs, and diagnostics stay on this device unless you export them. ClambHook does not sell, use, or disclose VPN traffic data to third parties. Apple diagnostics may include crash and performance data if enabled.
+ClambHook routes device network traffic according to your profiles and rules. macOS inspection is metadata-only: connection targets, routing decisions, byte counts, timing, and hop status. The macOS app does not install a certificate authority, perform TLS MITM, store request or response bodies, export HAR files, or provide body-level redaction workflows. Profile data, connection metadata, traffic logs, and diagnostics stay on this device unless you export them. ClambHook does not sell, use, or disclose routed traffic data to third parties. Apple diagnostics may include crash and performance data if enabled.
 """
 
 public let macOSProxyScopeDisclosure = """
-Network Extension mode installs a packet tunnel for device-wide routing. System proxy mode is a fallback for apps that honor macOS HTTP, HTTPS, and SOCKS proxy settings.
+System Proxy mode applies macOS HTTP, HTTPS, and SOCKS proxy settings for apps that honor system proxy configuration. Enhanced Mode starts the privileged daemon with a utun interface for device-wide routing.
 """
 
 public enum AppRoutingMode: String, Codable, CaseIterable, Identifiable, Sendable {
-    case networkExtension = "network_extension"
-    case daemonProxy = "daemon_proxy"
+    case systemProxy = "system_proxy"
+    case enhancedTUN = "enhanced_tun"
 
     public var id: String { rawValue }
 
     public var displayName: String {
         switch self {
-        case .networkExtension:
-            return "Network Extension"
-        case .daemonProxy:
-            return "Daemon + Proxy"
+        case .systemProxy:
+            return "System Proxy"
+        case .enhancedTUN:
+            return "Enhanced Mode"
+        }
+    }
+
+    public var requiresPrivilegedHelper: Bool {
+        self == .enhancedTUN
+    }
+
+    public static func decoded(_ rawValue: String) -> AppRoutingMode {
+        switch rawValue {
+        case AppRoutingMode.enhancedTUN.rawValue:
+            return .enhancedTUN
+        case AppRoutingMode.systemProxy.rawValue, "daemon_proxy", "network_extension":
+            return .systemProxy
+        default:
+            return .systemProxy
         }
     }
 }
@@ -85,7 +100,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
         pinnedConnectionIDs: [String] = [],
         licenseValidationEndpoint: URL = defaultLicenseValidationURL,
         systemProxyEnabled: Bool = false,
-        routingMode: AppRoutingMode = .networkExtension,
+        routingMode: AppRoutingMode = .systemProxy,
         usePrivilegedHelper: Bool = true,
         updateChannel: String = "stable",
         stableUpdateManifestURL: URL = defaultStableUpdateManifestURL,
@@ -150,8 +165,8 @@ public struct AppSettings: Codable, Equatable, Sendable {
         self.pinnedConnectionIDs = try container.decodeIfPresent([String].self, forKey: .pinnedConnectionIDs) ?? []
         self.licenseValidationEndpoint = try container.decodeIfPresent(URL.self, forKey: .licenseValidationEndpoint) ?? defaultLicenseValidationURL
         self.systemProxyEnabled = try container.decodeIfPresent(Bool.self, forKey: .systemProxyEnabled) ?? false
-        let decodedRoutingMode = try container.decodeIfPresent(String.self, forKey: .routingMode) ?? AppRoutingMode.networkExtension.rawValue
-        self.routingMode = AppRoutingMode(rawValue: decodedRoutingMode) ?? .networkExtension
+        let decodedRoutingMode = try container.decodeIfPresent(String.self, forKey: .routingMode) ?? AppRoutingMode.systemProxy.rawValue
+        self.routingMode = AppRoutingMode.decoded(decodedRoutingMode)
         self.usePrivilegedHelper = try container.decodeIfPresent(Bool.self, forKey: .usePrivilegedHelper) ?? true
         self.updateChannel = try container.decodeIfPresent(String.self, forKey: .updateChannel) ?? "stable"
         self.stableUpdateManifestURL = try container.decodeIfPresent(URL.self, forKey: .stableUpdateManifestURL) ?? defaultStableUpdateManifestURL
@@ -172,6 +187,10 @@ public struct AppSettings: Codable, Equatable, Sendable {
         }
         if !Self.isSupportedAPIEndpoint(copy.licenseValidationEndpoint) {
             copy.licenseValidationEndpoint = defaultLicenseValidationURL
+        }
+        copy.routingMode = AppRoutingMode.decoded(copy.routingMode.rawValue)
+        if copy.routingMode.requiresPrivilegedHelper {
+            copy.usePrivilegedHelper = true
         }
         copy.updateChannel = Self.normalizedUpdateChannel(copy.updateChannel)
         copy.stableUpdateManifestURL = Self.normalizedUpdateManifestEndpoint(
@@ -223,6 +242,10 @@ public struct AppSettings: Codable, Equatable, Sendable {
 
     public var updateManifestURL: URL {
         updateChannel == "beta" ? betaUpdateManifestURL : stableUpdateManifestURL
+    }
+
+    public var appcastFeedURL: URL {
+        updateChannel == "beta" ? defaultBetaAppcastURL : defaultStableAppcastURL
     }
 }
 

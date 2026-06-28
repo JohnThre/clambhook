@@ -10,7 +10,7 @@ Clambhook helps manage user-defined connectivity profiles and shows local status
 
 ## macOS Scope
 
-The macOS app uses Network Extension packet tunnel mode for device-wide routing. It embeds a macOS system extension, starts a `NETunnelProviderManager` packet tunnel, and routes packets through the shared mobile tunnel runtime. System proxy mode remains available as a daemon-backed fallback through the approved privileged helper or user-session daemon for apps and environments that should only use macOS HTTP, HTTPS, and SOCKS proxy settings. See `docs/macos-v1-scope.md`.
+The macOS app no longer depends on Apple's restricted Network Extension or System Extension approval path. It supports System Proxy mode for apps that honor macOS HTTP, HTTPS, and SOCKS proxy settings, plus Enhanced Mode, which runs the privileged daemon with a utun interface for device-wide routing. See `docs/macos-v1-scope.md`.
 
 ## End-user Distribution
 
@@ -30,7 +30,7 @@ ClambHook is not distributed to end users through app marketplaces, GitHub Relea
 
 GitHub is source-only and view-only for end users. The source is proprietary to Pengfan Chang, all rights reserved, and may not be copied, modified, built, run, contributed to, redistributed, packaged, released, hosted, sublicensed, or used to create derivative works without separate prior written permission from Pengfan Chang.
 
-Do not publish or link end-user installers or package artifacts from GitHub, including `.dmg`, `.pkg`, `.apk`, `.aab`, `.ipa`, Homebrew formula releases, Debian packages, or macOS installer artifacts. Other official builds are distributed only through Pengfan Chang's controlled channels. Only Pengfan Chang may distribute, publish, package, or release Clambhook artifacts.
+Do not publish or link end-user installers or package artifacts from GitHub, including `.dmg`, `.pkg`, `.apk`, `.aab`, Homebrew formula releases, Debian packages, or macOS installer artifacts. Other official builds are distributed only through Pengfan Chang's controlled channels. Only Pengfan Chang may distribute, publish, package, or release Clambhook artifacts.
 
 The Android app should use Swift for common domain logic as much as practical in a future migration. Keep Kotlin for Android lifecycle, Compose UI, billing, services, storage, JNI/glue, and Gradle integration unless the Android Swift toolchain plan changes.
 

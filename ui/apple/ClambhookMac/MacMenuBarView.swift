@@ -635,7 +635,7 @@ struct MacMenuBarView: View {
 
     private var shouldLaunchDaemonForQuickConnect: Bool {
         let settings = model.settingsStore.settings.normalized()
-        return settings.routingMode == .daemonProxy &&
+        return (settings.routingMode == .systemProxy || settings.routingMode == .enhancedTUN) &&
             !model.dashboard.apiOnline &&
             !managedDaemonRunning
     }

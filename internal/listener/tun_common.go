@@ -9,10 +9,9 @@ import (
 )
 
 const (
-	defaultTUNName = "clambhook0"
-	defaultTUNMTU  = 1500
+	defaultTUNMTU = 1500
 
-	unsupportedTUNError = "tun: device-wide TUN mode is only supported on Linux"
+	unsupportedTUNError = "tun: device-wide TUN mode is only supported on Linux and macOS"
 )
 
 func TUNUnsupportedError() error { return errors.New(unsupportedTUNError) }
@@ -30,8 +29,8 @@ type PolicyManager interface {
 	Snapshot(profile string) policy.Snapshot
 }
 
-// TUNOptions tunes the device-wide TUN listener. The Linux implementation
-// owns the interface and route changes for the lifetime of the listener.
+// TUNOptions tunes the device-wide TUN listener. Platform implementations own
+// interface and route changes for the lifetime of the listener.
 type TUNOptions struct {
 	Name          string
 	ProfileName   string
@@ -49,7 +48,7 @@ func (o TUNOptions) name() string {
 	if o.Name != "" {
 		return o.Name
 	}
-	return defaultTUNName
+	return platformDefaultTUNName()
 }
 
 func (o TUNOptions) mtu() int {

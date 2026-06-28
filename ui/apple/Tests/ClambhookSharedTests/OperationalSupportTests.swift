@@ -115,7 +115,7 @@ final class OperationalSupportTests: XCTestCase {
 
     func testTunnelRecoveryClassifierRecognizesPrimaryFailures() {
         XCTAssertEqual(
-            TunnelRecoveryClassifier.issue(forRawError: "user denied VPN permission").kind,
+            TunnelRecoveryClassifier.issue(forRawError: "user denied routing permission").kind,
             .vpnPermissionDenied
         )
         XCTAssertEqual(

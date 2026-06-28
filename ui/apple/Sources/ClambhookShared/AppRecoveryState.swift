@@ -6,7 +6,6 @@ public enum AppRecoveryStateKind: String, Codable, Equatable, Sendable {
     case expiredTrial = "expired_trial"
     case licenseBackendUnavailable = "license_backend_unavailable"
     case licenseExpiredForUpdates = "license_expired_for_updates"
-    case systemExtensionAwaitingApproval = "system_extension_awaiting_approval"
     case certificateNotTrusted = "certificate_not_trusted"
     case daemonFallbackUnavailable = "daemon_fallback_unavailable"
 }
@@ -51,7 +50,7 @@ public enum AppRecoveryStateAction: String, Codable, Equatable, Identifiable, Se
         case .refresh:
             return "Refresh"
         case .rebuildVPNProfile:
-            return "Rebuild VPN Profile"
+            return "Refresh Profile"
         case .openAppSettings:
             return "Settings"
         case .buyLicense:
@@ -290,20 +289,6 @@ public enum AppRecoveryStateBuilder {
             primaryAction: .renewUpdates,
             secondaryActions: [.openLicensePortal, .activateLicense, .support],
             diagnosticText: MobileLicenseCopy.paidUpdatePolicy(cutoffDate: cutoffDate)
-        )
-    }
-
-    public static func systemExtensionAwaitingApproval(message: String = "") -> AppRecoveryState {
-        let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
-        return AppRecoveryState(
-            kind: .systemExtensionAwaitingApproval,
-            severity: .warning,
-            title: "Approve system extension",
-            message: "macOS is waiting for approval before ClambHook can start device-wide routing. Approve ClambHook in Privacy & Security, then connect again.",
-            systemImage: "puzzlepiece.extension.fill",
-            primaryAction: .openSystemSettings,
-            secondaryActions: [.retry, .refresh],
-            diagnosticText: trimmed
         )
     }
 

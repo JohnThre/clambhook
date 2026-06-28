@@ -18,10 +18,13 @@ FINAL_DMG_CHECKSUM="$DIST_DIR/ClambhookMac-arm64.dmg.sha256"
 UPDATE_CHANNEL="${UPDATE_CHANNEL:-stable}"
 if [[ "$UPDATE_CHANNEL" == "beta" ]]; then
     UPDATE_MANIFEST="$DIST_DIR/clambhook-beta-update-manifest.json"
+    APPCAST="$DIST_DIR/appcast-beta.xml"
 else
     UPDATE_CHANNEL="stable"
     UPDATE_MANIFEST="$DIST_DIR/clambhook-update-manifest.json"
+    APPCAST="$DIST_DIR/appcast.xml"
 fi
+APPCAST_DOWNLOAD_URL="${CLAMBHOOK_APPCAST_DOWNLOAD_URL:-https://jpfchang.org/api/clambhook/download}"
 DAEMON="$ROOT_DIR/bin/clambhook"
 SODIUM="$ROOT_DIR/bin/libsodium.26.dylib"
 HELPER_ENTITLEMENTS="$ROOT_DIR/ui/apple/ClambhookMac/ClambhookDaemon.entitlements"
@@ -150,6 +153,24 @@ DMG_SHA256="$(shasum -a 256 "$FINAL_DMG" | awk '{print $1}')"
 echo "$DMG_SHA256  ClambhookMac-arm64.dmg" > "$FINAL_DMG_CHECKSUM"
 echo "Checksum: $DMG_SHA256"
 
+# GPG-sign the checksum and update manifest with the configured release key so
+# users (and the website) can verify downloads. Defaults to the git signing key.
+# Pass CLAMBHOOK_GPG_KEY to override. Requires a usable pinentry on the host.
+GPG_KEY="${CLAMBHOOK_GPG_KEY:-$(git -C "$ROOT_DIR" config user.signingkey 2>/dev/null || true)}"
+if [[ -n "$GPG_KEY" ]] && command -v gpg >/dev/null 2>&1; then
+    GPG_BATCH_ARGS=(--batch --yes --pinentry-mode loopback --local-user "$GPG_KEY")
+    if gpg "${GPG_BATCH_ARGS[@]}" --detach-sign --armor --output "$FINAL_DMG_CHECKSUM.sig" "$FINAL_DMG_CHECKSUM" 2>/dev/null; then
+        echo "GPG-signed checksum with $GPG_KEY → $FINAL_DMG_CHECKSUM.sig"
+        gpg "${GPG_BATCH_ARGS[@]}" --detach-sign --armor --output "$UPDATE_MANIFEST.sig" "$UPDATE_MANIFEST" 2>/dev/null \
+            && echo "GPG-signed manifest → $UPDATE_MANIFEST.sig" \
+            || echo "Warning: manifest GPG signing failed (continuing)." >&2
+    else
+        echo "Warning: GPG checksum signing failed (no passphrase / agent unavailable). Artifacts are still notarized; skipping .sig." >&2
+    fi
+else
+    echo "Skipping GPG signing: gpg not found or no signing key configured (set CLAMBHOOK_GPG_KEY)." >&2
+fi
+
 # Determine build version.
 DMG_SIZE="$(stat -f%z "$FINAL_DMG")"
 BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -172,9 +193,46 @@ cat > "$UPDATE_MANIFEST" <<JSON
 JSON
 echo "Created $UPDATE_MANIFEST"
 
+# Generate a Sparkle appcast with an EdDSA-signed enclosure when Sparkle's
+# sign_update tool and private key are available. The signing key is owner-held
+# (created with Sparkle's generate_keys) and must never be committed.
+SIGN_UPDATE="${SPARKLE_SIGN_UPDATE:-$(command -v sign_update || true)}"
+if [[ -n "$SIGN_UPDATE" && -x "$SIGN_UPDATE" ]]; then
+    SIGN_ARGS=()
+    if [[ -n "${SPARKLE_PRIVATE_KEY_FILE:-}" ]]; then
+        SIGN_ARGS+=(--ed-key-file "$SPARKLE_PRIVATE_KEY_FILE")
+    fi
+    # sign_update prints: sparkle:edSignature="..." length="..."
+    SIGN_OUTPUT="$("$SIGN_UPDATE" "${SIGN_ARGS[@]}" "$FINAL_DMG")"
+    PUB_DATE="$(date -u "+%a, %d %b %Y %H:%M:%S +0000")"
+    cat > "$APPCAST" <<XML
+<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" xmlns:dc="http://purl.org/dc/elements/1.1/">
+  <channel>
+    <title>ClambHook for macOS</title>
+    <link>https://jpfchang.org/clambhook/</link>
+    <description>ClambHook for macOS updates (${UPDATE_CHANNEL} channel).</description>
+    <language>en</language>
+    <item>
+      <title>ClambHook ${SHORT_VERSION}</title>
+      <pubDate>${PUB_DATE}</pubDate>
+      <sparkle:version>${BUILD_NUMBER}</sparkle:version>
+      <sparkle:shortVersionString>${SHORT_VERSION}</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+      <sparkle:channel>${UPDATE_CHANNEL}</sparkle:channel>
+      <enclosure url="${APPCAST_DOWNLOAD_URL}" ${SIGN_OUTPUT} type="application/x-apple-diskimage" />
+    </item>
+  </channel>
+</rss>
+XML
+    echo "Created $APPCAST"
+else
+    echo "Skipping appcast generation: Sparkle sign_update not found. Set SPARKLE_SIGN_UPDATE or install Sparkle tools, then re-run." >&2
+fi
+
 # Upload to Cloudflare R2 when bucket is configured.
 if [[ -n "${CLAMBHOOK_R2_BUCKET:-}" ]]; then
-    "$ROOT_DIR/scripts/upload-release-r2.sh" "$FINAL_ZIP" "$FINAL_DMG" "$FINAL_DMG_CHECKSUM" "$UPDATE_MANIFEST"
+    "$ROOT_DIR/scripts/upload-release-r2.sh" "$FINAL_ZIP" "$FINAL_DMG" "$FINAL_DMG_CHECKSUM" "$UPDATE_MANIFEST" "$APPCAST"
 else
     echo "Skipping R2 upload: set CLAMBHOOK_R2_BUCKET and run 'make upload-release-r2' to publish." >&2
 fi

@@ -1,4 +1,4 @@
-.PHONY: all build build-clib build-daemon build-tui install install-linux prepare-apple-runtime build-apple-mobile-xcframework generate-apple build-apple check-macos-signing release-macos upload-release-r2 release-check macos-release-contract-check package-smoke test-apple test-android build-android-mobile-aar build-android build-android-release build-android-play-release check-linux-ui-deps test-linux build-linux test e2e e2e-release lint clean
+.PHONY: all build build-clib build-daemon build-tui install install-linux prepare-apple-runtime generate-apple build-apple check-macos-signing release-macos upload-release-r2 release-check macos-release-contract-check package-smoke test-apple test-android build-android-mobile-aar build-android build-android-release check-linux-ui-deps test-linux build-linux test e2e e2e-release lint clean
 
 export CGO_ENABLED=1
 PREFIX ?= /usr/local
@@ -43,16 +43,12 @@ prepare-apple-runtime:
 	GOOS=darwin GOARCH=arm64 CGO_ENABLED=1 $(MAKE) build-daemon
 	./scripts/prepare-macos-runtime.sh
 
-build-apple-mobile-xcframework:
-	./scripts/build-apple-mobile-xcframework.sh
-
 generate-apple:
 	cd ui/apple && xcodegen generate --spec project.yml
 
-build-apple: prepare-apple-runtime build-apple-mobile-xcframework
+build-apple: prepare-apple-runtime
 	$(MAKE) generate-apple
 	xcodebuild -project ui/apple/Clambhook.xcodeproj -scheme ClambhookMac -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO build
-	xcodebuild -project ui/apple/Clambhook.xcodeproj -scheme ClambhookVision -destination 'generic/platform=visionOS Simulator' CODE_SIGNING_ALLOWED=NO build
 
 check-macos-signing:
 	./scripts/check-macos-signing.sh
@@ -81,21 +77,17 @@ test-apple:
 	swift test --package-path ui/apple
 
 test-android:
-	cd ui/android && ANDROID_HOME="$(ANDROID_HOME)" ./gradlew :app:testPlayDebugUnitTest
+	cd ui/android && ANDROID_HOME="$(ANDROID_HOME)" ./gradlew :app:testDebugUnitTest
 
 build-android-mobile-aar:
 	./scripts/build-android-mobile-aar.sh
 
 build-android:
-	cd ui/android && ANDROID_HOME="$(ANDROID_HOME)" ./gradlew :app:assemblePlayDebug
+	cd ui/android && ANDROID_HOME="$(ANDROID_HOME)" ./gradlew :app:assembleDebug
 
 build-android-release:
 	$(internal-release-notice)
-	cd ui/android && ANDROID_HOME="$(ANDROID_HOME)" ./gradlew :app:assemblePlayRelease
-
-build-android-play-release:
-	$(internal-release-notice)
-	cd ui/android && ANDROID_HOME="$(ANDROID_HOME)" ./gradlew :app:assemblePlayRelease
+	cd ui/android && ANDROID_HOME="$(ANDROID_HOME)" ./gradlew :app:assembleRelease
 
 test-linux: check-linux-ui-deps
 	cd ui/linux && meson setup builddir --reconfigure && meson test -C builddir

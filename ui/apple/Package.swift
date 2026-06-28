@@ -6,7 +6,6 @@ let package = Package(
     name: "ClambhookApple",
     platforms: [
         .macOS(.v14),
-        .visionOS(.v26),
     ],
     products: [
         .library(name: "ClambhookShared", targets: ["ClambhookShared"]),
