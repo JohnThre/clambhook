@@ -1,4 +1,4 @@
-//go:build !linux
+//go:build !linux && !darwin
 
 package listener
 
@@ -9,7 +9,7 @@ import (
 	"github.com/JohnThre/clambhook/internal/chain"
 )
 
-// NewTUN returns a listener placeholder on non-Linux platforms so configs can
+// NewTUN returns a listener placeholder on unsupported platforms so configs can
 // parse consistently while Start reports the platform limitation clearly.
 func NewTUN(opts TUNOptions, _ *chain.Chain) Listener {
 	return &unsupportedTUN{name: opts.name()}

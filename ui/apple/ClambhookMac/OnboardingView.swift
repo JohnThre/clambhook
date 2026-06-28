@@ -22,8 +22,8 @@ struct OnboardingView: View {
         switch manager.currentStep {
         case .welcome:
             OnboardingWelcomeStep(model: model)
-        case .networkExtension:
-            OnboardingNetworkExtensionStep(model: model)
+        case .routingMode:
+            OnboardingRoutingModeStep(model: model)
         case .profileImport:
             OnboardingProfileImportStep(model: model)
         case .httpsCA:
@@ -241,137 +241,114 @@ private struct OnboardingLicenseActivationInline: View {
     }
 }
 
-// MARK: - Network Extension step
+// MARK: - Routing mode step
 
-private struct OnboardingNetworkExtensionStep: View {
+private struct OnboardingRoutingModeStep: View {
     @ObservedObject var model: AppleAppModel
 
     var body: some View {
         OnboardingStepContainer(
-            systemImage: "network.badge.shield.half.filled",
-            title: "Network Extension",
-            subtitle: "ClambHook uses a Network Extension to route device traffic. macOS requires your approval."
+            systemImage: "arrow.triangle.branch",
+            title: "Choose Routing Mode",
+            subtitle: "Start with System Proxy or use Enhanced Mode for device-wide TUN routing."
         ) {
             VStack(alignment: .leading, spacing: 14) {
-                extensionStatusRow
-                actionButtons
-                fallbackSection
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var extensionStatusRow: some View {
-        let installer = model.systemExtensionInstaller
-        switch installer.status {
-        case .notActivated:
-            OnboardingInfoRow(
-                systemImage: "circle",
-                tint: .secondary,
-                title: "Extension not activated",
-                detail: "Click Activate below to request system extension approval."
-            )
-        case .activating:
-            OnboardingInfoRow(
-                systemImage: "hourglass",
-                tint: .orange,
-                title: "Activating\u{2026}",
-                detail: "Waiting for macOS to process the extension request."
-            )
-        case .activated:
-            OnboardingInfoRow(
-                systemImage: "checkmark.circle.fill",
-                tint: .green,
-                title: "Extension activated",
-                detail: "The Network Extension is ready."
-            )
-        case .requiresApproval:
-            OnboardingInfoRow(
-                systemImage: "exclamationmark.triangle.fill",
-                tint: .orange,
-                title: "Approval required",
-                detail: "macOS blocked the extension. Open System Settings \u{203A} Privacy & Security and allow the ClambHook system extension, then click Activate again."
-            )
-        case .rebootRequired:
-            OnboardingInfoRow(
-                systemImage: "restart.circle",
-                tint: .orange,
-                title: "Restart required",
-                detail: "A macOS restart is needed to finish activating the extension."
-            )
-        case .failed(let msg):
-            OnboardingInfoRow(
-                systemImage: "xmark.circle.fill",
-                tint: .red,
-                title: "Activation failed",
-                detail: msg
-            )
-        }
-    }
-
-    @ViewBuilder
-    private var actionButtons: some View {
-        let installer = model.systemExtensionInstaller
-        HStack(spacing: 10) {
-            Button {
-                Task { await installer.activate() }
-            } label: {
-                Label("Activate Extension", systemImage: "network")
-            }
-            .buttonStyle(.bordered)
-            .disabled(installer.isWorking || installer.status == .activated)
-
-            if installer.status == .requiresApproval || installer.status == .rebootRequired {
-                Button {
-                    installer.openSystemSettings()
-                } label: {
-                    Label("Open System Settings", systemImage: "gear")
+                Picker("Routing mode", selection: $model.settingsStore.settings.routingMode) {
+                    Text("System Proxy").tag(AppRoutingMode.systemProxy)
+                    Text("Enhanced Mode").tag(AppRoutingMode.enhancedTUN)
                 }
-                .buttonStyle(.bordered)
-            }
+                .pickerStyle(.segmented)
 
-            if installer.isWorking {
-                ProgressView().controlSize(.small)
+                modeDescription
+                helperStatus
             }
+        }
+        .onChange(of: model.settingsStore.settings.routingMode) { _, mode in
+            if mode.requiresPrivilegedHelper {
+                model.settingsStore.settings.usePrivilegedHelper = true
+            }
+            model.applySettings()
         }
     }
 
     @ViewBuilder
-    private var fallbackSection: some View {
-        let installer = model.systemExtensionInstaller
-        if showFallback(installer.status) {
+    private var modeDescription: some View {
+        if model.settingsStore.settings.routingMode == .enhancedTUN {
+            OnboardingInfoRow(
+                systemImage: "network.badge.shield.half.filled",
+                tint: .blue,
+                title: "Enhanced Mode",
+                detail: "Runs the privileged daemon with a utun interface for device-wide routing. This is the macOS equivalent of Surge's Enhanced Mode."
+            )
+        } else {
+            OnboardingInfoRow(
+                systemImage: "globe",
+                tint: .green,
+                title: "System Proxy",
+                detail: "Applies macOS HTTP, HTTPS, and SOCKS proxy settings. Apps that ignore system proxy settings will not be routed."
+            )
+        }
+    }
+
+    @ViewBuilder
+    private var helperStatus: some View {
+        if model.settingsStore.settings.routingMode == .enhancedTUN {
             Divider()
             VStack(alignment: .leading, spacing: 8) {
-                Text("Using proxy mode instead")
-                    .font(.subheadline.bold())
-                Text("If you cannot approve the extension, you can run ClambHook as a daemon with a system proxy. Some apps that ignore proxy settings will not be routed.")
+                Label(
+                    model.privilegedHelperManager.serviceStatus.label,
+                    systemImage: helperStatusImage
+                )
+                .foregroundStyle(helperStatusColor)
+
+                HStack {
+                    Button {
+                        Task { await model.privilegedHelperManager.registerHelper() }
+                    } label: {
+                        Label("Install Helper", systemImage: "lock.shield")
+                    }
+                    .buttonStyle(.bordered)
+
+                    Button {
+                        model.privilegedHelperManager.openSystemSettings()
+                    } label: {
+                        Label("Open System Settings", systemImage: "gear")
+                    }
+                    .buttonStyle(.bordered)
+                }
+                Text("Enhanced Mode requires this helper so the daemon can create utun routes and restore DNS settings.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-                Button {
-                    model.settingsStore.settings.routingMode = .daemonProxy
-                    model.applySettings()
-                } label: {
-                    Label("Switch to Daemon + Proxy mode", systemImage: "arrow.right.arrow.left")
-                }
-                .buttonStyle(.bordered)
-                .disabled(model.settingsStore.settings.routingMode == .daemonProxy)
-
-                if model.settingsStore.settings.routingMode == .daemonProxy {
-                    Text("Routing mode set to Daemon + Proxy.")
-                        .font(.caption)
-                        .foregroundStyle(.green)
-                }
             }
         }
     }
 
-    private func showFallback(_ status: MacSystemExtensionInstallStatus) -> Bool {
-        switch status {
-        case .requiresApproval, .notActivated, .failed:
-            return true
-        default:
-            return false
+    private var helperStatusImage: String {
+        switch model.privilegedHelperManager.serviceStatus {
+        case .enabled:
+            return "checkmark.circle.fill"
+        case .requiresApproval:
+            return "exclamationmark.triangle.fill"
+        case .notFound:
+            return "questionmark.circle"
+        case .notRegistered:
+            return "lock.shield"
+        case .unknown:
+            return "questionmark.circle"
+        }
+    }
+
+    private var helperStatusColor: Color {
+        switch model.privilegedHelperManager.serviceStatus {
+        case .enabled:
+            return .green
+        case .requiresApproval:
+            return .orange
+        case .notFound, .unknown:
+            return .red
+        case .notRegistered:
+            return .secondary
         }
     }
 }
@@ -611,16 +588,16 @@ private struct OnboardingDoneStep: View {
     }
 
     private var routingModeImage: String {
-        model.settingsStore.settings.routingMode == .networkExtension ? "network.badge.shield.half.filled" : "server.rack"
+        model.settingsStore.settings.routingMode == .enhancedTUN ? "network.badge.shield.half.filled" : "globe"
     }
 
     private var routingModeTitle: String {
-        model.settingsStore.settings.routingMode == .networkExtension ? "Network Extension routing" : "Daemon + Proxy routing"
+        model.settingsStore.settings.routingMode == .enhancedTUN ? "Enhanced Mode routing" : "System Proxy routing"
     }
 
     private var routingModeDetail: String {
-        model.settingsStore.settings.routingMode == .networkExtension
-            ? "Device-wide traffic routing via tunnel extension."
+        model.settingsStore.settings.routingMode == .enhancedTUN
+            ? "Device-wide routing through the privileged daemon and utun."
             : "System proxy mode. Apps that ignore proxy settings will not be routed."
     }
 

@@ -3,10 +3,10 @@
 Last updated: 2026-06-20
 
 ClambHook for macOS is a direct-download network tool for Apple Silicon Macs,
-distributed from jpfchang.org. It creates a local Network Extension
-configuration so traffic can be routed according to the user's profiles and
-rules. System proxy mode remains available as a fallback for apps and
-environments that should use macOS HTTP, HTTPS, and SOCKS proxy settings.
+distributed from jpfchang.org. It offers System Proxy mode for apps that honor
+macOS HTTP, HTTPS, and SOCKS proxy settings, and Enhanced Mode, a privileged
+daemon-backed utun mode for device-wide routing according to the user's
+profiles and rules.
 
 Supported public profile protocol identifiers are `clambback`, `openvpn`,
 `shadowsocks`, `tor`, `trojan`, and `wireguard`.

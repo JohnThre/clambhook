@@ -350,7 +350,7 @@ func validateRuntimeConfig(cfg *config.Config) error {
 }
 
 // ValidateConfig applies the same runtime validation used before starting the
-// daemon. Mobile embeddings use it before starting a packet tunnel without
+// daemon. Embedded clients use it before starting a TUN/VPN service without
 // constructing daemon listeners.
 func ValidateConfig(cfg *config.Config) error {
 	return validateRuntimeConfig(cfg)
@@ -701,7 +701,7 @@ func buildPacketStackWithConfigPath(profile *config.Profile, configPath string, 
 	}
 	tunCfg := profile.Listen.TUN
 	if tunCfg == nil || !tunCfg.Enabled {
-		return nil, nil, errors.New("tun: packet tunnel is not enabled in active profile")
+		return nil, nil, errors.New("tun: listener is not enabled in active profile")
 	}
 	resolver := newChainResolver(profile, configPath, nil)
 	if err := resolver.ensureBuilt(); err != nil {
@@ -773,7 +773,7 @@ func buildPacketStackWithConfigPathAndTemporaryRules(profile *config.Profile, co
 	}
 	tunCfg := profile.Listen.TUN
 	if tunCfg == nil || !tunCfg.Enabled {
-		return nil, nil, errors.New("tun: packet tunnel is not enabled in active profile")
+		return nil, nil, errors.New("tun: listener is not enabled in active profile")
 	}
 	resolver := newChainResolver(profile, configPath, tempRules)
 	if err := resolver.ensureBuilt(); err != nil {

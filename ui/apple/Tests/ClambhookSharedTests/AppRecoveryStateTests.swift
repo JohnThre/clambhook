@@ -102,12 +102,9 @@ final class AppRecoveryStateTests: XCTestCase {
     }
 
     func testPlatformRecoveryStatesUseSpecificActions() throws {
-        let extensionState = AppRecoveryStateBuilder.systemExtensionAwaitingApproval(message: "approval required")
         let certificateState = try XCTUnwrap(AppRecoveryStateBuilder.certificateNotTrusted(fingerprint: "AA:BB"))
         let daemonState = AppRecoveryStateBuilder.daemonFallbackUnavailable(message: "missing binary")
 
-        XCTAssertEqual(extensionState.kind, .systemExtensionAwaitingApproval)
-        XCTAssertEqual(extensionState.primaryAction, .openSystemSettings)
         XCTAssertEqual(certificateState.kind, .certificateNotTrusted)
         XCTAssertEqual(certificateState.primaryAction, .trustCertificate)
         XCTAssertEqual(daemonState.kind, .daemonFallbackUnavailable)

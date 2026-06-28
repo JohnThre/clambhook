@@ -31,14 +31,14 @@ The macOS license includes feature releases through the purchase date plus one y
 
 ## GitHub Release Rule
 
-Do not release end-user installers or package artifacts on GitHub. This includes `.dmg`, `.pkg`, `.apk`, `.aab`, `.ipa`, Homebrew formula releases, Debian packages, and macOS installer artifacts.
+Do not release end-user installers or package artifacts on GitHub. This includes `.dmg`, `.pkg`, `.apk`, `.aab`, Homebrew formula releases, Debian packages, and macOS installer artifacts.
 
-Non-macOS build, package, and release targets remain available for Pengfan Chang's internal developer QA only. Only Pengfan Chang may distribute, publish, package, or release ClambHook source code or artifacts.
+GNU/Linux, Windows, and Android build, package, and release targets remain available for Pengfan Chang's internal developer QA only. Only Pengfan Chang may distribute, publish, package, or release ClambHook source code or artifacts.
 
 ## macOS Scope
 
-macOS uses Network Extension packet tunnel mode for device-wide routing. The app embeds a packet tunnel system extension and configures a `NETunnelProviderManager` profile that passes packets to the shared tunnel runtime.
+macOS uses daemon-backed routing. System Proxy mode may launch the bundled daemon through the approved privileged helper or the user-session fallback, expose local SOCKS5 and HTTP listeners, and optionally configure macOS system HTTP, HTTPS, and SOCKS proxy settings to use those listeners. Traffic status and history in System Proxy mode apply only to traffic that reaches the configured clambhook proxy listeners.
 
-System proxy mode remains available as a fallback. In that mode the app may launch the bundled daemon through the approved privileged helper or the user-session fallback, expose local SOCKS5 and HTTP listeners, and optionally configure macOS system HTTP, HTTPS, and SOCKS proxy settings to use those listeners. Traffic status and history in fallback mode apply only to traffic that reaches the configured clambhook proxy listeners.
+Enhanced Mode launches the daemon through the privileged helper, creates a utun interface, installs routes, and temporarily rewrites DNS when encrypted DNS is enabled. It is the device-wide routing path for direct website builds and does not use Apple's Network Extension or System Extension capabilities.
 
 The full scope note is in `docs/macos-v1-scope.md`.

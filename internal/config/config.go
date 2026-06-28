@@ -161,7 +161,7 @@ type Profile struct {
 }
 
 // DNSConfig controls the profile-local encrypted DNS proxy used by TUN mode.
-// When enabled, DNS traffic from the packet tunnel is answered locally and
+// When enabled, DNS traffic from the TUN listener is answered locally and
 // forwarded to the configured encrypted upstreams.
 type DNSConfig struct {
 	Enabled   bool                `toml:"enabled" json:"enabled"`

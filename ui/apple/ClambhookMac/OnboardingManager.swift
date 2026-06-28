@@ -5,7 +5,7 @@ private let onboardingCompletedKey = "clambhook.mac.onboarding.completed"
 
 enum OnboardingStep: Int, CaseIterable {
     case welcome
-    case networkExtension
+    case routingMode
     case profileImport
     case httpsCA
     case done

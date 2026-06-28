@@ -2,8 +2,8 @@ import XCTest
 @testable import ClambhookShared
 
 final class SettingsTests: XCTestCase {
-    func testVPNDataUseDisclosureMatchesIPhoneMetadataOnlyPosture() {
-        XCTAssertTrue(vpnDataUseDisclosure.contains("iPhone v1 inspection is metadata-only"))
+    func testVPNDataUseDisclosureMatchesMacOSMetadataOnlyPosture() {
+        XCTAssertTrue(vpnDataUseDisclosure.contains("macOS inspection is metadata-only"))
         XCTAssertTrue(vpnDataUseDisclosure.contains("does not sell, use, or disclose VPN traffic data to third parties"))
         XCTAssertTrue(vpnDataUseDisclosure.contains("does not install a certificate authority"))
         XCTAssertTrue(vpnDataUseDisclosure.contains("perform TLS MITM"))
@@ -27,11 +27,11 @@ final class SettingsTests: XCTestCase {
         XCTAssertTrue(developerHARExportDisclosure.contains("Review the file before sharing"))
     }
 
-    func testMacOSProxyScopeDisclosureStatesNetworkExtensionAndProxyFallback() {
-        XCTAssertTrue(macOSProxyScopeDisclosure.contains("Network Extension mode"))
-        XCTAssertTrue(macOSProxyScopeDisclosure.contains("packet tunnel"))
+    func testMacOSProxyScopeDisclosureStatesSystemProxyAndEnhancedMode() {
+        XCTAssertTrue(macOSProxyScopeDisclosure.contains("System Proxy mode"))
+        XCTAssertTrue(macOSProxyScopeDisclosure.contains("Enhanced Mode"))
+        XCTAssertTrue(macOSProxyScopeDisclosure.contains("utun"))
         XCTAssertTrue(macOSProxyScopeDisclosure.contains("device-wide routing"))
-        XCTAssertTrue(macOSProxyScopeDisclosure.contains("System proxy mode"))
         XCTAssertTrue(macOSProxyScopeDisclosure.contains("HTTP, HTTPS, and SOCKS proxy settings"))
     }
 
@@ -52,10 +52,27 @@ final class SettingsTests: XCTestCase {
         let settings = try JSONDecoder().decode(AppSettings.self, from: data).normalized()
 
         XCTAssertFalse(settings.systemProxyEnabled)
-        XCTAssertEqual(settings.routingMode, .networkExtension)
+        XCTAssertEqual(settings.routingMode, .systemProxy)
         XCTAssertTrue(settings.usePrivilegedHelper)
         XCTAssertEqual(settings.updateChannel, "stable")
         XCTAssertEqual(settings.updateManifestURL, defaultStableUpdateManifestURL)
+    }
+
+    func testLegacyRoutingModesNormalizeToSystemProxy() throws {
+        for raw in ["network_extension", "daemon_proxy"] {
+            let data = Data(#"{"routingMode":"\#(raw)"}"#.utf8)
+            let settings = try JSONDecoder().decode(AppSettings.self, from: data).normalized()
+            XCTAssertEqual(settings.routingMode, .systemProxy)
+        }
+    }
+
+    func testEnhancedModeForcesPrivilegedHelper() {
+        let settings = AppSettings(
+            routingMode: .enhancedTUN,
+            usePrivilegedHelper: false
+        ).normalized()
+
+        XCTAssertTrue(settings.usePrivilegedHelper)
     }
 
     func testDefaultUpdateManifestURLsUseReleaseAPIEndpoints() {
@@ -101,7 +118,6 @@ final class SettingsTests: XCTestCase {
 
     func testMacOSIdentifiersUseJPFChangNamespace() {
         XCTAssertEqual(clambhookMacAppBundleIdentifier, "org.jpfchang.clambhook.mac")
-        XCTAssertEqual(clambhookMacTunnelBundleIdentifier, "org.jpfchang.clambhook.mac.tunnel")
         XCTAssertEqual(clambhookMacWidgetBundleIdentifier, "org.jpfchang.clambhook.mac.widgets")
         XCTAssertEqual(clambhookMacPrivilegedHelperLabel, "org.jpfchang.clambhook.mac.helper")
         XCTAssertEqual(clambhookMacPrivilegedHelperPlistName, "org.jpfchang.clambhook.mac.helper.plist")
