@@ -8,9 +8,11 @@ for device-wide routing according to the user's selected profiles and rules.
 
 Profile data, proxy credentials, private keys, connection metadata, traffic
 logs, diagnostics, and local captures stay on the device unless the user
-explicitly exports or sends them. ClambHook does not install a certificate
-authority, perform TLS man-in-the-middle inspection, store request or response
-bodies, or provide body-level HAR capture in the public product posture.
+explicitly exports or sends them. Activity inspection is metadata-only by
+default. HTTP Capture is a separate local opt-in for traffic routed through the
+daemon HTTP proxy; HTTPS capture requires a user-trusted local certificate
+authority and can store bounded request and response body previews plus HAR
+exports on this Mac.
 
 When a user activates a direct-sale license, `store.swiphtgroup.com` receives
 the license key, generated install ID, device display name, platform,

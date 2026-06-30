@@ -28,7 +28,7 @@ private let legacyBetaUpdateManifestURLStrings: Set<String> = [
     "https://jpfchang.org/api/clambhook/update-manifest?channel=beta",
 ]
 public let vpnDataUseDisclosure = """
-ClambHook routes device network traffic according to your profiles and rules. macOS inspection is metadata-only: connection targets, routing decisions, byte counts, timing, and hop status. The macOS app does not install a certificate authority, perform TLS MITM, store request or response bodies, export HAR files, or provide body-level redaction workflows. Profile data, connection metadata, traffic logs, and diagnostics stay on this device unless you export them. ClambHook does not sell, use, or disclose routed traffic data to third parties. Apple diagnostics may include crash and performance data if enabled.
+ClambHook routes device network traffic according to your profiles and rules. Activity inspection is metadata-only by default: connection targets, routing decisions, byte counts, timing, and hop status. HTTP Capture is a separate local opt-in for traffic routed through the daemon HTTP proxy; HTTPS capture requires a user-trusted local certificate authority and can store bounded request and response body previews plus HAR exports on this Mac. Profile data, connection metadata, traffic logs, diagnostics, and captures stay on this device unless you export them. ClambHook does not sell, use, or disclose routed traffic data to third parties. Apple diagnostics may include crash and performance data if enabled.
 """
 
 public let macOSProxyScopeDisclosure = """

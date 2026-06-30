@@ -153,17 +153,15 @@ DMG_SHA256="$(shasum -a 256 "$FINAL_DMG" | awk '{print $1}')"
 echo "$DMG_SHA256  ClambhookMac-arm64.dmg" > "$FINAL_DMG_CHECKSUM"
 echo "Checksum: $DMG_SHA256"
 
-# GPG-sign the checksum and update manifest with the configured release key so
-# users (and the website) can verify downloads. Defaults to the git signing key.
+# GPG-sign the checksum with the configured release key so users (and the
+# website) can verify downloads. The update manifest is signed after it is
+# generated below. Defaults to the git signing key.
 # Pass CLAMBHOOK_GPG_KEY to override. Requires a usable pinentry on the host.
 GPG_KEY="${CLAMBHOOK_GPG_KEY:-$(git -C "$ROOT_DIR" config user.signingkey 2>/dev/null || true)}"
 if [[ -n "$GPG_KEY" ]] && command -v gpg >/dev/null 2>&1; then
     GPG_BATCH_ARGS=(--batch --yes --pinentry-mode loopback --local-user "$GPG_KEY")
     if gpg "${GPG_BATCH_ARGS[@]}" --detach-sign --armor --output "$FINAL_DMG_CHECKSUM.sig" "$FINAL_DMG_CHECKSUM" 2>/dev/null; then
         echo "GPG-signed checksum with $GPG_KEY → $FINAL_DMG_CHECKSUM.sig"
-        gpg "${GPG_BATCH_ARGS[@]}" --detach-sign --armor --output "$UPDATE_MANIFEST.sig" "$UPDATE_MANIFEST" 2>/dev/null \
-            && echo "GPG-signed manifest → $UPDATE_MANIFEST.sig" \
-            || echo "Warning: manifest GPG signing failed (continuing)." >&2
     else
         echo "Warning: GPG checksum signing failed (no passphrase / agent unavailable). Artifacts are still notarized; skipping .sig." >&2
     fi
@@ -192,6 +190,13 @@ cat > "$UPDATE_MANIFEST" <<JSON
 }
 JSON
 echo "Created $UPDATE_MANIFEST"
+
+if [[ -n "${GPG_KEY:-}" ]] && command -v gpg >/dev/null 2>&1; then
+    GPG_BATCH_ARGS=(--batch --yes --pinentry-mode loopback --local-user "$GPG_KEY")
+    gpg "${GPG_BATCH_ARGS[@]}" --detach-sign --armor --output "$UPDATE_MANIFEST.sig" "$UPDATE_MANIFEST" 2>/dev/null \
+        && echo "GPG-signed manifest → $UPDATE_MANIFEST.sig" \
+        || echo "Warning: manifest GPG signing failed (continuing)." >&2
+fi
 
 # Generate a Sparkle appcast with an EdDSA-signed enclosure when Sparkle's
 # sign_update tool and private key are available. The signing key is owner-held

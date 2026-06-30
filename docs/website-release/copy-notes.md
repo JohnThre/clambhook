@@ -5,7 +5,8 @@ license device management happen on `store.swiphtgroup.com`.
 
 ## Commercial Facts
 
-- Direct download from `https://store.clambercloud.com/clambhook/`.
+- Free public macOS DMG download from `https://store.clambercloud.com/clambhook/`.
+- Public macOS support is Apple Silicon, macOS 14.0 or later.
 - One-month free trial from first launch.
 - ClambHook License: `org.jpfchang.clambhook.unlock.lifetime`, USD 99.99.
 - ClambHook for macOS 2027 Feature Update: `org.jpfchang.clambhook.feature_update.2027`, USD 9.99.
@@ -15,6 +16,7 @@ license device management happen on `store.swiphtgroup.com`.
 - One license covers up to 10 active devices across supported platforms.
 - License seats can be deactivated and moved to another device.
 - Paid feature updates unlock later feature releases. Bug fixes and security fixes remain included.
+- HTTP(S) capture is public for macOS v1 only as a local opt-in workflow with explicit HTTPS CA trust.
 
 ## URLs
 

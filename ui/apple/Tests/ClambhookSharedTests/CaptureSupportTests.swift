@@ -109,6 +109,7 @@ final class CaptureSupportTests: XCTestCase {
         XCTAssertTrue(export.contains(#""timeline""#))
         XCTAssertTrue(export.contains("Closed"))
         XCTAssertTrue(export.contains("metadata_only"))
+        XCTAssertTrue(export.contains("Activity metadata export"))
         XCTAssertFalse(export.contains("request_body"))
         XCTAssertFalse(export.contains("response_body"))
         XCTAssertFalse(export.contains("preview"))

@@ -10,6 +10,7 @@ and paid feature updates are handled by `store.swiphtgroup.com`.
 - Download page: `https://store.clambercloud.com/clambhook/download/`.
 - Buy or upgrade page: `https://store.swiphtgroup.com/clambhook/buy/`.
 - License portal: `https://store.swiphtgroup.com/clambhook/portal/`.
+- The public macOS DMG download is free and supports Apple Silicon Macs running macOS 14.0 or later.
 - The first launch starts a one-calendar-month trial.
 - A USD 99.99 ClambHook license includes one year of feature updates.
 - Versions released during that year remain usable after the update year ends.
