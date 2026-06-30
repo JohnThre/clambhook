@@ -360,8 +360,8 @@ struct AppSettingsView: View {
     }
 
     private var developerCaptureSection: some View {
-        Section("Developer Capture") {
-            Toggle("Developer capture", isOn: Binding(
+        Section("HTTP Capture") {
+            Toggle("HTTP capture", isOn: Binding(
                 get: { developerCaptureEnabled },
                 set: { enabled in
                     developerCaptureEnabled = enabled

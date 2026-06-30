@@ -616,7 +616,7 @@ public struct DeveloperBreakpointResolutionPayload: Codable, Equatable, Sendable
 }
 
 public let developerCaptureDisclosure = """
-Developer capture is opt-in and local. When enabled, ClambHook stores bounded HTTP request and response previews on this Mac for traffic routed through the daemon HTTP proxy. Sensitive headers and configured query parameters are redacted before captures are stored.
+HTTP Capture is opt-in and local. When enabled, ClambHook stores bounded HTTP request and response previews on this Mac for traffic routed through the daemon HTTP proxy. Sensitive headers and configured query parameters are redacted before captures are stored.
 """
 
 public let developerHTTPSCaptureDisclosure = """

@@ -14,7 +14,7 @@ The macOS app no longer depends on Apple's restricted Network Extension or Syste
 
 ## End-user Distribution
 
-The end-user app is distributed only from `https://store.clambercloud.com/clambhook/`. Users can try ClambHook for one calendar month on supported platforms, then buy a USD 99.99 ClambHook license from `https://store.swiphtgroup.com/clambhook/buy`. The license includes one year of feature updates; versions released during that year remain usable after the update year ends; it covers up to 10 active devices across supported platforms and seats can be deactivated for transfers. A USD 9.99 paid feature update unlocks later feature releases and extends the update window by one year from the renewal date.
+The end-user macOS app is distributed only from `https://store.clambercloud.com/clambhook/` as a free public DMG download for Apple Silicon Macs running macOS 14 or later. Users can try ClambHook for one calendar month, then buy a USD 99.99 ClambHook license from `https://store.swiphtgroup.com/clambhook/buy`. The license includes one year of feature updates; versions released during that year remain usable after the update year ends; it covers up to 10 active devices across supported platforms and seats can be deactivated for transfers. A USD 9.99 paid feature update unlocks later feature releases and extends the update window by one year from the renewal date.
 
 Official public website routes:
 

@@ -2,18 +2,18 @@ import XCTest
 @testable import ClambhookShared
 
 final class SettingsTests: XCTestCase {
-    func testVPNDataUseDisclosureMatchesMacOSMetadataOnlyPosture() {
-        XCTAssertTrue(vpnDataUseDisclosure.contains("macOS inspection is metadata-only"))
+    func testVPNDataUseDisclosureSeparatesActivityAndOptInHTTPCapture() {
+        XCTAssertTrue(vpnDataUseDisclosure.contains("Activity inspection is metadata-only by default"))
         XCTAssertTrue(vpnDataUseDisclosure.contains("does not sell, use, or disclose VPN traffic data to third parties"))
-        XCTAssertTrue(vpnDataUseDisclosure.contains("does not install a certificate authority"))
-        XCTAssertTrue(vpnDataUseDisclosure.contains("perform TLS MITM"))
-        XCTAssertTrue(vpnDataUseDisclosure.contains("export HAR files"))
-        XCTAssertFalse(vpnDataUseDisclosure.contains("HTTPS body capture is opt-in"))
-        XCTAssertFalse(vpnDataUseDisclosure.contains("body previews"))
+        XCTAssertTrue(vpnDataUseDisclosure.contains("HTTP Capture is a separate local opt-in"))
+        XCTAssertTrue(vpnDataUseDisclosure.contains("user-trusted local certificate authority"))
+        XCTAssertTrue(vpnDataUseDisclosure.contains("bounded request and response body previews"))
+        XCTAssertTrue(vpnDataUseDisclosure.contains("HAR exports on this Mac"))
+        XCTAssertTrue(vpnDataUseDisclosure.contains("captures stay on this device unless you export them"))
     }
 
     func testDeveloperCaptureDisclosureSeparatesHTTPAndHTTPSCapture() {
-        XCTAssertTrue(developerCaptureDisclosure.contains("Developer capture is opt-in and local"))
+        XCTAssertTrue(developerCaptureDisclosure.contains("HTTP Capture is opt-in and local"))
         XCTAssertTrue(developerCaptureDisclosure.contains("configured query parameters are redacted"))
         XCTAssertFalse(developerCaptureDisclosure.contains("creates a local certificate authority"))
 

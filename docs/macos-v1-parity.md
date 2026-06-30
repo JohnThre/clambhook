@@ -23,7 +23,7 @@ capability approvals while preserving a practical direct-download macOS path.
   explain, profile import/export, encrypted DNS, rule subscriptions, and
   full-tunnel versus proxy-mode clarity.
 - have: Enhanced Mode-style device-wide routing on macOS through utun.
-- partial: MitM/SSL decrypt exists via Developer capture, but there is no
+- partial: MitM/SSL decrypt exists via opt-in HTTP Capture, but there is no
   per-host SSL allowlist UX.
 - missing: scripting engine.
 

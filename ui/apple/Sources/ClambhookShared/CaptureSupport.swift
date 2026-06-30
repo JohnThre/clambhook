@@ -327,7 +327,7 @@ public struct CaptureBodyPayload: Codable, Equatable, Sendable {
 }
 
 public enum CaptureSupport {
-    public static let captureNote = "Metadata-only export. HTTP rows include method, host, path, route, byte counts, timing, and connection timeline. HTTPS rows contain CONNECT metadata only. Payload bodies, headers, local CA data, TLS interception data, and HAR fields are not collected or exported in v1."
+    public static let captureNote = "Activity metadata export. HTTP rows include method, host, path, route, byte counts, timing, and connection timeline. HTTPS rows contain CONNECT metadata only. Payload bodies, headers, local CA data, TLS interception data, and HAR fields are available only through the separate opt-in HTTP Capture tools."
 
     public static func snapshot(
         traffic: TrafficSnapshotPayload,

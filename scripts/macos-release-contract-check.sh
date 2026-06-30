@@ -35,6 +35,15 @@ reject_text() {
     fi
 }
 
+reject_tree_text() {
+    local root="$1"
+    local pattern="$2"
+    local label="$3"
+    if [[ -d "$root" ]] && grep -RFiq "$pattern" "$root"; then
+        fail "$label contains prohibited text: $pattern"
+    fi
+}
+
 require_command grep
 require_command python3
 
@@ -81,6 +90,7 @@ for path in \
 done
 
 require_text "$readme" "distributed only from \`https://store.clambercloud.com/clambhook/\`" "README distribution policy"
+require_text "$readme" "free public DMG download for Apple Silicon Macs running macOS 14 or later" "README macOS availability policy"
 product_promise="USD 99.99"
 versions_promise="during that year remain usable"
 device_promise="up to 10 active"
@@ -94,6 +104,7 @@ require_text "$readme" "$transfer_promise" "README transfer policy"
 require_text "$distribution" "A USD 99.99 ClambHook license includes one year of feature updates" "distribution policy"
 require_text "$distribution" "$versions_promise" "distribution policy"
 require_text "$distribution" "A USD 9.99 paid feature update unlocks later feature releases" "distribution policy"
+require_text "$distribution" "free and supports Apple Silicon Macs running macOS 14.0 or later" "distribution macOS availability policy"
 require_text "$distribution" "Device seats can be deactivated" "distribution policy"
 require_text "$distribution" "ClambHook License" "distribution products"
 require_text "$distribution" "Bug fixes and security fixes remain included" "distribution update policy"
@@ -112,6 +123,12 @@ for public_copy_file in "$commercial_setup" "$product_copy_en_us" "$copy_notes" 
     reject_text "$public_copy_file" "Lifetime license" "public product copy"
     reject_text "$public_copy_file" "lifetime license" "public product copy"
 done
+
+require_text "$privacy" "HTTP Capture is a separate local opt-in" "privacy capture disclosure"
+require_text "$privacy" "user-trusted local certificate" "privacy HTTPS capture disclosure"
+require_text "$product_copy_en_us" "Apple Silicon Macs running macOS 14 or later" "product copy macOS availability"
+require_text "$product_copy_en_us" "HTTP Capture workflows" "product copy capture feature"
+require_text "$copy_notes" "HTTP(S) capture is public for macOS v1" "copy notes capture policy"
 
 for website_release_file in \
     "$commercial_setup" \
@@ -150,6 +167,14 @@ require_text "$recovery" "Trial ended" "macOS website license recovery copy"
 require_text "$app_model" "Trial has ended" "macOS website license app copy"
 require_text "$purchase_view" "Buy license - USD" "macOS website license purchase copy"
 require_text "$mobile_support" "ClambHook License" "macOS website license product copy"
+
+if [[ -d "$ROOT_DIR/.github" ]]; then
+    reject_tree_text "$ROOT_DIR/.github" "upload-artifact" "GitHub workflow release policy"
+    reject_tree_text "$ROOT_DIR/.github" "gh release upload" "GitHub workflow release policy"
+    reject_tree_text "$ROOT_DIR/.github" "softprops/action-gh-release" "GitHub workflow release policy"
+    reject_tree_text "$ROOT_DIR/.github" ".dmg" "GitHub workflow release policy"
+    reject_tree_text "$ROOT_DIR/.github" ".pkg" "GitHub workflow release policy"
+fi
 
 python3 - "$product_fixture" <<'PY'
 import json
