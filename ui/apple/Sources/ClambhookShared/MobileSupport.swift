@@ -17,7 +17,7 @@ public enum MobilePurchaseCatalog {
     public static let featureUpdatePrefix = "org.jpfchang.clambhook.feature_update."
 
     public static let products: [MobilePurchaseProduct] = [
-        MobilePurchaseProduct(id: macLicenseProductID, displayName: "ClambHook for macOS License"),
+        MobilePurchaseProduct(id: macLicenseProductID, displayName: "ClambHook License"),
         MobilePurchaseProduct(id: featureUpdate2027ID, displayName: "ClambHook for macOS 2027 Feature Update"),
     ]
 

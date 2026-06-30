@@ -56,7 +56,7 @@ private final class SparkleDelegate: NSObject, SPUUpdaterDelegate {
         throw NSError(
             domain: "org.jpfchang.clambhook.sparkle",
             code: 1,
-            userInfo: [NSLocalizedDescriptionKey: "This update adds features released after your update window. Renew feature updates at jpfchang.org to install it. Bug and security fixes remain available."]
+            userInfo: [NSLocalizedDescriptionKey: "This update adds features released after your update window. Renew feature updates at store.swiphtgroup.com to install it. Bug and security fixes remain available."]
         )
     }
 }

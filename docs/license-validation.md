@@ -1,19 +1,19 @@
 # License Validation
 
-The macOS direct-sale build uses the hosted jpfchang.org license backend for
-trial, activation, device-seat, and paid-feature-update state. The current
-public distribution path is the website download for Apple Silicon Macs.
+ClambHook uses the hosted `store.swiphtgroup.com` license backend for trial,
+activation, device-seat, and paid-feature-update state. Public downloads and
+update manifests are served from `store.clambercloud.com`.
 
 ## Production Backend
 
-The production macOS license backend is hosted by `jpfchang.org` under:
+The production license backend is hosted under:
 
-`https://jpfchang.org/clambhook/license/v1/macos`
+`https://store.swiphtgroup.com/clambhook/license/v1/devices`
 
-This repository no longer contains a standalone Go license server. Backend
-deployment, persistent storage, backups, rate limiting, payment webhooks,
-email delivery, monitoring, and log redaction are maintained in the
-`jpfchang.org` production infrastructure.
+This repository does not contain the hosted license server. Backend deployment,
+persistent storage, backups, rate limiting, payment webhooks, email delivery,
+monitoring, and log redaction are maintained in the `swiphtgroup.com` store
+infrastructure.
 
 The application stores and transmits stable identifiers only through the hosted
 license flow. The backend stores hashed license keys, checkout records, license
@@ -25,30 +25,25 @@ license activation.
 
 ## Endpoints
 
-- `POST /clambhook/license/v1/macos/activate` activates or refreshes a licensed
-  Mac seat.
-- `POST /clambhook/license/v1/macos/deactivate` deactivates a Mac seat before
-  transfer or retirement.
-- `POST /clambhook/license/v1/macos/reactivate` reactivates a known Mac seat
-  when policy allows it.
-- `POST /clambhook/license/v1/macos/transfer` records a transfer between Mac
-  seats.
-- `POST /clambhook/license/v1/macos/portal` powers the browser license portal
-  for device listing, web activation, deactivation, and transfer.
+- `POST /clambhook/license/v1/devices/activate` activates or refreshes a licensed device.
+- `POST /clambhook/license/v1/devices/deactivate` deactivates a device seat before transfer or retirement.
+- `POST /clambhook/license/v1/devices/reactivate` reactivates a known device when policy allows it.
+- `POST /clambhook/license/v1/devices/transfer` records a transfer by deactivating the current device seat.
+- Compatibility aliases under `/clambhook/license/v1/macos/*` may remain available for older macOS builds during migration.
 
-Website checkout and claim flows are exposed through `/api/clambhook/checkout`,
-`/api/clambhook/claim`, `/api/clambhook/nowpayments-webhook`, and the shared
-Creem webhook handler in the jpfchang.org site.
+Website checkout and claim flows are exposed through `/api/clambhook/checkout`
+and the shared Creem webhook handler in the `swiphtgroup.com` store.
 
-Users can manage device seats from `https://jpfchang.org/clambhook/portal/`.
+Users can manage device seats from
+`https://store.swiphtgroup.com/clambhook/portal/`.
 
 ## Distribution Contract
 
-Direct-sale ClambHook licenses are valid only for macOS on Apple Silicon. The
-USD 99.99 direct-sale macOS license includes one year of feature updates;
-versions released during that year remain usable; each license covers up to 4 active
-Apple Silicon Macs and is transferable between devices. Each USD 8.99 paid
-feature update unlocks new features released after the included first year and
-extends the update window by one year. Bug fixes and security fixes remain
-included. The public installer is downloaded from jpfchang.org, and generated
-installer artifacts must not be published from GitHub or package mirrors.
+A USD 99.99 ClambHook license includes one year of feature updates; versions
+released during that year remain usable; each license covers up to 10 active
+devices across supported platforms. Device seats can be deactivated and moved to
+another device. Each USD 9.99 paid feature update unlocks later feature releases
+and extends the update window by one year from the renewal purchase date. Bug
+fixes and security fixes remain included. Public installers are downloaded from
+`store.clambercloud.com`, and generated installer artifacts must not be
+published from GitHub or package mirrors.

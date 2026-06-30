@@ -1,68 +1,59 @@
 # Website Commercial Setup
 
-This checklist is the source of truth for the ClambHook for macOS direct-sale
-setup on jpfchang.org. It covers product-page, checkout, artifact, and license
-backend configuration for the website distribution path.
+This checklist is the source of truth for ClambHook direct-sale setup across
+`store.clambercloud.com` and `store.swiphtgroup.com`.
 
 ## Account Prerequisites
 
-- Confirm the production jpfchang.org deployment has the `DB` binding.
-- Confirm the `CLAMBHOOK_ARTIFACTS` R2 bucket is configured.
-- Confirm the ClambHook macOS license migrations have been applied.
-- Confirm Creem product IDs are configured for the direct-sale license and paid
-  feature update.
-- Confirm NowPayments credentials are configured if crypto checkout is enabled.
+- Confirm `store.clambercloud.com` serves ClambHook product, download, support, privacy, update manifest, appcast, and artifact routes.
+- Confirm `store.swiphtgroup.com` has the `DB` binding and ClambHook license migrations applied.
+- Confirm the ClambHook artifact R2 bucket is configured for download/update delivery.
+- Confirm Creem product IDs are configured for the USD 99.99 license and USD 9.99 paid feature update.
 - Confirm license grant email delivery is configured before accepting purchases.
 
 ## Product Page
 
-- Product name: `ClambHook for macOS`.
-- Official URL: `https://jpfchang.org/clambhook/`.
-- Buy URL: `https://jpfchang.org/clambhook/buy/`.
-- License Portal URL: `https://jpfchang.org/clambhook/portal/`.
-- Support URL: `https://jpfchang.org/clambhook/support/`.
-- Privacy Policy URL: `https://jpfchang.org/clambhook/privacy/`.
-- Platform copy: Apple Silicon Mac, macOS 14 or later.
-- Distribution copy: direct website download from jpfchang.org.
-
-Do not describe the current public release as an alternate-platform app,
-subscription, or marketplace purchase. The public copy should point users to the
-website download, the two-month trial, and direct-sale licensing.
+- Product name: `ClambHook`.
+- Product URL: `https://store.clambercloud.com/clambhook/`.
+- Download URL: `https://store.clambercloud.com/clambhook/download/`.
+- Buy URL: `https://store.swiphtgroup.com/clambhook/buy/`.
+- License Portal URL: `https://store.swiphtgroup.com/clambhook/portal/`.
+- Support URL: `https://store.clambercloud.com/clambhook/support/`.
+- Privacy Policy URL: `https://store.clambercloud.com/clambhook/privacy/`.
+- Distribution copy: direct download from `store.clambercloud.com`.
 
 ## License Products
 
-Create and keep stable these website product identifiers:
+Create and keep stable these product identifiers:
 
 | Display name | Product ID | Type | US base price |
 | --- | --- | --- | --- |
-| ClambHook for macOS License | `org.jpfchang.clambhook.unlock.lifetime` | Direct-sale license | USD 99.99 |
-| ClambHook for macOS 2027 Feature Update | `org.jpfchang.clambhook.feature_update.2027` | Direct-sale paid feature update | USD 8.99 |
+| ClambHook License | `org.jpfchang.clambhook.unlock.lifetime` | Direct-sale license | USD 99.99 |
+| ClambHook for macOS 2027 Feature Update | `org.jpfchang.clambhook.feature_update.2027` | Direct-sale paid feature update | USD 9.99 |
 
 Future paid feature update products use the pattern
 `org.jpfchang.clambhook.feature_update.YYYY`.
 
 The USD 99.99 license includes one year of feature updates. Versions released
 during that year remain usable after the update year ends. Each license covers
-up to 4 active Apple Silicon Macs and is transferable between devices. Paid
-feature updates extend the feature-release window. Bug fixes and security fixes
-remain included.
+up to 10 active devices across supported platforms. Device seats can be
+deactivated and moved to another device. Paid feature updates extend the
+feature-release window by one year from the renewal purchase date. Bug fixes and
+security fixes remain included.
 
 ## Checkout
 
 - Creem is the default checkout provider.
-- NowPayments is the optional crypto checkout provider.
 - The checkout page posts to `/api/clambhook/checkout`.
-- License claim links return to `/clambhook/success`.
-- License issue and paid-update application happen through `/api/clambhook/claim`
-  after a valid checkout redirect or confirmed NowPayments request.
+- License issuance and paid-update application happen from verified Creem webhook events.
+- Paid update checkout requires an existing license key.
 
 ## Verification
 
-- Confirm `/api/clambhook/download` returns the current notarized macOS DMG.
-- Confirm `/api/clambhook/update-manifest` returns the current update manifest.
+- Confirm `https://store.clambercloud.com/api/clambhook/download` returns the current notarized macOS DMG while platform-specific artifacts are configured.
+- Confirm `https://store.clambercloud.com/api/clambhook/update-manifest` returns the current update manifest.
 - Confirm license checkout creates a license and sends the license email.
-- Confirm paid update checkout requires an existing license key.
-- Confirm activation accepts only macOS Apple Silicon device registrations.
+- Confirm paid update checkout extends the update window by one year from the later of the existing cutoff or renewal date.
+- Confirm activation enforces 10 active devices across supported platforms.
 - Confirm deactivation, reactivation, and transfer flows update device seats.
-- Confirm the license portal can list devices, activate by install ID,
-  deactivate a selected device, and mark a selected device for transfer.
+- Confirm the license portal can list devices and deactivate a selected device.

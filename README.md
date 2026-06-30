@@ -14,17 +14,17 @@ The macOS app no longer depends on Apple's restricted Network Extension or Syste
 
 ## End-user Distribution
 
-The end-user macOS app is distributed only from `https://jpfchang.org/clambhook/`. It is a direct website download for Apple Silicon Macs running macOS 14 or later, with a two-month free trial and direct-sale licensing handled on jpfchang.org. The USD 99.99 direct-sale macOS license includes one year of feature updates; versions released during that year remain usable after the update year ends; it covers up to 4 active Apple Silicon Macs and is transferable between devices. A USD 8.99 paid feature update unlocks new features released after the included first year and extends the update window by one year.
+The end-user app is distributed only from `https://store.clambercloud.com/clambhook/`. Users can try ClambHook for one calendar month on supported platforms, then buy a USD 99.99 ClambHook license from `https://store.swiphtgroup.com/clambhook/buy`. The license includes one year of feature updates; versions released during that year remain usable after the update year ends; it covers up to 10 active devices across supported platforms and seats can be deactivated for transfers. A USD 9.99 paid feature update unlocks later feature releases and extends the update window by one year from the renewal date.
 
 Official public website routes:
 
-- Product: `https://jpfchang.org/clambhook/`
-- Download: `https://jpfchang.org/clambhook/download/`
-- Buy or upgrade: `https://jpfchang.org/clambhook/buy/`
-- License portal: `https://jpfchang.org/clambhook/portal/`
-- License terms: `https://jpfchang.org/clambhook/license/`
-- Privacy policy: `https://jpfchang.org/clambhook/privacy/`
-- Support: `https://jpfchang.org/clambhook/support/`
+- Product: `https://store.clambercloud.com/clambhook/`
+- Download: `https://store.clambercloud.com/clambhook/download/`
+- Buy or upgrade: `https://store.swiphtgroup.com/clambhook/buy/`
+- License portal: `https://store.swiphtgroup.com/clambhook/portal/`
+- License terms: `https://store.swiphtgroup.com/clambhook/license/`
+- Privacy policy: `https://store.clambercloud.com/clambhook/privacy/`
+- Support: `https://store.clambercloud.com/clambhook/support/`
 
 ClambHook is not distributed to end users through app marketplaces, GitHub Releases, Homebrew, package registries, or third-party mirrors. Other platform builds are internal developer QA targets until a separate distribution plan is approved.
 

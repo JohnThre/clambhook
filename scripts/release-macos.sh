@@ -24,7 +24,7 @@ else
     UPDATE_MANIFEST="$DIST_DIR/clambhook-update-manifest.json"
     APPCAST="$DIST_DIR/appcast.xml"
 fi
-APPCAST_DOWNLOAD_URL="${CLAMBHOOK_APPCAST_DOWNLOAD_URL:-https://jpfchang.org/api/clambhook/download}"
+APPCAST_DOWNLOAD_URL="${CLAMBHOOK_APPCAST_DOWNLOAD_URL:-https://store.clambercloud.com/api/clambhook/download}"
 DAEMON="$ROOT_DIR/bin/clambhook"
 SODIUM="$ROOT_DIR/bin/libsodium.26.dylib"
 HELPER_ENTITLEMENTS="$ROOT_DIR/ui/apple/ClambhookMac/ClambhookDaemon.entitlements"
@@ -185,7 +185,7 @@ cat > "$UPDATE_MANIFEST" <<JSON
   "channel": "${UPDATE_CHANNEL}",
   "published_at": "${BUILD_DATE}",
   "minimum_os_version": "14.0",
-  "url": "https://jpfchang.org/api/clambhook/download",
+  "url": "https://store.clambercloud.com/api/clambhook/download",
   "filename": "ClambhookMac-arm64.dmg",
   "sha256": "${DMG_SHA256}",
   "size": ${DMG_SIZE}
@@ -210,7 +210,7 @@ if [[ -n "$SIGN_UPDATE" && -x "$SIGN_UPDATE" ]]; then
 <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" xmlns:dc="http://purl.org/dc/elements/1.1/">
   <channel>
     <title>ClambHook for macOS</title>
-    <link>https://jpfchang.org/clambhook/</link>
+    <link>https://store.clambercloud.com/clambhook/</link>
     <description>ClambHook for macOS updates (${UPDATE_CHANNEL} channel).</description>
     <language>en</language>
     <item>

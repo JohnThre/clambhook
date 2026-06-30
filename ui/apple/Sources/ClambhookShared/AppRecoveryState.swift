@@ -252,7 +252,7 @@ public enum AppRecoveryStateBuilder {
             kind: .licenseBackendUnavailable,
             severity: .error,
             title: "License service unavailable",
-            message: "The jpfchang.org license service is not reachable right now. Activate with an existing key or try again after the service is reachable.",
+            message: "The store.swiphtgroup.com license service is not reachable right now. Activate with an existing key or try again after the service is reachable.",
             systemImage: "cart.badge.exclamationmark",
             primaryAction: .activateLicense,
             secondaryActions: [.openLicensePortal, .refresh, .support],
@@ -325,8 +325,8 @@ public enum AppRecoveryStateBuilder {
 
     private static func expiredTrialMessage(decision: MobileLicenseDecision) -> String {
         if let trialEndsAt = decision.trialEndsAt {
-            return "The two-month trial ended \(trialEndsAt.formatted(date: .abbreviated, time: .omitted)). Buy or activate a ClambHook macOS license to continue."
+            return "The one-month trial ended \(trialEndsAt.formatted(date: .abbreviated, time: .omitted)). Buy or activate a ClambHook license to continue."
         }
-        return "Buy or activate a ClambHook macOS license to continue."
+        return "Buy or activate a ClambHook license to continue."
     }
 }

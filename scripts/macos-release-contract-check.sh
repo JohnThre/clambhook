@@ -80,22 +80,22 @@ for path in \
     require_file "$path"
 done
 
-require_text "$readme" "distributed only from \`https://jpfchang.org/clambhook/\`" "README distribution policy"
+require_text "$readme" "distributed only from \`https://store.clambercloud.com/clambhook/\`" "README distribution policy"
 product_promise="USD 99.99"
 versions_promise="during that year remain usable"
-device_promise="up to 4 active"
-transfer_promise="transferable"
+device_promise="up to 10 active"
+transfer_promise="deactivated"
 
-require_text "$readme" "USD 99.99 direct-sale macOS license includes one year of feature updates" "README license policy"
+require_text "$readme" "USD 99.99 ClambHook license" "README license policy"
 require_text "$readme" "$versions_promise" "README version-usability policy"
 require_text "$readme" "$device_promise" "README device policy"
 require_text "$readme" "$transfer_promise" "README transfer policy"
 
-require_text "$distribution" "A USD 99.99 direct-sale macOS license includes one year of feature updates" "distribution policy"
+require_text "$distribution" "A USD 99.99 ClambHook license includes one year of feature updates" "distribution policy"
 require_text "$distribution" "$versions_promise" "distribution policy"
-require_text "$distribution" "A USD 8.99 paid feature update unlocks new features released after the included first year" "distribution policy"
-require_text "$distribution" "License device listing, activation, deactivation, and transfer" "distribution policy"
-require_text "$distribution" "ClambHook for macOS License" "distribution products"
+require_text "$distribution" "A USD 9.99 paid feature update unlocks later feature releases" "distribution policy"
+require_text "$distribution" "Device seats can be deactivated" "distribution policy"
+require_text "$distribution" "ClambHook License" "distribution products"
 require_text "$distribution" "Bug fixes and security fixes remain included" "distribution update policy"
 reject_text "$distribution" "In-App Purchase" "distribution policy"
 reject_text "$distribution" "StoreKit" "distribution policy"
@@ -130,8 +130,8 @@ for website_release_file in \
     reject_text "$website_release_file" "app-review" "macOS website release copy"
 done
 
-require_text "$settings" "https://jpfchang.org/api/clambhook/update-manifest" "stable update manifest"
-require_text "$settings" "https://jpfchang.org/api/clambhook/update-manifest?channel=beta" "beta update manifest"
+require_text "$settings" "https://store.clambercloud.com/api/clambhook/update-manifest" "stable update manifest"
+require_text "$settings" "https://store.clambercloud.com/api/clambhook/update-manifest?channel=beta" "beta update manifest"
 reject_text "$settings" "public let defaultStableUpdateManifestURL = URL(string: \"https://jpfchang.org/clambhook/clambhook-update-manifest.json\")!" "stable update manifest"
 reject_text "$settings" "public let defaultBetaUpdateManifestURL = URL(string: \"https://jpfchang.org/clambhook/clambhook-beta-update-manifest.json\")!" "beta update manifest"
 
@@ -144,12 +144,12 @@ for ui_copy_file in "$licensing" "$recovery" "$app_model" "$purchase_view" "$mob
     reject_text "$ui_copy_file" "Lifetime Unlock" "macOS website license UI copy"
 done
 
-require_text "$licensing" "Two-month trial" "macOS website license UI copy"
+require_text "$licensing" "One-month trial" "macOS website license UI copy"
 require_text "$licensing" "Paid feature updates unlock later feature releases" "macOS website license UI copy"
 require_text "$recovery" "Trial ended" "macOS website license recovery copy"
 require_text "$app_model" "Trial has ended" "macOS website license app copy"
-require_text "$purchase_view" "Buy macOS license - USD" "macOS website license purchase copy"
-require_text "$mobile_support" "ClambHook for macOS License" "macOS website license product copy"
+require_text "$purchase_view" "Buy license - USD" "macOS website license purchase copy"
+require_text "$mobile_support" "ClambHook License" "macOS website license product copy"
 
 python3 - "$product_fixture" <<'PY'
 import json
@@ -168,13 +168,13 @@ expected = [
         "productID": "org.jpfchang.clambhook.unlock.lifetime",
         "kind": "license",
         "displayPrice": "99.99",
-        "displayName": "ClambHook for macOS License",
-        "description": "USD 99.99 direct-sale macOS license includes one year of feature updates; versions released during that year remain usable; up to 4 active Apple Silicon Macs; transferable.",
+        "displayName": "ClambHook License",
+        "description": "USD 99.99 ClambHook license includes one year of feature updates; versions released during that year remain usable; up to 10 active devices; deactivatable and transferable.",
     },
     {
         "productID": "org.jpfchang.clambhook.feature_update.2027",
         "kind": "feature_update",
-        "displayPrice": "8.99",
+        "displayPrice": "9.99",
         "displayName": "ClambHook for macOS 2027 Feature Update",
         "description": "Extends the ClambHook macOS feature-update window by one year.",
     },

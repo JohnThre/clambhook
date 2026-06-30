@@ -110,8 +110,8 @@ struct MacLicenseSection: View {
                 .disabled(manager.isLoading || !manager.deviceState.canTransferCurrentDevice)
             }
 
-            Link(destination: URL(string: "https://jpfchang.org/clambhook/buy")!) {
-                Label("Buy macOS license - USD \(MobileLicenseCommercialTerms.licensePriceUSD)", systemImage: "cart")
+            Link(destination: URL(string: "https://store.swiphtgroup.com/clambhook/buy")!) {
+                Label("Buy license - USD \(MobileLicenseCommercialTerms.licensePriceUSD)", systemImage: "cart")
             }
 
             Link(destination: defaultLicensePortalURL) {
