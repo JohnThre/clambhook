@@ -224,7 +224,7 @@ private struct OnboardingLicenseActivationInline: View {
                     if manager.isLoading {
                         ProgressView().controlSize(.small)
                     }
-                    Link("Buy license", destination: URL(string: "https://jpfchang.org/clambhook/buy")!)
+                    Link("Buy license", destination: URL(string: "https://store.swiphtgroup.com/clambhook/buy")!)
                         .font(.subheadline)
                 }
                 if !manager.statusMessage.isEmpty {

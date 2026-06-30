@@ -519,7 +519,7 @@ final class AppleAppModel: ObservableObject {
         case .openAppSettings, .openSettings:
             daemonMessage = "open settings"
         case .buyLicense:
-            openExternalURL(URL(string: "https://jpfchang.org/clambhook/buy")!)
+            openExternalURL(URL(string: "https://store.swiphtgroup.com/clambhook/buy")!)
         case .activateLicense:
             daemonMessage = "open license"
         case .openLicensePortal, .renewUpdates:
@@ -1147,7 +1147,7 @@ enum AppleAppModelError: Error, LocalizedError {
         case .invalidRules:
             return "The rule changes could not be encoded."
         case .licenseLocked:
-            return "Trial has ended. Buy or activate a ClambHook macOS license to keep using ClambHook."
+            return "Trial has ended. Buy or activate a ClambHook license to keep using ClambHook."
         }
     }
 }

@@ -97,12 +97,12 @@ final class MobileSupportTests: XCTestCase {
         try assertDirectSaleProduct(
             productsByID[MobilePurchaseCatalog.macLicenseProductID],
             displayPrice: "99.99",
-            displayName: "ClambHook for macOS License",
-            description: "USD 99.99 direct-sale macOS license includes one year of feature updates; versions released during that year remain usable; up to 4 active Apple Silicon Macs; transferable."
+            displayName: "ClambHook License",
+            description: "USD 99.99 ClambHook license includes one year of feature updates; versions released during that year remain usable; up to 10 active devices; deactivatable and transferable."
         )
         try assertDirectSaleProduct(
             productsByID[MobilePurchaseCatalog.featureUpdate2027ID],
-            displayPrice: "8.99",
+            displayPrice: "9.99",
             displayName: "ClambHook for macOS 2027 Feature Update",
             description: "Extends the ClambHook macOS feature-update window by one year."
         )

@@ -1,12 +1,13 @@
 # Website Availability Plan
 
-This is the availability plan for the ClambHook for macOS website distribution
+This is the availability plan for the ClambHook direct-download distribution
 path. It is an operational release plan, not a legal opinion.
 
 ## Decision
 
-Distribute the public macOS release only from jpfchang.org and only for users
-whose checkout and download access Pengfan Chang intentionally enables.
+Distribute public ClambHook downloads only from `store.clambercloud.com`.
+Process checkout, paid updates, and license device management only on
+`store.swiphtgroup.com`.
 
 Do not publish ClambHook installers from GitHub, package registries, public
 mirrors, or third-party marketplaces. Do not enable broad automated geographic
@@ -14,35 +15,26 @@ expansion without a fresh review.
 
 ## Website Setup
 
-- Product page: `https://jpfchang.org/clambhook/`
-- Buy page: `https://jpfchang.org/clambhook/buy/`
-- License portal: `https://jpfchang.org/clambhook/portal/`
-- Download endpoint: `https://jpfchang.org/api/clambhook/download`
-- Update manifest endpoint: `https://jpfchang.org/api/clambhook/update-manifest`
-- Artifact storage: configured private R2 bucket served through the website
-
-Public copy must send users to jpfchang.org rather than alternate installer
-locations.
+- Product page: `https://store.clambercloud.com/clambhook/`
+- Download endpoint: `https://store.clambercloud.com/api/clambhook/download`
+- Update manifest endpoint: `https://store.clambercloud.com/api/clambhook/update-manifest`
+- Appcast endpoint: `https://store.clambercloud.com/api/clambhook/appcast.xml`
+- Buy page: `https://store.swiphtgroup.com/clambhook/buy/`
+- License portal: `https://store.swiphtgroup.com/clambhook/portal/`
+- Artifact storage: configured private R2 bucket served through the download host
 
 ## Expansion Gate
 
 Before broadening availability, payment coverage, or public distribution:
 
-- Confirm whether local law permits this private VPN/proxy router with metadata
-  inspection to be offered in that country or region.
-- Confirm whether a VPN, telecom, cybersecurity, encryption, or similar license
-  is required.
+- Confirm whether local law permits this private VPN/proxy router with metadata inspection to be offered in that country or region.
+- Confirm whether a VPN, telecom, cybersecurity, encryption, or similar license is required.
 - If a license is required, obtain and verify it before selecting the territory.
-- Record the clearance result, reviewer, review date, and source materials
-  before changing website, checkout, or download availability.
+- Record the clearance result, reviewer, review date, and source materials before changing website, checkout, or download availability.
 - Update public support and policy copy when the distribution scope changes.
-- Keep access disabled if clearance is incomplete, disputed, expired, or
-  unavailable.
+- Keep access disabled if clearance is incomplete, disputed, expired, or unavailable.
 
 ## Clearance Record Template
-
-Use this template for each future expansion decision. Do not commit secrets or
-confidential legal work product.
 
 ```text
 Country or region:

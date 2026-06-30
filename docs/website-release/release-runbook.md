@@ -1,6 +1,6 @@
 # macOS Release Runbook (Owner)
 
-End-user macOS installer is distributed **only from jpfchang.org**. GitHub stays
+End-user macOS installer is distributed **only from store.clambercloud.com**. GitHub stays
 source-only and view-only. The installer is Apple Developer ID signed,
 notarized, and stapled so Gatekeeper shows no warnings. Release artifacts are
 GPG-signed with the configured release key.
@@ -96,7 +96,7 @@ echo test | gpg --batch --yes --pinentry-mode loopback \
 
 If you want a different key for releases, set `CLAMBHOOK_GPG_KEY` in your
 release shell. Make sure the public key is published to keyservers and listed
-on jpfchang.org so users can verify.
+on the ClambHook download page so users can verify.
 
 ### 0.5 R2 + website
 
@@ -104,8 +104,9 @@ on jpfchang.org so users can verify.
 export CLAMBHOOK_R2_BUCKET=clambhook-artifacts
 ```
 
-Confirm the `CLAMBHOOK_ARTIFACTS` R2 bucket is bound to the jpfchang.org
-deployment and the D1 DB + migrations are applied (see
+Confirm the `CLAMBHOOK_ARTIFACTS` R2 bucket is bound to the
+store.clambercloud.com deployment and the store.swiphtgroup.com D1 DB +
+migrations are applied (see
 `docs/website-release/commercial-setup.md`).
 
 ## 1. Build, sign, notarize, package
@@ -175,9 +176,9 @@ Do not attach the DMG or any installer artifact to the GitHub release.
 ## 4. Confirm the website serves the new build
 
 ```sh
-curl -sI https://jpfchang.org/api/clambhook/download | head -1
-curl -s https://jpfchang.org/api/clambhook/update-manifest | head
-curl -s https://jpfchang.org/api/clambhook/appcast.xml | head
+curl -sI https://store.clambercloud.com/api/clambhook/download | head -1
+curl -s https://store.clambercloud.com/api/clambhook/update-manifest | head
+curl -s https://store.clambercloud.com/api/clambhook/appcast.xml | head
 ```
 
 The download endpoint serves the latest notarized DMG from R2; the appcast and
@@ -190,7 +191,7 @@ Tell users to verify the download against the GPG-signed checksum:
 
 ```sh
 # 1. Download ClambhookMac-arm64.dmg, ClambhookMac-arm64.dmg.sha256, and
-#    ClambhookMac-arm64.dmg.sha256.sig from jpfchang.org/clambhook/download/
+#    ClambhookMac-arm64.dmg.sha256.sig from store.clambercloud.com/clambhook/download/
 # 2. Import the Pengfan Chang (developer@jpfchang.org) public key.
 # 3. Verify:
 gpg --verify ClambhookMac-arm64.dmg.sha256.sig ClambhookMac-arm64.dmg.sha256

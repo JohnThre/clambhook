@@ -1,11 +1,11 @@
 import Foundation
 
-public let mobileLicenseMaxActiveDevices = 4
+public let mobileLicenseMaxActiveDevices = 10
 public let mobileLicenseDeviceStateDefaultsKey = "clambhook.apple.license.device-state"
 
 public enum MobileLicenseCommercialTerms {
     public static let licensePriceUSD = "99.99"
-    public static let paidFeatureUpdatePriceUSD = "8.99"
+    public static let paidFeatureUpdatePriceUSD = "9.99"
     public static let includedFeatureUpdateYears = 1
     public static let maxActiveDevices = mobileLicenseMaxActiveDevices
 }

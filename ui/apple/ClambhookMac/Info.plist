@@ -23,7 +23,7 @@
 	<key>LSUIElement</key>
 	<true/>
 	<key>SUFeedURL</key>
-	<string>https://jpfchang.org/api/clambhook/appcast.xml</string>
+	<string>https://store.clambercloud.com/api/clambhook/appcast.xml</string>
 	<key>SUPublicEDKey</key>
 	<string>REPLACE_WITH_SPARKLE_ED25519_PUBLIC_KEY</string>
 	<key>SUEnableInstallerLauncherService</key>

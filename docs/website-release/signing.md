@@ -62,7 +62,7 @@ R2 upload.
 ## Sparkle Auto-Update
 
 The macOS app uses Sparkle for in-app download and install of updates. The app
-checks the EdDSA-signed appcast served from jpfchang.org and gates feature
+checks the EdDSA-signed appcast served from store.clambercloud.com and gates feature
 updates to the buyer's license update window (bug and security fixes remain
 available).
 
@@ -82,7 +82,7 @@ available).
   (`appcast-beta.xml` on the beta channel) under `dist/macos/`.
 - `make upload-release-r2` uploads the appcast to R2 as `appcast.xml` /
   `appcast-beta.xml`.
-- The website serves it at `https://jpfchang.org/api/clambhook/appcast.xml`
+- The website serves it at `https://store.clambercloud.com/api/clambhook/appcast.xml`
   (and `?channel=beta`), which matches the app's `SUFeedURL`.
 
 ### Feed and entitlements

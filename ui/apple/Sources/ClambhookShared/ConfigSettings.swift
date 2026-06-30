@@ -185,7 +185,7 @@ public struct MacUpdateManifest: Codable, Equatable, Sendable {
         build: String = "",
         publishedAt: Date? = nil,
         minimumOSVersion: String = "",
-        url: URL = URL(string: "https://jpfchang.org/clambhook")!,
+        url: URL = URL(string: "https://store.clambercloud.com/clambhook")!,
         filename: String = "",
         sha256: String = "",
         size: Int64 = 0

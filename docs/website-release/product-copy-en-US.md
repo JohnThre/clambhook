@@ -2,64 +2,48 @@
 
 ## Hero
 
-- Title: ClambHook for macOS.
-- Description: Network proxy client for Apple Silicon Mac. Direct download from
-  jpfchang.org with a two-month free trial, then a direct-sale macOS license.
+- Title: ClambHook.
+- Description: Private VPN and proxy router for supported desktop and mobile platforms. Download from `store.clambercloud.com`, start a one-month trial, then buy a ClambHook license from `store.swiphtgroup.com`.
 - Primary action: Free Download.
 - Secondary action: Licensing & Pricing.
 
 ## Distribution
 
-- Official URL: `https://jpfchang.org/clambhook/`.
-- Channel: direct website download from jpfchang.org.
-- Installer: notarized Apple Silicon macOS DMG.
-- Requirements: Apple Silicon Mac, macOS 14 or later.
+- Product URL: `https://store.clambercloud.com/clambhook/`.
+- Download URL: `https://store.clambercloud.com/clambhook/download/`.
+- Buy URL: `https://store.swiphtgroup.com/clambhook/buy/`.
+- License Portal URL: `https://store.swiphtgroup.com/clambhook/portal/`.
+- Privacy Policy URL: `https://store.clambercloud.com/clambhook/privacy/`.
+- Support URL: `https://store.clambercloud.com/clambhook/support/`.
 - No account is required to download or use the trial.
 
 ## Pricing
 
-- Two-month free trial from first launch.
-- USD 99.99 direct-sale macOS license.
+- One-month free trial from first launch.
+- USD 99.99 ClambHook license.
 - Includes one year of feature updates.
-- Versions released during that year remain usable after the update
-  year ends.
-- Covers up to 4 active Apple Silicon Macs and is transferable between devices.
-- Paid feature update: USD 8.99.
-- New features released after the included first year require a paid feature
-  update. Bug fixes and security fixes remain included.
+- Versions released during that year remain usable after the update year ends.
+- Covers up to 10 active devices across supported platforms.
+- License seats can be deactivated and moved to another device.
+- Paid feature update: USD 9.99.
+- New features released after the included update year require a paid feature update. Bug fixes and security fixes remain included.
 
 ## Description
 
-ClambHook for macOS helps advanced users manage local network profiles, routing
-rules, status views, and diagnostics from one native Mac app. It is built for
-Apple Silicon Macs and distributed as a direct download from jpfchang.org.
+ClambHook helps advanced users manage local network profiles, routing rules,
+status views, and diagnostics from one native app surface. It is distributed as
+a direct download from `store.clambercloud.com`; checkout, license delivery, and
+device-seat management are handled by `store.swiphtgroup.com`.
 
 Use ClambHook to import or edit profiles, choose the active profile, apply
 rules, and inspect local status without third-party analytics, advertising SDKs,
 or tracking SDKs. Profile data, credentials, keys, connection metadata, logs,
-and diagnostics stay on the Mac unless the user explicitly exports or sends
+and diagnostics stay on the device unless the user explicitly exports or sends
 them.
-
-ClambHook is not positioned as a hosted account service. Public documentation
-should stay high level and direct sensitive troubleshooting to private support.
-
-## Keywords
-
-macOS,Mac,Apple Silicon,proxy,network,routing,privacy,tunnel,WireGuard,OpenVPN,
-Shadowsocks,Tor,Trojan
-
-## URLs
-
-- Product URL: https://jpfchang.org/clambhook/
-- Buy URL: https://jpfchang.org/clambhook/buy/
-- License Portal URL: https://jpfchang.org/clambhook/portal/
-- Support URL: https://jpfchang.org/clambhook/support/
-- Privacy Policy URL: https://jpfchang.org/clambhook/privacy/
 
 ## Copy Guardrails
 
-- Use "ClambHook for macOS" for public product references.
-- Use "direct download", "two-month trial", "USD 99.99 direct-sale macOS
-  license", and "paid feature update" for commercial copy.
-- Do not describe the current public release as a non-macOS app, subscription,
-  marketplace purchase, or hosted account service.
+- Use "ClambHook license", "one-month trial", "USD 99.99 license", "up to 10 active devices", and "USD 9.99 paid feature update" for commercial copy.
+- Public download CTAs point to `store.clambercloud.com`.
+- Purchase, renewal, and license portal CTAs point to `store.swiphtgroup.com`.
+- Do not describe the current public release as a marketplace purchase, hosted account service, or subscription.

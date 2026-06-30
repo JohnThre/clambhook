@@ -1,15 +1,10 @@
-# ClambHook Support
+# Support
 
-For ClambHook for macOS support, contact clambhook@jpfchang.org.
+For ClambHook support, contact support@swiphtgroup.com.
 
-ClambHook for macOS requires an Apple Silicon Mac running macOS 14 or later.
-The installer is distributed from jpfchang.org.
+The app is downloaded from `store.clambercloud.com`; purchases, renewals, and
+license device management are handled by `store.swiphtgroup.com`.
 
-Include the ClambHook version, macOS version, Mac model, active profile name,
-and a short description of what happened instead of what you expected. For
-license questions, include the purchase email and a redacted license key prefix
-only when needed.
-
-Do not send proxy passwords, private keys, WireGuard keys, OpenVPN client keys
-or certificates, or full configuration files unless support explicitly asks for
-a safe redacted example.
+For license questions, include the purchase email and a redacted license key
+prefix only. Do not send full license keys, proxy credentials, private keys, or
+profile files unless support explicitly asks for a redacted export.

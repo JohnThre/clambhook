@@ -2,21 +2,21 @@ import XCTest
 @testable import ClambhookShared
 
 final class LicensingTests: XCTestCase {
-    func testTrialUsesTwoCalendarMonths() {
+    func testTrialUsesOneCalendarMonth() {
         let start = mobileLicenseUTCDate(year: 2026, month: 1, day: 31)
         let snapshot = MobileLicenseSnapshot(trialStartDate: start)
 
         let beforeExpiry = MobileLicenseEvaluator.evaluate(
             snapshot: snapshot,
-            now: mobileLicenseUTCDate(year: 2026, month: 3, day: 30)
+            now: mobileLicenseUTCDate(year: 2026, month: 2, day: 27)
         )
         XCTAssertEqual(beforeExpiry.reason, .trial)
-        XCTAssertEqual(beforeExpiry.trialEndsAt, mobileLicenseUTCDate(year: 2026, month: 3, day: 31))
+        XCTAssertEqual(beforeExpiry.trialEndsAt, mobileLicenseUTCDate(year: 2026, month: 2, day: 28))
         XCTAssertTrue(beforeExpiry.canUseFeature(.tunnelRouting))
 
         let atExpiry = MobileLicenseEvaluator.evaluate(
             snapshot: snapshot,
-            now: mobileLicenseUTCDate(year: 2026, month: 3, day: 31)
+            now: mobileLicenseUTCDate(year: 2026, month: 2, day: 28)
         )
         XCTAssertEqual(atExpiry.reason, .locked)
         XCTAssertFalse(atExpiry.canUseApp)
@@ -25,11 +25,11 @@ final class LicensingTests: XCTestCase {
     func testTrialEndDateClampsToTargetMonthLastDay() {
         XCTAssertEqual(
             mobileLicenseTrialEndDate(start: mobileLicenseUTCDate(year: 2025, month: 12, day: 31)),
-            mobileLicenseUTCDate(year: 2026, month: 2, day: 28)
+            mobileLicenseUTCDate(year: 2026, month: 1, day: 31)
         )
         XCTAssertEqual(
             mobileLicenseTrialEndDate(start: mobileLicenseUTCDate(year: 2023, month: 12, day: 31)),
-            mobileLicenseUTCDate(year: 2024, month: 2, day: 29)
+            mobileLicenseUTCDate(year: 2024, month: 1, day: 31)
         )
     }
 
@@ -284,13 +284,13 @@ final class LicensingTests: XCTestCase {
         let decision = MobileLicenseEvaluator.evaluate(snapshot: snapshot, now: reinstallDate)
 
         XCTAssertEqual(snapshot.trialStartDate, originalStart)
-        XCTAssertEqual(decision.trialEndsAt, mobileLicenseUTCDate(year: 2026, month: 8, day: 3))
+        XCTAssertEqual(decision.trialEndsAt, mobileLicenseUTCDate(year: 2026, month: 7, day: 3))
     }
 
     func testPaidUpdatePolicyCopyIncludesCutoffAndBugFixLanguage() {
         let copy = MobileLicenseCopy.paidUpdatePolicy(cutoffDate: mobileLicenseUTCDate(year: 2027, month: 6, day: 3))
 
-        XCTAssertTrue(copy.hasPrefix("The macOS license includes feature updates through "))
+        XCTAssertTrue(copy.hasPrefix("The ClambHook license includes feature updates through "))
         XCTAssertTrue(copy.contains("Versions released during that window remain usable."))
         XCTAssertTrue(copy.contains("Paid feature updates unlock later feature releases."))
         XCTAssertTrue(copy.contains("Bug fixes and security fixes remain included."))
@@ -306,7 +306,7 @@ final class LicensingTests: XCTestCase {
         let states = MobileLicenseProductStateBuilder.states(for: decision)
         let trial = try XCTUnwrap(states.first { $0.kind == .trial })
 
-        XCTAssertEqual(trial.title, "Two-month trial")
+        XCTAssertEqual(trial.title, "One-month trial")
         XCTAssertTrue(trial.isActive)
         XCTAssertTrue(trial.detail.contains("Trial ends"))
         XCTAssertTrue(trial.detail.contains("2026"))
@@ -334,7 +334,7 @@ final class LicensingTests: XCTestCase {
         XCTAssertEqual(decision.reason, .trial)
         XCTAssertTrue(trial.isActive)
         XCTAssertTrue(macLicense.isActive)
-        XCTAssertEqual(macLicense.title, "macOS license")
+        XCTAssertEqual(macLicense.title, "ClambHook license")
     }
 
     func testProductStatesShowPaidUpdateWindowDate() throws {
@@ -432,19 +432,14 @@ final class LicensingTests: XCTestCase {
         XCTAssertEqual(snapshot.transactions.first?.productID, MobilePurchaseCatalog.macLicenseProductID)
     }
 
-    func testDeviceStateHonorsFourActiveDeviceLimit() {
+    func testDeviceStateHonorsTenActiveDeviceLimit() {
         let state = MobileLicenseDeviceState(
-            currentInstallID: "install-5",
-            devices: [
-                licenseDevice(id: "device-1", installID: "install-1"),
-                licenseDevice(id: "device-2", installID: "install-2"),
-                licenseDevice(id: "device-3", installID: "install-3"),
-                licenseDevice(id: "device-4", installID: "install-4"),
-            ]
+            currentInstallID: "install-11",
+            devices: (1...10).map { licenseDevice(id: "device-\($0)", installID: "install-\($0)") }
         )
 
-        XCTAssertEqual(state.maxActiveDevices, 4)
-        XCTAssertEqual(state.activeDeviceCount, 4)
+        XCTAssertEqual(state.maxActiveDevices, 10)
+        XCTAssertEqual(state.activeDeviceCount, 10)
         XCTAssertEqual(state.remainingActivations, 0)
         XCTAssertFalse(state.canActivateCurrentDevice)
         XCTAssertFalse(state.canReactivateCurrentDevice)
@@ -452,9 +447,9 @@ final class LicensingTests: XCTestCase {
 
     func testCommercialTermsMatchMacLicensePolicy() {
         XCTAssertEqual(MobileLicenseCommercialTerms.licensePriceUSD, "99.99")
-        XCTAssertEqual(MobileLicenseCommercialTerms.paidFeatureUpdatePriceUSD, "8.99")
+        XCTAssertEqual(MobileLicenseCommercialTerms.paidFeatureUpdatePriceUSD, "9.99")
         XCTAssertEqual(MobileLicenseCommercialTerms.includedFeatureUpdateYears, 1)
-        XCTAssertEqual(MobileLicenseCommercialTerms.maxActiveDevices, 4)
+        XCTAssertEqual(MobileLicenseCommercialTerms.maxActiveDevices, 10)
     }
 
     func testActiveCurrentDeviceCanRemainActiveAtDeviceLimit() {
@@ -483,23 +478,12 @@ final class LicensingTests: XCTestCase {
         let fullState = MobileLicenseDeviceState(
             currentInstallID: "install-1",
             currentDeviceID: "device-1",
-            devices: [
-                deactivatedCurrent,
-                licenseDevice(id: "device-2", installID: "install-2"),
-                licenseDevice(id: "device-3", installID: "install-3"),
-                licenseDevice(id: "device-4", installID: "install-4"),
-                licenseDevice(id: "device-5", installID: "install-5"),
-            ]
+            devices: [deactivatedCurrent] + (2...11).map { licenseDevice(id: "device-\($0)", installID: "install-\($0)") }
         )
         let availableState = MobileLicenseDeviceState(
             currentInstallID: "install-1",
             currentDeviceID: "device-1",
-            devices: [
-                deactivatedCurrent,
-                licenseDevice(id: "device-2", installID: "install-2"),
-                licenseDevice(id: "device-3", installID: "install-3"),
-                licenseDevice(id: "device-4", installID: "install-4"),
-            ]
+            devices: [deactivatedCurrent] + (2...10).map { licenseDevice(id: "device-\($0)", installID: "install-\($0)") }
         )
 
         XCTAssertFalse(fullState.canReactivateCurrentDevice)

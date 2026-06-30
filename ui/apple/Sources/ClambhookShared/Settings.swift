@@ -8,22 +8,24 @@ public let clambhookMacAppBundleIdentifier = "org.jpfchang.clambhook.mac"
 public let clambhookMacWidgetBundleIdentifier = "org.jpfchang.clambhook.mac.widgets"
 public let clambhookMacPrivilegedHelperLabel = "org.jpfchang.clambhook.mac.helper"
 public let clambhookMacPrivilegedHelperPlistName = "\(clambhookMacPrivilegedHelperLabel).plist"
-public let defaultPrivacyPolicyURL = URL(string: "https://jpfchang.org/clambhook/privacy")!
-public let defaultSupportURL = URL(string: "https://jpfchang.org/clambhook/support")!
+public let defaultPrivacyPolicyURL = URL(string: "https://store.clambercloud.com/clambhook/privacy")!
+public let defaultSupportURL = URL(string: "https://store.clambercloud.com/clambhook/support")!
 public let minRefreshIntervalSeconds: Double = 1
 public let maxRefreshIntervalSeconds: Double = 30
 public let minLogRetention = 50
 public let maxLogRetention = 500
-public let defaultStableUpdateManifestURL = URL(string: "https://jpfchang.org/api/clambhook/update-manifest")!
-public let defaultBetaUpdateManifestURL = URL(string: "https://jpfchang.org/api/clambhook/update-manifest?channel=beta")!
-public let defaultStableAppcastURL = URL(string: "https://jpfchang.org/api/clambhook/appcast.xml")!
-public let defaultBetaAppcastURL = URL(string: "https://jpfchang.org/api/clambhook/appcast.xml?channel=beta")!
+public let defaultStableUpdateManifestURL = URL(string: "https://store.clambercloud.com/api/clambhook/update-manifest")!
+public let defaultBetaUpdateManifestURL = URL(string: "https://store.clambercloud.com/api/clambhook/update-manifest?channel=beta")!
+public let defaultStableAppcastURL = URL(string: "https://store.clambercloud.com/api/clambhook/appcast.xml")!
+public let defaultBetaAppcastURL = URL(string: "https://store.clambercloud.com/api/clambhook/appcast.xml?channel=beta")!
 private let legacyStableUpdateManifestURLStrings: Set<String> = [
     "https://jpfchang.org/clambhook/clambhook-update-manifest.json",
+    "https://jpfchang.org/api/clambhook/update-manifest",
 ]
 private let legacyBetaUpdateManifestURLStrings: Set<String> = [
     "https://jpfchang.org/clambhook/clambhook-beta-update-manifest.json",
     "https://jpfchang.org/clambhook/clambhook-update-manifest.json?channel=beta",
+    "https://jpfchang.org/api/clambhook/update-manifest?channel=beta",
 ]
 public let vpnDataUseDisclosure = """
 ClambHook routes device network traffic according to your profiles and rules. macOS inspection is metadata-only: connection targets, routing decisions, byte counts, timing, and hop status. The macOS app does not install a certificate authority, perform TLS MITM, store request or response bodies, export HAR files, or provide body-level redaction workflows. Profile data, connection metadata, traffic logs, and diagnostics stay on this device unless you export them. ClambHook does not sell, use, or disclose routed traffic data to third parties. Apple diagnostics may include crash and performance data if enabled.

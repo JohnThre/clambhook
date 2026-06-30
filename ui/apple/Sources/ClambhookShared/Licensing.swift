@@ -1,6 +1,6 @@
 import Foundation
 
-public let mobileLicenseTrialMonths = 2
+public let mobileLicenseTrialMonths = 1
 public let mobileLicenseOfflineGraceDays = 7
 public let mobileLicenseSnapshotDefaultsKey = "clambhook.apple.license.snapshot"
 
@@ -297,7 +297,7 @@ public enum MobileLicenseTrialStore {
 
 public enum MobileLicenseCopy {
     public static func paidUpdatePolicy(cutoffDate: Date) -> String {
-        "The macOS license includes feature updates through \(cutoffDate.formatted(date: .abbreviated, time: .omitted)). Versions released during that window remain usable. Paid feature updates unlock later feature releases. Bug fixes and security fixes remain included."
+        "The ClambHook license includes feature updates through \(cutoffDate.formatted(date: .abbreviated, time: .omitted)). Versions released during that window remain usable. Paid feature updates unlock later feature releases. Bug fixes and security fixes remain included."
     }
 }
 
@@ -334,7 +334,7 @@ public enum MobileLicenseProductStateBuilder {
         if let trialEndsAt = decision.trialEndsAt {
             states.append(MobileLicenseProductState(
                 kind: .trial,
-                title: "Two-month trial",
+                title: "One-month trial",
                 detail: decision.isTrialActive
                     ? "Trial ends \(trialEndsAt.formatted(date: .abbreviated, time: .omitted))."
                     : "Trial ended \(trialEndsAt.formatted(date: .abbreviated, time: .omitted)).",
@@ -343,7 +343,7 @@ public enum MobileLicenseProductStateBuilder {
         } else {
             states.append(MobileLicenseProductState(
                 kind: .trial,
-                title: "Two-month trial",
+                title: "One-month trial",
                 detail: "Trial starts the first time this app records an access date.",
                 isActive: false
             ))
@@ -351,10 +351,10 @@ public enum MobileLicenseProductStateBuilder {
 
         states.append(MobileLicenseProductState(
             kind: .lifetimeUnlocked,
-            title: "macOS license",
+            title: "ClambHook license",
             detail: decision.hasLifetimeUnlock
                 ? "Versions released during the paid update window remain usable."
-                : "Buy or activate a ClambHook macOS license to keep using ClambHook after free access.",
+                : "Buy or activate a ClambHook license to keep using ClambHook after free access.",
             isActive: decision.hasLifetimeUnlock
         ))
 
@@ -369,7 +369,7 @@ public enum MobileLicenseProductStateBuilder {
             states.append(MobileLicenseProductState(
                 kind: .paidUpdateWindow,
                 title: "Paid-update window through DATE",
-                detail: "A macOS license sets this date to the purchase date plus one year.",
+                detail: "A ClambHook license sets this date to the purchase date plus one year.",
                 isActive: false
             ))
         }
@@ -424,7 +424,7 @@ public enum MobileLicenseRuntimeError: Error, LocalizedError {
     public var errorDescription: String? {
         switch self {
         case .locked:
-            return "Trial has ended. Buy or activate a ClambHook macOS license to keep using ClambHook."
+            return "Trial has ended. Buy or activate a ClambHook license to keep using ClambHook."
         }
     }
 }
