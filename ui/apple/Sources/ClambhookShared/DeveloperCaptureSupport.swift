@@ -108,6 +108,7 @@ public struct DeveloperSettingsPayload: Codable, Equatable, Sendable {
     public var headerValueLimitBytes: Int
     public var redactHeaders: [String]
     public var redactQueryParams: [String]
+    public var sslDecryptHosts: [String]
     public var backupPath: String
 
     enum CodingKeys: String, CodingKey {
@@ -119,6 +120,7 @@ public struct DeveloperSettingsPayload: Codable, Equatable, Sendable {
         case headerValueLimitBytes = "header_value_limit_bytes"
         case redactHeaders = "redact_headers"
         case redactQueryParams = "redact_query_params"
+        case sslDecryptHosts = "ssl_decrypt_hosts"
         case backupPath = "backup_path"
     }
 
@@ -131,6 +133,7 @@ public struct DeveloperSettingsPayload: Codable, Equatable, Sendable {
         headerValueLimitBytes: Int = 8_192,
         redactHeaders: [String] = developerDefaultRedactHeaders,
         redactQueryParams: [String] = developerDefaultRedactQueryParams,
+        sslDecryptHosts: [String] = [],
         backupPath: String = ""
     ) {
         self.enabled = enabled
@@ -141,6 +144,7 @@ public struct DeveloperSettingsPayload: Codable, Equatable, Sendable {
         self.headerValueLimitBytes = headerValueLimitBytes
         self.redactHeaders = redactHeaders
         self.redactQueryParams = redactQueryParams
+        self.sslDecryptHosts = sslDecryptHosts
         self.backupPath = backupPath
     }
 
@@ -154,6 +158,7 @@ public struct DeveloperSettingsPayload: Codable, Equatable, Sendable {
         self.headerValueLimitBytes = try container.decodeIfPresent(Int.self, forKey: .headerValueLimitBytes) ?? 8_192
         self.redactHeaders = try container.decodeIfPresent([String].self, forKey: .redactHeaders) ?? developerDefaultRedactHeaders
         self.redactQueryParams = try container.decodeIfPresent([String].self, forKey: .redactQueryParams) ?? developerDefaultRedactQueryParams
+        self.sslDecryptHosts = try container.decodeIfPresent([String].self, forKey: .sslDecryptHosts) ?? []
         self.backupPath = try container.decodeIfPresent(String.self, forKey: .backupPath) ?? ""
     }
 }
@@ -167,6 +172,7 @@ public struct DeveloperSettingsUpdateRequest: Codable, Equatable, Sendable {
     public var headerValueLimitBytes: Int?
     public var redactHeaders: [String]?
     public var redactQueryParams: [String]?
+    public var sslDecryptHosts: [String]?
     public var httpsCaptureAck: Bool
 
     enum CodingKeys: String, CodingKey {
@@ -178,6 +184,7 @@ public struct DeveloperSettingsUpdateRequest: Codable, Equatable, Sendable {
         case headerValueLimitBytes = "header_value_limit_bytes"
         case redactHeaders = "redact_headers"
         case redactQueryParams = "redact_query_params"
+        case sslDecryptHosts = "ssl_decrypt_hosts"
         case httpsCaptureAck = "https_capture_ack"
     }
 
@@ -190,6 +197,7 @@ public struct DeveloperSettingsUpdateRequest: Codable, Equatable, Sendable {
         headerValueLimitBytes: Int? = nil,
         redactHeaders: [String]? = nil,
         redactQueryParams: [String]? = nil,
+        sslDecryptHosts: [String]? = nil,
         httpsCaptureAck: Bool = false
     ) {
         self.enabled = enabled
@@ -200,6 +208,7 @@ public struct DeveloperSettingsUpdateRequest: Codable, Equatable, Sendable {
         self.headerValueLimitBytes = headerValueLimitBytes
         self.redactHeaders = redactHeaders
         self.redactQueryParams = redactQueryParams
+        self.sslDecryptHosts = sslDecryptHosts
         self.httpsCaptureAck = httpsCaptureAck
     }
 }
@@ -621,6 +630,10 @@ HTTP Capture is opt-in and local. When enabled, ClambHook stores bounded HTTP re
 
 public let developerHTTPSCaptureDisclosure = """
 HTTPS capture is a separate opt-in. It creates a local certificate authority, requires you to trust that CA in your user keychain, and decrypts HTTPS traffic routed through the daemon HTTP proxy. Only enable it for devices and test traffic you control.
+"""
+
+public let developerSSLDecryptHostsDisclosure = """
+Leave blank to decrypt every HTTPS host. Enter comma-separated hostnames or wildcard patterns (for example example.com, *.example.com) to restrict decryption to matching hosts only; other hosts pass through as an opaque tunnel.
 """
 
 public let developerHARExportDisclosure = """

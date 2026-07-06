@@ -29,6 +29,7 @@ import (
 type HTTPInspector interface {
 	Enabled() bool
 	MITMEnabled() bool
+	ShouldDecryptHost(host string) bool
 	NoCacheEnabled() bool
 	TLSConfig(host string) (*tls.Config, error)
 	Begin(context.Context, HTTPCaptureMeta, *http.Request) HTTPInspection
@@ -331,7 +332,8 @@ func (s *HTTP) handleConn(ctx context.Context, client net.Conn, ce *connEvents) 
 
 	switch {
 	case req.Method == http.MethodConnect:
-		if s.opts.HTTPInspector != nil && s.opts.HTTPInspector.MITMEnabled() {
+		if s.opts.HTTPInspector != nil && s.opts.HTTPInspector.MITMEnabled() &&
+			s.opts.HTTPInspector.ShouldDecryptHost(connectHost(req.Host)) {
 			return s.handleMITMConnect(ctx, client, br, req, ce)
 		}
 		return s.handleConnect(ctx, client, br, req, ce)
@@ -347,6 +349,17 @@ func (s *HTTP) handleConn(ctx context.Context, client net.Conn, ce *connEvents) 
 			"Bad Request: absolute-URI required")
 	}
 	return nil
+}
+
+// connectHost extracts the bare host from a CONNECT request's "host:port"
+// authority for MITM allowlist matching. Malformed authorities are returned
+// as-is; the CONNECT handlers perform their own strict validation.
+func connectHost(hostport string) string {
+	host, _, err := net.SplitHostPort(hostport)
+	if err != nil {
+		return hostport
+	}
+	return host
 }
 
 func (s *HTTP) handleConnect(ctx context.Context, client net.Conn, br *bufio.Reader, req *http.Request, ce *connEvents) error {

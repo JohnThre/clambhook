@@ -58,6 +58,8 @@ func (i *disabledMITMInspector) Enabled() bool { return true }
 
 func (i *disabledMITMInspector) MITMEnabled() bool { return false }
 
+func (i *disabledMITMInspector) ShouldDecryptHost(string) bool { return false }
+
 func (i *disabledMITMInspector) NoCacheEnabled() bool { return false }
 
 func (i *disabledMITMInspector) TLSConfig(string) (*tls.Config, error) {
@@ -188,6 +190,94 @@ func TestHTTPConnectPassesThroughWhenInspectorMITMDisabled(t *testing.T) {
 	}
 	if string(buf) != "hello" {
 		t.Errorf("remote got %q, want hello", buf)
+	}
+}
+
+// allowlistMITMInspector enables MITM but restricts decryption to hosts
+// accepted by allow, mirroring the developer manager's SSL decrypt allowlist.
+type allowlistMITMInspector struct {
+	disabledMITMInspector
+	allow func(string) bool
+}
+
+func (i *allowlistMITMInspector) MITMEnabled() bool { return true }
+
+func (i *allowlistMITMInspector) ShouldDecryptHost(host string) bool {
+	return i.allow(host)
+}
+
+func TestHTTPConnectSkipsMITMForHostOutsideAllowlist(t *testing.T) {
+	remoteCh := make(chan net.Conn, 1)
+	inspector := &allowlistMITMInspector{allow: func(host string) bool { return host == "allowed.example.com" }}
+	_, addr := newTestHTTPListenerWithOpts(t, stubDial(remoteCh), Options{HTTPInspector: inspector})
+
+	client, err := net.Dial("tcp", addr)
+	if err != nil {
+		t.Fatalf("dial listener: %v", err)
+	}
+	defer client.Close()
+
+	if _, err := io.WriteString(client,
+		"CONNECT blocked.example.com:443 HTTP/1.1\r\nHost: blocked.example.com:443\r\n\r\n"); err != nil {
+		t.Fatal(err)
+	}
+
+	br := bufio.NewReader(client)
+	resp, err := http.ReadResponse(br, nil)
+	if err != nil {
+		t.Fatalf("read response: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Fatalf("status got %d, want 200", resp.StatusCode)
+	}
+	if got := inspector.tlsConfigCalls.Load(); got != 0 {
+		t.Fatalf("TLSConfig calls = %d, want 0 (host outside allowlist must not be MITM'd)", got)
+	}
+
+	remote := <-remoteCh
+	defer remote.Close()
+	if _, err := client.Write([]byte("hello")); err != nil {
+		t.Fatal(err)
+	}
+	buf := make([]byte, 5)
+	if _, err := io.ReadFull(remote, buf); err != nil {
+		t.Fatal(err)
+	}
+	if string(buf) != "hello" {
+		t.Errorf("remote got %q, want hello", buf)
+	}
+}
+
+func TestHTTPConnectUsesMITMForHostInAllowlist(t *testing.T) {
+	inspector := &allowlistMITMInspector{allow: func(host string) bool { return host == "allowed.example.com" }}
+	_, addr := newTestHTTPListenerWithOpts(t, stubDial(nil), Options{HTTPInspector: inspector})
+
+	client, err := net.Dial("tcp", addr)
+	if err != nil {
+		t.Fatalf("dial listener: %v", err)
+	}
+	defer client.Close()
+
+	if _, err := io.WriteString(client,
+		"CONNECT allowed.example.com:443 HTTP/1.1\r\nHost: allowed.example.com:443\r\n\r\n"); err != nil {
+		t.Fatal(err)
+	}
+
+	br := bufio.NewReader(client)
+	resp, err := http.ReadResponse(br, nil)
+	if err != nil {
+		t.Fatalf("read response: %v", err)
+	}
+	resp.Body.Close()
+	// The stub TLSConfig always errors, so a matching host surfaces as a
+	// 502 from handleMITMConnect — proof the MITM path (not the plain
+	// tunnel) was chosen.
+	if resp.StatusCode != http.StatusBadGateway {
+		t.Fatalf("status got %d, want %d", resp.StatusCode, http.StatusBadGateway)
+	}
+	if got := inspector.tlsConfigCalls.Load(); got != 1 {
+		t.Fatalf("TLSConfig calls = %d, want 1 (host in allowlist must be MITM'd)", got)
 	}
 }
 

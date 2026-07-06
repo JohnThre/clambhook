@@ -22,6 +22,33 @@ final class SettingsTests: XCTestCase {
         XCTAssertTrue(developerHTTPSCaptureDisclosure.contains("Only enable it for devices and test traffic you control"))
     }
 
+    func testSSLDecryptHostsDisclosureExplainsAllowlist() {
+        XCTAssertTrue(developerSSLDecryptHostsDisclosure.contains("Leave blank to decrypt every HTTPS host"))
+        XCTAssertTrue(developerSSLDecryptHostsDisclosure.contains("*.example.com"))
+    }
+
+    func testDeveloperSettingsPayloadDecodesMissingSSLDecryptHostsAsEmpty() throws {
+        let data = Data("""
+        {"enabled": true, "mitm_enabled": true}
+        """.utf8)
+        let payload = try JSONDecoder().decode(DeveloperSettingsPayload.self, from: data)
+        XCTAssertEqual(payload.sslDecryptHosts, [])
+    }
+
+    func testDeveloperSettingsPayloadRoundTripsSSLDecryptHosts() throws {
+        let payload = DeveloperSettingsPayload(sslDecryptHosts: ["example.com", "*.allowed.test"])
+        let data = try JSONEncoder().encode(payload)
+        let decoded = try JSONDecoder().decode(DeveloperSettingsPayload.self, from: data)
+        XCTAssertEqual(decoded.sslDecryptHosts, ["example.com", "*.allowed.test"])
+    }
+
+    func testDeveloperSettingsUpdateRequestEncodesSSLDecryptHosts() throws {
+        let request = DeveloperSettingsUpdateRequest(sslDecryptHosts: ["example.com"])
+        let data = try JSONEncoder().encode(request)
+        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        XCTAssertEqual(json?["ssl_decrypt_hosts"] as? [String], ["example.com"])
+    }
+
     func testHARExportDisclosureWarnsBeforeSharing() {
         XCTAssertTrue(developerHARExportDisclosure.contains("HAR exports can include URLs"))
         XCTAssertTrue(developerHARExportDisclosure.contains("Review the file before sharing"))

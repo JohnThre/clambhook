@@ -18,6 +18,7 @@ type developerSettingsPayload struct {
 	HeaderValueLimitBytes int      `json:"header_value_limit_bytes"`
 	RedactHeaders         []string `json:"redact_headers"`
 	RedactQueryParams     []string `json:"redact_query_params"`
+	SSLDecryptHosts       []string `json:"ssl_decrypt_hosts,omitempty"`
 	BackupPath            string   `json:"backup_path,omitempty"`
 }
 
@@ -30,6 +31,7 @@ type updateDeveloperSettingsRequest struct {
 	HeaderValueLimitBytes *int     `json:"header_value_limit_bytes,omitempty"`
 	RedactHeaders         []string `json:"redact_headers,omitempty"`
 	RedactQueryParams     []string `json:"redact_query_params,omitempty"`
+	SSLDecryptHosts       []string `json:"ssl_decrypt_hosts,omitempty"`
 	HTTPSCaptureAck       bool     `json:"https_capture_ack,omitempty"`
 }
 
@@ -115,6 +117,14 @@ func applyDeveloperSettingsUpdate(current config.DeveloperConfig, req updateDeve
 			return config.DeveloperConfig{}, rulePersistenceError{status: http.StatusBadRequest, err: err}
 		}
 	}
+	if req.SSLDecryptHosts != nil {
+		// No fallback default: an explicit empty list clears the allowlist,
+		// which restores the decrypt-all-hosts behavior.
+		next.SSLDecryptHosts, err = normalizeDeveloperNameList("developer.ssl_decrypt_hosts", req.SSLDecryptHosts, nil)
+		if err != nil {
+			return config.DeveloperConfig{}, rulePersistenceError{status: http.StatusBadRequest, err: err}
+		}
+	}
 	return next, nil
 }
 
@@ -144,6 +154,7 @@ func developerSettingsSnapshot(dev config.DeveloperConfig, backupPath string) de
 		HeaderValueLimitBytes: dev.HeaderValueLimitBytes,
 		RedactHeaders:         append([]string(nil), dev.RedactHeaders...),
 		RedactQueryParams:     append([]string(nil), dev.RedactQueryParams...),
+		SSLDecryptHosts:       append([]string(nil), dev.SSLDecryptHosts...),
 		BackupPath:            backupPath,
 	}
 }
