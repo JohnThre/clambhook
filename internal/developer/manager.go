@@ -21,6 +21,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -130,6 +131,45 @@ func (m *Manager) MITMEnabled() bool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.cfg.Enabled && m.cfg.MITMEnabled && m.ca != nil
+}
+
+// ShouldDecryptHost reports whether MITM decryption should apply to host.
+// An empty SSLDecryptHosts allowlist decrypts every host (the pre-allowlist
+// default); a non-empty allowlist restricts decryption to matching hosts,
+// letting other CONNECT targets fall through to a plain opaque tunnel.
+func (m *Manager) ShouldDecryptHost(host string) bool {
+	if m == nil {
+		return false
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if !m.cfg.Enabled || !m.cfg.MITMEnabled || m.ca == nil {
+		return false
+	}
+	return matchesSSLDecryptHost(m.cfg.SSLDecryptHosts, host)
+}
+
+func matchesSSLDecryptHost(patterns []string, host string) bool {
+	if len(patterns) == 0 {
+		return true
+	}
+	host = strings.ToLower(strings.TrimSpace(host))
+	if host == "" {
+		return false
+	}
+	for _, pattern := range patterns {
+		pattern = strings.ToLower(strings.TrimSpace(pattern))
+		if pattern == "" {
+			continue
+		}
+		if pattern == "*" {
+			return true
+		}
+		if ok, err := path.Match(pattern, host); ok && err == nil {
+			return true
+		}
+	}
+	return false
 }
 
 // NoCacheEnabled reports whether inspected HTTP traffic should bypass caches.

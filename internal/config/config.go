@@ -53,18 +53,22 @@ func DefaultTrafficConfig() TrafficConfig {
 // separate from TrafficConfig because it can retain headers and bounded body
 // previews, whereas normal traffic history is metadata-only.
 type DeveloperConfig struct {
-	Enabled               bool                            `toml:"enabled" json:"enabled"`
-	MITMEnabled           bool                            `toml:"mitm_enabled" json:"mitm_enabled"`
-	NoCacheEnabled        bool                            `toml:"no_cache_enabled" json:"no_cache_enabled"`
-	CaptureLimit          int                             `toml:"capture_limit" json:"capture_limit"`
-	BodyLimitBytes        int64                           `toml:"body_limit_bytes" json:"body_limit_bytes"`
-	HeaderValueLimitBytes int                             `toml:"header_value_limit_bytes" json:"header_value_limit_bytes"`
-	RedactHeaders         []string                        `toml:"redact_headers" json:"redact_headers"`
-	RedactQueryParams     []string                        `toml:"redact_query_params" json:"redact_query_params"`
-	CACertPath            string                          `toml:"ca_cert_path" json:"ca_cert_path,omitempty"`
-	CAKeyPath             string                          `toml:"ca_key_path" json:"ca_key_path,omitempty"`
-	MapRules              []DeveloperMapRuleConfig        `toml:"map_rule" json:"map_rules,omitempty"`
-	BreakpointRules       []DeveloperBreakpointRuleConfig `toml:"breakpoint_rule" json:"breakpoint_rules,omitempty"`
+	Enabled               bool     `toml:"enabled" json:"enabled"`
+	MITMEnabled           bool     `toml:"mitm_enabled" json:"mitm_enabled"`
+	NoCacheEnabled        bool     `toml:"no_cache_enabled" json:"no_cache_enabled"`
+	CaptureLimit          int      `toml:"capture_limit" json:"capture_limit"`
+	BodyLimitBytes        int64    `toml:"body_limit_bytes" json:"body_limit_bytes"`
+	HeaderValueLimitBytes int      `toml:"header_value_limit_bytes" json:"header_value_limit_bytes"`
+	RedactHeaders         []string `toml:"redact_headers" json:"redact_headers"`
+	RedactQueryParams     []string `toml:"redact_query_params" json:"redact_query_params"`
+	// SSLDecryptHosts is a glob-style hostname allowlist (e.g. "*.example.com")
+	// restricting which CONNECT hosts get MITM'd. Empty means decrypt all
+	// hosts, preserving the pre-allowlist default behavior.
+	SSLDecryptHosts []string                        `toml:"ssl_decrypt_hosts" json:"ssl_decrypt_hosts,omitempty"`
+	CACertPath      string                          `toml:"ca_cert_path" json:"ca_cert_path,omitempty"`
+	CAKeyPath       string                          `toml:"ca_key_path" json:"ca_key_path,omitempty"`
+	MapRules        []DeveloperMapRuleConfig        `toml:"map_rule" json:"map_rules,omitempty"`
+	BreakpointRules []DeveloperBreakpointRuleConfig `toml:"breakpoint_rule" json:"breakpoint_rules,omitempty"`
 }
 
 // DeveloperMatchConfig describes a simple HTTP capture/tooling matcher.
