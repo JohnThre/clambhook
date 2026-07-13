@@ -26,7 +26,8 @@ capability approvals while preserving a practical direct-download macOS path.
 - have: MitM/SSL decrypt via opt-in HTTP Capture, with a per-host SSL decrypt
   allowlist (wildcard hostname patterns) to restrict which CONNECT hosts get
   decrypted.
-- missing: scripting engine.
+- out of scope: scripting engine. Intentionally not planned for v1 or v1.1;
+  rule-based routing plus the daemon API cover the targeted workflows.
 
 ### Little Snitch
 
@@ -42,8 +43,8 @@ capability approvals while preserving a practical direct-download macOS path.
 - have: HTTP(S) capture list, request/response detail, breakpoints, map local,
   map remote, repeat, HAR export, and CA install/trust.
 - have: compose / edit-and-send request through the daemon Repeat endpoint.
-- missing: network throttling / conditioner and protocol-specific viewers
-  (WebSocket / gRPC / GraphQL).
+- planned (v1.1): network throttling / conditioner and protocol-specific viewers
+  (WebSocket / gRPC / GraphQL). See docs/roadmap.md.
 
 ## Release-Gating Decision
 
