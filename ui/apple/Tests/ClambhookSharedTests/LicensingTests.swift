@@ -181,6 +181,28 @@ final class LicensingTests: XCTestCase {
         XCTAssertTrue(decision.canUseFeature(.widgets))
     }
 
+    func testPaidUpdateBeforeCurrentCutoffExtendsFromCurrentCutoff() {
+        let licensePurchaseDate = mobileLicenseUTCDate(year: 2026, month: 6, day: 3)
+        let transactions = [
+            MobileLicenseTransaction(
+                productID: MobilePurchaseCatalog.macLicenseProductID,
+                purchaseDate: licensePurchaseDate
+            ),
+            MobileLicenseTransaction(
+                productID: MobilePurchaseCatalog.featureUpdate2027ID,
+                purchaseDate: mobileLicenseUTCDate(year: 2027, month: 1, day: 15)
+            ),
+        ]
+
+        XCTAssertEqual(
+            MobileLicenseEvaluator.updateCutoffDate(
+                lifetimePurchaseDate: licensePurchaseDate,
+                transactions: transactions
+            ),
+            mobileLicenseUTCDate(year: 2028, month: 6, day: 3)
+        )
+    }
+
     func testMultiplePaidUpdateYearsGateFeaturesByReleaseDate() {
         let licensePurchaseDate = mobileLicenseUTCDate(year: 2026, month: 6, day: 3)
         let featureUpdate2028ID = "\(MobilePurchaseCatalog.featureUpdatePrefix)2028"
@@ -267,6 +289,74 @@ final class LicensingTests: XCTestCase {
         XCTAssertFalse(decision.canUseApp)
     }
 
+    func testUpdatePolicyAllowsOnlyDatedReleasesThroughLicensedCutoff() {
+        let decision = MobileLicenseEvaluator.evaluate(
+            snapshot: MobileLicenseSnapshot(transactions: [
+                MobileLicenseTransaction(
+                    productID: MobilePurchaseCatalog.macLicenseProductID,
+                    purchaseDate: mobileLicenseUTCDate(year: 2026, month: 6, day: 3)
+                ),
+            ]),
+            now: mobileLicenseUTCDate(year: 2028, month: 1, day: 1)
+        )
+
+        XCTAssertTrue(MobileLicenseUpdatePolicy.canInstallUpdate(
+            decision: decision,
+            publishedAt: mobileLicenseUTCDate(year: 2027, month: 6, day: 3)
+        ))
+        XCTAssertFalse(MobileLicenseUpdatePolicy.canInstallUpdate(
+            decision: decision,
+            publishedAt: mobileLicenseUTCDate(year: 2027, month: 6, day: 4)
+        ))
+    }
+
+    func testUpdatePolicyFailsClosedForUndatedReleaseAfterLicensedCutoff() {
+        let decision = MobileLicenseEvaluator.evaluate(
+            snapshot: MobileLicenseSnapshot(transactions: [
+                MobileLicenseTransaction(
+                    productID: MobilePurchaseCatalog.macLicenseProductID,
+                    purchaseDate: mobileLicenseUTCDate(year: 2026, month: 6, day: 3)
+                ),
+            ]),
+            now: mobileLicenseUTCDate(year: 2028, month: 1, day: 1)
+        )
+
+        XCTAssertTrue(MobileLicenseUpdatePolicy.canInstallUpdate(
+            decision: decision,
+            publishedAt: nil,
+            now: mobileLicenseUTCDate(year: 2027, month: 6, day: 3)
+        ))
+        XCTAssertFalse(MobileLicenseUpdatePolicy.canInstallUpdate(
+            decision: decision,
+            publishedAt: nil,
+            now: mobileLicenseUTCDate(year: 2027, month: 6, day: 4)
+        ))
+    }
+
+    func testUpdatePolicyAllowsTrialAndDeniesLockedTrial() {
+        let activeTrial = MobileLicenseEvaluator.evaluate(
+            snapshot: MobileLicenseSnapshot(
+                trialStartDate: mobileLicenseUTCDate(year: 2026, month: 6, day: 3)
+            ),
+            now: mobileLicenseUTCDate(year: 2026, month: 7, day: 2)
+        )
+        let expiredTrial = MobileLicenseEvaluator.evaluate(
+            snapshot: MobileLicenseSnapshot(
+                trialStartDate: mobileLicenseUTCDate(year: 2026, month: 6, day: 3)
+            ),
+            now: mobileLicenseUTCDate(year: 2026, month: 7, day: 3)
+        )
+
+        XCTAssertTrue(MobileLicenseUpdatePolicy.canInstallUpdate(
+            decision: activeTrial,
+            publishedAt: nil
+        ))
+        XCTAssertFalse(MobileLicenseUpdatePolicy.canInstallUpdate(
+            decision: expiredTrial,
+            publishedAt: mobileLicenseUTCDate(year: 2026, month: 6, day: 4)
+        ))
+    }
+
     func testAppReinstallKeepsOriginalTrialStartFromCredentialStore() {
         let credentialStore = InMemoryCredentialStore()
         let originalStart = mobileLicenseUTCDate(year: 2026, month: 6, day: 3)
@@ -287,13 +377,13 @@ final class LicensingTests: XCTestCase {
         XCTAssertEqual(decision.trialEndsAt, mobileLicenseUTCDate(year: 2026, month: 7, day: 3))
     }
 
-    func testPaidUpdatePolicyCopyIncludesCutoffAndBugFixLanguage() {
+    func testPaidUpdatePolicyCopyIncludesStrictCutoffLanguage() {
         let copy = MobileLicenseCopy.paidUpdatePolicy(cutoffDate: mobileLicenseUTCDate(year: 2027, month: 6, day: 3))
 
-        XCTAssertTrue(copy.hasPrefix("The ClambHook license includes feature updates through "))
+        XCTAssertTrue(copy.hasPrefix("The ClambHook license includes all updates released through "))
         XCTAssertTrue(copy.contains("Versions released during that window remain usable."))
-        XCTAssertTrue(copy.contains("Paid feature updates unlock later feature releases."))
-        XCTAssertTrue(copy.contains("Bug fixes and security fixes remain included."))
+        XCTAssertTrue(copy.contains("including critical, bug, and security updates"))
+        XCTAssertTrue(copy.contains("USD 9.99 update-year renewal"))
     }
 
     func testProductStatesShowActiveTrial() throws {
@@ -306,7 +396,7 @@ final class LicensingTests: XCTestCase {
         let states = MobileLicenseProductStateBuilder.states(for: decision)
         let trial = try XCTUnwrap(states.first { $0.kind == .trial })
 
-        XCTAssertEqual(trial.title, "One-month trial")
+        XCTAssertEqual(trial.title, "One-calendar-month trial")
         XCTAssertTrue(trial.isActive)
         XCTAssertTrue(trial.detail.contains("Trial ends"))
         XCTAssertTrue(trial.detail.contains("2026"))
@@ -355,9 +445,9 @@ final class LicensingTests: XCTestCase {
         let paidUpdateWindow = try XCTUnwrap(states.first { $0.kind == .paidUpdateWindow })
 
         XCTAssertTrue(paidUpdateWindow.isActive)
-        XCTAssertTrue(paidUpdateWindow.title.hasPrefix("Paid-update window through "))
+        XCTAssertTrue(paidUpdateWindow.title.hasPrefix("Included updates through "))
         XCTAssertTrue(paidUpdateWindow.title.contains("2027"))
-        XCTAssertTrue(paidUpdateWindow.detail.contains("Versions released on or before this date are included and remain usable."))
+        XCTAssertTrue(paidUpdateWindow.detail.contains("All updates released on or before this date are included"))
     }
 
     func testProductStatesAlwaysShowNewFeaturesLockedPolicyRow() throws {
@@ -377,10 +467,10 @@ final class LicensingTests: XCTestCase {
         let states = MobileLicenseProductStateBuilder.states(for: decision)
         let locked = try XCTUnwrap(states.first { $0.kind == .newFeaturesLocked })
 
-        XCTAssertEqual(locked.title, "New features require paid update")
+        XCTAssertEqual(locked.title, "Later updates require renewal")
         XCTAssertFalse(locked.isActive)
-        XCTAssertTrue(locked.detail.contains("New features released after the paid update window require a paid feature update."))
-        XCTAssertTrue(locked.detail.contains("Bug fixes and security fixes remain included."))
+        XCTAssertTrue(locked.detail.contains("All updates released after the cutoff"))
+        XCTAssertTrue(locked.detail.contains("including critical, bug, and security updates"))
     }
 
     func testProductStatesMarkFutureFeaturesLockedAfterPaidWindow() throws {
@@ -445,11 +535,68 @@ final class LicensingTests: XCTestCase {
         XCTAssertFalse(state.canReactivateCurrentDevice)
     }
 
+    func testDeviceStateCannotRaiseConcurrentDeviceLimitAboveTen() throws {
+        let initialized = MobileLicenseDeviceState(
+            currentInstallID: "install-11",
+            maxActiveDevices: 25
+        )
+        let decoded = try JSONDecoder().decode(
+            MobileLicenseDeviceState.self,
+            from: Data("""
+            {
+              "current_install_id": "install-11",
+              "max_active_devices": 25,
+              "devices": []
+            }
+            """.utf8)
+        )
+
+        XCTAssertEqual(initialized.maxActiveDevices, 10)
+        XCTAssertEqual(decoded.maxActiveDevices, 10)
+    }
+
     func testCommercialTermsMatchMacLicensePolicy() {
         XCTAssertEqual(MobileLicenseCommercialTerms.licensePriceUSD, "99.99")
         XCTAssertEqual(MobileLicenseCommercialTerms.paidFeatureUpdatePriceUSD, "9.99")
         XCTAssertEqual(MobileLicenseCommercialTerms.includedFeatureUpdateYears, 1)
         XCTAssertEqual(MobileLicenseCommercialTerms.maxActiveDevices, 10)
+    }
+
+    func testAcceptedPaymentProvidersAreExactlyCreemAndNOWPayments() {
+        XCTAssertEqual(
+            MobileLicensePaymentProvider.acceptedPurchaseProviders,
+            [.creem, .nowPayments]
+        )
+        XCTAssertEqual(
+            MobileLicensePaymentProvider.acceptedPurchaseProviders.map(\.displayName),
+            ["Creem", "NOWPayments"]
+        )
+        XCTAssertTrue(MobileLicensePaymentProvider.creem.isAcceptedPurchaseProvider)
+        XCTAssertTrue(MobileLicensePaymentProvider.nowPayments.isAcceptedPurchaseProvider)
+    }
+
+    func testUnsupportedPaymentProvidersDecodeSafelyButAreNotAccepted() throws {
+        let decoder = JSONDecoder()
+
+        let legacyManual = try decoder.decode(
+            MobileLicensePaymentProvider.self,
+            from: Data(#""manual""#.utf8)
+        )
+        let paypal = try decoder.decode(
+            MobileLicensePaymentProvider.self,
+            from: Data(#""paypal""#.utf8)
+        )
+        let futureProvider = try decoder.decode(
+            MobileLicensePaymentProvider.self,
+            from: Data(#""future-provider""#.utf8)
+        )
+
+        XCTAssertEqual(legacyManual, .unsupported("manual"))
+        XCTAssertEqual(paypal, .unsupported("paypal"))
+        XCTAssertEqual(futureProvider, .unsupported("future-provider"))
+        XCTAssertFalse(legacyManual.isAcceptedPurchaseProvider)
+        XCTAssertFalse(paypal.isAcceptedPurchaseProvider)
+        XCTAssertFalse(futureProvider.isAcceptedPurchaseProvider)
     }
 
     func testActiveCurrentDeviceCanRemainActiveAtDeviceLimit() {

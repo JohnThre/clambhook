@@ -3,7 +3,7 @@
 ## Hero
 
 - Title: ClambHook.
-- Description: Private VPN and proxy router for Apple Silicon Macs running macOS 14 or later. Download the DMG free from `store.clambercloud.com`, start a one-month trial, then buy a ClambHook license from `store.swiphtgroup.com`.
+- Description: Private VPN and proxy router for Apple Silicon Macs running macOS 14 or later. Download the DMG free from `store.clambercloud.com`, start a one-calendar-month trial, then buy a ClambHook license from `store.swiphtgroup.com`.
 - Primary action: Free Download.
 - Secondary action: Licensing & Pricing.
 
@@ -19,14 +19,15 @@
 
 ## Pricing
 
-- One-month free trial from first launch.
-- USD 99.99 ClambHook license.
-- Includes one year of feature updates.
-- Versions released during that year remain usable after the update year ends.
-- Covers up to 10 active devices across supported platforms.
+- One-calendar-month free trial from first launch.
+- USD 99.99 one-time ClambHook license required after the trial.
+- Includes one year of all updates from the purchase date.
+- Versions released on or before the update cutoff remain usable after the cutoff.
+- Covers a maximum of 10 concurrently active devices across supported platforms.
 - License seats can be deactivated and moved to another device.
-- Paid feature update: USD 9.99.
-- New features released after the included update year require a paid feature update. Bug fixes and security fixes remain included.
+- A USD 9.99 renewal buys one additional update year, extending from the later of the current cutoff or the renewal payment date.
+- After the cutoff, no later updates are included, including critical, bug, and security updates.
+- ClambHook purchase payments are accepted only through Creem or NOWPayments, not PayPal.
 
 ## Description
 
@@ -44,7 +45,7 @@ the device unless the user explicitly exports or sends them.
 
 ## Copy Guardrails
 
-- Use "ClambHook license", "one-month trial", "USD 99.99 license", "up to 10 active devices", and "USD 9.99 paid feature update" for commercial copy.
+- Use "ClambHook license", "one-calendar-month trial", "USD 99.99 one-time license", "maximum of 10 concurrently active devices", and "USD 9.99 update-year renewal" for commercial copy.
 - Public download CTAs point to `store.clambercloud.com`.
 - Purchase, renewal, and license portal CTAs point to `store.swiphtgroup.com`.
 - Do not describe the current public release as a marketplace purchase, hosted account service, or subscription.

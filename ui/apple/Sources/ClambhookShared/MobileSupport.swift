@@ -18,7 +18,7 @@ public enum MobilePurchaseCatalog {
 
     public static let products: [MobilePurchaseProduct] = [
         MobilePurchaseProduct(id: macLicenseProductID, displayName: "ClambHook License"),
-        MobilePurchaseProduct(id: featureUpdate2027ID, displayName: "ClambHook for macOS 2027 Feature Update"),
+        MobilePurchaseProduct(id: featureUpdate2027ID, displayName: "ClambHook for macOS 2027 Update Year"),
     ]
 
     public static let productIDs = products.map(\.id)

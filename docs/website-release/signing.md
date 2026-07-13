@@ -62,9 +62,11 @@ R2 upload.
 ## Sparkle Auto-Update
 
 The macOS app uses Sparkle for in-app download and install of updates. The app
-checks the EdDSA-signed appcast served from store.clambercloud.com and gates feature
-updates to the buyer's license update window (bug and security fixes remain
-available).
+checks the EdDSA-signed appcast served from store.clambercloud.com and gates all
+updates to the buyer's license update window. Releases after the update cutoff
+are denied, including critical, bug, and security updates. If an appcast item
+has no publication date, the app denies it once the licensed update window has
+expired.
 
 ### One-time key setup (owner-held secrets)
 

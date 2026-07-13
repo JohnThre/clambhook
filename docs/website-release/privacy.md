@@ -20,14 +20,18 @@ architecture, app version, activation state, and timestamps needed for device
 seat management. License keys are hashed before storage. Profile contents are
 not uploaded for license activation.
 
-ClambHook uses a USD 99.99 direct-sale license: it includes one year of feature
-updates, versions released during that year remain usable, it covers up to 10 active
-devices across supported platforms, and license seats can be deactivated and
-moved to another device. Optional USD 9.99 paid feature updates extend the
-feature-update window by one year from the renewal purchase date.
+ClambHook uses a USD 99.99 one-time direct-sale license after a
+one-calendar-month trial. It includes one year of all updates from the purchase
+date, versions released on or before the update cutoff remain usable, it covers
+a maximum of 10 concurrently active devices across supported platforms, and
+license seats can be deactivated and moved to another device. A USD 9.99 renewal
+buys one additional update year, extending from the later of the current cutoff
+or the renewal payment date. Releases after the cutoff are not included,
+including critical, bug, and security updates.
 
-Payment providers process payment details; `store.swiphtgroup.com` stores
-checkout IDs, order IDs, product IDs, license state, and purchase timestamps
-needed to deliver and support the license.
+Creem and NOWPayments are the only ClambHook purchase payment providers; PayPal
+is not accepted. Those providers process payment details;
+`store.swiphtgroup.com` stores checkout IDs, order IDs, product IDs, license
+state, and purchase timestamps needed to deliver and support the license.
 
 Support contact: support@swiphtgroup.com

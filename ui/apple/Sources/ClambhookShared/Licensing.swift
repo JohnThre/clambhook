@@ -297,7 +297,30 @@ public enum MobileLicenseTrialStore {
 
 public enum MobileLicenseCopy {
     public static func paidUpdatePolicy(cutoffDate: Date) -> String {
-        "The ClambHook license includes feature updates through \(cutoffDate.formatted(date: .abbreviated, time: .omitted)). Versions released during that window remain usable. Paid feature updates unlock later feature releases. Bug fixes and security fixes remain included."
+        "The ClambHook license includes all updates released through \(cutoffDate.formatted(date: .abbreviated, time: .omitted)). Versions released during that window remain usable. Updates released after that date, including critical, bug, and security updates, require a USD 9.99 update-year renewal."
+    }
+}
+
+public enum MobileLicenseUpdatePolicy {
+    public static func canInstallUpdate(
+        decision: MobileLicenseDecision,
+        publishedAt: Date?,
+        now: Date = Date()
+    ) -> Bool {
+        switch decision.reason {
+        case .trial:
+            return true
+        case .locked:
+            return false
+        case .lifetime, .offlineGrace:
+            guard let cutoffDate = decision.updateCutoffDate else {
+                return false
+            }
+            guard let publishedAt else {
+                return now <= cutoffDate
+            }
+            return publishedAt <= cutoffDate
+        }
     }
 }
 
@@ -334,7 +357,7 @@ public enum MobileLicenseProductStateBuilder {
         if let trialEndsAt = decision.trialEndsAt {
             states.append(MobileLicenseProductState(
                 kind: .trial,
-                title: "One-month trial",
+                title: "One-calendar-month trial",
                 detail: decision.isTrialActive
                     ? "Trial ends \(trialEndsAt.formatted(date: .abbreviated, time: .omitted))."
                     : "Trial ended \(trialEndsAt.formatted(date: .abbreviated, time: .omitted)).",
@@ -343,7 +366,7 @@ public enum MobileLicenseProductStateBuilder {
         } else {
             states.append(MobileLicenseProductState(
                 kind: .trial,
-                title: "One-month trial",
+                title: "One-calendar-month trial",
                 detail: "Trial starts the first time this app records an access date.",
                 isActive: false
             ))
@@ -353,7 +376,7 @@ public enum MobileLicenseProductStateBuilder {
             kind: .lifetimeUnlocked,
             title: "ClambHook license",
             detail: decision.hasLifetimeUnlock
-                ? "Versions released during the paid update window remain usable."
+                ? "Versions released during the included update window remain usable."
                 : "Buy or activate a ClambHook license to keep using ClambHook after free access.",
             isActive: decision.hasLifetimeUnlock
         ))
@@ -361,15 +384,15 @@ public enum MobileLicenseProductStateBuilder {
         if let cutoffDate = decision.updateCutoffDate {
             states.append(MobileLicenseProductState(
                 kind: .paidUpdateWindow,
-                title: "Paid-update window through \(cutoffDate.formatted(date: .abbreviated, time: .omitted))",
-                detail: "Versions released on or before this date are included and remain usable.",
+                title: "Included updates through \(cutoffDate.formatted(date: .abbreviated, time: .omitted))",
+                detail: "All updates released on or before this date are included, and those app versions remain usable.",
                 isActive: decision.hasLifetimeUnlock
             ))
         } else {
             states.append(MobileLicenseProductState(
                 kind: .paidUpdateWindow,
-                title: "Paid-update window through DATE",
-                detail: "A ClambHook license sets this date to the purchase date plus one year.",
+                title: "Included updates through DATE",
+                detail: "A ClambHook license includes one year of all updates from the purchase date.",
                 isActive: false
             ))
         }
@@ -382,10 +405,10 @@ public enum MobileLicenseProductStateBuilder {
         }
         states.append(MobileLicenseProductState(
             kind: .newFeaturesLocked,
-            title: "New features require paid update",
+            title: "Later updates require renewal",
             detail: lockedFeatures.isEmpty
-                ? "New features released after the paid update window require a paid feature update. Bug fixes and security fixes remain included."
-                : "Feature releases requiring a paid update: \(lockedFeatures.map(\.displayName).joined(separator: ", ")).",
+                ? "All updates released after the cutoff, including critical, bug, and security updates, require a USD 9.99 update-year renewal."
+                : "Updates requiring renewal include: \(lockedFeatures.map(\.displayName).joined(separator: ", ")).",
             isActive: !lockedFeatures.isEmpty
         ))
 
@@ -424,7 +447,7 @@ public enum MobileLicenseRuntimeError: Error, LocalizedError {
     public var errorDescription: String? {
         switch self {
         case .locked:
-            return "Trial has ended. Buy or activate a ClambHook license to keep using ClambHook."
+            return "The one-calendar-month trial has ended. Buy or activate a USD 99.99 one-time ClambHook license to keep using ClambHook."
         }
     }
 }
