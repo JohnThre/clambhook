@@ -2,7 +2,7 @@
 
 ClambHook end-user downloads are distributed only from
 `store.clambercloud.com`. Checkout, license delivery, device-seat management,
-and paid feature updates are handled by `store.swiphtgroup.com`.
+and update-year renewals are handled by `store.swiphtgroup.com`.
 
 ## End-user Downloads
 
@@ -12,11 +12,13 @@ and paid feature updates are handled by `store.swiphtgroup.com`.
 - License portal: `https://store.swiphtgroup.com/clambhook/portal/`.
 - The public macOS DMG download is free and supports Apple Silicon Macs running macOS 14.0 or later.
 - The first launch starts a one-calendar-month trial.
-- A USD 99.99 ClambHook license includes one year of feature updates.
-- Versions released during that year remain usable after the update year ends.
-- Each license covers up to 10 active devices across supported platforms.
+- A USD 99.99 one-time ClambHook license is required after the trial and includes one year of all updates from the purchase date.
+- Versions released on or before the update cutoff remain usable after the cutoff.
+- Each license covers a maximum of 10 concurrently active devices across supported platforms.
 - Device seats can be deactivated so the license can be moved to another device.
-- A USD 9.99 paid feature update unlocks later feature releases and extends the feature-release window by one year from the renewal purchase date.
+- After the cutoff, no later updates are included, including critical, bug, and security updates.
+- A USD 9.99 renewal buys one additional update year, extending from the later of the current cutoff or the renewal payment date.
+- ClambHook purchase payments are accepted only through Creem or NOWPayments, not PayPal.
 - GitHub is source-only and view-only for end users.
 
 The source is proprietary to Pengfan Chang, all rights reserved, and may not be
@@ -29,16 +31,17 @@ written permission from Pengfan Chang.
 | Display name | Product ID | Type | US base price |
 | --- | --- | --- | --- |
 | ClambHook License | `org.jpfchang.clambhook.unlock.lifetime` | Direct-sale license | USD 99.99 |
-| ClambHook for macOS 2027 Feature Update | `org.jpfchang.clambhook.feature_update.2027` | Direct-sale paid feature update | USD 9.99 |
+| ClambHook for macOS 2027 Update Year | `org.jpfchang.clambhook.feature_update.2027` | Direct-sale update-year renewal | USD 9.99 |
 
-Future paid feature update products use
+Future update-year renewal products use
 `org.jpfchang.clambhook.feature_update.YYYY`.
 
-The ClambHook license includes feature releases through the purchase date plus
-one year. Versions released during that year remain usable after the update
-window ends. Each paid feature update extends from the later of the previous
-cutoff or the renewal purchase date, so a user can skip renewals for multiple
-years and later pay USD 9.99 for one year of latest updates. Bug fixes and security fixes remain included.
+The ClambHook license includes all updates released through the purchase date
+plus one year. Versions released on or before that cutoff remain usable after
+the update window ends. Each USD 9.99 renewal extends the update window by one
+additional year from the later of the current cutoff or the renewal payment
+date. Releases after the cutoff are not included, including critical, bug, and
+security updates.
 
 ## GitHub Release Rule
 

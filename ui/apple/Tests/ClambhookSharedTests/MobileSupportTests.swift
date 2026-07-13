@@ -84,6 +84,7 @@ final class MobileSupportTests: XCTestCase {
 
         XCTAssertEqual(config["type"] as? String, "direct-sale")
         XCTAssertEqual(config["version"] as? Int, 1)
+        XCTAssertEqual(config["paymentProviders"] as? [String], ["creem", "nowpayments"])
 
         let products = try XCTUnwrap(config["products"] as? [[String: Any]])
         let productsByID = Dictionary(uniqueKeysWithValues: products.compactMap { product -> (String, [String: Any])? in
@@ -98,13 +99,13 @@ final class MobileSupportTests: XCTestCase {
             productsByID[MobilePurchaseCatalog.macLicenseProductID],
             displayPrice: "99.99",
             displayName: "ClambHook License",
-            description: "USD 99.99 ClambHook license includes one year of feature updates; versions released during that year remain usable; up to 10 active devices; deactivatable and transferable."
+            description: "USD 99.99 one-time ClambHook license after a one-calendar-month trial; includes one year of all updates; versions released on or before the cutoff remain usable; maximum 10 concurrently active devices; deactivatable and transferable."
         )
         try assertDirectSaleProduct(
             productsByID[MobilePurchaseCatalog.featureUpdate2027ID],
             displayPrice: "9.99",
-            displayName: "ClambHook for macOS 2027 Feature Update",
-            description: "Extends the ClambHook macOS feature-update window by one year."
+            displayName: "ClambHook for macOS 2027 Update Year",
+            description: "USD 9.99 buys one additional update year from the later of the current cutoff or renewal payment date."
         )
     }
 

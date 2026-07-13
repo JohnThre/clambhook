@@ -14,7 +14,7 @@ final class MacSparkleUpdater: NSObject, ObservableObject {
     private var canCheckObservation: NSKeyValueObservation?
 
     var feedURLProvider: @MainActor () -> String = { defaultStableAppcastURL.absoluteString }
-    var canInstallUpdate: @MainActor (Date?) -> Bool = { _ in true }
+    var canInstallUpdate: @MainActor (Date?) -> Bool = { _ in false }
 
     override init() {
         delegate = SparkleDelegate()
@@ -50,13 +50,13 @@ private final class SparkleDelegate: NSObject, SPUUpdaterDelegate {
 
     func updater(_ updater: SPUUpdater, shouldProceedWithUpdate updateItem: SUAppcastItem, updateCheck: SPUUpdateCheck) throws {
         let allowed = MainActor.assumeIsolated {
-            updateItem.isCriticalUpdate || (owner?.allowsUpdate(publishedAt: updateItem.date) ?? true)
+            owner?.allowsUpdate(publishedAt: updateItem.date) ?? false
         }
         guard !allowed else { return }
         throw NSError(
             domain: "org.jpfchang.clambhook.sparkle",
             code: 1,
-            userInfo: [NSLocalizedDescriptionKey: "This update adds features released after your update window. Renew feature updates at store.swiphtgroup.com to install it. Bug and security fixes remain available."]
+            userInfo: [NSLocalizedDescriptionKey: "This update was released after your included update window. Renew updates for USD 9.99 at store.swiphtgroup.com to install it. Updates after the cutoff are not included, including critical, bug, and security updates."]
         )
     }
 }

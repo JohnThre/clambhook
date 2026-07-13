@@ -51,8 +51,10 @@ distribution="$ROOT_DIR/docs/distribution.md"
 readme="$ROOT_DIR/README.md"
 settings="$ROOT_DIR/ui/apple/Sources/ClambhookShared/Settings.swift"
 licensing="$ROOT_DIR/ui/apple/Sources/ClambhookShared/Licensing.swift"
+license_devices="$ROOT_DIR/ui/apple/Sources/ClambhookShared/LicenseDeviceModels.swift"
 recovery="$ROOT_DIR/ui/apple/Sources/ClambhookShared/AppRecoveryState.swift"
 app_model="$ROOT_DIR/ui/apple/SharedApp/AppleAppModel.swift"
+sparkle_updater="$ROOT_DIR/ui/apple/ClambhookMac/MacSparkleUpdater.swift"
 purchase_view="$ROOT_DIR/ui/apple/SharedApp/SupportPurchasesView.swift"
 mobile_support="$ROOT_DIR/ui/apple/Sources/ClambhookShared/MobileSupport.swift"
 product_fixture="$ROOT_DIR/ui/apple/ClambhookProducts.json"
@@ -81,8 +83,10 @@ for path in \
     "$license_validation" \
     "$settings" \
     "$licensing" \
+    "$license_devices" \
     "$recovery" \
     "$app_model" \
+    "$sparkle_updater" \
     "$purchase_view" \
     "$mobile_support" \
     "$product_fixture"; do
@@ -92,22 +96,26 @@ done
 require_text "$readme" "distributed only from \`https://store.clambercloud.com/clambhook/\`" "README distribution policy"
 require_text "$readme" "free public DMG download for Apple Silicon Macs running macOS 14 or later" "README macOS availability policy"
 product_promise="USD 99.99"
-versions_promise="during that year remain usable"
-device_promise="up to 10 active"
+versions_promise="on or before the update cutoff remain usable"
+device_promise="maximum of 10 concurrently active"
 transfer_promise="deactivated"
 
-require_text "$readme" "USD 99.99 ClambHook license" "README license policy"
+require_text "$readme" "USD 99.99 one-time ClambHook license" "README license policy"
 require_text "$readme" "$versions_promise" "README version-usability policy"
 require_text "$readme" "$device_promise" "README device policy"
 require_text "$readme" "$transfer_promise" "README transfer policy"
+require_text "$readme" "one year of all updates" "README included-update policy"
+require_text "$readme" "critical, bug, and security updates" "README strict update-cutoff policy"
+require_text "$readme" "Creem or NOWPayments, not PayPal" "README payment-provider policy"
 
-require_text "$distribution" "A USD 99.99 ClambHook license includes one year of feature updates" "distribution policy"
+require_text "$distribution" "A USD 99.99 one-time ClambHook license is required after the trial and includes one year of all updates" "distribution policy"
 require_text "$distribution" "$versions_promise" "distribution policy"
-require_text "$distribution" "A USD 9.99 paid feature update unlocks later feature releases" "distribution policy"
+require_text "$distribution" "A USD 9.99 renewal buys one additional update year" "distribution policy"
 require_text "$distribution" "free and supports Apple Silicon Macs running macOS 14.0 or later" "distribution macOS availability policy"
 require_text "$distribution" "Device seats can be deactivated" "distribution policy"
 require_text "$distribution" "ClambHook License" "distribution products"
-require_text "$distribution" "Bug fixes and security fixes remain included" "distribution update policy"
+require_text "$distribution" "critical, bug, and security updates" "distribution update policy"
+require_text "$distribution" "Creem or NOWPayments, not PayPal" "distribution payment-provider policy"
 reject_text "$distribution" "In-App Purchase" "distribution policy"
 reject_text "$distribution" "StoreKit" "distribution policy"
 reject_text "$distribution" "App Store" "distribution policy"
@@ -120,6 +128,11 @@ for public_copy_file in "$commercial_setup" "$product_copy_en_us" "$copy_notes" 
     require_text "$public_copy_file" "$versions_promise" "public version-usability promise"
     require_text "$public_copy_file" "$device_promise" "public device promise"
     require_text "$public_copy_file" "$transfer_promise" "public transfer promise"
+    require_text "$public_copy_file" "one-calendar-month" "public trial promise"
+    require_text "$public_copy_file" "one year of all updates" "public included-update promise"
+    require_text "$public_copy_file" "critical, bug, and security updates" "public strict update-cutoff promise"
+    require_text "$public_copy_file" "Creem" "public payment-provider promise"
+    require_text "$public_copy_file" "NOWPayments" "public payment-provider promise"
     reject_text "$public_copy_file" "Lifetime license" "public product copy"
     reject_text "$public_copy_file" "lifetime license" "public product copy"
 done
@@ -161,10 +174,17 @@ for ui_copy_file in "$licensing" "$recovery" "$app_model" "$purchase_view" "$mob
     reject_text "$ui_copy_file" "Lifetime Unlock" "macOS website license UI copy"
 done
 
-require_text "$licensing" "One-month trial" "macOS website license UI copy"
-require_text "$licensing" "Paid feature updates unlock later feature releases" "macOS website license UI copy"
+require_text "$licensing" "One-calendar-month trial" "macOS website license UI copy"
+require_text "$licensing" "including critical, bug, and security updates" "macOS strict update-cutoff UI copy"
+require_text "$license_devices" "case creem" "macOS Creem provider policy"
+require_text "$license_devices" "case nowPayments" "macOS NOWPayments provider policy"
+reject_text "$license_devices" "case manual" "macOS payment-provider policy"
 require_text "$recovery" "Trial ended" "macOS website license recovery copy"
-require_text "$app_model" "Trial has ended" "macOS website license app copy"
+require_text "$recovery" "including critical, bug, and security updates" "macOS strict update-cutoff recovery copy"
+require_text "$app_model" "one-calendar-month trial has ended" "macOS website license app copy"
+require_text "$app_model" "MobileLicenseUpdatePolicy.canInstallUpdate" "macOS update gating"
+reject_text "$sparkle_updater" "isCriticalUpdate ||" "Sparkle critical-update bypass"
+require_text "$sparkle_updater" "including critical, bug, and security updates" "Sparkle strict update-cutoff copy"
 require_text "$purchase_view" "Buy license - USD" "macOS website license purchase copy"
 require_text "$mobile_support" "ClambHook License" "macOS website license product copy"
 
@@ -187,6 +207,8 @@ if config.get("type") != "direct-sale":
     raise SystemExit("product fixture must use type=direct-sale")
 if config.get("version") != 1:
     raise SystemExit("product fixture must use version=1")
+if config.get("paymentProviders") != ["creem", "nowpayments"]:
+    raise SystemExit("product fixture payment providers must be exactly Creem and NOWPayments")
 
 expected = [
     {
@@ -194,14 +216,14 @@ expected = [
         "kind": "license",
         "displayPrice": "99.99",
         "displayName": "ClambHook License",
-        "description": "USD 99.99 ClambHook license includes one year of feature updates; versions released during that year remain usable; up to 10 active devices; deactivatable and transferable.",
+        "description": "USD 99.99 one-time ClambHook license after a one-calendar-month trial; includes one year of all updates; versions released on or before the cutoff remain usable; maximum 10 concurrently active devices; deactivatable and transferable.",
     },
     {
         "productID": "org.jpfchang.clambhook.feature_update.2027",
         "kind": "feature_update",
         "displayPrice": "9.99",
-        "displayName": "ClambHook for macOS 2027 Feature Update",
-        "description": "Extends the ClambHook macOS feature-update window by one year.",
+        "displayName": "ClambHook for macOS 2027 Update Year",
+        "description": "USD 9.99 buys one additional update year from the later of the current cutoff or renewal payment date.",
     },
 ]
 

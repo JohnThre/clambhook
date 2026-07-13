@@ -7,15 +7,17 @@ license device management happen on `store.swiphtgroup.com`.
 
 - Free public macOS DMG download from `https://store.clambercloud.com/clambhook/`.
 - Public macOS support is Apple Silicon, macOS 14.0 or later.
-- One-month free trial from first launch.
+- A one-calendar-month free trial starts at first launch.
 - ClambHook License: `org.jpfchang.clambhook.unlock.lifetime`, USD 99.99.
-- ClambHook for macOS 2027 Feature Update: `org.jpfchang.clambhook.feature_update.2027`, USD 9.99.
-- Future paid feature update products use `org.jpfchang.clambhook.feature_update.YYYY`.
-- The USD 99.99 license includes one year of feature updates.
-- Versions released during that year remain usable after the update window ends.
-- One license covers up to 10 active devices across supported platforms.
+- ClambHook for macOS 2027 Update Year: `org.jpfchang.clambhook.feature_update.2027`, USD 9.99.
+- Future update-year renewal products use `org.jpfchang.clambhook.feature_update.YYYY`.
+- The USD 99.99 one-time license is required after the trial and includes one year of all updates from the purchase date.
+- Versions released on or before the update cutoff remain usable after the cutoff.
+- One license covers a maximum of 10 concurrently active devices across supported platforms.
 - License seats can be deactivated and moved to another device.
-- Paid feature updates unlock later feature releases. Bug fixes and security fixes remain included.
+- A USD 9.99 renewal buys one additional update year, extending from the later of the current cutoff or the renewal payment date.
+- After the cutoff, no later updates are included, including critical, bug, and security updates.
+- ClambHook purchase payments are accepted only through Creem or NOWPayments, not PayPal.
 - HTTP(S) capture is public for macOS v1 only as a local opt-in workflow with explicit HTTPS CA trust.
 
 ## URLs

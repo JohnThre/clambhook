@@ -902,22 +902,15 @@ final class AppleAppModel: ObservableObject {
             (self?.settingsStore.settings.appcastFeedURL ?? defaultStableAppcastURL).absoluteString
         }
         sparkleUpdater.canInstallUpdate = { [weak self] publishedAt in
-            self?.canInstallFeatureUpdate(publishedAt: publishedAt) ?? true
+            self?.canInstallFeatureUpdate(publishedAt: publishedAt) ?? false
         }
     }
 
     func canInstallFeatureUpdate(publishedAt: Date?) -> Bool {
-        let decision = mobileLicenseDecision
-        switch decision.reason {
-        case .trial:
-            return true
-        case .locked:
-            return false
-        case .lifetime, .offlineGrace:
-            guard let publishedAt else { return true }
-            guard let cutoff = decision.updateCutoffDate else { return false }
-            return publishedAt <= cutoff
-        }
+        MobileLicenseUpdatePolicy.canInstallUpdate(
+            decision: mobileLicenseDecision,
+            publishedAt: publishedAt
+        )
     }
 
     func checkForUpdatesWithSparkle() {
@@ -1147,7 +1140,7 @@ enum AppleAppModelError: Error, LocalizedError {
         case .invalidRules:
             return "The rule changes could not be encoded."
         case .licenseLocked:
-            return "Trial has ended. Buy or activate a ClambHook license to keep using ClambHook."
+            return "The one-calendar-month trial has ended. Buy or activate a USD 99.99 one-time ClambHook license to keep using ClambHook."
         }
     }
 }
