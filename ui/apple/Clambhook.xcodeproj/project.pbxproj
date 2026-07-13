@@ -10,6 +10,7 @@
 		02515828BBDD5E2F458BBC82 /* MacDashboardWindowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 73930EE75CE83BC0639DF8FB /* MacDashboardWindowView.swift */; };
 		069007F5D0A7675880D40F9B /* libsodium.26.dylib in CopyFiles */ = {isa = PBXBuildFile; fileRef = 0A1CC5DD0620471B3CCA85A1 /* libsodium.26.dylib */; };
 		095D479A2F5A1084BFB762D0 /* ClambhookMacApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02A8B8AC40D9FACBCFC83187 /* ClambhookMacApp.swift */; };
+		1B3E0F6671DBA918B4398D87 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 71619AA1E2C9424F8D0CAE82 /* Assets.xcassets */; };
 		21058FE949E1058BD40B24BC /* DaemonSupervisor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 752B77E9507F4674BBA0E4D8 /* DaemonSupervisor.swift */; };
 		25B6F6D85173FD2DA15BDA67 /* ClambhookShared in Frameworks */ = {isa = PBXBuildFile; productRef = E28DD20CC4C8CA4C959EBDA4 /* ClambhookShared */; };
 		3792B993B246938C4220AC8D /* clambhook in CopyFiles */ = {isa = PBXBuildFile; fileRef = A94F492377279C40EF5D0E2D /* clambhook */; };
@@ -18,7 +19,6 @@
 		3F66FD26F33A8017C4D60A10 /* AppleAppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F26A7314DC7A26F275AB285 /* AppleAppModel.swift */; };
 		4A459EE08DE00E773ED8F1A1 /* OnboardingManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 97734C4549F08796D23CD88D /* OnboardingManager.swift */; };
 		4AA3902FB355119E38FC8385 /* MacLicenseManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 861C6B6F1238EBFD62EBA315 /* MacLicenseManager.swift */; };
-		4D0A516BB9C54BCFA0BB5977 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 647CEAB994B54244AB6B7D45 /* Assets.xcassets */; };
 		55EB0B85AE3ECF0FD4819B8B /* ClambhookShared in Frameworks */ = {isa = PBXBuildFile; productRef = B64D35EC77B9F6E4644D12DE /* ClambhookShared */; };
 		591061674835E9B22E696123 /* MacMenuBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B7ECD0E4E9DE7440023C997 /* MacMenuBarView.swift */; };
 		595652E887BA75E9E3F51E17 /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16C63F9E0D5D87EDF04EA933 /* OnboardingView.swift */; };
@@ -27,6 +27,7 @@
 		79218D4F75C5C8C52215171C /* MacCommandRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 243DC274A14C7F31C205BAF8 /* MacCommandRunner.swift */; };
 		7B24668699ADCA36A9BB4B45 /* MacCertificateManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = D92091F3B5B6E2E4A8F4665B /* MacCertificateManager.swift */; };
 		835D83714173FD8203FD1A2F /* ServiceManagement.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 46AF45F7A3B6FE88BDADB04C /* ServiceManagement.framework */; };
+		9D1375A09591B29F98B76C9F /* ClambhookMenuBarIcon.swift in Sources */ = {isa = PBXBuildFile; fileRef = 161BB19C1F5E8ECCC7ABF371 /* ClambhookMenuBarIcon.swift */; };
 		A01CAAC55DD104949B937A2D /* MacPrivilegedHelperProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 140F17EF442ACC422CCBAC04 /* MacPrivilegedHelperProtocol.swift */; };
 		A16CDA20F6B7C6F85EE71F1B /* MacSystemProxyManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C4BAA859EE07F11DBF405BF /* MacSystemProxyManager.swift */; };
 		B6415B0956578D75A1C9E598 /* ClambhookWidgetBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E7E93A4404814358F6C95DB /* ClambhookWidgetBundle.swift */; };
@@ -98,14 +99,15 @@
 		0F26A7314DC7A26F275AB285 /* AppleAppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleAppModel.swift; sourceTree = "<group>"; };
 		11D3A8B6CD3A6119053C8908 /* SettingsViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsViews.swift; sourceTree = "<group>"; };
 		140F17EF442ACC422CCBAC04 /* MacPrivilegedHelperProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacPrivilegedHelperProtocol.swift; sourceTree = "<group>"; };
+		161BB19C1F5E8ECCC7ABF371 /* ClambhookMenuBarIcon.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClambhookMenuBarIcon.swift; sourceTree = "<group>"; };
 		16C63F9E0D5D87EDF04EA933 /* OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
 		1B067640E07DD0E186D64487 /* ClambhookMacWidgetExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = ClambhookMacWidgetExtension.entitlements; sourceTree = "<group>"; };
 		2154CDDB7FC6878704BCF197 /* MacSparkleUpdater.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacSparkleUpdater.swift; sourceTree = "<group>"; };
 		243DC274A14C7F31C205BAF8 /* MacCommandRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacCommandRunner.swift; sourceTree = "<group>"; };
 		24D15BDA328B4ED0B2A65291 /* ClambhookMac.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ClambhookMac.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		46AF45F7A3B6FE88BDADB04C /* ServiceManagement.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = ServiceManagement.framework; path = System/Library/Frameworks/ServiceManagement.framework; sourceTree = SDKROOT; };
-		647CEAB994B54244AB6B7D45 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		6B8CD11563D4B3DD735C2E6D /* MacSidebarSections.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacSidebarSections.swift; sourceTree = "<group>"; };
+		71619AA1E2C9424F8D0CAE82 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		73930EE75CE83BC0639DF8FB /* MacDashboardWindowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacDashboardWindowView.swift; sourceTree = "<group>"; };
 		752B77E9507F4674BBA0E4D8 /* DaemonSupervisor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DaemonSupervisor.swift; sourceTree = "<group>"; };
 		830D26CFA257F3C8AFAA6376 /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
@@ -155,6 +157,7 @@
 				E0B72BED6576EF183CAD2854 /* ClambhookDaemon.entitlements */,
 				B1CF51F1CEED770CC79EBC8C /* ClambhookMac.entitlements */,
 				02A8B8AC40D9FACBCFC83187 /* ClambhookMacApp.swift */,
+				161BB19C1F5E8ECCC7ABF371 /* ClambhookMenuBarIcon.swift */,
 				752B77E9507F4674BBA0E4D8 /* DaemonSupervisor.swift */,
 				B79D4C19242D8E6E95224A77 /* Info.plist */,
 				D92091F3B5B6E2E4A8F4665B /* MacCertificateManager.swift */,
@@ -245,7 +248,7 @@
 		E99574CBEE7F120459AD262C = {
 			isa = PBXGroup;
 			children = (
-				647CEAB994B54244AB6B7D45 /* Assets.xcassets */,
+				71619AA1E2C9424F8D0CAE82 /* Assets.xcassets */,
 				89770E96EAB9F6FBEC965742 /* clambhook */,
 				02DBE71539B0AF31E3C21C10 /* ClambhookMac */,
 				56417EA964EF40C4A9FDBF0F /* ClambhookMacHelper */,
@@ -278,8 +281,8 @@
 			buildConfigurationList = 53ACA6520DB72ED06D3484A6 /* Build configuration list for PBXNativeTarget "ClambhookMac" */;
 			buildPhases = (
 				25C91D328A1B73FF14F96FB9 /* Sources */,
-				B68A380A8EF34742935A7EB5 /* Resources */,
 				70120E6968EB89D496DE8F52 /* Embed Privileged Helper */,
+				627C07E88F40E049AA0F5BAA /* Resources */,
 				36AFAE5EF2430FA123C20D94 /* CopyFiles */,
 				D7E3AF299B5F540FABE9AE87 /* CopyFiles */,
 				D93359100F7A4D3ABF061755 /* Frameworks */,
@@ -385,11 +388,11 @@
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
-		B68A380A8EF34742935A7EB5 /* Resources */ = {
+		627C07E88F40E049AA0F5BAA /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				4D0A516BB9C54BCFA0BB5977 /* Assets.xcassets in Resources */,
+				1B3E0F6671DBA918B4398D87 /* Assets.xcassets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -425,6 +428,7 @@
 			files = (
 				3F66FD26F33A8017C4D60A10 /* AppleAppModel.swift in Sources */,
 				095D479A2F5A1084BFB762D0 /* ClambhookMacApp.swift in Sources */,
+				9D1375A09591B29F98B76C9F /* ClambhookMenuBarIcon.swift in Sources */,
 				21058FE949E1058BD40B24BC /* DaemonSupervisor.swift in Sources */,
 				3B1AEF48F2085F24D45275D2 /* DashboardViews.swift in Sources */,
 				7B24668699ADCA36A9BB4B45 /* MacCertificateManager.swift in Sources */,
