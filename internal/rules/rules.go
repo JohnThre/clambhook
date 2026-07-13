@@ -433,11 +433,6 @@ func (s compiledRuleSet) match(host string) (matchInfo, bool) {
 	return matchInfo{Kind: "cidr", Value: cidr}, ok
 }
 
-func matchCIDRList(prefixes []netip.Prefix, host string) bool {
-	_, ok := matchCIDRListInfo(prefixes, host)
-	return ok
-}
-
 func matchCIDRListInfo(prefixes []netip.Prefix, host string) (string, bool) {
 	host, _ = SplitTarget(host)
 	ip, err := netip.ParseAddr(strings.Trim(host, "[]"))

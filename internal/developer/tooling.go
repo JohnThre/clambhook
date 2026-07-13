@@ -1,7 +1,6 @@
 package developer
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -475,26 +474,6 @@ func joinURLPath(basePath, suffix string) string {
 		return basePath
 	}
 	return strings.TrimRight(basePath, "/") + "/" + strings.TrimLeft(suffix, "/")
-}
-
-func bodyBytes(body io.ReadCloser) ([]byte, error) {
-	if body == nil {
-		return nil, nil
-	}
-	defer body.Close()
-	return io.ReadAll(body)
-}
-
-func resetBody(req *http.Request, body []byte) {
-	if req == nil {
-		return
-	}
-	req.Body = io.NopCloser(bytes.NewReader(body))
-	req.ContentLength = int64(len(body))
-	if len(body) == 0 {
-		req.Body = http.NoBody
-		req.ContentLength = 0
-	}
 }
 
 func toHTTPBreakpointResolution(resolution BreakpointResolution) listener.HTTPBreakpointResolution {

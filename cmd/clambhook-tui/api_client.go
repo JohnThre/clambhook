@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -516,35 +517,29 @@ func (c apiClient) policyGroups() (policyGroupsPayload, error) {
 	return out, err
 }
 
-func (c apiClient) traffic() (trafficSnapshotPayload, error) {
-	var out trafficSnapshotPayload
-	err := c.getJSON("/api/v1/traffic?limit=200", &out)
-	return out, err
-}
-
 // trafficWithFilters fetches traffic with optional token-based filter params.
 func (c apiClient) trafficWithFilters(action, app, domain, country, port, query string) (trafficSnapshotPayload, error) {
-	path := "/api/v1/traffic?limit=200"
+	values := url.Values{"limit": {"200"}}
 	if action != "" {
-		path += "&action=" + action
+		values.Set("action", action)
 	}
 	if app != "" {
-		path += "&app=" + app
+		values.Set("app", app)
 	}
 	if domain != "" {
-		path += "&domain=" + domain
+		values.Set("domain", domain)
 	}
 	if country != "" {
-		path += "&country=" + country
+		values.Set("country", country)
 	}
 	if port != "" {
-		path += "&port=" + port
+		values.Set("port", port)
 	}
 	if query != "" {
-		path += "&query=" + query
+		values.Set("query", query)
 	}
 	var out trafficSnapshotPayload
-	err := c.getJSON(path, &out)
+	err := c.getJSON("/api/v1/traffic?"+values.Encode(), &out)
 	return out, err
 }
 
