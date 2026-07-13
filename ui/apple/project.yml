@@ -27,6 +27,7 @@ targets:
       - path: SharedApp
       - path: SharedPrivilegedHelper
       - path: ClambhookMac
+      - path: Assets.xcassets
       - path: ../../bin/clambhook
         buildPhase:
           copyFiles:

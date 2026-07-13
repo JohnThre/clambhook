@@ -6,7 +6,7 @@ struct ClambhookMacApp: App {
     @Environment(\.openSettings) private var openSettings
 
     var body: some Scene {
-        MenuBarExtra("clambhook", systemImage: model.dashboard.status.running ? "network" : "network.slash") {
+        MenuBarExtra {
             MacMenuBarView(model: model)
                 .frame(width: 420, height: 640)
                 .onDisappear { model.refresh() }
@@ -16,6 +16,8 @@ struct ClambhookMacApp: App {
                 )) {
                     OnboardingView(model: model, manager: model.onboardingManager)
                 }
+        } label: {
+            ClambhookMenuBarIcon(isActive: model.dashboard.status.running)
         }
         .menuBarExtraStyle(.window)
 
