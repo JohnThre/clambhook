@@ -9,6 +9,7 @@ active = "local"
 [developer]
 enabled = false
 mitm_enabled = false
+no_cache_enabled = false
 capture_limit = 200
 body_limit_bytes = 65536
 header_value_limit_bytes = 8192

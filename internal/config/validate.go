@@ -362,6 +362,14 @@ func validateDeveloperConfig(dev *DeveloperConfig) []error {
 			errs = append(errs, fmt.Errorf("developer.redact_query_params[%d] %q must be lowercase without surrounding whitespace", i, param))
 		}
 	}
+	for i, host := range dev.SSLDecryptHosts {
+		name := strings.TrimSpace(strings.ToLower(host))
+		if name == "" {
+			errs = append(errs, fmt.Errorf("developer.ssl_decrypt_hosts[%d] must not be empty", i))
+		} else if name != host {
+			errs = append(errs, fmt.Errorf("developer.ssl_decrypt_hosts[%d] %q must be lowercase without surrounding whitespace", i, host))
+		}
+	}
 	for i := range dev.MapRules {
 		errs = append(errs, validateDeveloperMapRule(i, &dev.MapRules[i])...)
 	}

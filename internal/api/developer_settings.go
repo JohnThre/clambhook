@@ -12,22 +12,26 @@ import (
 type developerSettingsPayload struct {
 	Enabled               bool     `json:"enabled"`
 	MITMEnabled           bool     `json:"mitm_enabled"`
+	NoCacheEnabled        bool     `json:"no_cache_enabled"`
 	CaptureLimit          int      `json:"capture_limit"`
 	BodyLimitBytes        int64    `json:"body_limit_bytes"`
 	HeaderValueLimitBytes int      `json:"header_value_limit_bytes"`
 	RedactHeaders         []string `json:"redact_headers"`
 	RedactQueryParams     []string `json:"redact_query_params"`
+	SSLDecryptHosts       []string `json:"ssl_decrypt_hosts,omitempty"`
 	BackupPath            string   `json:"backup_path,omitempty"`
 }
 
 type updateDeveloperSettingsRequest struct {
 	Enabled               *bool    `json:"enabled,omitempty"`
 	MITMEnabled           *bool    `json:"mitm_enabled,omitempty"`
+	NoCacheEnabled        *bool    `json:"no_cache_enabled,omitempty"`
 	CaptureLimit          *int     `json:"capture_limit,omitempty"`
 	BodyLimitBytes        *int64   `json:"body_limit_bytes,omitempty"`
 	HeaderValueLimitBytes *int     `json:"header_value_limit_bytes,omitempty"`
 	RedactHeaders         []string `json:"redact_headers,omitempty"`
 	RedactQueryParams     []string `json:"redact_query_params,omitempty"`
+	SSLDecryptHosts       []string `json:"ssl_decrypt_hosts,omitempty"`
 	HTTPSCaptureAck       bool     `json:"https_capture_ack,omitempty"`
 }
 
@@ -87,6 +91,9 @@ func applyDeveloperSettingsUpdate(current config.DeveloperConfig, req updateDeve
 		}
 		next.MITMEnabled = *req.MITMEnabled
 	}
+	if req.NoCacheEnabled != nil {
+		next.NoCacheEnabled = *req.NoCacheEnabled
+	}
 	if req.CaptureLimit != nil {
 		next.CaptureLimit = *req.CaptureLimit
 	}
@@ -106,6 +113,14 @@ func applyDeveloperSettingsUpdate(current config.DeveloperConfig, req updateDeve
 	}
 	if req.RedactQueryParams != nil {
 		next.RedactQueryParams, err = normalizeDeveloperNameList("developer.redact_query_params", req.RedactQueryParams, def.RedactQueryParams)
+		if err != nil {
+			return config.DeveloperConfig{}, rulePersistenceError{status: http.StatusBadRequest, err: err}
+		}
+	}
+	if req.SSLDecryptHosts != nil {
+		// No fallback default: an explicit empty list clears the allowlist,
+		// which restores the decrypt-all-hosts behavior.
+		next.SSLDecryptHosts, err = normalizeDeveloperNameList("developer.ssl_decrypt_hosts", req.SSLDecryptHosts, nil)
 		if err != nil {
 			return config.DeveloperConfig{}, rulePersistenceError{status: http.StatusBadRequest, err: err}
 		}
@@ -133,11 +148,13 @@ func developerSettingsSnapshot(dev config.DeveloperConfig, backupPath string) de
 	return developerSettingsPayload{
 		Enabled:               dev.Enabled,
 		MITMEnabled:           dev.MITMEnabled,
+		NoCacheEnabled:        dev.NoCacheEnabled,
 		CaptureLimit:          dev.CaptureLimit,
 		BodyLimitBytes:        dev.BodyLimitBytes,
 		HeaderValueLimitBytes: dev.HeaderValueLimitBytes,
 		RedactHeaders:         append([]string(nil), dev.RedactHeaders...),
 		RedactQueryParams:     append([]string(nil), dev.RedactQueryParams...),
+		SSLDecryptHosts:       append([]string(nil), dev.SSLDecryptHosts...),
 		BackupPath:            backupPath,
 	}
 }

@@ -20,6 +20,14 @@ func TestConfigSettingsEndpointReturnsActiveProfileSettings(t *testing.T) {
 	cfg.Profiles[0].Listen.SOCKS5Chain = "a-default"
 	cfg.Profiles[0].Listen.HTTP = "127.0.0.1:8080"
 	cfg.Profiles[0].Listen.HTTPChain = "a-default"
+	cfg.Profiles[0].Listen.TUN = &config.TUNConfig{
+		Enabled:      true,
+		Name:         "utun",
+		Chain:        "a-default",
+		MTU:          1500,
+		Routes:       []string{"0.0.0.0/0", "::/0"},
+		ExcludeCIDRs: []string{"127.0.0.0/8"},
+	}
 	cfg.Profiles[0].Chains[0].Servers[0].Settings = map[string]any{
 		"method":   "chacha20-ietf-poly1305",
 		"password": "secret",
@@ -39,6 +47,9 @@ func TestConfigSettingsEndpointReturnsActiveProfileSettings(t *testing.T) {
 
 	if resp.Profile != "A" || resp.Listen.SOCKS5 != "127.0.0.1:1080" || resp.Listen.HTTP != "127.0.0.1:8080" {
 		t.Fatalf("settings response = %+v", resp)
+	}
+	if !resp.Listen.TUN.Enabled || resp.Listen.TUN.Chain != "a-default" || resp.Listen.TUN.MTU != 1500 {
+		t.Fatalf("tun response = %+v", resp.Listen.TUN)
 	}
 	if !resp.DNS.Enabled || len(resp.DNS.Upstreams) != 1 || resp.DNS.Upstreams[0].Name != "cf" {
 		t.Fatalf("dns response = %+v", resp.DNS)
@@ -63,7 +74,16 @@ func TestConfigSettingsUpdatePersistsBackupAndReloads(t *testing.T) {
 	body := []byte(`{
 		"listen": {
 			"socks5": "127.0.0.1:1180",
-			"http": "127.0.0.1:18080"
+			"http": "127.0.0.1:18080",
+			"tun": {
+				"enabled": true,
+				"name": "utun",
+				"chain": "a-default",
+				"mtu": 1500,
+				"addresses": ["198.18.0.1/30"],
+				"routes": ["0.0.0.0/0", "::/0"],
+				"exclude_cidrs": ["127.0.0.0/8"]
+			}
 		},
 		"dns": {
 			"enabled": true,
@@ -99,6 +119,9 @@ func TestConfigSettingsUpdatePersistsBackupAndReloads(t *testing.T) {
 	}
 	if profile.Listen.SOCKS5 != "127.0.0.1:1180" || profile.Listen.HTTP != "127.0.0.1:18080" {
 		t.Fatalf("persisted listen = %+v", profile.Listen)
+	}
+	if profile.Listen.TUN == nil || !profile.Listen.TUN.Enabled || profile.Listen.TUN.Name != "utun" || len(profile.Listen.TUN.Routes) != 2 {
+		t.Fatalf("persisted tun = %+v", profile.Listen.TUN)
 	}
 	if !profile.DNS.Enabled || profile.DNS.Timeout.Std() != 3*time.Second || len(profile.DNS.Upstreams) != 1 {
 		t.Fatalf("persisted dns = %+v", profile.DNS)

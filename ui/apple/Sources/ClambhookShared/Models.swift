@@ -4,11 +4,26 @@ public struct StatusPayload: Codable, Equatable, Sendable {
     public var running: Bool
     public var profile: String
     public var listeners: [ListenerStatusPayload]
+    public var tunnelMode: String
 
-    public init(running: Bool = false, profile: String = "", listeners: [ListenerStatusPayload] = []) {
+    enum CodingKeys: String, CodingKey {
+        case running, profile, listeners
+        case tunnelMode = "tunnel_mode"
+    }
+
+    public init(running: Bool = false, profile: String = "", listeners: [ListenerStatusPayload] = [], tunnelMode: String = "") {
         self.running = running
         self.profile = profile
         self.listeners = listeners
+        self.tunnelMode = tunnelMode
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.running = try container.decodeIfPresent(Bool.self, forKey: .running) ?? false
+        self.profile = try container.decodeIfPresent(String.self, forKey: .profile) ?? ""
+        self.listeners = try container.decodeIfPresent([ListenerStatusPayload].self, forKey: .listeners) ?? []
+        self.tunnelMode = try container.decodeIfPresent(String.self, forKey: .tunnelMode) ?? ""
     }
 }
 
@@ -411,6 +426,39 @@ public struct DNSUpstreamRoutePayload: Codable, Equatable, Identifiable, Sendabl
         self.ruleName = try container.decodeIfPresent(String.self, forKey: .ruleName) ?? ""
         self.isDefault = try container.decodeIfPresent(Bool.self, forKey: .isDefault) ?? false
         self.error = try container.decodeIfPresent(String.self, forKey: .error) ?? ""
+    }
+}
+
+public struct DNSUpdateRequest: Encodable, Sendable {
+    public var enabled: Bool
+    public var timeout: String
+    public var upstreams: [DNSUpstreamPayload]
+
+    public init(enabled: Bool, timeout: String = "", upstreams: [DNSUpstreamPayload]) {
+        self.enabled = enabled
+        self.timeout = timeout
+        self.upstreams = upstreams
+    }
+}
+
+public typealias DNSUpstreamConfig = DNSUpstreamPayload
+
+public struct ConfigImportResponse: Codable, Sendable {
+    public var profiles: [String]
+    public var active: String
+    public var backupPath: String
+    public var message: String
+
+    enum CodingKeys: String, CodingKey {
+        case profiles, active, message
+        case backupPath = "backup_path"
+    }
+
+    public init(profiles: [String] = [], active: String = "", backupPath: String = "", message: String = "") {
+        self.profiles = profiles
+        self.active = active
+        self.backupPath = backupPath
+        self.message = message
     }
 }
 

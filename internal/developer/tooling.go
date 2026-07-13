@@ -41,6 +41,7 @@ type BreakpointMessage struct {
 	Status  int      `json:"status,omitempty"`
 	Headers []Header `json:"headers,omitempty"`
 	Body    string   `json:"body,omitempty"`
+	BodySet bool     `json:"body_set,omitempty"`
 }
 
 // PendingBreakpoint is a paused request or response awaiting user action.
@@ -216,6 +217,7 @@ func (m *Manager) breakpoint(ctx context.Context, stage string, req *http.Reques
 					URL:     requestURLForBreakpoint(req),
 					Headers: cloneHeaders(req.Header, cfg),
 					Body:    string(body),
+					BodySet: body != nil,
 				},
 			},
 			ch: make(chan BreakpointResolution, 1),
@@ -225,6 +227,7 @@ func (m *Manager) breakpoint(ctx context.Context, stage string, req *http.Reques
 				Status:  resp.StatusCode,
 				Headers: cloneHeaders(resp.Header, cfg),
 				Body:    string(body),
+				BodySet: body != nil,
 			}
 		}
 		m.mu.Lock()
@@ -315,12 +318,15 @@ func (m *Manager) Repeat(ctx context.Context, repeat RepeatRequest) (RepeatRespo
 		Host:      req.URL.Host,
 		Request: Message{
 			Headers: cloneHeaders(req.Header, cfg),
+			Cookies: cloneRequestCookies(req, cfg),
 			Body: Body{
 				Size:           int64(len(bodyText)),
 				Preview:        bodyText,
 				PreviewBytes:   int64(len(bodyText)),
 				Truncated:      false,
 				TruncatedAfter: cfg.BodyLimitBytes,
+				MimeType:       req.Header.Get("Content-Type"),
+				Encoding:       "utf8",
 			},
 		},
 	}
@@ -334,9 +340,10 @@ func (m *Manager) Repeat(ctx context.Context, repeat RepeatRequest) (RepeatRespo
 	defer resp.Body.Close()
 	out.Status = resp.StatusCode
 	out.Response.Headers = cloneHeaders(resp.Header, cfg)
+	out.Response.Cookies = cloneResponseCookies(resp, cfg)
 	cap := newBodyCapture(cfg.BodyLimitBytes)
 	_, copyErr := io.Copy(cap, resp.Body)
-	out.Response.Body = cap.snapshot()
+	out.Response.Body = cap.snapshot(out.Response.Headers)
 	if copyErr != nil {
 		out.Error = copyErr.Error()
 	}
@@ -515,5 +522,6 @@ func toHTTPBreakpointMessage(message BreakpointMessage) *listener.HTTPBreakpoint
 		Status:  message.Status,
 		Headers: headers,
 		Body:    message.Body,
+		BodySet: message.BodySet,
 	}
 }

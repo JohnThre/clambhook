@@ -39,19 +39,28 @@ public struct ConfigListenSettingsPayload: Codable, Equatable, Sendable {
     public var socks5Chain: String
     public var http: String
     public var httpChain: String
+    public var tun: ConfigTUNSettingsPayload
 
     enum CodingKeys: String, CodingKey {
         case socks5
         case socks5Chain = "socks5_chain"
         case http
         case httpChain = "http_chain"
+        case tun
     }
 
-    public init(socks5: String = "", socks5Chain: String = "", http: String = "", httpChain: String = "") {
+    public init(
+        socks5: String = "",
+        socks5Chain: String = "",
+        http: String = "",
+        httpChain: String = "",
+        tun: ConfigTUNSettingsPayload = ConfigTUNSettingsPayload()
+    ) {
         self.socks5 = socks5
         self.socks5Chain = socks5Chain
         self.http = http
         self.httpChain = httpChain
+        self.tun = tun
     }
 
     public init(from decoder: Decoder) throws {
@@ -60,6 +69,56 @@ public struct ConfigListenSettingsPayload: Codable, Equatable, Sendable {
         self.socks5Chain = try container.decodeIfPresent(String.self, forKey: .socks5Chain) ?? ""
         self.http = try container.decodeIfPresent(String.self, forKey: .http) ?? ""
         self.httpChain = try container.decodeIfPresent(String.self, forKey: .httpChain) ?? ""
+        self.tun = try container.decodeIfPresent(ConfigTUNSettingsPayload.self, forKey: .tun) ?? ConfigTUNSettingsPayload()
+    }
+}
+
+public struct ConfigTUNSettingsPayload: Codable, Equatable, Sendable {
+    public var enabled: Bool
+    public var name: String
+    public var chain: String
+    public var mtu: Int
+    public var addresses: [String]
+    public var routes: [String]
+    public var excludeCIDRs: [String]
+
+    enum CodingKeys: String, CodingKey {
+        case enabled
+        case name
+        case chain
+        case mtu
+        case addresses
+        case routes
+        case excludeCIDRs = "exclude_cidrs"
+    }
+
+    public init(
+        enabled: Bool = false,
+        name: String = "",
+        chain: String = "",
+        mtu: Int = 1500,
+        addresses: [String] = ["198.18.0.1/30", "fd7a:636c:616d::1/64"],
+        routes: [String] = ["0.0.0.0/0", "::/0"],
+        excludeCIDRs: [String] = ["127.0.0.0/8", "::1/128"]
+    ) {
+        self.enabled = enabled
+        self.name = name
+        self.chain = chain
+        self.mtu = mtu
+        self.addresses = addresses
+        self.routes = routes
+        self.excludeCIDRs = excludeCIDRs
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? false
+        self.name = try container.decodeIfPresent(String.self, forKey: .name) ?? ""
+        self.chain = try container.decodeIfPresent(String.self, forKey: .chain) ?? ""
+        self.mtu = try container.decodeIfPresent(Int.self, forKey: .mtu) ?? 1500
+        self.addresses = try container.decodeIfPresent([String].self, forKey: .addresses) ?? ["198.18.0.1/30", "fd7a:636c:616d::1/64"]
+        self.routes = try container.decodeIfPresent([String].self, forKey: .routes) ?? ["0.0.0.0/0", "::/0"]
+        self.excludeCIDRs = try container.decodeIfPresent([String].self, forKey: .excludeCIDRs) ?? ["127.0.0.0/8", "::1/128"]
     }
 }
 
@@ -126,7 +185,7 @@ public struct MacUpdateManifest: Codable, Equatable, Sendable {
         build: String = "",
         publishedAt: Date? = nil,
         minimumOSVersion: String = "",
-        url: URL = URL(string: "https://jpfchang.org/clambhook")!,
+        url: URL = URL(string: "https://store.clambercloud.com/clambhook")!,
         filename: String = "",
         sha256: String = "",
         size: Int64 = 0

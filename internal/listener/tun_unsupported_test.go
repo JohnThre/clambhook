@@ -1,4 +1,4 @@
-//go:build !linux
+//go:build !linux && !darwin
 
 package listener
 
@@ -14,7 +14,7 @@ func TestUnsupportedTUNStartFailsClearly(t *testing.T) {
 	if err == nil {
 		t.Fatal("Start returned nil, want unsupported-platform error")
 	}
-	if !strings.Contains(err.Error(), "only supported on Linux") {
+	if !strings.Contains(err.Error(), "only supported on Linux and macOS") {
 		t.Fatalf("Start error = %q", err)
 	}
 }

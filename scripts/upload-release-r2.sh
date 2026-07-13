@@ -8,6 +8,7 @@ FINAL_ZIP="${1:-$ROOT_DIR/dist/macos/ClambhookMac-arm64.zip}"
 FINAL_DMG="${2:-$ROOT_DIR/dist/macos/ClambhookMac-arm64.dmg}"
 FINAL_DMG_CHECKSUM="${3:-$ROOT_DIR/dist/macos/ClambhookMac-arm64.dmg.sha256}"
 UPDATE_MANIFEST="${4:-$ROOT_DIR/dist/macos/clambhook-update-manifest.json}"
+APPCAST="${5:-$ROOT_DIR/dist/macos/appcast.xml}"
 BUCKET="${CLAMBHOOK_R2_BUCKET:-clambhook-artifacts}"
 VERSION="${VERSION:-$(git -C "$ROOT_DIR" describe --tags --always --dirty 2>/dev/null || echo 'unknown')}"
 UPDATE_CHANNEL="${UPDATE_CHANNEL:-stable}"
@@ -67,6 +68,14 @@ if [[ -f "$FINAL_DMG_CHECKSUM" ]]; then
         --remote
 fi
 
+if [[ -f "${FINAL_DMG_CHECKSUM}.sig" ]]; then
+    echo "Uploading → r2://$BUCKET/${CHECKSUM_KEY}.sig"
+    wrangler r2 object put "$BUCKET/${CHECKSUM_KEY}.sig" \
+        --file "${FINAL_DMG_CHECKSUM}.sig" \
+        --content-type "application/pgp-signature" \
+        --remote
+fi
+
 if [[ -f "$UPDATE_MANIFEST" ]]; then
     if [[ "$UPDATE_CHANNEL" == "beta" || "$(basename "$UPDATE_MANIFEST")" == "clambhook-beta-update-manifest.json" ]]; then
         MANIFEST_KEY="clambhook-beta-update-manifest.json"
@@ -80,4 +89,25 @@ if [[ -f "$UPDATE_MANIFEST" ]]; then
         --remote
 fi
 
-echo "R2 upload complete: $VERSIONED_KEY, $LATEST_KEY, DMG, checksum, and update manifest"
+if [[ -f "${UPDATE_MANIFEST}.sig" ]]; then
+    echo "Uploading → r2://$BUCKET/${MANIFEST_KEY}.sig"
+    wrangler r2 object put "$BUCKET/${MANIFEST_KEY}.sig" \
+        --file "${UPDATE_MANIFEST}.sig" \
+        --content-type "application/pgp-signature" \
+        --remote
+fi
+
+if [[ -f "$APPCAST" ]]; then
+    if [[ "$UPDATE_CHANNEL" == "beta" || "$(basename "$APPCAST")" == "appcast-beta.xml" ]]; then
+        APPCAST_KEY="appcast-beta.xml"
+    else
+        APPCAST_KEY="appcast.xml"
+    fi
+    echo "Uploading → r2://$BUCKET/$APPCAST_KEY"
+    wrangler r2 object put "$BUCKET/$APPCAST_KEY" \
+        --file "$APPCAST" \
+        --content-type "application/xml" \
+        --remote
+fi
+
+echo "R2 upload complete: $VERSIONED_KEY, $LATEST_KEY, DMG, checksum, update manifest, and appcast"

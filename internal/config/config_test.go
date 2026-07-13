@@ -216,6 +216,13 @@ func TestValidateRejectsBadDeveloperConfig(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "developer.redact_query_params[0]") {
 		t.Fatalf("Validate error = %v, want developer redact query param error", err)
 	}
+
+	cfg = validConfig()
+	cfg.Developer.SSLDecryptHosts = []string{" *.Example.com "}
+	err = cfg.Validate()
+	if err == nil || !strings.Contains(err.Error(), "developer.ssl_decrypt_hosts[0]") {
+		t.Fatalf("Validate error = %v, want developer ssl_decrypt_hosts error", err)
+	}
 }
 
 func TestLoadRules(t *testing.T) {

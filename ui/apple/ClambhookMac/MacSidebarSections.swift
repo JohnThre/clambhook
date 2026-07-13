@@ -7,54 +7,90 @@ import SwiftUI
 struct MacDashboardSection: View {
     @ObservedObject var model: AppleAppModel
     @ObservedObject private var daemon: DaemonSupervisor
+    var onNavigate: ((SidebarItem) -> Void)?
 
-    init(model: AppleAppModel) {
+    init(model: AppleAppModel, onNavigate: ((SidebarItem) -> Void)? = nil) {
         self.model = model
+        self.onNavigate = onNavigate
         self._daemon = ObservedObject(wrappedValue: model.daemonSupervisor)
     }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 22) {
-                connectionControl
-                Divider()
-                metricsGrid
-                if !model.dashboard.policyGroups.groups.isEmpty {
-                    Divider()
-                    policyGroupHealth
+        VStack(spacing: 0) {
+            statusStrip
+            Divider()
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    if !model.appRecoveryStates.isEmpty {
+                        recoveryStates
+                        Divider()
+                    }
+                    if !model.dashboard.policyGroups.groups.isEmpty {
+                        policyGroupHealth
+                        Divider()
+                    }
+                    miniActivityFeed
                 }
-                Divider()
-                recentRequests
+                .padding(20)
             }
-            .padding(20)
         }
     }
 
-    // MARK: Connection control
+    // MARK: Status strip
 
-    private var connectionControl: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(spacing: 12) {
-                profilePicker
-                Spacer()
-                apiPill
+    private var statusStrip: some View {
+        HStack(spacing: 10) {
+            Circle()
+                .fill(statusDotColor)
+                .frame(width: 8, height: 8)
+            Text(statusText)
+                .font(.subheadline.weight(.medium))
+                .lineLimit(1)
+            profilePicker
+            if daemon.state.isBusy {
+                ProgressView()
+                    .controlSize(.small)
+                    .scaleEffect(0.75)
             }
-            HStack(spacing: 10) {
-                Button {
-                    model.connectOrDisconnect()
-                } label: {
-                    Label(
-                        model.dashboard.status.running ? "Disconnect" : "Connect",
-                        systemImage: model.dashboard.status.running ? "stop.fill" : "play.fill"
-                    )
+            Spacer(minLength: 8)
+            if model.dashboard.status.running {
+                let bw = model.dashboard.currentBandwidth
+                Text("↓ \(formatRate(bw.rxBps))")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                Text("↑ \(formatRate(bw.txBps))")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                let activeConns = model.dashboard.status.listeners.reduce(0) { $0 + $1.activeConns }
+                if activeConns > 0 {
+                    Text("\(activeConns) active")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(model.dashboard.status.running ? .red : .green)
-                .disabled(!model.dashboard.apiOnline && !model.dashboard.status.running)
-
-                statusLabel
+                tunnelModeBadge
+                if bestLatency != "--" {
+                    Text(bestLatency)
+                        .font(.caption.weight(.semibold))
+                        .monospacedDigit()
+                        .foregroundStyle(.orange)
+                }
             }
+            apiPill
+            Button {
+                model.connectOrDisconnect()
+            } label: {
+                Label(
+                    model.dashboard.status.running ? "Disconnect" : "Connect",
+                    systemImage: model.dashboard.status.running ? "stop.fill" : "play.fill"
+                )
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(model.dashboard.status.running ? .red : .green)
+            .controlSize(.small)
+            .disabled(!model.dashboard.apiOnline && !model.dashboard.status.running)
         }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
     }
 
     private var profilePicker: some View {
@@ -94,19 +130,20 @@ struct MacDashboardSection: View {
         )
     }
 
-    private var statusLabel: some View {
-        HStack(spacing: 6) {
-            Circle()
-                .fill(statusDotColor)
-                .frame(width: 8, height: 8)
-            Text(statusText)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-            if daemon.state.isBusy {
-                ProgressView()
-                    .controlSize(.small)
-                    .scaleEffect(0.75)
-            }
+    @ViewBuilder
+    private var tunnelModeBadge: some View {
+        let mode = model.dashboard.status.tunnelMode
+        if mode == "tun" {
+            Label("Full Tunnel", systemImage: "network.badge.shield.half.filled")
+                .font(.caption.weight(.medium))
+                .foregroundStyle(Color.green)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 3)
+                .background(Color.green.opacity(0.12), in: Capsule())
+        } else if mode == "proxy" {
+            Label("Proxy", systemImage: "globe")
+                .font(.caption.weight(.medium))
+                .foregroundStyle(Color.secondary)
         }
     }
 
@@ -120,31 +157,13 @@ struct MacDashboardSection: View {
     }
 
     private var statusText: String {
-        if model.dashboard.status.running {
-            return "Connected"
-        }
+        if model.dashboard.status.running { return "Connected" }
         switch daemon.state {
         case .running: return "Daemon running"
         case .starting: return "Starting…"
         case .stopping: return "Stopping…"
         case .failed: return "Daemon failed"
         case .stopped: return "Disconnected"
-        }
-    }
-
-    // MARK: Metrics grid
-
-    private var metricsGrid: some View {
-        let sample = model.dashboard.currentBandwidth
-        let activeConnections = model.dashboard.status.listeners.reduce(0) { $0 + $1.activeConns }
-        let latency = bestLatency
-        return LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
-            MacMetricCard(title: "Download", value: formatRate(sample.rxBps), systemImage: "arrow.down", tint: .blue)
-            MacMetricCard(title: "Upload", value: formatRate(sample.txBps), systemImage: "arrow.up", tint: .green)
-            MacMetricCard(title: "Latency", value: latency, systemImage: "timer", tint: latency == "--" ? .secondary : .orange)
-            MacMetricCard(title: "Active", value: "\(activeConnections)", systemImage: "point.3.connected.trianglepath.dotted", tint: .purple)
-            MacMetricCard(title: "Total ↓", value: formatBytes(model.dashboard.traffic.summary.rxTotal), systemImage: "internaldrive", tint: .blue)
-            MacMetricCard(title: "Total ↑", value: formatBytes(model.dashboard.traffic.summary.txTotal), systemImage: "internaldrive", tint: .green)
         }
     }
 
@@ -156,6 +175,32 @@ struct MacDashboardSection: View {
             }
         }
         return "--"
+    }
+
+    private var recoveryStates: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Attention")
+                .font(.headline)
+            ForEach(model.appRecoveryStates) { state in
+                AppRecoveryStatePanel(state: state) { action in
+                    handleRecoveryAction(action)
+                }
+            }
+        }
+    }
+
+    private func handleRecoveryAction(_ action: AppRecoveryStateAction) {
+        switch action {
+        case .createProfile, .importProfile, .openProfiles:
+            onNavigate?(.profile(model.dashboard.activeProfile))
+        case .openAppSettings, .openSettings, .openSystemSettings:
+            onNavigate?(.settings)
+        case .buyLicense, .activateLicense, .openLicensePortal, .renewUpdates:
+            onNavigate?(.license)
+        default:
+            break
+        }
+        model.performAppRecoveryAction(action)
     }
 
     // MARK: Policy group health
@@ -172,12 +217,12 @@ struct MacDashboardSection: View {
         }
     }
 
-    // MARK: Recent requests
+    // MARK: Mini activity feed
 
-    private var recentRequests: some View {
-        VStack(alignment: .leading, spacing: 10) {
+    private var miniActivityFeed: some View {
+        VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Text("Recent Requests")
+                Text("Activity")
                     .font(.headline)
                 Spacer()
                 let counts = model.dashboard.monitorActionCounts
@@ -186,16 +231,27 @@ struct MacDashboardSection: View {
                     MacActionBadge(label: "D \(counts["direct", default: 0])", color: .blue)
                     MacActionBadge(label: "B \(counts["block", default: 0])", color: .red)
                 }
+                if onNavigate != nil {
+                    Button("View All") { onNavigate?(.activity) }
+                        .buttonStyle(.borderless)
+                        .font(.caption)
+                        .foregroundStyle(Color.accentColor)
+                }
             }
-            if model.dashboard.recentDecisions.isEmpty {
+            let connections = Array(model.dashboard.traffic.connections.prefix(20))
+            if connections.isEmpty && model.dashboard.recentDecisions.isEmpty {
                 Text("No recent traffic")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+            } else if !connections.isEmpty {
+                ForEach(connections.prefix(15)) { conn in
+                    MiniActivityRow(connection: conn)
+                }
             } else {
-                ForEach(model.dashboard.recentDecisions) { decision in
+                ForEach(model.dashboard.recentDecisions.prefix(15)) { decision in
                     HStack(spacing: 8) {
                         Circle()
-                            .fill(actionColor(decision.action))
+                            .fill(decisionColor(decision.action))
                             .frame(width: 8, height: 8)
                         Text(emptyDash(decision.target))
                             .font(.caption)
@@ -212,7 +268,7 @@ struct MacDashboardSection: View {
         }
     }
 
-    private func actionColor(_ action: String) -> Color {
+    private func decisionColor(_ action: String) -> Color {
         switch action.lowercased() {
         case "direct": return .blue
         case "block", "reject": return .red
@@ -298,31 +354,59 @@ private struct MacPolicyGroupHealthRow: View {
     }
 }
 
-private struct MacMetricCard: View {
-    var title: String
-    var value: String
-    var systemImage: String
-    var tint: Color
+private struct MiniActivityRow: View {
+    var connection: TrafficConnectionPayload
+
+    private var isActive: Bool { connection.state.lowercased() == "active" }
+
+    private var hostLabel: String {
+        let host = connection.targetHost.isEmpty ? connection.target : connection.targetHost
+        if !connection.targetPort.isEmpty && connection.targetPort != "0" {
+            return "\(host):\(connection.targetPort)"
+        }
+        return host
+    }
+
+    private var actionColor: Color {
+        switch connection.actionFamily {
+        case "block": return .red
+        case "direct": return .blue
+        default: return .green
+        }
+    }
 
     var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: systemImage)
-                .font(.subheadline)
-                .foregroundStyle(tint)
-                .frame(width: 22)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                Text(value)
-                    .font(.subheadline.weight(.semibold))
-                    .monospacedDigit()
+        HStack(spacing: 8) {
+            Circle()
+                .fill(actionColor)
+                .frame(width: 8, height: 8)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(emptyDash(hostLabel))
+                    .font(.caption)
                     .lineLimit(1)
+                    .truncationMode(.middle)
+                if !connection.application.isEmpty {
+                    Text(connection.application)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
             }
-            Spacer(minLength: 0)
+            Spacer(minLength: 8)
+            VStack(alignment: .trailing, spacing: 1) {
+                if isActive {
+                    HStack(spacing: 3) {
+                        Circle().fill(Color.green).frame(width: 5, height: 5)
+                        Text("active").font(.caption2).foregroundStyle(.green)
+                    }
+                } else {
+                    Text(timeAgoShort(connection.startTsNs))
+                        .font(.caption2.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
+            }
         }
-        .padding(12)
-        .background(Color.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 10))
+        .padding(.vertical, 1)
     }
 }
 
@@ -412,8 +496,12 @@ struct MacProfilesSection: View {
             Text("Active Profile")
                 .font(.headline)
             if model.dashboard.profiles.profiles.isEmpty {
-                Text("No profiles")
-                    .foregroundStyle(.secondary)
+                AppRecoveryStatePanel(
+                    state: model.noProfileRecoveryState ?? AppRecoveryStateBuilder.noProfile(),
+                    showsDiagnostic: false
+                ) { action in
+                    model.performAppRecoveryAction(action)
+                }
             } else {
                 Picker("Profile", selection: Binding(
                     get: { model.dashboard.activeProfile },
@@ -664,7 +752,13 @@ struct MacProfilesSection: View {
                     .foregroundStyle(.secondary)
             } else {
                 ForEach(model.dashboard.ruleSubscriptions.subscriptions) { sub in
-                    MacSubscriptionRow(subscription: sub)
+                    MacSubscriptionRow(subscription: sub) { updated in
+                        var subs = model.dashboard.ruleSubscriptions.subscriptions
+                        if let idx = subs.firstIndex(where: { $0.id == updated.id }) {
+                            subs[idx] = updated
+                        }
+                        try? model.replaceActiveProfileRuleSubscriptions(subs)
+                    }
                 }
             }
         }
@@ -724,6 +818,7 @@ struct MacProfilesSection: View {
 
 private struct MacSubscriptionRow: View {
     var subscription: RuleSubscriptionPayload
+    var onUpdate: ((RuleSubscriptionPayload) -> Void)?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
@@ -732,6 +827,17 @@ private struct MacSubscriptionRow: View {
                     .font(.caption.weight(.semibold))
                     .lineLimit(1)
                 Spacer()
+                Toggle("", isOn: Binding(
+                    get: { !subscription.disabled },
+                    set: { enabled in
+                        var updated = subscription
+                        updated.disabled = !enabled
+                        onUpdate?(updated)
+                    }
+                ))
+                .toggleStyle(.switch)
+                .controlSize(.mini)
+                .labelsHidden()
                 statusChip
             }
             if !subscription.url.isEmpty {
@@ -815,15 +921,36 @@ private struct MacIssueCard: View {
 
 struct MacPolicyGroupsSection: View {
     @ObservedObject var model: AppleAppModel
+    @State private var testingGroup: String = ""
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
+                HStack {
+                    Text("Policy Groups")
+                        .font(.headline)
+                    Spacer()
+                    Button {
+                        testingGroup = ""
+                        Task { await model.dashboard.testPolicyGroup() }
+                    } label: {
+                        Label("Test All", systemImage: "speedometer")
+                    }
+                    .buttonStyle(.borderless)
+                    .font(.caption)
+                }
                 CompactPolicySelectorView(
                     summary: model.dashboard.policySelectorSummary,
                     groups: model.dashboard.policyGroups.groups,
                     onSelect: { group, chain in
                         model.selectPolicyGroup(group: group, chain: chain)
+                    },
+                    onTest: { group in
+                        testingGroup = group
+                        Task {
+                            await model.dashboard.testPolicyGroup(group: group)
+                            testingGroup = ""
+                        }
                     }
                 )
             }
@@ -1445,15 +1572,15 @@ struct MacRuleAddSheet: View {
 
 struct MacDNSSection: View {
     @ObservedObject var model: AppleAppModel
+    @State private var showAddUpstreamSheet = false
+    @State private var saveError = ""
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 dnsOverview
-                if !model.dashboard.dns.upstreams.isEmpty {
-                    Divider()
-                    upstreamsTable
-                }
+                Divider()
+                upstreamsSection
                 if !model.dashboard.dns.upstreamRoutes.isEmpty {
                     Divider()
                     routesTable
@@ -1461,12 +1588,43 @@ struct MacDNSSection: View {
             }
             .padding(20)
         }
+        .sheet(isPresented: $showAddUpstreamSheet) {
+            MacDNSUpstreamSheet { upstream in
+                var upstreams = model.dashboard.dns.upstreams
+                upstreams.append(upstream)
+                Task {
+                    await model.dashboard.updateDNS(
+                        enabled: model.dashboard.dns.enabled,
+                        timeout: model.dashboard.dns.timeout,
+                        upstreams: upstreams
+                    )
+                }
+            }
+        }
     }
 
     private var dnsOverview: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("DNS Configuration")
-                .font(.headline)
+            HStack {
+                Text("DNS Configuration")
+                    .font(.headline)
+                Spacer()
+                Toggle("Encrypted DNS", isOn: Binding(
+                    get: { model.dashboard.dns.enabled },
+                    set: { enabled in
+                        Task {
+                            await model.dashboard.updateDNS(
+                                enabled: enabled,
+                                timeout: model.dashboard.dns.timeout,
+                                upstreams: model.dashboard.dns.upstreams
+                            )
+                        }
+                    }
+                ))
+                .toggleStyle(.switch)
+                .controlSize(.small)
+                .labelsHidden()
+            }
             HStack(spacing: 16) {
                 Label(model.dashboard.dns.enabled ? "Enabled" : "Disabled", systemImage: model.dashboard.dns.enabled ? "checkmark.circle.fill" : "xmark.circle")
                     .foregroundStyle(model.dashboard.dns.enabled ? .green : .secondary)
@@ -1482,6 +1640,71 @@ struct MacDNSSection: View {
                 }
             }
             .font(.subheadline)
+        }
+    }
+
+    private var upstreamsSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("Upstreams")
+                    .font(.headline)
+                Spacer()
+                Button {
+                    showAddUpstreamSheet = true
+                } label: {
+                    Label("Add", systemImage: "plus")
+                }
+                .buttonStyle(.borderless)
+                .font(.caption)
+            }
+            if model.dashboard.dns.upstreams.isEmpty {
+                Text("No upstreams configured. Add a DoH, DoT, or DoQ upstream.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(model.dashboard.dns.upstreams) { upstream in
+                    HStack(spacing: 10) {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(upstream.name.isEmpty ? upstream.id : upstream.name)
+                                .font(.subheadline.weight(.medium))
+                                .lineLimit(1)
+                            HStack(spacing: 6) {
+                                Text(upstream.protocol.uppercased())
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                Text(upstream.targetDescription)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                            }
+                        }
+                        Spacer(minLength: 8)
+                        Button(role: .destructive) {
+                            let remaining = model.dashboard.dns.upstreams.filter { $0.id != upstream.id }
+                            Task {
+                                await model.dashboard.updateDNS(
+                                    enabled: model.dashboard.dns.enabled,
+                                    timeout: model.dashboard.dns.timeout,
+                                    upstreams: remaining
+                                )
+                            }
+                        } label: {
+                            Image(systemName: "trash")
+                                .foregroundStyle(.red)
+                        }
+                        .buttonStyle(.plain)
+                        .help("Remove \(upstream.name.isEmpty ? upstream.id : upstream.name)")
+                    }
+                    .padding(.vertical, 2)
+                    Divider()
+                }
+            }
+            if !saveError.isEmpty {
+                Text(saveError)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+            }
         }
     }
 
@@ -1533,6 +1756,93 @@ struct MacDNSSection: View {
                 }
             }
         }
+    }
+}
+
+// MARK: - DNS Upstream Add Sheet
+
+struct MacDNSUpstreamSheet: View {
+    var onAdd: (DNSUpstreamPayload) -> Void
+    @Environment(\.dismiss) private var dismiss
+    @State private var name = ""
+    @State private var proto = "doh"
+    @State private var url = ""
+    @State private var address = ""
+    @State private var serverName = ""
+    @State private var bootstrapIPs = ""
+    @State private var validationError = ""
+
+    private let protocols = ["doh", "dot", "doq"]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Text("Add DNS Upstream")
+                    .font(.headline)
+                Spacer()
+                Button("Cancel") { dismiss() }
+            }
+            .padding([.horizontal, .top], 16)
+            .padding(.bottom, 8)
+            Divider()
+            Form {
+                TextField("Name (optional)", text: $name)
+                Picker("Protocol", selection: $proto) {
+                    ForEach(protocols, id: \.self) { p in
+                        Text(p.uppercased()).tag(p)
+                    }
+                }
+                if proto == "doh" {
+                    TextField("URL (https://...)", text: $url)
+                } else {
+                    TextField("Address (host:port)", text: $address)
+                    TextField("Server Name (TLS SNI, optional)", text: $serverName)
+                }
+                TextField("Bootstrap IPs (comma-separated, optional)", text: $bootstrapIPs)
+            }
+            .padding(12)
+            Divider()
+            VStack(alignment: .leading, spacing: 6) {
+                if !validationError.isEmpty {
+                    Text(validationError)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                }
+                HStack {
+                    Spacer()
+                    Button("Add Upstream") {
+                        guard validate() else { return }
+                        let ips = bootstrapIPs.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+                        let upstream = DNSUpstreamPayload(
+                            name: name,
+                            protocol: proto,
+                            url: proto == "doh" ? url : "",
+                            address: proto != "doh" ? address : "",
+                            serverName: serverName,
+                            bootstrapIPs: ips
+                        )
+                        onAdd(upstream)
+                        dismiss()
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+            }
+            .padding(12)
+        }
+        .frame(width: 440, height: 340)
+    }
+
+    private func validate() -> Bool {
+        if proto == "doh" && url.isEmpty {
+            validationError = "URL is required for DoH"
+            return false
+        }
+        if proto != "doh" && address.isEmpty {
+            validationError = "Address is required for \(proto.uppercased())"
+            return false
+        }
+        validationError = ""
+        return true
     }
 }
 
@@ -1644,7 +1954,10 @@ struct MacActivitySection: View {
                 emptyState
             } else {
                 List(connections, selection: $selectedID) { connection in
-                    ActivityConnectionRow(connection: connection)
+                    ActivityConnectionRow(
+                        connection: connection,
+                        attributedApp: model.attributedApplication(for: connection)
+                    )
                         .tag(connection.connID)
                 }
                 .listStyle(.plain)
@@ -1670,8 +1983,10 @@ struct MacActivitySection: View {
 
 private struct ActivityConnectionRow: View {
     var connection: TrafficConnectionPayload
+    var attributedApp: String?
 
     private var appLabel: String {
+        if let app = attributedApp, !app.isEmpty { return app }
         if !connection.application.isEmpty { return connection.application }
         return connection.listener.protocol.uppercased()
     }
@@ -2036,6 +2351,9 @@ struct MacHTTPCaptureSection: View {
     @State private var breakpointRequestBody = ""
     @State private var breakpointResponseBody = ""
     @State private var breakpointStatus = ""
+    @State private var selectedMessageSide = "request"
+    @State private var selectedMessageTab = "headers"
+    @State private var composeEntry: DeveloperEntryPayload?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -2064,6 +2382,12 @@ struct MacHTTPCaptureSection: View {
             breakpointEditor(breakpoint)
                 .frame(minWidth: 560, minHeight: 460)
         }
+        .sheet(item: $composeEntry) { entry in
+            MacComposeRequestSheet(entry: entry) { request in
+                model.sendComposedDeveloperRequest(request)
+            }
+            .frame(minWidth: 580, minHeight: 520)
+        }
         .confirmationDialog(
             "Export HAR?",
             isPresented: $showingHARExportWarning,
@@ -2087,6 +2411,10 @@ struct MacHTTPCaptureSection: View {
             if model.developerStatus.mitmEnabled {
                 Label("HTTPS capture on", systemImage: "lock.open")
                     .foregroundStyle(.orange)
+            }
+            if model.developerStatus.noCacheEnabled {
+                Label("No-cache", systemImage: "arrow.clockwise.circle")
+                    .foregroundStyle(.purple)
             }
             TextField("Search requests", text: $captureSearch)
                 .textFieldStyle(.roundedBorder)
@@ -2170,12 +2498,31 @@ struct MacHTTPCaptureSection: View {
                         } label: {
                             Label("Repeat", systemImage: "arrow.triangle.2.circlepath")
                         }
+                        Button {
+                            composeEntry = entry
+                        } label: {
+                            Label("Edit & Send", systemImage: "square.and.pencil")
+                        }
                     }
                     ruleControls(entry)
                     Divider()
-                    messageSection(title: "Request", message: entry.request)
-                    Divider()
-                    messageSection(title: "Response", message: entry.response)
+                    Picker("Message", selection: $selectedMessageSide) {
+                        Text("Request").tag("request")
+                        Text("Response").tag("response")
+                    }
+                    .pickerStyle(.segmented)
+                    Picker("Detail", selection: $selectedMessageTab) {
+                        Text("Headers").tag("headers")
+                        Text("Body").tag("body")
+                        Text("JSON").tag("json")
+                        Text("Cookies").tag("cookies")
+                    }
+                    .pickerStyle(.segmented)
+                    messageSection(
+                        title: selectedMessageSide == "request" ? "Request" : "Response",
+                        message: selectedMessageSide == "request" ? entry.request : entry.response,
+                        tab: selectedMessageTab
+                    )
                 }
                 .padding(18)
             } else {
@@ -2263,9 +2610,11 @@ struct MacHTTPCaptureSection: View {
                 Button("Continue Edited") {
                     var request = breakpoint.request
                     request.body = breakpointRequestBody
+                    request.bodySet = true
                     var response = breakpoint.response
                     if var editedResponse = response {
                         editedResponse.body = breakpointResponseBody
+                        editedResponse.bodySet = true
                         editedResponse.status = Int(breakpointStatus.trimmingCharacters(in: .whitespacesAndNewlines)) ?? editedResponse.status
                         response = editedResponse
                     }
@@ -2325,10 +2674,75 @@ struct MacHTTPCaptureSection: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+            DisclosureGroup("Rules") {
+                if model.developerMapRules.isEmpty && model.developerBreakpointRules.isEmpty {
+                    Text("No developer rules")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(model.developerMapRules) { rule in
+                        developerRuleRow(
+                            title: rule.name.isEmpty ? "Map \(rule.kind)" : rule.name,
+                            subtitle: rule.kind == "local" ? rule.localPath : rule.remoteURL,
+                            enabled: rule.enabled,
+                            onToggle: { enabled in
+                                var rules = model.developerMapRules
+                                if let index = rules.firstIndex(where: { $0.id == rule.id }) {
+                                    rules[index].enabled = enabled
+                                    model.replaceDeveloperMapRules(rules)
+                                }
+                            },
+                            onDelete: {
+                                model.replaceDeveloperMapRules(model.developerMapRules.filter { $0.id != rule.id })
+                            }
+                        )
+                    }
+                    ForEach(model.developerBreakpointRules) { rule in
+                        developerRuleRow(
+                            title: rule.name.isEmpty ? "Breakpoint" : rule.name,
+                            subtitle: "\(rule.stage) \(rule.match.host)",
+                            enabled: rule.enabled,
+                            onToggle: { enabled in
+                                var rules = model.developerBreakpointRules
+                                if let index = rules.firstIndex(where: { $0.id == rule.id }) {
+                                    rules[index].enabled = enabled
+                                    model.replaceDeveloperBreakpointRules(rules)
+                                }
+                            },
+                            onDelete: {
+                                model.replaceDeveloperBreakpointRules(model.developerBreakpointRules.filter { $0.id != rule.id })
+                            }
+                        )
+                    }
+                }
+            }
         }
     }
 
-    private func messageSection(title: String, message: DeveloperMessagePayload) -> some View {
+    private func developerRuleRow(title: String, subtitle: String, enabled: Bool, onToggle: @escaping (Bool) -> Void, onDelete: @escaping () -> Void) -> some View {
+        HStack {
+            Toggle("", isOn: Binding(get: { enabled }, set: onToggle))
+                .labelsHidden()
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.caption.weight(.semibold))
+                if !subtitle.isEmpty {
+                    Text(subtitle)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+            }
+            Spacer()
+            Button(role: .destructive, action: onDelete) {
+                Image(systemName: "trash")
+            }
+            .buttonStyle(.borderless)
+        }
+    }
+
+    private func messageSection(title: String, message: DeveloperMessagePayload, tab: String) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Text(title)
@@ -2338,34 +2752,110 @@ struct MacHTTPCaptureSection: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
-            if message.headers.isEmpty {
-                Text("No headers")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            } else {
-                ForEach(message.headers) { header in
-                    HStack(alignment: .top) {
-                        Text(header.name)
-                            .font(.system(.caption, design: .monospaced).weight(.semibold))
-                            .frame(width: 160, alignment: .leading)
-                        Text(header.value)
-                            .font(.system(.caption, design: .monospaced))
-                            .foregroundStyle(header.redacted ? .red : .secondary)
-                            .textSelection(.enabled)
-                    }
+            switch tab {
+            case "body":
+                bodyTab(message.body)
+            case "json":
+                jsonTab(message.body)
+            case "cookies":
+                cookiesTab(message.cookies)
+            default:
+                headersTab(message.headers)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func headersTab(_ headers: [DeveloperHeaderPayload]) -> some View {
+        if headers.isEmpty {
+            Text("No headers")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        } else {
+            ForEach(headers) { header in
+                HStack(alignment: .top) {
+                    Text(header.name)
+                        .font(.system(.caption, design: .monospaced).weight(.semibold))
+                        .frame(width: 160, alignment: .leading)
+                    Text(header.value)
+                        .font(.system(.caption, design: .monospaced))
+                        .foregroundStyle(header.redacted ? .red : .secondary)
+                        .textSelection(.enabled)
                 }
             }
-            if message.body.hasPreview {
-                Text(message.body.preview)
-                    .font(.system(.caption, design: .monospaced))
-                    .textSelection(.enabled)
-                    .padding(8)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Color.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 6))
-                if message.body.truncated {
-                    Text("Truncated after \(formatBytes(message.body.truncatedAfter))")
-                        .font(.caption)
-                        .foregroundStyle(.orange)
+        }
+    }
+
+    @ViewBuilder
+    private func bodyTab(_ body: DeveloperBodyPayload) -> some View {
+        let preview = bodyPreviewText(body)
+        if preview.isEmpty {
+            Text("No body preview")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        } else {
+            Text(preview)
+                .font(.system(.caption, design: .monospaced))
+                .textSelection(.enabled)
+                .padding(8)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 6))
+            Text([body.mimeType, body.encoding].filter { !$0.isEmpty }.joined(separator: " / "))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            if body.truncated {
+                Text("Truncated after \(formatBytes(body.truncatedAfter))")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func jsonTab(_ body: DeveloperBodyPayload) -> some View {
+        if let pretty = prettyJSON(body.preview) {
+            Text(pretty)
+                .font(.system(.caption, design: .monospaced))
+                .textSelection(.enabled)
+                .padding(8)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 6))
+            if body.truncated {
+                Text("JSON preview is truncated")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+            }
+        } else {
+            Text("No valid JSON preview")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    @ViewBuilder
+    private func cookiesTab(_ cookies: [DeveloperCookiePayload]) -> some View {
+        if cookies.isEmpty {
+            Text("No cookies")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        } else {
+            ForEach(cookies) { cookie in
+                HStack(alignment: .top) {
+                    Text(cookie.name)
+                        .font(.system(.caption, design: .monospaced).weight(.semibold))
+                        .frame(width: 160, alignment: .leading)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(cookie.value)
+                            .font(.system(.caption, design: .monospaced))
+                            .foregroundStyle(cookie.redacted ? .red : .secondary)
+                            .textSelection(.enabled)
+                        let attrs = cookieAttributes(cookie)
+                        if !attrs.isEmpty {
+                            Text(attrs)
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
                 }
             }
         }
@@ -2404,6 +2894,56 @@ struct MacHTTPCaptureSection: View {
         return "\(formatBytes(req)) req / \(formatBytes(resp)) resp"
     }
 
+    private func bodyPreviewText(_ body: DeveloperBodyPayload) -> String {
+        if !body.preview.isEmpty {
+            return body.preview
+        }
+        if !body.previewBase64.isEmpty {
+            return "[base64] \(body.previewBase64)"
+        }
+        return ""
+    }
+
+    private func prettyJSON(_ text: String) -> String? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, let data = trimmed.data(using: .utf8) else {
+            return nil
+        }
+        guard let object = try? JSONSerialization.jsonObject(with: data),
+              JSONSerialization.isValidJSONObject(object),
+              let pretty = try? JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys])
+        else {
+            return nil
+        }
+        return String(data: pretty, encoding: .utf8)
+    }
+
+    private func cookieAttributes(_ cookie: DeveloperCookiePayload) -> String {
+        var parts: [String] = []
+        if !cookie.domain.isEmpty {
+            parts.append("domain=\(cookie.domain)")
+        }
+        if !cookie.path.isEmpty {
+            parts.append("path=\(cookie.path)")
+        }
+        if !cookie.expires.isEmpty {
+            parts.append("expires=\(cookie.expires)")
+        }
+        if cookie.maxAge != 0 {
+            parts.append("max-age=\(cookie.maxAge)")
+        }
+        if cookie.secure {
+            parts.append("secure")
+        }
+        if cookie.httpOnly {
+            parts.append("httponly")
+        }
+        if !cookie.sameSite.isEmpty {
+            parts.append("samesite=\(cookie.sameSite)")
+        }
+        return parts.joined(separator: "  ")
+    }
+
     private func statusColor(_ status: Int) -> Color {
         switch status {
         case 200..<300: return .green
@@ -2427,33 +2967,62 @@ struct MacHTTPCaptureSection: View {
 
 struct MacLogsSection: View {
     @ObservedObject var model: AppleAppModel
+    @State private var logSearch = ""
+
+    private var filteredLogs: [(offset: Int, element: String)] {
+        let query = logSearch.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let all = Array(model.dashboard.logs.enumerated())
+        guard !query.isEmpty else { return all }
+        return all.filter { $0.element.lowercased().contains(query) }
+    }
 
     var body: some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 2) {
-                    if model.dashboard.logs.isEmpty {
-                        Text("No logs yet")
-                            .foregroundStyle(.secondary)
-                            .padding(20)
-                    } else {
-                        ForEach(Array(model.dashboard.logs.enumerated()), id: \.offset) { index, line in
-                            Text(line)
-                                .font(.system(.caption, design: .monospaced))
+        VStack(spacing: 0) {
+            HStack(spacing: 8) {
+                TextField("Filter logs…", text: $logSearch)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.caption)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            Divider()
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 2) {
+                        if filteredLogs.isEmpty {
+                            Text(logSearch.isEmpty ? "No logs yet" : "No matches")
                                 .foregroundStyle(.secondary)
-                                .textSelection(.enabled)
-                                .id(index)
+                                .padding(20)
+                        } else {
+                            ForEach(filteredLogs, id: \.offset) { item in
+                                Text(item.element)
+                                    .font(.system(.caption, design: .monospaced))
+                                    .foregroundStyle(logLineColor(item.element))
+                                    .textSelection(.enabled)
+                                    .id(item.offset)
+                            }
                         }
                     }
+                    .padding(12)
                 }
-                .padding(12)
-            }
-            .onChange(of: model.dashboard.logs.count) {
-                if !model.dashboard.logs.isEmpty {
-                    proxy.scrollTo(model.dashboard.logs.count - 1, anchor: .bottom)
+                .onChange(of: model.dashboard.logs.count) {
+                    if let last = filteredLogs.last {
+                        proxy.scrollTo(last.offset, anchor: .bottom)
+                    }
                 }
             }
         }
+    }
+
+    private func logLineColor(_ line: String) -> Color {
+        let lower = line.lowercased()
+        if lower.contains("error") || lower.contains("err]") || lower.contains("[err") {
+            return .red
+        }
+        if lower.contains("warn") {
+            return .orange
+        }
+        return .secondary
     }
 }
 
@@ -2535,8 +3104,8 @@ private struct MacLicenseControls: View {
                 .disabled(manager.isLoading || !manager.deviceState.canTransferCurrentDevice)
             }
 
-            Link(destination: URL(string: "https://jpfchang.org/clambhook/buy")!) {
-                Label("Buy ClambHook USD \(MobileLicenseCommercialTerms.lifetimePriceUSD)", systemImage: "cart")
+            Link(destination: URL(string: "https://store.swiphtgroup.com/clambhook/buy")!) {
+                Label("Buy license - USD \(MobileLicenseCommercialTerms.licensePriceUSD)", systemImage: "cart")
             }
 
             Link(destination: defaultLicensePortalURL) {
@@ -2576,4 +3145,124 @@ private func dashboardFallbackProxyChain(_ dashboard: DashboardStore) -> String 
         if !group.selected.isEmpty { return group.selected }
     }
     return dashboard.servers.chains.first?.name ?? ""
+}
+
+private func timeAgoShort(_ startTsNs: Int64) -> String {
+    guard startTsNs > 0 else { return "--" }
+    let nowNs = Int64(Date().timeIntervalSince1970 * 1_000_000_000)
+    let elapsed = max(0, nowNs - startTsNs)
+    let secs = elapsed / 1_000_000_000
+    if secs < 60 { return "\(secs)s ago" }
+    let mins = secs / 60
+    if mins < 60 { return "\(mins)m ago" }
+    return "\(mins / 60)h ago"
+}
+
+// MARK: - Compose request sheet
+
+private struct ComposeHeaderRow: Identifiable {
+    let id = UUID()
+    var name: String
+    var value: String
+}
+
+private struct MacComposeRequestSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    let entry: DeveloperEntryPayload
+    let onSend: (DeveloperRepeatRequestPayload) -> Void
+
+    @State private var method: String
+    @State private var url: String
+    @State private var headers: [ComposeHeaderRow]
+    @State private var bodyText: String
+
+    init(entry: DeveloperEntryPayload, onSend: @escaping (DeveloperRepeatRequestPayload) -> Void) {
+        self.entry = entry
+        self.onSend = onSend
+        _method = State(initialValue: entry.method.isEmpty ? "GET" : entry.method)
+        _url = State(initialValue: entry.url)
+        _headers = State(initialValue: entry.request.headers
+            .filter { !$0.redacted && !$0.truncated }
+            .map { ComposeHeaderRow(name: $0.name, value: $0.value) })
+        _bodyText = State(initialValue: entry.request.body.preview)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Text("Edit & Send Request")
+                    .font(.headline)
+                Spacer()
+                Button("Cancel") { dismiss() }
+                Button {
+                    onSend(makeRequest())
+                    dismiss()
+                } label: {
+                    Label("Send", systemImage: "paperplane")
+                }
+                .keyboardShortcut(.return, modifiers: .command)
+                .disabled(url.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
+            .padding(16)
+            Divider()
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    HStack {
+                        TextField("Method", text: $method)
+                            .frame(width: 90)
+                        TextField("URL", text: $url)
+                    }
+                    .textFieldStyle(.roundedBorder)
+                    HStack {
+                        Text("Headers")
+                            .font(.subheadline.weight(.semibold))
+                        Spacer()
+                        Button {
+                            headers.append(ComposeHeaderRow(name: "", value: ""))
+                        } label: {
+                            Label("Add", systemImage: "plus")
+                        }
+                    }
+                    ForEach($headers) { $header in
+                        HStack {
+                            TextField("Name", text: $header.name)
+                                .frame(width: 180)
+                            TextField("Value", text: $header.value)
+                            Button(role: .destructive) {
+                                headers.removeAll { $0.id == header.id }
+                            } label: {
+                                Image(systemName: "minus.circle")
+                            }
+                            .buttonStyle(.borderless)
+                        }
+                        .textFieldStyle(.roundedBorder)
+                    }
+                    if entry.request.body.truncated {
+                        Label("Captured body was truncated; provide the full body to send.", systemImage: "exclamationmark.triangle")
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                    }
+                    Text("Body")
+                        .font(.subheadline.weight(.semibold))
+                    TextEditor(text: $bodyText)
+                        .font(.system(.caption, design: .monospaced))
+                        .frame(minHeight: 140)
+                        .overlay(RoundedRectangle(cornerRadius: 6).stroke(.quaternary))
+                }
+                .padding(16)
+            }
+        }
+    }
+
+    private func makeRequest() -> DeveloperRepeatRequestPayload {
+        DeveloperRepeatRequestPayload(
+            entryID: entry.id,
+            method: method.trimmingCharacters(in: .whitespaces),
+            url: url.trimmingCharacters(in: .whitespaces),
+            headers: headers
+                .filter { !$0.name.trimmingCharacters(in: .whitespaces).isEmpty }
+                .map { DeveloperHeaderPayload(name: $0.name, value: $0.value) },
+            body: bodyText
+        )
+    }
 }

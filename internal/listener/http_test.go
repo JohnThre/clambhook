@@ -58,6 +58,10 @@ func (i *disabledMITMInspector) Enabled() bool { return true }
 
 func (i *disabledMITMInspector) MITMEnabled() bool { return false }
 
+func (i *disabledMITMInspector) ShouldDecryptHost(string) bool { return false }
+
+func (i *disabledMITMInspector) NoCacheEnabled() bool { return false }
+
 func (i *disabledMITMInspector) TLSConfig(string) (*tls.Config, error) {
 	i.tlsConfigCalls.Add(1)
 	return nil, fmt.Errorf("unexpected TLSConfig call")
@@ -82,6 +86,12 @@ func (i *disabledMITMInspector) BreakpointRequest(context.Context, *http.Request
 func (i *disabledMITMInspector) BreakpointResponse(context.Context, *http.Request, *http.Response, []byte) (HTTPBreakpointResolution, bool, error) {
 	return HTTPBreakpointResolution{}, false, nil
 }
+
+type noCacheInspector struct {
+	disabledMITMInspector
+}
+
+func (i *noCacheInspector) NoCacheEnabled() bool { return true }
 
 // --- CONNECT tests -------------------------------------------------------
 
@@ -180,6 +190,94 @@ func TestHTTPConnectPassesThroughWhenInspectorMITMDisabled(t *testing.T) {
 	}
 	if string(buf) != "hello" {
 		t.Errorf("remote got %q, want hello", buf)
+	}
+}
+
+// allowlistMITMInspector enables MITM but restricts decryption to hosts
+// accepted by allow, mirroring the developer manager's SSL decrypt allowlist.
+type allowlistMITMInspector struct {
+	disabledMITMInspector
+	allow func(string) bool
+}
+
+func (i *allowlistMITMInspector) MITMEnabled() bool { return true }
+
+func (i *allowlistMITMInspector) ShouldDecryptHost(host string) bool {
+	return i.allow(host)
+}
+
+func TestHTTPConnectSkipsMITMForHostOutsideAllowlist(t *testing.T) {
+	remoteCh := make(chan net.Conn, 1)
+	inspector := &allowlistMITMInspector{allow: func(host string) bool { return host == "allowed.example.com" }}
+	_, addr := newTestHTTPListenerWithOpts(t, stubDial(remoteCh), Options{HTTPInspector: inspector})
+
+	client, err := net.Dial("tcp", addr)
+	if err != nil {
+		t.Fatalf("dial listener: %v", err)
+	}
+	defer client.Close()
+
+	if _, err := io.WriteString(client,
+		"CONNECT blocked.example.com:443 HTTP/1.1\r\nHost: blocked.example.com:443\r\n\r\n"); err != nil {
+		t.Fatal(err)
+	}
+
+	br := bufio.NewReader(client)
+	resp, err := http.ReadResponse(br, nil)
+	if err != nil {
+		t.Fatalf("read response: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Fatalf("status got %d, want 200", resp.StatusCode)
+	}
+	if got := inspector.tlsConfigCalls.Load(); got != 0 {
+		t.Fatalf("TLSConfig calls = %d, want 0 (host outside allowlist must not be MITM'd)", got)
+	}
+
+	remote := <-remoteCh
+	defer remote.Close()
+	if _, err := client.Write([]byte("hello")); err != nil {
+		t.Fatal(err)
+	}
+	buf := make([]byte, 5)
+	if _, err := io.ReadFull(remote, buf); err != nil {
+		t.Fatal(err)
+	}
+	if string(buf) != "hello" {
+		t.Errorf("remote got %q, want hello", buf)
+	}
+}
+
+func TestHTTPConnectUsesMITMForHostInAllowlist(t *testing.T) {
+	inspector := &allowlistMITMInspector{allow: func(host string) bool { return host == "allowed.example.com" }}
+	_, addr := newTestHTTPListenerWithOpts(t, stubDial(nil), Options{HTTPInspector: inspector})
+
+	client, err := net.Dial("tcp", addr)
+	if err != nil {
+		t.Fatalf("dial listener: %v", err)
+	}
+	defer client.Close()
+
+	if _, err := io.WriteString(client,
+		"CONNECT allowed.example.com:443 HTTP/1.1\r\nHost: allowed.example.com:443\r\n\r\n"); err != nil {
+		t.Fatal(err)
+	}
+
+	br := bufio.NewReader(client)
+	resp, err := http.ReadResponse(br, nil)
+	if err != nil {
+		t.Fatalf("read response: %v", err)
+	}
+	resp.Body.Close()
+	// The stub TLSConfig always errors, so a matching host surfaces as a
+	// 502 from handleMITMConnect — proof the MITM path (not the plain
+	// tunnel) was chosen.
+	if resp.StatusCode != http.StatusBadGateway {
+		t.Fatalf("status got %d, want %d", resp.StatusCode, http.StatusBadGateway)
+	}
+	if got := inspector.tlsConfigCalls.Load(); got != 1 {
+		t.Fatalf("TLSConfig calls = %d, want 1 (host in allowlist must be MITM'd)", got)
 	}
 }
 
@@ -461,6 +559,73 @@ func TestHTTPForwardGET(t *testing.T) {
 		t.Errorf("body got %q, want hello", body)
 	}
 
+	if err := <-errCh; err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestHTTPForwardNoCacheHeaders(t *testing.T) {
+	remoteCh := make(chan net.Conn, 1)
+	_, addr := newTestHTTPListenerWithOpts(t, stubDial(remoteCh), Options{HTTPInspector: &noCacheInspector{}})
+
+	client, err := net.Dial("tcp", addr)
+	if err != nil {
+		t.Fatalf("dial listener: %v", err)
+	}
+	defer client.Close()
+
+	errCh := make(chan error, 1)
+	go func() {
+		remote := <-remoteCh
+		defer remote.Close()
+		req, err := http.ReadRequest(bufio.NewReader(remote))
+		if err != nil {
+			errCh <- fmt.Errorf("origin read request: %w", err)
+			return
+		}
+		if got := req.Header.Get("If-None-Match"); got != "" {
+			errCh <- fmt.Errorf("If-None-Match got %q, want stripped", got)
+			return
+		}
+		if got := req.Header.Get("Cache-Control"); got != "no-cache" {
+			errCh <- fmt.Errorf("Cache-Control got %q, want no-cache", got)
+			return
+		}
+		if got := req.Header.Get("Pragma"); got != "no-cache" {
+			errCh <- fmt.Errorf("Pragma got %q, want no-cache", got)
+			return
+		}
+		if _, err := io.WriteString(remote,
+			"HTTP/1.1 200 OK\r\nCache-Control: max-age=3600\r\nETag: abc\r\nContent-Length: 2\r\n\r\nok"); err != nil {
+			errCh <- err
+			return
+		}
+		errCh <- nil
+	}()
+
+	payload := "GET http://example.com/cache HTTP/1.1\r\n" +
+		"Host: example.com\r\n" +
+		"If-None-Match: abc\r\n" +
+		"Cache-Control: max-age=3600\r\n\r\n"
+	if _, err := io.WriteString(client, payload); err != nil {
+		t.Fatal(err)
+	}
+
+	resp, err := http.ReadResponse(bufio.NewReader(client), nil)
+	if err != nil {
+		t.Fatalf("read response: %v", err)
+	}
+	_, _ = io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if got := resp.Header.Get("Cache-Control"); got != "no-store, no-cache, must-revalidate" {
+		t.Fatalf("response Cache-Control got %q", got)
+	}
+	if got := resp.Header.Get("Pragma"); got != "no-cache" {
+		t.Fatalf("response Pragma got %q", got)
+	}
+	if got := resp.Header.Get("Expires"); got != "0" {
+		t.Fatalf("response Expires got %q", got)
+	}
 	if err := <-errCh; err != nil {
 		t.Fatal(err)
 	}

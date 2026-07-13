@@ -2,18 +2,18 @@ import XCTest
 @testable import ClambhookShared
 
 final class SettingsTests: XCTestCase {
-    func testVPNDataUseDisclosureMatchesIPhoneMetadataOnlyPosture() {
-        XCTAssertTrue(vpnDataUseDisclosure.contains("iPhone v1 inspection is metadata-only"))
+    func testVPNDataUseDisclosureSeparatesActivityAndOptInHTTPCapture() {
+        XCTAssertTrue(vpnDataUseDisclosure.contains("Activity inspection is metadata-only by default"))
         XCTAssertTrue(vpnDataUseDisclosure.contains("does not sell, use, or disclose VPN traffic data to third parties"))
-        XCTAssertTrue(vpnDataUseDisclosure.contains("does not install a certificate authority"))
-        XCTAssertTrue(vpnDataUseDisclosure.contains("perform TLS MITM"))
-        XCTAssertTrue(vpnDataUseDisclosure.contains("export HAR files"))
-        XCTAssertFalse(vpnDataUseDisclosure.contains("HTTPS body capture is opt-in"))
-        XCTAssertFalse(vpnDataUseDisclosure.contains("body previews"))
+        XCTAssertTrue(vpnDataUseDisclosure.contains("HTTP Capture is a separate local opt-in"))
+        XCTAssertTrue(vpnDataUseDisclosure.contains("user-trusted local certificate authority"))
+        XCTAssertTrue(vpnDataUseDisclosure.contains("bounded request and response body previews"))
+        XCTAssertTrue(vpnDataUseDisclosure.contains("HAR exports on this Mac"))
+        XCTAssertTrue(vpnDataUseDisclosure.contains("captures stay on this device unless you export them"))
     }
 
     func testDeveloperCaptureDisclosureSeparatesHTTPAndHTTPSCapture() {
-        XCTAssertTrue(developerCaptureDisclosure.contains("Developer capture is opt-in and local"))
+        XCTAssertTrue(developerCaptureDisclosure.contains("HTTP Capture is opt-in and local"))
         XCTAssertTrue(developerCaptureDisclosure.contains("configured query parameters are redacted"))
         XCTAssertFalse(developerCaptureDisclosure.contains("creates a local certificate authority"))
 
@@ -22,16 +22,43 @@ final class SettingsTests: XCTestCase {
         XCTAssertTrue(developerHTTPSCaptureDisclosure.contains("Only enable it for devices and test traffic you control"))
     }
 
+    func testSSLDecryptHostsDisclosureExplainsAllowlist() {
+        XCTAssertTrue(developerSSLDecryptHostsDisclosure.contains("Leave blank to decrypt every HTTPS host"))
+        XCTAssertTrue(developerSSLDecryptHostsDisclosure.contains("*.example.com"))
+    }
+
+    func testDeveloperSettingsPayloadDecodesMissingSSLDecryptHostsAsEmpty() throws {
+        let data = Data("""
+        {"enabled": true, "mitm_enabled": true}
+        """.utf8)
+        let payload = try JSONDecoder().decode(DeveloperSettingsPayload.self, from: data)
+        XCTAssertEqual(payload.sslDecryptHosts, [])
+    }
+
+    func testDeveloperSettingsPayloadRoundTripsSSLDecryptHosts() throws {
+        let payload = DeveloperSettingsPayload(sslDecryptHosts: ["example.com", "*.allowed.test"])
+        let data = try JSONEncoder().encode(payload)
+        let decoded = try JSONDecoder().decode(DeveloperSettingsPayload.self, from: data)
+        XCTAssertEqual(decoded.sslDecryptHosts, ["example.com", "*.allowed.test"])
+    }
+
+    func testDeveloperSettingsUpdateRequestEncodesSSLDecryptHosts() throws {
+        let request = DeveloperSettingsUpdateRequest(sslDecryptHosts: ["example.com"])
+        let data = try JSONEncoder().encode(request)
+        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        XCTAssertEqual(json?["ssl_decrypt_hosts"] as? [String], ["example.com"])
+    }
+
     func testHARExportDisclosureWarnsBeforeSharing() {
         XCTAssertTrue(developerHARExportDisclosure.contains("HAR exports can include URLs"))
         XCTAssertTrue(developerHARExportDisclosure.contains("Review the file before sharing"))
     }
 
-    func testMacOSProxyScopeDisclosureStatesNetworkExtensionAndProxyFallback() {
-        XCTAssertTrue(macOSProxyScopeDisclosure.contains("Network Extension mode"))
-        XCTAssertTrue(macOSProxyScopeDisclosure.contains("packet tunnel"))
+    func testMacOSProxyScopeDisclosureStatesSystemProxyAndEnhancedMode() {
+        XCTAssertTrue(macOSProxyScopeDisclosure.contains("System Proxy mode"))
+        XCTAssertTrue(macOSProxyScopeDisclosure.contains("Enhanced Mode"))
+        XCTAssertTrue(macOSProxyScopeDisclosure.contains("utun"))
         XCTAssertTrue(macOSProxyScopeDisclosure.contains("device-wide routing"))
-        XCTAssertTrue(macOSProxyScopeDisclosure.contains("System proxy mode"))
         XCTAssertTrue(macOSProxyScopeDisclosure.contains("HTTP, HTTPS, and SOCKS proxy settings"))
     }
 
@@ -52,15 +79,82 @@ final class SettingsTests: XCTestCase {
         let settings = try JSONDecoder().decode(AppSettings.self, from: data).normalized()
 
         XCTAssertFalse(settings.systemProxyEnabled)
-        XCTAssertEqual(settings.routingMode, .networkExtension)
+        XCTAssertEqual(settings.routingMode, .systemProxy)
         XCTAssertTrue(settings.usePrivilegedHelper)
         XCTAssertEqual(settings.updateChannel, "stable")
         XCTAssertEqual(settings.updateManifestURL, defaultStableUpdateManifestURL)
     }
 
+    func testLegacyRoutingModesNormalizeToSystemProxy() throws {
+        for raw in ["network_extension", "daemon_proxy"] {
+            let data = Data(#"{"routingMode":"\#(raw)"}"#.utf8)
+            let settings = try JSONDecoder().decode(AppSettings.self, from: data).normalized()
+            XCTAssertEqual(settings.routingMode, .systemProxy)
+        }
+    }
+
+    func testEnhancedModeForcesPrivilegedHelper() {
+        let settings = AppSettings(
+            routingMode: .enhancedTUN,
+            usePrivilegedHelper: false
+        ).normalized()
+
+        XCTAssertTrue(settings.usePrivilegedHelper)
+    }
+
+    func testDefaultUpdateManifestURLsUseReleaseAPIEndpoints() {
+        XCTAssertEqual(
+            defaultStableUpdateManifestURL.absoluteString,
+            "https://store.clambercloud.com/api/clambhook/update-manifest"
+        )
+        XCTAssertEqual(
+            defaultBetaUpdateManifestURL.absoluteString,
+            "https://store.clambercloud.com/api/clambhook/update-manifest?channel=beta"
+        )
+    }
+
+    func testNormalizingLegacyManifestURLsMigratesToReleaseAPIEndpoints() {
+        let settings = AppSettings(
+            stableUpdateManifestURL: URL(string: "https://jpfchang.org/clambhook/clambhook-update-manifest.json")!,
+            betaUpdateManifestURL: URL(string: "https://jpfchang.org/clambhook/clambhook-beta-update-manifest.json")!
+        ).normalized()
+
+        XCTAssertEqual(settings.stableUpdateManifestURL, defaultStableUpdateManifestURL)
+        XCTAssertEqual(settings.betaUpdateManifestURL, defaultBetaUpdateManifestURL)
+    }
+
+    func testNormalizingLegacyBetaManifestURLWithChannelQueryMigratesToReleaseAPIEndpoint() {
+        let settings = AppSettings(
+            betaUpdateManifestURL: URL(string: "https://jpfchang.org/clambhook/clambhook-update-manifest.json?channel=beta")!
+        ).normalized()
+
+        XCTAssertEqual(settings.betaUpdateManifestURL, defaultBetaUpdateManifestURL)
+    }
+
+    func testNormalizingLegacyReleaseAPIURLsMigratesToStoreEndpoints() {
+        let settings = AppSettings(
+            stableUpdateManifestURL: URL(string: "https://jpfchang.org/api/clambhook/update-manifest")!,
+            betaUpdateManifestURL: URL(string: "https://jpfchang.org/api/clambhook/update-manifest?channel=beta")!
+        ).normalized()
+
+        XCTAssertEqual(settings.stableUpdateManifestURL, defaultStableUpdateManifestURL)
+        XCTAssertEqual(settings.betaUpdateManifestURL, defaultBetaUpdateManifestURL)
+    }
+
+    func testNormalizingCustomManifestURLsKeepsSupportedEndpoints() {
+        let stableURL = URL(string: "https://updates.example.com/clambhook/stable.json")!
+        let betaURL = URL(string: "https://updates.example.com/clambhook/beta.json")!
+        let settings = AppSettings(
+            stableUpdateManifestURL: stableURL,
+            betaUpdateManifestURL: betaURL
+        ).normalized()
+
+        XCTAssertEqual(settings.stableUpdateManifestURL, stableURL)
+        XCTAssertEqual(settings.betaUpdateManifestURL, betaURL)
+    }
+
     func testMacOSIdentifiersUseJPFChangNamespace() {
         XCTAssertEqual(clambhookMacAppBundleIdentifier, "org.jpfchang.clambhook.mac")
-        XCTAssertEqual(clambhookMacTunnelBundleIdentifier, "org.jpfchang.clambhook.mac.tunnel")
         XCTAssertEqual(clambhookMacWidgetBundleIdentifier, "org.jpfchang.clambhook.mac.widgets")
         XCTAssertEqual(clambhookMacPrivilegedHelperLabel, "org.jpfchang.clambhook.mac.helper")
         XCTAssertEqual(clambhookMacPrivilegedHelperPlistName, "org.jpfchang.clambhook.mac.helper.plist")

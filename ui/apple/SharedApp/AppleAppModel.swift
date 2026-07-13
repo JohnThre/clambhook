@@ -3,6 +3,10 @@ import Combine
 import Foundation
 import SwiftUI
 
+#if os(macOS)
+import AppKit
+#endif
+
 @MainActor
 final class AppleAppModel: ObservableObject {
     @Published var settingsStore: AppSettingsStore
@@ -35,8 +39,8 @@ final class AppleAppModel: ObservableObject {
     private var systemProxyChangeCancellable: AnyCancellable?
     private var certificateChangeCancellable: AnyCancellable?
     private var updateChangeCancellable: AnyCancellable?
+    private var sparkleChangeCancellable: AnyCancellable?
     private var privilegedHelperChangeCancellable: AnyCancellable?
-    private var systemExtensionChangeCancellable: AnyCancellable?
     #endif
     private var started = false
 
@@ -45,13 +49,10 @@ final class AppleAppModel: ObservableObject {
     let systemProxyManager = MacSystemProxyManager()
     let certificateManager = MacCertificateManager()
     let updateChecker = MacUpdateChecker()
+    let sparkleUpdater = MacSparkleUpdater()
     let privilegedHelperManager = MacPrivilegedHelperManager()
-    let systemExtensionInstaller = MacSystemExtensionInstaller.shared
+    let onboardingManager = OnboardingManager()
     @Published private(set) var licenseManager: MacLicenseManager
-
-    private var usesNetworkExtensionRouting: Bool {
-        settingsStore.settings.normalized().routingMode == .networkExtension
-    }
     #endif
 
     convenience init(platform: AppPlatform) {
@@ -79,24 +80,9 @@ final class AppleAppModel: ObservableObject {
         #endif
         let initialToken = (try? credentialStore.readToken(account: settingsStore.settings.apiEndpoint.absoluteString)) ?? ""
         self.apiToken = initialToken
-        #if os(macOS)
-        if settingsStore.settings.normalized().routingMode == .networkExtension {
-            let tunnelClient = MacTunnelProviderClient(
-                groupIdentifier: settingsStore.settings.appGroupIdentifier,
-                systemExtensionInstaller: systemExtensionInstaller
-            )
-            self.apiClient = nil
-            self.dashboardAPI = tunnelClient
-        } else {
-            let initialAPIClient = ClambhookAPIClient(baseURL: settingsStore.settings.apiEndpoint, tokenProvider: { initialToken })
-            self.apiClient = initialAPIClient
-            self.dashboardAPI = initialAPIClient
-        }
-        #else
         let initialAPIClient = ClambhookAPIClient(baseURL: settingsStore.settings.apiEndpoint, tokenProvider: { initialToken })
         self.apiClient = initialAPIClient
         self.dashboardAPI = initialAPIClient
-        #endif
         self.dashboard = DashboardStore(
             api: dashboardAPI,
             snapshotStore: snapshotStore,
@@ -123,7 +109,7 @@ final class AppleAppModel: ObservableObject {
         #endif
         reloadClient()
         #if os(macOS)
-        if !usesNetworkExtensionRouting, settingsStore.settings.launchDaemonOnStart {
+        if settingsStore.settings.launchDaemonOnStart {
             launchDaemon()
         }
         #endif
@@ -160,6 +146,9 @@ final class AppleAppModel: ObservableObject {
     }
 
     func applySettings() {
+        #if os(macOS)
+        prepareEnhancedModeConfigIfNeeded()
+        #endif
         settingsStore.settings = settingsStore.settings.normalized()
         try? credentialStore.saveToken(apiToken, account: settingsStore.settings.apiEndpoint.absoluteString)
         settingsStore.save()
@@ -419,6 +408,147 @@ final class AppleAppModel: ObservableObject {
         #endif
     }
 
+    var noProfileRecoveryState: AppRecoveryState? {
+        guard dashboard.apiOnline, dashboard.profiles.profiles.isEmpty else {
+            return nil
+        }
+        return AppRecoveryStateBuilder.noProfile(diagnosticText: dashboard.errorText)
+    }
+
+    var licenseExpiredForUpdatesState: AppRecoveryState? {
+        #if os(macOS)
+        guard updateChecker.state == .available else {
+            return nil
+        }
+        return AppRecoveryStateBuilder.licenseExpiredForUpdates(
+            decision: mobileLicenseDecision,
+            manifestPublishedAt: updateChecker.manifest?.publishedAt
+        )
+        #else
+        return nil
+        #endif
+    }
+
+    var appRecoveryStates: [AppRecoveryState] {
+        var states: [AppRecoveryState] = []
+        if let state = noProfileRecoveryState {
+            states.append(state)
+        }
+        if let issue = dashboard.recoveryIssue,
+           let state = AppRecoveryStateBuilder.invalidVPNEntitlementOrProfile(issue: issue) {
+            states.append(state)
+        }
+        if let state = AppRecoveryStateBuilder.expiredTrial(decision: mobileLicenseDecision) {
+            states.append(state)
+        }
+        if let state = licenseExpiredForUpdatesState {
+            states.append(state)
+        }
+        #if os(macOS)
+        if let state = certificateNotTrustedState {
+            states.append(state)
+        }
+        if let state = daemonFallbackUnavailableState {
+            states.append(state)
+        }
+        #endif
+        return states
+    }
+
+    #if os(macOS)
+    var certificateNotTrustedState: AppRecoveryState? {
+        guard developerSettings.enabled, developerSettings.mitmEnabled else {
+            return nil
+        }
+        guard case .notTrusted = certificateManager.trustStatus else {
+            return nil
+        }
+        return AppRecoveryStateBuilder.certificateNotTrusted(fingerprint: certificateManager.fingerprint)
+    }
+
+    var daemonFallbackUnavailableState: AppRecoveryState? {
+        let settings = settingsStore.settings.normalized()
+        guard settings.routingMode == .systemProxy || settings.routingMode == .enhancedTUN,
+              !dashboard.apiOnline,
+              !dashboard.status.running,
+              !daemonSupervisor.state.isBusy,
+              !privilegedHelperManager.isWorking
+        else {
+            return nil
+        }
+
+        if settings.usePrivilegedHelper {
+            switch privilegedHelperManager.serviceStatus {
+            case .enabled:
+                if privilegedHelperManager.daemonRunning {
+                    return nil
+                }
+            case .requiresApproval, .notFound, .unknown, .notRegistered:
+                break
+            }
+            return AppRecoveryStateBuilder.daemonFallbackUnavailable(
+                message: privilegedHelperManager.statusMessage.isEmpty
+                    ? privilegedHelperManager.serviceStatus.label
+                    : privilegedHelperManager.statusMessage
+            )
+        }
+
+        switch daemonSupervisor.state {
+        case .failed(let message):
+            return AppRecoveryStateBuilder.daemonFallbackUnavailable(message: message)
+        case .stopped:
+            return AppRecoveryStateBuilder.daemonFallbackUnavailable(message: daemonSupervisor.state.label)
+        case .running:
+            return AppRecoveryStateBuilder.daemonFallbackUnavailable(message: dashboard.errorText)
+        case .starting, .stopping:
+            return nil
+        }
+    }
+    #endif
+
+    func performAppRecoveryAction(_ action: AppRecoveryStateAction) {
+        switch action {
+        case .createProfile, .importProfile, .openProfiles:
+            daemonMessage = action == .importProfile ? "open imports" : "open profiles"
+        case .retry:
+            connectOrDisconnect()
+        case .refresh:
+            refresh()
+        case .rebuildVPNProfile:
+            performRecoveryAction(.rebuildVPNProfile)
+        case .openAppSettings, .openSettings:
+            daemonMessage = "open settings"
+        case .buyLicense:
+            openExternalURL(URL(string: "https://store.swiphtgroup.com/clambhook/buy")!)
+        case .activateLicense:
+            daemonMessage = "open license"
+        case .openLicensePortal, .renewUpdates:
+            openExternalURL(defaultLicensePortalURL)
+        case .openSystemSettings:
+            #if os(macOS)
+            privilegedHelperManager.openSystemSettings()
+            #else
+            daemonMessage = "open settings"
+            #endif
+        case .trustCertificate:
+            #if os(macOS)
+            certificateManager.install(pem: developerCAPEMText)
+            #else
+            daemonMessage = "trust certificate"
+            #endif
+        case .launchDaemon:
+            #if os(macOS)
+            launchDaemon()
+            #else
+            daemonMessage = "launch daemon"
+            #endif
+        case .support:
+            openExternalURL(defaultSupportURL)
+        case .privacy:
+            openExternalURL(defaultPrivacyPolicyURL)
+        }
+    }
+
     func canUseLicensedFeature(_ featureID: MobileLicenseFeatureID) -> Bool {
         mobileLicenseDecision.canUseFeature(featureID)
     }
@@ -570,6 +700,23 @@ final class AppleAppModel: ObservableObject {
         }
     }
 
+    func regenerateDeveloperCA() {
+        Task {
+            do {
+                guard let provider = dashboardAPI as? DeveloperCaptureProviding else {
+                    throw APIClientError.invalidURL("developer capture unavailable")
+                }
+                developerStatus = try await provider.regenerateDeveloperCA()
+                await refreshDeveloperCANow()
+                daemonMessage = "developer CA regenerated"
+            } catch {
+                daemonMessage = error.localizedDescription
+                await refreshDeveloperCaptureNow()
+                await refreshDeveloperCANow()
+            }
+        }
+    }
+
     func developerHAR() async throws -> String {
         guard let provider = dashboardAPI as? DeveloperCaptureProviding else {
             throw APIClientError.invalidURL("developer capture unavailable")
@@ -605,13 +752,32 @@ final class AppleAppModel: ObservableObject {
         }
     }
 
-    func addDeveloperMapRule(_ rule: DeveloperMapRulePayload) {
+    func sendComposedDeveloperRequest(_ request: DeveloperRepeatRequestPayload) {
         Task {
             guard let provider = dashboardAPI as? DeveloperCaptureProviding else {
                 return
             }
             do {
-                try await provider.replaceDeveloperMapRules(developerMapRules + [rule])
+                _ = try await provider.repeatDeveloperEntry(request)
+                await refreshDeveloperCaptureNow()
+                daemonMessage = "composed request sent"
+            } catch {
+                daemonMessage = error.localizedDescription
+            }
+        }
+    }
+
+    func addDeveloperMapRule(_ rule: DeveloperMapRulePayload) {
+        replaceDeveloperMapRules(developerMapRules + [rule])
+    }
+
+    func replaceDeveloperMapRules(_ rules: [DeveloperMapRulePayload]) {
+        Task {
+            guard let provider = dashboardAPI as? DeveloperCaptureProviding else {
+                return
+            }
+            do {
+                try await provider.replaceDeveloperMapRules(rules)
                 await refreshDeveloperCaptureNow()
             } catch {
                 daemonMessage = error.localizedDescription
@@ -620,12 +786,16 @@ final class AppleAppModel: ObservableObject {
     }
 
     func addDeveloperBreakpointRule(_ rule: DeveloperBreakpointRulePayload) {
+        replaceDeveloperBreakpointRules(developerBreakpointRules + [rule])
+    }
+
+    func replaceDeveloperBreakpointRules(_ rules: [DeveloperBreakpointRulePayload]) {
         Task {
             guard let provider = dashboardAPI as? DeveloperCaptureProviding else {
                 return
             }
             do {
-                try await provider.replaceDeveloperBreakpointRules(developerBreakpointRules + [rule])
+                try await provider.replaceDeveloperBreakpointRules(rules)
                 await refreshDeveloperCaptureNow()
             } catch {
                 daemonMessage = error.localizedDescription
@@ -727,9 +897,37 @@ final class AppleAppModel: ObservableObject {
     }
 
     #if os(macOS)
+    private func configureSparkleUpdater() {
+        sparkleUpdater.feedURLProvider = { [weak self] in
+            (self?.settingsStore.settings.appcastFeedURL ?? defaultStableAppcastURL).absoluteString
+        }
+        sparkleUpdater.canInstallUpdate = { [weak self] publishedAt in
+            self?.canInstallFeatureUpdate(publishedAt: publishedAt) ?? false
+        }
+    }
+
+    func canInstallFeatureUpdate(publishedAt: Date?) -> Bool {
+        MobileLicenseUpdatePolicy.canInstallUpdate(
+            decision: mobileLicenseDecision,
+            publishedAt: publishedAt
+        )
+    }
+
+    func checkForUpdatesWithSparkle() {
+        sparkleUpdater.checkForUpdates()
+    }
+
+    func attributedApplication(for connection: TrafficConnectionPayload) -> String? {
+        nil
+    }
+
+    func refreshAttributionSnapshot() {
+    }
+
     func launchDaemon() {
         Task {
             do {
+                prepareEnhancedModeConfigIfNeeded()
                 daemonMessage = "daemon starting"
                 if settingsStore.settings.normalized().usePrivilegedHelper {
                     try await privilegedHelperManager.startDaemon(settings: settingsStore.settings, token: apiToken)
@@ -755,6 +953,23 @@ final class AppleAppModel: ObservableObject {
             daemonMessage = "daemon stopped"
         }
     }
+
+    private func prepareEnhancedModeConfigIfNeeded() {
+        var settings = settingsStore.settings
+        guard settings.routingMode == .enhancedTUN,
+              settings.daemonConfigPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else {
+            return
+        }
+        do {
+            _ = try TunnelConfigStore.loadOrCreateConfig(groupIdentifier: settings.appGroupIdentifier)
+            settings.daemonConfigPath = TunnelConfigStore.configURL(groupIdentifier: settings.appGroupIdentifier).path
+            settings.usePrivilegedHelper = true
+            settingsStore.settings = settings
+        } catch {
+            daemonMessage = error.localizedDescription
+        }
+    }
     #endif
 
     private func reloadClient() {
@@ -762,23 +977,9 @@ final class AppleAppModel: ObservableObject {
         let endpoint = settings.apiEndpoint
         let token = apiToken
         snapshotStore = FileSnapshotStore.appGroupStore(groupIdentifier: settings.appGroupIdentifier)
-        #if os(macOS)
-        if settings.routingMode == .networkExtension {
-            apiClient = nil
-            dashboardAPI = MacTunnelProviderClient(
-                groupIdentifier: settings.appGroupIdentifier,
-                systemExtensionInstaller: systemExtensionInstaller
-            )
-        } else {
-            let nextAPIClient = ClambhookAPIClient(baseURL: endpoint, tokenProvider: { token.isEmpty ? nil : token })
-            apiClient = nextAPIClient
-            dashboardAPI = nextAPIClient
-        }
-        #else
         let nextAPIClient = ClambhookAPIClient(baseURL: endpoint, tokenProvider: { token.isEmpty ? nil : token })
         apiClient = nextAPIClient
         dashboardAPI = nextAPIClient
-        #endif
         dashboard.stopEventStream()
         dashboard = DashboardStore(api: dashboardAPI, snapshotStore: snapshotStore, logRetention: settings.logRetention)
         attention = AttentionStore.appGroupStore(groupIdentifier: settings.appGroupIdentifier)
@@ -855,10 +1056,11 @@ final class AppleAppModel: ObservableObject {
         updateChangeCancellable = updateChecker.objectWillChange.sink { [weak self] _ in
             Task { @MainActor in self?.objectWillChange.send() }
         }
-        privilegedHelperChangeCancellable = privilegedHelperManager.objectWillChange.sink { [weak self] _ in
+        sparkleChangeCancellable = sparkleUpdater.objectWillChange.sink { [weak self] _ in
             Task { @MainActor in self?.objectWillChange.send() }
         }
-        systemExtensionChangeCancellable = systemExtensionInstaller.objectWillChange.sink { [weak self] _ in
+        configureSparkleUpdater()
+        privilegedHelperChangeCancellable = privilegedHelperManager.objectWillChange.sink { [weak self] _ in
             Task { @MainActor in self?.objectWillChange.send() }
         }
     }
@@ -890,6 +1092,9 @@ final class AppleAppModel: ObservableObject {
                 await MainActor.run {
                     _ = self?.syncProfileRecoveryIssue()
                     self?.enforceLicenseState()
+                    #if os(macOS)
+                    self?.refreshAttributionSnapshot()
+                    #endif
                 }
             }
         }
@@ -906,11 +1111,18 @@ final class AppleAppModel: ObservableObject {
         }
         return false
     }
+
+    private func openExternalURL(_ url: URL) {
+        #if os(macOS)
+        NSWorkspace.shared.open(url)
+        #else
+        daemonMessage = url.absoluteString
+        #endif
+    }
 }
 
 enum AppPlatform {
     case macOS
-    case visionOS
 }
 
 enum AppleAppModelError: Error, LocalizedError {
@@ -928,7 +1140,7 @@ enum AppleAppModelError: Error, LocalizedError {
         case .invalidRules:
             return "The rule changes could not be encoded."
         case .licenseLocked:
-            return "Free access has ended. Purchase or restore the lifetime unlock to keep using clambhook."
+            return "The one-calendar-month trial has ended. Buy or activate a USD 99.99 one-time ClambHook license to keep using ClambHook."
         }
     }
 }

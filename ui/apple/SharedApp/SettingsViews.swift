@@ -16,17 +16,27 @@ struct AppSettingsView: View {
     @State private var socks5Chain = ""
     @State private var httpListen = ""
     @State private var httpChain = ""
+    @State private var tunEnabled = false
+    @State private var tunName = ""
+    @State private var tunChain = ""
+    @State private var tunMTU = 1500
+    @State private var tunAddressesText = ""
+    @State private var tunRoutesText = ""
+    @State private var tunExcludeCIDRsText = ""
     @State private var dnsEnabled = false
     @State private var dnsTimeout = "5s"
     @State private var dnsUpstreams: [EditableDNSUpstream] = []
     @State private var developerCaptureEnabled = false
     @State private var httpsCaptureEnabled = false
+    @State private var noCacheEnabled = false
     @State private var captureLimit = 200
     @State private var bodyLimitBytes = 65_536
     @State private var headerValueLimitBytes = 8_192
     @State private var redactHeadersText = developerDefaultRedactHeaders.joined(separator: ", ")
     @State private var redactQueryParamsText = developerDefaultRedactQueryParams.joined(separator: ", ")
+    @State private var sslDecryptHostsText = ""
     @State private var showingHTTPSCaptureConfirmation = false
+    @State private var showingCARegenerationConfirmation = false
     @State private var stableManifestURL = ""
     @State private var betaManifestURL = ""
 
@@ -34,7 +44,7 @@ struct AppSettingsView: View {
         Form {
             apiSection
             daemonSection
-            systemExtensionSection
+            enhancedModeSection
             proxySection
             dnsSection
             developerCaptureSection
@@ -74,6 +84,18 @@ struct AppSettingsView: View {
         } message: {
             Text(developerHTTPSCaptureDisclosure)
         }
+        .confirmationDialog(
+            "Regenerate Developer CA?",
+            isPresented: $showingCARegenerationConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Regenerate CA", role: .destructive) {
+                model.regenerateDeveloperCA()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Regenerating the developer CA replaces the certificate used for HTTPS capture. You will need to trust the new certificate before HTTPS clients accept intercepted traffic.")
+        }
     }
 
     private var privilegedHelperStatusImage: String {
@@ -100,34 +122,6 @@ struct AppSettingsView: View {
         case .notFound, .unknown:
             return .red
         case .notRegistered:
-            return .secondary
-        }
-    }
-
-    private var systemExtensionStatusImage: String {
-        switch model.systemExtensionInstaller.status {
-        case .activated:
-            return "checkmark.circle.fill"
-        case .activating:
-            return "hourglass"
-        case .requiresApproval, .rebootRequired:
-            return "exclamationmark.triangle.fill"
-        case .failed:
-            return "xmark.circle.fill"
-        case .notActivated:
-            return "network"
-        }
-    }
-
-    private var systemExtensionStatusColor: Color {
-        switch model.systemExtensionInstaller.status {
-        case .activated:
-            return .green
-        case .activating, .requiresApproval, .rebootRequired:
-            return .orange
-        case .failed:
-            return .red
-        case .notActivated:
             return .secondary
         }
     }
@@ -178,7 +172,17 @@ struct AppSettingsView: View {
             }
             Toggle("Launch daemon when app starts", isOn: $model.settingsStore.settings.launchDaemonOnStart)
             Toggle("Stop launched daemon when app quits", isOn: $model.settingsStore.settings.stopDaemonOnQuit)
-            Toggle("Use privileged helper", isOn: $model.settingsStore.settings.usePrivilegedHelper)
+            Toggle("Use privileged helper", isOn: Binding(
+                get: {
+                    model.settingsStore.settings.routingMode.requiresPrivilegedHelper ||
+                    model.settingsStore.settings.usePrivilegedHelper
+                },
+                set: { enabled in
+                    model.settingsStore.settings.usePrivilegedHelper =
+                        model.settingsStore.settings.routingMode.requiresPrivilegedHelper ? true : enabled
+                }
+            ))
+            .disabled(model.settingsStore.settings.routingMode.requiresPrivilegedHelper)
             HStack {
                 Label(
                     model.privilegedHelperManager.serviceStatus.label,
@@ -194,6 +198,11 @@ struct AppSettingsView: View {
                 Text("Helper daemon PID \(model.privilegedHelperManager.daemonPID.map(String.init) ?? "-")")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+            }
+            if let state = model.daemonFallbackUnavailableState {
+                AppRecoveryStatePanel(state: state) { action in
+                    model.performAppRecoveryAction(action)
+                }
             }
             HStack {
                 Button {
@@ -220,36 +229,40 @@ struct AppSettingsView: View {
         }
     }
 
-    private var systemExtensionSection: some View {
-        Section("System Extension") {
-            HStack {
-                Label(
-                    model.systemExtensionInstaller.status.label,
-                    systemImage: systemExtensionStatusImage
-                )
-                .foregroundStyle(systemExtensionStatusColor)
-                if model.systemExtensionInstaller.isWorking {
-                    ProgressView()
-                        .controlSize(.small)
-                }
-            }
+    private var enhancedModeSection: some View {
+        Section("Enhanced Mode") {
+            Toggle("Enable TUN listener in active profile", isOn: $tunEnabled)
+            TextField("Interface name", text: $tunName)
+                .help("Leave empty to use the platform default. macOS uses utun.")
+            TextField("TUN chain", text: $tunChain)
+                .help("Leave empty to use the profile's first chain.")
+            Stepper("MTU \(tunMTU)", value: $tunMTU, in: 576...9000, step: 10)
+            TextField("Tunnel addresses", text: $tunAddressesText, axis: .vertical)
+                .lineLimit(2...4)
+            TextField("Routes", text: $tunRoutesText, axis: .vertical)
+                .lineLimit(2...4)
+            TextField("Excluded CIDRs", text: $tunExcludeCIDRsText, axis: .vertical)
+                .lineLimit(2...4)
             HStack {
                 Button {
-                    Task { await model.systemExtensionInstaller.activate() }
+                    saveTUN()
                 } label: {
-                    Label("Activate Tunnel Extension", systemImage: "network")
+                    Label("Save Enhanced Mode", systemImage: "square.and.arrow.down")
                 }
                 Button {
-                    model.systemExtensionInstaller.openSystemSettings()
+                    tunEnabled = true
+                    tunName = ""
+                    tunMTU = 1500
+                    tunAddressesText = "198.18.0.1/30, fd7a:636c:616d::1/64"
+                    tunRoutesText = "0.0.0.0/0, ::/0"
+                    tunExcludeCIDRsText = "127.0.0.0/8, ::1/128"
                 } label: {
-                    Label("Open System Settings", systemImage: "gear")
+                    Label("Use Defaults", systemImage: "wand.and.stars")
                 }
             }
-            if !model.systemExtensionInstaller.statusMessage.isEmpty {
-                Text(model.systemExtensionInstaller.statusMessage)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
+            Text("Enhanced Mode requires the privileged helper. When encrypted DNS is enabled, ClambHook temporarily rewrites macOS DNS servers and restores them when the daemon stops.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
     }
 
@@ -348,15 +361,16 @@ struct AppSettingsView: View {
     }
 
     private var developerCaptureSection: some View {
-        Section("Developer Capture") {
-            Toggle("Developer capture", isOn: Binding(
+        Section("HTTP Capture") {
+            Toggle("HTTP capture", isOn: Binding(
                 get: { developerCaptureEnabled },
                 set: { enabled in
                     developerCaptureEnabled = enabled
                     if !enabled {
                         httpsCaptureEnabled = false
+                        noCacheEnabled = false
                     }
-                    saveDeveloperSettings(enabled: enabled, mitmEnabled: false)
+                    saveDeveloperSettings(enabled: enabled, mitmEnabled: false, noCacheEnabled: enabled ? nil : false)
                 }
             ))
             Text(developerCaptureDisclosure)
@@ -366,6 +380,14 @@ struct AppSettingsView: View {
             Stepper("Keep \(captureLimit) captures", value: $captureLimit, in: 0...5_000, step: 50)
             Stepper("Body preview \(bodyLimitBytes) bytes", value: $bodyLimitBytes, in: 0...1_048_576, step: 4_096)
             Stepper("Header value limit \(headerValueLimitBytes) bytes", value: $headerValueLimitBytes, in: 0...65_536, step: 512)
+            Toggle("No-cache inspected traffic", isOn: Binding(
+                get: { noCacheEnabled },
+                set: { enabled in
+                    noCacheEnabled = enabled
+                    saveDeveloperSettings(noCacheEnabled: enabled)
+                }
+            ))
+            .disabled(!developerCaptureEnabled)
             TextField("Redacted headers", text: $redactHeadersText)
             TextField("Redacted query parameters", text: $redactQueryParamsText)
             Button {
@@ -392,11 +414,33 @@ struct AppSettingsView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
+            TextField("SSL decrypt hosts (blank = all)", text: $sslDecryptHostsText)
+                .disabled(!developerCaptureEnabled || !httpsCaptureEnabled)
+                .onSubmit {
+                    saveDeveloperSettings(mitmEnabled: httpsCaptureEnabled)
+                }
+            Text(developerSSLDecryptHostsDisclosure)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
             Label(
                 httpsCaptureEnabled ? "HTTPS capture enabled" : "HTTPS capture disabled",
                 systemImage: httpsCaptureEnabled ? "lock.open" : "lock"
             )
             .foregroundStyle(httpsCaptureEnabled ? .orange : .secondary)
+            if developerCaptureEnabled, httpsCaptureEnabled {
+                Label(
+                    model.certificateManager.trustStatus.label,
+                    systemImage: certificateTrustStatusImage
+                )
+                .font(.caption)
+                .foregroundStyle(certificateTrustStatusColor)
+            }
+            if let state = model.certificateNotTrustedState {
+                AppRecoveryStatePanel(state: state) { action in
+                    model.performAppRecoveryAction(action)
+                }
+            }
             if model.certificateManager.fingerprint.isEmpty {
                 Text("No developer CA is available from the daemon.")
                     .font(.caption)
@@ -404,6 +448,12 @@ struct AppSettingsView: View {
             } else {
                 Text(model.certificateManager.fingerprint)
                     .font(.caption)
+                    .textSelection(.enabled)
+            }
+            if !model.developerStatus.caNotBefore.isEmpty || !model.developerStatus.caNotAfter.isEmpty {
+                Text("Valid \(emptyDash(model.developerStatus.caNotBefore)) – \(emptyDash(model.developerStatus.caNotAfter))")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                     .textSelection(.enabled)
             }
             HStack {
@@ -422,6 +472,12 @@ struct AppSettingsView: View {
                     model.certificateManager.remove(pem: model.developerCAPEMText)
                 } label: {
                     Label("Remove Trust", systemImage: "xmark.shield")
+                }
+                .disabled(!canManageCA)
+                Button(role: .destructive) {
+                    showingCARegenerationConfirmation = true
+                } label: {
+                    Label("Regenerate CA", systemImage: "arrow.triangle.2.circlepath")
                 }
                 .disabled(!canManageCA)
             }
@@ -482,6 +538,16 @@ struct AppSettingsView: View {
                     ProgressView()
                 }
             }
+            Toggle("Automatically check for updates", isOn: Binding(
+                get: { model.sparkleUpdater.automaticallyChecksForUpdates },
+                set: { model.sparkleUpdater.automaticallyChecksForUpdates = $0 }
+            ))
+            Button {
+                model.checkForUpdatesWithSparkle()
+            } label: {
+                Label("Check for Updates and Install…", systemImage: "square.and.arrow.down.on.square")
+            }
+            .disabled(!model.sparkleUpdater.canCheckForUpdates)
             Label(model.updateChecker.state.label, systemImage: updateStatusImage)
                 .foregroundStyle(updateStatusColor)
             if let manifest = model.updateChecker.manifest {
@@ -489,6 +555,11 @@ struct AppSettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .textSelection(.enabled)
+            }
+            if let state = model.licenseExpiredForUpdatesState {
+                AppRecoveryStatePanel(state: state) { action in
+                    model.performAppRecoveryAction(action)
+                }
             }
             if case .failed(let message) = model.updateChecker.state {
                 Text(message)
@@ -540,6 +611,34 @@ struct AppSettingsView: View {
         }
     }
 
+    private var certificateTrustStatusImage: String {
+        switch model.certificateManager.trustStatus {
+        case .trusted:
+            return "checkmark.shield.fill"
+        case .checking:
+            return "hourglass"
+        case .notTrusted:
+            return "xmark.shield.fill"
+        case .failed:
+            return "exclamationmark.triangle.fill"
+        case .unavailable:
+            return "shield.slash"
+        }
+    }
+
+    private var certificateTrustStatusColor: Color {
+        switch model.certificateManager.trustStatus {
+        case .trusted:
+            return .green
+        case .checking:
+            return .orange
+        case .notTrusted, .failed:
+            return .red
+        case .unavailable:
+            return .secondary
+        }
+    }
+
     private func loadSettings() {
         let settings = model.settingsStore.settings.normalized()
         endpointText = settings.apiEndpoint.absoluteString
@@ -559,6 +658,13 @@ struct AppSettingsView: View {
         socks5Chain = settings.listen.socks5Chain
         httpListen = settings.listen.http
         httpChain = settings.listen.httpChain
+        tunEnabled = settings.listen.tun.enabled
+        tunName = settings.listen.tun.name
+        tunChain = settings.listen.tun.chain
+        tunMTU = settings.listen.tun.mtu == 0 ? 1500 : settings.listen.tun.mtu
+        tunAddressesText = settings.listen.tun.addresses.joined(separator: ", ")
+        tunRoutesText = settings.listen.tun.routes.joined(separator: ", ")
+        tunExcludeCIDRsText = settings.listen.tun.excludeCIDRs.joined(separator: ", ")
         dnsEnabled = settings.dns.enabled
         dnsTimeout = settings.dns.timeout
         dnsUpstreams = settings.dns.upstreams.map(EditableDNSUpstream.init)
@@ -567,11 +673,13 @@ struct AppSettingsView: View {
     private func loadDeveloperSettings(_ settings: DeveloperSettingsPayload) {
         developerCaptureEnabled = settings.enabled
         httpsCaptureEnabled = settings.mitmEnabled
+        noCacheEnabled = settings.noCacheEnabled
         captureLimit = settings.captureLimit
         bodyLimitBytes = Int(min(settings.bodyLimitBytes, UInt64(Int.max)))
         headerValueLimitBytes = settings.headerValueLimitBytes
         redactHeadersText = (settings.redactHeaders.isEmpty ? developerDefaultRedactHeaders : settings.redactHeaders).joined(separator: ", ")
         redactQueryParamsText = (settings.redactQueryParams.isEmpty ? developerDefaultRedactQueryParams : settings.redactQueryParams).joined(separator: ", ")
+        sslDecryptHostsText = settings.sslDecryptHosts.joined(separator: ", ")
     }
 
     private func apply() {
@@ -585,6 +693,9 @@ struct AppSettingsView: View {
         model.settingsStore.settings.daemonConfigPath = daemonConfigPath
         model.settingsStore.settings.daemonBinaryBookmark = matchingBookmark(daemonBinaryBookmark, path: daemonBinaryPath)
         model.settingsStore.settings.daemonConfigBookmark = matchingBookmark(daemonConfigBookmark, path: daemonConfigPath)
+        if model.settingsStore.settings.routingMode.requiresPrivilegedHelper {
+            model.settingsStore.settings.usePrivilegedHelper = true
+        }
         applyManifestURLs()
         model.applySettings()
     }
@@ -606,15 +717,35 @@ struct AppSettingsView: View {
         ))
     }
 
-    private func saveDeveloperSettings(enabled: Bool? = nil, mitmEnabled: Bool? = nil, httpsCaptureAck: Bool = false) {
+    private func saveTUN() {
+        model.saveConfigSettings(listen: ConfigListenSettingsPayload(
+            socks5: socks5Listen,
+            socks5Chain: socks5Chain,
+            http: httpListen,
+            httpChain: httpChain,
+            tun: ConfigTUNSettingsPayload(
+                enabled: tunEnabled,
+                name: tunName,
+                chain: tunChain,
+                mtu: tunMTU,
+                addresses: splitList(tunAddressesText),
+                routes: splitList(tunRoutesText),
+                excludeCIDRs: splitList(tunExcludeCIDRsText)
+            )
+        ))
+    }
+
+    private func saveDeveloperSettings(enabled: Bool? = nil, mitmEnabled: Bool? = nil, noCacheEnabled: Bool? = nil, httpsCaptureAck: Bool = false) {
         model.saveDeveloperSettings(DeveloperSettingsUpdateRequest(
             enabled: enabled,
             mitmEnabled: mitmEnabled,
+            noCacheEnabled: noCacheEnabled,
             captureLimit: captureLimit,
             bodyLimitBytes: UInt64(max(0, bodyLimitBytes)),
             headerValueLimitBytes: headerValueLimitBytes,
             redactHeaders: redactionList(redactHeadersText),
             redactQueryParams: redactionList(redactQueryParamsText),
+            sslDecryptHosts: redactionList(sslDecryptHostsText),
             httpsCaptureAck: httpsCaptureAck
         ))
     }
@@ -623,6 +754,13 @@ struct AppSettingsView: View {
         value
             .split { character in character == "," || character == "\n" }
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+            .filter { !$0.isEmpty }
+    }
+
+    private func splitList(_ value: String) -> [String] {
+        value
+            .split { character in character == "," || character == "\n" || character == " " || character == "\t" }
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
     }
 

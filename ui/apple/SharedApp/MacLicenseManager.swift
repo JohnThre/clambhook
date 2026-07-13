@@ -255,7 +255,7 @@ private final class MacLicenseValidationClient {
     }
 
     private func post<T: Encodable>(_ payload: T, path: String) async throws -> MacLicenseServerResponse {
-        let url = endpoint.appendingPathComponent("v1/macos/\(path)")
+        let url = endpoint.appendingPathComponent("v1/devices/\(path)")
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")

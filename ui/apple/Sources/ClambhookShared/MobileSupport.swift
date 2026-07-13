@@ -11,13 +11,14 @@ public struct MobilePurchaseProduct: Identifiable, Equatable {
 }
 
 public enum MobilePurchaseCatalog {
-    public static let lifetimeUnlockID = "org.jpfchang.clambhook.unlock.lifetime"
+    public static let macLicenseProductID = "org.jpfchang.clambhook.unlock.lifetime"
+    public static let lifetimeUnlockID = macLicenseProductID
     public static let featureUpdate2027ID = "org.jpfchang.clambhook.feature_update.2027"
     public static let featureUpdatePrefix = "org.jpfchang.clambhook.feature_update."
 
     public static let products: [MobilePurchaseProduct] = [
-        MobilePurchaseProduct(id: lifetimeUnlockID, displayName: "ClambHook Lifetime Unlock"),
-        MobilePurchaseProduct(id: featureUpdate2027ID, displayName: "ClambHook 2027 Feature Update"),
+        MobilePurchaseProduct(id: macLicenseProductID, displayName: "ClambHook License"),
+        MobilePurchaseProduct(id: featureUpdate2027ID, displayName: "ClambHook for macOS 2027 Update Year"),
     ]
 
     public static let productIDs = products.map(\.id)
@@ -58,7 +59,7 @@ public enum MobilePurchaseCatalog {
     }
 
     public static func productKind(for id: String) -> MobileLicenseProductKind {
-        if id == lifetimeUnlockID {
+        if id == macLicenseProductID {
             return .lifetimeUnlock
         }
         guard id.hasPrefix(featureUpdatePrefix) else {

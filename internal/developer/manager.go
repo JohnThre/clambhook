@@ -11,6 +11,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/pem"
 	"fmt"
@@ -20,12 +21,14 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode/utf8"
 
 	"github.com/JohnThre/clambhook/internal/config"
 	"github.com/JohnThre/clambhook/internal/listener"
@@ -49,11 +52,14 @@ type Manager struct {
 type Status struct {
 	Enabled               bool   `json:"enabled"`
 	MITMEnabled           bool   `json:"mitm_enabled"`
+	NoCacheEnabled        bool   `json:"no_cache_enabled"`
 	CaptureLimit          int    `json:"capture_limit"`
 	BodyLimitBytes        int64  `json:"body_limit_bytes"`
 	HeaderValueLimitBytes int    `json:"header_value_limit_bytes"`
 	CACertPath            string `json:"ca_cert_path,omitempty"`
 	CAFingerprintSHA256   string `json:"ca_fingerprint_sha256,omitempty"`
+	CANotBefore           string `json:"ca_not_before,omitempty"`
+	CANotAfter            string `json:"ca_not_after,omitempty"`
 	CaptureCount          int    `json:"capture_count"`
 }
 
@@ -127,6 +133,55 @@ func (m *Manager) MITMEnabled() bool {
 	return m.cfg.Enabled && m.cfg.MITMEnabled && m.ca != nil
 }
 
+// ShouldDecryptHost reports whether MITM decryption should apply to host.
+// An empty SSLDecryptHosts allowlist decrypts every host (the pre-allowlist
+// default); a non-empty allowlist restricts decryption to matching hosts,
+// letting other CONNECT targets fall through to a plain opaque tunnel.
+func (m *Manager) ShouldDecryptHost(host string) bool {
+	if m == nil {
+		return false
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if !m.cfg.Enabled || !m.cfg.MITMEnabled || m.ca == nil {
+		return false
+	}
+	return matchesSSLDecryptHost(m.cfg.SSLDecryptHosts, host)
+}
+
+func matchesSSLDecryptHost(patterns []string, host string) bool {
+	if len(patterns) == 0 {
+		return true
+	}
+	host = strings.ToLower(strings.TrimSpace(host))
+	if host == "" {
+		return false
+	}
+	for _, pattern := range patterns {
+		pattern = strings.ToLower(strings.TrimSpace(pattern))
+		if pattern == "" {
+			continue
+		}
+		if pattern == "*" {
+			return true
+		}
+		if ok, err := path.Match(pattern, host); ok && err == nil {
+			return true
+		}
+	}
+	return false
+}
+
+// NoCacheEnabled reports whether inspected HTTP traffic should bypass caches.
+func (m *Manager) NoCacheEnabled() bool {
+	if m == nil {
+		return false
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.cfg.Enabled && m.cfg.NoCacheEnabled
+}
+
 // TLSConfig returns a server TLS config for a CONNECT target host.
 func (m *Manager) TLSConfig(host string) (*tls.Config, error) {
 	cert, err := m.certForHost(host)
@@ -170,6 +225,7 @@ func (m *Manager) Begin(_ context.Context, meta listener.HTTPCaptureMeta, req *h
 		Host:       requestHost(meta, req),
 		Request: Message{
 			Headers: cloneHeaders(req.Header, cfg),
+			Cookies: cloneRequestCookies(req, cfg),
 		},
 	}
 	return &transaction{
@@ -187,21 +243,7 @@ func (m *Manager) Status() Status {
 	}
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	status := Status{
-		Enabled:               m.cfg.Enabled,
-		MITMEnabled:           m.cfg.MITMEnabled && m.ca != nil,
-		CaptureLimit:          m.cfg.CaptureLimit,
-		BodyLimitBytes:        m.cfg.BodyLimitBytes,
-		HeaderValueLimitBytes: m.cfg.HeaderValueLimitBytes,
-	}
-	if m.ca != nil {
-		status.CACertPath = m.ca.certPath
-		status.CAFingerprintSHA256 = fingerprint(m.ca.cert.Raw)
-	}
-	if m.store != nil {
-		status.CaptureCount = len(m.store.List(0))
-	}
-	return status
+	return m.statusLocked()
 }
 
 // ConfigSnapshot returns the current developer configuration.
@@ -225,6 +267,26 @@ func (m *Manager) CACertPEM() ([]byte, bool) {
 		return nil, false
 	}
 	return append([]byte(nil), m.ca.certPEM...), true
+}
+
+// RegenerateCA replaces the local developer CA material and clears cached
+// leaf certificates. The caller must re-trust the returned certificate.
+func (m *Manager) RegenerateCA() (Status, error) {
+	if m == nil {
+		return Status{}, fmt.Errorf("developer mode disabled")
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if !m.cfg.Enabled || !m.cfg.MITMEnabled {
+		return Status{}, fmt.Errorf("developer MITM CA unavailable")
+	}
+	ca, err := regenerateCA(m.cfg)
+	if err != nil {
+		return Status{}, err
+	}
+	m.ca = ca
+	m.certs = make(map[string]tls.Certificate)
+	return m.statusLocked(), nil
 }
 
 // List returns captured entries, newest first.
@@ -276,6 +338,27 @@ func (m *Manager) HAR() map[string]any {
 	return harDocument(m.List(0))
 }
 
+func (m *Manager) statusLocked() Status {
+	status := Status{
+		Enabled:               m.cfg.Enabled,
+		MITMEnabled:           m.cfg.MITMEnabled && m.ca != nil,
+		NoCacheEnabled:        m.cfg.NoCacheEnabled,
+		CaptureLimit:          m.cfg.CaptureLimit,
+		BodyLimitBytes:        m.cfg.BodyLimitBytes,
+		HeaderValueLimitBytes: m.cfg.HeaderValueLimitBytes,
+	}
+	if m.ca != nil {
+		status.CACertPath = m.ca.certPath
+		status.CAFingerprintSHA256 = fingerprint(m.ca.cert.Raw)
+		status.CANotBefore = m.ca.cert.NotBefore.UTC().Format(time.RFC3339)
+		status.CANotAfter = m.ca.cert.NotAfter.UTC().Format(time.RFC3339)
+	}
+	if m.store != nil {
+		status.CaptureCount = len(m.store.List(0))
+	}
+	return status
+}
+
 type transaction struct {
 	cfg      config.DeveloperConfig
 	store    *Store
@@ -302,16 +385,17 @@ func (t *transaction) ResponseBody(body io.ReadCloser) io.ReadCloser {
 func (t *transaction) Finish(resp *http.Response, txErr error) {
 	t.entry.FinishedAt = time.Now()
 	if t.reqBody != nil {
-		t.entry.Request.Body = t.reqBody.snapshot()
+		t.entry.Request.Body = t.reqBody.snapshot(t.entry.Request.Headers)
 	}
 	if resp != nil {
 		t.entry.Status = resp.StatusCode
 		t.entry.Response = Message{
 			Headers: cloneHeaders(resp.Header, t.cfg),
+			Cookies: cloneResponseCookies(resp, t.cfg),
 		}
 	}
 	if t.respBody != nil {
-		t.entry.Response.Body = t.respBody.snapshot()
+		t.entry.Response.Body = t.respBody.snapshot(t.entry.Response.Headers)
 	}
 	if txErr != nil {
 		t.entry.Error = txErr.Error()
@@ -363,17 +447,25 @@ func (b *bodyCapture) write(p []byte) {
 	b.buf.Write(p)
 }
 
-func (b *bodyCapture) snapshot() Body {
+func (b *bodyCapture) snapshot(headers []Header) Body {
 	if b == nil {
 		return Body{}
 	}
-	return Body{
+	body := Body{
 		Size:           b.total,
-		Preview:        b.buf.String(),
 		PreviewBytes:   int64(b.buf.Len()),
 		Truncated:      b.truncated || b.total > int64(b.buf.Len()),
 		TruncatedAfter: b.limit,
+		MimeType:       messageMimeType(headers, b.buf.Bytes()),
 	}
+	if utf8.Valid(b.buf.Bytes()) {
+		body.Preview = b.buf.String()
+		body.Encoding = "utf8"
+	} else if b.buf.Len() > 0 {
+		body.PreviewBase64 = base64.StdEncoding.EncodeToString(b.buf.Bytes())
+		body.Encoding = "base64"
+	}
+	return body
 }
 
 func fillConfig(cfg config.DeveloperConfig) config.DeveloperConfig {
@@ -397,10 +489,7 @@ func fillConfig(cfg config.DeveloperConfig) config.DeveloperConfig {
 }
 
 func cloneHeaders(src http.Header, cfg config.DeveloperConfig) []Header {
-	redact := make(map[string]struct{}, len(cfg.RedactHeaders))
-	for _, name := range cfg.RedactHeaders {
-		redact[strings.ToLower(strings.TrimSpace(name))] = struct{}{}
-	}
+	redact := redactedHeaderSet(cfg)
 	names := make([]string, 0, len(src))
 	for name := range src {
 		names = append(names, name)
@@ -423,6 +512,107 @@ func cloneHeaders(src http.Header, cfg config.DeveloperConfig) []Header {
 		}
 	}
 	return out
+}
+
+func cloneRequestCookies(req *http.Request, cfg config.DeveloperConfig) []Cookie {
+	if req == nil {
+		return nil
+	}
+	redact := shouldRedactHeader(cfg, "cookie")
+	cookies := req.Cookies()
+	out := make([]Cookie, 0, len(cookies))
+	for _, cookie := range cookies {
+		out = append(out, developerCookie(cookie, redact, cfg))
+	}
+	return out
+}
+
+func cloneResponseCookies(resp *http.Response, cfg config.DeveloperConfig) []Cookie {
+	if resp == nil {
+		return nil
+	}
+	redact := shouldRedactHeader(cfg, "set-cookie")
+	cookies := resp.Cookies()
+	out := make([]Cookie, 0, len(cookies))
+	for _, cookie := range cookies {
+		out = append(out, developerCookie(cookie, redact, cfg))
+	}
+	return out
+}
+
+func developerCookie(cookie *http.Cookie, redact bool, cfg config.DeveloperConfig) Cookie {
+	if cookie == nil {
+		return Cookie{}
+	}
+	value := cookie.Value
+	truncated := false
+	if redact {
+		value = redactedValue
+	} else if cfg.HeaderValueLimitBytes >= 0 && len(value) > cfg.HeaderValueLimitBytes {
+		value = value[:cfg.HeaderValueLimitBytes]
+		truncated = true
+	}
+	out := Cookie{
+		Name:     cookie.Name,
+		Value:    value,
+		Redacted: redact,
+		Domain:   cookie.Domain,
+		Path:     cookie.Path,
+		MaxAge:   cookie.MaxAge,
+		Secure:   cookie.Secure,
+		HTTPOnly: cookie.HttpOnly,
+		SameSite: sameSiteName(cookie.SameSite),
+	}
+	if truncated {
+		out.Value += "..."
+	}
+	if !cookie.Expires.IsZero() {
+		out.Expires = cookie.Expires.UTC().Format(time.RFC3339)
+	}
+	return out
+}
+
+func sameSiteName(mode http.SameSite) string {
+	switch mode {
+	case http.SameSiteDefaultMode:
+		return "default"
+	case http.SameSiteLaxMode:
+		return "lax"
+	case http.SameSiteStrictMode:
+		return "strict"
+	case http.SameSiteNoneMode:
+		return "none"
+	default:
+		return ""
+	}
+}
+
+func redactedHeaderSet(cfg config.DeveloperConfig) map[string]struct{} {
+	redact := make(map[string]struct{}, len(cfg.RedactHeaders))
+	for _, name := range cfg.RedactHeaders {
+		name = strings.ToLower(strings.TrimSpace(name))
+		if name != "" {
+			redact[name] = struct{}{}
+		}
+	}
+	return redact
+}
+
+func shouldRedactHeader(cfg config.DeveloperConfig, name string) bool {
+	_, ok := redactedHeaderSet(cfg)[strings.ToLower(strings.TrimSpace(name))]
+	return ok
+}
+
+func messageMimeType(headers []Header, preview []byte) string {
+	for _, header := range headers {
+		if strings.EqualFold(header.Name, "Content-Type") && strings.TrimSpace(header.Value) != "" && !header.Redacted {
+			return strings.TrimSpace(header.Value)
+		}
+	}
+	if len(preview) == 0 {
+		return ""
+	}
+	return http.DetectContentType(preview)
 }
 
 func redactCapturedURL(raw string, cfg config.DeveloperConfig) string {
@@ -550,6 +740,29 @@ func loadOrCreateCA(cfg config.DeveloperConfig) (*caMaterial, error) {
 			ca.certPEM = certPEM
 			return ca, nil
 		}
+	}
+	ca, certPEM, keyPEM, err := generateCA()
+	if err != nil {
+		return nil, err
+	}
+	if err := os.MkdirAll(filepath.Dir(certPath), 0o700); err != nil {
+		return nil, fmt.Errorf("create developer CA dir: %w", err)
+	}
+	if err := os.WriteFile(certPath, certPEM, 0o600); err != nil {
+		return nil, fmt.Errorf("write developer CA cert: %w", err)
+	}
+	if err := os.WriteFile(keyPath, keyPEM, 0o600); err != nil {
+		return nil, fmt.Errorf("write developer CA key: %w", err)
+	}
+	ca.certPath = certPath
+	ca.certPEM = certPEM
+	return ca, nil
+}
+
+func regenerateCA(cfg config.DeveloperConfig) (*caMaterial, error) {
+	certPath, keyPath, err := caPaths(cfg)
+	if err != nil {
+		return nil, err
 	}
 	ca, certPEM, keyPEM, err := generateCA()
 	if err != nil {
