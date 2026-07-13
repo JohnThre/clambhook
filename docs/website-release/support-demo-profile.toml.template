@@ -1,0 +1,29 @@
+# Support demo tunnel profile template.
+#
+# Keep credentials out of git. Render this template only in a temp directory
+# when support or release validation needs a disposable profile.
+# Do not replace the placeholder in this tracked file.
+
+active = "Support Demo"
+
+[[profile]]
+name = "Support Demo"
+
+  [profile.listen]
+
+  [profile.listen.tun]
+  enabled = true
+  mtu = 1500
+  routes = ["0.0.0.0/0", "::/0"]
+  exclude_cidrs = ["127.0.0.0/8", "::1/128"]
+
+  [[profile.chain]]
+  name = "support-demo"
+
+    [[profile.chain.server]]
+    name = "support-demo-vpn"
+    address = "support-demo-vpn.jpfchang.org:443"
+    protocol = "clambback"
+
+      [profile.chain.server.settings]
+      password = "__CLAMBHOOK_SUPPORT_DEMO_PASSWORD__"

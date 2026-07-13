@@ -10,27 +10,27 @@ Clambhook helps manage user-defined connectivity profiles and shows local status
 
 ## macOS Scope
 
-The macOS app uses Network Extension packet tunnel mode for device-wide routing. It embeds a macOS system extension, starts a `NETunnelProviderManager` packet tunnel, and routes packets through the shared mobile tunnel runtime. System proxy mode remains available as a daemon-backed fallback through the approved privileged helper or user-session daemon for apps and environments that should only use macOS HTTP, HTTPS, and SOCKS proxy settings. See `docs/macos-v1-scope.md`.
+The macOS app no longer depends on Apple's restricted Network Extension or System Extension approval path. It supports System Proxy mode for apps that honor macOS HTTP, HTTPS, and SOCKS proxy settings, plus Enhanced Mode, which runs the privileged daemon with a utun interface for device-wide routing. See `docs/macos-v1-scope.md`.
 
 ## End-user Distribution
 
-The end-user macOS app is distributed only from `https://jpfchang.org/clambhook/`. It is a direct website download for Apple Silicon Macs running macOS 14 or later, with a two-month free trial and direct-sale licensing handled on jpfchang.org.
+The end-user macOS app is distributed only from `https://store.clambercloud.com/clambhook/` as a free public DMG download for Apple Silicon Macs running macOS 14 or later. Users can try ClambHook for one calendar month, then buy a USD 99.99 one-time ClambHook license from `https://store.swiphtgroup.com/clambhook/buy`. The license includes one year of all updates from the purchase date; versions released on or before the update cutoff remain usable after the cutoff; it covers a maximum of 10 concurrently active devices across supported platforms, and seats can be deactivated for transfers. After the cutoff, no later updates are included, including critical, bug, and security updates. A USD 9.99 renewal buys one additional update year, extending from the later of the current cutoff or the renewal payment date. ClambHook purchase payments are accepted only through Creem or NOWPayments, not PayPal.
 
 Official public website routes:
 
-- Product: `https://jpfchang.org/clambhook/`
-- Download: `https://jpfchang.org/clambhook/download/`
-- Buy or upgrade: `https://jpfchang.org/clambhook/buy/`
-- License portal: `https://jpfchang.org/clambhook/portal/`
-- License terms: `https://jpfchang.org/clambhook/license/`
-- Privacy policy: `https://jpfchang.org/clambhook/privacy/`
-- Support: `https://jpfchang.org/clambhook/support/`
+- Product: `https://store.clambercloud.com/clambhook/`
+- Download: `https://store.clambercloud.com/clambhook/download/`
+- Buy or upgrade: `https://store.swiphtgroup.com/clambhook/buy/`
+- License portal: `https://store.swiphtgroup.com/clambhook/portal/`
+- License terms: `https://store.swiphtgroup.com/clambhook/license/`
+- Privacy policy: `https://store.clambercloud.com/clambhook/privacy/`
+- Support: `https://store.clambercloud.com/clambhook/support/`
 
 ClambHook is not distributed to end users through app marketplaces, GitHub Releases, Homebrew, package registries, or third-party mirrors. Other platform builds are internal developer QA targets until a separate distribution plan is approved.
 
 GitHub is source-only and view-only for end users. The source is proprietary to Pengfan Chang, all rights reserved, and may not be copied, modified, built, run, contributed to, redistributed, packaged, released, hosted, sublicensed, or used to create derivative works without separate prior written permission from Pengfan Chang.
 
-Do not publish or link end-user installers or package artifacts from GitHub, including `.dmg`, `.pkg`, `.apk`, `.aab`, `.ipa`, Homebrew formula releases, Debian packages, or macOS installer artifacts. Other official builds are distributed only through Pengfan Chang's controlled channels. Only Pengfan Chang may distribute, publish, package, or release Clambhook artifacts.
+Do not publish or link end-user installers or package artifacts from GitHub, including `.dmg`, `.pkg`, `.apk`, `.aab`, Homebrew formula releases, Debian packages, or macOS installer artifacts. Other official builds are distributed only through Pengfan Chang's controlled channels. Only Pengfan Chang may distribute, publish, package, or release Clambhook artifacts.
 
 The Android app should use Swift for common domain logic as much as practical in a future migration. Keep Kotlin for Android lifecycle, Compose UI, billing, services, storage, JNI/glue, and Gradle integration unless the Android Swift toolchain plan changes.
 

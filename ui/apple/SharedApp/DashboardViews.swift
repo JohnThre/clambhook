@@ -10,10 +10,23 @@ struct DashboardContentView: View {
             Section {
                 StatusHeaderView(model: model)
             }
+            if !model.appRecoveryStates.isEmpty {
+                Section("Attention") {
+                    ForEach(model.appRecoveryStates) { state in
+                        AppRecoveryStatePanel(state: state) { action in
+                            model.performAppRecoveryAction(action)
+                        }
+                    }
+                }
+            }
             Section("Profiles") {
                 if model.dashboard.profiles.profiles.isEmpty {
-                    Text("No profiles")
-                        .foregroundStyle(.secondary)
+                    AppRecoveryStatePanel(
+                        state: AppRecoveryStateBuilder.noProfile(),
+                        showsDiagnostic: false
+                    ) { action in
+                        model.performAppRecoveryAction(action)
+                    }
                 } else {
                     ForEach(model.dashboard.profiles.profiles, id: \.self) { profile in
                         Button {
@@ -57,6 +70,9 @@ struct DashboardContentView: View {
                     groups: model.dashboard.policyGroups.groups,
                     onSelect: { group, chain in
                         model.selectPolicyGroup(group: group, chain: chain)
+                    },
+                    onTest: { group in
+                        Task { await model.dashboard.testPolicyGroup(group: group) }
                     }
                 )
             }
@@ -308,6 +324,7 @@ struct CompactPolicySelectorView: View {
     var summary: PolicySelectorSummary
     var groups: [PolicyGroupPayload] = []
     var onSelect: ((String, String) -> Void)?
+    var onTest: ((String) -> Void)?
     var routeLimit = 4
 
     var body: some View {
@@ -327,7 +344,7 @@ struct CompactPolicySelectorView: View {
                     .foregroundStyle(.secondary)
             } else if !groups.isEmpty {
                 ForEach(Array(groups.prefix(routeLimit))) { group in
-                    CompactPolicyGroupRow(group: group, onSelect: onSelect)
+                    CompactPolicyGroupRow(group: group, onSelect: onSelect, onTest: onTest)
                 }
             } else {
                 ForEach(Array(summary.routes.prefix(routeLimit))) { route in
@@ -371,6 +388,7 @@ struct CompactPolicySelectorView: View {
 private struct CompactPolicyGroupRow: View {
     var group: PolicyGroupPayload
     var onSelect: ((String, String) -> Void)?
+    var onTest: ((String) -> Void)?
 
     private var selected: String {
         if !group.selectedChain.isEmpty {
@@ -405,6 +423,17 @@ private struct CompactPolicyGroupRow: View {
                 }
 
                 Spacer(minLength: 8)
+
+                if let onTest {
+                    Button {
+                        onTest(group.name)
+                    } label: {
+                        Image(systemName: "bolt.horizontal")
+                            .foregroundStyle(.orange)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Test latency for \(group.name)")
+                }
 
                 CompactPolicyGroupHealthBadge(group: group)
             }
@@ -620,6 +649,90 @@ private struct CompactPolicyActionDot: View {
             return .red
         default:
             return .green
+        }
+    }
+}
+
+struct AppRecoveryStatePanel: View {
+    var state: AppRecoveryState
+    var showsDiagnostic = true
+    var onAction: (AppRecoveryStateAction) -> Void
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: state.systemImage)
+                .font(.title3.weight(.semibold))
+                .foregroundStyle(tint)
+                .frame(width: 34, height: 34)
+                .background(tint.opacity(0.14), in: RoundedRectangle(cornerRadius: 8))
+
+            VStack(alignment: .leading, spacing: 9) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(state.title)
+                        .font(.subheadline.weight(.semibold))
+                    Text(state.message)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 8) {
+                        actionButtons
+                    }
+                    VStack(alignment: .leading, spacing: 7) {
+                        actionButtons
+                    }
+                }
+
+                if showsDiagnostic, !state.diagnosticText.isEmpty {
+                    Text(state.diagnosticText)
+                        .font(.caption2.monospaced())
+                        .foregroundStyle(.secondary)
+                        .lineLimit(3)
+                        .textSelection(.enabled)
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(12)
+        .background(tint.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(tint.opacity(0.18), lineWidth: 1)
+        )
+    }
+
+    @ViewBuilder
+    private var actionButtons: some View {
+        Button {
+            onAction(state.primaryAction)
+        } label: {
+            Label(state.primaryAction.title, systemImage: state.primaryAction.systemImage)
+        }
+        .buttonStyle(.borderedProminent)
+        .controlSize(.small)
+        .tint(tint)
+
+        ForEach(state.secondaryActions.filter { $0 != state.primaryAction }) { action in
+            Button {
+                onAction(action)
+            } label: {
+                Label(action.title, systemImage: action.systemImage)
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+        }
+    }
+
+    private var tint: Color {
+        switch state.severity {
+        case .info:
+            return .blue
+        case .warning:
+            return .orange
+        case .error:
+            return .red
         }
     }
 }

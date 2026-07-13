@@ -2,9 +2,33 @@ import ClambhookShared
 import CryptoKit
 import Foundation
 
+enum MacCertificateTrustStatus: Equatable {
+    case unavailable
+    case checking
+    case trusted
+    case notTrusted
+    case failed(String)
+
+    var label: String {
+        switch self {
+        case .unavailable:
+            return "Certificate unavailable"
+        case .checking:
+            return "Checking certificate trust"
+        case .trusted:
+            return "Certificate trusted"
+        case .notTrusted:
+            return "Certificate not trusted"
+        case .failed:
+            return "Certificate trust check failed"
+        }
+    }
+}
+
 @MainActor
 final class MacCertificateManager: ObservableObject {
     @Published private(set) var fingerprint = ""
+    @Published private(set) var trustStatus: MacCertificateTrustStatus = .unavailable
     @Published private(set) var isWorking = false
     @Published private(set) var statusMessage = ""
 
@@ -16,6 +40,7 @@ final class MacCertificateManager: ObservableObject {
 
     func refreshFingerprint(pem: String) {
         fingerprint = Self.fingerprint(for: pem)
+        refreshTrustStatus(pem: pem)
     }
 
     func install(pem: String) {
@@ -26,6 +51,33 @@ final class MacCertificateManager: ObservableObject {
         runTrustCommand(pem: pem, remove: true)
     }
 
+    func refreshTrustStatus(pem: String) {
+        let expectedFingerprint = Self.fingerprint(for: pem)
+        guard !expectedFingerprint.isEmpty else {
+            trustStatus = .unavailable
+            return
+        }
+        trustStatus = .checking
+        Task {
+            do {
+                let url = try writeTemporaryPEM(pem)
+                defer { try? FileManager.default.removeItem(at: url) }
+                _ = try runner.run("/usr/bin/security", arguments: ["verify-cert", "-c", url.path, "-p", "ssl"])
+                if fingerprint == expectedFingerprint {
+                    trustStatus = .trusted
+                }
+            } catch MacCommandError.failed {
+                if fingerprint == expectedFingerprint {
+                    trustStatus = .notTrusted
+                }
+            } catch {
+                if fingerprint == expectedFingerprint {
+                    trustStatus = .failed(error.localizedDescription)
+                }
+            }
+        }
+    }
+
     private func runTrustCommand(pem: String, remove: Bool) {
         isWorking = true
         statusMessage = ""
@@ -34,12 +86,13 @@ final class MacCertificateManager: ObservableObject {
                 let url = try writeTemporaryPEM(pem)
                 defer { try? FileManager.default.removeItem(at: url) }
                 if remove {
-                    try runner.run("/usr/bin/security", arguments: ["remove-trusted-cert", url.path])
+                    _ = try runner.run("/usr/bin/security", arguments: ["remove-trusted-cert", url.path])
                     statusMessage = "CA trust removed from user settings"
                 } else {
-                    try runner.run("/usr/bin/security", arguments: ["add-trusted-cert", "-r", "trustRoot", "-p", "ssl", "-k", loginKeychainPath(), url.path])
+                    _ = try runner.run("/usr/bin/security", arguments: ["add-trusted-cert", "-r", "trustRoot", "-p", "ssl", "-k", loginKeychainPath(), url.path])
                     statusMessage = "CA trusted for SSL in login keychain"
                 }
+                refreshTrustStatus(pem: pem)
             } catch {
                 statusMessage = error.localizedDescription
             }

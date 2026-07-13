@@ -28,7 +28,7 @@ public enum TunnelRecoveryAction: String, Codable, Equatable, Identifiable, Send
         case .openAppSettings:
             return "Settings"
         case .rebuildVPNProfile:
-            return "Rebuild"
+            return "Refresh Profile"
         case .openProfiles:
             return "Profiles"
         case .importProfile:
@@ -86,7 +86,6 @@ public enum TunnelRecoveryClassifier {
             lower.contains("configuration invalid") ||
             lower.contains("configuration is disabled") ||
             lower.contains("configuration disabled") ||
-            lower.contains("packet tunnel session is unavailable") ||
             lower.contains("invalid session") {
             return invalidEntitlementOrProfile(rawError: trimmed)
         }
@@ -130,8 +129,8 @@ public enum TunnelRecoveryClassifier {
     private static func vpnPermissionDenied(rawError: String) -> TunnelRecoveryIssue {
         TunnelRecoveryIssue(
             kind: .vpnPermissionDenied,
-            title: "VPN permission was denied",
-            message: "Allow clambhook to add a VPN configuration, then connect again.",
+            title: "Routing permission was denied",
+            message: "Allow ClambHook to manage routing through the helper, then connect again.",
             actions: [.retry, .openAppSettings],
             rawError: rawError
         )
@@ -140,8 +139,8 @@ public enum TunnelRecoveryClassifier {
     private static func invalidEntitlementOrProfile(rawError: String) -> TunnelRecoveryIssue {
         TunnelRecoveryIssue(
             kind: .invalidEntitlementOrProfile,
-            title: "VPN profile is not usable",
-            message: "The installed VPN profile or app entitlement is invalid. Rebuild the local VPN profile and refresh.",
+            title: "Routing configuration is not usable",
+            message: "The active routing configuration is invalid. Refresh the profile and try again.",
             actions: [.rebuildVPNProfile, .refresh],
             rawError: rawError
         )
@@ -161,7 +160,7 @@ public enum TunnelRecoveryClassifier {
         TunnelRecoveryIssue(
             kind: .noUDPSupport,
             title: "Active route cannot carry UDP",
-            message: "Device VPN mode needs UDP support. Choose a profile whose final hop supports UDP.",
+            message: "Enhanced Mode needs UDP support. Choose a profile whose final hop supports UDP.",
             actions: [.openProfiles],
             rawError: rawError
         )

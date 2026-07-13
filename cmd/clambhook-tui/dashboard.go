@@ -3,11 +3,13 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"math"
 	"net/netip"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -53,19 +55,33 @@ const (
 	viewModeLibrary
 	viewModeSettings
 	viewModeDeveloper
+	viewModeNetwork
 )
+
+type filterToken struct {
+	Key   string // "app", "domain", "country", "action", "port", "ip", or "" for plain text
+	Value string
+}
+
+// tempRuleTTLOptions defines TTL choices for the pending rule dialog.
+// Seconds=0 means a persistent (non-expiring) rule.
+var tempRuleTTLOptions = []struct {
+	Seconds int64
+	Label   string
+}{{0, "persist"}, {900, "15m"}, {3600, "1h"}, {28800, "8h"}, {86400, "24h"}}
 
 type model struct {
 	apiAddr string
 	client  apiClient
 
-	status   statusPayload
-	profiles profilesPayload
-	servers  serversPayload
-	policies policyGroupsPayload
-	traffic  trafficSnapshotPayload
-	dev      developerStatusPayload
-	devRows  []developerEntryPayload
+	status        statusPayload
+	profiles      profilesPayload
+	servers       serversPayload
+	policies      policyGroupsPayload
+	subscriptions ruleSubscriptionsPayload
+	traffic       trafficSnapshotPayload
+	dev           developerStatusPayload
+	devRows       []developerEntryPayload
 
 	selectedProfile      int
 	viewMode             viewMode
@@ -82,13 +98,34 @@ type model struct {
 	suggestionFocus      bool
 	cleanupFocus         bool
 	selectedDeveloper    int
+	selectedDeveloperTab int
 	selectedPolicyGroup  int
 	selectedPolicyMember int
 	policyFocus          bool
 	pendingRule          *pendingRule
 	pendingCleanup       *cleanupSuggestionPayload
+	pendingRuleTTLIdx    int // index into tempRuleTTLOptions; 0 = 15m
 	width                int
 	height               int
+
+	// Network view state.
+	netTreeAppIdx     int
+	netTreeDomainIdx  int
+	netTreeCountryIdx int
+	netTreeDepth      int // 0=app, 1=domain, 2=country
+	netTreeExpanded   map[int]bool
+	netDetailConnIdx  int
+
+	// Token-based filter (shared between Activity and Network views).
+	filterTokens  []filterToken
+	filterEditing bool
+	filterInput   string
+
+	configImportInput   string
+	configImportEditing bool
+	configExportInput   string
+	configExportEditing bool
+	configActionMsg     string
 
 	bandwidth bandwidthSeries
 	logs      []string
@@ -119,14 +156,15 @@ type pendingRule struct {
 }
 
 type dashboardLoadedMsg struct {
-	Status    statusPayload
-	Profiles  profilesPayload
-	Servers   serversPayload
-	Policies  policyGroupsPayload
-	Traffic   trafficSnapshotPayload
-	Developer developerStatusPayload
-	DevRows   []developerEntryPayload
-	Err       error
+	Status        statusPayload
+	Profiles      profilesPayload
+	Servers       serversPayload
+	Policies      policyGroupsPayload
+	Subscriptions ruleSubscriptionsPayload
+	Traffic       trafficSnapshotPayload
+	Developer     developerStatusPayload
+	DevRows       []developerEntryPayload
+	Err           error
 }
 
 type statusLoadedMsg struct {
@@ -159,6 +197,21 @@ type ruleTestDoneMsg struct {
 type policyGroupsDoneMsg struct {
 	Policies policyGroupsPayload
 	Err      error
+}
+
+type subscriptionsLoadedMsg struct {
+	Subscriptions ruleSubscriptionsPayload
+	Err           error
+}
+
+type configExportDoneMsg struct {
+	Path string
+	Err  error
+}
+
+type configImportDoneMsg struct {
+	Result configImportResponse
+	Err    error
 }
 
 type eventMsg struct {
@@ -202,6 +255,63 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.clampLogScroll()
 		return m, nil
 	case tea.KeyMsg:
+		// Handle Settings import/export editing modes before global key dispatch.
+		if m.viewMode == viewModeSettings {
+			if m.configExportEditing {
+				switch msg.String() {
+				case "esc":
+					m.configExportEditing = false
+				case "enter":
+					path := strings.TrimSpace(m.configExportInput)
+					if path == "" {
+						m.configActionMsg = "enter a file path"
+					} else {
+						m.configExportEditing = false
+						return m, m.exportConfigCmd(path)
+					}
+				case "backspace", "ctrl+h":
+					if len(m.configExportInput) > 0 {
+						m.configExportInput = m.configExportInput[:len(m.configExportInput)-1]
+					}
+				default:
+					if len(msg.Runes) > 0 {
+						m.configExportInput += string(msg.Runes)
+					}
+				}
+				return m, nil
+			}
+			if m.configImportEditing {
+				switch msg.String() {
+				case "esc":
+					m.configImportEditing = false
+				case "enter":
+					path := strings.TrimSpace(m.configImportInput)
+					if path == "" {
+						m.configActionMsg = "enter a file path"
+					} else {
+						m.configImportEditing = false
+						return m, m.importConfigCmd(path)
+					}
+				case "backspace", "ctrl+h":
+					if len(m.configImportInput) > 0 {
+						m.configImportInput = m.configImportInput[:len(m.configImportInput)-1]
+					}
+				default:
+					if len(msg.Runes) > 0 {
+						m.configImportInput += string(msg.Runes)
+					}
+				}
+				return m, nil
+			}
+		}
+		// Intercept "t" for latency test when in Library+policyFocus mode.
+		if msg.String() == "t" && m.viewMode == viewModeLibrary && m.policyFocus {
+			group, ok := m.selectedPolicyGroupPayload()
+			if ok {
+				return m, m.testPolicyGroupCmd(group.Name)
+			}
+			return m, nil
+		}
 		switch msg.String() {
 		case "q", "ctrl+c":
 			if m.cancelEvents != nil {
@@ -223,6 +333,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "5", "v":
 			m.viewMode = viewModeDeveloper
 			return m, m.loadDeveloperCmd()
+		case "6":
+			m.viewMode = viewModeNetwork
+			return m, nil
+		}
+		if m.viewMode == viewModeNetwork {
+			return m.updateNetworkView(msg)
 		}
 		if m.viewMode == viewModeDeveloper {
 			switch msg.String() {
@@ -233,6 +349,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			case "down", "j":
 				m.moveDeveloperSelection(1)
+				return m, nil
+			case "tab", "]":
+				m.selectedDeveloperTab = (m.selectedDeveloperTab + 1) % len(developerDetailTabs)
+				return m, nil
+			case "[":
+				m.selectedDeveloperTab = (m.selectedDeveloperTab + len(developerDetailTabs) - 1) % len(developerDetailTabs)
 				return m, nil
 			case "e":
 				return m, m.exportDeveloperHARCmd()
@@ -265,6 +387,30 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.ruleTestInput += string(msg.Runes)
 					}
 				}
+				return m, nil
+			}
+			if m.filterEditing {
+				switch msg.String() {
+				case "esc":
+					m.filterEditing = false
+					m.filterInput = ""
+				case "enter":
+					m.filterTokens = parseFilterTokens(m.filterInput)
+					m.filterEditing = false
+					m.filterInput = ""
+					m.clampTrafficSelection()
+				case "backspace", "ctrl+h":
+					if len(m.filterInput) > 0 {
+						m.filterInput = m.filterInput[:len(m.filterInput)-1]
+					} else if len(m.filterTokens) > 0 {
+						m.filterTokens = m.filterTokens[:len(m.filterTokens)-1]
+					}
+				default:
+					if len(msg.Runes) > 0 {
+						m.filterInput += string(msg.Runes)
+					}
+				}
+				m.clampTrafficSelection()
 				return m, nil
 			}
 			if m.searchEditing {
@@ -314,6 +460,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						}
 					}
 					return m, nil
+				case "left":
+					if m.pendingRuleTTLIdx > 0 {
+						m.pendingRuleTTLIdx--
+					}
+					return m, nil
+				case "right":
+					if m.pendingRuleTTLIdx < len(tempRuleTTLOptions)-1 {
+						m.pendingRuleTTLIdx++
+					}
+					return m, nil
 				}
 			}
 			if m.pendingCleanup != nil {
@@ -331,11 +487,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "r":
 				return m, m.loadDashboardCmd()
 			case "/":
-				m.searchEditing = true
+				m.filterEditing = true
+				m.filterInput = ""
 				return m, nil
 			case "esc":
 				m.searchText = ""
 				m.trafficFilter = ""
+				m.filterTokens = nil
+				m.filterEditing = false
+				m.filterInput = ""
 				m.suggestionFocus = false
 				m.cleanupFocus = false
 				m.clampTrafficSelection()
@@ -488,6 +648,25 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.moveProfileSelection(1)
 			}
 			return m, nil
+		case "f":
+			if m.viewMode == viewModeLibrary {
+				return m, m.refreshSubscriptionsCmd()
+			}
+		case "e":
+			if m.viewMode == viewModeSettings {
+				if m.configExportInput == "" {
+					m.configExportInput = "clambhook-export.toml"
+				}
+				m.configExportEditing = true
+				m.configActionMsg = ""
+				return m, nil
+			}
+		case "i":
+			if m.viewMode == viewModeSettings {
+				m.configImportEditing = true
+				m.configActionMsg = ""
+				return m, nil
+			}
 		case "enter":
 			if m.viewMode != viewModeLibrary {
 				return m, nil
@@ -498,6 +677,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.switchSelectedProfileCmd()
 		case "r":
 			return m, m.loadDashboardCmd()
+		case "n":
+			m.viewMode = viewModeNetwork
+			return m, nil
 		}
 	case dashboardLoadedMsg:
 		if msg.Err != nil {
@@ -511,6 +693,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.profiles = msg.Profiles
 		m.servers = msg.Servers
 		m.policies = msg.Policies
+		m.subscriptions = msg.Subscriptions
 		m.traffic = msg.Traffic
 		m.dev = msg.Developer
 		m.devRows = msg.DevRows
@@ -581,6 +764,27 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.policies = msg.Policies
 		m.clampPolicySelection()
 		return m, nil
+	case subscriptionsLoadedMsg:
+		if msg.Err != nil {
+			m.errText = msg.Err.Error()
+			return m, nil
+		}
+		m.subscriptions = msg.Subscriptions
+		return m, nil
+	case configExportDoneMsg:
+		if msg.Err != nil {
+			m.configActionMsg = "export error: " + msg.Err.Error()
+			return m, nil
+		}
+		m.configActionMsg = "exported to " + msg.Path
+		return m, nil
+	case configImportDoneMsg:
+		if msg.Err != nil {
+			m.configActionMsg = "import error: " + msg.Err.Error()
+			return m, nil
+		}
+		m.configActionMsg = msg.Result.Message
+		return m, m.loadDashboardCmd()
 	case eventMsg:
 		needsRefresh := m.applyEvent(msg.Event)
 		if needsRefresh {
@@ -613,6 +817,8 @@ func (m model) View() string {
 		return m.settingsView()
 	case viewModeDeveloper:
 		return m.developerView()
+	case viewModeNetwork:
+		return m.networkView()
 	}
 
 	width := m.contentWidth()
@@ -628,8 +834,8 @@ func (m model) View() string {
 		m.renderLiveTrafficSection(width),
 		m.renderRecentDecisionsSection(width),
 		m.renderFooter(
-			"Keys: c connect  d disconnect  r refresh  2 activity  3 library  4 settings  5 developer  q quit",
-			"Keys: c/d  r  2 activity  3 library  4 settings  5 dev  q",
+			"Keys: c connect  d disconnect  r refresh  2 activity  3 library  4 settings  5 developer  6 network  q quit",
+			"Keys: c/d  r  2 act  3 lib  4 set  5 dev  6 net  q",
 		),
 	)
 	return joinSections(sections)
@@ -645,8 +851,8 @@ func (m model) activityView() string {
 		m.renderTrafficDetailSection(width),
 		m.renderLogsSection(width),
 		m.renderFooter(
-			"Keys: a all  b block  d direct  p proxy  / search  x test route  tab focus  up/down select  enter/n rule  c cleanup  r refresh  1 now  3 library  q quit",
-			"Keys: a/b/d/p  / search  x test  tab  up/down  enter/n rule  c clean  r  1 now  3 lib  q",
+			"Keys: a all  b block  d direct  p proxy  / filter  x test route  tab focus  up/down select  enter/n rule  c cleanup  r refresh  1 now  3 library  6 network  q quit",
+			"Keys: a/b/d/p  / filter  x test  tab  up/down  enter/n rule  c clean  r  1 now  3 lib  6 net  q",
 		),
 	)
 	return joinSections(sections)
@@ -676,10 +882,12 @@ func (m model) libraryView() string {
 	sections = append(sections,
 		m.renderProfileListenerSections(width),
 		m.renderPolicyGroupsSection(width),
+		m.renderSubscriptionsSection(width),
+		m.renderRuleHitsSection(width),
 		m.renderServersSection(width),
 		m.renderFooter(
-			"Keys: tab policy focus  [ prev profile  ] next profile  up/down select  enter apply/test  r refresh  1 now  2 activity  5 developer  q quit",
-			"Keys: tab focus  [/] profile  up/down  enter  r  1 now  2 activity  q",
+			"Keys: tab policy focus  [ prev profile  ] next profile  up/down select  enter apply  t test latency  f refresh subs  r refresh  1 now  2 activity  6 network  q quit",
+			"Keys: tab focus  [/] profile  up/down  enter  t test  f subs  r  1 now  2 act  6 net  q",
 		),
 	)
 	return joinSections(sections)
@@ -701,11 +909,13 @@ func (m model) settingsView() string {
 		truncate("  Event stream  "+eventStatus, width),
 		subtleStyle.Render(truncate("  Edit daemon config in your TOML file or platform settings UI.", width)),
 	}
+	configLines := m.configImportExportLines(width)
 	sections = append(sections,
 		renderSection("Settings", lines),
+		renderSection("Config Import / Export", configLines),
 		m.renderFooter(
-			"Keys: r refresh  1 now  2 activity  3 library  5 developer  q quit",
-			"Keys: r  1 now  2 activity  3 library  5 dev  q",
+			"Keys: e export config  i import config  r refresh  1 now  2 activity  3 library  5 developer  q quit",
+			"Keys: e export  i import  r  1 now  2 activity  3 library  5 dev  q",
 		),
 	)
 	return joinSections(sections)
@@ -722,7 +932,7 @@ func (m model) developerView() string {
 		renderSection("HTTP Inspector", m.developerEntryLines(width)),
 		m.renderFooter(
 			"Keys: up/down select  e export HAR  c clear  r refresh  1 now  2 activity  3 library  4 settings  q quit",
-			"Keys: up/down  e export  c clear  r  1 now  2 activity  q",
+			"Keys: up/down  tab detail  e export  c clear  r  1 now  2 activity  q",
 		),
 	)
 	return joinSections(sections)
@@ -737,15 +947,22 @@ func (m model) developerStatusLines(width int) []string {
 	if m.dev.MITMEnabled {
 		mitm = "on"
 	}
+	noCache := "off"
+	if m.dev.NoCacheEnabled {
+		noCache = "on"
+	}
 	lines := []string{
-		truncate(fmt.Sprintf("  State %s  MITM %s  Captures %d/%d  Body cap %s",
-			state, mitm, m.dev.CaptureCount, m.dev.CaptureLimit, formatBytes(uint64(maxInt64(0, m.dev.BodyLimitBytes)))), width),
+		truncate(fmt.Sprintf("  State %s  MITM %s  No-cache %s  Captures %d/%d  Body cap %s",
+			state, mitm, noCache, m.dev.CaptureCount, m.dev.CaptureLimit, formatBytes(uint64(maxInt64(0, m.dev.BodyLimitBytes)))), width),
 	}
 	if m.dev.CACertPath != "" {
 		lines = append(lines, truncate("  CA "+m.dev.CACertPath, width))
 	}
 	if m.dev.CAFingerprintSHA256 != "" {
 		lines = append(lines, subtleStyle.Render(truncate("  SHA256 "+m.dev.CAFingerprintSHA256, width)))
+	}
+	if m.dev.CANotBefore != "" || m.dev.CANotAfter != "" {
+		lines = append(lines, subtleStyle.Render(truncate("  Valid "+emptyDash(m.dev.CANotBefore)+" -> "+emptyDash(m.dev.CANotAfter), width)))
 	}
 	if !m.dev.Enabled {
 		lines = append(lines, subtleStyle.Render(truncate("  Enable [developer] in TOML to capture HTTP(S) transactions.", width)))
@@ -783,13 +1000,177 @@ func (m model) developerEntryLines(width int) []string {
 		lines = append(lines, "")
 		lines = append(lines, tableHeaderStyle.Render(truncate("  Request Detail", width)))
 		lines = append(lines, truncate(fmt.Sprintf("  %s %s  Status %s  Profile %s  Chain %s", entry.Method, entry.URL, statusText(entry.Status), emptyDash(entry.Profile), emptyDash(entry.ChainName)), width))
-		lines = append(lines, truncate(fmt.Sprintf("  Request body %s preview %s%s", formatBytes(uint64(maxInt64(0, entry.Request.Body.Size))), formatBytes(uint64(maxInt64(0, entry.Request.Body.PreviewBytes))), truncSuffix(entry.Request.Body.Truncated)), width))
-		lines = append(lines, truncate(fmt.Sprintf("  Response body %s preview %s%s", formatBytes(uint64(maxInt64(0, entry.Response.Body.Size))), formatBytes(uint64(maxInt64(0, entry.Response.Body.PreviewBytes))), truncSuffix(entry.Response.Body.Truncated)), width))
+		lines = append(lines, subtleStyle.Render(truncate("  "+developerTabsLine(m.selectedDeveloperTab), width)))
+		lines = append(lines, developerDetailTabLines(entry, m.selectedDeveloperTab, width)...)
 		if entry.Error != "" {
 			lines = append(lines, errorStyle.Render(truncate("  Error "+entry.Error, width)))
 		}
 	}
 	return lines
+}
+
+var developerDetailTabs = []string{"Headers", "Body", "JSON", "Cookies"}
+
+func developerTabsLine(active int) string {
+	parts := make([]string, 0, len(developerDetailTabs))
+	for i, tab := range developerDetailTabs {
+		if i == active {
+			parts = append(parts, "["+tab+"]")
+		} else {
+			parts = append(parts, tab)
+		}
+	}
+	return strings.Join(parts, "  ")
+}
+
+func developerDetailTabLines(entry developerEntryPayload, active, width int) []string {
+	switch developerDetailTabs[active%len(developerDetailTabs)] {
+	case "Headers":
+		return developerHeaderLines(entry, width)
+	case "Body":
+		return developerBodyLines(entry, width)
+	case "JSON":
+		return developerJSONLines(entry, width)
+	case "Cookies":
+		return developerCookieLines(entry, width)
+	default:
+		return nil
+	}
+}
+
+func developerHeaderLines(entry developerEntryPayload, width int) []string {
+	lines := []string{subtleStyle.Render(truncate("  Request headers", width))}
+	lines = append(lines, developerHeaderRows(entry.Request.Headers, width)...)
+	lines = append(lines, subtleStyle.Render(truncate("  Response headers", width)))
+	lines = append(lines, developerHeaderRows(entry.Response.Headers, width)...)
+	return lines
+}
+
+func developerHeaderRows(headers []developerHeaderPayload, width int) []string {
+	if len(headers) == 0 {
+		return []string{subtleStyle.Render(truncate("    none", width))}
+	}
+	lines := make([]string, 0, minInt(len(headers), 8)+1)
+	for _, header := range headers[:minInt(len(headers), 8)] {
+		value := header.Value
+		if header.Redacted {
+			value += " redacted"
+		}
+		if header.Truncated {
+			value += " truncated"
+		}
+		lines = append(lines, truncate(fmt.Sprintf("    %s: %s", header.Name, value), width))
+	}
+	if len(headers) > 8 {
+		lines = append(lines, subtleStyle.Render(truncate(fmt.Sprintf("    +%d more", len(headers)-8), width)))
+	}
+	return lines
+}
+
+func developerBodyLines(entry developerEntryPayload, width int) []string {
+	lines := developerOneBodyLines("Request", entry.Request.Body, width)
+	lines = append(lines, developerOneBodyLines("Response", entry.Response.Body, width)...)
+	return lines
+}
+
+func developerOneBodyLines(title string, body developerBodyPayload, width int) []string {
+	mime := body.MimeType
+	if mime == "" {
+		mime = "unknown"
+	}
+	lines := []string{
+		subtleStyle.Render(truncate(fmt.Sprintf("  %s body %s preview %s%s  %s %s", title, formatBytes(uint64(maxInt64(0, body.Size))), formatBytes(uint64(maxInt64(0, body.PreviewBytes))), truncSuffix(body.Truncated), mime, emptyDash(body.Encoding)), width)),
+	}
+	text := developerBodyText(body)
+	if text != "" {
+		for _, line := range previewLines(text, 3) {
+			lines = append(lines, truncate("    "+line, width))
+		}
+	}
+	return lines
+}
+
+func developerJSONLines(entry developerEntryPayload, width int) []string {
+	lines := developerOneJSONLines("Request", entry.Request.Body, width)
+	lines = append(lines, developerOneJSONLines("Response", entry.Response.Body, width)...)
+	return lines
+}
+
+func developerOneJSONLines(title string, body developerBodyPayload, width int) []string {
+	text := body.Preview
+	if strings.TrimSpace(text) == "" {
+		return []string{subtleStyle.Render(truncate("  "+title+" JSON none", width))}
+	}
+	var buf bytes.Buffer
+	if err := json.Indent(&buf, []byte(text), "", "  "); err != nil {
+		return []string{subtleStyle.Render(truncate("  "+title+" JSON invalid or unavailable", width))}
+	}
+	lines := []string{subtleStyle.Render(truncate("  "+title+" JSON", width))}
+	for _, line := range previewLines(buf.String(), 6) {
+		lines = append(lines, truncate("    "+line, width))
+	}
+	return lines
+}
+
+func developerCookieLines(entry developerEntryPayload, width int) []string {
+	lines := []string{subtleStyle.Render(truncate("  Request cookies", width))}
+	lines = append(lines, developerCookieRows(entry.Request.Cookies, width)...)
+	lines = append(lines, subtleStyle.Render(truncate("  Response cookies", width)))
+	lines = append(lines, developerCookieRows(entry.Response.Cookies, width)...)
+	return lines
+}
+
+func developerCookieRows(cookies []developerCookiePayload, width int) []string {
+	if len(cookies) == 0 {
+		return []string{subtleStyle.Render(truncate("    none", width))}
+	}
+	lines := make([]string, 0, minInt(len(cookies), 8)+1)
+	for _, cookie := range cookies[:minInt(len(cookies), 8)] {
+		attrs := make([]string, 0, 4)
+		if cookie.Domain != "" {
+			attrs = append(attrs, "domain="+cookie.Domain)
+		}
+		if cookie.Path != "" {
+			attrs = append(attrs, "path="+cookie.Path)
+		}
+		if cookie.Secure {
+			attrs = append(attrs, "secure")
+		}
+		if cookie.HTTPOnly {
+			attrs = append(attrs, "httponly")
+		}
+		value := cookie.Value
+		if cookie.Redacted {
+			value += " redacted"
+		}
+		if len(attrs) > 0 {
+			value += "  " + strings.Join(attrs, " ")
+		}
+		lines = append(lines, truncate(fmt.Sprintf("    %s=%s", cookie.Name, value), width))
+	}
+	if len(cookies) > 8 {
+		lines = append(lines, subtleStyle.Render(truncate(fmt.Sprintf("    +%d more", len(cookies)-8), width)))
+	}
+	return lines
+}
+
+func developerBodyText(body developerBodyPayload) string {
+	if body.Preview != "" {
+		return body.Preview
+	}
+	if body.PreviewBase64 != "" {
+		return "[base64] " + body.PreviewBase64
+	}
+	return ""
+}
+
+func previewLines(text string, limit int) []string {
+	raw := strings.Split(strings.TrimRight(text, "\n"), "\n")
+	if len(raw) > limit {
+		raw = raw[:limit]
+		raw = append(raw, "...")
+	}
+	return raw
 }
 
 func (m model) selectedDeveloperEntry() (developerEntryPayload, bool) {
@@ -863,12 +1244,18 @@ func (m model) renderHeader(title string) string {
 }
 
 func (m model) renderStatusSummary(width int) string {
-	line := strings.Join([]string{
+	parts := []string{
 		m.runningBadge(),
 		m.apiBadge(),
 		"Profile " + truncate(emptyDash(m.activeProfile()), maxInt(8, width/3)),
 		fmt.Sprintf("%d active connections", m.activeConnections()),
-	}, "  ")
+	}
+	if m.status.TunnelMode == "tun" {
+		parts = append(parts, runningBadgeStyle.Render("TUN"))
+	} else if m.status.TunnelMode == "proxy" {
+		parts = append(parts, subtleStyle.Render("PROXY"))
+	}
+	line := strings.Join(parts, "  ")
 	if lipgloss.Width(line) <= width {
 		return line
 	}
@@ -959,11 +1346,25 @@ func (m model) profileLines(width int) []string {
 	return lines
 }
 
+func (m model) tunnelModeLine(width int) string {
+	switch m.status.TunnelMode {
+	case "tun":
+		return runningBadgeStyle.Render(truncate("  FULL TUNNEL (TUN)", width))
+	case "proxy":
+		return stoppedBadgeStyle.Render(truncate("  PROXY (SOCKS5 / HTTP)", width))
+	default:
+		return ""
+	}
+}
+
 func (m model) listenerLines(width int) []string {
 	if len(m.status.Listeners) == 0 {
 		return emptyStateLines("No listeners active", "Connect to start the configured listeners.", width)
 	}
-	lines := make([]string, 0, len(m.status.Listeners))
+	lines := make([]string, 0, len(m.status.Listeners)+1)
+	if modeLine := m.tunnelModeLine(width); modeLine != "" {
+		lines = append(lines, modeLine)
+	}
 	for _, l := range m.status.Listeners {
 		if width < 54 {
 			line := fmt.Sprintf("  %s %s (%d)", l.Protocol, l.Addr, l.ActiveConns)
@@ -987,6 +1388,68 @@ func (m model) renderServersSection(width int) string {
 
 func (m model) renderPolicyGroupsSection(width int) string {
 	return renderSection("Policy Groups", m.policyGroupLines(width))
+}
+
+func (m model) renderSubscriptionsSection(width int) string {
+	return renderSection("Rule Subscriptions", m.subscriptionLines(width))
+}
+
+func (m model) subscriptionLines(width int) []string {
+	if len(m.subscriptions.Subscriptions) == 0 {
+		return emptyStateLines("No rule subscriptions", "Add subscriptions to the active profile to block domains.", width)
+	}
+	lines := make([]string, 0, len(m.subscriptions.Subscriptions))
+	for _, sub := range m.subscriptions.Subscriptions {
+		state := "enabled"
+		stateStyle := subtleStyle
+		if sub.Disabled {
+			state = "disabled"
+		} else {
+			stateStyle = activeLineStyle
+		}
+		counts := ""
+		if sub.Status.EntryCount > 0 {
+			counts = fmt.Sprintf("  %d entries", sub.Status.EntryCount)
+		}
+		errPart := ""
+		if sub.Status.LastFetchErr != "" {
+			errPart = "  err: " + truncate(sub.Status.LastFetchErr, 30)
+		}
+		line := fmt.Sprintf("  %-20s  %-8s  %s  %s%s%s",
+			truncate(sub.Name, 20),
+			sub.Action,
+			sub.Format,
+			state,
+			counts,
+			errPart,
+		)
+		lines = append(lines, stateStyle.Render(truncate(line, width)))
+	}
+	lines = append(lines, subtleStyle.Render(truncate("  f to refresh all", width)))
+	return lines
+}
+
+func (m model) configImportExportLines(width int) []string {
+	lines := []string{}
+	if m.configExportEditing {
+		hint := "  Export to file  " + m.configExportInput + "  (enter confirm, esc cancel)"
+		lines = append(lines, selectedLineStyle.Render(truncate(hint, width)))
+		return lines
+	}
+	if m.configImportEditing {
+		hint := "  Import from file  " + m.configImportInput + "  (enter confirm, esc cancel)"
+		lines = append(lines, selectedLineStyle.Render(truncate(hint, width)))
+		return lines
+	}
+	if m.configActionMsg != "" {
+		style := activeLineStyle
+		if strings.HasPrefix(m.configActionMsg, "export error") || strings.HasPrefix(m.configActionMsg, "import error") {
+			style = errorStyle
+		}
+		lines = append(lines, style.Render(truncate("  "+m.configActionMsg, width)))
+	}
+	lines = append(lines, subtleStyle.Render(truncate("  e to export active config  i to import a TOML file", width)))
+	return lines
 }
 
 func (m model) renderNowPolicySection(width int) string {
@@ -1462,7 +1925,19 @@ func (m model) pendingRuleLine(width int) string {
 	if rule.ConnID != "" {
 		keys = "y save, a allow, b/d/p action, esc cancel"
 	}
-	return selectedLineStyle.Render(truncate(fmt.Sprintf("  New rule: %s  %s  %s  (%s)", rule.Name, rule.Action, match, keys), width))
+	ttlStr := ""
+	if rule.ConnID != "" && m.pendingRuleTTLIdx >= 0 && m.pendingRuleTTLIdx < len(tempRuleTTLOptions) {
+		opts := make([]string, len(tempRuleTTLOptions))
+		for i, opt := range tempRuleTTLOptions {
+			if i == m.pendingRuleTTLIdx {
+				opts[i] = "[" + opt.Label + "]"
+			} else {
+				opts[i] = opt.Label
+			}
+		}
+		ttlStr = "  TTL: " + strings.Join(opts, " ") + "  (left/right)"
+	}
+	return selectedLineStyle.Render(truncate(fmt.Sprintf("  New rule: %s  %s  %s  (%s)%s", rule.Name, rule.Action, match, keys, ttlStr), width))
 }
 
 func (m model) pendingCleanupLine(width int) string {
@@ -2135,6 +2610,10 @@ func (m model) loadDashboardCmd() tea.Cmd {
 		if err != nil {
 			return dashboardLoadedMsg{Err: err}
 		}
+		subs, err := client.ruleSubscriptions("")
+		if err != nil {
+			subs = ruleSubscriptionsPayload{}
+		}
 		traffic, err := client.traffic()
 		if err != nil {
 			return dashboardLoadedMsg{Err: err}
@@ -2143,7 +2622,7 @@ func (m model) loadDashboardCmd() tea.Cmd {
 		if err != nil {
 			return dashboardLoadedMsg{Err: err}
 		}
-		return dashboardLoadedMsg{Status: status, Profiles: profiles, Servers: servers, Policies: policies, Traffic: traffic, Developer: dev, DevRows: devRows}
+		return dashboardLoadedMsg{Status: status, Profiles: profiles, Servers: servers, Policies: policies, Subscriptions: subs, Traffic: traffic, Developer: dev, DevRows: devRows}
 	}
 }
 
@@ -2170,7 +2649,14 @@ func (m model) actionCmd(fn func() error) tea.Cmd {
 }
 
 func (m model) savePendingRuleCmd(rule pendingRule) tea.Cmd {
+	ttlIdx := m.pendingRuleTTLIdx
 	return m.actionCmd(func() error {
+		if ttlIdx >= 0 && ttlIdx < len(tempRuleTTLOptions) && tempRuleTTLOptions[ttlIdx].Seconds > 0 && rule.ConnID != "" {
+			return m.client.createTemporaryRuleFromConnection(
+				rule.ConnID, rule.Profile, rule.Name, rule.Action, rule.Scope,
+				tempRuleTTLOptions[ttlIdx].Seconds,
+			)
+		}
 		if rule.ConnID != "" {
 			return m.client.createRuleFromConnection(createRuleFromConnectionRequest{
 				ConnID:  rule.ConnID,
@@ -2201,6 +2687,51 @@ func (m model) ruleTestCmd(network, target string) tea.Cmd {
 	return func() tea.Msg {
 		result, err := client.testRule(network, target)
 		return ruleTestDoneMsg{Result: result, Err: err}
+	}
+}
+
+func (m model) testPolicyGroupCmd(group string) tea.Cmd {
+	client := m.client
+	return func() tea.Msg {
+		policies, err := client.testPolicyGroup(group)
+		return policyGroupsDoneMsg{Policies: policies, Err: err}
+	}
+}
+
+func (m model) refreshSubscriptionsCmd() tea.Cmd {
+	client := m.client
+	return func() tea.Msg {
+		if err := client.refreshRuleSubscriptions("", nil); err != nil {
+			return subscriptionsLoadedMsg{Err: err}
+		}
+		subs, err := client.ruleSubscriptions("")
+		return subscriptionsLoadedMsg{Subscriptions: subs, Err: err}
+	}
+}
+
+func (m model) exportConfigCmd(path string) tea.Cmd {
+	client := m.client
+	return func() tea.Msg {
+		toml, err := client.exportConfig()
+		if err != nil {
+			return configExportDoneMsg{Err: err}
+		}
+		if err := os.WriteFile(path, []byte(toml), 0o600); err != nil {
+			return configExportDoneMsg{Err: err}
+		}
+		return configExportDoneMsg{Path: path}
+	}
+}
+
+func (m model) importConfigCmd(path string) tea.Cmd {
+	client := m.client
+	return func() tea.Msg {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return configImportDoneMsg{Err: err}
+		}
+		result, err := client.importConfig(string(data))
+		return configImportDoneMsg{Result: result, Err: err}
 	}
 }
 
@@ -3024,4 +3555,556 @@ func maxInt64(a, b int64) int64 {
 		return a
 	}
 	return b
+}
+
+// parseFilterTokens splits a filter input string into typed tokens.
+// Recognized keys: app, domain, country, action, port, ip.
+// Bare words (no key:) become a plain-text search token.
+func parseFilterTokens(input string) []filterToken {
+	input = strings.TrimSpace(input)
+	if input == "" {
+		return nil
+	}
+	parts := strings.Fields(input)
+	tokens := make([]filterToken, 0, len(parts))
+	for _, part := range parts {
+		colon := strings.IndexByte(part, ':')
+		if colon > 0 {
+			key := strings.ToLower(part[:colon])
+			value := part[colon+1:]
+			switch key {
+			case "app", "domain", "country", "action", "port", "ip":
+				tokens = append(tokens, filterToken{Key: key, Value: value})
+				continue
+			}
+		}
+		tokens = append(tokens, filterToken{Key: "", Value: part})
+	}
+	return tokens
+}
+
+// filterTokenAction returns the action value from tokens, or "".
+func filterTokenAction(tokens []filterToken) string {
+	for _, t := range tokens {
+		if t.Key == "action" {
+			return t.Value
+		}
+	}
+	return ""
+}
+
+// filterTokenText returns the concatenation of plain-text tokens.
+func filterTokenText(tokens []filterToken) string {
+	var parts []string
+	for _, t := range tokens {
+		if t.Key == "" {
+			parts = append(parts, t.Value)
+		}
+	}
+	return strings.Join(parts, " ")
+}
+
+// filterTokenByKey returns the value for a specific key, or "".
+func filterTokenByKey(tokens []filterToken, key string) string {
+	for _, t := range tokens {
+		if t.Key == key {
+			return t.Value
+		}
+	}
+	return ""
+}
+
+// filteredTraffic fetches traffic from the API with the current filter tokens.
+func (m model) filteredTraffic() (trafficSnapshotPayload, error) {
+	return m.client.trafficWithFilters(
+		filterTokenAction(m.filterTokens),
+		filterTokenByKey(m.filterTokens, "app"),
+		filterTokenByKey(m.filterTokens, "domain"),
+		filterTokenByKey(m.filterTokens, "country"),
+		filterTokenByKey(m.filterTokens, "port"),
+		filterTokenText(m.filterTokens),
+	)
+}
+
+// networkView renders the Little Snitch-style hierarchy view.
+func (m model) networkView() string {
+	width := m.contentWidth()
+	sections := []string{m.renderHeader("Network")}
+	if m.errText != "" {
+		sections = append(sections, m.renderError(width))
+	}
+	sections = append(sections,
+		m.renderNetworkTreeSection(width),
+		m.renderFooter(
+			"Keys: up/down move  right/left expand/collapse  enter select  a/b/d action  / filter  r refresh  1 now  2 activity  3 library  q quit",
+			"Keys: up/down  right/left  enter  a/b/d  / filter  r  1 now  2 act  3 lib  q",
+		),
+	)
+	return joinSections(sections)
+}
+
+func (m model) renderNetworkTreeSection(width int) string {
+	hierarchy := m.traffic.NetworkHierarchy
+	if len(hierarchy) == 0 {
+		return renderSection("Network", emptyStateLines("No connections yet", "Live app/domain/country hierarchy will appear here.", width))
+	}
+
+	lines := []string{}
+
+	// Render filter bar.
+	filterLine := m.renderFilterBar(width)
+	if filterLine != "" {
+		lines = append(lines, filterLine)
+	}
+
+	halfWidth := width / 2
+	if halfWidth < 20 {
+		halfWidth = 20
+	}
+
+	// Left: tree. Right: detail.
+	treeLines := m.renderNetworkTree(halfWidth)
+	detailLines := m.renderNetworkDetail(halfWidth)
+
+	maxLines := len(treeLines)
+	if len(detailLines) > maxLines {
+		maxLines = len(detailLines)
+	}
+
+	for i := 0; i < maxLines; i++ {
+		left := ""
+		right := ""
+		if i < len(treeLines) {
+			left = treeLines[i]
+		}
+		if i < len(detailLines) {
+			right = detailLines[i]
+		}
+		lines = append(lines, fmt.Sprintf("%-*s  %s", halfWidth, left, right))
+	}
+
+	return renderSection("Network", lines)
+}
+
+func (m model) renderFilterBar(width int) string {
+	var parts []string
+	for _, t := range m.filterTokens {
+		var label string
+		if t.Key != "" {
+			label = t.Key + ":" + t.Value
+		} else {
+			label = t.Value
+		}
+		style := subtleStyle
+		switch t.Key {
+		case "action":
+			if t.Value == "block" {
+				style = errorStyle
+			} else if t.Value == "direct" {
+				style = activeLineStyle
+			}
+		case "country":
+			style = onlineBadgeStyle
+		}
+		parts = append(parts, style.Render("["+label+"]"))
+	}
+	if m.filterEditing {
+		parts = append(parts, selectedLineStyle.Render(m.filterInput+"_"))
+	} else if len(parts) == 0 {
+		return ""
+	}
+	return "  Filter: " + strings.Join(parts, " ")
+}
+
+func (m model) renderNetworkTree(width int) []string {
+	hierarchy := m.traffic.NetworkHierarchy
+	lines := []string{}
+	if m.netTreeExpanded == nil {
+		m.netTreeExpanded = make(map[int]bool)
+	}
+
+	for i, app := range hierarchy {
+		prefix := "  "
+		cursor := " "
+		if i == m.netTreeAppIdx && m.netTreeDepth == 0 {
+			cursor = ">"
+		}
+		expanded := m.netTreeExpanded[i]
+		arrow := "+"
+		if expanded {
+			arrow = "-"
+		}
+		if len(app.Domains) > 0 {
+			lines = append(lines, truncate(fmt.Sprintf("%s%s %s %s  %dc  %s",
+				cursor, arrow, prefix, app.Application, app.ConnCount, formatBytes(app.RxTotal+app.TxTotal)), width))
+		} else {
+			lines = append(lines, truncate(fmt.Sprintf("%s  %s %s  %dc  %s",
+				cursor, prefix, app.Application, app.ConnCount, formatBytes(app.RxTotal+app.TxTotal)), width))
+		}
+
+		if expanded {
+			for j, domain := range app.Domains {
+				dPrefix := "    "
+				dCursor := " "
+				if i == m.netTreeAppIdx && j == m.netTreeDomainIdx && m.netTreeDepth == 1 {
+					dCursor = ">"
+				}
+				dArrow := "+"
+				dExpanded := m.netTreeExpanded[i*1000+j+1]
+				if dExpanded {
+					dArrow = "-"
+				}
+				if len(domain.Countries) > 0 {
+					lines = append(lines, truncate(fmt.Sprintf("%s%s %s %s  %dc  %s",
+						dCursor, dArrow, dPrefix, domain.Domain, domain.ConnCount, formatBytes(domain.RxTotal+domain.TxTotal)), width))
+				} else {
+					lines = append(lines, truncate(fmt.Sprintf("%s  %s %s  %dc  %s",
+						dCursor, dPrefix, domain.Domain, domain.ConnCount, formatBytes(domain.RxTotal+domain.TxTotal)), width))
+				}
+
+				if dExpanded {
+					for k, country := range domain.Countries {
+						cPrefix := "      "
+						cCursor := " "
+						if i == m.netTreeAppIdx && j == m.netTreeDomainIdx && k == m.netTreeCountryIdx && m.netTreeDepth == 2 {
+							cCursor = ">"
+						}
+						lines = append(lines, truncate(fmt.Sprintf("%s  %s %s  %dc", cCursor, cPrefix, country.Code, country.ConnCount), width))
+					}
+				}
+			}
+		}
+	}
+
+	return lines
+}
+
+func (m model) renderNetworkDetail(width int) []string {
+	hierarchy := m.traffic.NetworkHierarchy
+	if m.netTreeAppIdx < 0 || m.netTreeAppIdx >= len(hierarchy) {
+		return []string{subtleStyle.Render("Select a node to see details")}
+	}
+	app := hierarchy[m.netTreeAppIdx]
+
+	lines := []string{tableHeaderStyle.Render("Details")}
+
+	switch m.netTreeDepth {
+	case 0:
+		lines = append(lines,
+			fmt.Sprintf("App:      %s", app.Application),
+			fmt.Sprintf("Conns:    %d (active: %d)", app.ConnCount, app.ActiveCount),
+			fmt.Sprintf("Bytes:    %s", formatBytes(app.RxTotal+app.TxTotal)),
+			fmt.Sprintf("Domains:  %d", len(app.Domains)),
+		)
+	case 1:
+		if m.netTreeDomainIdx >= 0 && m.netTreeDomainIdx < len(app.Domains) {
+			domain := app.Domains[m.netTreeDomainIdx]
+			lines = append(lines,
+				fmt.Sprintf("Domain:   %s", domain.Domain),
+				fmt.Sprintf("Conns:    %d", domain.ConnCount),
+				fmt.Sprintf("Bytes:    %s", formatBytes(domain.RxTotal+domain.TxTotal)),
+				fmt.Sprintf("Countries: %d", len(domain.Countries)),
+			)
+		}
+	case 2:
+		if m.netTreeDomainIdx >= 0 && m.netTreeDomainIdx < len(app.Domains) {
+			domain := app.Domains[m.netTreeDomainIdx]
+			if m.netTreeCountryIdx >= 0 && m.netTreeCountryIdx < len(domain.Countries) {
+				country := domain.Countries[m.netTreeCountryIdx]
+				lines = append(lines,
+					fmt.Sprintf("Country:  %s (%s)", country.Name, country.Code),
+					fmt.Sprintf("Conns:    %d", country.ConnCount),
+					fmt.Sprintf("Bytes:    %s", formatBytes(country.RxTotal+country.TxTotal)),
+				)
+			}
+		}
+	}
+
+	// Show matching connections.
+	conns := m.connectionsForNetworkNode()
+	if len(conns) > 0 {
+		lines = append(lines, "", tableHeaderStyle.Render("Connections"))
+		limit := minInt(6, len(conns))
+		for i, conn := range conns[:limit] {
+			cursor := " "
+			if i == m.netDetailConnIdx {
+				cursor = ">"
+			}
+			lines = append(lines, truncate(fmt.Sprintf("%s %s  %s  %s",
+				cursor, conn.Target, conn.RuleAction, conn.RuleName), width))
+		}
+		if len(conns) > limit {
+			lines = append(lines, subtleStyle.Render(fmt.Sprintf("  +%d more", len(conns)-limit)))
+		}
+	}
+
+	return lines
+}
+
+// connectionsForNetworkNode returns connections matching the selected tree node.
+func (m model) connectionsForNetworkNode() []trafficConnectionPayload {
+	hierarchy := m.traffic.NetworkHierarchy
+	if m.netTreeAppIdx < 0 || m.netTreeAppIdx >= len(hierarchy) {
+		return nil
+	}
+	app := hierarchy[m.netTreeAppIdx]
+	var result []trafficConnectionPayload
+	for _, conn := range m.traffic.Connections {
+		if !strings.EqualFold(conn.Application, app.Application) {
+			continue
+		}
+		if m.netTreeDepth >= 1 && m.netTreeDomainIdx >= 0 && m.netTreeDomainIdx < len(app.Domains) {
+			domain := app.Domains[m.netTreeDomainIdx]
+			host := strings.ToLower(conn.TargetHost)
+			if !strings.HasSuffix(host, domain.Domain) {
+				continue
+			}
+		}
+		if m.netTreeDepth >= 2 && m.netTreeDomainIdx >= 0 && m.netTreeDomainIdx < len(app.Domains) {
+			domain := app.Domains[m.netTreeDomainIdx]
+			if m.netTreeCountryIdx >= 0 && m.netTreeCountryIdx < len(domain.Countries) {
+				country := domain.Countries[m.netTreeCountryIdx]
+				if !strings.EqualFold(conn.Geo.CountryCode, country.Code) {
+					continue
+				}
+			}
+		}
+		result = append(result, conn)
+	}
+	return result
+}
+
+// updateNetworkView handles key events for the network view.
+func (m model) updateNetworkView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.filterEditing {
+		switch msg.String() {
+		case "esc":
+			m.filterEditing = false
+			m.filterInput = ""
+		case "enter":
+			m.filterTokens = parseFilterTokens(m.filterInput)
+			m.filterEditing = false
+			m.filterInput = ""
+			return m, m.loadDashboardCmd()
+		case "backspace", "ctrl+h":
+			if len(m.filterInput) > 0 {
+				m.filterInput = m.filterInput[:len(m.filterInput)-1]
+			} else if len(m.filterTokens) > 0 {
+				m.filterTokens = m.filterTokens[:len(m.filterTokens)-1]
+			}
+		default:
+			if len(msg.Runes) > 0 {
+				m.filterInput += string(msg.Runes)
+			}
+		}
+		return m, nil
+	}
+
+	if m.pendingRule != nil {
+		switch msg.String() {
+		case "esc":
+			m.pendingRule = nil
+			return m, nil
+		case "y":
+			rule := *m.pendingRule
+			m.pendingRule = nil
+			return m, m.savePendingRuleCmd(rule)
+		case "b":
+			m.pendingRule.Action = "block"
+			return m, nil
+		case "d":
+			m.pendingRule.Action = "direct"
+			return m, nil
+		case "left":
+			if m.pendingRuleTTLIdx > 0 {
+				m.pendingRuleTTLIdx--
+			}
+			return m, nil
+		case "right":
+			if m.pendingRuleTTLIdx < len(tempRuleTTLOptions)-1 {
+				m.pendingRuleTTLIdx++
+			}
+			return m, nil
+		}
+		return m, nil
+	}
+
+	hierarchy := m.traffic.NetworkHierarchy
+	if m.netTreeExpanded == nil {
+		m.netTreeExpanded = make(map[int]bool)
+	}
+
+	switch msg.String() {
+	case "r":
+		return m, m.loadDashboardCmd()
+	case "/":
+		m.filterEditing = true
+		m.filterInput = ""
+		return m, nil
+	case "esc":
+		m.filterTokens = nil
+		m.filterEditing = false
+		m.filterInput = ""
+		return m, nil
+	case "up", "k":
+		if m.netTreeDepth == 0 {
+			if m.netTreeAppIdx > 0 {
+				m.netTreeAppIdx--
+			}
+		} else if m.netTreeDepth == 1 {
+			if m.netTreeDomainIdx > 0 {
+				m.netTreeDomainIdx--
+			} else {
+				m.netTreeDepth = 0
+			}
+		} else if m.netTreeDepth == 2 {
+			if m.netTreeCountryIdx > 0 {
+				m.netTreeCountryIdx--
+			} else {
+				m.netTreeDepth = 1
+			}
+		}
+		return m, nil
+	case "down", "j":
+		if m.netTreeDepth == 0 {
+			if m.netTreeAppIdx < len(hierarchy)-1 {
+				m.netTreeAppIdx++
+			}
+		} else if m.netTreeDepth == 1 {
+			if m.netTreeAppIdx < len(hierarchy) && m.netTreeDomainIdx < len(hierarchy[m.netTreeAppIdx].Domains)-1 {
+				m.netTreeDomainIdx++
+			}
+		} else if m.netTreeDepth == 2 {
+			if m.netTreeAppIdx < len(hierarchy) && m.netTreeDomainIdx < len(hierarchy[m.netTreeAppIdx].Domains) {
+				domain := hierarchy[m.netTreeAppIdx].Domains[m.netTreeDomainIdx]
+				if m.netTreeCountryIdx < len(domain.Countries)-1 {
+					m.netTreeCountryIdx++
+				}
+			}
+		}
+		return m, nil
+	case "right", "enter":
+		if m.netTreeDepth == 0 && m.netTreeAppIdx < len(hierarchy) {
+			if len(hierarchy[m.netTreeAppIdx].Domains) > 0 {
+				m.netTreeExpanded[m.netTreeAppIdx] = true
+				m.netTreeDepth = 1
+				m.netTreeDomainIdx = 0
+			}
+		} else if m.netTreeDepth == 1 && m.netTreeAppIdx < len(hierarchy) {
+			if m.netTreeDomainIdx < len(hierarchy[m.netTreeAppIdx].Domains) {
+				domain := hierarchy[m.netTreeAppIdx].Domains[m.netTreeDomainIdx]
+				if len(domain.Countries) > 0 {
+					m.netTreeExpanded[m.netTreeAppIdx*1000+m.netTreeDomainIdx+1] = true
+					m.netTreeDepth = 2
+					m.netTreeCountryIdx = 0
+				} else if msg.String() == "enter" {
+					return m.ruleDraftFromNetworkNode()
+				}
+			}
+		} else if msg.String() == "enter" {
+			return m.ruleDraftFromNetworkNode()
+		}
+		return m, nil
+	case "left":
+		if m.netTreeDepth == 2 {
+			if m.netTreeAppIdx < len(hierarchy) && m.netTreeDomainIdx < len(hierarchy[m.netTreeAppIdx].Domains) {
+				m.netTreeExpanded[m.netTreeAppIdx*1000+m.netTreeDomainIdx+1] = false
+			}
+			m.netTreeDepth = 1
+		} else if m.netTreeDepth == 1 {
+			if m.netTreeAppIdx < len(hierarchy) {
+				m.netTreeExpanded[m.netTreeAppIdx] = false
+			}
+			m.netTreeDepth = 0
+		}
+		return m, nil
+	case "b":
+		return m.ruleDraftFromNetworkNode("block")
+	case "d":
+		return m.ruleDraftFromNetworkNode("direct")
+	case "a":
+		return m.ruleDraftFromNetworkNode("allow")
+	}
+	return m, nil
+}
+
+// ruleDraftFromNetworkNode creates a pending rule from the selected network node.
+func (m model) ruleDraftFromNetworkNode(action ...string) (tea.Model, tea.Cmd) {
+	hierarchy := m.traffic.NetworkHierarchy
+	if m.netTreeAppIdx < 0 || m.netTreeAppIdx >= len(hierarchy) {
+		m.errText = "select a node before creating a rule"
+		return m, nil
+	}
+	app := hierarchy[m.netTreeAppIdx]
+	act := "block"
+	if len(action) > 0 && action[0] != "" {
+		act = action[0]
+	}
+
+	var domain string
+	if m.netTreeDepth >= 1 && m.netTreeDomainIdx >= 0 && m.netTreeDomainIdx < len(app.Domains) {
+		domain = app.Domains[m.netTreeDomainIdx].Domain
+	}
+
+	rule := pendingRule{
+		rulePayload: rulePayload{
+			Name:   fmt.Sprintf("NET-%s-%s", strings.ToUpper(act), app.Application),
+			Action: act,
+		},
+		Profile: m.traffic.ProfileContext.Active,
+	}
+	if domain != "" {
+		rule.rulePayload.DomainSuffixes = []string{domain}
+		rule.Name = fmt.Sprintf("NET-%s-%s", strings.ToUpper(act), domain)
+	}
+	m.pendingRule = &rule
+	m.pendingRuleTTLIdx = 0
+	return m, nil
+}
+
+// renderRuleHitsSection renders rule usage stats in the Library view.
+func (m model) renderRuleHitsSection(width int) string {
+	hits := m.traffic.RuleHits
+	if len(hits) == 0 {
+		return ""
+	}
+	limit := minInt(10, len(hits))
+	lines := []string{tableHeaderStyle.Render(truncate("  Rule Activity", width))}
+	for _, hit := range hits[:limit] {
+		lastHit := ""
+		if hit.LastHitTsNs > 0 {
+			lastHit = formatAge(time.Unix(0, hit.LastHitTsNs))
+		}
+		tempTag := ""
+		if hit.Temporary {
+			tempTag = " (temp)"
+		}
+		lines = append(lines, truncate(fmt.Sprintf("  %s  %s  %d hits  %s  %s%s",
+			emptyDash(hit.RuleName),
+			hit.Action,
+			hit.Count,
+			formatBytes(hit.RxTotal+hit.TxTotal),
+			lastHit,
+			tempTag,
+		), width))
+	}
+	if len(hits) > limit {
+		lines = append(lines, subtleStyle.Render(fmt.Sprintf("  +%d more rules", len(hits)-limit)))
+	}
+	return renderSection("Rule Activity", lines)
+}
+
+// formatAge returns a human-readable age string.
+func formatAge(t time.Time) string {
+	d := time.Since(t)
+	if d < time.Minute {
+		return "just now"
+	}
+	if d < time.Hour {
+		return fmt.Sprintf("%dm ago", int(d.Minutes()))
+	}
+	if d < 24*time.Hour {
+		return fmt.Sprintf("%dh ago", int(d.Hours()))
+	}
+	return fmt.Sprintf("%dd ago", int(d.Hours()/24))
 }

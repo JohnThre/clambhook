@@ -159,7 +159,13 @@ final class APIClientTests: XCTestCase {
         MockURLProtocol.responseData = Data("""
         {
           "profile": "Work",
-          "listen": {"socks5":"127.0.0.1:1080","socks5_chain":"proxy","http":"127.0.0.1:8080","http_chain":"proxy"},
+          "listen": {
+            "socks5":"127.0.0.1:1080",
+            "socks5_chain":"proxy",
+            "http":"127.0.0.1:8080",
+            "http_chain":"proxy",
+            "tun":{"enabled":true,"name":"utun","chain":"proxy","mtu":1500,"routes":["0.0.0.0/0","::/0"],"exclude_cidrs":["127.0.0.0/8"]}
+          },
           "dns": {"enabled":true,"timeout":"5s","upstreams":[{"name":"cf","protocol":"doh","url":"https://cloudflare-dns.com/dns-query"}]}
         }
         """.utf8)
@@ -172,6 +178,9 @@ final class APIClientTests: XCTestCase {
 
         XCTAssertEqual(MockURLProtocol.lastRequest?.url?.absoluteString, "http://127.0.0.1:9090/api/v1/config/settings")
         XCTAssertEqual(settings.listen.socks5, "127.0.0.1:1080")
+        XCTAssertTrue(settings.listen.tun.enabled)
+        XCTAssertEqual(settings.listen.tun.chain, "proxy")
+        XCTAssertEqual(settings.listen.tun.routes, ["0.0.0.0/0", "::/0"])
         XCTAssertTrue(settings.dns.enabled)
         XCTAssertEqual(settings.dns.upstreams.first?.name, "cf")
     }
@@ -180,7 +189,7 @@ final class APIClientTests: XCTestCase {
         MockURLProtocol.responseData = Data("""
         {
           "profile": "Work",
-          "listen": {"socks5":"127.0.0.1:1180","http":"127.0.0.1:18080"},
+          "listen": {"socks5":"127.0.0.1:1180","http":"127.0.0.1:18080","tun":{"enabled":true,"mtu":1500}},
           "dns": {"enabled":false,"timeout":"5s","upstreams":[]},
           "backup_path": "/tmp/clambhook.toml.bak"
         }
@@ -192,7 +201,11 @@ final class APIClientTests: XCTestCase {
 
         let response = try await client.updateConfigSettings(ConfigSettingsUpdateRequest(
             profile: "Work",
-            listen: ConfigListenSettingsPayload(socks5: "127.0.0.1:1180", http: "127.0.0.1:18080")
+            listen: ConfigListenSettingsPayload(
+                socks5: "127.0.0.1:1180",
+                http: "127.0.0.1:18080",
+                tun: ConfigTUNSettingsPayload(enabled: true, name: "utun", chain: "proxy", mtu: 1500)
+            )
         ))
 
         XCTAssertEqual(response.backupPath, "/tmp/clambhook.toml.bak")
@@ -202,6 +215,8 @@ final class APIClientTests: XCTestCase {
         let decoded = try JSONDecoder().decode(ConfigSettingsUpdateRequest.self, from: body)
         XCTAssertEqual(decoded.profile, "Work")
         XCTAssertEqual(decoded.listen?.socks5, "127.0.0.1:1180")
+        XCTAssertEqual(decoded.listen?.tun.enabled, true)
+        XCTAssertEqual(decoded.listen?.tun.chain, "proxy")
         XCTAssertNil(decoded.dns)
     }
 

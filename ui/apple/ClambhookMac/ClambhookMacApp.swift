@@ -10,13 +10,19 @@ struct ClambhookMacApp: App {
             MacMenuBarView(model: model)
                 .frame(width: 420, height: 640)
                 .onDisappear { model.refresh() }
+                .sheet(isPresented: Binding(
+                    get: { !model.onboardingManager.isComplete },
+                    set: { if !$0 { model.onboardingManager.complete() } }
+                )) {
+                    OnboardingView(model: model, manager: model.onboardingManager)
+                }
         }
         .menuBarExtraStyle(.window)
 
         Window("clambhook", id: "dashboard") {
             MacDashboardWindowView(model: model)
         }
-        .defaultSize(width: 960, height: 680)
+        .defaultSize(width: 1060, height: 700)
         .defaultPosition(.center)
 
         Settings {
