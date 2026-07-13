@@ -18,6 +18,7 @@
 		3F66FD26F33A8017C4D60A10 /* AppleAppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F26A7314DC7A26F275AB285 /* AppleAppModel.swift */; };
 		4A459EE08DE00E773ED8F1A1 /* OnboardingManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 97734C4549F08796D23CD88D /* OnboardingManager.swift */; };
 		4AA3902FB355119E38FC8385 /* MacLicenseManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 861C6B6F1238EBFD62EBA315 /* MacLicenseManager.swift */; };
+		4D0A516BB9C54BCFA0BB5977 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 647CEAB994B54244AB6B7D45 /* Assets.xcassets */; };
 		55EB0B85AE3ECF0FD4819B8B /* ClambhookShared in Frameworks */ = {isa = PBXBuildFile; productRef = B64D35EC77B9F6E4644D12DE /* ClambhookShared */; };
 		591061674835E9B22E696123 /* MacMenuBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B7ECD0E4E9DE7440023C997 /* MacMenuBarView.swift */; };
 		595652E887BA75E9E3F51E17 /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16C63F9E0D5D87EDF04EA933 /* OnboardingView.swift */; };
@@ -103,6 +104,7 @@
 		243DC274A14C7F31C205BAF8 /* MacCommandRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacCommandRunner.swift; sourceTree = "<group>"; };
 		24D15BDA328B4ED0B2A65291 /* ClambhookMac.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ClambhookMac.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		46AF45F7A3B6FE88BDADB04C /* ServiceManagement.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = ServiceManagement.framework; path = System/Library/Frameworks/ServiceManagement.framework; sourceTree = SDKROOT; };
+		647CEAB994B54244AB6B7D45 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		6B8CD11563D4B3DD735C2E6D /* MacSidebarSections.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacSidebarSections.swift; sourceTree = "<group>"; };
 		73930EE75CE83BC0639DF8FB /* MacDashboardWindowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacDashboardWindowView.swift; sourceTree = "<group>"; };
 		752B77E9507F4674BBA0E4D8 /* DaemonSupervisor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DaemonSupervisor.swift; sourceTree = "<group>"; };
@@ -243,6 +245,7 @@
 		E99574CBEE7F120459AD262C = {
 			isa = PBXGroup;
 			children = (
+				647CEAB994B54244AB6B7D45 /* Assets.xcassets */,
 				89770E96EAB9F6FBEC965742 /* clambhook */,
 				02DBE71539B0AF31E3C21C10 /* ClambhookMac */,
 				56417EA964EF40C4A9FDBF0F /* ClambhookMacHelper */,
@@ -275,6 +278,7 @@
 			buildConfigurationList = 53ACA6520DB72ED06D3484A6 /* Build configuration list for PBXNativeTarget "ClambhookMac" */;
 			buildPhases = (
 				25C91D328A1B73FF14F96FB9 /* Sources */,
+				B68A380A8EF34742935A7EB5 /* Resources */,
 				70120E6968EB89D496DE8F52 /* Embed Privileged Helper */,
 				36AFAE5EF2430FA123C20D94 /* CopyFiles */,
 				D7E3AF299B5F540FABE9AE87 /* CopyFiles */,
@@ -379,6 +383,17 @@
 			);
 		};
 /* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		B68A380A8EF34742935A7EB5 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				4D0A516BB9C54BCFA0BB5977 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
 		70120E6968EB89D496DE8F52 /* Embed Privileged Helper */ = {

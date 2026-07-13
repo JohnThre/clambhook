@@ -505,6 +505,61 @@ func TestTrafficMonitorFiltersAndCreatesRuleDraft(t *testing.T) {
 	}
 }
 
+func TestTrafficRefreshCommandsUseTokenFilters(t *testing.T) {
+	var trafficQueries []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v1/traffic" {
+			trafficQueries = append(trafficQueries, r.URL.RawQuery)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer srv.Close()
+
+	m := newModel("127.0.0.1:9090")
+	m.client = newAPIClientFromBaseURL(srv.URL)
+	m.filterTokens = []filterToken{
+		{Key: "action", Value: "block"},
+		{Key: "app", Value: "Example App"},
+		{Key: "domain", Value: "api.example.com"},
+		{Key: "country", Value: "GB"},
+		{Key: "port", Value: "443"},
+		{Value: "search & more"},
+	}
+
+	if msg := m.loadDashboardCmd()(); msg.(dashboardLoadedMsg).Err != nil {
+		t.Fatalf("loadDashboardCmd() error = %v", msg.(dashboardLoadedMsg).Err)
+	}
+	if msg := m.loadStatusCmd()(); msg.(statusLoadedMsg).Err != nil {
+		t.Fatalf("loadStatusCmd() error = %v", msg.(statusLoadedMsg).Err)
+	}
+	if len(trafficQueries) != 2 {
+		t.Fatalf("traffic requests = %d, want 2", len(trafficQueries))
+	}
+	for _, rawQuery := range trafficQueries {
+		values := make(map[string]string)
+		for _, part := range strings.Split(rawQuery, "&") {
+			pair := strings.SplitN(part, "=", 2)
+			if len(pair) == 2 {
+				values[pair[0]] = pair[1]
+			}
+		}
+		for key, want := range map[string]string{
+			"action":  "block",
+			"app":     "Example+App",
+			"country": "GB",
+			"domain":  "api.example.com",
+			"limit":   "200",
+			"port":    "443",
+			"query":   "search+%26+more",
+		} {
+			if got := values[key]; got != want {
+				t.Fatalf("%s query value = %q, want %q (raw query %q)", key, got, want, rawQuery)
+			}
+		}
+	}
+}
+
 func TestTrafficMonitorCreatesRuleDraftFromSuggestion(t *testing.T) {
 	m := newModel("127.0.0.1:9090")
 	m.viewMode = viewModeActivity
