@@ -1,0 +1,25 @@
+{
+  "identifier": "CLAMBHOOK_DIRECT_SALE_PRODUCTS",
+  "paymentProviders": [
+    "creem",
+    "nowpayments"
+  ],
+  "products": [
+    {
+      "description": "USD 99.99 one-time ClambHook license after a one-calendar-month trial; includes one year of all updates; versions released on or before the cutoff remain usable; maximum 10 concurrently active devices; deactivatable and transferable.",
+      "displayName": "ClambHook License",
+      "displayPrice": "99.99",
+      "kind": "license",
+      "productID": "org.jpfchang.clambhook.unlock.lifetime"
+    },
+    {
+      "description": "USD 9.99 buys one additional update year from the later of the current cutoff or renewal payment date.",
+      "displayName": "ClambHook for macOS 2027 Update Year",
+      "displayPrice": "9.99",
+      "kind": "feature_update",
+      "productID": "org.jpfchang.clambhook.feature_update.2027"
+    }
+  ],
+  "type": "direct-sale",
+  "version": 1
+}

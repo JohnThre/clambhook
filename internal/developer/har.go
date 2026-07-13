@@ -1,6 +1,10 @@
 package developer
 
-import "time"
+import (
+	"net/http"
+	"net/url"
+	"time"
+)
 
 func harDocument(entries []Entry) map[string]any {
 	rows := make([]map[string]any, 0, len(entries))
@@ -36,18 +40,18 @@ func harEntry(entry Entry) map[string]any {
 			"url":         entry.URL,
 			"httpVersion": "HTTP/1.1",
 			"headers":     harHeaders(entry.Request.Headers),
-			"queryString": []any{},
-			"cookies":     []any{},
+			"queryString": harQueryString(entry.URL),
+			"cookies":     harCookies(entry.Request.Cookies),
 			"headersSize": -1,
 			"bodySize":    entry.Request.Body.Size,
 			"postData":    harPostData(entry.Request.Body),
 		},
 		"response": map[string]any{
 			"status":      entry.Status,
-			"statusText":  "",
+			"statusText":  http.StatusText(entry.Status),
 			"httpVersion": "HTTP/1.1",
 			"headers":     harHeaders(entry.Response.Headers),
-			"cookies":     []any{},
+			"cookies":     harCookies(entry.Response.Cookies),
 			"content":     harContent(entry.Response.Body),
 			"redirectURL": "",
 			"headersSize": -1,
@@ -96,28 +100,96 @@ func harHeaders(headers []Header) []map[string]any {
 	return out
 }
 
+func harQueryString(rawURL string) []map[string]any {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return []map[string]any{}
+	}
+	values := parsed.Query()
+	out := make([]map[string]any, 0, len(values))
+	for name, vals := range values {
+		for _, value := range vals {
+			out = append(out, map[string]any{
+				"name":  name,
+				"value": value,
+			})
+		}
+	}
+	return out
+}
+
+func harCookies(cookies []Cookie) []map[string]any {
+	out := make([]map[string]any, 0, len(cookies))
+	for _, cookie := range cookies {
+		row := map[string]any{
+			"name":  cookie.Name,
+			"value": cookie.Value,
+		}
+		if cookie.Redacted {
+			row["_clambhook_redacted"] = true
+		}
+		if cookie.Domain != "" {
+			row["domain"] = cookie.Domain
+		}
+		if cookie.Path != "" {
+			row["path"] = cookie.Path
+		}
+		if cookie.Expires != "" {
+			row["expires"] = cookie.Expires
+		}
+		if cookie.HTTPOnly {
+			row["httpOnly"] = true
+		}
+		if cookie.Secure {
+			row["secure"] = true
+		}
+		if cookie.SameSite != "" {
+			row["sameSite"] = cookie.SameSite
+		}
+		out = append(out, row)
+	}
+	return out
+}
+
 func harPostData(body Body) map[string]any {
-	return map[string]any{
-		"mimeType": "",
-		"text":     body.Preview,
+	row := map[string]any{
+		"mimeType": body.MimeType,
+		"text":     harBodyText(body),
 		"_clambhook": map[string]any{
 			"size":            body.Size,
 			"preview_bytes":   body.PreviewBytes,
 			"truncated":       body.Truncated,
 			"truncated_after": body.TruncatedAfter,
+			"encoding":        body.Encoding,
 		},
 	}
+	if body.Encoding == "base64" {
+		row["encoding"] = "base64"
+	}
+	return row
 }
 
 func harContent(body Body) map[string]any {
-	return map[string]any{
+	row := map[string]any{
 		"size":     body.Size,
-		"mimeType": "",
-		"text":     body.Preview,
+		"mimeType": body.MimeType,
+		"text":     harBodyText(body),
 		"_clambhook": map[string]any{
 			"preview_bytes":   body.PreviewBytes,
 			"truncated":       body.Truncated,
 			"truncated_after": body.TruncatedAfter,
+			"encoding":        body.Encoding,
 		},
 	}
+	if body.Encoding == "base64" {
+		row["encoding"] = "base64"
+	}
+	return row
+}
+
+func harBodyText(body Body) string {
+	if body.Encoding == "base64" {
+		return body.PreviewBase64
+	}
+	return body.Preview
 }

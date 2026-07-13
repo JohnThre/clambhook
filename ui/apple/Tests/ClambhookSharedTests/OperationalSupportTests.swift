@@ -115,7 +115,7 @@ final class OperationalSupportTests: XCTestCase {
 
     func testTunnelRecoveryClassifierRecognizesPrimaryFailures() {
         XCTAssertEqual(
-            TunnelRecoveryClassifier.issue(forRawError: "user denied VPN permission").kind,
+            TunnelRecoveryClassifier.issue(forRawError: "user denied routing permission").kind,
             .vpnPermissionDenied
         )
         XCTAssertEqual(
@@ -336,4 +336,8 @@ private final class FakeOperationalAPIClient: ClambhookAPIProviding {
     func disconnect() async throws {}
     func setActiveProfile(_ name: String) async throws {}
     func selectPolicyGroup(profile: String, group: String, chain: String) async throws -> PolicyGroupsPayload { policyGroupsResult }
+    func testPolicyGroup(group: String, profile: String) async throws -> PolicyGroupsPayload { policyGroupsResult }
+    func updateDNS(_ request: DNSUpdateRequest, profile: String) async throws -> DNSPayload { dnsResult }
+    func exportConfig() async throws -> String { return "" }
+    func importConfig(_ toml: String) async throws -> ConfigImportResponse { return ConfigImportResponse() }
 }

@@ -153,6 +153,36 @@ type Snapshot struct {
 	CleanupSuggestions []CleanupSuggestion `json:"cleanup_suggestions,omitempty"`
 	RuleSuggestions    []RuleSuggestion    `json:"rule_suggestions,omitempty"`
 	Breakdowns         TrafficBreakdowns   `json:"breakdowns,omitempty"`
+	NetworkHierarchy   []AppNode           `json:"network_hierarchy,omitempty"`
+}
+
+// AppNode is the top level of the network hierarchy: grouped by application
+// (port-inferred service name).
+type AppNode struct {
+	Application string       `json:"application"`
+	ConnCount   int          `json:"conn_count"`
+	ActiveCount int          `json:"active_count"`
+	RxTotal     uint64       `json:"rx_total"`
+	TxTotal     uint64       `json:"tx_total"`
+	Domains     []DomainNode `json:"domains,omitempty"`
+}
+
+// DomainNode is the second level: grouped by apex domain of TargetHost.
+type DomainNode struct {
+	Domain    string        `json:"domain"`
+	ConnCount int           `json:"conn_count"`
+	RxTotal   uint64        `json:"rx_total"`
+	TxTotal   uint64        `json:"tx_total"`
+	Countries []CountryNode `json:"countries,omitempty"`
+}
+
+// CountryNode is the third level: grouped by geo country code.
+type CountryNode struct {
+	Code      string `json:"code"`
+	Name      string `json:"name"`
+	ConnCount int    `json:"conn_count"`
+	RxTotal   uint64 `json:"rx_total"`
+	TxTotal   uint64 `json:"tx_total"`
 }
 
 // TrafficBreakdowns groups traffic counters for monitor summaries.
@@ -183,6 +213,8 @@ type SnapshotOptions struct {
 	Country        string
 	Port           string
 	Query          string
+	App            string // filter by Application (port-inferred service name)
+	Domain         string // filter by TargetHost apex domain
 	ActiveProfile  string
 	Profiles       []string
 	Rules          []config.RuleConfig
@@ -567,6 +599,7 @@ func (s *Store) SnapshotWithOptions(opts SnapshotOptions) Snapshot {
 		CleanupSuggestions: buildCleanupSuggestions(opts.ActiveProfile, opts.Rules, all),
 		RuleSuggestions:    buildRuleSuggestions(opts.ActiveProfile, suggestionCoverageRules(opts), all, 12),
 		Breakdowns:         buildBreakdowns(all),
+		NetworkHierarchy:   buildNetworkHierarchy(all),
 	}
 }
 
@@ -584,7 +617,9 @@ func filterConnections(conns []Connection, opts SnapshotOptions) []Connection {
 	country := strings.ToUpper(strings.TrimSpace(opts.Country))
 	port := strings.TrimSpace(opts.Port)
 	query := strings.ToLower(strings.TrimSpace(opts.Query))
-	if action == "" && profile == "" && rule == "" && country == "" && port == "" && query == "" {
+	app := strings.ToLower(strings.TrimSpace(opts.App))
+	domain := strings.ToLower(strings.TrimSpace(opts.Domain))
+	if action == "" && profile == "" && rule == "" && country == "" && port == "" && query == "" && app == "" && domain == "" {
 		return conns
 	}
 	out := make([]Connection, 0, len(conns))
@@ -608,6 +643,12 @@ func filterConnections(conns []Connection, opts SnapshotOptions) []Connection {
 			continue
 		}
 		if port != "" && conn.TargetPort != port {
+			continue
+		}
+		if app != "" && strings.ToLower(conn.Application) != app {
+			continue
+		}
+		if domain != "" && !strings.HasSuffix(strings.ToLower(conn.TargetHost), domain) {
 			continue
 		}
 		if query != "" && !connectionMatchesQuery(conn, query) {
@@ -734,6 +775,102 @@ func titleLabel(value string) string {
 		return ""
 	}
 	return strings.ToUpper(value[:1]) + value[1:]
+}
+
+// apexDomain returns the registered domain from a hostname, e.g.
+// "accounts.google.com" → "google.com". Falls back to the input unchanged.
+func apexDomain(host string) string {
+	host = strings.ToLower(strings.TrimSpace(host))
+	parts := strings.Split(host, ".")
+	if len(parts) >= 2 {
+		return parts[len(parts)-2] + "." + parts[len(parts)-1]
+	}
+	return host
+}
+
+// buildNetworkHierarchy groups connections into App → Domain → Country nodes.
+func buildNetworkHierarchy(conns []Connection) []AppNode {
+	type countryKey struct{ app, domain, code string }
+	type domainKey struct{ app, domain string }
+
+	appMap := map[string]*AppNode{}
+	domainMap := map[domainKey]*DomainNode{}
+	countryMap := map[countryKey]*CountryNode{}
+
+	isActive := func(c Connection) bool {
+		return c.State == StateActive || c.State == StateDialing || c.State == StateOpening
+	}
+
+	for _, conn := range conns {
+		app := strings.TrimSpace(conn.Application)
+		if app == "" {
+			app = "Unknown"
+		}
+		domain := apexDomain(conn.TargetHost)
+		code := strings.ToUpper(strings.TrimSpace(conn.Geo.CountryCode))
+		countryName := strings.TrimSpace(conn.Geo.Country)
+
+		aNode := appMap[app]
+		if aNode == nil {
+			aNode = &AppNode{Application: app}
+			appMap[app] = aNode
+		}
+		aNode.ConnCount++
+		if isActive(conn) {
+			aNode.ActiveCount++
+		}
+		aNode.RxTotal += conn.RxTotal
+		aNode.TxTotal += conn.TxTotal
+
+		dk := domainKey{app: app, domain: domain}
+		dNode := domainMap[dk]
+		if dNode == nil {
+			dNode = &DomainNode{Domain: domain}
+			domainMap[dk] = dNode
+		}
+		dNode.ConnCount++
+		dNode.RxTotal += conn.RxTotal
+		dNode.TxTotal += conn.TxTotal
+
+		if code != "" {
+			ck := countryKey{app: app, domain: domain, code: code}
+			cNode := countryMap[ck]
+			if cNode == nil {
+				cNode = &CountryNode{Code: code, Name: countryName}
+				countryMap[ck] = cNode
+			}
+			cNode.ConnCount++
+			cNode.RxTotal += conn.RxTotal
+			cNode.TxTotal += conn.TxTotal
+		}
+	}
+
+	// Assemble hierarchy.
+	for dk, dNode := range domainMap {
+		for ck, cNode := range countryMap {
+			if ck.app == dk.app && ck.domain == dk.domain {
+				dNode.Countries = append(dNode.Countries, *cNode)
+			}
+		}
+		sort.Slice(dNode.Countries, func(i, j int) bool {
+			return dNode.Countries[i].ConnCount > dNode.Countries[j].ConnCount
+		})
+		appMap[dk.app].Domains = append(appMap[dk.app].Domains, *dNode)
+	}
+	for _, aNode := range appMap {
+		sort.Slice(aNode.Domains, func(i, j int) bool {
+			return aNode.Domains[i].ConnCount > aNode.Domains[j].ConnCount
+		})
+	}
+
+	out := make([]AppNode, 0, len(appMap))
+	for _, aNode := range appMap {
+		out = append(out, *aNode)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].ConnCount > out[j].ConnCount
+	})
+	return out
 }
 
 func buildRuleHits(conns []Connection) []RuleHit {

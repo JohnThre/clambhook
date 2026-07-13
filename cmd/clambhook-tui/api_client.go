@@ -19,10 +19,18 @@ type apiClient struct {
 	httpClient *http.Client
 }
 
+type networkInfoPayload struct {
+	InterfaceName string `json:"interface_name,omitempty"`
+	SSID          string `json:"ssid,omitempty"`
+	IsWiFi        bool   `json:"is_wifi,omitempty"`
+}
+
 type statusPayload struct {
-	Running   bool                    `json:"running"`
-	Profile   string                  `json:"profile"`
-	Listeners []listenerStatusPayload `json:"listeners,omitempty"`
+	Running     bool                    `json:"running"`
+	Profile     string                  `json:"profile"`
+	Listeners   []listenerStatusPayload `json:"listeners,omitempty"`
+	TunnelMode  string                  `json:"tunnel_mode,omitempty"`
+	NetworkInfo networkInfoPayload      `json:"network_info,omitempty"`
 }
 
 type listenerStatusPayload struct {
@@ -121,6 +129,32 @@ type trafficSnapshotPayload struct {
 	CleanupSuggestions []cleanupSuggestionPayload `json:"cleanup_suggestions,omitempty"`
 	RuleSuggestions    []ruleSuggestionPayload    `json:"rule_suggestions,omitempty"`
 	Breakdowns         trafficBreakdownsPayload   `json:"breakdowns,omitempty"`
+	NetworkHierarchy   []appNodePayload           `json:"network_hierarchy,omitempty"`
+}
+
+type appNodePayload struct {
+	Application string              `json:"application"`
+	ConnCount   int                 `json:"conn_count"`
+	ActiveCount int                 `json:"active_count"`
+	RxTotal     uint64              `json:"rx_total"`
+	TxTotal     uint64              `json:"tx_total"`
+	Domains     []domainNodePayload `json:"domains,omitempty"`
+}
+
+type domainNodePayload struct {
+	Domain    string               `json:"domain"`
+	ConnCount int                  `json:"conn_count"`
+	RxTotal   uint64               `json:"rx_total"`
+	TxTotal   uint64               `json:"tx_total"`
+	Countries []countryNodePayload `json:"countries,omitempty"`
+}
+
+type countryNodePayload struct {
+	Code      string `json:"code"`
+	Name      string `json:"name"`
+	ConnCount int    `json:"conn_count"`
+	RxTotal   uint64 `json:"rx_total"`
+	TxTotal   uint64 `json:"tx_total"`
 }
 
 type trafficSummaryPayload struct {
@@ -221,6 +255,7 @@ type ruleHitPayload struct {
 	TxTotal     uint64 `json:"tx_total"`
 	LastTarget  string `json:"last_target,omitempty"`
 	Default     bool   `json:"default,omitempty"`
+	Temporary   bool   `json:"temporary,omitempty"`
 }
 
 type blockDecisionPayload struct {
@@ -264,11 +299,14 @@ type ruleSuggestionPayload struct {
 type developerStatusPayload struct {
 	Enabled               bool   `json:"enabled"`
 	MITMEnabled           bool   `json:"mitm_enabled"`
+	NoCacheEnabled        bool   `json:"no_cache_enabled"`
 	CaptureLimit          int    `json:"capture_limit"`
 	BodyLimitBytes        int64  `json:"body_limit_bytes"`
 	HeaderValueLimitBytes int    `json:"header_value_limit_bytes"`
 	CACertPath            string `json:"ca_cert_path,omitempty"`
 	CAFingerprintSHA256   string `json:"ca_fingerprint_sha256,omitempty"`
+	CANotBefore           string `json:"ca_not_before,omitempty"`
+	CANotAfter            string `json:"ca_not_after,omitempty"`
 	CaptureCount          int    `json:"capture_count"`
 }
 
@@ -294,6 +332,7 @@ type developerEntryPayload struct {
 
 type developerMessagePayload struct {
 	Headers []developerHeaderPayload `json:"headers,omitempty"`
+	Cookies []developerCookiePayload `json:"cookies,omitempty"`
 	Body    developerBodyPayload     `json:"body"`
 }
 
@@ -307,9 +346,25 @@ type developerHeaderPayload struct {
 type developerBodyPayload struct {
 	Size           int64  `json:"size"`
 	Preview        string `json:"preview,omitempty"`
+	PreviewBase64  string `json:"preview_base64,omitempty"`
 	PreviewBytes   int64  `json:"preview_bytes"`
 	Truncated      bool   `json:"truncated"`
 	TruncatedAfter int64  `json:"truncated_after"`
+	MimeType       string `json:"mime_type,omitempty"`
+	Encoding       string `json:"encoding,omitempty"`
+}
+
+type developerCookiePayload struct {
+	Name     string `json:"name"`
+	Value    string `json:"value"`
+	Redacted bool   `json:"redacted,omitempty"`
+	Domain   string `json:"domain,omitempty"`
+	Path     string `json:"path,omitempty"`
+	Expires  string `json:"expires,omitempty"`
+	MaxAge   int    `json:"max_age,omitempty"`
+	Secure   bool   `json:"secure,omitempty"`
+	HTTPOnly bool   `json:"http_only,omitempty"`
+	SameSite string `json:"same_site,omitempty"`
 }
 
 type rulePayload struct {
@@ -467,6 +522,32 @@ func (c apiClient) traffic() (trafficSnapshotPayload, error) {
 	return out, err
 }
 
+// trafficWithFilters fetches traffic with optional token-based filter params.
+func (c apiClient) trafficWithFilters(action, app, domain, country, port, query string) (trafficSnapshotPayload, error) {
+	path := "/api/v1/traffic?limit=200"
+	if action != "" {
+		path += "&action=" + action
+	}
+	if app != "" {
+		path += "&app=" + app
+	}
+	if domain != "" {
+		path += "&domain=" + domain
+	}
+	if country != "" {
+		path += "&country=" + country
+	}
+	if port != "" {
+		path += "&port=" + port
+	}
+	if query != "" {
+		path += "&query=" + query
+	}
+	var out trafficSnapshotPayload
+	err := c.getJSON(path, &out)
+	return out, err
+}
+
 func (c apiClient) developer() (developerStatusPayload, []developerEntryPayload, error) {
 	status, err := c.developerStatus()
 	if err != nil {
@@ -573,6 +654,21 @@ func (c apiClient) createRuleFromConnection(req createRuleFromConnectionRequest)
 	return c.doNoBody(http.MethodPost, "/api/v1/rules/from-connection", bytes.NewReader(body))
 }
 
+func (c apiClient) createTemporaryRuleFromConnection(connID, profile, name, action, scope string, ttlSeconds int64) error {
+	body, err := json.Marshal(map[string]any{
+		"conn_id":     connID,
+		"profile":     profile,
+		"name":        name,
+		"action":      action,
+		"scope":       scope,
+		"ttl_seconds": ttlSeconds,
+	})
+	if err != nil {
+		return err
+	}
+	return c.doNoBody(http.MethodPost, "/api/v1/rules/temporary/from-connection", bytes.NewReader(body))
+}
+
 func (c apiClient) cleanupRule(req cleanupRuleRequest) error {
 	body, err := json.Marshal(req)
 	if err != nil {
@@ -644,4 +740,79 @@ func responseError(resp *http.Response) error {
 		text = resp.Status
 	}
 	return fmt.Errorf("%s: %s", resp.Status, text)
+}
+
+// --- rule subscriptions ---
+
+type ruleSubscriptionsPayload struct {
+	Profile       string                    `json:"profile"`
+	Subscriptions []ruleSubscriptionPayload `json:"subscriptions"`
+}
+
+type ruleSubscriptionPayload struct {
+	Name     string                        `json:"name"`
+	URL      string                        `json:"url"`
+	Format   string                        `json:"format"`
+	Action   string                        `json:"action"`
+	Disabled bool                          `json:"disabled"`
+	Status   ruleSubscriptionStatusPayload `json:"status"`
+}
+
+type ruleSubscriptionStatusPayload struct {
+	EntryCount   int    `json:"entry_count"`
+	LastFetchErr string `json:"last_fetch_error,omitempty"`
+	FetchedAt    int64  `json:"fetched_at_ts_ns,omitempty"`
+}
+
+func (c apiClient) ruleSubscriptions(profile string) (ruleSubscriptionsPayload, error) {
+	path := "/api/v1/rule-subscriptions"
+	if profile != "" {
+		path += "?profile=" + profile
+	}
+	var out ruleSubscriptionsPayload
+	err := c.getJSON(path, &out)
+	return out, err
+}
+
+func (c apiClient) refreshRuleSubscriptions(profile string, names []string) error {
+	body, err := json.Marshal(map[string]any{"profile": profile, "names": names})
+	if err != nil {
+		return err
+	}
+	return c.doNoBody(http.MethodPost, "/api/v1/rule-subscriptions/refresh", bytes.NewReader(body))
+}
+
+// --- config import/export ---
+
+type configImportResponse struct {
+	Profiles   []string `json:"profiles"`
+	Active     string   `json:"active"`
+	BackupPath string   `json:"backup_path"`
+	Message    string   `json:"message"`
+}
+
+func (c apiClient) exportConfig() (string, error) {
+	req, err := http.NewRequest(http.MethodGet, c.baseURL+"/api/v1/config/export", nil)
+	if err != nil {
+		return "", err
+	}
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		return "", responseError(resp)
+	}
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
+}
+
+func (c apiClient) importConfig(toml string) (configImportResponse, error) {
+	var out configImportResponse
+	err := c.doJSON(http.MethodPost, "/api/v1/config/import", strings.NewReader(toml), &out)
+	return out, err
 }

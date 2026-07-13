@@ -41,8 +41,8 @@ const (
 )
 
 // PacketWriter receives raw IP packets emitted by the userspace packet stack.
-// Platform adapters implement it with a kernel TUN device, NEPacketTunnelFlow,
-// or a gomobile callback.
+// Platform adapters implement it with a kernel TUN device or an embedded
+// platform callback.
 type PacketWriter interface {
 	WritePacket([]byte) error
 }

@@ -319,8 +319,8 @@ final class DashboardStoreTests: XCTestCase {
         XCTAssertEqual(settings.logRetention, minLogRetention)
         XCTAssertEqual(settings.appGroupIdentifier, defaultAppGroupIdentifier)
         XCTAssertEqual(defaultAppGroupIdentifier, "group.org.jpfchang.clambhook")
-        XCTAssertEqual(defaultPrivacyPolicyURL.absoluteString, "https://jpfchang.org/clambhook/privacy")
-        XCTAssertEqual(defaultSupportURL.absoluteString, "https://jpfchang.org/clambhook/support")
+        XCTAssertEqual(defaultPrivacyPolicyURL.absoluteString, "https://store.clambercloud.com/clambhook/privacy")
+        XCTAssertEqual(defaultSupportURL.absoluteString, "https://store.clambercloud.com/clambhook/support")
     }
 
     func testCountryFlagAndRateFormatting() {
@@ -413,6 +413,20 @@ private class FakeAPIClient: ClambhookAPIProviding {
     func selectPolicyGroup(profile: String, group: String, chain: String) async throws -> PolicyGroupsPayload {
         selectedPolicyGroups.append((profile, group, chain))
         return policyGroupsResult
+    }
+
+    func testPolicyGroup(group: String, profile: String) async throws -> PolicyGroupsPayload {
+        return policyGroupsResult
+    }
+
+    func updateDNS(_ request: DNSUpdateRequest, profile: String) async throws -> DNSPayload {
+        return DNSPayload()
+    }
+
+    func exportConfig() async throws -> String { return "" }
+
+    func importConfig(_ toml: String) async throws -> ConfigImportResponse {
+        return ConfigImportResponse()
     }
 }
 

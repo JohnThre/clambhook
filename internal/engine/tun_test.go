@@ -35,7 +35,7 @@ func TestBuildListenersIncludesEnabledTUN(t *testing.T) {
 		if err == nil {
 			t.Fatal("buildListeners returned nil error for unsupported TUN platform")
 		}
-		if !strings.Contains(err.Error(), "only supported on Linux") {
+		if !strings.Contains(err.Error(), "only supported on Linux and macOS") {
 			t.Fatalf("buildListeners error = %q", err)
 		}
 		return

@@ -88,6 +88,7 @@ func TestDeveloperSettingsPersistsHTTPSCaptureWithAck(t *testing.T) {
 	body := []byte(`{
 		"enabled": true,
 		"mitm_enabled": true,
+		"no_cache_enabled": true,
 		"https_capture_ack": true,
 		"redact_query_params": [" Access_Token ", "SECRET"]
 	}`)
@@ -102,7 +103,7 @@ func TestDeveloperSettingsPersistsHTTPSCaptureWithAck(t *testing.T) {
 	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
 		t.Fatal(err)
 	}
-	if !resp.Enabled || !resp.MITMEnabled || resp.BackupPath == "" {
+	if !resp.Enabled || !resp.MITMEnabled || !resp.NoCacheEnabled || resp.BackupPath == "" {
 		t.Fatalf("settings response = %+v", resp)
 	}
 	if got := strings.Join(resp.RedactQueryParams, ","); got != "access_token,secret" {
@@ -112,11 +113,68 @@ func TestDeveloperSettingsPersistsHTTPSCaptureWithAck(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load persisted config: %v", err)
 	}
-	if !reloaded.Developer.Enabled || !reloaded.Developer.MITMEnabled {
+	if !reloaded.Developer.Enabled || !reloaded.Developer.MITMEnabled || !reloaded.Developer.NoCacheEnabled {
 		t.Fatalf("persisted developer config = %+v", reloaded.Developer)
 	}
 	if !srv.developerManager().MITMEnabled() {
 		t.Fatal("live developer manager MITMEnabled = false, want true")
+	}
+}
+
+func TestDeveloperSettingsPersistsSSLDecryptHostsAllowlist(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "clambhook.toml")
+	cfg := testDeveloperSettingsConfig(t)
+	if _, err := config.WriteAtomicWithBackup(path, cfg); err != nil {
+		t.Fatalf("write initial config: %v", err)
+	}
+	dev, err := developer.NewManager(cfg.Developer)
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+	srv := NewWithOptions(engine.New(cfg, nil), nil, Options{ConfigPath: path, Developer: dev})
+	body := []byte(`{
+		"enabled": true,
+		"mitm_enabled": true,
+		"https_capture_ack": true,
+		"ssl_decrypt_hosts": [" *.Example.com ", "OTHER.test"]
+	}`)
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/developer/settings", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+	srv.server.Handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%q, want 200", rec.Code, rec.Body.String())
+	}
+	var resp developerSettingsPayload
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(resp.SSLDecryptHosts, ","); got != "*.example.com,other.test" {
+		t.Fatalf("ssl decrypt hosts = %q", got)
+	}
+	reloaded, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("load persisted config: %v", err)
+	}
+	if got := strings.Join(reloaded.Developer.SSLDecryptHosts, ","); got != "*.example.com,other.test" {
+		t.Fatalf("persisted ssl decrypt hosts = %q", got)
+	}
+	if !dev.ShouldDecryptHost("api.example.com") {
+		t.Fatal("live developer manager ShouldDecryptHost(api.example.com) = false, want true")
+	}
+	if dev.ShouldDecryptHost("blocked.test") {
+		t.Fatal("live developer manager ShouldDecryptHost(blocked.test) = true, want false")
+	}
+
+	// An explicit empty list clears the allowlist and restores decrypt-all.
+	clearReq := httptest.NewRequest(http.MethodPut, "/api/v1/developer/settings", bytes.NewReader([]byte(`{"ssl_decrypt_hosts":[]}`)))
+	clearRec := httptest.NewRecorder()
+	srv.server.Handler.ServeHTTP(clearRec, clearReq)
+	if clearRec.Code != http.StatusOK {
+		t.Fatalf("clear status = %d body=%q, want 200", clearRec.Code, clearRec.Body.String())
+	}
+	if !dev.ShouldDecryptHost("blocked.test") {
+		t.Fatal("ShouldDecryptHost(blocked.test) = false after clearing allowlist, want true")
 	}
 }
 
@@ -148,6 +206,33 @@ func TestDeveloperSettingsRequiresAckForStaleHTTPSCaptureFlag(t *testing.T) {
 	})
 	if err == nil || !strings.Contains(err.Error(), "https_capture_ack") {
 		t.Fatalf("applyDeveloperSettingsUpdate error = %v, want acknowledgement error", err)
+	}
+}
+
+func TestDeveloperRegenerateCAEndpoint(t *testing.T) {
+	cfg := testDeveloperSettingsConfig(t)
+	cfg.Developer.Enabled = true
+	cfg.Developer.MITMEnabled = true
+	dev, err := developer.NewManager(cfg.Developer)
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+	before := dev.Status().CAFingerprintSHA256
+	srv := NewWithOptions(engine.New(cfg, nil), nil, Options{Developer: dev})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/developer/ca/regenerate", nil)
+	rec := httptest.NewRecorder()
+	srv.server.Handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%q, want 200", rec.Code, rec.Body.String())
+	}
+	var resp developer.Status
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp.CAFingerprintSHA256 == "" || resp.CAFingerprintSHA256 == before || resp.CANotAfter == "" {
+		t.Fatalf("regenerate response = %+v, before=%s", resp, before)
 	}
 }
 

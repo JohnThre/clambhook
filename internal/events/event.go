@@ -42,9 +42,10 @@ const (
 	TypeRuleBlocked           = "rule.blocked"
 
 	// Engine/daemon-level events. Emitted on shard 0 via Bus.PublishListener.
-	TypeConfigReloaded     = "config.reloaded"
-	TypeConfigReloadFailed = "config.reload_failed"
-	TypeLogLine            = "log.line"
+	TypeConfigReloaded          = "config.reloaded"
+	TypeConfigReloadFailed      = "config.reload_failed"
+	TypeLogLine                 = "log.line"
+	TypeProfileNetworkSwitch    = "profile.network_switch"
 
 	// TypeReplayGap is emitted once when a subscriber's Since cursor points
 	// further back than the ring buffer retains. The subscriber should treat
@@ -238,6 +239,17 @@ type ConfigReloadFailedData struct {
 // LogLineData carries one newline-delimited daemon log line.
 type LogLineData struct {
 	Line string `json:"line"`
+}
+
+// ProfileNetworkSwitchData is emitted when the engine auto-switches profiles
+// because the detected network matched a NetworkTrigger.
+type ProfileNetworkSwitchData struct {
+	OldProfile    string `json:"old_profile"`
+	NewProfile    string `json:"new_profile"`
+	TriggerSSID   string `json:"trigger_ssid,omitempty"`
+	TriggerIface  string `json:"trigger_iface,omitempty"`
+	DetectedSSID  string `json:"detected_ssid,omitempty"`
+	DetectedIface string `json:"detected_iface,omitempty"`
 }
 
 // Close reasons used by the listener teardown path.
