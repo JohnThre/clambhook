@@ -1,6 +1,6 @@
 import Foundation
 
-public let mobileLicenseTrialMonths = 2
+public let mobileLicenseTrialMonths = 1
 public let mobileLicenseOfflineGraceDays = 7
 public let mobileLicenseSnapshotDefaultsKey = "clambhook.apple.license.snapshot"
 
@@ -44,27 +44,19 @@ public enum MobileLicenseProductKind: Equatable, Sendable {
     case unknown
 }
 
-public enum MobileLicenseTransactionOwnership: String, Codable, Equatable, Sendable {
-    case purchased
-    case familyShared
-}
-
 public struct MobileLicenseTransaction: Codable, Equatable, Sendable {
     public var productID: String
     public var purchaseDate: Date
     public var revocationDate: Date?
-    public var ownershipType: MobileLicenseTransactionOwnership
 
     public init(
         productID: String,
         purchaseDate: Date,
-        revocationDate: Date? = nil,
-        ownershipType: MobileLicenseTransactionOwnership = .purchased
+        revocationDate: Date? = nil
     ) {
         self.productID = productID
         self.purchaseDate = purchaseDate
         self.revocationDate = revocationDate
-        self.ownershipType = ownershipType
     }
 
     public var productKind: MobileLicenseProductKind {
@@ -79,7 +71,6 @@ public struct MobileLicenseTransaction: Codable, Equatable, Sendable {
         case productID
         case purchaseDate
         case revocationDate
-        case ownershipType
     }
 
     public init(from decoder: Decoder) throws {
@@ -87,7 +78,6 @@ public struct MobileLicenseTransaction: Codable, Equatable, Sendable {
         self.productID = try container.decode(String.self, forKey: .productID)
         self.purchaseDate = try container.decode(Date.self, forKey: .purchaseDate)
         self.revocationDate = try container.decodeIfPresent(Date.self, forKey: .revocationDate)
-        self.ownershipType = try container.decodeIfPresent(MobileLicenseTransactionOwnership.self, forKey: .ownershipType) ?? .purchased
     }
 }
 
@@ -307,7 +297,30 @@ public enum MobileLicenseTrialStore {
 
 public enum MobileLicenseCopy {
     public static func paidUpdatePolicy(cutoffDate: Date) -> String {
-        "One-time unlock includes features released through \(cutoffDate.formatted(date: .abbreviated, time: .omitted)). Paid updates unlock later feature releases. Bug fixes/security fixes remain included."
+        "The ClambHook license includes all updates released through \(cutoffDate.formatted(date: .abbreviated, time: .omitted)). Versions released during that window remain usable. Updates released after that date, including critical, bug, and security updates, require a USD 9.99 update-year renewal."
+    }
+}
+
+public enum MobileLicenseUpdatePolicy {
+    public static func canInstallUpdate(
+        decision: MobileLicenseDecision,
+        publishedAt: Date?,
+        now: Date = Date()
+    ) -> Bool {
+        switch decision.reason {
+        case .trial:
+            return true
+        case .locked:
+            return false
+        case .lifetime, .offlineGrace:
+            guard let cutoffDate = decision.updateCutoffDate else {
+                return false
+            }
+            guard let publishedAt else {
+                return now <= cutoffDate
+            }
+            return publishedAt <= cutoffDate
+        }
     }
 }
 
@@ -344,42 +357,42 @@ public enum MobileLicenseProductStateBuilder {
         if let trialEndsAt = decision.trialEndsAt {
             states.append(MobileLicenseProductState(
                 kind: .trial,
-                title: "Free access",
+                title: "One-calendar-month trial",
                 detail: decision.isTrialActive
-                    ? "Server-controlled free access ends \(trialEndsAt.formatted(date: .abbreviated, time: .omitted))."
-                    : "Free access ended \(trialEndsAt.formatted(date: .abbreviated, time: .omitted)).",
+                    ? "Trial ends \(trialEndsAt.formatted(date: .abbreviated, time: .omitted))."
+                    : "Trial ended \(trialEndsAt.formatted(date: .abbreviated, time: .omitted)).",
                 isActive: decision.isTrialActive
             ))
         } else {
             states.append(MobileLicenseProductState(
                 kind: .trial,
-                title: "Free access",
-                detail: "Server-controlled free access starts the first time this app records an access date.",
+                title: "One-calendar-month trial",
+                detail: "Trial starts the first time this app records an access date.",
                 isActive: false
             ))
         }
 
         states.append(MobileLicenseProductState(
             kind: .lifetimeUnlocked,
-            title: "Lifetime unlocked",
+            title: "ClambHook license",
             detail: decision.hasLifetimeUnlock
-                ? "Purchased features remain enabled forever."
-                : "Purchase or restore the lifetime unlock to keep using clambhook after free access.",
+                ? "Versions released during the included update window remain usable."
+                : "Buy or activate a ClambHook license to keep using ClambHook after free access.",
             isActive: decision.hasLifetimeUnlock
         ))
 
         if let cutoffDate = decision.updateCutoffDate {
             states.append(MobileLicenseProductState(
                 kind: .paidUpdateWindow,
-                title: "Paid-update window through \(cutoffDate.formatted(date: .abbreviated, time: .omitted))",
-                detail: "Features released on or before this date are included.",
+                title: "Included updates through \(cutoffDate.formatted(date: .abbreviated, time: .omitted))",
+                detail: "All updates released on or before this date are included, and those app versions remain usable.",
                 isActive: decision.hasLifetimeUnlock
             ))
         } else {
             states.append(MobileLicenseProductState(
                 kind: .paidUpdateWindow,
-                title: "Paid-update window through DATE",
-                detail: "A lifetime unlock sets this date to the purchase date plus one year.",
+                title: "Included updates through DATE",
+                detail: "A ClambHook license includes one year of all updates from the purchase date.",
                 isActive: false
             ))
         }
@@ -392,10 +405,10 @@ public enum MobileLicenseProductStateBuilder {
         }
         states.append(MobileLicenseProductState(
             kind: .newFeaturesLocked,
-            title: "New features locked until update",
+            title: "Later updates require renewal",
             detail: lockedFeatures.isEmpty
-                ? "Feature releases after the paid-update window require a paid update. Bug fixes/security fixes remain included."
-                : "Locked feature releases: \(lockedFeatures.map(\.displayName).joined(separator: ", ")).",
+                ? "All updates released after the cutoff, including critical, bug, and security updates, require a USD 9.99 update-year renewal."
+                : "Updates requiring renewal include: \(lockedFeatures.map(\.displayName).joined(separator: ", ")).",
             isActive: !lockedFeatures.isEmpty
         ))
 
@@ -434,7 +447,7 @@ public enum MobileLicenseRuntimeError: Error, LocalizedError {
     public var errorDescription: String? {
         switch self {
         case .locked:
-            return "Free access has ended. Purchase or restore the lifetime unlock to keep using clambhook."
+            return "The one-calendar-month trial has ended. Buy or activate a USD 99.99 one-time ClambHook license to keep using ClambHook."
         }
     }
 }

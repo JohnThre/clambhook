@@ -18,13 +18,6 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
-    flavorDimensions += "store"
-    productFlavors {
-        create("play") {
-            dimension = "store"
-        }
-    }
-
     buildFeatures {
         compose = true
     }
@@ -54,10 +47,7 @@ val clambhookMobileAarConsumers = setOf(
     "assemble",
     "assembleDebug",
     "assembleRelease",
-    "assemblePlayDebug",
-    "assemblePlayRelease",
-    "bundleRelease",
-    "bundlePlayRelease"
+    "bundleRelease"
 )
 
 tasks.matching {
@@ -92,7 +82,6 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation(fileTree("libs") { include("*.aar") })
-    add("playImplementation", "com.android.billingclient:billing:9.0.0")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
 

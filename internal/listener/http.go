@@ -29,6 +29,8 @@ import (
 type HTTPInspector interface {
 	Enabled() bool
 	MITMEnabled() bool
+	ShouldDecryptHost(host string) bool
+	NoCacheEnabled() bool
 	TLSConfig(host string) (*tls.Config, error)
 	Begin(context.Context, HTTPCaptureMeta, *http.Request) HTTPInspection
 	MapRequest(*http.Request) (*http.Request, *HTTPMapResult, error)
@@ -61,6 +63,7 @@ type HTTPBreakpointMessage struct {
 	Status  int
 	Headers []HTTPHeader
 	Body    string
+	BodySet bool
 }
 
 // HTTPHeader is a generic header pair used by breakpoint edits.
@@ -329,7 +332,8 @@ func (s *HTTP) handleConn(ctx context.Context, client net.Conn, ce *connEvents) 
 
 	switch {
 	case req.Method == http.MethodConnect:
-		if s.opts.HTTPInspector != nil && s.opts.HTTPInspector.MITMEnabled() {
+		if s.opts.HTTPInspector != nil && s.opts.HTTPInspector.MITMEnabled() &&
+			s.opts.HTTPInspector.ShouldDecryptHost(connectHost(req.Host)) {
 			return s.handleMITMConnect(ctx, client, br, req, ce)
 		}
 		return s.handleConnect(ctx, client, br, req, ce)
@@ -345,6 +349,17 @@ func (s *HTTP) handleConn(ctx context.Context, client net.Conn, ce *connEvents) 
 			"Bad Request: absolute-URI required")
 	}
 	return nil
+}
+
+// connectHost extracts the bare host from a CONNECT request's "host:port"
+// authority for MITM allowlist matching. Malformed authorities are returned
+// as-is; the CONNECT handlers perform their own strict validation.
+func connectHost(hostport string) string {
+	host, _, err := net.SplitHostPort(hostport)
+	if err != nil {
+		return hostport
+	}
+	return host
 }
 
 func (s *HTTP) handleConnect(ctx context.Context, client net.Conn, br *bufio.Reader, req *http.Request, ce *connEvents) error {
@@ -549,6 +564,9 @@ func (s *HTTP) forwardMITMRequest(ctx context.Context, client io.Writer, req *ht
 			return s.writeMITMLocalMap(ctx, client, req, mapResult.Local, connectTarget, clientAddr, ce)
 		}
 	}
+	if inspectorNoCacheEnabled(s.opts.HTTPInspector) {
+		applyNoCacheRequestHeaders(req.Header)
+	}
 
 	target := mitmRequestTarget(req, connectTarget)
 	dialCtx, cancel := context.WithTimeout(ctx, dialTimeout)
@@ -589,7 +607,7 @@ func (s *HTTP) forwardMITMRequest(ctx context.Context, client io.Writer, req *ht
 	req.URL.Scheme = ""
 	req.URL.Host = ""
 
-	if err := req.Write(remote); err != nil {
+	if err := req.Write(remoteConn); err != nil {
 		log.Printf("http: MITM write request to %s: %v", target, err)
 		if inspection != nil {
 			inspection.Finish(nil, err)
@@ -605,9 +623,6 @@ func (s *HTTP) forwardMITMRequest(ctx context.Context, client io.Writer, req *ht
 		return err
 	}
 	defer resp.Body.Close()
-	if inspection != nil && resp.Body != nil {
-		resp.Body = inspection.ResponseBody(resp.Body)
-	}
 	if s.opts.HTTPInspector != nil && s.opts.HTTPInspector.HasResponseBreakpoint(req) {
 		body, err := readAndReplaceResponseBody(resp)
 		if err != nil {
@@ -635,7 +650,13 @@ func (s *HTTP) forwardMITMRequest(ctx context.Context, client io.Writer, req *ht
 			}
 		}
 	}
+	if inspectorNoCacheEnabled(s.opts.HTTPInspector) {
+		applyNoCacheResponseHeaders(resp.Header)
+	}
 	stripHopByHopHeaders(resp.Header)
+	if inspection != nil && resp.Body != nil {
+		resp.Body = inspection.ResponseBody(resp.Body)
+	}
 	if err := resp.Write(client); err != nil {
 		log.Printf("http: MITM write response to client: %v", err)
 		if inspection != nil {
@@ -650,6 +671,9 @@ func (s *HTTP) forwardMITMRequest(ctx context.Context, client io.Writer, req *ht
 }
 
 func (s *HTTP) writeMITMLocalMap(ctx context.Context, client io.Writer, req *http.Request, local *HTTPLocalMapResponse, target, clientAddr string, ce *connEvents) error {
+	if inspectorNoCacheEnabled(s.opts.HTTPInspector) {
+		applyNoCacheRequestHeaders(req.Header)
+	}
 	inspection := s.beginInspection(ctx, ce, clientAddr, req, "https", target)
 	if inspection != nil && req.Body != nil {
 		req.Body = inspection.RequestBody(req.Body)
@@ -665,6 +689,9 @@ func (s *HTTP) writeMITMLocalMap(ctx context.Context, client io.Writer, req *htt
 		Body:          io.NopCloser(bytes.NewReader(local.Body)),
 		ContentLength: int64(len(local.Body)),
 		Request:       req,
+	}
+	if inspectorNoCacheEnabled(s.opts.HTTPInspector) {
+		applyNoCacheResponseHeaders(resp.Header)
 	}
 	if inspection != nil {
 		resp.Body = inspection.ResponseBody(resp.Body)
@@ -718,6 +745,9 @@ func (s *HTTP) handleForward(ctx context.Context, client net.Conn, req *http.Req
 		if mapResult != nil && mapResult.Local != nil {
 			return s.handleLocalMap(ctx, client, req, mapResult.Local, ce)
 		}
+	}
+	if inspectorNoCacheEnabled(s.opts.HTTPInspector) {
+		applyNoCacheRequestHeaders(req.Header)
 	}
 
 	// Resolve target host:port — default port 80 for http://.
@@ -841,9 +871,6 @@ func (s *HTTP) handleForward(ctx context.Context, client net.Conn, req *http.Req
 		return err
 	}
 	defer resp.Body.Close()
-	if inspection != nil && resp.Body != nil {
-		resp.Body = inspection.ResponseBody(resp.Body)
-	}
 
 	if s.opts.HTTPInspector != nil && s.opts.HTTPInspector.HasResponseBreakpoint(req) {
 		body, err := readAndReplaceResponseBody(resp)
@@ -873,8 +900,14 @@ func (s *HTTP) handleForward(ctx context.Context, client net.Conn, req *http.Req
 			}
 		}
 	}
+	if inspectorNoCacheEnabled(s.opts.HTTPInspector) {
+		applyNoCacheResponseHeaders(resp.Header)
+	}
 
 	stripHopByHopHeaders(resp.Header)
+	if inspection != nil && resp.Body != nil {
+		resp.Body = inspection.ResponseBody(resp.Body)
+	}
 
 	if err := resp.Write(client); err != nil {
 		// Client likely hung up mid-response — log and move on.
@@ -908,6 +941,9 @@ func (s *HTTP) beginInspection(ctx context.Context, ce *connEvents, clientAddr s
 func (s *HTTP) handleLocalMap(ctx context.Context, client net.Conn, req *http.Request, local *HTTPLocalMapResponse, ce *connEvents) error {
 	ce.emitEstablished()
 	_ = client.SetDeadline(time.Time{})
+	if inspectorNoCacheEnabled(s.opts.HTTPInspector) {
+		applyNoCacheRequestHeaders(req.Header)
+	}
 	inspection := s.beginInspection(ctx, ce, client.RemoteAddr().String(), req, requestSchemeFromURL(req), requestTargetFromURL(req))
 	if inspection != nil && req.Body != nil {
 		req.Body = inspection.RequestBody(req.Body)
@@ -923,6 +959,9 @@ func (s *HTTP) handleLocalMap(ctx context.Context, client net.Conn, req *http.Re
 		Body:          io.NopCloser(bytes.NewReader(local.Body)),
 		ContentLength: int64(len(local.Body)),
 		Request:       req,
+	}
+	if inspectorNoCacheEnabled(s.opts.HTTPInspector) {
+		applyNoCacheResponseHeaders(resp.Header)
 	}
 	if inspection != nil {
 		resp.Body = inspection.ResponseBody(resp.Body)
@@ -973,6 +1012,36 @@ func readAndReplaceResponseBody(resp *http.Response) ([]byte, error) {
 	return body, nil
 }
 
+func inspectorNoCacheEnabled(inspector HTTPInspector) bool {
+	return inspector != nil && inspector.Enabled() && inspector.NoCacheEnabled()
+}
+
+func applyNoCacheRequestHeaders(header http.Header) {
+	if header == nil {
+		return
+	}
+	for _, name := range []string{
+		"If-Match",
+		"If-None-Match",
+		"If-Modified-Since",
+		"If-Unmodified-Since",
+		"If-Range",
+	} {
+		header.Del(name)
+	}
+	header.Set("Cache-Control", "no-cache")
+	header.Set("Pragma", "no-cache")
+}
+
+func applyNoCacheResponseHeaders(header http.Header) {
+	if header == nil {
+		return
+	}
+	header.Set("Cache-Control", "no-store, no-cache, must-revalidate")
+	header.Set("Pragma", "no-cache")
+	header.Set("Expires", "0")
+}
+
 func applyRequestBreakpointEdit(req *http.Request, edit *HTTPBreakpointMessage) error {
 	if req == nil || edit == nil {
 		return nil
@@ -999,9 +1068,13 @@ func applyRequestBreakpointEdit(req *http.Request, edit *HTTPBreakpointMessage) 
 			req.Header.Add(header.Name, header.Value)
 		}
 	}
-	if edit.Body != "" {
+	if edit.BodySet || edit.Body != "" {
 		req.Body = io.NopCloser(strings.NewReader(edit.Body))
 		req.ContentLength = int64(len(edit.Body))
+		req.Header.Set("Content-Length", fmt.Sprintf("%d", len(edit.Body)))
+		if edit.Body == "" {
+			req.Body = http.NoBody
+		}
 	}
 	return nil
 }
@@ -1023,10 +1096,13 @@ func applyResponseBreakpointEdit(resp *http.Response, edit *HTTPBreakpointMessag
 			resp.Header.Add(header.Name, header.Value)
 		}
 	}
-	if edit.Body != "" {
+	if edit.BodySet || edit.Body != "" {
 		resp.Body = io.NopCloser(strings.NewReader(edit.Body))
 		resp.ContentLength = int64(len(edit.Body))
 		resp.Header.Set("Content-Length", fmt.Sprintf("%d", len(edit.Body)))
+		if edit.Body == "" {
+			resp.Body = http.NoBody
+		}
 	}
 }
 

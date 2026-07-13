@@ -18,10 +18,21 @@ type configSettingsPayload struct {
 }
 
 type configSettingsListenPayload struct {
-	SOCKS5      string `json:"socks5"`
-	SOCKS5Chain string `json:"socks5_chain"`
-	HTTP        string `json:"http"`
-	HTTPChain   string `json:"http_chain"`
+	SOCKS5      string                   `json:"socks5"`
+	SOCKS5Chain string                   `json:"socks5_chain"`
+	HTTP        string                   `json:"http"`
+	HTTPChain   string                   `json:"http_chain"`
+	TUN         configSettingsTUNPayload `json:"tun"`
+}
+
+type configSettingsTUNPayload struct {
+	Enabled      bool     `json:"enabled"`
+	Name         string   `json:"name,omitempty"`
+	Chain        string   `json:"chain,omitempty"`
+	MTU          int      `json:"mtu,omitempty"`
+	Addresses    []string `json:"addresses,omitempty"`
+	Routes       []string `json:"routes,omitempty"`
+	ExcludeCIDRs []string `json:"exclude_cidrs,omitempty"`
 }
 
 type updateConfigSettingsRequest struct {
@@ -31,10 +42,11 @@ type updateConfigSettingsRequest struct {
 }
 
 type updateConfigListenSettings struct {
-	SOCKS5      *string `json:"socks5,omitempty"`
-	SOCKS5Chain *string `json:"socks5_chain,omitempty"`
-	HTTP        *string `json:"http,omitempty"`
-	HTTPChain   *string `json:"http_chain,omitempty"`
+	SOCKS5      *string                   `json:"socks5,omitempty"`
+	SOCKS5Chain *string                   `json:"socks5_chain,omitempty"`
+	HTTP        *string                   `json:"http,omitempty"`
+	HTTPChain   *string                   `json:"http_chain,omitempty"`
+	TUN         *configSettingsTUNPayload `json:"tun,omitempty"`
 }
 
 func (s *Server) handleConfigSettings(w http.ResponseWriter, r *http.Request) {
@@ -115,6 +127,21 @@ func applyConfigListenSettings(listen *config.ListenConfig, req *updateConfigLis
 	if req.HTTPChain != nil {
 		listen.HTTPChain = strings.TrimSpace(*req.HTTPChain)
 	}
+	if req.TUN != nil {
+		listen.TUN = &config.TUNConfig{
+			Enabled:      req.TUN.Enabled,
+			Name:         strings.TrimSpace(req.TUN.Name),
+			Chain:        strings.TrimSpace(req.TUN.Chain),
+			MTU:          req.TUN.MTU,
+			Addresses:    trimStringList(req.TUN.Addresses),
+			Routes:       trimStringList(req.TUN.Routes),
+			ExcludeCIDRs: trimStringList(req.TUN.ExcludeCIDRs),
+		}
+		if !req.TUN.Enabled && listen.TUN.Name == "" && listen.TUN.Chain == "" && listen.TUN.MTU == 0 &&
+			len(listen.TUN.Addresses) == 0 && len(listen.TUN.Routes) == 0 && len(listen.TUN.ExcludeCIDRs) == 0 {
+			listen.TUN = nil
+		}
+	}
 }
 
 func configSettingsSnapshot(profile *config.Profile, backupPath string) configSettingsPayload {
@@ -128,8 +155,35 @@ func configSettingsSnapshot(profile *config.Profile, backupPath string) configSe
 			SOCKS5Chain: profile.Listen.SOCKS5Chain,
 			HTTP:        profile.Listen.HTTP,
 			HTTPChain:   profile.Listen.HTTPChain,
+			TUN:         configSettingsTUNSnapshot(profile.Listen.TUN),
 		},
 		DNS:        profile.DNS,
 		BackupPath: backupPath,
 	}
+}
+
+func configSettingsTUNSnapshot(tun *config.TUNConfig) configSettingsTUNPayload {
+	if tun == nil {
+		return configSettingsTUNPayload{}
+	}
+	return configSettingsTUNPayload{
+		Enabled:      tun.Enabled,
+		Name:         tun.Name,
+		Chain:        tun.Chain,
+		MTU:          tun.MTU,
+		Addresses:    append([]string(nil), tun.Addresses...),
+		Routes:       append([]string(nil), tun.Routes...),
+		ExcludeCIDRs: append([]string(nil), tun.ExcludeCIDRs...),
+	}
+}
+
+func trimStringList(values []string) []string {
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		trimmed := strings.TrimSpace(value)
+		if trimmed != "" {
+			out = append(out, trimmed)
+		}
+	}
+	return out
 }

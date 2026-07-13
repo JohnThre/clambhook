@@ -1,6 +1,7 @@
 package developer
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
@@ -82,6 +83,67 @@ func TestCaptureRedactsAndTruncates(t *testing.T) {
 	}
 }
 
+func TestCaptureCookiesBodyMetadataAndHAR(t *testing.T) {
+	mgr, err := NewManager(config.DeveloperConfig{
+		Enabled:        true,
+		CaptureLimit:   10,
+		BodyLimitBytes: 64,
+	})
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+	req, err := http.NewRequest(http.MethodPost, "http://example.com/api", io.NopCloser(bytes.NewReader([]byte{0xff, 0x00, 0x01})))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/octet-stream")
+	req.Header.Set("Cookie", "session=secret; theme=light")
+	tx := mgr.Begin(context.Background(), listener.HTTPCaptureMeta{Scheme: "http", Target: "example.com:80"}, req)
+	req.Body = tx.RequestBody(req.Body)
+	if _, err := io.Copy(io.Discard, req.Body); err != nil {
+		t.Fatal(err)
+	}
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header: http.Header{
+			"Content-Type": []string{"application/json"},
+			"Set-Cookie":   []string{"token=secret; Path=/; HttpOnly; Secure; SameSite=Lax"},
+		},
+		Body: io.NopCloser(strings.NewReader(`{"ok":true}`)),
+	}
+	resp.Body = tx.ResponseBody(resp.Body)
+	if _, err := io.Copy(io.Discard, resp.Body); err != nil {
+		t.Fatal(err)
+	}
+	tx.Finish(resp, nil)
+
+	entry := mgr.List(0)[0]
+	if entry.Request.Body.Encoding != "base64" || entry.Request.Body.PreviewBase64 == "" || entry.Request.Body.MimeType != "application/octet-stream" {
+		t.Fatalf("request body metadata = %+v", entry.Request.Body)
+	}
+	if len(entry.Request.Cookies) != 2 || !entry.Request.Cookies[0].Redacted || entry.Request.Cookies[0].Value != redactedValue {
+		t.Fatalf("request cookies = %+v", entry.Request.Cookies)
+	}
+	if len(entry.Response.Cookies) != 1 || !entry.Response.Cookies[0].Redacted || !entry.Response.Cookies[0].HTTPOnly || !entry.Response.Cookies[0].Secure {
+		t.Fatalf("response cookies = %+v", entry.Response.Cookies)
+	}
+	harData, err := json.Marshal(mgr.HAR())
+	if err != nil {
+		t.Fatal(err)
+	}
+	harText := string(harData)
+	for _, leak := range []string{"session=secret", "token=secret"} {
+		if strings.Contains(harText, leak) {
+			t.Fatalf("HAR leaked %q: %s", leak, harText)
+		}
+	}
+	for _, want := range []string{`"encoding":"base64"`, `"cookies"`, `"mimeType":"application/octet-stream"`} {
+		if !strings.Contains(harText, want) {
+			t.Fatalf("HAR missing %q: %s", want, harText)
+		}
+	}
+}
+
 func TestHARSerializesEntries(t *testing.T) {
 	store := NewStore(10)
 	store.Add(Entry{
@@ -122,7 +184,74 @@ func TestDeveloperCAGeneration(t *testing.T) {
 		t.Fatalf("CA cert unavailable")
 	}
 	status := mgr.Status()
-	if status.CAFingerprintSHA256 == "" || status.CACertPath == "" {
+	if status.CAFingerprintSHA256 == "" || status.CACertPath == "" || status.CANotBefore == "" || status.CANotAfter == "" {
 		t.Fatalf("status = %+v", status)
+	}
+	before := status.CAFingerprintSHA256
+	regen, err := mgr.RegenerateCA()
+	if err != nil {
+		t.Fatalf("RegenerateCA: %v", err)
+	}
+	if regen.CAFingerprintSHA256 == "" || regen.CAFingerprintSHA256 == before {
+		t.Fatalf("regenerated status = %+v, old fingerprint %s", regen, before)
+	}
+}
+
+func TestShouldDecryptHostEmptyAllowlistDecryptsAll(t *testing.T) {
+	dir := t.TempDir()
+	mgr, err := NewManager(config.DeveloperConfig{
+		Enabled:     true,
+		MITMEnabled: true,
+		CACertPath:  filepath.Join(dir, "ca.pem"),
+		CAKeyPath:   filepath.Join(dir, "ca-key.pem"),
+	})
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+	for _, host := range []string{"example.com", "other.test", "sub.example.com"} {
+		if !mgr.ShouldDecryptHost(host) {
+			t.Fatalf("ShouldDecryptHost(%q) = false, want true with empty allowlist", host)
+		}
+	}
+}
+
+func TestShouldDecryptHostAllowlistRestrictsMatching(t *testing.T) {
+	dir := t.TempDir()
+	mgr, err := NewManager(config.DeveloperConfig{
+		Enabled:         true,
+		MITMEnabled:     true,
+		CACertPath:      filepath.Join(dir, "ca.pem"),
+		CAKeyPath:       filepath.Join(dir, "ca-key.pem"),
+		SSLDecryptHosts: []string{"example.com", "*.allowed.test"},
+	})
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+
+	cases := []struct {
+		host string
+		want bool
+	}{
+		{"example.com", true},
+		{"EXAMPLE.COM", true},
+		{"api.allowed.test", true},
+		{"deep.api.allowed.test", true}, // "*" absorbs any run of characters, including dots
+		{"allowed.test", false},         // missing the required "." before "allowed.test"
+		{"other.com", false},
+	}
+	for _, tc := range cases {
+		if got := mgr.ShouldDecryptHost(tc.host); got != tc.want {
+			t.Errorf("ShouldDecryptHost(%q) = %v, want %v", tc.host, got, tc.want)
+		}
+	}
+}
+
+func TestShouldDecryptHostFalseWhenMITMDisabled(t *testing.T) {
+	mgr, err := NewManager(config.DeveloperConfig{Enabled: true, MITMEnabled: false})
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+	if mgr.ShouldDecryptHost("example.com") {
+		t.Fatal("ShouldDecryptHost = true, want false when MITM disabled")
 	}
 }
