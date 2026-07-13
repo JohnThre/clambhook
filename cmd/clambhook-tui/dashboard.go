@@ -1983,10 +1983,6 @@ func ruleMatchText(rule rulePayload) string {
 	return "any"
 }
 
-func (m model) trafficRows(width, limit int, full bool) []string {
-	return m.trafficRowsFor(m.traffic.Connections, width, limit, full)
-}
-
 func (m model) trafficRowsFor(connections []trafficConnectionPayload, width, limit int, full bool) []string {
 	rows := firstTrafficRows(connections, limit)
 	out := make([]string, 0, len(rows))
@@ -2614,7 +2610,7 @@ func (m model) loadDashboardCmd() tea.Cmd {
 		if err != nil {
 			subs = ruleSubscriptionsPayload{}
 		}
-		traffic, err := client.traffic()
+		traffic, err := m.filteredTraffic()
 		if err != nil {
 			return dashboardLoadedMsg{Err: err}
 		}
@@ -2637,7 +2633,7 @@ func (m model) loadStatusCmd() tea.Cmd {
 		if err != nil {
 			return statusLoadedMsg{Err: err}
 		}
-		traffic, err := client.traffic()
+		traffic, err := m.filteredTraffic()
 		return statusLoadedMsg{Status: status, Policies: policies, Traffic: traffic, Err: err}
 	}
 }
@@ -3064,11 +3060,6 @@ func (m *model) appendLogLine(line string) {
 		m.logScroll = 0
 		return
 	}
-	m.clampLogScroll()
-}
-
-func (m *model) scrollLogs(delta int) {
-	m.logScroll += delta
 	m.clampLogScroll()
 }
 

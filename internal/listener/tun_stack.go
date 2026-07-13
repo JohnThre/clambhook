@@ -632,10 +632,6 @@ func (s *PacketStack) handleDNSTCPFlow(ctx context.Context, local *gonet.TCPConn
 	}
 }
 
-func (s *PacketStack) plan(ctx context.Context, network, target string) (RoutePlan, error) {
-	return s.planWithSource(ctx, network, target, "")
-}
-
 func (s *PacketStack) planWithSource(ctx context.Context, network, target, source string) (RoutePlan, error) {
 	if s.planner != nil {
 		return PlanRoute(ctx, s.planner, network, target, source)
