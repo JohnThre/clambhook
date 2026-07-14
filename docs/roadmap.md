@@ -18,3 +18,10 @@ Decode and pretty-print application protocols in the HTTP capture detail view:
 the WebSocket frame stream, gRPC/protobuf messages, and GraphQL query/response
 formatting. Requires extending the HTTP capture pipeline to surface frames and
 adding viewers across the Apple, TUI, Linux, and Android frontends.
+
+## Future release candidates
+
+### Surge-style scripting engine
+
+Explicitly deferred in `docs/macos-v1-parity.md`. Revisit after v1.1 once
+rule-based routing, daemon API workflows, and capture tooling have stabilized.
