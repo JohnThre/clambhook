@@ -28,6 +28,8 @@ const (
 	protocolDoH = "doh"
 	protocolDoT = "dot"
 	protocolDoQ = "doq"
+
+	protocolControlD = config.ProtocolControlD
 )
 
 var configureTLSForTest func(*tls.Config)
@@ -79,6 +81,12 @@ func newUpstream(cfg config.DNSUpstreamConfig, planner listener.RoutePlanner) (u
 		return newDoTUpstream(cfg, planner)
 	case protocolDoQ:
 		return newDoQUpstream(cfg, planner)
+	case protocolControlD:
+		expanded, err := cfg.ExpandControlD()
+		if err != nil {
+			return nil, err
+		}
+		return newUpstream(expanded, planner)
 	default:
 		return nil, fmt.Errorf("unknown protocol %q", cfg.Protocol)
 	}

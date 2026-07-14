@@ -190,7 +190,10 @@ type DNSConfig struct {
 	Upstreams []DNSUpstreamConfig `toml:"upstream" json:"upstreams,omitempty"`
 }
 
-// DNSUpstreamConfig defines one encrypted DNS resolver endpoint.
+// DNSUpstreamConfig defines one encrypted DNS resolver endpoint. For the
+// generic transports (doh/dot/doq) set url or address directly. For
+// protocol="controld", set resolver (and optionally free/transport) and
+// clambhook derives the endpoint, server name, and bootstrap IPs.
 type DNSUpstreamConfig struct {
 	Name         string   `toml:"name" json:"name,omitempty"`
 	Protocol     string   `toml:"protocol" json:"protocol"`
@@ -198,6 +201,11 @@ type DNSUpstreamConfig struct {
 	Address      string   `toml:"address" json:"address,omitempty"`
 	ServerName   string   `toml:"server_name" json:"server_name,omitempty"`
 	BootstrapIPs []string `toml:"bootstrap_ips" json:"bootstrap_ips,omitempty"`
+
+	// Control D shorthand (protocol="controld").
+	Resolver  string `toml:"resolver" json:"resolver,omitempty"`   // resolver id or free preset
+	Free      bool   `toml:"free" json:"free,omitempty"`           // use the free freedns.controld.com network
+	Transport string `toml:"transport" json:"transport,omitempty"` // doh (default), dot, or doq
 }
 
 // ChainConfig defines a proxy chain.

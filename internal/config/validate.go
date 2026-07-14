@@ -518,9 +518,39 @@ func validateDNSUpstream(profileName string, idx int, up *DNSUpstreamConfig) []e
 		if strings.TrimSpace(up.URL) != "" {
 			errs = append(errs, fmt.Errorf("%s url is only valid for doh", label))
 		}
+	case ProtocolControlD:
+		if strings.TrimSpace(up.Resolver) == "" {
+			errs = append(errs, fmt.Errorf("%s resolver is required for controld", label))
+		} else if strings.TrimSpace(up.Resolver) != up.Resolver {
+			errs = append(errs, fmt.Errorf("%s resolver %q must not have surrounding whitespace", label, up.Resolver))
+		} else if strings.ContainsAny(up.Resolver, " \t\r\n/") {
+			errs = append(errs, fmt.Errorf("%s resolver %q must not contain whitespace or '/'", label, up.Resolver))
+		}
+		switch strings.ToLower(strings.TrimSpace(up.Transport)) {
+		case "", "doh", "dot", "doq":
+		default:
+			errs = append(errs, fmt.Errorf("%s transport %q must be doh, dot, or doq", label, up.Transport))
+		}
+		if strings.TrimSpace(up.URL) != "" {
+			errs = append(errs, fmt.Errorf("%s url is not valid for controld; set resolver instead", label))
+		}
+		if strings.TrimSpace(up.Address) != "" {
+			errs = append(errs, fmt.Errorf("%s address is not valid for controld; set resolver instead", label))
+		}
 	case "":
 	default:
-		errs = append(errs, fmt.Errorf("%s protocol %q must be doh, dot, or doq", label, up.Protocol))
+		errs = append(errs, fmt.Errorf("%s protocol %q must be doh, dot, doq, or controld", label, up.Protocol))
+	}
+	if protocol != ProtocolControlD {
+		if strings.TrimSpace(up.Resolver) != "" {
+			errs = append(errs, fmt.Errorf("%s resolver is only valid for controld", label))
+		}
+		if strings.TrimSpace(up.Transport) != "" {
+			errs = append(errs, fmt.Errorf("%s transport is only valid for controld", label))
+		}
+		if up.Free {
+			errs = append(errs, fmt.Errorf("%s free is only valid for controld", label))
+		}
 	}
 	if strings.TrimSpace(up.ServerName) != up.ServerName {
 		errs = append(errs, fmt.Errorf("%s server_name %q must not have surrounding whitespace", label, up.ServerName))

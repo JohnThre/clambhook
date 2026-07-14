@@ -576,7 +576,7 @@ func TestValidateRejectsBadDNSConfig(t *testing.T) {
 					}},
 				}
 			},
-			want: "must be doh, dot, or doq",
+			want: "must be doh, dot, doq, or controld",
 		},
 		{
 			name: "doh requires https",
@@ -617,6 +617,60 @@ func TestValidateRejectsBadDNSConfig(t *testing.T) {
 				}
 			},
 			want: "bootstrap_ips[0]",
+		},
+		{
+			name: "controld requires resolver",
+			edit: func(cfg *Config) {
+				cfg.Profiles[0].DNS = DNSConfig{
+					Enabled: true,
+					Upstreams: []DNSUpstreamConfig{{
+						Protocol: "controld",
+					}},
+				}
+			},
+			want: "resolver is required for controld",
+		},
+		{
+			name: "controld rejects url",
+			edit: func(cfg *Config) {
+				cfg.Profiles[0].DNS = DNSConfig{
+					Enabled: true,
+					Upstreams: []DNSUpstreamConfig{{
+						Protocol: "controld",
+						Resolver: "abc123",
+						URL:      "https://dns.controld.com/abc123",
+					}},
+				}
+			},
+			want: "url is not valid for controld",
+		},
+		{
+			name: "controld bad transport",
+			edit: func(cfg *Config) {
+				cfg.Profiles[0].DNS = DNSConfig{
+					Enabled: true,
+					Upstreams: []DNSUpstreamConfig{{
+						Protocol:  "controld",
+						Resolver:  "abc123",
+						Transport: "udp",
+					}},
+				}
+			},
+			want: "transport \"udp\" must be doh, dot, or doq",
+		},
+		{
+			name: "resolver only valid for controld",
+			edit: func(cfg *Config) {
+				cfg.Profiles[0].DNS = DNSConfig{
+					Enabled: true,
+					Upstreams: []DNSUpstreamConfig{{
+						Protocol: "doh",
+						URL:      "https://dns.example/dns-query",
+						Resolver: "abc123",
+					}},
+				}
+			},
+			want: "resolver is only valid for controld",
 		},
 	}
 	for _, tt := range tests {

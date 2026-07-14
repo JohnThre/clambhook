@@ -51,6 +51,19 @@ name = "local"
   # When enabled for TUN mode, TCP/UDP destination port 53 is answered locally
   # and forwarded to encrypted DoH/DoT/DoQ upstreams through the route planner.
   # When disabled, DNS packets route like normal traffic and can match rules.
+  #
+  # To use your own Control D resolver, set protocol = "controld" and your
+  # resolver id; clambhook derives the endpoint, TLS name, and bootstrap IPs.
+  #   [[profile.dns.upstream]]
+  #   name = "my-controld"
+  #   protocol = "controld"
+  #   resolver = "replace-with-controld-resolver-id"
+  #   transport = "doh"   # doh (default), dot, or doq
+  # Free Control D presets (no account) set free = true with a preset resolver:
+  #   [[profile.dns.upstream]]
+  #   protocol = "controld"
+  #   free = true
+  #   resolver = "p2"     # ads & tracking; see docs.controld.com/docs/free-dns
 
   [[profile.chain]]
   name = "default"
