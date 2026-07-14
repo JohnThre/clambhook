@@ -171,7 +171,7 @@ See [`docs/macos-v1-scope.md`](docs/macos-v1-scope.md) for the full scope.
 | --- | --- | --- |
 | macOS 14+ (Apple Silicon) | SwiftUI | Public release |
 | GNU/Linux (Debian, Fedora, Guix) | GTK4 / libadwaita (Vala) | Internal developer QA |
-| Windows 11 | — | Internal developer QA |
+| Windows 11 | — | Discontinued (no planned resumption) |
 | Android 12+ | Kotlin / Compose | Internal developer QA |
 
 macOS supports menu bar integration and widgets.
@@ -248,10 +248,10 @@ Official public routes:
 - Support: `https://store.clambercloud.com/clambhook/support/`
 
 Clambhook is not distributed to end users through app marketplaces, GitHub
-Releases, Homebrew, package registries, or third-party mirrors. GNU/Linux,
-Windows, and Android builds are internal developer QA targets until a separate
-distribution plan is approved. See
-[`docs/distribution.md`](docs/distribution.md) and
+Releases, Homebrew, package registries, or third-party mirrors. GNU/Linux and
+Android builds are internal developer QA targets until a separate distribution
+plan is approved. Windows development is discontinued with no planned resumption
+date. See [`docs/distribution.md`](docs/distribution.md) and
 [`docs/license-validation.md`](docs/license-validation.md).
 
 GitHub is source-only and view-only for end users. Do not publish or link
