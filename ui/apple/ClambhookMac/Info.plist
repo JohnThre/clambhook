@@ -25,7 +25,7 @@
 	<key>SUFeedURL</key>
 	<string>https://store.clambercloud.com/api/clambhook/appcast.xml</string>
 	<key>SUPublicEDKey</key>
-	<string>REPLACE_WITH_SPARKLE_ED25519_PUBLIC_KEY</string>
+	<string>EAo1mJ+uu5IvCZTjKjXXoP5FJT7MqzxpB7NiLiYdRYQ=</string>
 	<key>SUEnableInstallerLauncherService</key>
 	<true/>
 	<key>SUEnableAutomaticChecks</key>
