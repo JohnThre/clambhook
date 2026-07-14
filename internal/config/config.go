@@ -17,6 +17,7 @@ type Config struct {
 	Geo       GeoConfig       `toml:"geo"`
 	Traffic   TrafficConfig   `toml:"traffic"`
 	Developer DeveloperConfig `toml:"developer"`
+	Prompt    PromptConfig    `toml:"prompt"`
 }
 
 // GeoConfig points at an MMDB file for IP → country/city lookups. Geo is a
@@ -47,6 +48,22 @@ func DefaultTrafficConfig() TrafficConfig {
 		HistoryLimit:  500,
 		HistoryMaxAge: Duration(168 * time.Hour),
 	}
+}
+
+// PromptConfig controls Little Snitch-style interactive connection prompts.
+// When enabled, connections that no existing rule already decides are paused
+// and the owning process is surfaced for an allow/block decision. It is
+// opt-in and applies across profiles.
+type PromptConfig struct {
+	// Enabled turns interactive prompting on. Off by default.
+	Enabled bool `toml:"enabled" json:"enabled"`
+	// TimeoutSeconds bounds how long a connection is held awaiting a decision
+	// before the default is applied. <=0 uses the built-in default.
+	TimeoutSeconds int `toml:"timeout_seconds" json:"timeout_seconds,omitempty"`
+	// DefaultAllow decides the outcome when a prompt times out with no user
+	// decision. Defaults to false (block) — deny-by-default is the safe stance
+	// for an interactive firewall.
+	DefaultAllow bool `toml:"default_allow" json:"default_allow,omitempty"`
 }
 
 // DeveloperConfig controls the opt-in HTTP(S) debugging inspector. It is
@@ -222,6 +239,7 @@ type RuleConfig struct {
 	SourceCIDRs    []string `toml:"source_cidrs" json:"source_cidrs,omitempty"`
 	Ports          []int    `toml:"ports" json:"ports,omitempty"`
 	Networks       []string `toml:"networks" json:"networks,omitempty"`
+	Processes      []string `toml:"processes" json:"processes,omitempty"`
 }
 
 // RuleSetConfig defines a named reusable matcher set. Inline entries are

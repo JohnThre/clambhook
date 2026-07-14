@@ -46,6 +46,8 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/rules/temporary", s.handleTemporaryRules)
 	mux.HandleFunc("POST /api/v1/rules/temporary/from-connection", s.handleCreateTemporaryRuleFromConnection)
 	mux.HandleFunc("DELETE /api/v1/rules/temporary/{id}", s.handleDeleteTemporaryRule)
+	mux.HandleFunc("GET /api/v1/prompts/pending", s.handlePendingPrompts)
+	mux.HandleFunc("POST /api/v1/prompts/{id}/resolve", s.handleResolvePrompt)
 	mux.HandleFunc("PUT /api/v1/rules", s.handleReplaceRules)
 	mux.HandleFunc("POST /api/v1/rules/test", s.handleTestRule)
 	mux.HandleFunc("POST /api/v1/routes/explain", s.handleExplainRoute)
@@ -428,7 +430,7 @@ func (s *Server) explainRouteForProfile(cfg *config.Config, profile, effectivePr
 	defaultChainName := profile.Chains[0].Name
 	var decision rules.Decision
 	if manager := s.temporaryRules(); manager != nil {
-		tempDecision, ok, err := manager.Decide(profile.Name, defaultChainName, network, target, source, knownChainNames(profile), knownPolicyGroupNames(profile))
+		tempDecision, ok, err := manager.Decide(profile.Name, defaultChainName, network, target, source, "", "", knownChainNames(profile), knownPolicyGroupNames(profile))
 		if err != nil {
 			return testRuleResponse{}, err
 		}

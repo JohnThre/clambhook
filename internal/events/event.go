@@ -42,10 +42,12 @@ const (
 	TypeRuleBlocked           = "rule.blocked"
 
 	// Engine/daemon-level events. Emitted on shard 0 via Bus.PublishListener.
-	TypeConfigReloaded          = "config.reloaded"
-	TypeConfigReloadFailed      = "config.reload_failed"
-	TypeLogLine                 = "log.line"
-	TypeProfileNetworkSwitch    = "profile.network_switch"
+	TypeConfigReloaded       = "config.reloaded"
+	TypeConfigReloadFailed   = "config.reload_failed"
+	TypeLogLine              = "log.line"
+	TypeProfileNetworkSwitch = "profile.network_switch"
+	TypePromptPending        = "prompt.pending"
+	TypePromptResolved       = "prompt.resolved"
 
 	// TypeReplayGap is emitted once when a subscriber's Since cursor points
 	// further back than the ring buffer retains. The subscriber should treat
@@ -86,6 +88,9 @@ type ConnectionDialingData struct {
 	Network      string           `json:"network,omitempty"`
 	Source       string           `json:"source,omitempty"`
 	Application  string           `json:"application,omitempty"`
+	ProcessName  string           `json:"process_name,omitempty"`
+	ProcessPath  string           `json:"process_path,omitempty"`
+	ProcessPID   int              `json:"process_pid,omitempty"`
 	RuleName     string           `json:"rule_name,omitempty"`
 	RuleAction   string           `json:"rule_action,omitempty"`
 	ChainName    string           `json:"chain_name,omitempty"`
@@ -132,6 +137,9 @@ type RuleDecisionData struct {
 	TargetPort   string           `json:"target_port,omitempty"`
 	Network      string           `json:"network,omitempty"`
 	Source       string           `json:"source,omitempty"`
+	ProcessName  string           `json:"process_name,omitempty"`
+	ProcessPath  string           `json:"process_path,omitempty"`
+	ProcessPID   int              `json:"process_pid,omitempty"`
 	Default      bool             `json:"default,omitempty"`
 	ElapsedNs    int64            `json:"elapsed_ns,omitempty"`
 	Explanation  RouteExplanation `json:"explanation,omitempty"`
@@ -252,6 +260,32 @@ type ProfileNetworkSwitchData struct {
 	DetectedIface string `json:"detected_iface,omitempty"`
 }
 
+// PromptPendingData is emitted when an interactive connection prompt is
+// created and awaiting a user decision.
+type PromptPendingData struct {
+	PromptID    string `json:"prompt_id"`
+	ConnID      string `json:"conn_id,omitempty"`
+	Profile     string `json:"profile,omitempty"`
+	Network     string `json:"network,omitempty"`
+	Target      string `json:"target"`
+	TargetHost  string `json:"target_host,omitempty"`
+	TargetPort  string `json:"target_port,omitempty"`
+	ProcessName string `json:"process_name,omitempty"`
+	ProcessPath string `json:"process_path,omitempty"`
+	ProcessPID  int    `json:"process_pid,omitempty"`
+}
+
+// PromptResolvedData is emitted when a pending prompt is answered (by the user
+// or by the timeout default).
+type PromptResolvedData struct {
+	PromptID    string `json:"prompt_id"`
+	ConnID      string `json:"conn_id,omitempty"`
+	Profile     string `json:"profile,omitempty"`
+	Target      string `json:"target"`
+	ProcessName string `json:"process_name,omitempty"`
+	Allow       bool   `json:"allow"`
+}
+
 // Close reasons used by the listener teardown path.
 const (
 	ReasonClientEOF     = "client_eof"
@@ -368,6 +402,10 @@ func extractConnID(data any) string {
 	case ConnectionClosedData:
 		return d.ConnID
 	case RuleDecisionData:
+		return d.ConnID
+	case PromptPendingData:
+		return d.ConnID
+	case PromptResolvedData:
 		return d.ConnID
 	}
 	return ""

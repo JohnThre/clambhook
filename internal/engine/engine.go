@@ -8,6 +8,7 @@ import (
 	"net"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/JohnThre/clambhook/internal/chain"
 	"github.com/JohnThre/clambhook/internal/config"
@@ -17,6 +18,8 @@ import (
 	"github.com/JohnThre/clambhook/internal/listener"
 	"github.com/JohnThre/clambhook/internal/netwatch"
 	"github.com/JohnThre/clambhook/internal/policy"
+	"github.com/JohnThre/clambhook/internal/procattr"
+	"github.com/JohnThre/clambhook/internal/prompt"
 	"github.com/JohnThre/clambhook/internal/protocol"
 	"github.com/JohnThre/clambhook/internal/rules"
 	"github.com/JohnThre/clambhook/internal/ruleset"
@@ -64,6 +67,7 @@ type Engine struct {
 	bus       *events.Bus
 	inspector listener.HTTPInspector
 	tempRules *temprules.Manager
+	promptMgr *prompt.Manager
 	watcher   *netwatch.Watcher
 	// currentNetwork tracks the last observed network for status reporting.
 	currentNetwork netwatch.NetworkInfo
@@ -78,7 +82,35 @@ type Engine struct {
 // and geo stays disabled — a bad geo path must never prevent the daemon
 // from starting.
 func New(cfg *config.Config, bus *events.Bus) *Engine {
-	e := &Engine{cfg: cfg, bus: bus, tempRules: temprules.New(), watcher: netwatch.New()}
+	e := &Engine{cfg: cfg, bus: bus, tempRules: temprules.New(), promptMgr: prompt.New(), watcher: netwatch.New()}
+	if bus != nil {
+		e.promptMgr.SetEventHook(func(kind string, p prompt.Pending, allow bool) {
+			switch kind {
+			case prompt.EventPending:
+				bus.PublishListener(events.TypePromptPending, events.PromptPendingData{
+					PromptID:    p.ID,
+					ConnID:      p.ConnID,
+					Profile:     p.Profile,
+					Network:     p.Network,
+					Target:      p.Target,
+					TargetHost:  p.TargetHost,
+					TargetPort:  p.TargetPort,
+					ProcessName: p.ProcessName,
+					ProcessPath: p.ProcessPath,
+					ProcessPID:  p.PID,
+				})
+			case prompt.EventResolved:
+				bus.PublishListener(events.TypePromptResolved, events.PromptResolvedData{
+					PromptID:    p.ID,
+					ConnID:      p.ConnID,
+					Profile:     p.Profile,
+					Target:      p.Target,
+					ProcessName: p.ProcessName,
+					Allow:       allow,
+				})
+			}
+		})
+	}
 	if r, err := geo.Open(cfg.Geo.Database); err != nil {
 		log.Printf("geo: %v; continuing without geo lookups", err)
 	} else if r != nil {
@@ -87,6 +119,9 @@ func New(cfg *config.Config, bus *events.Bus) *Engine {
 	}
 	return e
 }
+
+// PromptManager returns the interactive connection-prompt gate.
+func (e *Engine) PromptManager() *prompt.Manager { return e.promptMgr }
 
 // Bus returns the engine's event bus (may be nil).
 func (e *Engine) Bus() *events.Bus { return e.bus }
@@ -231,7 +266,12 @@ func (e *Engine) startLocked() error {
 	// without their ctx cancellation tearing listeners down.
 	ctx, cancel := context.WithCancel(context.Background())
 
-	listeners, chains, policies, err := buildListenersWithInspectorAndPath(&effectiveProfile, e.cfg.Path, e.bus, e.inspector, e.tempRules)
+	e.promptMgr.Configure(prompt.Config{
+		Enabled:      e.cfg.Prompt.Enabled,
+		Timeout:      time.Duration(e.cfg.Prompt.TimeoutSeconds) * time.Second,
+		DefaultAllow: e.cfg.Prompt.DefaultAllow,
+	})
+	listeners, chains, policies, err := buildListenersWithInspectorAndPath(&effectiveProfile, e.cfg.Path, e.bus, e.inspector, e.tempRules, e.promptMgr)
 	if err != nil {
 		cancel()
 		return fmt.Errorf("start engine: %w", err)
@@ -570,12 +610,12 @@ func buildListeners(profile *config.Profile, bus *events.Bus) (listeners []liste
 }
 
 func buildListenersWithInspector(profile *config.Profile, bus *events.Bus, inspector listener.HTTPInspector) (listeners []listener.Listener, chains []*chain.Chain, policies *policy.Manager, err error) {
-	return buildListenersWithInspectorAndPath(profile, "", bus, inspector, nil)
+	return buildListenersWithInspectorAndPath(profile, "", bus, inspector, nil, nil)
 }
 
-func buildListenersWithInspectorAndPath(profile *config.Profile, configPath string, bus *events.Bus, inspector listener.HTTPInspector, tempRules *temprules.Manager) (listeners []listener.Listener, chains []*chain.Chain, policies *policy.Manager, err error) {
+func buildListenersWithInspectorAndPath(profile *config.Profile, configPath string, bus *events.Bus, inspector listener.HTTPInspector, tempRules *temprules.Manager, prompts *prompt.Manager) (listeners []listener.Listener, chains []*chain.Chain, policies *policy.Manager, err error) {
 	var out []listener.Listener
-	resolver := newChainResolver(profile, configPath, tempRules)
+	resolver := newChainResolver(profile, configPath, tempRules, prompts)
 	defer func() {
 		if err != nil {
 			if policies != nil {
@@ -703,7 +743,7 @@ func buildPacketStackWithConfigPath(profile *config.Profile, configPath string, 
 	if tunCfg == nil || !tunCfg.Enabled {
 		return nil, nil, errors.New("tun: listener is not enabled in active profile")
 	}
-	resolver := newChainResolver(profile, configPath, nil)
+	resolver := newChainResolver(profile, configPath, nil, nil)
 	if err := resolver.ensureBuilt(); err != nil {
 		return nil, nil, err
 	}
@@ -775,7 +815,7 @@ func buildPacketStackWithConfigPathAndTemporaryRules(profile *config.Profile, co
 	if tunCfg == nil || !tunCfg.Enabled {
 		return nil, nil, errors.New("tun: listener is not enabled in active profile")
 	}
-	resolver := newChainResolver(profile, configPath, tempRules)
+	resolver := newChainResolver(profile, configPath, tempRules, nil)
 	if err := resolver.ensureBuilt(); err != nil {
 		return nil, nil, err
 	}
@@ -823,12 +863,13 @@ type chainResolver struct {
 	profile    *config.Profile
 	configPath string
 	tempRules  *temprules.Manager
+	prompts    *prompt.Manager
 	chains     []*chain.Chain
 	byName     map[string]*chain.Chain
 }
 
-func newChainResolver(profile *config.Profile, configPath string, tempRules *temprules.Manager) *chainResolver {
-	return &chainResolver{profile: profile, configPath: configPath, tempRules: tempRules}
+func newChainResolver(profile *config.Profile, configPath string, tempRules *temprules.Manager, prompts *prompt.Manager) *chainResolver {
+	return &chainResolver{profile: profile, configPath: configPath, tempRules: tempRules, prompts: prompts}
 }
 
 // resolve picks the chain a listener should route through. An empty name
@@ -894,6 +935,7 @@ func (r *chainResolver) routePlanner(defaultChainName string, policies *policy.M
 			SourceCIDRs:    rule.SourceCIDRs,
 			Ports:          rule.Ports,
 			Networks:       rule.Networks,
+			Processes:      rule.Processes,
 		})
 	}
 	ruleSets, _ := ruleset.Resolve(r.configPath, r.profile)
@@ -901,7 +943,7 @@ func (r *chainResolver) routePlanner(defaultChainName string, policies *policy.M
 	if err != nil {
 		return nil, err
 	}
-	return &routePlanner{profileName: r.profile.Name, rules: engine, chains: r.byName, policies: policies, defaultChainName: defaultChainName, tempRules: r.tempRules}, nil
+	return &routePlanner{profileName: r.profile.Name, rules: engine, chains: r.byName, policies: policies, defaultChainName: defaultChainName, tempRules: r.tempRules, prompts: r.prompts, procLookup: procattr.Lookup}, nil
 }
 
 type routePlanner struct {
@@ -911,6 +953,8 @@ type routePlanner struct {
 	policies         *policy.Manager
 	defaultChainName string
 	tempRules        *temprules.Manager
+	prompts          *prompt.Manager
+	procLookup       func(network, source string) (procattr.Process, bool)
 	dialer           net.Dialer
 }
 
@@ -929,9 +973,36 @@ func (p *routePlanner) PlanWithSource(ctx context.Context, network, target, sour
 	if p == nil || p.rules == nil {
 		return listener.RoutePlan{}, errors.New("nil route planner")
 	}
-	decision, err := p.decide(network, target, source)
+	var proc procattr.Process
+	if p.procLookup != nil {
+		proc, _ = p.procLookup(network, source)
+	}
+	decision, err := p.decide(rules.MatchContext{
+		Network:     network,
+		Target:      target,
+		Source:      source,
+		ProcessName: proc.Name,
+		ProcessPath: proc.Path,
+	})
 	if err != nil {
 		return listener.RoutePlan{}, err
+	}
+	// Interactive prompt: only pause connections that no existing rule already
+	// decides (decision fell through to the default chain). An explicit rule or
+	// temporary rule is itself the remembered allow/block answer.
+	if decision.Default && p.prompts.Enabled() {
+		dec, gated := p.prompts.Await(ctx, prompt.Request{
+			ConnID:  events.ConnIDFrom(ctx),
+			Profile: p.profileName,
+			Network: decision.Network,
+			Target:  decision.Target,
+			Host:    decision.Host,
+			Port:    decision.Port,
+			Process: proc,
+		})
+		if gated && !dec.Allow {
+			decision = promptBlockDecision(decision)
+		}
 	}
 	plan := listener.RoutePlan{
 		Profile:   p.profileName,
@@ -959,6 +1030,9 @@ func (p *routePlanner) PlanWithSource(ctx context.Context, network, target, sour
 			Summary:       decision.Explanation.Summary,
 		},
 	}
+	plan.ProcessName = proc.Name
+	plan.ProcessPath = proc.Path
+	plan.ProcessPID = proc.PID
 	plan.RouteControl = routeControlForDecision(decision, "", "")
 	switch decision.Action {
 	case rules.ActionChain:
@@ -1053,7 +1127,22 @@ func routeControlDecision(action string) string {
 	}
 }
 
-func (p *routePlanner) decide(network, target, source string) (rules.Decision, error) {
+func promptBlockDecision(d rules.Decision) rules.Decision {
+	d.Action = rules.ActionBlock
+	d.ChainName = ""
+	d.GroupName = ""
+	d.Default = false
+	d.RuleName = "interactive_prompt"
+	d.Explanation.Source = "interactive_prompt"
+	d.Explanation.RuleName = "interactive_prompt"
+	d.Explanation.MatcherKind = "process"
+	d.Explanation.FinalChain = ""
+	d.Explanation.DefaultChain = ""
+	d.Explanation.Summary = "Blocked by interactive connection prompt."
+	return d
+}
+
+func (p *routePlanner) decide(mc rules.MatchContext) (rules.Decision, error) {
 	knownChains := make(map[string]struct{}, len(p.chains))
 	for name := range p.chains {
 		knownChains[name] = struct{}{}
@@ -1065,7 +1154,7 @@ func (p *routePlanner) decide(network, target, source string) (rules.Decision, e
 		}
 	}
 	if p.tempRules != nil {
-		decision, ok, err := p.tempRules.Decide(p.profileName, p.defaultChainName, network, target, source, knownChains, knownGroups)
+		decision, ok, err := p.tempRules.Decide(p.profileName, p.defaultChainName, mc.Network, mc.Target, mc.Source, mc.ProcessName, mc.ProcessPath, knownChains, knownGroups)
 		if err != nil {
 			return rules.Decision{}, err
 		}
@@ -1073,7 +1162,7 @@ func (p *routePlanner) decide(network, target, source string) (rules.Decision, e
 			return decision, nil
 		}
 	}
-	return p.rules.DecideWithSource(network, target, source), nil
+	return p.rules.DecideContext(mc), nil
 }
 
 type directPacketConn struct {
