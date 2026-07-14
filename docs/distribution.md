@@ -61,9 +61,10 @@ Do not release end-user installers or package artifacts on GitHub. This includes
 `.dmg`, `.pkg`, `.apk`, `.aab`, Homebrew formula releases, Debian packages, and
 macOS installer artifacts.
 
-GNU/Linux, Windows, and Android build, package, and release targets remain
-available for Pengfan Chang's internal developer QA unless a supported public
-download channel is configured under `store.clambercloud.com`.
+GNU/Linux and Android build, package, and release targets remain available for
+Pengfan Chang's internal developer QA unless a supported public download channel
+is configured under `store.clambercloud.com`. Windows development is discontinued
+with no planned resumption date.
 
 ## macOS Scope
 

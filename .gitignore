@@ -20,11 +20,6 @@ ui/android/**/*.keystore
 ui/android/**/*.p12
 ui/android/**/keystore.properties
 ui/linux/builddir/
-ui/windows/**/bin/
-ui/windows/**/obj/
-ui/windows/.vs/
-ui/windows/**/*.user
-ui/windows/AppPackages/
 *.o
 *.a
 *.so
