@@ -46,28 +46,33 @@ type trackedDarwinCommand struct {
 }
 
 type darwinRouteManager struct {
-	ifName string
-	mtu    int
-	opts   TUNOptions
-	ch     *chain.Chain
-	runner darwinRunner
+	ifName       string
+	mtu          int
+	opts         TUNOptions
+	ch           *chain.Chain
+	runner       darwinRunner
+	dnsStatePath string
 
 	tracked []trackedDarwinCommand
 }
 
 func newDarwinRouteManager(ifName string, mtu int, opts TUNOptions, ch *chain.Chain) *darwinRouteManager {
 	return &darwinRouteManager{
-		ifName: ifName,
-		mtu:    mtu,
-		opts:   opts,
-		ch:     ch,
-		runner: execDarwinRunner{},
+		ifName:       ifName,
+		mtu:          mtu,
+		opts:         opts,
+		ch:           ch,
+		runner:       execDarwinRunner{},
+		dnsStatePath: darwinDNSStatePath,
 	}
 }
 
 func (m *darwinRouteManager) Setup(ctx context.Context) error {
 	if m.runner == nil {
 		m.runner = execDarwinRunner{}
+	}
+	if m.dnsStatePath == "" {
+		m.dnsStatePath = darwinDNSStatePath
 	}
 	_ = m.restoreDNSState(ctx)
 
@@ -403,7 +408,7 @@ func (m *darwinRouteManager) configureDNS(ctx context.Context) error {
 			Automatic: automatic,
 		})
 	}
-	if err := writeDarwinDNSState(state); err != nil {
+	if err := m.writeDNSState(state); err != nil {
 		return err
 	}
 	for _, service := range services {
@@ -415,7 +420,7 @@ func (m *darwinRouteManager) configureDNS(ctx context.Context) error {
 }
 
 func (m *darwinRouteManager) restoreDNSState(ctx context.Context) error {
-	state, err := readDarwinDNSState()
+	state, err := m.readDNSState()
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil
@@ -433,7 +438,7 @@ func (m *darwinRouteManager) restoreDNSState(ctx context.Context) error {
 		}
 	}
 	if len(errs) == 0 {
-		if err := os.Remove(darwinDNSStatePath); err != nil && !errors.Is(err, os.ErrNotExist) {
+		if err := os.Remove(m.dnsStatePath); err != nil && !errors.Is(err, os.ErrNotExist) {
 			errs = append(errs, err)
 		}
 	}
@@ -498,8 +503,8 @@ type darwinDNSServiceState struct {
 	Automatic bool     `json:"automatic,omitempty"`
 }
 
-func readDarwinDNSState() (darwinDNSState, error) {
-	data, err := os.ReadFile(darwinDNSStatePath)
+func (m *darwinRouteManager) readDNSState() (darwinDNSState, error) {
+	data, err := os.ReadFile(m.dnsStatePath)
 	if err != nil {
 		return darwinDNSState{}, err
 	}
@@ -510,15 +515,15 @@ func readDarwinDNSState() (darwinDNSState, error) {
 	return state, nil
 }
 
-func writeDarwinDNSState(state darwinDNSState) error {
-	if err := os.MkdirAll(filepath.Dir(darwinDNSStatePath), 0o755); err != nil {
+func (m *darwinRouteManager) writeDNSState(state darwinDNSState) error {
+	if err := os.MkdirAll(filepath.Dir(m.dnsStatePath), 0o755); err != nil {
 		return err
 	}
 	data, err := json.MarshalIndent(state, "", "  ")
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(darwinDNSStatePath, append(data, '\n'), 0o600)
+	return os.WriteFile(m.dnsStatePath, append(data, '\n'), 0o600)
 }
 
 func tunDNSAddress(opts TUNOptions) string {
