@@ -4,6 +4,31 @@ macOS uses daemon-backed routing only. The app does not embed Apple Network
 Extension or System Extension targets, and it does not require the restricted
 Network Extension entitlement.
 
+```mermaid
+graph TD
+    app["macOS app"]
+    helper["Privileged helper<br/>Service Management LaunchDaemon"]
+    daemon["clambhook daemon"]
+
+    subgraph proxy["System Proxy mode"]
+        listeners["Local SOCKS5 + HTTP listeners"]
+        settings["macOS HTTP/HTTPS/SOCKS<br/>proxy settings (optional)"]
+        listeners --> settings
+    end
+
+    subgraph enhanced["Enhanced mode"]
+        utun["utun interface"]
+        routes["IPv4/IPv6 routes<br/>first-hop + excluded CIDRs preserved"]
+        dns["Temporary DNS rewrite<br/>when encrypted DNS is on"]
+        utun --> routes --> dns
+    end
+
+    app -->|proxy-aware apps| daemon
+    app -->|device-wide, admin-approved| helper
+    daemon --> proxy
+    helper --> daemon --> enhanced
+```
+
 ## Included
 
 - Install and approve a privileged Service Management LaunchDaemon helper.
@@ -29,8 +54,10 @@ Network Extension entitlement.
   routes, and DNS changes are system-level operations.
 - System Proxy mode is not device-wide; it only handles traffic from apps that
   honor macOS proxy settings.
-- Per-app attribution and Little Snitch-style interactive prompts are not part
-  of this release because they require Apple content-filter approvals.
+- Per-process attribution and Little Snitch-style interactive prompts apply to
+  proxied traffic (SOCKS5/HTTP listeners) via the daemon. System-wide, all-app
+  attribution through a content-filter Network Extension needs Apple approval
+  and is not part of this release.
 - iOS, iPadOS, tvOS, visionOS, and Apple App Store distribution are outside the
   supported product scope.
 

@@ -33,10 +33,16 @@ capability approvals while preserving a practical direct-download macOS path.
 
 - have: domain and country hierarchy, allow/block/reject plus temporary rules,
   rule usage stats, cleanup suggestions, and per-network profile switching.
+- have: per-process attribution and interactive connection prompts for
+  local-proxy traffic (SOCKS5/HTTP listeners) on darwin and linux. The daemon
+  maps a connection's source socket to the owning process, matches rules on a
+  `processes` matcher, and pauses undecided connections for an allow/block
+  choice (`prompt` config, `GET/POST /api/v1/prompts/*`, surfaced in the TUI).
 - partial: activity filtering, quick filters, and free-text/token search.
-- deferred: per-process attribution and interactive connection prompts. These
-  would require Apple's content-filter Network Extension approval, so they are
-  intentionally stopped for this release.
+- deferred: interactive prompts inside the Apple GUI via a system-wide
+  content-filter Network Extension (all-app attribution, not just proxied
+  traffic) would require Apple's Network Extension approval and remain out of
+  this release; the daemon-side prompts above cover proxied traffic without it.
 
 ### Proxyman
 

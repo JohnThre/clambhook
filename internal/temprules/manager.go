@@ -129,7 +129,7 @@ func (m *Manager) Snapshot(profile string) []Rule {
 
 // Decide evaluates non-expired temporary rules for a profile. ok is false
 // when no temporary rule matched.
-func (m *Manager) Decide(profile, defaultChain, network, target, source string, knownChains, knownGroups map[string]struct{}) (rules.Decision, bool, error) {
+func (m *Manager) Decide(profile, defaultChain, network, target, source, procName, procPath string, knownChains, knownGroups map[string]struct{}) (rules.Decision, bool, error) {
 	if m == nil {
 		return rules.Decision{}, false, nil
 	}
@@ -152,13 +152,20 @@ func (m *Manager) Decide(profile, defaultChain, network, target, source string, 
 			SourceCIDRs:    rule.SourceCIDRs,
 			Ports:          rule.Ports,
 			Networks:       rule.Networks,
+			Processes:      rule.Processes,
 		})
 	}
 	engine, err := rules.CompileWithRuleSets(runtimeRules, defaultChain, knownChains, knownGroups, nil)
 	if err != nil {
 		return rules.Decision{}, false, err
 	}
-	decision := engine.DecideWithSource(network, target, source)
+	decision := engine.DecideContext(rules.MatchContext{
+		Network:     network,
+		Target:      target,
+		Source:      source,
+		ProcessName: procName,
+		ProcessPath: procPath,
+	})
 	if decision.Default {
 		return rules.Decision{}, false, nil
 	}
@@ -186,5 +193,6 @@ func cloneRule(rule Rule) Rule {
 	rule.Rule.SourceCIDRs = append([]string(nil), rule.Rule.SourceCIDRs...)
 	rule.Rule.Ports = append([]int(nil), rule.Rule.Ports...)
 	rule.Rule.Networks = append([]string(nil), rule.Rule.Networks...)
+	rule.Rule.Processes = append([]string(nil), rule.Rule.Processes...)
 	return rule
 }

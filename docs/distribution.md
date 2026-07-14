@@ -4,6 +4,18 @@ ClambHook end-user downloads are distributed only from
 `store.clambercloud.com`. Checkout, license delivery, device-seat management,
 and update-year renewals are handled by `store.swiphtgroup.com`.
 
+```mermaid
+flowchart TD
+    dl["Free DMG download<br/>store.clambercloud.com"] --> trial["One-calendar-month trial"]
+    trial --> buy["USD 99.99 one-time license<br/>store.swiphtgroup.com · Creem / NOWPayments"]
+    buy --> window["Update window:<br/>one year from purchase date"]
+    window --> cutoff{Past update cutoff?}
+    cutoff -->|no| updates["All updates delivered"]
+    cutoff -->|yes| frozen["Versions up to cutoff stay usable<br/>no later updates"]
+    frozen --> renew["USD 9.99 renewal<br/>+1 update year from later of<br/>current cutoff or payment date"]
+    renew --> window
+```
+
 ## End-user Downloads
 
 - Official product page: `https://store.clambercloud.com/clambhook/`.
