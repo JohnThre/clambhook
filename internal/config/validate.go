@@ -47,6 +47,9 @@ func (c *Config) Validate() error {
 		}
 	}
 	errs = append(errs, validateDeveloperConfig(&c.Developer)...)
+	if c.Prompt.TimeoutSeconds < 0 {
+		errs = append(errs, fmt.Errorf("prompt timeout_seconds must not be negative"))
+	}
 	return errors.Join(errs...)
 }
 
@@ -670,6 +673,7 @@ func validateRule(profileName string, idx int, rule *RuleConfig, chainNames, gro
 		{name: "domain_keywords", vals: rule.DomainKeywords},
 		{name: "networks", vals: rule.Networks},
 		{name: "rule_sets", vals: rule.RuleSets},
+		{name: "processes", vals: rule.Processes},
 	} {
 		for j, raw := range field.vals {
 			if strings.TrimSpace(raw) == "" {

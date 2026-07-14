@@ -78,7 +78,7 @@ func explainRouteForConfig(cfg *config.Config, profileName, network, target, sou
 	defaultChainName := profile.Chains[0].Name
 	var decision rules.Decision
 	if tempRules != nil {
-		tempDecision, ok, err := tempRules.Decide(profile.Name, defaultChainName, network, target, source, knownChainNames(profile), knownPolicyGroupNames(profile))
+		tempDecision, ok, err := tempRules.Decide(profile.Name, defaultChainName, network, target, source, "", "", knownChainNames(profile), knownPolicyGroupNames(profile))
 		if err != nil {
 			return ruleTestResponse{}, err
 		}

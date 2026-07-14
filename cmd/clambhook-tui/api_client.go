@@ -191,6 +191,9 @@ type trafficConnectionPayload struct {
 	Network      string              `json:"network,omitempty"`
 	Source       string              `json:"source,omitempty"`
 	Application  string              `json:"application,omitempty"`
+	ProcessName  string              `json:"process_name,omitempty"`
+	ProcessPath  string              `json:"process_path,omitempty"`
+	ProcessPID   int                 `json:"process_pid,omitempty"`
 	Hops         []trafficHop        `json:"hops,omitempty"`
 	Timeline     []timelineEvent     `json:"timeline,omitempty"`
 	Visibility   *visibilityInfo     `json:"visibility,omitempty"`
@@ -682,8 +685,46 @@ func (c apiClient) testRule(network, target string) (ruleTestResponse, error) {
 	return out, err
 }
 
+type pendingPromptsPayload struct {
+	Prompts []pendingPrompt `json:"prompts"`
+}
+
+type pendingPrompt struct {
+	ID          string `json:"id"`
+	ConnID      string `json:"conn_id,omitempty"`
+	Profile     string `json:"profile,omitempty"`
+	Network     string `json:"network,omitempty"`
+	Target      string `json:"target,omitempty"`
+	TargetHost  string `json:"target_host,omitempty"`
+	TargetPort  string `json:"target_port,omitempty"`
+	PID         int    `json:"pid,omitempty"`
+	ProcessName string `json:"process_name,omitempty"`
+	ProcessPath string `json:"process_path,omitempty"`
+	CreatedAt   string `json:"created_at,omitempty"`
+	Waiters     int    `json:"waiters,omitempty"`
+}
+
+func (c apiClient) pendingPrompts() ([]pendingPrompt, error) {
+	var out pendingPromptsPayload
+	err := c.getJSON("/api/v1/prompts/pending", &out)
+	return out.Prompts, err
+}
+
+func (c apiClient) resolvePrompt(id, action, scope string, matchHost bool, ttlSeconds int64) error {
+	body, err := json.Marshal(map[string]any{
+		"action":      action,
+		"scope":       scope,
+		"match_host":  matchHost,
+		"ttl_seconds": ttlSeconds,
+	})
+	if err != nil {
+		return err
+	}
+	return c.doNoBody(http.MethodPost, "/api/v1/prompts/"+url.PathEscape(id)+"/resolve", bytes.NewReader(body))
+}
+
 func (c apiClient) eventsURL() string {
-	return c.wsBaseURL + "/api/v1/events?types=connection.*,rule.*,hop.*,log.*"
+	return c.wsBaseURL + "/api/v1/events?types=connection.*,rule.*,hop.*,log.*,prompt.*"
 }
 
 func (c apiClient) getJSON(path string, out any) error {
