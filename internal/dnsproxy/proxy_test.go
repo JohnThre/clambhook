@@ -168,6 +168,26 @@ func TestExchangeReturnsServfailAfterUpstreamFailure(t *testing.T) {
 	}
 }
 
+func TestNewControlDBuildsExpandedUpstream(t *testing.T) {
+	proxy, err := New(config.DNSConfig{
+		Enabled: true,
+		Upstreams: []config.DNSUpstreamConfig{{
+			Protocol: "controld",
+			Resolver: "abc123",
+		}},
+	}, directPlanner{})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer proxy.Close()
+	if len(proxy.upstreams) != 1 {
+		t.Fatalf("upstreams = %d, want 1", len(proxy.upstreams))
+	}
+	if got := proxy.upstreams[0].Name(); got != "controld:abc123" {
+		t.Fatalf("upstream name = %q, want controld:abc123", got)
+	}
+}
+
 type directPlanner struct{}
 
 func (directPlanner) DefaultChainName() string { return "direct" }

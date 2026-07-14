@@ -125,7 +125,9 @@ manual choice or automatic latency testing (`url-test`).
 - Little Snitch-style interactive connection prompts for local-proxy traffic.
 - Opt-in HTTP(S) capture with body previews, HAR export, repeat/compose, map
   rules, and breakpoints.
-- Encrypted DNS (DoH / DoT / DoQ) with local answering in TUN mode.
+- Encrypted DNS (DoH / DoT / DoQ) with local answering in TUN mode, including a
+  first-class `controld` upstream so end users can plug in their own Control D
+  resolver by id.
 - Server geolocation display and emoji support in configuration profiles.
 
 ## macOS modes
