@@ -447,7 +447,7 @@ private struct OnboardingProfileImportStep: View {
         if !configPath.isEmpty, (try? model.writeConfigFile(pendingText)) != nil {
             model.reloadDaemon()
         } else {
-            try? model.attention.captureImport(rawValue: pendingText, source: .file)
+            _ = try? model.attention.captureImport(rawValue: pendingText, source: .file)
         }
     }
 

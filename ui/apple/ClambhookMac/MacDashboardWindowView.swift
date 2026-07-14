@@ -11,6 +11,7 @@ enum SidebarItem: Hashable {
     case rules
     case dns
     case activity
+    case map
     case httpCapture
     case logs
     case settings
@@ -90,6 +91,8 @@ struct MacDashboardWindowView: View {
                     .tag(SidebarItem.dns)
                 Label("Activity", systemImage: "arrow.up.arrow.down")
                     .tag(SidebarItem.activity)
+                Label("Map", systemImage: "globe.americas.fill")
+                    .tag(SidebarItem.map)
                 Label("HTTP Capture", systemImage: "list.bullet.rectangle")
                     .tag(SidebarItem.httpCapture)
             }
@@ -166,6 +169,8 @@ struct MacDashboardWindowView: View {
             MacDNSSection(model: model)
         case .activity:
             MacActivitySection(model: model)
+        case .map:
+            MacConnectionMapSection(model: model)
         case .httpCapture:
             MacHTTPCaptureSection(model: model)
         case .logs:
