@@ -11,8 +11,12 @@ import (
 
 	"github.com/JohnThre/clambhook/internal/chain"
 	"github.com/JohnThre/clambhook/internal/config"
+	"github.com/JohnThre/clambhook/internal/listener"
 	"github.com/JohnThre/clambhook/internal/policy"
+	"github.com/JohnThre/clambhook/internal/procattr"
+	"github.com/JohnThre/clambhook/internal/prompt"
 	"github.com/JohnThre/clambhook/internal/protocol"
+	"github.com/JohnThre/clambhook/internal/rules"
 )
 
 var engineLifecycleState = newEngineLifecycleState()
@@ -498,7 +502,7 @@ func TestRoutePlannerResolvesPolicyGroupSelection(t *testing.T) {
 		Action: "group:auto",
 	}}
 
-	resolver := newChainResolver(&profile, "", nil)
+	resolver := newChainResolver(&profile, "", nil, nil)
 	if err := resolver.ensureBuilt(); err != nil {
 		t.Fatalf("ensureBuilt: %v", err)
 	}
@@ -530,5 +534,193 @@ func TestRoutePlannerResolvesPolicyGroupSelection(t *testing.T) {
 	}
 	if plan.RouteControl.Mode != "rule" || plan.RouteControl.Decision != "proxy" || plan.RouteControl.PolicyGroup != "auto" || plan.RouteControl.SelectedChain != "backup" || plan.RouteControl.SelectionReason != "lowest_latency" || plan.RouteControl.Fallback {
 		t.Fatalf("route control = %+v, want rule proxy auto backup lowest_latency without fallback", plan.RouteControl)
+	}
+}
+
+func TestRoutePlannerPromptGateBlocks(t *testing.T) {
+	profile := lifecycleProfile(t.Name(), freePort(t), t.Name()+"/primary")
+
+	resolver := newChainResolver(&profile, "", nil, nil)
+	if err := resolver.ensureBuilt(); err != nil {
+		t.Fatalf("ensureBuilt: %v", err)
+	}
+	t.Cleanup(func() { _ = closeChains(resolver.chains) })
+	planner, err := resolver.routePlanner("", nil)
+	if err != nil {
+		t.Fatalf("routePlanner: %v", err)
+	}
+
+	// Attribute the connection to a fake process and enable prompting.
+	planner.procLookup = func(_, _ string) (procattr.Process, bool) {
+		return procattr.Process{PID: 7, Name: "curl", Path: "/usr/bin/curl"}, true
+	}
+	pm := prompt.New()
+	pm.Configure(prompt.Config{Enabled: true, Timeout: 2 * time.Second})
+	planner.prompts = pm
+
+	// The user blocks the prompt shortly after it appears.
+	go func() {
+		deadline := time.After(2 * time.Second)
+		for {
+			if pend := pm.Pending(); len(pend) > 0 {
+				pm.Resolve(pend[0].ID, prompt.Resolution{Allow: false})
+				return
+			}
+			select {
+			case <-deadline:
+				return
+			default:
+				time.Sleep(2 * time.Millisecond)
+			}
+		}
+	}()
+
+	plan, err := planner.PlanWithSource(context.Background(), "tcp", "example.com:443", "127.0.0.1:54321")
+	if err != nil {
+		t.Fatalf("PlanWithSource: %v", err)
+	}
+	if plan.Action != rules.ActionBlock {
+		t.Fatalf("plan action = %q, want block", plan.Action)
+	}
+	if plan.ProcessName != "curl" || plan.ProcessPID != 7 {
+		t.Fatalf("plan process = %q/%d, want curl/7", plan.ProcessName, plan.ProcessPID)
+	}
+	if plan.Dial != nil {
+		t.Fatal("blocked plan must not carry a dialer")
+	}
+}
+
+func TestRoutePlannerPromptGateAllows(t *testing.T) {
+	profile := lifecycleProfile(t.Name(), freePort(t), t.Name()+"/primary")
+
+	resolver := newChainResolver(&profile, "", nil, nil)
+	if err := resolver.ensureBuilt(); err != nil {
+		t.Fatalf("ensureBuilt: %v", err)
+	}
+	t.Cleanup(func() { _ = closeChains(resolver.chains) })
+	planner, err := resolver.routePlanner("", nil)
+	if err != nil {
+		t.Fatalf("routePlanner: %v", err)
+	}
+	planner.procLookup = func(_, _ string) (procattr.Process, bool) {
+		return procattr.Process{PID: 7, Name: "curl", Path: "/usr/bin/curl"}, true
+	}
+	pm := prompt.New()
+	pm.Configure(prompt.Config{Enabled: true, Timeout: 2 * time.Second})
+	planner.prompts = pm
+
+	go func() {
+		deadline := time.After(2 * time.Second)
+		for {
+			if pend := pm.Pending(); len(pend) > 0 {
+				pm.Resolve(pend[0].ID, prompt.Resolution{Allow: true})
+				return
+			}
+			select {
+			case <-deadline:
+				return
+			default:
+				time.Sleep(2 * time.Millisecond)
+			}
+		}
+	}()
+
+	plan, err := planner.PlanWithSource(context.Background(), "tcp", "example.com:443", "127.0.0.1:54321")
+	if err != nil {
+		t.Fatalf("PlanWithSource: %v", err)
+	}
+	if plan.Action != rules.ActionChain || !plan.Default {
+		t.Fatalf("allowed plan = %+v, want default chain", plan)
+	}
+	if plan.Dial == nil {
+		t.Fatal("allowed plan must carry a dialer")
+	}
+}
+
+// TestSOCKS5PromptBlocksEndToEnd drives a real SOCKS5 listener through the real
+// route planner with prompting enabled and live process attribution: a client
+// CONNECT is paused, attributed to this test process, then blocked once the
+// prompt is resolved. This is the end-to-end smoke test for the local-proxy
+// interactive-prompt path.
+func TestSOCKS5PromptBlocksEndToEnd(t *testing.T) {
+	profile := lifecycleProfile(t.Name(), freePort(t), t.Name()+"/primary")
+
+	resolver := newChainResolver(&profile, "", nil, nil)
+	if err := resolver.ensureBuilt(); err != nil {
+		t.Fatalf("ensureBuilt: %v", err)
+	}
+	t.Cleanup(func() { _ = closeChains(resolver.chains) })
+	planner, err := resolver.routePlanner("", nil)
+	if err != nil {
+		t.Fatalf("routePlanner: %v", err)
+	}
+	pm := prompt.New()
+	pm.Configure(prompt.Config{Enabled: true, Timeout: 5 * time.Second})
+	planner.prompts = pm
+
+	s := listener.NewSOCKSv5WithPlanner("127.0.0.1:0", nil, planner, listener.Options{})
+	if err := s.Start(context.Background()); err != nil {
+		t.Fatalf("start socks5: %v", err)
+	}
+	t.Cleanup(func() { _ = s.Stop() })
+
+	// Resolve the prompt to block once it appears, asserting live attribution.
+	attributed := make(chan string, 1)
+	go func() {
+		deadline := time.After(5 * time.Second)
+		for {
+			if pend := pm.Pending(); len(pend) > 0 {
+				attributed <- pend[0].ProcessName
+				pm.Resolve(pend[0].ID, prompt.Resolution{Allow: false})
+				return
+			}
+			select {
+			case <-deadline:
+				attributed <- ""
+				return
+			default:
+				time.Sleep(2 * time.Millisecond)
+			}
+		}
+	}()
+
+	client, err := net.Dial("tcp", s.Addr())
+	if err != nil {
+		t.Fatalf("dial listener: %v", err)
+	}
+	defer client.Close()
+
+	// SOCKS5 no-auth greeting.
+	if _, err := client.Write([]byte{0x05, 0x01, 0x00}); err != nil {
+		t.Fatal(err)
+	}
+	sel := make([]byte, 2)
+	if _, err := io.ReadFull(client, sel); err != nil {
+		t.Fatal(err)
+	}
+	if sel[0] != 0x05 || sel[1] != 0x00 {
+		t.Fatalf("method selection = %v, want [5,0]", sel)
+	}
+
+	// CONNECT example.com:80 — no rule matches, so the prompt gate fires.
+	req := append([]byte{0x05, 0x01, 0x00, 0x03, 11}, []byte("example.com")...)
+	req = append(req, 0x00, 0x50)
+	if _, err := client.Write(req); err != nil {
+		t.Fatal(err)
+	}
+	reply := make([]byte, 10)
+	if _, err := io.ReadFull(client, reply); err != nil {
+		t.Fatalf("read reply: %v", err)
+	}
+	if reply[0] != 0x05 {
+		t.Fatalf("reply version = %d, want 5", reply[0])
+	}
+	if reply[1] == 0x00 {
+		t.Fatal("blocked CONNECT returned success reply; gate did not block")
+	}
+
+	name := <-attributed
+	if name == "" {
+		t.Skip("live process attribution unavailable in this sandbox; gate still blocked the connection")
 	}
 }

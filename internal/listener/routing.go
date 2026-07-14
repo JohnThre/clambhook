@@ -34,6 +34,9 @@ type RoutePlan struct {
 	Port         string
 	Network      string
 	Source       string
+	ProcessName  string
+	ProcessPath  string
+	ProcessPID   int
 	Default      bool
 	ElapsedNs    int64
 	Hops         []events.HopInfo

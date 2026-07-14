@@ -39,6 +39,21 @@ events in the `swiphtgroup.com` store.
 Users can manage device seats from
 `https://store.swiphtgroup.com/clambhook/portal/`.
 
+```mermaid
+stateDiagram-v2
+    [*] --> Active: activate
+    Active --> Active: activate (refresh)
+    Active --> Deactivated: deactivate
+    Deactivated --> Active: reactivate
+    Active --> Transferred: transfer (deactivates current seat)
+    Transferred --> Active: activate on new device
+
+    note right of Active
+        Max 10 concurrently
+        active devices per license
+    end note
+```
+
 ## Distribution Contract
 
 A USD 99.99 one-time ClambHook license is required after the one-calendar-month

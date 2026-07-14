@@ -109,6 +109,9 @@ type Connection struct {
 	Network      string            `json:"network,omitempty"`
 	Source       string            `json:"source,omitempty"`
 	Application  string            `json:"application,omitempty"`
+	ProcessName  string            `json:"process_name,omitempty"`
+	ProcessPath  string            `json:"process_path,omitempty"`
+	ProcessPID   int               `json:"process_pid,omitempty"`
 	Hops         []Hop             `json:"hops,omitempty"`
 	Timeline     []TimelineEvent   `json:"timeline,omitempty"`
 	Visibility   *Visibility       `json:"visibility,omitempty"`
@@ -1720,6 +1723,11 @@ func (s *Store) applyDialingLocked(ev events.Event) {
 	c.TargetPort = data.TargetPort
 	c.Application = data.Application
 	c.Source = data.Source
+	if data.ProcessName != "" || data.ProcessPath != "" || data.ProcessPID != 0 {
+		c.ProcessName = data.ProcessName
+		c.ProcessPath = data.ProcessPath
+		c.ProcessPID = data.ProcessPID
+	}
 	c.RuleName = data.RuleName
 	c.RuleAction = data.RuleAction
 	c.GroupName = data.GroupName

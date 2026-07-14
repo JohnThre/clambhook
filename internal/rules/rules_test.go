@@ -134,3 +134,58 @@ func TestCompileRejectsRuleSetWithInlineDestinationMatchers(t *testing.T) {
 		t.Fatal("expected error")
 	}
 }
+
+func TestDecideMatchesProcess(t *testing.T) {
+	engine, err := Compile([]Rule{
+		{Name: "block-curl", Action: ActionBlock, Processes: []string{"curl"}},
+		{Name: "route-firefox", Action: "chain:corp", Processes: []string{"/Applications/Firefox.app/firefox"}},
+	}, "default", map[string]struct{}{"default": {}, "corp": {}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Matches by base name of the executable path.
+	got := engine.DecideContext(MatchContext{Network: "tcp", Target: "example.com:443", ProcessPath: "/usr/bin/curl", ProcessName: "curl"})
+	if got.RuleName != "block-curl" || got.Action != ActionBlock {
+		t.Fatalf("decision = %+v, want block-curl", got)
+	}
+
+	// Matches by full executable path.
+	got = engine.DecideContext(MatchContext{Network: "tcp", Target: "example.com:443", ProcessPath: "/Applications/Firefox.app/firefox", ProcessName: "firefox"})
+	if got.RuleName != "route-firefox" || got.ChainName != "corp" {
+		t.Fatalf("decision = %+v, want route-firefox", got)
+	}
+
+	// A different process falls through to the default chain.
+	got = engine.DecideContext(MatchContext{Network: "tcp", Target: "example.com:443", ProcessName: "wget", ProcessPath: "/usr/bin/wget"})
+	if !got.Default {
+		t.Fatalf("decision = %+v, want default fallthrough", got)
+	}
+
+	// No process attribution: a process-only rule must not match.
+	got = engine.DecideContext(MatchContext{Network: "tcp", Target: "example.com:443"})
+	if !got.Default {
+		t.Fatalf("decision = %+v, want default when unattributed", got)
+	}
+}
+
+func TestProcessAndDestinationAreANDed(t *testing.T) {
+	engine, err := Compile([]Rule{
+		{Name: "curl-to-example", Action: ActionBlock, Processes: []string{"curl"}, Domains: []string{"example.com"}},
+	}, "default", map[string]struct{}{"default": {}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Process matches but destination differs -> no match.
+	got := engine.DecideContext(MatchContext{Network: "tcp", Target: "other.com:443", ProcessName: "curl"})
+	if !got.Default {
+		t.Fatalf("decision = %+v, want default (destination mismatch)", got)
+	}
+
+	// Both process and destination match -> block.
+	got = engine.DecideContext(MatchContext{Network: "tcp", Target: "example.com:443", ProcessName: "curl"})
+	if got.Action != ActionBlock {
+		t.Fatalf("decision = %+v, want block", got)
+	}
+}

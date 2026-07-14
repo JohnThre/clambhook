@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -32,6 +33,7 @@ type Rule struct {
 	SourceCIDRs    []string
 	Ports          []int
 	Networks       []string
+	Processes      []string
 }
 
 // RuleSet is a reusable destination matcher referenced by Rule.RuleSets.
@@ -91,6 +93,7 @@ type compiledRule struct {
 	sourceCIDRs    []netip.Prefix
 	ports          map[int]struct{}
 	networks       map[string]struct{}
+	processes      []string
 	ruleSets       []compiledRuleSet
 }
 
@@ -167,6 +170,7 @@ func compileRule(rule Rule, knownChains, knownGroups map[string]struct{}, knownR
 		domainKeywords: normalizeStrings(rule.DomainKeywords),
 		ports:          makePortSet(rule.Ports),
 		networks:       makeStringSet(normalizeStrings(rule.Networks)),
+		processes:      normalizeStrings(rule.Processes),
 	}
 	if len(rule.RuleSets) > 0 && (len(rule.Domains) > 0 || len(rule.DomainSuffixes) > 0 || len(rule.DomainKeywords) > 0 || len(rule.CIDRs) > 0) {
 		return compiledRule{}, fmt.Errorf("rule_sets cannot be combined with destination matchers")
@@ -254,17 +258,34 @@ func parseAction(raw string) (action, chainName string, err error) {
 
 // Decide returns the first matching rule decision, or the default chain.
 func (e *Engine) Decide(network, target string) Decision {
-	return e.DecideWithSource(network, target, "")
+	return e.DecideContext(MatchContext{Network: network, Target: target})
 }
 
-// DecideWithSource returns the first matching rule decision, including
-// optional source/client-address matchers.
+// DecideWithSource returns the first matching rule decision, including the
+// optional source/client-address matcher.
 func (e *Engine) DecideWithSource(network, target, source string) Decision {
+	return e.DecideContext(MatchContext{Network: network, Target: target, Source: source})
+}
+
+// MatchContext carries every per-connection input a rule can match against.
+// Empty fields simply don't participate in matching.
+type MatchContext struct {
+	Network     string
+	Target      string
+	Source      string
+	ProcessName string
+	ProcessPath string
+}
+
+// DecideContext returns the first matching rule decision for the full match
+// context, or the default chain when nothing matches.
+func (e *Engine) DecideContext(mc MatchContext) Decision {
 	start := time.Now()
+	target := mc.Target
 	host, port := SplitTarget(target)
-	network = strings.ToLower(strings.TrimSpace(network))
+	network := strings.ToLower(strings.TrimSpace(mc.Network))
 	for i, rule := range e.rules {
-		match, ok := rule.match(network, host, port, source)
+		match, ok := rule.match(network, host, port, mc.Source, mc.ProcessName, mc.ProcessPath)
 		if !ok {
 			continue
 		}
@@ -278,7 +299,7 @@ func (e *Engine) DecideWithSource(network, target, source string) Decision {
 			Host:       host,
 			Port:       port,
 			Network:    network,
-			Source:     source,
+			Source:     mc.Source,
 			ElapsedNs:  time.Since(start).Nanoseconds(),
 			Explanation: Explanation{
 				Source:       "profile_rule",
@@ -300,7 +321,7 @@ func (e *Engine) DecideWithSource(network, target, source string) Decision {
 		Host:       host,
 		Port:       port,
 		Network:    network,
-		Source:     source,
+		Source:     mc.Source,
 		Default:    true,
 		ElapsedNs:  time.Since(start).Nanoseconds(),
 		Explanation: Explanation{
@@ -318,7 +339,7 @@ type matchInfo struct {
 	Value string
 }
 
-func (r compiledRule) match(network, host, port, source string) (matchInfo, bool) {
+func (r compiledRule) match(network, host, port, source, procName, procPath string) (matchInfo, bool) {
 	var first matchInfo
 	if len(r.networks) > 0 {
 		if _, ok := r.networks[network]; !ok {
@@ -342,6 +363,13 @@ func (r compiledRule) match(network, host, port, source string) (matchInfo, bool
 			return matchInfo{}, false
 		}
 		first = firstMatch(first, "source_cidr", sourceMatch)
+	}
+	if len(r.processes) > 0 {
+		procMatch, ok := r.matchProcess(procName, procPath)
+		if !ok {
+			return matchInfo{}, false
+		}
+		first = firstMatch(first, "process", procMatch)
 	}
 	if r.hasDomainMatchers() {
 		domainMatch, ok := r.matchDomain(host)
@@ -368,6 +396,27 @@ func (r compiledRule) match(network, host, port, source string) (matchInfo, bool
 		first = matchInfo{Kind: "all_traffic", Value: "*"}
 	}
 	return first, true
+}
+
+// matchProcess reports whether the owning process matches any configured
+// process pattern. A pattern matches the process name, its full executable
+// path, or the path's base name, case-insensitively.
+func (r compiledRule) matchProcess(procName, procPath string) (string, bool) {
+	name := strings.ToLower(strings.TrimSpace(procName))
+	fullPath := strings.ToLower(strings.TrimSpace(procPath))
+	base := ""
+	if fullPath != "" {
+		base = strings.ToLower(filepath.Base(procPath))
+	}
+	for _, p := range r.processes {
+		if p == "" {
+			continue
+		}
+		if p == name || (fullPath != "" && p == fullPath) || (base != "" && p == base) {
+			return p, true
+		}
+	}
+	return "", false
 }
 
 func (r compiledRule) hasDomainMatchers() bool {

@@ -105,6 +105,8 @@ type model struct {
 	pendingRule          *pendingRule
 	pendingCleanup       *cleanupSuggestionPayload
 	pendingRuleTTLIdx    int // index into tempRuleTTLOptions; 0 = 15m
+	pendingPrompts       []pendingPrompt
+	promptCursor         int
 	width                int
 	height               int
 
@@ -214,6 +216,11 @@ type configImportDoneMsg struct {
 	Err    error
 }
 
+type promptsLoadedMsg struct {
+	Prompts []pendingPrompt
+	Err     error
+}
+
 type eventMsg struct {
 	Event events.Event
 }
@@ -244,6 +251,7 @@ func (m model) Init() tea.Cmd {
 		m.startEventStreamCmd(),
 		waitEventCmd(m.eventsCh, m.eventErrCh),
 		tickCmd(),
+		m.loadPromptsCmd(),
 	)
 }
 
@@ -302,6 +310,35 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 				}
 				return m, nil
+			}
+		}
+		// Interactive connection prompts take priority when pending.
+		if len(m.pendingPrompts) > 0 {
+			if m.promptCursor < 0 {
+				m.promptCursor = 0
+			}
+			if m.promptCursor >= len(m.pendingPrompts) {
+				m.promptCursor = len(m.pendingPrompts) - 1
+			}
+			switch msg.String() {
+			case "up", "k":
+				if m.promptCursor > 0 {
+					m.promptCursor--
+				}
+				return m, nil
+			case "down", "j":
+				if m.promptCursor < len(m.pendingPrompts)-1 {
+					m.promptCursor++
+				}
+				return m, nil
+			case "a":
+				return m, m.resolvePromptCmd(m.pendingPrompts[m.promptCursor].ID, "allow", "once")
+			case "A":
+				return m, m.resolvePromptCmd(m.pendingPrompts[m.promptCursor].ID, "allow", "forever")
+			case "b":
+				return m, m.resolvePromptCmd(m.pendingPrompts[m.promptCursor].ID, "block", "once")
+			case "B":
+				return m, m.resolvePromptCmd(m.pendingPrompts[m.promptCursor].ID, "block", "forever")
 			}
 		}
 		// Intercept "t" for latency test when in Library+policyFocus mode.
@@ -785,12 +822,24 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.configActionMsg = msg.Result.Message
 		return m, m.loadDashboardCmd()
+	case promptsLoadedMsg:
+		if msg.Err != nil {
+			m.errText = msg.Err.Error()
+			return m, nil
+		}
+		m.pendingPrompts = msg.Prompts
+		m.clampPromptCursor()
+		return m, nil
 	case eventMsg:
 		needsRefresh := m.applyEvent(msg.Event)
+		cmds := []tea.Cmd{waitEventCmd(m.eventsCh, m.eventErrCh)}
 		if needsRefresh {
-			return m, tea.Batch(waitEventCmd(m.eventsCh, m.eventErrCh), m.loadStatusCmd())
+			cmds = append(cmds, m.loadStatusCmd())
 		}
-		return m, waitEventCmd(m.eventsCh, m.eventErrCh)
+		if msg.Event.Type == events.TypePromptPending || msg.Event.Type == events.TypePromptResolved {
+			cmds = append(cmds, m.loadPromptsCmd())
+		}
+		return m, tea.Batch(cmds...)
 	case eventErrMsg:
 		if msg.Err != nil && m.eventCtx.Err() == nil {
 			m.errText = "events: " + msg.Err.Error()
@@ -802,7 +851,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case eventStreamStartedMsg:
 		return m, nil
 	case tickMsg:
-		return m, tea.Batch(m.loadStatusCmd(), tickCmd())
+		return m, tea.Batch(m.loadStatusCmd(), m.loadPromptsCmd(), tickCmd())
 	}
 	return m, nil
 }
@@ -828,14 +877,17 @@ func (m model) View() string {
 	if m.errText != "" {
 		sections = append(sections, m.renderError(width))
 	}
+	if prompts := m.renderPromptsSection(width); prompts != "" {
+		sections = append(sections, prompts)
+	}
 	sections = append(sections,
 		m.renderConnectionSection(width),
 		m.renderNowPolicySection(width),
 		m.renderLiveTrafficSection(width),
 		m.renderRecentDecisionsSection(width),
 		m.renderFooter(
-			"Keys: c connect  d disconnect  r refresh  2 activity  3 library  4 settings  5 developer  6 network  q quit",
-			"Keys: c/d  r  2 act  3 lib  4 set  5 dev  6 net  q",
+			"Keys: c connect  d disconnect  r refresh"+m.promptFooterHint()+"  2 activity  3 library  4 settings  5 developer  6 network  q quit",
+			"Keys: c/d  r"+m.promptFooterHint()+"  2 act  3 lib  4 set  5 dev  6 net  q",
 		),
 	)
 	return joinSections(sections)
@@ -1996,7 +2048,7 @@ func (m model) trafficRowsFor(connections []trafficConnectionPayload, width, lim
 		if wide && full {
 			out = append(out, prefix+tableRowNoIndent([]string{
 				actionChip(conn),
-				emptyDash(conn.Application),
+				emptyDash(connAppLabel(conn)),
 				emptyDash(conn.Target),
 				conn.Listener.Protocol + " " + conn.Listener.Addr,
 				formatBytes(conn.RxTotal),
@@ -2010,7 +2062,7 @@ func (m model) trafficRowsFor(connections []trafficConnectionPayload, width, lim
 			out = append(out, truncate(fmt.Sprintf("%s %-7s %-7s %-28s down %-10s up %-10s %s",
 				prefix,
 				truncate(actionChip(conn), 7),
-				truncate(emptyDash(conn.Application), 7),
+				truncate(emptyDash(connAppLabel(conn)), 7),
 				truncate(emptyDash(conn.Target), 28),
 				formatBytes(conn.RxTotal),
 				formatBytes(conn.TxTotal),
@@ -2200,6 +2252,10 @@ func (m model) selectedConnectionDetailLines(width int) []string {
 		truncate(routeControlDetailLine(conn), width),
 		truncate(fmt.Sprintf("  Target %s  Network %s  App %s  Listener %s %s", emptyDash(conn.Target), emptyDash(conn.Network), emptyDash(conn.Application), conn.Listener.Protocol, conn.Listener.Addr), width),
 		truncate(fmt.Sprintf("  Bytes %s down / %s up  Duration %s  Decision %s", formatBytes(conn.RxTotal), formatBytes(conn.TxTotal), formatDurationNs(conn.DurationNs), formatDurationNs(conn.DecisionNs)), width),
+	}
+	if conn.ProcessName != "" || conn.ProcessPath != "" || conn.ProcessPID != 0 {
+		lines = append(lines, truncate(fmt.Sprintf("  Process %s  PID %s  Path %s",
+			emptyDash(conn.ProcessName), pidText(conn.ProcessPID), emptyDash(conn.ProcessPath)), width))
 	}
 	if host != "" {
 		lines = append(lines, selectedLineStyle.Render(truncate("  Action enter/n create rule from connection", width)))
@@ -2642,6 +2698,116 @@ func (m model) actionCmd(fn func() error) tea.Cmd {
 	return func() tea.Msg {
 		return actionDoneMsg{Err: fn()}
 	}
+}
+
+func (m model) loadPromptsCmd() tea.Cmd {
+	client := m.client
+	return func() tea.Msg {
+		prompts, err := client.pendingPrompts()
+		return promptsLoadedMsg{Prompts: prompts, Err: err}
+	}
+}
+
+func (m model) resolvePromptCmd(id, action, scope string) tea.Cmd {
+	client := m.client
+	return func() tea.Msg {
+		if err := client.resolvePrompt(id, action, scope, false, 0); err != nil {
+			return promptsLoadedMsg{Err: err}
+		}
+		prompts, err := client.pendingPrompts()
+		return promptsLoadedMsg{Prompts: prompts, Err: err}
+	}
+}
+
+func (m *model) clampPromptCursor() {
+	if len(m.pendingPrompts) == 0 {
+		m.promptCursor = 0
+		return
+	}
+	if m.promptCursor < 0 {
+		m.promptCursor = 0
+	}
+	if m.promptCursor >= len(m.pendingPrompts) {
+		m.promptCursor = len(m.pendingPrompts) - 1
+	}
+}
+
+func (m model) promptFooterHint() string {
+	if len(m.pendingPrompts) == 0 {
+		return ""
+	}
+	return "  a/A allow  b/B block"
+}
+
+func (m model) renderPromptsSection(width int) string {
+	if len(m.pendingPrompts) == 0 {
+		return ""
+	}
+	lines := make([]string, 0, len(m.pendingPrompts)+1)
+	for i, p := range m.pendingPrompts {
+		prefix := " "
+		style := subtleStyle
+		if i == m.promptCursor {
+			prefix = "›"
+			style = selectedLineStyle
+		}
+		lines = append(lines, style.Render(truncate(fmt.Sprintf("%s %s -> %s  net %s",
+			prefix, promptProcessLabel(p), emptyDash(promptDestination(p)), emptyDash(p.Network)), width)))
+	}
+	lines = append(lines, subtleStyle.Render(truncate("  a allow-once  A allow-forever  b block-once  B block-forever  up/down select", width)))
+	return renderSection("Connection Requests", lines)
+}
+
+// connAppLabel prefixes the application with the owning process name when
+// available so per-process attribution is visible in traffic rows.
+func connAppLabel(conn trafficConnectionPayload) string {
+	if conn.ProcessName != "" {
+		if conn.Application != "" && !strings.EqualFold(conn.Application, conn.ProcessName) {
+			return conn.ProcessName + "/" + conn.Application
+		}
+		return conn.ProcessName
+	}
+	return conn.Application
+}
+
+// connProcessPrefix returns a "process " prefix for compact lines, or "".
+func connProcessPrefix(conn trafficConnectionPayload) string {
+	if conn.ProcessName != "" {
+		return conn.ProcessName + " "
+	}
+	return ""
+}
+
+func pidText(pid int) string {
+	if pid <= 0 {
+		return "--"
+	}
+	return strconv.Itoa(pid)
+}
+
+// promptProcessLabel names the requesting process, falling back to path/pid.
+func promptProcessLabel(p pendingPrompt) string {
+	if p.ProcessName != "" {
+		return p.ProcessName
+	}
+	if p.ProcessPath != "" {
+		return p.ProcessPath
+	}
+	if p.PID > 0 {
+		return "pid " + strconv.Itoa(p.PID)
+	}
+	return "unknown app"
+}
+
+// promptDestination renders host:port, falling back to the raw target.
+func promptDestination(p pendingPrompt) string {
+	if p.TargetHost != "" {
+		if p.TargetPort != "" {
+			return p.TargetHost + ":" + p.TargetPort
+		}
+		return p.TargetHost
+	}
+	return p.Target
 }
 
 func (m model) savePendingRuleCmd(rule pendingRule) tea.Cmd {
@@ -3624,6 +3790,9 @@ func (m model) networkView() string {
 	if m.errText != "" {
 		sections = append(sections, m.renderError(width))
 	}
+	if prompts := m.renderPromptsSection(width); prompts != "" {
+		sections = append(sections, prompts)
+	}
 	sections = append(sections,
 		m.renderNetworkTreeSection(width),
 		m.renderFooter(
@@ -3821,8 +3990,8 @@ func (m model) renderNetworkDetail(width int) []string {
 			if i == m.netDetailConnIdx {
 				cursor = ">"
 			}
-			lines = append(lines, truncate(fmt.Sprintf("%s %s  %s  %s",
-				cursor, conn.Target, conn.RuleAction, conn.RuleName), width))
+			lines = append(lines, truncate(fmt.Sprintf("%s %s%s  %s  %s",
+				cursor, connProcessPrefix(conn), conn.Target, conn.RuleAction, conn.RuleName), width))
 		}
 		if len(conns) > limit {
 			lines = append(lines, subtleStyle.Render(fmt.Sprintf("  +%d more", len(conns)-limit)))

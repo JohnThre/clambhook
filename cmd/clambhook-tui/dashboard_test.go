@@ -973,6 +973,83 @@ func TestKeyActionsCallExpectedAPIEndpoints(t *testing.T) {
 	}
 }
 
+func TestPendingPromptRendersInNowView(t *testing.T) {
+	m := newModel("127.0.0.1:9090")
+	m.apiOnline = true
+	m.pendingPrompts = []pendingPrompt{{
+		ID:          "p1",
+		Network:     "tcp",
+		TargetHost:  "example.com",
+		TargetPort:  "443",
+		ProcessName: "curl",
+		ProcessPath: "/usr/bin/curl",
+		PID:         4242,
+	}}
+
+	view := m.View()
+	for _, want := range []string{"Connection Requests", "curl", "example.com:443", "net tcp", "a allow-once", "B block-forever"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("now view missing %q:\n%s", want, view)
+		}
+	}
+}
+
+func TestNoPendingPromptsRendersNothing(t *testing.T) {
+	m := newModel("127.0.0.1:9090")
+	m.apiOnline = true
+
+	if strings.Contains(m.View(), "Connection Requests") {
+		t.Fatalf("empty prompt list should not render a section:\n%s", m.View())
+	}
+}
+
+func TestResolvePromptBuildsRequest(t *testing.T) {
+	var resolvePath, resolveMethod string
+	var gotBody struct {
+		Action     string `json:"action"`
+		Scope      string `json:"scope"`
+		MatchHost  bool   `json:"match_host"`
+		TTLSeconds int64  `json:"ttl_seconds"`
+	}
+	var decodeErr error
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/resolve") {
+			resolvePath = r.URL.Path
+			resolveMethod = r.Method
+			decodeErr = json.NewDecoder(r.Body).Decode(&gotBody)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"prompts":[]}`))
+	}))
+	defer srv.Close()
+
+	m := newModel("127.0.0.1:9090")
+	m.client = newAPIClientFromBaseURL(srv.URL)
+	m.pendingPrompts = []pendingPrompt{{ID: "p1", TargetHost: "example.com", TargetPort: "443"}}
+
+	_, cmd := m.Update(keyMsg("A"))
+	if cmd == nil {
+		t.Fatal("allow-forever key returned nil command")
+	}
+	msg := cmd()
+	loaded, ok := msg.(promptsLoadedMsg)
+	if !ok {
+		t.Fatalf("message = %T, want promptsLoadedMsg", msg)
+	}
+	if loaded.Err != nil {
+		t.Fatalf("resolve error: %v", loaded.Err)
+	}
+	if decodeErr != nil {
+		t.Fatalf("decode request: %v", decodeErr)
+	}
+	if resolveMethod != http.MethodPost || resolvePath != "/api/v1/prompts/p1/resolve" {
+		t.Fatalf("resolve request = %s %s, want POST /api/v1/prompts/p1/resolve", resolveMethod, resolvePath)
+	}
+	if gotBody.Action != "allow" || gotBody.Scope != "forever" {
+		t.Fatalf("resolve body = %+v, want action=allow scope=forever", gotBody)
+	}
+}
+
 func keyMsg(key string) tea.KeyMsg {
 	switch key {
 	case "enter":
