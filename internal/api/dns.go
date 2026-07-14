@@ -121,6 +121,14 @@ func dnsUpstreamRoutes(cfg *config.Config, profile *config.Profile) []DNSUpstrea
 
 func dnsUpstreamTarget(up config.DNSUpstreamConfig) (target, network string, err error) {
 	protocol := strings.ToLower(strings.TrimSpace(up.Protocol))
+	if protocol == config.ProtocolControlD {
+		expanded, expandErr := up.ExpandControlD()
+		if expandErr != nil {
+			return "", "", expandErr
+		}
+		up = expanded
+		protocol = strings.ToLower(strings.TrimSpace(up.Protocol))
+	}
 	switch protocol {
 	case "doh":
 		parsed, err := url.Parse(up.URL)
