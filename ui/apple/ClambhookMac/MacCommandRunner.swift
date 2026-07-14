@@ -7,10 +7,12 @@ struct MacCommandResult: Equatable {
 }
 
 protocol MacCommandRunning {
+    @discardableResult
     func run(_ executable: String, arguments: [String]) throws -> MacCommandResult
 }
 
 struct MacCommandRunner: MacCommandRunning {
+    @discardableResult
     func run(_ executable: String, arguments: [String]) throws -> MacCommandResult {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executable)
