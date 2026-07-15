@@ -9,11 +9,11 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import okhttp3.WebSocket
+import java.io.Closeable
 
 class DashboardViewModel(
     private val repository: DashboardRepository,
-    private val apiClient: ClambhookApiClient
+    private val eventStream: ClambhookEventStream?
 ) : ViewModel() {
     val state: StateFlow<DashboardState> = repository.state.stateIn(
         scope = viewModelScope,
@@ -22,7 +22,7 @@ class DashboardViewModel(
     )
 
     private var pollingJob: Job? = null
-    private var webSocket: WebSocket? = null
+    private var eventStreamHandle: Closeable? = null
 
     fun refresh() {
         viewModelScope.launch { repository.refreshDashboard(showProgress = true) }
@@ -80,14 +80,15 @@ class DashboardViewModel(
     }
 
     fun startEventStream(enabled: Boolean) {
-        webSocket?.close(1000, null)
-        webSocket = null
-        if (!enabled) {
-            repository.setEventStreamState("Events paused")
+        eventStreamHandle?.close()
+        eventStreamHandle = null
+        val stream = eventStream
+        if (!enabled || stream == null) {
+            repository.setEventStreamState(if (stream == null) "Live events unavailable" else "Events paused")
             return
         }
         repository.setEventStreamState("Events listening")
-        webSocket = apiClient.openEventStream(
+        eventStreamHandle = stream.openEventStream(
             onEvent = { event ->
                 repository.setEventStreamState("Events listening")
                 if (repository.applyEvent(event)) {
@@ -114,15 +115,16 @@ class DashboardViewModel(
 
     override fun onCleared() {
         pollingJob?.cancel()
-        webSocket?.close(1000, null)
+        eventStreamHandle?.close()
     }
 }
 
 class DashboardViewModelFactory(
-    private val apiClient: ClambhookApiClient
+    private val api: ClambhookApi,
+    private val eventStream: ClambhookEventStream?
 ) : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
-        return DashboardViewModel(DashboardRepository(apiClient), apiClient) as T
+        return DashboardViewModel(DashboardRepository(api), eventStream) as T
     }
 }

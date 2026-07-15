@@ -1,0 +1,4 @@
+# Skip configuration for ClambhookUITests module
+
+#build:
+#  contents:

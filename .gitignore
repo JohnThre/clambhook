@@ -15,6 +15,7 @@ ui/android/local.properties
 ui/android/**/*.aar
 ui/android/**/*.apk
 ui/android/**/*.aab
+ui/android/app/libs/*.jar
 ui/android/**/*.jks
 ui/android/**/*.keystore
 ui/android/**/*.p12
