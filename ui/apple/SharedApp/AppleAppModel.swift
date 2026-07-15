@@ -18,6 +18,7 @@ final class AppleAppModel: ObservableObject {
     @Published private(set) var developerMapRules: [DeveloperMapRulePayload] = []
     @Published private(set) var developerBreakpointRules: [DeveloperBreakpointRulePayload] = []
     @Published private(set) var developerPendingBreakpoints: [DeveloperPendingBreakpointPayload] = []
+    @Published private(set) var pendingPrompts: [PendingPromptPayload] = []
     @Published private(set) var developerSettings = DeveloperSettingsPayload()
     @Published private(set) var configSettings = ConfigSettingsPayload()
     @Published private(set) var developerCAPEMText = ""
@@ -121,6 +122,7 @@ final class AppleAppModel: ObservableObject {
             await dashboard.refreshDashboard()
             await refreshConfigSettingsNow()
             await refreshDeveloperCaptureNow()
+            await refreshPendingPromptsNow()
             await refreshDeveloperCANow()
             syncProfileRecoveryIssue()
             enforceLicenseState()
@@ -180,6 +182,7 @@ final class AppleAppModel: ObservableObject {
         await dashboard.refreshDashboard()
         await refreshConfigSettingsNow()
         await refreshDeveloperCaptureNow()
+        await refreshPendingPromptsNow()
         await refreshDeveloperCANow()
         syncProfileRecoveryIssue()
     }
@@ -620,6 +623,46 @@ final class AppleAppModel: ObservableObject {
         }
     }
 
+    func refreshPendingPromptsNow() async {
+        guard let provider = dashboardAPI as? ClambhookPromptProviding else {
+            pendingPrompts = []
+            return
+        }
+        do {
+            pendingPrompts = try await provider.pendingPrompts().prompts
+        } catch {
+            pendingPrompts = []
+        }
+    }
+
+    func resolvePrompt(
+        _ prompt: PendingPromptPayload,
+        action: PromptDecisionAction,
+        scope: PromptDecisionScope = .once,
+        matchHost: Bool = false
+    ) {
+        guard let provider = dashboardAPI as? ClambhookPromptProviding else {
+            daemonMessage = "interactive prompts unavailable"
+            return
+        }
+        // Optimistically drop the prompt so the UI clears immediately; a
+        // failure re-fetches the authoritative pending set below.
+        pendingPrompts.removeAll { $0.id == prompt.id }
+        Task {
+            do {
+                try await provider.resolvePrompt(
+                    id: prompt.id,
+                    request: ResolvePromptRequest(action: action, scope: scope, matchHost: matchHost)
+                )
+                await refreshPendingPromptsNow()
+                await dashboard.refreshDashboard()
+            } catch {
+                daemonMessage = error.localizedDescription
+                await refreshPendingPromptsNow()
+            }
+        }
+    }
+
     func saveDeveloperSettings(_ request: DeveloperSettingsUpdateRequest) {
         Task {
             do {
@@ -661,7 +704,11 @@ final class AppleAppModel: ObservableObject {
         }
     }
 
-    func saveConfigSettings(listen: ConfigListenSettingsPayload? = nil, dns: ConfigDNSSettingsPayload? = nil) {
+    func saveConfigSettings(
+        listen: ConfigListenSettingsPayload? = nil,
+        dns: ConfigDNSSettingsPayload? = nil,
+        networkTriggers: [ConfigNetworkTriggerPayload]? = nil
+    ) {
         Task {
             do {
                 guard let configProvider = dashboardAPI as? ClambhookConfigSettingsProviding else {
@@ -670,7 +717,8 @@ final class AppleAppModel: ObservableObject {
                 configSettings = try await configProvider.updateConfigSettings(ConfigSettingsUpdateRequest(
                     profile: configSettings.profile,
                     listen: listen,
-                    dns: dns
+                    dns: dns,
+                    networkTriggers: networkTriggers
                 ))
                 await dashboard.refreshDashboard()
                 daemonMessage = configSettings.backupPath.isEmpty ? "settings saved" : "settings saved with backup"
@@ -1089,6 +1137,7 @@ final class AppleAppModel: ObservableObject {
                     break
                 }
                 await self?.dashboard.refreshStatus()
+                await self?.refreshPendingPromptsNow()
                 await MainActor.run {
                     _ = self?.syncProfileRecoveryIssue()
                     self?.enforceLicenseState()

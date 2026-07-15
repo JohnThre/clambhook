@@ -9,8 +9,8 @@ license device management happen on `store.swiphtgroup.com`.
 - Public macOS support is Apple Silicon, macOS 14.0 or later.
 - A one-calendar-month free trial starts at first launch.
 - ClambHook License: `org.jpfchang.clambhook.unlock.lifetime`, USD 99.99.
-- ClambHook for macOS 2027 Update Year: `org.jpfchang.clambhook.feature_update.2027`, USD 9.99.
-- Future update-year renewal products use `org.jpfchang.clambhook.feature_update.YYYY`.
+- ClambHook Update Year: `org.jpfchang.clambhook.feature_update`, USD 9.99.
+- A single renewal SKU applies to each additional update year; there is no per-year product identifier.
 - The USD 99.99 one-time license is required after the trial and includes one year of all updates from the purchase date.
 - Versions released on or before the update cutoff remain usable after the cutoff.
 - One license covers a maximum of 10 concurrently active devices across supported platforms.

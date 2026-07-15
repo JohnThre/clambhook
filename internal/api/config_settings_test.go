@@ -156,12 +156,66 @@ func TestConfigSettingsUpdateRejectsInvalidListenAddress(t *testing.T) {
 		t.Fatalf("status = %d body=%q, want 400", rec.Code, rec.Body.String())
 	}
 }
+func TestConfigSettingsUpdatePersistsNetworkTriggers(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "clambhook.toml")
+	cfg := testServersConfig("A")
+	cfg.Profiles[0].Listen.SOCKS5 = "127.0.0.1:1080"
+	cfg.Profiles[0].Listen.SOCKS5Chain = "a-default"
+	cfg.Profiles[0].Chains[0].Servers[0].Settings = map[string]any{
+		"method":   "chacha20-ietf-poly1305",
+		"password": "secret",
+	}
+	if _, err := config.WriteAtomicWithBackup(path, cfg); err != nil {
+		t.Fatalf("write initial config: %v", err)
+	}
+	srv := NewWithOptions(engine.New(cfg, nil), nil, Options{ConfigPath: path})
+	body := []byte(`{
+		"network_triggers": [
+			{"ssid": "HomeWiFi"},
+			{"interface": "en0"},
+			{"ssid": "", "interface": ""}
+		]
+	}`)
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/config/settings", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+	srv.server.Handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%q, want 200", rec.Code, rec.Body.String())
+	}
+	var resp configSettingsAPIResponse
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatal(err)
+	}
+	// The entry with both fields empty is dropped; two valid triggers remain.
+	if len(resp.NetworkTriggers) != 2 {
+		t.Fatalf("response network triggers = %+v", resp.NetworkTriggers)
+	}
+	if resp.NetworkTriggers[0].SSID != "HomeWiFi" || resp.NetworkTriggers[1].Interface != "en0" {
+		t.Fatalf("unexpected triggers = %+v", resp.NetworkTriggers)
+	}
+	reloaded, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("load persisted config: %v", err)
+	}
+	profile, err := reloaded.ActiveProfile()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(profile.NetworkTriggers) != 2 || profile.NetworkTriggers[0].SSID != "HomeWiFi" || profile.NetworkTriggers[1].Interface != "en0" {
+		t.Fatalf("persisted triggers = %+v", profile.NetworkTriggers)
+	}
+	got := getConfigSettings(t, srv, "/api/v1/config/settings")
+	if len(got.NetworkTriggers) != 2 {
+		t.Fatalf("GET network triggers = %+v", got.NetworkTriggers)
+	}
+}
 
 type configSettingsAPIResponse struct {
-	Profile    string                      `json:"profile"`
-	Listen     configSettingsListenPayload `json:"listen"`
-	DNS        config.DNSConfig            `json:"dns"`
-	BackupPath string                      `json:"backup_path"`
+	Profile         string                        `json:"profile"`
+	Listen          configSettingsListenPayload   `json:"listen"`
+	DNS             config.DNSConfig              `json:"dns"`
+	NetworkTriggers []config.NetworkTriggerConfig `json:"network_triggers"`
+	BackupPath      string                        `json:"backup_path"`
 }
 
 func getConfigSettings(t *testing.T, srv *Server, path string) configSettingsAPIResponse {

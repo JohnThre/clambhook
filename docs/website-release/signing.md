@@ -91,6 +91,9 @@ expired.
 
 - App `Info.plist`: `SUFeedURL`, `SUPublicEDKey`,
   `SUEnableInstallerLauncherService`, `SUEnableAutomaticChecks`.
-- Sandbox mach-lookup temporary exceptions for Sparkle's XPC services
-  (`$(PRODUCT_BUNDLE_IDENTIFIER)-spks` and `-spki`) are in
-  `ClambhookMac.entitlements`.
+- The macOS app ships as a non-sandboxed Developer ID build
+  (`ENABLE_APP_SANDBOX: NO`). It manages system proxy settings
+  (`networksetup`) and CA trust (`security add-trusted-cert`) directly, which
+  the App Sandbox would block. `ClambhookMac.entitlements` therefore carries
+  only the App Group and Keychain Sharing groups shared with the widget; no
+  sandbox key and no Sparkle mach-lookup temporary exceptions are needed.
