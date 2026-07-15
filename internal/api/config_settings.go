@@ -11,10 +11,11 @@ import (
 )
 
 type configSettingsPayload struct {
-	Profile    string                      `json:"profile"`
-	Listen     configSettingsListenPayload `json:"listen"`
-	DNS        config.DNSConfig            `json:"dns"`
-	BackupPath string                      `json:"backup_path,omitempty"`
+	Profile         string                        `json:"profile"`
+	Listen          configSettingsListenPayload   `json:"listen"`
+	DNS             config.DNSConfig              `json:"dns"`
+	NetworkTriggers []config.NetworkTriggerConfig `json:"network_triggers"`
+	BackupPath      string                        `json:"backup_path,omitempty"`
 }
 
 type configSettingsListenPayload struct {
@@ -36,9 +37,10 @@ type configSettingsTUNPayload struct {
 }
 
 type updateConfigSettingsRequest struct {
-	Profile string                      `json:"profile"`
-	Listen  *updateConfigListenSettings `json:"listen,omitempty"`
-	DNS     *config.DNSConfig           `json:"dns,omitempty"`
+	Profile         string                         `json:"profile"`
+	Listen          *updateConfigListenSettings    `json:"listen,omitempty"`
+	DNS             *config.DNSConfig              `json:"dns,omitempty"`
+	NetworkTriggers *[]config.NetworkTriggerConfig `json:"network_triggers,omitempty"`
 }
 
 type updateConfigListenSettings struct {
@@ -101,6 +103,9 @@ func (s *Server) persistConfigSettings(req updateConfigSettingsRequest) (configS
 	if req.DNS != nil {
 		profile.DNS = *req.DNS
 	}
+	if req.NetworkTriggers != nil {
+		profile.NetworkTriggers = sanitizeNetworkTriggers(*req.NetworkTriggers)
+	}
 	if err := engine.ValidateConfig(cfg); err != nil {
 		return configSettingsPayload{}, rulePersistenceError{status: http.StatusBadRequest, err: err}
 	}
@@ -157,8 +162,9 @@ func configSettingsSnapshot(profile *config.Profile, backupPath string) configSe
 			HTTPChain:   profile.Listen.HTTPChain,
 			TUN:         configSettingsTUNSnapshot(profile.Listen.TUN),
 		},
-		DNS:        profile.DNS,
-		BackupPath: backupPath,
+		DNS:             profile.DNS,
+		NetworkTriggers: append([]config.NetworkTriggerConfig(nil), profile.NetworkTriggers...),
+		BackupPath:      backupPath,
 	}
 }
 
@@ -184,6 +190,21 @@ func trimStringList(values []string) []string {
 		if trimmed != "" {
 			out = append(out, trimmed)
 		}
+	}
+	return out
+}
+
+// sanitizeNetworkTriggers trims each trigger and drops entries where both the
+// SSID and interface are empty, which the engine ignores at runtime.
+func sanitizeNetworkTriggers(triggers []config.NetworkTriggerConfig) []config.NetworkTriggerConfig {
+	out := make([]config.NetworkTriggerConfig, 0, len(triggers))
+	for _, trigger := range triggers {
+		ssid := strings.TrimSpace(trigger.SSID)
+		iface := strings.TrimSpace(trigger.Interface)
+		if ssid == "" && iface == "" {
+			continue
+		}
+		out = append(out, config.NetworkTriggerConfig{SSID: ssid, Interface: iface})
 	}
 	return out
 }

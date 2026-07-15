@@ -13,12 +13,11 @@ public struct MobilePurchaseProduct: Identifiable, Equatable {
 public enum MobilePurchaseCatalog {
     public static let macLicenseProductID = "org.jpfchang.clambhook.unlock.lifetime"
     public static let lifetimeUnlockID = macLicenseProductID
-    public static let featureUpdate2027ID = "org.jpfchang.clambhook.feature_update.2027"
-    public static let featureUpdatePrefix = "org.jpfchang.clambhook.feature_update."
+    public static let featureUpdateProductID = "org.jpfchang.clambhook.feature_update"
 
     public static let products: [MobilePurchaseProduct] = [
         MobilePurchaseProduct(id: macLicenseProductID, displayName: "ClambHook License"),
-        MobilePurchaseProduct(id: featureUpdate2027ID, displayName: "ClambHook for macOS 2027 Update Year"),
+        MobilePurchaseProduct(id: featureUpdateProductID, displayName: "ClambHook Update Year"),
     ]
 
     public static let productIDs = products.map(\.id)
@@ -62,13 +61,11 @@ public enum MobilePurchaseCatalog {
         if id == macLicenseProductID {
             return .lifetimeUnlock
         }
-        guard id.hasPrefix(featureUpdatePrefix) else {
-            return .unknown
+        // The renewal is a single provider-neutral SKU. Tolerate any future
+        // dated variant (…feature_update.YYYY) so older grants still resolve.
+        if id == featureUpdateProductID || id.hasPrefix(featureUpdateProductID + ".") {
+            return .paidUpdate
         }
-        let suffix = String(id.dropFirst(featureUpdatePrefix.count))
-        guard let year = Int(suffix), suffix.count == 4 else {
-            return .unknown
-        }
-        return .paidUpdate(year: year)
+        return .unknown
     }
 }

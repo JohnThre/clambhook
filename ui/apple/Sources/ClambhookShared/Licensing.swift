@@ -40,7 +40,7 @@ public enum MobileLicenseFeatureCatalog {
 
 public enum MobileLicenseProductKind: Equatable, Sendable {
     case lifetimeUnlock
-    case paidUpdate(year: Int)
+    case paidUpdate
     case unknown
 }
 

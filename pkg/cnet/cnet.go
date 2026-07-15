@@ -152,26 +152,3 @@ func ChaCha20Poly1305Decrypt(key, nonce, ciphertext, aad, tag []byte) (plaintext
 	}
 	return pt, nil
 }
-
-// ProcessPacket processes a network packet through the C layer.
-func ProcessPacket(in []byte) ([]byte, error) {
-	out := make([]byte, len(in)*2)
-	var outLen C.size_t
-
-	var inPtr *C.uint8_t
-	if len(in) > 0 {
-		inPtr = (*C.uint8_t)(unsafe.Pointer(&in[0]))
-	}
-
-	rc := C.cnet_process_packet(
-		inPtr,
-		C.size_t(len(in)),
-		(*C.uint8_t)(unsafe.Pointer(&out[0])),
-		C.size_t(len(out)),
-		&outLen,
-	)
-	if rc != 0 {
-		return nil, fmt.Errorf("process packet failed: %d", rc)
-	}
-	return out[:outLen], nil
-}

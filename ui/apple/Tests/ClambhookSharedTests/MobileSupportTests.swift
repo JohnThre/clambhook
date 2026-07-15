@@ -5,17 +5,17 @@ final class MobileSupportTests: XCTestCase {
     func testPurchaseProductIDsAreStableAndOrdered() {
         XCTAssertEqual(MobilePurchaseCatalog.productIDs, [
             "org.jpfchang.clambhook.unlock.lifetime",
-            "org.jpfchang.clambhook.feature_update.2027",
+            "org.jpfchang.clambhook.feature_update",
         ])
         XCTAssertEqual(
             MobilePurchaseCatalog.orderedIDs([
-                "org.jpfchang.clambhook.feature_update.2027",
+                "org.jpfchang.clambhook.feature_update",
                 "other",
                 "org.jpfchang.clambhook.unlock.lifetime",
             ]),
             [
                 "org.jpfchang.clambhook.unlock.lifetime",
-                "org.jpfchang.clambhook.feature_update.2027",
+                "org.jpfchang.clambhook.feature_update",
                 "other",
             ]
         )
@@ -69,7 +69,7 @@ final class MobileSupportTests: XCTestCase {
 
         XCTAssertEqual(
             MobilePurchaseCatalog.purchaseOfferIDs(for: decision, features: [futureFeature]),
-            [MobilePurchaseCatalog.featureUpdate2027ID]
+            [MobilePurchaseCatalog.featureUpdateProductID]
         )
     }
 
@@ -102,9 +102,9 @@ final class MobileSupportTests: XCTestCase {
             description: "USD 99.99 one-time ClambHook license after a one-calendar-month trial; includes one year of all updates; versions released on or before the cutoff remain usable; maximum 10 concurrently active devices; deactivatable and transferable."
         )
         try assertDirectSaleProduct(
-            productsByID[MobilePurchaseCatalog.featureUpdate2027ID],
+            productsByID[MobilePurchaseCatalog.featureUpdateProductID],
             displayPrice: "9.99",
-            displayName: "ClambHook for macOS 2027 Update Year",
+            displayName: "ClambHook Update Year",
             description: "USD 9.99 buys one additional update year from the later of the current cutoff or renewal payment date."
         )
     }

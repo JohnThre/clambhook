@@ -43,10 +43,10 @@ written permission from Pengfan Chang.
 | Display name | Product ID | Type | US base price |
 | --- | --- | --- | --- |
 | ClambHook License | `org.jpfchang.clambhook.unlock.lifetime` | Direct-sale license | USD 99.99 |
-| ClambHook for macOS 2027 Update Year | `org.jpfchang.clambhook.feature_update.2027` | Direct-sale update-year renewal | USD 9.99 |
+| ClambHook Update Year | `org.jpfchang.clambhook.feature_update` | Direct-sale update-year renewal | USD 9.99 |
 
-Future update-year renewal products use
-`org.jpfchang.clambhook.feature_update.YYYY`.
+A single provider-neutral renewal SKU applies to each additional update year;
+there is no per-year product identifier.
 
 The ClambHook license includes all updates released through the purchase date
 plus one year. Versions released on or before that cutoff remain usable after
