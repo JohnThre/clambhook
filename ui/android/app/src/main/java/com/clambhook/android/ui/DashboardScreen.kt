@@ -61,10 +61,10 @@ import androidx.compose.ui.unit.dp
 import kotlin.math.max
 
 enum class DashboardDestination {
-    Inbox,
-    Today,
-    Anytime,
-    Logbook
+    Imports,
+    Status,
+    Profiles,
+    Activity
 }
 
 @Composable
@@ -90,23 +90,23 @@ fun DashboardScreen(
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         when (destination) {
-            DashboardDestination.Inbox -> {
-                item { InboxCard(state, onOpenSettings) }
+            DashboardDestination.Imports -> {
+                item { ProfileImportsCard(state, onOpenSettings) }
                 item { ListenersCard(state.status.listeners) }
             }
 
-            DashboardDestination.Today -> {
+            DashboardDestination.Status -> {
                 item { StatusCard(state, onRefresh, onConnect, onDisconnect) }
                 item { PolicySelectorCard(state, onPolicyGroupSelected) }
                 item { NowActivityCard(state) }
             }
 
-            DashboardDestination.Anytime -> {
+            DashboardDestination.Profiles -> {
                 item { ProfilesCard(state, onProfileSelected) }
                 item { ServersCard(state.servers, onOpenSettings) }
             }
 
-            DashboardDestination.Logbook -> {
+            DashboardDestination.Activity -> {
                 item { TrafficCard(state, onCreateRule, onCreateRuleFromConnection, onCreateTemporaryRuleFromConnection, onCleanupRule) }
                 item { DeveloperCaptureCard(state) }
                 item { LogsCard(state) }
@@ -116,7 +116,7 @@ fun DashboardScreen(
 }
 
 @Composable
-private fun InboxCard(state: DashboardState, onOpenSettings: () -> Unit) {
+private fun ProfileImportsCard(state: DashboardState, onOpenSettings: () -> Unit) {
     Card(shape = RoundedCornerShape(8.dp)) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("Profile Imports", style = MaterialTheme.typography.titleMedium)
