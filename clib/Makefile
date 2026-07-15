@@ -9,7 +9,7 @@ endif
 SODIUM_CFLAGS := $(shell pkg-config --cflags libsodium)
 CFLAGS = -Wall -Wextra -O2 -fPIC $(SODIUM_CFLAGS)
 
-SRCS = src/packet.c src/crypto.c src/netio.c
+SRCS = src/crypto.c src/netio.c
 OBJS = $(SRCS:.c=.o)
 LIB = libcnet.a
 

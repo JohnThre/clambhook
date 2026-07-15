@@ -35,6 +35,9 @@ struct MacMenuBarView: View {
                     if !model.appRecoveryStates.isEmpty {
                         recoveryPanel
                     }
+                    if !model.pendingPrompts.isEmpty {
+                        pendingPromptsPanel
+                    }
                     profilePolicyPanel
                     trafficRatePanel
                     recentBlockedPanel
@@ -267,6 +270,18 @@ struct MacMenuBarView: View {
                     }
                     ForEach(Array(unmatchedBlockDecisions.prefix(max(0, 3 - recentBlockedConnections.count)).enumerated()), id: \.offset) { _, decision in
                         MacBlockedDecisionRow(decision: decision)
+                    }
+                }
+            }
+        }
+    }
+
+    private var pendingPromptsPanel: some View {
+        MacSection(title: "Connection Requests") {
+            VStack(alignment: .leading, spacing: 10) {
+                ForEach(model.pendingPrompts) { prompt in
+                    MacPendingPromptRow(prompt: prompt) { action, scope, matchHost in
+                        model.resolvePrompt(prompt, action: action, scope: scope, matchHost: matchHost)
                     }
                 }
             }
@@ -1039,6 +1054,84 @@ private struct MacBlockedDecisionRow: View {
         let parts = [decision.profile, decision.network.uppercased(), decision.ruleName, decision.action]
             .filter { !$0.isEmpty }
         return parts.isEmpty ? "Blocked request" : parts.joined(separator: " / ")
+    }
+}
+
+private struct MacPendingPromptRow: View {
+    var prompt: PendingPromptPayload
+    var onResolve: (PromptDecisionAction, PromptDecisionScope, Bool) -> Void
+
+    private var hostLabel: String {
+        if !prompt.targetHost.isEmpty {
+            if !prompt.targetPort.isEmpty && prompt.targetPort != "0" {
+                return "\(prompt.targetHost):\(prompt.targetPort)"
+            }
+            return prompt.targetHost
+        }
+        return prompt.target
+    }
+
+    private var subtitle: String {
+        var parts = [prompt.processLabel]
+        if !prompt.network.isEmpty {
+            parts.append(prompt.network.uppercased())
+        }
+        if prompt.waiters > 1 {
+            parts.append("\(prompt.waiters) waiting")
+        }
+        return parts.joined(separator: " / ")
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(hostLabel.isEmpty ? "—" : hostLabel)
+                    .font(.caption.weight(.semibold))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Spacer(minLength: 8)
+                Text("WAITING")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.orange)
+            }
+            Text(subtitle)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 8) { actionButtons }
+                VStack(alignment: .leading, spacing: 6) { actionButtons }
+            }
+            .font(.caption)
+        }
+        .padding(.vertical, 2)
+    }
+
+    private var actionButtons: some View {
+        Group {
+            Button {
+                onResolve(.allow, .once, false)
+            } label: {
+                Label("Allow", systemImage: "checkmark.shield")
+            }
+            Button {
+                onResolve(.block, .once, false)
+            } label: {
+                Label("Block", systemImage: "hand.raised")
+            }
+            Menu {
+                Button("Allow this session") { onResolve(.allow, .session, false) }
+                Button("Allow forever") { onResolve(.allow, .forever, false) }
+                Button("Allow forever (this host)") { onResolve(.allow, .forever, true) }
+                Divider()
+                Button("Block this session") { onResolve(.block, .session, false) }
+                Button("Block forever") { onResolve(.block, .forever, false) }
+                Button("Block forever (this host)") { onResolve(.block, .forever, true) }
+            } label: {
+                Label("More", systemImage: "ellipsis.circle")
+            }
+        }
+        .buttonStyle(.borderless)
     }
 }
 

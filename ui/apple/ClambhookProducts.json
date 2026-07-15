@@ -14,10 +14,10 @@
     },
     {
       "description": "USD 9.99 buys one additional update year from the later of the current cutoff or renewal payment date.",
-      "displayName": "ClambHook for macOS 2027 Update Year",
+      "displayName": "ClambHook Update Year",
       "displayPrice": "9.99",
       "kind": "feature_update",
-      "productID": "org.jpfchang.clambhook.feature_update.2027"
+      "productID": "org.jpfchang.clambhook.feature_update"
     }
   ],
   "type": "direct-sale",

@@ -161,7 +161,7 @@ final class LicensingTests: XCTestCase {
         let snapshot = MobileLicenseSnapshot(
             transactions: [
                 MobileLicenseTransaction(productID: MobilePurchaseCatalog.macLicenseProductID, purchaseDate: licensePurchaseDate),
-                MobileLicenseTransaction(productID: MobilePurchaseCatalog.featureUpdate2027ID, purchaseDate: mobileLicenseUTCDate(year: 2027, month: 8, day: 1)),
+                MobileLicenseTransaction(productID: MobilePurchaseCatalog.featureUpdateProductID, purchaseDate: mobileLicenseUTCDate(year: 2027, month: 8, day: 1)),
             ],
             lastVerifiedAt: mobileLicenseUTCDate(year: 2027, month: 8, day: 1)
         )
@@ -189,7 +189,7 @@ final class LicensingTests: XCTestCase {
                 purchaseDate: licensePurchaseDate
             ),
             MobileLicenseTransaction(
-                productID: MobilePurchaseCatalog.featureUpdate2027ID,
+                productID: MobilePurchaseCatalog.featureUpdateProductID,
                 purchaseDate: mobileLicenseUTCDate(year: 2027, month: 1, day: 15)
             ),
         ]
@@ -205,11 +205,11 @@ final class LicensingTests: XCTestCase {
 
     func testMultiplePaidUpdateYearsGateFeaturesByReleaseDate() {
         let licensePurchaseDate = mobileLicenseUTCDate(year: 2026, month: 6, day: 3)
-        let featureUpdate2028ID = "\(MobilePurchaseCatalog.featureUpdatePrefix)2028"
+        let featureUpdate2028ID = MobilePurchaseCatalog.featureUpdateProductID
         let snapshot = MobileLicenseSnapshot(
             transactions: [
                 MobileLicenseTransaction(productID: MobilePurchaseCatalog.macLicenseProductID, purchaseDate: licensePurchaseDate),
-                MobileLicenseTransaction(productID: MobilePurchaseCatalog.featureUpdate2027ID, purchaseDate: mobileLicenseUTCDate(year: 2027, month: 8, day: 1)),
+                MobileLicenseTransaction(productID: MobilePurchaseCatalog.featureUpdateProductID, purchaseDate: mobileLicenseUTCDate(year: 2027, month: 8, day: 1)),
                 MobileLicenseTransaction(productID: featureUpdate2028ID, purchaseDate: mobileLicenseUTCDate(year: 2028, month: 8, day: 15)),
             ],
             lastVerifiedAt: mobileLicenseUTCDate(year: 2028, month: 8, day: 15)
@@ -249,7 +249,7 @@ final class LicensingTests: XCTestCase {
             transactions: [
                 MobileLicenseTransaction(productID: MobilePurchaseCatalog.macLicenseProductID, purchaseDate: licensePurchaseDate),
                 MobileLicenseTransaction(
-                    productID: MobilePurchaseCatalog.featureUpdate2027ID,
+                    productID: MobilePurchaseCatalog.featureUpdateProductID,
                     purchaseDate: mobileLicenseUTCDate(year: 2027, month: 8, day: 1),
                     revocationDate: mobileLicenseUTCDate(year: 2027, month: 8, day: 10)
                 ),
@@ -276,7 +276,7 @@ final class LicensingTests: XCTestCase {
     func testPaidUpdateWithoutMacLicenseDoesNotUnlock() {
         let snapshot = MobileLicenseSnapshot(
             transactions: [
-                MobileLicenseTransaction(productID: MobilePurchaseCatalog.featureUpdate2027ID, purchaseDate: mobileLicenseUTCDate(year: 2027, month: 8, day: 1)),
+                MobileLicenseTransaction(productID: MobilePurchaseCatalog.featureUpdateProductID, purchaseDate: mobileLicenseUTCDate(year: 2027, month: 8, day: 1)),
             ],
             lastVerifiedAt: mobileLicenseUTCDate(year: 2027, month: 8, day: 1)
         )

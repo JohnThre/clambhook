@@ -219,10 +219,10 @@ expected = [
         "description": "USD 99.99 one-time ClambHook license after a one-calendar-month trial; includes one year of all updates; versions released on or before the cutoff remain usable; maximum 10 concurrently active devices; deactivatable and transferable.",
     },
     {
-        "productID": "org.jpfchang.clambhook.feature_update.2027",
+        "productID": "org.jpfchang.clambhook.feature_update",
         "kind": "feature_update",
         "displayPrice": "9.99",
-        "displayName": "ClambHook for macOS 2027 Update Year",
+        "displayName": "ClambHook Update Year",
         "description": "USD 9.99 buys one additional update year from the later of the current cutoff or renewal payment date.",
     },
 ]

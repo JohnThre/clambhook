@@ -28,9 +28,12 @@ team `V6GG4HYABJ`. Then **+ Capability** and add only what each target needs:
 - **ClambhookMacHelper**: no capabilities (unsandboxed privileged tool).
 
 The entitlements files are the source of truth and are already authored
-correctly in the repo. Do not add **System Extension Install** or **Network
-Extensions** to any target for this release. Enhanced Mode is implemented by the
-privileged daemon using a macOS utun interface.
+correctly in the repo. The app target is a **non-sandboxed** Developer ID build
+(`ENABLE_APP_SANDBOX: NO`) so it can drive `networksetup` (System Proxy mode)
+and `security add-trusted-cert` (HTTPS CA trust) directly; do not add the App
+Sandbox capability to **ClambhookMac**. Do not add **System Extension Install**
+or **Network Extensions** to any target for this release. Enhanced Mode is
+implemented by the privileged daemon using a macOS utun interface.
 
 #### Fallback: developer portal website (only if Xcode automatic signing fails)
 
@@ -97,6 +100,13 @@ echo test | gpg --batch --yes --pinentry-mode loopback \
 If you want a different key for releases, set `CLAMBHOOK_GPG_KEY` in your
 release shell. Make sure the public key is published to keyservers and listed
 on the ClambHook download page so users can verify.
+
+`make release-macos` **requires** signing and fails closed: it aborts unless the
+release carries the Developer ID notarization, the `developer@jpfchang.org` GPG
+signature (DMG checksum + update manifest), and an EdDSA-signed Sparkle appcast
+(needs `sign_update` on `PATH` or `SPARKLE_SIGN_UPDATE`). For an internal-only
+build-validation archive that will never be published, set `CLAMBHOOK_SKIP_GPG=1`
+to bypass both GPG and appcast signing.
 
 ### 0.5 R2 + website
 

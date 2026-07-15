@@ -27,7 +27,6 @@ fi
 APPCAST_DOWNLOAD_URL="${CLAMBHOOK_APPCAST_DOWNLOAD_URL:-https://store.clambercloud.com/api/clambhook/download}"
 DAEMON="$ROOT_DIR/bin/clambhook"
 SODIUM="$ROOT_DIR/bin/libsodium.26.dylib"
-HELPER_ENTITLEMENTS="$ROOT_DIR/ui/apple/ClambhookMac/ClambhookDaemon.entitlements"
 
 if [[ -z "$TEAM_ID" ]]; then
     echo "CLAMBHOOK_DEVELOPMENT_TEAM must be set to your paid Apple Developer Team ID." >&2
@@ -53,7 +52,7 @@ GOOS=darwin GOARCH=arm64 CGO_ENABLED=1 make -C "$ROOT_DIR" build-daemon
 "$ROOT_DIR/scripts/prepare-macos-runtime.sh"
 
 codesign --force --timestamp --options runtime --sign "$IDENTITY" "$SODIUM"
-codesign --force --timestamp --options runtime --entitlements "$HELPER_ENTITLEMENTS" --sign "$IDENTITY" "$DAEMON"
+codesign --force --timestamp --options runtime --sign "$IDENTITY" "$DAEMON"
 codesign --verify --strict --verbose=4 "$SODIUM"
 codesign --verify --strict --verbose=4 "$DAEMON"
 
@@ -80,6 +79,18 @@ cat > "$EXPORT_OPTIONS" <<PLIST
 </plist>
 PLIST
 
+# Resolve the build version once and stamp it into the app bundle, the update
+# manifest, and the Sparkle appcast so all three agree. VERSION comes from the
+# release environment (e.g. `git describe`); strip a leading "v" so
+# CFBundleShortVersionString stays a valid dotted version. CFBundleVersion uses
+# the monotonic commit count, which is what Sparkle compares against.
+BUILD_NUMBER="${BUILD_NUMBER:-$(git -C "$ROOT_DIR" rev-list --count HEAD 2>/dev/null || echo '0')}"
+SHORT_VERSION="${VERSION:-}"
+SHORT_VERSION="${SHORT_VERSION#v}"
+if [[ -z "$SHORT_VERSION" ]]; then
+    SHORT_VERSION="0.0.0"
+fi
+
 xcodebuild archive \
     -project "$ROOT_DIR/ui/apple/Clambhook.xcodeproj" \
     -scheme ClambhookMac \
@@ -89,6 +100,8 @@ xcodebuild archive \
     -allowProvisioningUpdates \
     DEVELOPMENT_TEAM="$TEAM_ID" \
     CODE_SIGN_STYLE=Automatic \
+    MARKETING_VERSION="$SHORT_VERSION" \
+    CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
     OTHER_CODE_SIGN_FLAGS="--timestamp"
 
 xcodebuild -exportArchive \
@@ -153,27 +166,47 @@ DMG_SHA256="$(shasum -a 256 "$FINAL_DMG" | awk '{print $1}')"
 echo "$DMG_SHA256  ClambhookMac-arm64.dmg" > "$FINAL_DMG_CHECKSUM"
 echo "Checksum: $DMG_SHA256"
 
-# GPG-sign the checksum with the configured release key so users (and the
-# website) can verify downloads. The update manifest is signed after it is
-# generated below. Defaults to the git signing key.
-# Pass CLAMBHOOK_GPG_KEY to override. Requires a usable pinentry on the host.
+# Sign release artifacts so users, the website, and Sparkle can verify them.
+# ClambHook releases MUST carry the developer@jpfchang.org GPG signature (DMG
+# checksum + update manifest) AND an EdDSA-signed Sparkle appcast. GPG defaults
+# to the git signing key; pass CLAMBHOOK_GPG_KEY to override. Set
+# CLAMBHOOK_SKIP_GPG=1 ONLY for internal build-validation archives that are
+# never published — it disables both GPG and appcast signing.
 GPG_KEY="${CLAMBHOOK_GPG_KEY:-$(git -C "$ROOT_DIR" config user.signingkey 2>/dev/null || true)}"
-if [[ -n "$GPG_KEY" ]] && command -v gpg >/dev/null 2>&1; then
-    GPG_BATCH_ARGS=(--batch --yes --pinentry-mode loopback --local-user "$GPG_KEY")
-    if gpg "${GPG_BATCH_ARGS[@]}" --detach-sign --armor --output "$FINAL_DMG_CHECKSUM.sig" "$FINAL_DMG_CHECKSUM" 2>/dev/null; then
-        echo "GPG-signed checksum with $GPG_KEY → $FINAL_DMG_CHECKSUM.sig"
-    else
-        echo "Warning: GPG checksum signing failed (no passphrase / agent unavailable). Artifacts are still notarized; skipping .sig." >&2
-    fi
-else
-    echo "Skipping GPG signing: gpg not found or no signing key configured (set CLAMBHOOK_GPG_KEY)." >&2
+REQUIRE_SIGNING=1
+if [[ "${CLAMBHOOK_SKIP_GPG:-0}" == "1" ]]; then
+    REQUIRE_SIGNING=0
+    echo "CLAMBHOOK_SKIP_GPG=1 set: skipping GPG + appcast signing (internal build-validation archive; do not publish)." >&2
 fi
 
-# Determine build version.
+gpg_sign_release() {
+    # gpg_sign_release <file> — writes a detached, armored signature to <file>.sig.
+    local target="$1"
+    if [[ "$REQUIRE_SIGNING" != "1" ]]; then
+        return 0
+    fi
+    if [[ -z "$GPG_KEY" ]]; then
+        echo "ClambHook releases must be GPG-signed, but no signing key is configured. Set CLAMBHOOK_GPG_KEY (or git config user.signingkey to the developer@jpfchang.org release key), or set CLAMBHOOK_SKIP_GPG=1 for an internal-only archive." >&2
+        exit 1
+    fi
+    if ! command -v gpg >/dev/null 2>&1; then
+        echo "ClambHook releases must be GPG-signed, but gpg was not found on PATH." >&2
+        exit 1
+    fi
+    if ! gpg --batch --yes --pinentry-mode loopback --local-user "$GPG_KEY" \
+        --detach-sign --armor --output "$target.sig" "$target"; then
+        echo "GPG signing failed for $target with key $GPG_KEY (check the release key passphrase / gpg-agent)." >&2
+        exit 1
+    fi
+    echo "GPG-signed $target with $GPG_KEY → $target.sig"
+}
+
+gpg_sign_release "$FINAL_DMG_CHECKSUM"
+
+# DMG stats for the update manifest. SHORT_VERSION / BUILD_NUMBER were resolved
+# before the build so the app bundle, manifest, and appcast all match.
 DMG_SIZE="$(stat -f%z "$FINAL_DMG")"
 BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-BUILD_NUMBER="${BUILD_NUMBER:-$(git -C "$ROOT_DIR" rev-list --count HEAD 2>/dev/null || echo '0')}"
-SHORT_VERSION="${VERSION}"
 
 # Generate JSON update manifest.
 cat > "$UPDATE_MANIFEST" <<JSON
@@ -191,12 +224,7 @@ cat > "$UPDATE_MANIFEST" <<JSON
 JSON
 echo "Created $UPDATE_MANIFEST"
 
-if [[ -n "${GPG_KEY:-}" ]] && command -v gpg >/dev/null 2>&1; then
-    GPG_BATCH_ARGS=(--batch --yes --pinentry-mode loopback --local-user "$GPG_KEY")
-    gpg "${GPG_BATCH_ARGS[@]}" --detach-sign --armor --output "$UPDATE_MANIFEST.sig" "$UPDATE_MANIFEST" 2>/dev/null \
-        && echo "GPG-signed manifest → $UPDATE_MANIFEST.sig" \
-        || echo "Warning: manifest GPG signing failed (continuing)." >&2
-fi
+gpg_sign_release "$UPDATE_MANIFEST"
 
 # Generate a Sparkle appcast with an EdDSA-signed enclosure when Sparkle's
 # sign_update tool and private key are available. The signing key is owner-held
@@ -232,7 +260,11 @@ if [[ -n "$SIGN_UPDATE" && -x "$SIGN_UPDATE" ]]; then
 XML
     echo "Created $APPCAST"
 else
-    echo "Skipping appcast generation: Sparkle sign_update not found. Set SPARKLE_SIGN_UPDATE or install Sparkle tools, then re-run." >&2
+    if [[ "$REQUIRE_SIGNING" == "1" ]]; then
+        echo "ClambHook releases must ship an EdDSA-signed Sparkle appcast, but Sparkle's sign_update was not found. Set SPARKLE_SIGN_UPDATE (or install the Sparkle tools) and re-run, or set CLAMBHOOK_SKIP_GPG=1 for an internal-only archive." >&2
+        exit 1
+    fi
+    echo "Skipping appcast generation: Sparkle sign_update not found (internal build-validation archive; do not publish)." >&2
 fi
 
 # Upload to Cloudflare R2 when bucket is configured.
