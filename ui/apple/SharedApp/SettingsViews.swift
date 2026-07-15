@@ -39,6 +39,7 @@ struct AppSettingsView: View {
     @State private var showingCARegenerationConfirmation = false
     @State private var stableManifestURL = ""
     @State private var betaManifestURL = ""
+    @State private var networkTriggers: [ConfigNetworkTriggerPayload] = []
 
     var body: some View {
         Form {
@@ -47,6 +48,7 @@ struct AppSettingsView: View {
             enhancedModeSection
             proxySection
             dnsSection
+            networkTriggersSection
             developerCaptureSection
             logsSection
             updatesSection
@@ -360,6 +362,49 @@ struct AppSettingsView: View {
         }
     }
 
+    private var networkTriggersSection: some View {
+        Section("Network Profiles") {
+            Text("Automatically switch to this active profile when the Mac joins a matching Wi-Fi SSID or primary network interface. Leave one field blank to match only the other field.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            if networkTriggers.isEmpty {
+                Text("No automatic network switches configured.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach($networkTriggers) { $trigger in
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        TextField("Wi-Fi SSID", text: $trigger.ssid)
+                        TextField("Interface", text: $trigger.interface)
+                            .frame(maxWidth: 120)
+                        Button(role: .destructive) {
+                            networkTriggers.removeAll { $0.id == trigger.id }
+                        } label: {
+                            Image(systemName: "minus.circle")
+                        }
+                        .buttonStyle(.borderless)
+                        .help("Remove network trigger")
+                    }
+                }
+            }
+
+            HStack {
+                Button {
+                    networkTriggers.append(ConfigNetworkTriggerPayload())
+                } label: {
+                    Label("Add Trigger", systemImage: "plus")
+                }
+                Button {
+                    saveNetworkTriggers()
+                } label: {
+                    Label("Save Network Profiles", systemImage: "square.and.arrow.down")
+                }
+                .disabled(networkTriggers.allSatisfy { $0.ssid.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && $0.interface.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty })
+            }
+        }
+    }
+
     private var developerCaptureSection: some View {
         Section("HTTP Capture") {
             Toggle("HTTP capture", isOn: Binding(
@@ -668,6 +713,7 @@ struct AppSettingsView: View {
         dnsEnabled = settings.dns.enabled
         dnsTimeout = settings.dns.timeout
         dnsUpstreams = settings.dns.upstreams.map(EditableDNSUpstream.init)
+        networkTriggers = settings.networkTriggers
     }
 
     private func loadDeveloperSettings(_ settings: DeveloperSettingsPayload) {
@@ -715,6 +761,18 @@ struct AppSettingsView: View {
             timeout: dnsTimeout.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "5s" : dnsTimeout,
             upstreams: dnsUpstreams.map(\.payload)
         ))
+    }
+
+    private func saveNetworkTriggers() {
+        let cleaned = networkTriggers
+            .map {
+                ConfigNetworkTriggerPayload(
+                    ssid: $0.ssid.trimmingCharacters(in: .whitespacesAndNewlines),
+                    interface: $0.interface.trimmingCharacters(in: .whitespacesAndNewlines)
+                )
+            }
+            .filter { !$0.ssid.isEmpty || !$0.interface.isEmpty }
+        model.saveConfigSettings(networkTriggers: cleaned)
     }
 
     private func saveTUN() {

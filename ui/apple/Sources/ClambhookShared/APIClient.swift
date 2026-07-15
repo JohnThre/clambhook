@@ -68,6 +68,11 @@ public protocol DeveloperCaptureProviding: AnyObject {
     func clearDeveloperEntries() async throws
 }
 
+public protocol ClambhookPromptProviding: AnyObject {
+    func pendingPrompts() async throws -> PendingPromptsPayload
+    func resolvePrompt(id: String, request: ResolvePromptRequest) async throws
+}
+
 public protocol ClambhookDashboardProviding: ClambhookAPIProviding {
     func dashboard() async throws -> TunnelDashboardPayload
 }
@@ -92,7 +97,7 @@ public enum APIClientError: Error, LocalizedError, Equatable {
     }
 }
 
-public final class ClambhookAPIClient: ClambhookAPIProviding, ClambhookRuleEditing, ClambhookRouteExplaining, ClambhookPolicyGroupEditing, ClambhookRuleSetEditing, ClambhookRuleSubscriptionEditing, ClambhookConfigSettingsProviding, DeveloperCaptureProviding {
+public final class ClambhookAPIClient: ClambhookAPIProviding, ClambhookRuleEditing, ClambhookRouteExplaining, ClambhookPolicyGroupEditing, ClambhookRuleSetEditing, ClambhookRuleSubscriptionEditing, ClambhookConfigSettingsProviding, DeveloperCaptureProviding, ClambhookPromptProviding {
     private let baseURL: URL
     private let tokenProvider: () -> String?
     private let session: URLSession
@@ -420,6 +425,16 @@ public final class ClambhookAPIClient: ClambhookAPIProviding, ClambhookRuleEditi
 
     public func clearDeveloperEntries() async throws {
         _ = try await send(method: "DELETE", path: "/api/v1/developer/entries")
+    }
+
+    public func pendingPrompts() async throws -> PendingPromptsPayload {
+        try await getJSON("/api/v1/prompts/pending")
+    }
+
+    public func resolvePrompt(id: String, request: ResolvePromptRequest) async throws {
+        let body = try encoder.encode(request)
+        let encodedID = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+        _ = try await send(method: "POST", path: "/api/v1/prompts/\(encodedID)/resolve", body: body)
     }
 
     public func testRule(network: String, target: String, profile: String = "") async throws -> RuleTestResponse {

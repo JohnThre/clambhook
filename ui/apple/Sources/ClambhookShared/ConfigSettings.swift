@@ -1,15 +1,39 @@
 import Foundation
 
+public struct ConfigNetworkTriggerPayload: Codable, Equatable, Sendable, Identifiable {
+    public var id = UUID()
+    public var ssid: String
+    public var interface: String
+
+    enum CodingKeys: String, CodingKey {
+        case ssid
+        case interface
+    }
+
+    public init(ssid: String = "", interface: String = "") {
+        self.ssid = ssid
+        self.interface = interface
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.ssid = try container.decodeIfPresent(String.self, forKey: .ssid) ?? ""
+        self.interface = try container.decodeIfPresent(String.self, forKey: .interface) ?? ""
+    }
+}
+
 public struct ConfigSettingsPayload: Codable, Equatable, Sendable {
     public var profile: String
     public var listen: ConfigListenSettingsPayload
     public var dns: ConfigDNSSettingsPayload
+    public var networkTriggers: [ConfigNetworkTriggerPayload]
     public var backupPath: String
 
     enum CodingKeys: String, CodingKey {
         case profile
         case listen
         case dns
+        case networkTriggers = "network_triggers"
         case backupPath = "backup_path"
     }
 
@@ -17,11 +41,13 @@ public struct ConfigSettingsPayload: Codable, Equatable, Sendable {
         profile: String = "",
         listen: ConfigListenSettingsPayload = ConfigListenSettingsPayload(),
         dns: ConfigDNSSettingsPayload = ConfigDNSSettingsPayload(),
+        networkTriggers: [ConfigNetworkTriggerPayload] = [],
         backupPath: String = ""
     ) {
         self.profile = profile
         self.listen = listen
         self.dns = dns
+        self.networkTriggers = networkTriggers
         self.backupPath = backupPath
     }
 
@@ -30,6 +56,7 @@ public struct ConfigSettingsPayload: Codable, Equatable, Sendable {
         self.profile = try container.decodeIfPresent(String.self, forKey: .profile) ?? ""
         self.listen = try container.decodeIfPresent(ConfigListenSettingsPayload.self, forKey: .listen) ?? ConfigListenSettingsPayload()
         self.dns = try container.decodeIfPresent(ConfigDNSSettingsPayload.self, forKey: .dns) ?? ConfigDNSSettingsPayload()
+        self.networkTriggers = try container.decodeIfPresent([ConfigNetworkTriggerPayload].self, forKey: .networkTriggers) ?? []
         self.backupPath = try container.decodeIfPresent(String.self, forKey: .backupPath) ?? ""
     }
 }
@@ -151,11 +178,25 @@ public struct ConfigSettingsUpdateRequest: Codable, Equatable, Sendable {
     public var profile: String
     public var listen: ConfigListenSettingsPayload?
     public var dns: ConfigDNSSettingsPayload?
+    public var networkTriggers: [ConfigNetworkTriggerPayload]?
 
-    public init(profile: String = "", listen: ConfigListenSettingsPayload? = nil, dns: ConfigDNSSettingsPayload? = nil) {
+    enum CodingKeys: String, CodingKey {
+        case profile
+        case listen
+        case dns
+        case networkTriggers = "network_triggers"
+    }
+
+    public init(
+        profile: String = "",
+        listen: ConfigListenSettingsPayload? = nil,
+        dns: ConfigDNSSettingsPayload? = nil,
+        networkTriggers: [ConfigNetworkTriggerPayload]? = nil
+    ) {
         self.profile = profile
         self.listen = listen
         self.dns = dns
+        self.networkTriggers = networkTriggers
     }
 }
 

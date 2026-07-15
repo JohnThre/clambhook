@@ -10,10 +10,6 @@
 #define CNET_ERR_AES_UNAVAIL  -2  /* Hardware AES (AES-NI / ARM Crypto) absent. */
 #define CNET_ERR_INIT         -3  /* libsodium init failure. */
 
-/* Packet processing */
-int cnet_process_packet(const uint8_t *in, size_t in_len,
-                        uint8_t *out, size_t out_cap, size_t *out_len);
-
 /*
  * AEAD ciphers (AES-256-GCM and ChaCha20-Poly1305-IETF).
  *

@@ -64,12 +64,6 @@ func ChaCha20Poly1305Decrypt(key, nonce, ciphertext, aad, tag []byte) (plaintext
 	return openDetached("chacha20poly1305", aead, nonce, ciphertext, aad, tag)
 }
 
-// ProcessPacket preserves the current packet hook behavior. The C backend is a
-// placeholder that returns an empty output, so the pure-Go fallback does too.
-func ProcessPacket(_ []byte) ([]byte, error) {
-	return []byte{}, nil
-}
-
 func sealDetached(name string, aead cipher.AEAD, nonce, plaintext, aad []byte) (ciphertext, tag []byte, err error) {
 	if len(nonce) != aead.NonceSize() {
 		return nil, nil, fmt.Errorf("%s: nonce size %d, want %d", name, len(nonce), aead.NonceSize())

@@ -258,7 +258,7 @@ func TestEngineStopClosesCachedChainDialers(t *testing.T) {
 
 	cfg := &config.Config{
 		Active:   "A",
-		Profiles: []config.Profile{lifecycleProfile("A", freePort(t), id)},
+		Profiles: []config.Profile{lifecycleProfile("A", "127.0.0.1:0", id)},
 	}
 	e := New(cfg, nil)
 	t.Cleanup(func() { _ = e.Stop() })
@@ -293,7 +293,7 @@ func TestEngineReloadClosesOldCachedChainDialers(t *testing.T) {
 
 	cfg := &config.Config{
 		Active:   "A",
-		Profiles: []config.Profile{lifecycleProfile("A", freePort(t), oldID)},
+		Profiles: []config.Profile{lifecycleProfile("A", "127.0.0.1:0", oldID)},
 	}
 	e := New(cfg, nil)
 	t.Cleanup(func() { _ = e.Stop() })
@@ -305,7 +305,7 @@ func TestEngineReloadClosesOldCachedChainDialers(t *testing.T) {
 
 	next := &config.Config{
 		Active:   "B",
-		Profiles: []config.Profile{lifecycleProfile("B", freePort(t), newID)},
+		Profiles: []config.Profile{lifecycleProfile("B", "127.0.0.1:0", newID)},
 	}
 	if err := e.Reload(next); err != nil {
 		t.Fatalf("reload: %v", err)
@@ -335,8 +335,8 @@ func TestEngineSetActiveProfileClosesOldCachedChainDialers(t *testing.T) {
 	cfg := &config.Config{
 		Active: "A",
 		Profiles: []config.Profile{
-			lifecycleProfile("A", freePort(t), oldID),
-			lifecycleProfile("B", freePort(t), newID),
+			lifecycleProfile("A", "127.0.0.1:0", oldID),
+			lifecycleProfile("B", "127.0.0.1:0", newID),
 		},
 	}
 	e := New(cfg, nil)
@@ -393,12 +393,12 @@ func TestEngineReloadValidationFailureKeepsOldListenerRunning(t *testing.T) {
 }
 
 func TestEngineReloadStartFailureRollsBackOldListener(t *testing.T) {
-	addrA := freePort(t)
 	held, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("hold port: %v", err)
 	}
 	defer held.Close()
+	addrA := freePort(t)
 
 	cfg := &config.Config{
 		Active:   "A",
@@ -428,12 +428,12 @@ func TestEngineReloadStartFailureRollsBackOldListener(t *testing.T) {
 }
 
 func TestEngineSetActiveProfileStartFailureRollsBackOldProfile(t *testing.T) {
-	addrA := freePort(t)
 	held, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("hold port: %v", err)
 	}
 	defer held.Close()
+	addrA := freePort(t)
 
 	cfg := &config.Config{
 		Active: "A",

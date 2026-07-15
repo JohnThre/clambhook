@@ -29,10 +29,10 @@ Create and keep stable these product identifiers:
 | Display name | Product ID | Type | US base price |
 | --- | --- | --- | --- |
 | ClambHook License | `org.jpfchang.clambhook.unlock.lifetime` | Direct-sale license | USD 99.99 |
-| ClambHook for macOS 2027 Update Year | `org.jpfchang.clambhook.feature_update.2027` | Direct-sale update-year renewal | USD 9.99 |
+| ClambHook Update Year | `org.jpfchang.clambhook.feature_update` | Direct-sale update-year renewal | USD 9.99 |
 
-Future update-year renewal products use the pattern
-`org.jpfchang.clambhook.feature_update.YYYY`.
+A single provider-neutral renewal SKU applies to each additional update year;
+there is no per-year product identifier.
 
 The USD 99.99 one-time license is required after the one-calendar-month trial
 and includes one year of all updates from the purchase date. Versions released
