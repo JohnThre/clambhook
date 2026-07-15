@@ -1,8 +1,11 @@
 package com.clambhook.android
 
 import android.os.Bundle
+import android.app.Activity
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -28,6 +31,22 @@ class MainActivity : ComponentActivity() {
             val token by tokenStore.token.collectAsState(initial = tokenStore.currentToken())
             var configToml by remember { mutableStateOf(defaultAndroidConfigToml) }
 
+            val vpnConsentLauncher = rememberLauncherForActivityResult(
+                ActivityResultContracts.StartActivityForResult()
+            ) { result ->
+                if (result.resultCode == Activity.RESULT_OK) {
+                    ClambhookTunnelController.start(this@MainActivity)
+                }
+            }
+            val startTunnel: () -> Unit = {
+                val consent = ClambhookTunnelController.consentIntent(this@MainActivity)
+                if (consent != null) {
+                    vpnConsentLauncher.launch(consent)
+                } else {
+                    ClambhookTunnelController.start(this@MainActivity)
+                }
+            }
+
             DisposableEffect(supportPurchaseManager) {
                 supportPurchaseManager.start()
                 onDispose { supportPurchaseManager.close() }
@@ -38,9 +57,9 @@ class MainActivity : ComponentActivity() {
             LaunchedEffect(settings.embeddedDaemonEnabled, token) {
                 configStore.ensureConfig()
                 if (settings.embeddedDaemonEnabled) {
-                    LocalDaemonService.start(this@MainActivity)
+                    startTunnel()
                 } else {
-                    LocalDaemonService.stop(this@MainActivity)
+                    ClambhookTunnelController.stop(this@MainActivity)
                 }
             }
 
@@ -49,13 +68,23 @@ class MainActivity : ComponentActivity() {
             } else {
                 settings
             }
-            val apiClient = ClambhookApiClient(
-                baseUrl = effectiveSettings.normalizedBaseUrl,
-                tokenProvider = { token }
-            )
+            val useLocalTunnel = effectiveSettings.embeddedDaemonEnabled
+            val dashboardApi: ClambhookApi
+            val eventStream: ClambhookEventStream?
+            if (useLocalTunnel) {
+                dashboardApi = LocalTunnelApi(applicationContext)
+                eventStream = null
+            } else {
+                val httpClient = ClambhookApiClient(
+                    baseUrl = effectiveSettings.normalizedBaseUrl,
+                    tokenProvider = { token }
+                )
+                dashboardApi = httpClient
+                eventStream = httpClient
+            }
             val viewModel: DashboardViewModel = viewModel(
-                key = "${effectiveSettings.normalizedBaseUrl}:${token.hashCode()}",
-                factory = DashboardViewModelFactory(apiClient)
+                key = "${effectiveSettings.normalizedBaseUrl}:${token.hashCode()}:$useLocalTunnel",
+                factory = DashboardViewModelFactory(dashboardApi, eventStream)
             )
 
             LaunchedEffect(viewModel, effectiveSettings.normalizedRefreshIntervalSeconds) {
@@ -82,9 +111,9 @@ class MainActivity : ComponentActivity() {
                     settingsStore.save(normalizedSettings)
                     tokenStore.saveToken(nextToken)
                     if (normalizedSettings.embeddedDaemonEnabled) {
-                        LocalDaemonService.restart(this@MainActivity)
+                        startTunnel()
                     } else {
-                        LocalDaemonService.stop(this@MainActivity)
+                        ClambhookTunnelController.stop(this@MainActivity)
                     }
                 },
                 onValidateConfig = configValidator::validate,

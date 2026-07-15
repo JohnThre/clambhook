@@ -12,6 +12,7 @@ import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import java.io.IOException
+import java.io.Closeable
 
 interface ClambhookApi {
     suspend fun status(): StatusPayload
@@ -39,6 +40,13 @@ interface ClambhookApi {
     suspend fun clearDeveloperEntries()
 }
 
+interface ClambhookEventStream {
+    fun openEventStream(
+        onEvent: (DaemonEvent) -> Unit,
+        onFailure: (Throwable) -> Unit
+    ): Closeable
+}
+
 class ApiHttpException(
     val statusCode: Int,
     val body: String
@@ -48,7 +56,7 @@ class ClambhookApiClient(
     baseUrl: String,
     private val tokenProvider: () -> String? = { null },
     private val okHttpClient: OkHttpClient = OkHttpClient()
-) : ClambhookApi {
+) : ClambhookApi, ClambhookEventStream {
     private val baseUrl = baseUrl.trim().trimEnd('/')
     private val jsonMediaType = "application/json".toMediaType()
 
@@ -195,11 +203,11 @@ class ClambhookApiClient(
             .get()
             .build()
 
-    fun openEventStream(
+    override fun openEventStream(
         onEvent: (DaemonEvent) -> Unit,
         onFailure: (Throwable) -> Unit
-    ): WebSocket {
-        return okHttpClient.newWebSocket(
+    ): Closeable {
+        val webSocket = okHttpClient.newWebSocket(
             eventsRequest(),
             object : WebSocketListener() {
                 override fun onMessage(webSocket: WebSocket, text: String) {
@@ -213,6 +221,7 @@ class ClambhookApiClient(
                 }
             }
         )
+        return Closeable { webSocket.close(1000, null) }
     }
 
     private suspend fun send(method: String, path: String, body: String? = null): String =

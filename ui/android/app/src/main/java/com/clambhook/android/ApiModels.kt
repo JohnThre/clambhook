@@ -11,6 +11,7 @@ import kotlinx.serialization.json.doubleOrNull
 
 val ApiJson = Json {
     ignoreUnknownKeys = true
+    coerceInputValues = true
     encodeDefaults = true
 }
 

@@ -46,10 +46,10 @@ import com.clambhook.android.DashboardViewModel
 import kotlinx.coroutines.launch
 
 private enum class AppTab {
-    Inbox,
-    Today,
-    Anytime,
-    Logbook,
+    Imports,
+    Status,
+    Profiles,
+    Activity,
     Settings
 }
 
@@ -72,7 +72,7 @@ fun ClambhookApp(
     } else {
         if (isSystemInDarkTheme()) androidx.compose.material3.darkColorScheme() else androidx.compose.material3.lightColorScheme()
     }
-    var selectedTab by rememberSaveable { mutableStateOf(AppTab.Today) }
+    var selectedTab by rememberSaveable { mutableStateOf(AppTab.Status) }
     val state by viewModel.state.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     val snackbarScope = rememberCoroutineScope()
@@ -139,26 +139,26 @@ fun ClambhookApp(
                 bottomBar = {
                     NavigationBar {
                         NavigationBarItem(
-                            selected = selectedTab == AppTab.Inbox,
-                            onClick = { selectedTab = AppTab.Inbox },
+                            selected = selectedTab == AppTab.Imports,
+                            onClick = { selectedTab = AppTab.Imports },
                             icon = { Icon(Icons.Rounded.FileDownload, contentDescription = "Imports") },
                             label = { Text("Imports") }
                         )
                         NavigationBarItem(
-                            selected = selectedTab == AppTab.Today,
-                            onClick = { selectedTab = AppTab.Today },
+                            selected = selectedTab == AppTab.Status,
+                            onClick = { selectedTab = AppTab.Status },
                             icon = { Icon(Icons.Rounded.NetworkCheck, contentDescription = "Status") },
                             label = { Text("Status") }
                         )
                         NavigationBarItem(
-                            selected = selectedTab == AppTab.Anytime,
-                            onClick = { selectedTab = AppTab.Anytime },
+                            selected = selectedTab == AppTab.Profiles,
+                            onClick = { selectedTab = AppTab.Profiles },
                             icon = { Icon(Icons.Rounded.Tune, contentDescription = "Profiles") },
                             label = { Text("Profiles") }
                         )
                         NavigationBarItem(
-                            selected = selectedTab == AppTab.Logbook,
-                            onClick = { selectedTab = AppTab.Logbook },
+                            selected = selectedTab == AppTab.Activity,
+                            onClick = { selectedTab = AppTab.Activity },
                             icon = { Icon(Icons.Rounded.History, contentDescription = "Activity") },
                             label = { Text("Activity") }
                         )
@@ -172,8 +172,8 @@ fun ClambhookApp(
                 }
             ) { padding ->
                 when (selectedTab) {
-                    AppTab.Inbox -> DashboardScreen(
-                        destination = DashboardDestination.Inbox,
+                    AppTab.Imports -> DashboardScreen(
+                        destination = DashboardDestination.Imports,
                         state = state,
                         onRefresh = viewModel::refresh,
                         onConnect = viewModel::connect,
@@ -188,8 +188,8 @@ fun ClambhookApp(
                         modifier = Modifier.padding(padding)
                     )
 
-                    AppTab.Today -> DashboardScreen(
-                        destination = DashboardDestination.Today,
+                    AppTab.Status -> DashboardScreen(
+                        destination = DashboardDestination.Status,
                         state = state,
                         onRefresh = viewModel::refresh,
                         onConnect = viewModel::connect,
@@ -204,8 +204,8 @@ fun ClambhookApp(
                         modifier = Modifier.padding(padding)
                     )
 
-                    AppTab.Anytime -> DashboardScreen(
-                        destination = DashboardDestination.Anytime,
+                    AppTab.Profiles -> DashboardScreen(
+                        destination = DashboardDestination.Profiles,
                         state = state,
                         onRefresh = viewModel::refresh,
                         onConnect = viewModel::connect,
@@ -220,8 +220,8 @@ fun ClambhookApp(
                         modifier = Modifier.padding(padding)
                     )
 
-                    AppTab.Logbook -> DashboardScreen(
-                        destination = DashboardDestination.Logbook,
+                    AppTab.Activity -> DashboardScreen(
+                        destination = DashboardDestination.Activity,
                         state = state,
                         onRefresh = viewModel::refresh,
                         onConnect = viewModel::connect,

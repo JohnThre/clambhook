@@ -13,9 +13,18 @@ fi
 mkdir -p "$(dirname "$OUT")"
 cd "$ROOT_DIR"
 
-CGO_ENABLED=0 gomobile bind \
+# gomobile synthesizes a temporary module and runs `go mod tidy`; with the
+# repo's vendor/ directory that fails under the default -mod=vendor. Force
+# module mode so the bind resolves dependencies from the module cache.
+#
+# gomobile forces CGO on for Android (JNI glue), which would drag in
+# pkg/cnet's libsodium/libcnet C bindings — symbols that are never linked into
+# libgojni.so and fail at dlopen. The `purego` tag selects the pure-Go crypto
+# path (pkg/cnet/cnet_purego.go) so the AAR is self-contained.
+GOFLAGS=-mod=mod gomobile bind \
     -target=android/arm,android/arm64,android/amd64 \
-    -androidapi 26 \
+    -androidapi 30 \
     -javapkg=com.clambhook \
+    -tags purego \
     -o "$OUT" \
     ./pkg/mobile
