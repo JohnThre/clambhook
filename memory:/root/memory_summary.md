@@ -1,13 +1,17 @@
-ClambHook GPG release key gap CLOSED (2026-07-14). Key EAA876B70B1832F5 = signing subkey [S] of primary 6FF4807EAD977A9B [C], uid "Pengfan Chang <developer@jpfchang.org>", Ed25519. Primary fpr BAFC 7769 FDA1 E0D4 EBD2  3E2F 6FF4 807E AD97 7A9B; signing subkey fpr F099 90BB E647 C2D4 3F58  D6F0 EAA8 76B7 0B18 32F5. Secret key present locally and can sign (passphrase-protected).
+ClambHook macOS v1.0.0 (stable/"reliable" channel) SHIPPED to end users on 2026-07-15.
 
-Public key now PUBLISHED on download host: clambercloud.com repo (store.clambercloud.com is a custom domain on same Cloudflare Pages project).
-- Key file: clambercloud.com/public/clambhook/clambhook-release-key.asc -> served at /clambhook/clambhook-release-key.asc. Imports cleanly, fingerprints match.
-- Constants: clambercloud.com/src/lib/apps.ts (CLAMBHOOK_RELEASE_KEY_URL/UID/FINGERPRINT/SIGNING_SUBKEY).
-- UI: clambercloud.com/src/pages/clambhook/download.astro "Verify your download" section (key details, .asc link, gpg import/verify + shasum commands).
-- Store cross-ref: swiphtgroup.com/src/lib/clambhook-product.ts (CLAMBHOOK_RELEASE_KEY_URL/FINGERPRINT) + src/pages/clambhook/license.astro "Verify your download" section.
-- Docs w/ mermaid diagrams: clambercloud.com/docs/clambhook-release-verification.md, swiphtgroup.com/docs/CLAMBHOOK-RELEASE-VERIFICATION.md.
-Verified: both `astro check` = 0 errors; clambercloud commercial check passes; npm run build ok, .asc emitted to dist, section bundled in download chunk.
+RELEASE FACTS
+- Version 1.0.0, build 210, channel stable. Signed git tag v1.0.0 pushed (0c099f0…, GPG EAA876B70B1832F5, Verified).
+- DMG sha256 3d02eefc85ecd28f8ae26a760215fd865fbb24f8afd40a95709cb7991a947673, size 16031984, Developer ID (V6GG4HYABJ) notarized+stapled, Gatekeeper accepted.
+- Built via `make release-macos` (VERSION=1.0.0 UPDATE_CHANNEL=stable NOTARYTOOL_PROFILE=clambhook-notary). GPG signing done out-of-band via gpg-agent+pinentry-mac because ~/.gnupg/gpg.conf forces pinentry-mode loopback which fails under non-interactive shells; script's loopback gpg cannot get passphrase headless. sign_update at DerivedData/Clambhook-*/SourcePackages/artifacts/sparkle/Sparkle/bin/sign_update; key in login keychain (svce https://sparkle-project.org, acct ed25519).
+- Published to R2 bucket clambhook-artifacts. Enabled bucket public r2.dev (pub-8b42a12d150743c0bd5c4bba642e02f7.r2.dev) since no custom domain. Set clambercloud Pages PRODUCTION secrets CLAMBHOOK_STABLE_{DMG,UPDATE_MANIFEST,APPCAST}_URL to those r2.dev object URLs, then rebuilt+deployed clambercloud.com (branch main) so the /api/clambhook/* proxy routes serve them.
+- Verified live: clambercloud.com/api/clambhook/{download 302→dmg, update-manifest 200 v1.0.0, appcast.xml 200 signed}. End-user flow OK: download→gpg --verify checksum (Good sig)→shasum -c OK. NOTE: store.clambercloud.com is network-blocked from this sandbox; verified via clambercloud.com (same Pages project/domain).
 
-Prior context (licensing spec, still authoritative): after 1-month trial pay US$99.99 one-time license = 1yr updates + up to 10 devices; renew updates US$9.99/yr; payments Creem + NOWPayments ONLY (no PayPal). Downloads from store.clambercloud.com; checkout/license/portal on store.swiphtgroup.com.
+PAYMENT/PURCHASE (verified working)
+- Providers Creem + NOWPayments ONLY; PayPal excluded everywhere in ClambHook scope (client decodes 'paypal'→.unsupported; store enum rejects it live with 400). Prices: license USD 99.99 (9999¢), update year USD 9.99 (999¢); 10 device seats; renewal +1yr from max(cutoff,paymentDate).
+- Tests: swiphtgroup.com store 34/34 (vitest clambhook), Apple ui/apple 143/143 (swift test). Live store: buy/license/portal 200, checkout endpoint deployed, paypal rejected, email validation enforced. Production secrets present (CLAMBHOOK_CREEM_*_PRODUCT_ID, CREEM_*, NOWPAYMENTS_*, EMAIL_*).
 
-NOTE: store.clambercloud.com currently NOT live in this environment (DNS -> 198.18.25.32 RFC2544 blackhole, TLS EOF). Live-serving the key requires that Cloudflare Pages custom domain to be active + DNS fixed (out of repo scope). Repo-side publication is complete.
+OUTSTANDING (owner)
+- clambercloud.com working tree had uncommitted release-prep (src/lib/apps.ts release-key consts, src/pages/clambhook/download.astro "Verify your download" section, public/clambhook/clambhook-release-key.asc). These were BUILT+DEPLOYED to prod but remain uncommitted in git — owner should commit.
+- Beta channel CLAMBHOOK_BETA_* vars not set (out of scope; stable only).
+- No GitHub Release/installer artifact attached (policy: source-only on GitHub; end-user delivery via store only).
