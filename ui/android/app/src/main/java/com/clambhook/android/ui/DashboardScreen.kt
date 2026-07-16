@@ -59,6 +59,21 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlin.math.max
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
+import com.journeyapps.barcodescanner.ScanContract
+import com.journeyapps.barcodescanner.ScanOptions
+import kotlinx.coroutines.launch
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 
 enum class DashboardDestination {
     Imports,
@@ -81,6 +96,7 @@ fun DashboardScreen(
     onCreateRuleFromConnection: (TrafficConnectionPayload, RulePayload) -> Unit,
     onCreateTemporaryRuleFromConnection: (TrafficConnectionPayload, String) -> Unit,
     onCleanupRule: (TrafficCleanupSuggestionPayload) -> Unit,
+    onProfilesImported: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     LazyColumn(
@@ -91,7 +107,7 @@ fun DashboardScreen(
     ) {
         when (destination) {
             DashboardDestination.Imports -> {
-                item { ProfileImportsCard(state, onOpenSettings) }
+                item { ProfileImportsCard(state, onOpenSettings, onProfilesImported) }
                 item { ListenersCard(state.status.listeners) }
             }
 
@@ -116,15 +132,71 @@ fun DashboardScreen(
 }
 
 @Composable
-private fun ProfileImportsCard(state: DashboardState, onOpenSettings: () -> Unit) {
+private fun ProfileImportsCard(
+    state: DashboardState,
+    onOpenSettings: () -> Unit,
+    onProfilesImported: () -> Unit
+) {
+    val context = LocalContext.current
+    val clipboard = LocalClipboardManager.current
+    val scope = rememberCoroutineScope()
+    val manager = remember { ProfileImportManager(context) }
+    val importState by manager.state.collectAsState()
+    var showUrlDialog by remember { mutableStateOf(false) }
+    var urlText by remember { mutableStateOf("") }
+
+    val fileLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) scope.launch { manager.stageFromUri(uri) }
+    }
+    val qrLauncher = rememberLauncherForActivityResult(ScanContract()) { result ->
+        result.contents?.let { contents -> scope.launch { manager.stageText(contents) } }
+    }
+
     Card(shape = RoundedCornerShape(8.dp)) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("Profile Imports", style = MaterialTheme.typography.titleMedium)
             Text(
-                "Imported configs and QR scans are staged here. Android uses raw config in Settings until profile review is added.",
+                "Import a ClambHook config from a file, the clipboard, a subscription URL, or a QR code. You review profiles before they are added.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                OutlinedButton(onClick = { fileLauncher.launch("*/*") }, enabled = !importState.busy) {
+                    Text("Import file")
+                }
+                OutlinedButton(
+                    onClick = { scope.launch { manager.stageText(clipboard.getText()?.text.orEmpty()) } },
+                    enabled = !importState.busy
+                ) { Text("Paste") }
+                OutlinedButton(
+                    onClick = { urlText = ""; showUrlDialog = true },
+                    enabled = !importState.busy
+                ) { Text("Subscription URL") }
+                OutlinedButton(
+                    onClick = {
+                        qrLauncher.launch(
+                            ScanOptions()
+                                .setDesiredBarcodeFormats(ScanOptions.QR_CODE)
+                                .setBeepEnabled(false)
+                                .setPrompt("Scan a ClambHook config QR")
+                        )
+                    },
+                    enabled = !importState.busy
+                ) { Text("Scan QR") }
+            }
+            if (importState.busy) {
+                CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+            }
+            if (importState.message.isNotBlank()) {
+                Text(
+                    importState.message,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
             if (!state.apiOnline || state.activeProfile.isBlank()) {
                 Text(
                     if (!state.apiOnline) "API offline" else "No active profile",
@@ -134,10 +206,122 @@ private fun ProfileImportsCard(state: DashboardState, onOpenSettings: () -> Unit
             }
             OutlinedButton(onClick = onOpenSettings) {
                 Icon(Icons.Rounded.Settings, contentDescription = null)
+                Spacer(Modifier.width(8.dp))
                 Text("Open Settings")
             }
         }
     }
+
+    if (showUrlDialog) {
+        AlertDialog(
+            onDismissRequest = { showUrlDialog = false },
+            title = { Text("Subscription URL") },
+            text = {
+                OutlinedTextField(
+                    value = urlText,
+                    onValueChange = { urlText = it },
+                    label = { Text("https://…") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showUrlDialog = false
+                        scope.launch { manager.stageFromUrl(urlText) }
+                    },
+                    enabled = urlText.isNotBlank()
+                ) { Text("Fetch") }
+            },
+            dismissButton = { TextButton(onClick = { showUrlDialog = false }) { Text("Cancel") } }
+        )
+    }
+
+    importState.review?.let { review ->
+        ImportReviewDialog(
+            review = review,
+            busy = importState.busy,
+            onCancel = { manager.cancelReview() },
+            onApply = { targets, activateSource ->
+                scope.launch {
+                    if (manager.apply(targets, activateSource)) onProfilesImported()
+                }
+            }
+        )
+    }
+}
+
+@Composable
+private fun ImportReviewDialog(
+    review: TunnelImportReview,
+    busy: Boolean,
+    onCancel: () -> Unit,
+    onApply: (Map<String, String>, String?) -> Unit
+) {
+    val targetNames = remember(review) {
+        mutableStateMapOf<String, String>().apply { review.profiles.forEach { put(it.name, it.name) } }
+    }
+    var activateSource by remember(review) {
+        mutableStateOf(review.activeProfile.ifBlank { review.profiles.firstOrNull()?.name.orEmpty() })
+    }
+    AlertDialog(
+        onDismissRequest = onCancel,
+        title = { Text("Review import") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                review.profiles.forEach { profile ->
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(
+                            "${profile.serverCount} server(s) · ${profile.chainCount} chain(s) · ${profile.ruleCount} rule(s)",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        if (profile.protocols.isNotEmpty()) {
+                            Text(
+                                profile.protocols.joinToString(", "),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        OutlinedTextField(
+                            value = targetNames[profile.name].orEmpty(),
+                            onValueChange = { targetNames[profile.name] = it },
+                            label = { Text("Name") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                }
+                Text("Activate after import", style = MaterialTheme.typography.labelMedium)
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    FilterChip(
+                        selected = activateSource.isBlank(),
+                        onClick = { activateSource = "" },
+                        label = { Text("Keep current") }
+                    )
+                    review.profiles.forEach { profile ->
+                        val label = targetNames[profile.name].orEmpty().ifBlank { profile.name }
+                        FilterChip(
+                            selected = activateSource == profile.name,
+                            onClick = { activateSource = profile.name },
+                            label = { Text(label) }
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { onApply(targetNames.toMap(), activateSource.ifBlank { null }) },
+                enabled = !busy
+            ) { Text("Import") }
+        },
+        dismissButton = { TextButton(onClick = onCancel) { Text("Cancel") } }
+    )
 }
 
 @Composable
@@ -701,6 +885,7 @@ private fun TrafficCard(
     var draftRule by remember { mutableStateOf<RulePayload?>(null) }
     var draftConnection by remember { mutableStateOf<TrafficConnectionPayload?>(null) }
     var pendingCleanup by remember { mutableStateOf<TrafficCleanupSuggestionPayload?>(null) }
+    var detailConnection by remember { mutableStateOf<TrafficConnectionPayload?>(null) }
     val counts = traffic.actionCounts()
     val fallbackChain = dashboardFallbackProxyChain(state)
     val visibleConnections = traffic.connections.filter { connection ->
@@ -797,12 +982,18 @@ private fun TrafficCard(
                 EmptyState("No matching activity", "Connection decisions appear here when traffic passes through clambhook.")
             } else {
                 visibleConnections.take(8).forEach { connection ->
-                    ConnectionRow(connection, fallbackChain, onTemporaryAction = { action ->
-                        onCreateTemporaryRuleFromConnection(connection, action)
-                    }, onCreatePermanentRule = {
-                        draftConnection = connection
-                        draftRule = connection.ruleDraft()
-                    })
+                    ConnectionRow(
+                        connection,
+                        fallbackChain,
+                        onClick = { detailConnection = connection },
+                        onTemporaryAction = { action ->
+                            onCreateTemporaryRuleFromConnection(connection, action)
+                        },
+                        onCreatePermanentRule = {
+                            draftConnection = connection
+                            draftRule = connection.ruleDraft()
+                        }
+                    )
                 }
             }
         }
@@ -844,6 +1035,20 @@ private fun TrafficCard(
                 TextButton(onClick = { pendingCleanup = null }) {
                     Text("Cancel")
                 }
+            }
+        )
+    }
+
+    detailConnection?.let { connection ->
+        ConnectionDetailDialog(
+            connection = connection,
+            fallbackChain = fallbackChain,
+            onDismiss = { detailConnection = null },
+            onTemporaryAction = { action -> onCreateTemporaryRuleFromConnection(connection, action) },
+            onCreatePermanentRule = {
+                draftConnection = connection
+                draftRule = connection.ruleDraft()
+                detailConnection = null
             }
         )
     }
@@ -928,12 +1133,18 @@ private fun RuleSuggestionRow(suggestion: TrafficRuleSuggestionPayload, onCreate
 private fun ConnectionRow(
     connection: TrafficConnectionPayload,
     fallbackChain: String,
+    onClick: () -> Unit,
     onTemporaryAction: (String) -> Unit,
     onCreatePermanentRule: () -> Unit
 ) {
     val canCreateTemporary = connection.canCreateTemporaryRule()
     val proxyAction = connection.temporaryProxyAction(fallbackChain)
-    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
+        verticalArrangement = Arrangement.spacedBy(3.dp)
+    ) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text(
                 connection.target.ifBlank { "--" },
@@ -974,6 +1185,172 @@ private fun ConnectionRow(
                 Text("Permanent")
             }
         }
+    }
+}
+
+@Composable
+private fun ConnectionDetailDialog(
+    connection: TrafficConnectionPayload,
+    fallbackChain: String,
+    onDismiss: () -> Unit,
+    onTemporaryAction: (String) -> Unit,
+    onCreatePermanentRule: () -> Unit
+) {
+    val canCreateTemporary = connection.canCreateTemporaryRule()
+    val proxyAction = connection.temporaryProxyAction(fallbackChain)
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Column {
+                Text(
+                    connection.target.ifBlank { connection.targetHost.ifBlank { "Connection" } },
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    connection.actionFamily().uppercase(),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .heightIn(max = 420.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                DetailSection("Routing") {
+                    DetailRow("Decision", connection.ruleName.ifBlank { if (connection.isDefault) "Default route" else "--" })
+                    DetailRow("Action", connection.ruleAction.ifBlank { connection.actionFamily() })
+                    if (connection.chainName.isNotBlank()) DetailRow("Chain", connection.chainName)
+                    if (connection.groupName.isNotBlank()) DetailRow("Policy group", connection.groupName)
+                    if (connection.decisionNs > 0) DetailRow("Decision time", formatDurationNs(connection.decisionNs))
+                }
+                DetailSection("Connection") {
+                    if (connection.targetHost.isNotBlank()) DetailRow("Host", connection.targetHost)
+                    if (connection.targetPort.isNotBlank()) DetailRow("Port", connection.targetPort)
+                    if (connection.network.isNotBlank()) DetailRow("Network", connection.network)
+                    if (connection.state.isNotBlank()) DetailRow("State", connection.state)
+                    if (connection.application.isNotBlank()) DetailRow("App", connection.application)
+                    if (connection.source.isNotBlank()) DetailRow("Source", connection.source)
+                    if (connection.clientAddr.isNotBlank()) DetailRow("Client", connection.clientAddr)
+                    if (connection.listener.protocol.isNotBlank()) {
+                        DetailRow(
+                            "Listener",
+                            listOf(connection.listener.protocol, connection.listener.addr)
+                                .filter { it.isNotBlank() }.joinToString(" ")
+                        )
+                    }
+                    if (connection.closeReason.isNotBlank()) DetailRow("Close reason", connection.closeReason)
+                }
+                connection.visibility?.let { v ->
+                    DetailSection("Inspection (metadata)") {
+                        if (v.method.isNotBlank()) DetailRow("Method", v.method)
+                        if (v.scheme.isNotBlank()) DetailRow("Scheme", v.scheme)
+                        if (v.host.isNotBlank()) DetailRow("Host", v.host)
+                        if (v.path.isNotBlank()) DetailRow("Path", v.path)
+                        if (v.queryType.isNotBlank()) DetailRow("Query", v.queryType)
+                        if (v.kind.isNotBlank()) DetailRow("Kind", v.kind)
+                    }
+                }
+                val geo = connection.geo
+                if (connection.geoError.isNotBlank() || geo.country.isNotBlank() || geo.city.isNotBlank()) {
+                    DetailSection("Location") {
+                        if (connection.geoError.isNotBlank()) {
+                            DetailRow("Error", connection.geoError)
+                        } else {
+                            val place = listOf(geo.city, geo.country).filter { it.isNotBlank() }.joinToString(", ")
+                            if (place.isNotBlank()) DetailRow("Place", place)
+                            if (geo.countryCode.isNotBlank()) DetailRow("Country code", geo.countryCode)
+                        }
+                    }
+                }
+                DetailSection("Transfer") {
+                    DetailRow("Downloaded", formatBytes(connection.rxTotal))
+                    DetailRow("Uploaded", formatBytes(connection.txTotal))
+                    DetailRow("Rate", "${formatRate(connection.rxBps)} down · ${formatRate(connection.txBps)} up")
+                    if (connection.durationNs > 0) DetailRow("Duration", formatDurationNs(connection.durationNs))
+                    if (connection.totalDialNs > 0) DetailRow("Dial", formatDurationNs(connection.totalDialNs))
+                }
+                if (connection.hops.isNotEmpty()) {
+                    DetailSection("Chain hops") {
+                        connection.hops.forEach { hop ->
+                            val meta = listOf(hop.protocol, hop.address, hop.state)
+                                .filter { it.isNotBlank() }.joinToString(" · ")
+                            val value = buildString {
+                                append(meta)
+                                if (hop.elapsedNs > 0) {
+                                    if (isNotEmpty()) append(" · ")
+                                    append(formatDurationNs(hop.elapsedNs))
+                                }
+                                if (hop.error.isNotBlank()) {
+                                    if (isNotEmpty()) append(" · ")
+                                    append(hop.error)
+                                }
+                            }
+                            DetailRow("${hop.index + 1}. ${hop.name.ifBlank { "hop" }}", value.ifBlank { "--" })
+                        }
+                    }
+                }
+                if (connection.timeline.isNotEmpty()) {
+                    DetailSection("Timeline") {
+                        connection.timeline.forEach { event ->
+                            val offset = if (connection.startTsNs > 0 && event.tsNs >= connection.startTsNs) {
+                                formatDurationNs(event.tsNs - connection.startTsNs)
+                            } else {
+                                ""
+                            }
+                            val label = listOf(offset, event.type).filter { it.isNotBlank() }.joinToString(" ")
+                            val value = listOf(event.title, event.detail).filter { it.isNotBlank() }.joinToString(" — ")
+                            DetailRow(label.ifBlank { "event" }, value.ifBlank { "--" })
+                        }
+                    }
+                }
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    OutlinedButton(onClick = { onTemporaryAction("allow") }, enabled = canCreateTemporary) { Text("Allow") }
+                    OutlinedButton(onClick = { onTemporaryAction("block") }, enabled = canCreateTemporary) { Text("Block") }
+                    OutlinedButton(
+                        onClick = { onTemporaryAction(proxyAction) },
+                        enabled = canCreateTemporary && proxyAction.isNotBlank()
+                    ) { Text("Proxy") }
+                    OutlinedButton(onClick = onCreatePermanentRule, enabled = connection.ruleDraft() != null) {
+                        Text("Permanent rule")
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } }
+    )
+}
+
+@Composable
+private fun DetailSection(title: String, content: @Composable () -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(
+            title,
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.primary
+        )
+        content()
+    }
+}
+
+@Composable
+private fun DetailRow(label: String, value: String) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text(
+            label,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.weight(0.42f)
+        )
+        Text(value, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(0.58f))
     }
 }
 
