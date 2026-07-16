@@ -154,6 +154,43 @@ class ApiModelsTest {
         assertEquals(true, traffic.connections.single().isDefault)
     }
 
+
+    @Test
+    fun decodesDeveloperCaptureDetailFields() {
+        val payload = ApiJson.decodeFromString<DeveloperEntriesPayload>(
+            """
+            {
+              "entries": [
+                {
+                  "id": "dev-1",
+                  "method": "POST",
+                  "url": "https://api.example.test/v1/items",
+                  "scheme": "https",
+                  "host": "api.example.test",
+                  "status": 201,
+                  "request": {
+                    "headers": [{"name":"content-type","value":"application/json"}],
+                    "cookies": [{"name":"session","value":"[redacted]","redacted":true,"http_only":true,"secure":true,"same_site":"Lax"}],
+                    "body": {"size": 17, "preview": "{\"ok\":true}", "preview_bytes": 11, "mime_type": "application/json"}
+                  },
+                  "response": {
+                    "body": {"size": 4, "preview_base64": "AQIDBA==", "preview_bytes": 4, "encoding": "base64", "truncated": true, "truncated_after": 4}
+                  }
+                }
+              ]
+            }
+            """.trimIndent()
+        )
+
+        val entry = payload.entries.single()
+        assertEquals("application/json", entry.request.body.mimeType)
+        assertEquals("[redacted]", entry.request.cookies.single().value)
+        assertEquals(true, entry.request.cookies.single().httpOnly)
+        assertEquals("AQIDBA==", entry.response.body.previewBase64)
+        assertEquals("base64", entry.response.body.encoding)
+        assertEquals(true, entry.response.body.truncated)
+    }
+
     @Test
     fun derivesTemporaryRuleActionsFromConnectionRows() {
         val grouped = TrafficConnectionPayload(connId = "c1", targetHost = "api.example.com", groupName = "auto")

@@ -629,6 +629,7 @@ data class DeveloperEntryPayload(
 @Serializable
 data class DeveloperMessagePayload(
     val headers: List<DeveloperHeaderPayload> = emptyList(),
+    val cookies: List<DeveloperCookiePayload> = emptyList(),
     val body: DeveloperBodyPayload = DeveloperBodyPayload()
 )
 
@@ -641,14 +642,36 @@ data class DeveloperHeaderPayload(
 )
 
 @Serializable
+data class DeveloperCookiePayload(
+    val name: String = "",
+    val value: String = "",
+    val redacted: Boolean = false,
+    val domain: String = "",
+    val path: String = "",
+    val expires: String = "",
+    @SerialName("max_age")
+    val maxAge: Int = 0,
+    val secure: Boolean = false,
+    @SerialName("http_only")
+    val httpOnly: Boolean = false,
+    @SerialName("same_site")
+    val sameSite: String = ""
+)
+
+@Serializable
 data class DeveloperBodyPayload(
     val size: Long = 0,
     val preview: String = "",
+    @SerialName("preview_base64")
+    val previewBase64: String = "",
     @SerialName("preview_bytes")
     val previewBytes: Long = 0,
     val truncated: Boolean = false,
     @SerialName("truncated_after")
-    val truncatedAfter: Long = 0
+    val truncatedAfter: Long = 0,
+    @SerialName("mime_type")
+    val mimeType: String = "",
+    val encoding: String = ""
 )
 
 data class BandwidthSample(

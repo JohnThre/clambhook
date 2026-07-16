@@ -271,6 +271,8 @@ fun ClambhookApp(
                             onCreateTemporaryRuleFromConnection = viewModel::createTemporaryRuleFromConnection,
                             onCleanupRule = viewModel::cleanupRule,
                             onProfilesImported = onProfilesImported,
+                            onClearDeveloperEntries = viewModel::clearDeveloperEntries,
+                            developerHar = viewModel::developerHar,
                             modifier = Modifier.weight(1f)
                         )
 

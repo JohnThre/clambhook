@@ -174,6 +174,8 @@ class DashboardRepository(
         performAction(DashboardAction.Refresh) { api.clearDeveloperEntries() }
     }
 
+    suspend fun developerHar(): String = api.developerHar()
+
     fun applyEvent(event: DaemonEvent): Boolean {
         when (event.type) {
             "connection.bytes" -> {

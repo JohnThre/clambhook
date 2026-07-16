@@ -1,5 +1,12 @@
 package com.clambhook.android
 
+import android.content.Intent
+import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Share
+import androidx.compose.ui.text.font.FontFamily
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
+
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -97,6 +104,8 @@ fun DashboardScreen(
     onCreateTemporaryRuleFromConnection: (TrafficConnectionPayload, String) -> Unit,
     onCleanupRule: (TrafficCleanupSuggestionPayload) -> Unit,
     onProfilesImported: () -> Unit,
+    onClearDeveloperEntries: () -> Unit = {},
+    developerHar: (suspend () -> String)? = null,
     modifier: Modifier = Modifier
 ) {
     LazyColumn(
@@ -124,7 +133,7 @@ fun DashboardScreen(
 
             DashboardDestination.Activity -> {
                 item { TrafficCard(state, onCreateRule, onCreateRuleFromConnection, onCreateTemporaryRuleFromConnection, onCleanupRule) }
-                item { DeveloperCaptureCard(state) }
+                item { DeveloperCaptureCard(state, onClearDeveloperEntries, developerHar) }
                 item { LogsCard(state) }
             }
         }
@@ -325,7 +334,15 @@ private fun ImportReviewDialog(
 }
 
 @Composable
-private fun DeveloperCaptureCard(state: DashboardState) {
+private fun DeveloperCaptureCard(
+    state: DashboardState,
+    onClearEntries: () -> Unit,
+    harProvider: (suspend () -> String)?
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var selectedEntry by remember { mutableStateOf<DeveloperEntryPayload?>(null) }
+    var harBusy by remember { mutableStateOf(false) }
     Card(shape = RoundedCornerShape(8.dp)) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(
@@ -333,7 +350,7 @@ private fun DeveloperCaptureCard(state: DashboardState) {
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.Top
             ) {
-                Column {
+                Column(Modifier.weight(1f)) {
                     Text("HTTP Capture", style = MaterialTheme.typography.titleMedium)
                     Text(
                         if (state.developerStatus.enabled) {
@@ -345,41 +362,309 @@ private fun DeveloperCaptureCard(state: DashboardState) {
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-                StatusPill("${state.developerEntries.size} bodies")
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    StatusPill("${state.developerEntries.size} bodies")
+                    if (harProvider != null) {
+                        IconButton(
+                            onClick = {
+                                if (harBusy) return@IconButton
+                                harBusy = true
+                                scope.launch {
+                                    val har = runCatching { harProvider() }.getOrNull()
+                                    harBusy = false
+                                    if (!har.isNullOrBlank()) {
+                                        context.startActivity(
+                                            Intent.createChooser(
+                                                Intent(Intent.ACTION_SEND).apply {
+                                                    type = "application/json"
+                                                    putExtra(Intent.EXTRA_SUBJECT, "ClambHook HAR export")
+                                                    putExtra(Intent.EXTRA_TEXT, har)
+                                                },
+                                                "Export HAR"
+                                            ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                        )
+                                    }
+                                }
+                            },
+                            enabled = !harBusy && state.developerEntries.isNotEmpty()
+                        ) {
+                            if (harBusy) {
+                                CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                            } else {
+                                Icon(Icons.Rounded.Share, contentDescription = "Export HAR")
+                            }
+                        }
+                    }
+                    IconButton(
+                        onClick = onClearEntries,
+                        enabled = state.developerEntries.isNotEmpty()
+                    ) {
+                        Icon(Icons.Rounded.Delete, contentDescription = "Clear captures")
+                    }
+                }
             }
             Text(
                 "HTTPS body capture requires explicit developer capture config and a trusted local CA. Without it, HTTPS entries remain CONNECT metadata only.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-            state.developerEntries.take(3).forEach { entry ->
-                Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text(
-                            "${entry.method.ifBlank { "--" }} ${entry.host.ifBlank { entry.url }}",
-                            fontWeight = FontWeight.SemiBold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f)
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        Text(
-                            if (entry.status > 0) entry.status.toString() else "open",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    Text(
-                        "${formatBytes(entry.request.body.previewBytes)} request preview · ${formatBytes(entry.response.body.previewBytes)} response preview",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
+            if (state.developerEntries.isEmpty()) {
+                Text(
+                    "No captured transactions yet.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            } else {
+                state.developerEntries.forEach { entry ->
+                    CaptureEntryRow(entry = entry, onClick = { selectedEntry = entry })
                 }
             }
         }
     }
+    selectedEntry?.let { entry ->
+        CaptureDetailDialog(entry = entry, onDismiss = { selectedEntry = null })
+    }
+}
+
+@Composable
+private fun CaptureEntryRow(entry: DeveloperEntryPayload, onClick: () -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(6.dp))
+            .clickable(onClick = onClick)
+            .padding(vertical = 4.dp),
+        verticalArrangement = Arrangement.spacedBy(3.dp)
+    ) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text(
+                "${entry.method.ifBlank { "--" }} ${entry.host.ifBlank { entry.url }}",
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f)
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(
+                if (entry.status > 0) entry.status.toString() else "open",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        Text(
+            "${formatBytes(entry.request.body.previewBytes)} request preview · ${formatBytes(entry.response.body.previewBytes)} response preview",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+}
+
+private val captureJson = Json { prettyPrint = true }
+
+@Composable
+private fun CaptureDetailDialog(entry: DeveloperEntryPayload, onDismiss: () -> Unit) {
+    var side by remember(entry.id) { mutableStateOf("request") }
+    var tab by remember(entry.id) { mutableStateOf("headers") }
+    val message = if (side == "request") entry.request else entry.response
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Column {
+                Text(
+                    "${entry.method.ifBlank { "--" }} ${entry.host.ifBlank { entry.url }}",
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    listOf(
+                        entry.scheme.uppercase().ifBlank { "" },
+                        if (entry.status > 0) "HTTP ${entry.status}" else "open",
+                        entry.chainName
+                    ).filter { it.isNotBlank() }.joinToString(" · "),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .heightIn(max = 460.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                if (entry.url.isNotBlank()) {
+                    Text(
+                        entry.url,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                if (entry.error.isNotBlank()) {
+                    Text(
+                        entry.error,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(selected = side == "request", onClick = { side = "request" }, label = { Text("Request") })
+                    FilterChip(selected = side == "response", onClick = { side = "response" }, label = { Text("Response") })
+                }
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    FilterChip(selected = tab == "headers", onClick = { tab = "headers" }, label = { Text("Headers") })
+                    FilterChip(selected = tab == "body", onClick = { tab = "body" }, label = { Text("Body") })
+                    FilterChip(selected = tab == "json", onClick = { tab = "json" }, label = { Text("JSON") })
+                    FilterChip(selected = tab == "cookies", onClick = { tab = "cookies" }, label = { Text("Cookies") })
+                }
+                DetailRow("Body size", formatBytes(message.body.size))
+                when (tab) {
+                    "body" -> CaptureBodyView(message.body)
+                    "json" -> CaptureJsonView(message.body)
+                    "cookies" -> CaptureCookiesView(message.cookies)
+                    else -> CaptureHeadersView(message.headers)
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } }
+    )
+}
+
+@Composable
+private fun CaptureHeadersView(headers: List<DeveloperHeaderPayload>) {
+    if (headers.isEmpty()) {
+        Text("No headers", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        return
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        headers.forEach { header ->
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(
+                    header.name,
+                    style = MaterialTheme.typography.bodySmall,
+                    fontWeight = FontWeight.SemiBold,
+                    fontFamily = FontFamily.Monospace,
+                    modifier = Modifier.weight(0.42f)
+                )
+                Text(
+                    header.value,
+                    style = MaterialTheme.typography.bodySmall,
+                    fontFamily = FontFamily.Monospace,
+                    color = if (header.redacted) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.weight(0.58f)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun CaptureBodyView(body: DeveloperBodyPayload) {
+    val preview = captureBodyText(body)
+    if (preview.isEmpty()) {
+        Text("No body preview", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        return
+    }
+    CaptureMonospaceBlock(preview)
+    val meta = listOf(body.mimeType, body.encoding).filter { it.isNotBlank() }.joinToString(" · ")
+    if (meta.isNotBlank()) {
+        Text(meta, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+    if (body.truncated) {
+        Text(
+            "Truncated after ${formatBytes(body.truncatedAfter)}",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.tertiary
+        )
+    }
+}
+
+@Composable
+private fun CaptureJsonView(body: DeveloperBodyPayload) {
+    val pretty = prettyJson(body.preview)
+    if (pretty == null) {
+        Text("No valid JSON preview", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        return
+    }
+    CaptureMonospaceBlock(pretty)
+    if (body.truncated) {
+        Text("JSON preview is truncated", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.tertiary)
+    }
+}
+
+@Composable
+private fun CaptureCookiesView(cookies: List<DeveloperCookiePayload>) {
+    if (cookies.isEmpty()) {
+        Text("No cookies", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        return
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        cookies.forEach { cookie ->
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    cookie.name,
+                    style = MaterialTheme.typography.bodySmall,
+                    fontWeight = FontWeight.SemiBold,
+                    fontFamily = FontFamily.Monospace
+                )
+                Text(
+                    cookie.value,
+                    style = MaterialTheme.typography.bodySmall,
+                    fontFamily = FontFamily.Monospace,
+                    color = if (cookie.redacted) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
+                )
+                val attrs = captureCookieAttributes(cookie)
+                if (attrs.isNotBlank()) {
+                    Text(attrs, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CaptureMonospaceBlock(text: String) {
+    Surface(
+        shape = RoundedCornerShape(6.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Text(
+            text,
+            style = MaterialTheme.typography.bodySmall,
+            fontFamily = FontFamily.Monospace,
+            modifier = Modifier.padding(8.dp)
+        )
+    }
+}
+
+private fun captureBodyText(body: DeveloperBodyPayload): String = when {
+    body.preview.isNotEmpty() -> body.preview
+    body.previewBase64.isNotEmpty() -> "[base64] ${body.previewBase64}"
+    else -> ""
+}
+
+private fun prettyJson(text: String): String? {
+    val trimmed = text.trim()
+    if (trimmed.isEmpty()) return null
+    return runCatching {
+        val element = captureJson.parseToJsonElement(trimmed)
+        captureJson.encodeToString(JsonElement.serializer(), element)
+    }.getOrNull()
+}
+
+private fun captureCookieAttributes(cookie: DeveloperCookiePayload): String {
+    val parts = mutableListOf<String>()
+    if (cookie.domain.isNotBlank()) parts.add("domain=${cookie.domain}")
+    if (cookie.path.isNotBlank()) parts.add("path=${cookie.path}")
+    if (cookie.expires.isNotBlank()) parts.add("expires=${cookie.expires}")
+    if (cookie.maxAge != 0) parts.add("max-age=${cookie.maxAge}")
+    if (cookie.secure) parts.add("secure")
+    if (cookie.httpOnly) parts.add("httponly")
+    if (cookie.sameSite.isNotBlank()) parts.add("samesite=${cookie.sameSite}")
+    return parts.joinToString("  ")
 }
 
 @Composable
