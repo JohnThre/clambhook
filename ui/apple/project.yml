@@ -34,6 +34,10 @@ targets:
         buildPhase:
           copyFiles:
             destination: executables
+      - path: ../../bin/clambhook-tui
+        buildPhase:
+          copyFiles:
+            destination: executables
       - path: ../../bin/libsodium.26.dylib
         buildPhase:
           copyFiles:

@@ -26,6 +26,7 @@ else
 fi
 APPCAST_DOWNLOAD_URL="${CLAMBHOOK_APPCAST_DOWNLOAD_URL:-https://store.clambercloud.com/api/clambhook/download}"
 DAEMON="$ROOT_DIR/bin/clambhook"
+TUI="$ROOT_DIR/bin/clambhook-tui"
 SODIUM="$ROOT_DIR/bin/libsodium.26.dylib"
 
 if [[ -z "$TEAM_ID" ]]; then
@@ -49,12 +50,15 @@ rm -rf "$DIST_DIR"
 mkdir -p "$DIST_DIR"
 
 GOOS=darwin GOARCH=arm64 CGO_ENABLED=1 make -C "$ROOT_DIR" build-daemon
+GOOS=darwin GOARCH=arm64 CGO_ENABLED=1 make -C "$ROOT_DIR" build-tui
 "$ROOT_DIR/scripts/prepare-macos-runtime.sh"
 
 codesign --force --timestamp --options runtime --sign "$IDENTITY" "$SODIUM"
 codesign --force --timestamp --options runtime --sign "$IDENTITY" "$DAEMON"
+codesign --force --timestamp --options runtime --sign "$IDENTITY" "$TUI"
 codesign --verify --strict --verbose=4 "$SODIUM"
 codesign --verify --strict --verbose=4 "$DAEMON"
+codesign --verify --strict --verbose=4 "$TUI"
 
 cd "$ROOT_DIR/ui/apple"
 xcodegen generate --spec project.yml
@@ -119,6 +123,12 @@ fi
 if otool -L "$APP_PATH/Contents/MacOS/clambhook" | grep -q '/opt/homebrew'; then
     echo "exported daemon still contains a Homebrew runtime dependency" >&2
     otool -L "$APP_PATH/Contents/MacOS/clambhook" >&2
+    exit 1
+fi
+
+if otool -L "$APP_PATH/Contents/MacOS/clambhook-tui" | grep -q '/opt/homebrew'; then
+    echo "exported tui still contains a Homebrew runtime dependency" >&2
+    otool -L "$APP_PATH/Contents/MacOS/clambhook-tui" >&2
     exit 1
 fi
 

@@ -35,12 +35,13 @@ install: build
 	install -m 0755 bin/clambhook "$(DESTDIR)$(PREFIX)/bin/clambhook"
 	install -m 0755 bin/clambhook-tui "$(DESTDIR)$(PREFIX)/bin/clambhook-tui"
 
-install-linux: check-linux-ui-deps build-daemon
-	cd ui/linux && meson setup builddir --prefix="$(LINUX_MESON_PREFIX)" --libexecdir="$(LINUX_MESON_LIBEXECDIR)" --reconfigure -Dclambhook_daemon="$(abspath bin/clambhook)"
+install-linux: check-linux-ui-deps build-daemon build-tui
+	cd ui/linux && meson setup builddir --prefix="$(LINUX_MESON_PREFIX)" --libexecdir="$(LINUX_MESON_LIBEXECDIR)" --reconfigure -Dclambhook_daemon="$(abspath bin/clambhook)" -Dclambhook_tui="$(abspath bin/clambhook-tui)"
 	cd ui/linux && meson install -C builddir $(if $(DESTDIR),--destdir "$(abspath $(DESTDIR))",)
 
 prepare-apple-runtime:
 	GOOS=darwin GOARCH=arm64 CGO_ENABLED=1 $(MAKE) build-daemon
+	GOOS=darwin GOARCH=arm64 CGO_ENABLED=1 $(MAKE) build-tui
 	./scripts/prepare-macos-runtime.sh
 
 generate-apple:
@@ -92,8 +93,8 @@ build-android-release:
 test-linux: check-linux-ui-deps
 	cd ui/linux && meson setup builddir --reconfigure && meson test -C builddir
 
-build-linux: check-linux-ui-deps build-daemon
-	cd ui/linux && meson setup builddir --reconfigure -Dclambhook_daemon="$(abspath bin/clambhook)" && meson compile -C builddir
+build-linux: check-linux-ui-deps build-daemon build-tui
+	cd ui/linux && meson setup builddir --reconfigure -Dclambhook_daemon="$(abspath bin/clambhook)" -Dclambhook_tui="$(abspath bin/clambhook-tui)" && meson compile -C builddir
 
 test:
 	go test ./...

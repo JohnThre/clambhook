@@ -80,6 +80,16 @@ if daemon_path != ''
   )
 endif
 
+tui_path = get_option('clambhook_tui')
+if tui_path != ''
+  install_data(
+    tui_path,
+    install_dir: get_option('bindir'),
+    install_mode: 'rwxr-xr-x',
+    rename: 'clambhook-tui',
+  )
+endif
+
 install_data(
   '../../clambhook-icon-1024.png',
   install_dir: get_option('datadir') / 'icons' / 'hicolor' / '1024x1024' / 'apps',

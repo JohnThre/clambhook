@@ -162,6 +162,7 @@ smoke_installed_linux_gui() {
     fi
 
     assert_executable "$base/bin/clambhook-linux"
+    assert_executable "$base/bin/clambhook-tui"
     assert_executable "$base/libexec/clambhook"
     assert_file "$base/share/applications/com.clambhook.Clambhook.desktop"
     assert_file "$base/share/metainfo/com.clambhook.Clambhook.metainfo.xml"
@@ -236,6 +237,7 @@ smoke_linux_gui_install() {
     (cd "$ROOT" && make install-linux DESTDIR="$root" PREFIX=/usr VERSION="$SMOKE_VERSION")
     smoke_installed_linux_gui "$root" /usr
     assert_version_output "$root/usr/libexec/clambhook"
+    assert_version_output "$root/usr/bin/clambhook-tui"
 }
 
 smoke_make_install() {
