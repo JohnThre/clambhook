@@ -4,3 +4,10 @@ option(
   value: '',
   description: 'Path to a clambhook daemon executable to install into libexecdir.',
 )
+
+option(
+  'clambhook_tui',
+  type: 'string',
+  value: '',
+  description: 'Path to a clambhook-tui executable to install into bindir.',
+)
