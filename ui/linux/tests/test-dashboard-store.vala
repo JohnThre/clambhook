@@ -55,6 +55,45 @@ namespace Clambhook.Tests {
             actions.add("cleanup:%s:%s".printf(suggestion.operation, suggestion.target_rule_name));
             return rules_payload;
         }
+
+        public async PolicyGroupsPayload policy_groups() throws Error {
+            return new PolicyGroupsPayload();
+        }
+
+        public async PolicyGroupsPayload select_policy_group(string group, string chain) throws Error {
+            actions.add("policy-select:%s:%s".printf(group, chain));
+            return new PolicyGroupsPayload();
+        }
+
+        public async PolicyGroupsPayload test_policy_groups(string group) throws Error {
+            actions.add("policy-test:%s".printf(group));
+            return new PolicyGroupsPayload();
+        }
+
+        public async PromptsPayload pending_prompts() throws Error {
+            return new PromptsPayload();
+        }
+
+        public async void resolve_prompt(string id, string action, string scope, bool match_host) throws Error {
+            actions.add("prompt:%s:%s:%s".printf(id, action, scope));
+        }
+
+        public async DnsPayload dns() throws Error {
+            return new DnsPayload();
+        }
+
+        public async DeveloperStatusPayload developer_status() throws Error {
+            return new DeveloperStatusPayload();
+        }
+
+        public async DeveloperStatusPayload set_developer_capture(bool enabled) throws Error {
+            actions.add("capture:%s".printf(enabled.to_string()));
+            return new DeveloperStatusPayload();
+        }
+
+        public async Gee.ArrayList<DeveloperEntryPayload> developer_entries() throws Error {
+            return new Gee.ArrayList<DeveloperEntryPayload>();
+        }
     }
 
     public void add_dashboard_store_tests() {

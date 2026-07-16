@@ -9,6 +9,12 @@ namespace Clambhook {
         private DaemonSupervisor daemon;
         private EventStreamClient event_stream;
         private AppSettings settings;
+        private LicenseManager license;
+        private Adw.Banner license_banner;
+        private PolicyView policy_view;
+        private FirewallView firewall_view;
+        private DnsView dns_view;
+        private CaptureView capture_view;
 
         private Label status_label;
         private Label daemon_label;
@@ -45,7 +51,8 @@ namespace Clambhook {
             ClambhookApiClient client,
             FileSettingsStore settings_store,
             TokenVault token_vault,
-            DaemonSupervisor daemon
+            DaemonSupervisor daemon,
+            LicenseManager license
         ) {
             Object(application: app, title: "clambhook", default_width: 960, default_height: 720);
             this.store = store;
@@ -53,12 +60,14 @@ namespace Clambhook {
             this.settings_store = settings_store;
             this.token_vault = token_vault;
             this.daemon = daemon;
+            this.license = license;
             this.event_stream = new EventStreamClient();
             this.settings = settings_store.load().normalized();
 
             set_child(build_content());
             store.changed.connect(render);
             daemon.changed.connect(render);
+            license.changed.connect(render);
             event_stream.event_received.connect((event) => store.apply_event(event));
             event_stream.stream_failed.connect((message) => {
                 store.set_error("events: %s".printf(message));
@@ -81,6 +90,7 @@ namespace Clambhook {
                 refresh_now();
                 schedule_refresh();
                 start_event_stream();
+                license.start.begin();
             });
         }
 
@@ -110,11 +120,47 @@ namespace Clambhook {
             header.pack_end(preferences_button);
             root.append(header);
 
+            license_banner = new Adw.Banner("");
+            license_banner.button_label = "License";
+            license_banner.revealed = false;
+            license_banner.button_clicked.connect(() => main_stack.set_visible_child_name("license"));
+            root.append(license_banner);
+
+            policy_view = new PolicyView(client);
+            firewall_view = new FirewallView(client);
+            dns_view = new DnsView(client);
+            capture_view = new CaptureView(client);
+
             main_stack.add_titled(wrap_page(build_now()), "now", "Now");
             main_stack.add_titled(wrap_page(build_activity()), "activity", "Activity");
+            main_stack.add_titled(wrap_page(policy_view), "policies", "Policies");
+            main_stack.add_titled(wrap_page(firewall_view), "firewall", "Firewall");
+            main_stack.add_titled(wrap_page(dns_view), "dns", "DNS");
+            main_stack.add_titled(wrap_page(capture_view), "capture", "Capture");
             main_stack.add_titled(wrap_page(build_library()), "library", "Library");
+            main_stack.add_titled(wrap_page(new LicenseView(license)), "license", "License");
+            main_stack.notify["visible-child-name"].connect(refresh_active_page);
             root.append(main_stack);
             return root;
+        }
+
+        private void refresh_active_page() {
+            switch (main_stack.get_visible_child_name()) {
+            case "policies":
+                policy_view.refresh.begin();
+                break;
+            case "firewall":
+                firewall_view.refresh.begin();
+                break;
+            case "dns":
+                dns_view.refresh.begin();
+                break;
+            case "capture":
+                capture_view.refresh.begin();
+                break;
+            default:
+                break;
+            }
         }
 
         private Widget wrap_page(Widget child) {
@@ -293,6 +339,7 @@ namespace Clambhook {
             }
             refresh_source = Timeout.add_seconds((uint) settings.refresh_interval_seconds, () => {
                 store.refresh_status.begin();
+                refresh_active_page();
                 return Source.CONTINUE;
             });
         }
@@ -319,18 +366,49 @@ namespace Clambhook {
                 Formatters.format_bytes(store.traffic.summary.rx_total),
                 Formatters.format_bytes(store.traffic.summary.tx_total)
             );
-            connect_button.sensitive = store.api_online && !store.status.running;
+            connect_button.sensitive = store.api_online && !store.status.running && license_allows_use();
             disconnect_button.sensitive = store.status.running;
             connect_button.visible = !store.status.running;
             disconnect_button.visible = store.status.running;
             daemon_button.label = daemon.is_running ? "Stop daemon" : "Start daemon";
             daemon_button.sensitive = !daemon.state_is_busy();
 
+            render_license_banner();
             render_profiles();
             render_listeners();
             render_servers();
             render_traffic();
             render_logs();
+        }
+
+        private bool license_allows_use() {
+            return !license.initialized || license.status.decision.can_use_app();
+        }
+
+        private void render_license_banner() {
+            if (license_banner == null) {
+                return;
+            }
+            if (!license.initialized) {
+                license_banner.revealed = false;
+                return;
+            }
+            if (!license.status.decision.can_use_app()) {
+                license_banner.title = "ClambHook trial ended. Activate a license key to continue.";
+                license_banner.revealed = true;
+                return;
+            }
+            if (license.status.decision.reason == "trial") {
+                license_banner.title = "%d days left in your ClambHook trial.".printf(license.status.decision.trial_days_remaining);
+                license_banner.revealed = true;
+                return;
+            }
+            if (license.status.decision.reason == "offlineGrace") {
+                license_banner.title = license.status.decision.detail();
+                license_banner.revealed = true;
+                return;
+            }
+            license_banner.revealed = false;
         }
 
         private void render_profiles() {
