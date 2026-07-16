@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 12 (API 31) and below. Exclude license/auth secrets from cloud backup. -->
+<full-backup-content>
+    <exclude domain="sharedpref" path="clambhook_secrets.xml" />
+    <exclude domain="sharedpref" path="clambhook_license.xml" />
+</full-backup-content>

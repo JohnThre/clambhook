@@ -44,6 +44,13 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.FilterChip
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextOverflow
 
 @Composable
 fun SettingsScreen(
@@ -70,6 +77,14 @@ fun SettingsScreen(
     var showApiSettings by remember { mutableStateOf(true) }
     var showConfigEditor by remember { mutableStateOf(false) }
     var showSupportOptions by remember { mutableStateOf(false) }
+    var showAppRouting by remember { mutableStateOf(false) }
+    var splitMode by remember { mutableStateOf(settings.normalizedSplitTunnelMode) }
+    var selectedPackages by remember { mutableStateOf(settings.normalizedSplitTunnelPackages) }
+    var includeSystemApps by remember { mutableStateOf(false) }
+    var appQuery by remember { mutableStateOf("") }
+    var installedApps by remember { mutableStateOf<List<InstalledApp>>(emptyList()) }
+    var appsLoading by remember { mutableStateOf(false) }
+    val context = LocalContext.current
 
     LaunchedEffect(settings, token, configToml) {
         apiBaseUrl = settings.apiBaseUrl
@@ -78,6 +93,16 @@ fun SettingsScreen(
         eventsEnabled = settings.eventStreamEnabled
         embeddedDaemonEnabled = settings.embeddedDaemonEnabled
         configText = configToml
+        splitMode = settings.normalizedSplitTunnelMode
+        selectedPackages = settings.normalizedSplitTunnelPackages
+    }
+
+    LaunchedEffect(showAppRouting) {
+        if (showAppRouting && installedApps.isEmpty()) {
+            appsLoading = true
+            installedApps = runCatching { InstalledAppInventory.load(context) }.getOrDefault(emptyList())
+            appsLoading = false
+        }
     }
 
     val validation = validateSettingsInput(
@@ -92,6 +117,8 @@ fun SettingsScreen(
         refreshSeconds != settings.refreshIntervalSeconds.toString() ||
         eventsEnabled != settings.eventStreamEnabled ||
         embeddedDaemonEnabled != settings.embeddedDaemonEnabled ||
+        splitMode != settings.normalizedSplitTunnelMode ||
+        selectedPackages != settings.normalizedSplitTunnelPackages ||
         configText != configToml
 
     if (confirmRestore) {
@@ -266,6 +293,106 @@ fun SettingsScreen(
             }
         }
 
+        SettingsDisclosureHeader(
+            title = "App routing",
+            expanded = showAppRouting,
+            onToggle = { showAppRouting = !showAppRouting }
+        )
+        if (showAppRouting) {
+            Card {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("Per-app routing", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        "Choose which apps route through the tunnel. Applies the next time the tunnel starts.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FilterChip(
+                            selected = splitMode == SplitTunnelMode.All,
+                            onClick = { splitMode = SplitTunnelMode.All },
+                            label = { Text("All apps") }
+                        )
+                        FilterChip(
+                            selected = splitMode == SplitTunnelMode.Include,
+                            onClick = { splitMode = SplitTunnelMode.Include },
+                            label = { Text("Only selected") }
+                        )
+                        FilterChip(
+                            selected = splitMode == SplitTunnelMode.Exclude,
+                            onClick = { splitMode = SplitTunnelMode.Exclude },
+                            label = { Text("Except selected") }
+                        )
+                    }
+                    if (splitMode != SplitTunnelMode.All) {
+                        Text(
+                            "${selectedPackages.size} app(s) selected",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        OutlinedTextField(
+                            value = appQuery,
+                            onValueChange = { appQuery = it },
+                            label = { Text("Search apps") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        SettingSwitchRow(
+                            label = "Include system apps",
+                            checked = includeSystemApps,
+                            onCheckedChange = { includeSystemApps = it }
+                        )
+                        if (appsLoading) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.height(20.dp).width(20.dp),
+                                strokeWidth = 2.dp
+                            )
+                        } else {
+                            val visibleApps = installedApps.filter { app ->
+                                (includeSystemApps || !app.isSystem) &&
+                                    (appQuery.isBlank() ||
+                                        app.label.contains(appQuery, ignoreCase = true) ||
+                                        app.packageName.contains(appQuery, ignoreCase = true))
+                            }
+                            LazyColumn(
+                                modifier = Modifier.fillMaxWidth().heightIn(max = 320.dp),
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                items(visibleApps, key = { it.packageName }) { app ->
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Checkbox(
+                                            checked = selectedPackages.contains(app.packageName),
+                                            onCheckedChange = { checked ->
+                                                selectedPackages = if (checked) {
+                                                    selectedPackages + app.packageName
+                                                } else {
+                                                    selectedPackages - app.packageName
+                                                }
+                                            }
+                                        )
+                                        Spacer(Modifier.width(8.dp))
+                                        Column(Modifier.weight(1f)) {
+                                            Text(app.label, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                            Text(
+                                                app.packageName,
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         Button(
             onClick = {
                 if (!validation.isValid) {
@@ -281,7 +408,9 @@ fun SettingsScreen(
                                 apiBaseUrl = apiBaseUrl,
                                 refreshIntervalSeconds = refreshSeconds.toIntOrNull() ?: 5,
                                 eventStreamEnabled = eventsEnabled,
-                                embeddedDaemonEnabled = embeddedDaemonEnabled
+                                embeddedDaemonEnabled = embeddedDaemonEnabled,
+                                splitTunnelMode = splitMode,
+                                splitTunnelPackages = selectedPackages
                             ),
                             apiToken,
                             configText

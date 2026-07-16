@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import androidx.security.crypto.EncryptedSharedPreferences
@@ -18,17 +19,34 @@ import java.util.Base64
 
 private val Context.clambhookDataStore by preferencesDataStore(name = "clambhook_settings")
 
+object SplitTunnelMode {
+    const val All = "all"
+    const val Include = "include"
+    const val Exclude = "exclude"
+
+    val supported = setOf(All, Include, Exclude)
+}
+
+
 data class AppSettings(
     val apiBaseUrl: String = defaultAndroidApiBaseUrl,
     val refreshIntervalSeconds: Int = 5,
     val eventStreamEnabled: Boolean = true,
-    val embeddedDaemonEnabled: Boolean = true
+    val embeddedDaemonEnabled: Boolean = true,
+    val splitTunnelMode: String = SplitTunnelMode.All,
+    val splitTunnelPackages: Set<String> = emptySet()
 ) {
     val normalizedBaseUrl: String
         get() = apiBaseUrl.trim().trimEnd('/').ifBlank { defaultAndroidApiBaseUrl }
 
     val normalizedRefreshIntervalSeconds: Int
         get() = refreshIntervalSeconds.coerceIn(2, 60)
+
+    val normalizedSplitTunnelMode: String
+        get() = splitTunnelMode.takeIf { it in SplitTunnelMode.supported } ?: SplitTunnelMode.All
+
+    val normalizedSplitTunnelPackages: Set<String>
+        get() = splitTunnelPackages.map { it.trim() }.filter { it.isNotBlank() }.toSortedSet()
 }
 
 const val defaultAndroidApiListenAddress = "127.0.0.1:9090"
@@ -47,7 +65,9 @@ class DataStoreSettingsStore(context: Context) : SettingsStore {
             apiBaseUrl = prefs[Keys.apiBaseUrl] ?: defaultAndroidApiBaseUrl,
             refreshIntervalSeconds = prefs[Keys.refreshIntervalSeconds] ?: 5,
             eventStreamEnabled = prefs[Keys.eventStreamEnabled] ?: true,
-            embeddedDaemonEnabled = prefs[Keys.embeddedDaemonEnabled] ?: true
+            embeddedDaemonEnabled = prefs[Keys.embeddedDaemonEnabled] ?: true,
+            splitTunnelMode = prefs[Keys.splitTunnelMode] ?: SplitTunnelMode.All,
+            splitTunnelPackages = prefs[Keys.splitTunnelPackages] ?: emptySet()
         )
     }
 
@@ -57,6 +77,8 @@ class DataStoreSettingsStore(context: Context) : SettingsStore {
             prefs[Keys.refreshIntervalSeconds] = settings.normalizedRefreshIntervalSeconds
             prefs[Keys.eventStreamEnabled] = settings.eventStreamEnabled
             prefs[Keys.embeddedDaemonEnabled] = settings.embeddedDaemonEnabled
+            prefs[Keys.splitTunnelMode] = settings.normalizedSplitTunnelMode
+            prefs[Keys.splitTunnelPackages] = settings.normalizedSplitTunnelPackages
         }
     }
 
@@ -65,6 +87,8 @@ class DataStoreSettingsStore(context: Context) : SettingsStore {
         val refreshIntervalSeconds = intPreferencesKey("refresh_interval_seconds")
         val eventStreamEnabled = booleanPreferencesKey("event_stream_enabled")
         val embeddedDaemonEnabled = booleanPreferencesKey("embedded_daemon_enabled")
+        val splitTunnelMode = stringPreferencesKey("split_tunnel_mode")
+        val splitTunnelPackages = stringSetPreferencesKey("split_tunnel_packages")
     }
 }
 
