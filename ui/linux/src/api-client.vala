@@ -18,6 +18,15 @@ namespace Clambhook {
         public abstract async RulesPayload create_rule(RulePayload rule) throws Error;
         public abstract async RulesPayload create_rule_from_connection(TrafficConnectionPayload connection, RulePayload rule) throws Error;
         public abstract async RulesPayload cleanup_rule(TrafficCleanupSuggestionPayload suggestion) throws Error;
+        public abstract async PolicyGroupsPayload policy_groups() throws Error;
+        public abstract async PolicyGroupsPayload select_policy_group(string group, string chain) throws Error;
+        public abstract async PolicyGroupsPayload test_policy_groups(string group) throws Error;
+        public abstract async PromptsPayload pending_prompts() throws Error;
+        public abstract async void resolve_prompt(string id, string action, string scope, bool match_host) throws Error;
+        public abstract async DnsPayload dns() throws Error;
+        public abstract async DeveloperStatusPayload developer_status() throws Error;
+        public abstract async DeveloperStatusPayload set_developer_capture(bool enabled) throws Error;
+        public abstract async Gee.ArrayList<DeveloperEntryPayload> developer_entries() throws Error;
     }
 
     public class ClambhookApiClient : Object, ClambhookApiProviding {
@@ -77,6 +86,92 @@ namespace Clambhook {
 
         public async RulesPayload cleanup_rule(TrafficCleanupSuggestionPayload suggestion) throws Error {
             return RulesPayload.from_json(yield send("POST", "/api/v1/rules/cleanup", cleanup_rule_body(suggestion)));
+        }
+
+        public async PolicyGroupsPayload policy_groups() throws Error {
+            return PolicyGroupsPayload.from_json(yield send("GET", "/api/v1/policy-groups"));
+        }
+
+        public async PolicyGroupsPayload select_policy_group(string group, string chain) throws Error {
+            yield send("PUT", "/api/v1/policy-groups/selection", group_selection_body(group, chain));
+            return yield policy_groups();
+        }
+
+        public async PolicyGroupsPayload test_policy_groups(string group) throws Error {
+            return PolicyGroupsPayload.from_json(yield send("POST", "/api/v1/policy-groups/test", group_test_body(group)));
+        }
+
+        public async PromptsPayload pending_prompts() throws Error {
+            return PromptsPayload.from_json(yield send("GET", "/api/v1/prompts/pending"));
+        }
+
+        public async void resolve_prompt(string id, string action, string scope, bool match_host) throws Error {
+            yield send("POST", "/api/v1/prompts/%s/resolve".printf(Uri.escape_string(id, null, false)), resolve_prompt_body(action, scope, match_host));
+        }
+
+        public async DnsPayload dns() throws Error {
+            return DnsPayload.from_json(yield send("GET", "/api/v1/dns"));
+        }
+
+        public async DeveloperStatusPayload developer_status() throws Error {
+            return DeveloperStatusPayload.from_json(yield send("GET", "/api/v1/developer/status"));
+        }
+
+        public async DeveloperStatusPayload set_developer_capture(bool enabled) throws Error {
+            yield send("PUT", "/api/v1/developer/settings", developer_capture_body(enabled));
+            return yield developer_status();
+        }
+
+        public async Gee.ArrayList<DeveloperEntryPayload> developer_entries() throws Error {
+            return DeveloperEntryPayload.list_from_json(yield send("GET", "/api/v1/developer/entries"));
+        }
+
+        public static string group_selection_body(string group, string chain) {
+            var builder = new Json.Builder();
+            builder.begin_object();
+            builder.set_member_name("group");
+            builder.add_string_value(group);
+            builder.set_member_name("chain");
+            builder.add_string_value(chain);
+            builder.end_object();
+            return json_to_string(builder);
+        }
+
+        public static string group_test_body(string group) {
+            var builder = new Json.Builder();
+            builder.begin_object();
+            builder.set_member_name("group");
+            builder.add_string_value(group);
+            builder.end_object();
+            return json_to_string(builder);
+        }
+
+        public static string resolve_prompt_body(string action, string scope, bool match_host) {
+            var builder = new Json.Builder();
+            builder.begin_object();
+            builder.set_member_name("action");
+            builder.add_string_value(action);
+            builder.set_member_name("scope");
+            builder.add_string_value(scope);
+            builder.set_member_name("match_host");
+            builder.add_boolean_value(match_host);
+            builder.end_object();
+            return json_to_string(builder);
+        }
+
+        public static string developer_capture_body(bool enabled) {
+            var builder = new Json.Builder();
+            builder.begin_object();
+            builder.set_member_name("enabled");
+            builder.add_boolean_value(enabled);
+            builder.end_object();
+            return json_to_string(builder);
+        }
+
+        private static string json_to_string(Json.Builder builder) {
+            var generator = new Json.Generator();
+            generator.set_root(builder.get_root());
+            return generator.to_data(null);
         }
 
         public string build_uri(string path) {

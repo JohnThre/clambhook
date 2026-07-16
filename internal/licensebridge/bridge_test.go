@@ -1,4 +1,4 @@
-package mobile
+package licensebridge
 
 import (
 	"encoding/json"

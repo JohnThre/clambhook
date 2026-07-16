@@ -1,8 +1,9 @@
 # clambhook GNU/Linux
 
 This is the native GNU/Linux desktop controller for clambhook. It uses Vala,
-GTK4, libadwaita, libsoup 3, json-glib, libsecret, and Meson. The app is an
-X11 client and forces the X11 GDK backend at startup.
+GTK4, libadwaita, libsoup 3, json-glib, libsecret, and Meson. It prefers the
+Wayland GDK backend and falls back to X11 automatically; set `GDK_BACKEND` to
+override the preference.
 
 ## Development
 

@@ -170,7 +170,7 @@ See [`docs/macos-v1-scope.md`](docs/macos-v1-scope.md) for the full scope.
 | Platform | UI framework | Status |
 | --- | --- | --- |
 | macOS 14+ (Apple Silicon) | SwiftUI | Public release |
-| GNU/Linux (Debian, Fedora, Guix) | GTK4 / libadwaita (Vala) | Internal developer QA |
+| GNU/Linux (Bazzite, Rocky Linux, PureOS, Ubuntu, Debian, Fedora) | GTK4 / libadwaita (Vala) | Public release |
 | Windows 11 | — | Discontinued (no planned resumption) |
 | Android 12+ | Kotlin / Compose | Internal developer QA |
 
@@ -197,7 +197,12 @@ The build uses `CGO_ENABLED=1` and requires `libsodium` discoverable through
 
 A configuration template lives at [`configs/example.toml`](configs/example.toml).
 See [`AGENTS.md`](AGENTS.md) for repository structure and contributor
-conventions.
+conventions. To validate the GNU/Linux packages across all six supported
+distributions from a Mac, use Apple's [`container`](https://github.com/apple/container)
+tool via `scripts/validate-linux-distros.sh` (podman/docker on Linux); see
+[`packaging/README.md`](packaging/README.md). Installers are validated in CI
+before release — Apple platforms on Xcode Cloud, non-Apple platforms on GitHub
+Actions; see [`docs/release-validation.md`](docs/release-validation.md).
 
 ## Repository layout
 
@@ -214,7 +219,9 @@ conventions.
 ## Distribution and licensing
 
 The end-user macOS app is distributed only from `https://store.clambercloud.com/clambhook/`
-as a free public DMG download for Apple Silicon Macs running macOS 14 or later. First launch
+as a free public DMG download for Apple Silicon Macs running macOS 14 or later. The GNU/Linux
+app is distributed only from the same host as free per-distro packages (`.deb`, `.rpm`, Flatpak,
+and AppImage) tested on Bazzite, Rocky Linux, PureOS, Ubuntu, Debian, and Fedora. First launch
 starts a one-calendar-month trial, after which a USD 99.99 one-time ClambHook license is
 purchased from `https://store.swiphtgroup.com/clambhook/buy`.
 
@@ -248,9 +255,10 @@ Official public routes:
 - Support: `https://store.clambercloud.com/clambhook/support/`
 
 Clambhook is not distributed to end users through app marketplaces, GitHub
-Releases, Homebrew, package registries, or third-party mirrors. GNU/Linux and
-Android builds are internal developer QA targets until a separate distribution
-plan is approved. Windows development is discontinued with no planned resumption
+Releases, Homebrew, package registries, or third-party mirrors. macOS and
+GNU/Linux are public releases served only from `store.clambercloud.com`; Android
+builds remain internal developer QA targets until a separate distribution plan
+is approved. Windows development is discontinued with no planned resumption
 date. See [`docs/distribution.md`](docs/distribution.md) and
 [`docs/license-validation.md`](docs/license-validation.md).
 

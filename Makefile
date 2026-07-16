@@ -1,4 +1,4 @@
-.PHONY: all build build-clib build-daemon build-tui install install-linux prepare-apple-runtime generate-apple build-apple check-macos-signing release-macos upload-release-r2 release-check macos-release-contract-check package-smoke test-apple test-android build-android-mobile-aar build-android build-android-release check-linux-ui-deps test-linux build-linux test e2e e2e-release lint clean
+.PHONY: all build build-clib build-daemon build-tui build-license install install-linux prepare-apple-runtime generate-apple build-apple check-macos-signing release-macos release-linux upload-release-r2 release-check macos-release-contract-check package-smoke test-apple test-android build-android-mobile-aar build-android build-android-release check-linux-ui-deps test-linux build-linux test e2e e2e-release lint clean
 
 export CGO_ENABLED=1
 PREFIX ?= /usr/local
@@ -28,15 +28,20 @@ build-tui: build-clib
 	mkdir -p bin
 	go build -ldflags "$(GO_LDFLAGS)" -o bin/clambhook-tui ./cmd/clambhook-tui
 
-build: build-daemon build-tui
+build-license:
+	mkdir -p bin
+	go build -ldflags "$(GO_LDFLAGS)" -o bin/clambhook-license ./cmd/clambhook-license
+
+build: build-daemon build-tui build-license
 
 install: build
 	install -d "$(DESTDIR)$(PREFIX)/bin"
 	install -m 0755 bin/clambhook "$(DESTDIR)$(PREFIX)/bin/clambhook"
 	install -m 0755 bin/clambhook-tui "$(DESTDIR)$(PREFIX)/bin/clambhook-tui"
+	install -m 0755 bin/clambhook-license "$(DESTDIR)$(PREFIX)/bin/clambhook-license"
 
-install-linux: check-linux-ui-deps build-daemon build-tui
-	cd ui/linux && meson setup builddir --prefix="$(LINUX_MESON_PREFIX)" --libexecdir="$(LINUX_MESON_LIBEXECDIR)" --reconfigure -Dclambhook_daemon="$(abspath bin/clambhook)" -Dclambhook_tui="$(abspath bin/clambhook-tui)"
+install-linux: check-linux-ui-deps build-daemon build-tui build-license
+	cd ui/linux && meson setup builddir --prefix="$(LINUX_MESON_PREFIX)" --libexecdir="$(LINUX_MESON_LIBEXECDIR)" --reconfigure -Dclambhook_daemon="$(abspath bin/clambhook)" -Dclambhook_tui="$(abspath bin/clambhook-tui)" -Dclambhook_license="$(abspath bin/clambhook-license)"
 	cd ui/linux && meson install -C builddir $(if $(DESTDIR),--destdir "$(abspath $(DESTDIR))",)
 
 prepare-apple-runtime:
@@ -57,6 +62,10 @@ check-macos-signing:
 release-macos: macos-release-contract-check check-macos-signing
 	$(internal-release-notice)
 	./scripts/release-macos.sh
+
+release-linux:
+	$(internal-release-notice)
+	./scripts/release-linux.sh
 
 upload-release-r2:
 	$(internal-release-notice)
@@ -93,8 +102,8 @@ build-android-release:
 test-linux: check-linux-ui-deps
 	cd ui/linux && meson setup builddir --reconfigure && meson test -C builddir
 
-build-linux: check-linux-ui-deps build-daemon build-tui
-	cd ui/linux && meson setup builddir --reconfigure -Dclambhook_daemon="$(abspath bin/clambhook)" -Dclambhook_tui="$(abspath bin/clambhook-tui)" && meson compile -C builddir
+build-linux: check-linux-ui-deps build-daemon build-tui build-license
+	cd ui/linux && meson setup builddir --reconfigure -Dclambhook_daemon="$(abspath bin/clambhook)" -Dclambhook_tui="$(abspath bin/clambhook-tui)" -Dclambhook_license="$(abspath bin/clambhook-license)" && meson compile -C builddir
 
 test:
 	go test ./...

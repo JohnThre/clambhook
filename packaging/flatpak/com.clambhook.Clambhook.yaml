@@ -1,0 +1,63 @@
+# Flatpak manifest for the ClambHook GNU/Linux desktop controller.
+#
+# This is the primary path for immutable/atomic distributions such as Bazzite,
+# and works on every supported distro (Ubuntu, Debian, PureOS, Fedora, Rocky).
+#
+# Build from the repository root:
+#   flatpak install -y flathub org.gnome.Platform//47 org.gnome.Sdk//47 \
+#     org.freedesktop.Sdk.Extension.golang//24.08
+#   flatpak-builder --force-clean --repo=repo build-dir \
+#     packaging/flatpak/com.clambhook.Clambhook.yaml
+#
+# Sandbox note: the Flatpak build runs the daemon in System Proxy mode. Device-
+# wide Enhanced/TUN routing needs CAP_NET_ADMIN and is only available from the
+# native .deb/.rpm packages, not from the sandboxed Flatpak.
+app-id: com.clambhook.Clambhook
+runtime: org.gnome.Platform
+runtime-version: '47'
+sdk: org.gnome.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.golang
+command: clambhook-linux
+finish-args:
+  - --share=network
+  - --share=ipc
+  - --socket=fallback-x11
+  - --socket=wayland
+  - --device=dri
+  # Secret Service (libsecret) for the API token and license key.
+  - --talk-name=org.freedesktop.secrets
+  # Open the buy/portal pages in the user's browser.
+  - --talk-name=org.freedesktop.portal.OpenURI
+
+build-options:
+  append-path: /usr/lib/sdk/golang/bin
+  env:
+    GOFLAGS: '-mod=vendor'
+    CGO_ENABLED: '1'
+
+modules:
+  - name: libsodium
+    buildsystem: autotools
+    sources:
+      - type: archive
+        url: https://download.libsodium.org/libsodium/releases/libsodium-1.0.20.tar.gz
+        sha256: ebb65ef6ca439333c2bb41a0c1990587288da07f6c7fd07cb3a18cc18d30ce19
+    cleanup:
+      - /include
+      - /lib/pkgconfig
+      - '*.a'
+      - '*.la'
+
+  - name: clambhook
+    buildsystem: simple
+    build-options:
+      build-args:
+        - --share=network
+    build-commands:
+      - make build VERSION=${FLATPAK_BUILD_VERSION:-flatpak}
+      - make install PREFIX=/app
+      - make install-linux PREFIX=/app LINUX_MESON_LIBEXECDIR=/app/libexec
+    sources:
+      - type: dir
+        path: ../..

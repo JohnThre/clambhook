@@ -36,6 +36,8 @@ core_sources = files(
   'src/dashboard-store.vala',
   'src/event-stream-client.vala',
   'src/formatters.vala',
+  'src/license-service.vala',
+  'src/parity-models.vala',
   'src/settings-store.vala',
   'src/token-vault.vala',
 )
@@ -43,6 +45,8 @@ core_sources = files(
 ui_sources = files(
   'src/clambhook-app.vala',
   'src/main-window.vala',
+  'src/license-view.vala',
+  'src/parity-views.vala',
   'src/preferences-dialog.vala',
 )
 
@@ -90,6 +94,16 @@ if tui_path != ''
   )
 endif
 
+license_path = get_option('clambhook_license')
+if license_path != ''
+  install_data(
+    license_path,
+    install_dir: get_option('libexecdir'),
+    install_mode: 'rwxr-xr-x',
+    rename: 'clambhook-license',
+  )
+endif
+
 install_data(
   '../../clambhook-icon-1024.png',
   install_dir: get_option('datadir') / 'icons' / 'hicolor' / '1024x1024' / 'apps',
@@ -103,6 +117,8 @@ test_exe = executable(
     'tests/test-dashboard-store.vala',
     'tests/test-models.vala',
     'tests/test-settings-daemon.vala',
+    'tests/test-license-service.vala',
+    'tests/test-parity-models.vala',
     'tests/test-main.vala',
   ),
   dependencies: deps,
@@ -126,4 +142,15 @@ configure_file(
   configuration: desktop_conf,
   install: true,
   install_dir: get_option('datadir') / 'metainfo',
+)
+
+# Privileged daemon assets for device-wide TUN routing (native packages only).
+install_data(
+  '../../packaging/systemd/clambhook-daemon.service',
+  install_dir: get_option('prefix') / 'lib' / 'systemd' / 'system',
+)
+
+install_data(
+  '../../packaging/polkit/com.clambhook.Clambhook.policy',
+  install_dir: get_option('datadir') / 'polkit-1' / 'actions',
 )

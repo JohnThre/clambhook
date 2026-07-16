@@ -1,0 +1,70 @@
+# Non-Apple installer validation — GitHub CI/CD runs first for GNU/Linux,
+# Windows, and Android, before any manual QA or store upload. See
+# docs/release-validation.md. Apple platforms (macOS/iOS/iPadOS/watchOS/
+# visionOS) are validated on Xcode Cloud, not here.
+#
+# This workflow builds and smoke-tests installers only. It uploads no installer
+# artifacts and creates no GitHub Release: distribution stays on the approved
+# store channels (see docs/distribution.md).
+name: Installer validation
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: installer-validation-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux:
+    name: GNU/Linux installers (${{ matrix.distro }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # PureOS validates via the Debian path; Bazzite via the Fedora path +
+        # Flatpak manifest (see packaging/README.md).
+        distro: [ubuntu, debian, fedora, rocky]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build + headless smoke in a ${{ matrix.distro }} container
+        run: scripts/validate-linux-distros.sh ${{ matrix.distro }}
+
+  android:
+    name: Android installer (.apk)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Install gomobile (embedded daemon AAR)
+        run: |
+          go install golang.org/x/mobile/cmd/gomobile@latest
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+      - name: Point gomobile at the runner NDK
+        run: echo "ANDROID_NDK_HOME=$ANDROID_NDK_LATEST_HOME" >> "$GITHUB_ENV"
+      - name: Unit tests + debug assemble + lint
+        working-directory: ui/android
+        run: ./gradlew --no-daemon :app:testDebugUnitTest :app:assembleDebug :app:lintDebug
+
+  windows:
+    name: Windows installer
+    # Windows development is discontinued with no planned resumption date. The
+    # lane stays defined so validation runs automatically if a Windows target
+    # returns; enable by removing this guard. See docs/release-validation.md.
+    if: false
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: echo "Windows target is discontinued; no installer to validate."

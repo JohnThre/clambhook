@@ -1,0 +1,26 @@
+[Unit]
+Description=ClambHook daemon (device-wide TUN routing)
+Documentation=https://store.clambercloud.com/clambhook/
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Device-wide Enhanced/TUN routing creates a TUN interface, assigns addresses,
+# installs split default routes, and rewrites DNS. That requires CAP_NET_ADMIN
+# (and CAP_NET_RAW). The desktop app talks to this service over the local API.
+ExecStart=/usr/libexec/clambhook -api 127.0.0.1:9090 -config /etc/clambhook/config.toml
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW
+# Hardening: the daemon needs network administration but nothing else.
+NoNewPrivileges=false
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/etc/clambhook /var/lib/clambhook
+RuntimeDirectory=clambhook
+StateDirectory=clambhook
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
