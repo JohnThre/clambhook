@@ -68,6 +68,8 @@ class DashboardViewModel(
         viewModelScope.launch { repository.clearDeveloperEntries() }
     }
 
+    suspend fun developerHar(): String = repository.developerHar()
+
     fun startPolling(intervalSeconds: Int) {
         pollingJob?.cancel()
         pollingJob = viewModelScope.launch {
