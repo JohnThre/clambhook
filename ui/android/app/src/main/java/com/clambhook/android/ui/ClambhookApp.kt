@@ -8,6 +8,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.FileDownload
@@ -15,6 +16,7 @@ import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.NetworkCheck
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Tune
+import androidx.compose.material.icons.rounded.VpnKey
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -50,7 +52,8 @@ private enum class AppTab {
     Status,
     Profiles,
     Activity,
-    Settings
+    Settings,
+    License
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -61,10 +64,23 @@ fun ClambhookApp(
     token: String,
     configToml: String,
     supportPurchaseState: SupportPurchaseState,
+    licenseState: LicenseUiState,
     onSaveSettings: suspend (AppSettings, String, String) -> Unit,
     onValidateConfig: suspend (String) -> Unit,
     onPurchaseSupport: (String) -> Unit,
-    onClearSupportPurchaseMessage: () -> Unit
+    onClearSupportPurchaseMessage: () -> Unit,
+    onActivateLicense: (String, String) -> Unit,
+    onDeactivateLicense: () -> Unit,
+    onReactivateLicense: () -> Unit,
+    onTransferLicense: () -> Unit,
+    onClearLicenseMessage: () -> Unit,
+    onOpenUrl: (String) -> Unit,
+    licenseBuyUrl: String,
+    licensePortalUrl: String,
+    updateState: UpdateUiState,
+    onCheckUpdates: () -> Unit,
+    onInstallUpdate: () -> Unit,
+    onProfilesImported: () -> Unit
 ) {
     val context = LocalContext.current
     val colorScheme = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -104,6 +120,13 @@ fun ClambhookApp(
         }
     }
 
+    androidx.compose.runtime.LaunchedEffect(licenseState.message) {
+        if (licenseState.message.isNotBlank()) {
+            showMessage(licenseState.message)
+            onClearLicenseMessage()
+        }
+    }
+
     MaterialTheme(
         colorScheme = colorScheme,
         shapes = Shapes(
@@ -129,6 +152,9 @@ fun ClambhookApp(
                             }
                         },
                         actions = {
+                            IconButton(onClick = { selectedTab = AppTab.License }) {
+                                Icon(Icons.Rounded.VpnKey, contentDescription = "License")
+                            }
                             IconButton(onClick = { selectedTab = AppTab.Settings }) {
                                 Icon(Icons.Rounded.Settings, contentDescription = "Settings")
                             }
@@ -171,82 +197,110 @@ fun ClambhookApp(
                     }
                 }
             ) { padding ->
-                when (selectedTab) {
-                    AppTab.Imports -> DashboardScreen(
-                        destination = DashboardDestination.Imports,
-                        state = state,
-                        onRefresh = viewModel::refresh,
-                        onConnect = viewModel::connect,
-                        onDisconnect = viewModel::disconnect,
-                        onProfileSelected = viewModel::setActiveProfile,
-                        onPolicyGroupSelected = viewModel::selectPolicyGroup,
-                        onOpenSettings = { selectedTab = AppTab.Settings },
-                        onCreateRule = viewModel::createRule,
-                        onCreateRuleFromConnection = viewModel::createRuleFromConnection,
-                        onCreateTemporaryRuleFromConnection = viewModel::createTemporaryRuleFromConnection,
-                        onCleanupRule = viewModel::cleanupRule,
-                        modifier = Modifier.padding(padding)
+                Column(modifier = Modifier.padding(padding).fillMaxSize()) {
+                    LicenseBanners(
+                        state = licenseState,
+                        onManageLicense = { selectedTab = AppTab.License },
+                        onOpenUrl = onOpenUrl,
+                        buyUrl = licenseBuyUrl,
+                        portalUrl = licensePortalUrl
                     )
+                    when (selectedTab) {
+                        AppTab.Imports -> DashboardScreen(
+                            destination = DashboardDestination.Imports,
+                            state = state,
+                            onRefresh = viewModel::refresh,
+                            onConnect = viewModel::connect,
+                            onDisconnect = viewModel::disconnect,
+                            onProfileSelected = viewModel::setActiveProfile,
+                            onPolicyGroupSelected = viewModel::selectPolicyGroup,
+                            onOpenSettings = { selectedTab = AppTab.Settings },
+                            onCreateRule = viewModel::createRule,
+                            onCreateRuleFromConnection = viewModel::createRuleFromConnection,
+                            onCreateTemporaryRuleFromConnection = viewModel::createTemporaryRuleFromConnection,
+                            onCleanupRule = viewModel::cleanupRule,
+                            onProfilesImported = onProfilesImported,
+                            modifier = Modifier.weight(1f)
+                        )
 
-                    AppTab.Status -> DashboardScreen(
-                        destination = DashboardDestination.Status,
-                        state = state,
-                        onRefresh = viewModel::refresh,
-                        onConnect = viewModel::connect,
-                        onDisconnect = viewModel::disconnect,
-                        onProfileSelected = viewModel::setActiveProfile,
-                        onPolicyGroupSelected = viewModel::selectPolicyGroup,
-                        onOpenSettings = { selectedTab = AppTab.Settings },
-                        onCreateRule = viewModel::createRule,
-                        onCreateRuleFromConnection = viewModel::createRuleFromConnection,
-                        onCreateTemporaryRuleFromConnection = viewModel::createTemporaryRuleFromConnection,
-                        onCleanupRule = viewModel::cleanupRule,
-                        modifier = Modifier.padding(padding)
-                    )
+                        AppTab.Status -> DashboardScreen(
+                            destination = DashboardDestination.Status,
+                            state = state,
+                            onRefresh = viewModel::refresh,
+                            onConnect = viewModel::connect,
+                            onDisconnect = viewModel::disconnect,
+                            onProfileSelected = viewModel::setActiveProfile,
+                            onPolicyGroupSelected = viewModel::selectPolicyGroup,
+                            onOpenSettings = { selectedTab = AppTab.Settings },
+                            onCreateRule = viewModel::createRule,
+                            onCreateRuleFromConnection = viewModel::createRuleFromConnection,
+                            onCreateTemporaryRuleFromConnection = viewModel::createTemporaryRuleFromConnection,
+                            onCleanupRule = viewModel::cleanupRule,
+                            onProfilesImported = onProfilesImported,
+                            modifier = Modifier.weight(1f)
+                        )
 
-                    AppTab.Profiles -> DashboardScreen(
-                        destination = DashboardDestination.Profiles,
-                        state = state,
-                        onRefresh = viewModel::refresh,
-                        onConnect = viewModel::connect,
-                        onDisconnect = viewModel::disconnect,
-                        onProfileSelected = viewModel::setActiveProfile,
-                        onPolicyGroupSelected = viewModel::selectPolicyGroup,
-                        onOpenSettings = { selectedTab = AppTab.Settings },
-                        onCreateRule = viewModel::createRule,
-                        onCreateRuleFromConnection = viewModel::createRuleFromConnection,
-                        onCreateTemporaryRuleFromConnection = viewModel::createTemporaryRuleFromConnection,
-                        onCleanupRule = viewModel::cleanupRule,
-                        modifier = Modifier.padding(padding)
-                    )
+                        AppTab.Profiles -> DashboardScreen(
+                            destination = DashboardDestination.Profiles,
+                            state = state,
+                            onRefresh = viewModel::refresh,
+                            onConnect = viewModel::connect,
+                            onDisconnect = viewModel::disconnect,
+                            onProfileSelected = viewModel::setActiveProfile,
+                            onPolicyGroupSelected = viewModel::selectPolicyGroup,
+                            onOpenSettings = { selectedTab = AppTab.Settings },
+                            onCreateRule = viewModel::createRule,
+                            onCreateRuleFromConnection = viewModel::createRuleFromConnection,
+                            onCreateTemporaryRuleFromConnection = viewModel::createTemporaryRuleFromConnection,
+                            onCleanupRule = viewModel::cleanupRule,
+                            onProfilesImported = onProfilesImported,
+                            modifier = Modifier.weight(1f)
+                        )
 
-                    AppTab.Activity -> DashboardScreen(
-                        destination = DashboardDestination.Activity,
-                        state = state,
-                        onRefresh = viewModel::refresh,
-                        onConnect = viewModel::connect,
-                        onDisconnect = viewModel::disconnect,
-                        onProfileSelected = viewModel::setActiveProfile,
-                        onPolicyGroupSelected = viewModel::selectPolicyGroup,
-                        onOpenSettings = { selectedTab = AppTab.Settings },
-                        onCreateRule = viewModel::createRule,
-                        onCreateRuleFromConnection = viewModel::createRuleFromConnection,
-                        onCreateTemporaryRuleFromConnection = viewModel::createTemporaryRuleFromConnection,
-                        onCleanupRule = viewModel::cleanupRule,
-                        modifier = Modifier.padding(padding)
-                    )
+                        AppTab.Activity -> DashboardScreen(
+                            destination = DashboardDestination.Activity,
+                            state = state,
+                            onRefresh = viewModel::refresh,
+                            onConnect = viewModel::connect,
+                            onDisconnect = viewModel::disconnect,
+                            onProfileSelected = viewModel::setActiveProfile,
+                            onPolicyGroupSelected = viewModel::selectPolicyGroup,
+                            onOpenSettings = { selectedTab = AppTab.Settings },
+                            onCreateRule = viewModel::createRule,
+                            onCreateRuleFromConnection = viewModel::createRuleFromConnection,
+                            onCreateTemporaryRuleFromConnection = viewModel::createTemporaryRuleFromConnection,
+                            onCleanupRule = viewModel::cleanupRule,
+                            onProfilesImported = onProfilesImported,
+                            modifier = Modifier.weight(1f)
+                        )
 
-                    AppTab.Settings -> SettingsScreen(
-                        settings = settings,
-                        token = token,
-                        configToml = configToml,
-                        supportPurchaseState = supportPurchaseState,
-                        onSave = onSaveSettings,
-                        onValidateConfig = onValidateConfig,
-                        onPurchaseSupport = onPurchaseSupport,
-                        onShowMessage = showMessage,
-                        modifier = Modifier.padding(padding)
-                    )
+                        AppTab.Settings -> SettingsScreen(
+                            settings = settings,
+                            token = token,
+                            configToml = configToml,
+                            supportPurchaseState = supportPurchaseState,
+                            onSave = onSaveSettings,
+                            onValidateConfig = onValidateConfig,
+                            onPurchaseSupport = onPurchaseSupport,
+                            onShowMessage = showMessage,
+                            modifier = Modifier.weight(1f)
+                        )
+
+                        AppTab.License -> LicenseScreen(
+                            state = licenseState,
+                            updateState = updateState,
+                            onActivate = onActivateLicense,
+                            onDeactivate = onDeactivateLicense,
+                            onReactivate = onReactivateLicense,
+                            onTransfer = onTransferLicense,
+                            onCheckUpdates = onCheckUpdates,
+                            onInstallUpdate = onInstallUpdate,
+                            onOpenUrl = onOpenUrl,
+                            buyUrl = licenseBuyUrl,
+                            portalUrl = licensePortalUrl,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
                 }
             }
         }

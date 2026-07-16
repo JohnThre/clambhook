@@ -14,6 +14,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.viewmodel.compose.viewModel
+import android.content.Intent
+import android.net.Uri
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -30,6 +34,20 @@ class MainActivity : ComponentActivity() {
             val settings by settingsStore.settings.collectAsState(initial = AppSettings())
             val token by tokenStore.token.collectAsState(initial = tokenStore.currentToken())
             var configToml by remember { mutableStateOf(defaultAndroidConfigToml) }
+            val licenseManager = remember { LicenseManager(this@MainActivity) }
+            val licenseState by licenseManager.state.collectAsState()
+            val licenseScope = rememberCoroutineScope()
+            val updateManager = remember {
+                UpdateManager(this@MainActivity) { millis -> licenseManager.canInstallUpdate(millis) }
+            }
+            val updateState by updateManager.state.collectAsState()
+            val openUrl: (String) -> Unit = { url ->
+                runCatching {
+                    startActivity(
+                        Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    )
+                }
+            }
 
             val vpnConsentLauncher = rememberLauncherForActivityResult(
                 ActivityResultContracts.StartActivityForResult()
@@ -39,11 +57,13 @@ class MainActivity : ComponentActivity() {
                 }
             }
             val startTunnel: () -> Unit = {
-                val consent = ClambhookTunnelController.consentIntent(this@MainActivity)
-                if (consent != null) {
-                    vpnConsentLauncher.launch(consent)
-                } else {
-                    ClambhookTunnelController.start(this@MainActivity)
+                if (licenseState.decision.canUseApp) {
+                    val consent = ClambhookTunnelController.consentIntent(this@MainActivity)
+                    if (consent != null) {
+                        vpnConsentLauncher.launch(consent)
+                    } else {
+                        ClambhookTunnelController.start(this@MainActivity)
+                    }
                 }
             }
 
@@ -51,12 +71,13 @@ class MainActivity : ComponentActivity() {
                 supportPurchaseManager.start()
                 onDispose { supportPurchaseManager.close() }
             }
+            LaunchedEffect(Unit) { licenseManager.start() }
             LaunchedEffect(Unit) {
                 configToml = configStore.readConfig()
             }
-            LaunchedEffect(settings.embeddedDaemonEnabled, token) {
+            LaunchedEffect(settings.embeddedDaemonEnabled, token, licenseState.initialized, licenseState.decision.canUseApp) {
                 configStore.ensureConfig()
-                if (settings.embeddedDaemonEnabled) {
+                if (settings.embeddedDaemonEnabled && licenseState.decision.canUseApp) {
                     startTunnel()
                 } else {
                     ClambhookTunnelController.stop(this@MainActivity)
@@ -120,7 +141,29 @@ class MainActivity : ComponentActivity() {
                 onPurchaseSupport = { productId ->
                     supportPurchaseManager.purchase(this@MainActivity, productId)
                 },
-                onClearSupportPurchaseMessage = supportPurchaseManager::clearMessage
+                onClearSupportPurchaseMessage = supportPurchaseManager::clearMessage,
+                licenseState = licenseState,
+                onActivateLicense = { key, email -> licenseScope.launch { licenseManager.activate(key, email) } },
+                onDeactivateLicense = { licenseScope.launch { licenseManager.deactivateCurrentDevice() } },
+                onReactivateLicense = { licenseScope.launch { licenseManager.reactivateCurrentDevice() } },
+                onTransferLicense = { licenseScope.launch { licenseManager.transferCurrentDevice() } },
+                onClearLicenseMessage = licenseManager::clearMessage,
+                onOpenUrl = openUrl,
+                licenseBuyUrl = licenseManager.buyUrl,
+                licensePortalUrl = licenseManager.portalUrl,
+                updateState = updateState,
+                onCheckUpdates = { licenseScope.launch { updateManager.check() } },
+                onInstallUpdate = { licenseScope.launch { updateManager.downloadAndInstall() } },
+                onProfilesImported = {
+                    licenseScope.launch {
+                        configToml = configStore.readConfig()
+                        if (effectiveSettings.embeddedDaemonEnabled && licenseState.decision.canUseApp) {
+                            ClambhookTunnelController.stop(this@MainActivity)
+                            startTunnel()
+                        }
+                        viewModel.refresh()
+                    }
+                }
             )
         }
     }

@@ -18,6 +18,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -80,7 +81,8 @@ class ClambhookVpnService : VpnService() {
             val settings = json.decodeFromString<TunnelNetworkSettings>(
                 GomobileClambhookTunnelRuntimeFactory.networkSettingsJson(configPath)
             )
-            val pfd = establishInterface(settings)
+            val appSettings = DataStoreSettingsStore(this).settings.first()
+            val pfd = establishInterface(settings, appSettings)
                 ?: error("system rejected VPN interface establishment")
 
             val out = FileOutputStream(pfd.fileDescriptor)
@@ -101,7 +103,7 @@ class ClambhookVpnService : VpnService() {
         }
     }
 
-    private fun establishInterface(settings: TunnelNetworkSettings): ParcelFileDescriptor? {
+    private fun establishInterface(settings: TunnelNetworkSettings, appSettings: AppSettings): ParcelFileDescriptor? {
         val builder = Builder()
             .setSession(getString(R.string.app_name))
             .setMtu(if (settings.mtu > 0) settings.mtu else DEFAULT_MTU)
@@ -128,12 +130,43 @@ class ClambhookVpnService : VpnService() {
             builder.addDnsServer(dns)
         }
 
-        // Keep the app's own proxy egress sockets outside the tunnel.
-        runCatching { builder.addDisallowedApplication(packageName) }
-            .onFailure { Log.w(logTag, "could not exclude own package from tunnel", it) }
+        applyPerAppRouting(builder, appSettings)
 
         builder.setConfigureIntent(configureIntent())
         return builder.establish()
+    }
+
+    private fun applyPerAppRouting(builder: Builder, appSettings: AppSettings) {
+        val selectedPackages = appSettings.normalizedSplitTunnelPackages
+            .filter { it != packageName }
+            .toSortedSet()
+        when (appSettings.normalizedSplitTunnelMode) {
+            SplitTunnelMode.Include -> {
+                if (selectedPackages.isEmpty()) {
+                    Log.w(logTag, "include-only app routing selected with no apps; falling back to all apps")
+                    disallowOwnPackage(builder)
+                    return
+                }
+                selectedPackages.forEach { pkg ->
+                    runCatching { builder.addAllowedApplication(pkg) }
+                        .onFailure { Log.w(logTag, "skip allowed app $pkg", it) }
+                }
+            }
+            SplitTunnelMode.Exclude -> {
+                disallowOwnPackage(builder)
+                selectedPackages.forEach { pkg ->
+                    runCatching { builder.addDisallowedApplication(pkg) }
+                        .onFailure { Log.w(logTag, "skip excluded app $pkg", it) }
+                }
+            }
+            else -> disallowOwnPackage(builder)
+        }
+    }
+
+    private fun disallowOwnPackage(builder: Builder) {
+        // Keep the app's own proxy egress sockets outside the tunnel.
+        runCatching { builder.addDisallowedApplication(packageName) }
+            .onFailure { Log.w(logTag, "could not exclude own package from tunnel", it) }
     }
 
     private fun startReadLoop(pfd: ParcelFileDescriptor, rt: ClambhookTunnelRuntime) {

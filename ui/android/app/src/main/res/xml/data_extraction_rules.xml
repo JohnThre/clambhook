@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 12+ (API 31+). Keep license/auth secrets out of cloud backup and device transfer. -->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="sharedpref" path="clambhook_secrets.xml" />
+        <exclude domain="sharedpref" path="clambhook_license.xml" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="sharedpref" path="clambhook_secrets.xml" />
+        <exclude domain="sharedpref" path="clambhook_license.xml" />
+    </device-transfer>
+</data-extraction-rules>

@@ -1,8 +1,18 @@
+import java.io.FileInputStream
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
     id("org.jetbrains.kotlin.plugin.serialization")
+}
+
+val keystorePropertiesFile = rootProject.file("keystore.properties")
+val keystoreProperties = Properties().apply {
+    if (keystorePropertiesFile.exists()) {
+        FileInputStream(keystorePropertiesFile).use { load(it) }
+    }
 }
 
 android {
@@ -30,6 +40,39 @@ android {
     packaging {
         resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
     }
+    signingConfigs {
+        create("release") {
+            if (keystorePropertiesFile.exists()) {
+                storeFile = file(keystoreProperties.getProperty("storeFile"))
+                storePassword = keystoreProperties.getProperty("storePassword")
+                keyAlias = keystoreProperties.getProperty("keyAlias")
+                keyPassword = keystoreProperties.getProperty("keyPassword")
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
+            if (keystorePropertiesFile.exists()) {
+                signingConfig = signingConfigs.getByName("release")
+            }
+        }
+    }
+
+    // ClambHook is distributed only via clambercloud.com (sideload), never Play.
+    // The Play dependency-info blob is unnecessary and its collector task reads
+    // the generated AAR without a declared dependency, breaking Gradle 9 builds.
+    dependenciesInfo {
+        includeInApk = false
+        includeInBundle = false
+    }
+
 }
 
 val clambhookMobileAar = layout.projectDirectory.file("libs/clambhookmobile.aar")
@@ -43,16 +86,10 @@ val generateClambhookMobileAar by tasks.registering(Exec::class) {
     outputs.file(clambhookMobileAar)
 }
 
-val clambhookMobileAarConsumers = setOf(
-    "assemble",
-    "assembleDebug",
-    "assembleRelease",
-    "bundleRelease"
-)
-
-tasks.matching {
-    it.name in clambhookMobileAarConsumers
-}.configureEach {
+// Every build task transitively depends on preBuild, so wiring the AAR
+// generator here makes it a proper prerequisite for all consumers (assemble,
+// R8, lint, dependency collection) without enumerating each one.
+tasks.named("preBuild") {
     dependsOn(generateClambhookMobileAar)
 }
 
@@ -81,6 +118,7 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation("com.journeyapps:zxing-android-embedded:4.3.0")
     implementation(fileTree("libs") { include("*.aar") })
 
     debugImplementation("androidx.compose.ui:ui-tooling")
