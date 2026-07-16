@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC
+ "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<policyconfig>
+  <vendor>Pengfan Chang</vendor>
+  <vendor_url>https://store.clambercloud.com/clambhook/</vendor_url>
+
+  <!--
+    Lets an active local user start and stop the privileged ClambHook daemon
+    (device-wide TUN routing) without a full root password prompt, while still
+    requiring interactive authorization. The desktop app invokes this action
+    via systemd (org.freedesktop.systemd1) when the user enables Enhanced mode.
+  -->
+  <action id="com.clambhook.Clambhook.manage-daemon">
+    <description>Manage the ClambHook device-wide routing daemon</description>
+    <message>Authentication is required to control ClambHook device-wide routing</message>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.systemd1.unit">clambhook-daemon.service</annotate>
+    <annotate key="org.freedesktop.systemd1.manage-units">yes</annotate>
+  </action>
+</policyconfig>

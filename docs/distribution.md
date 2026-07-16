@@ -23,6 +23,7 @@ flowchart TD
 - Buy or upgrade page: `https://store.swiphtgroup.com/clambhook/buy/`.
 - License portal: `https://store.swiphtgroup.com/clambhook/portal/`.
 - The public macOS DMG download is free and supports Apple Silicon Macs running macOS 14.0 or later.
+- The public GNU/Linux download is free and ships as `.deb`, `.rpm`, Flatpak, and AppImage packages tested on Bazzite, Rocky Linux, PureOS, Ubuntu, Debian, and Fedora.
 - The first launch starts a one-calendar-month trial.
 - A USD 99.99 one-time ClambHook license is required after the trial and includes one year of all updates from the purchase date.
 - Versions released on or before the update cutoff remain usable after the cutoff.
@@ -61,10 +62,26 @@ Do not release end-user installers or package artifacts on GitHub. This includes
 `.dmg`, `.pkg`, `.apk`, `.aab`, Homebrew formula releases, Debian packages, and
 macOS installer artifacts.
 
-GNU/Linux and Android build, package, and release targets remain available for
-Pengfan Chang's internal developer QA unless a supported public download channel
+macOS and GNU/Linux ship as public downloads from `store.clambercloud.com`.
+GNU/Linux packages (`.deb`, `.rpm`, Flatpak, AppImage) are still never published
+as GitHub release artifacts. Android build, package, and release targets remain
+Pengfan Chang's internal developer QA until a supported public download channel
 is configured under `store.clambercloud.com`. Windows development is discontinued
 with no planned resumption date.
+
+## CI Validation Before Release
+
+Every installer is validated in CI before manual QA, signing, or upload to an
+approved channel — never on GitHub Releases:
+
+- Apple platforms (macOS, iOS, iPadOS, watchOS, visionOS) are validated on
+  **Xcode Cloud** first (`ci_scripts/ci_post_clone.sh`).
+- GNU/Linux, Windows, and Android are validated on **GitHub Actions** first
+  (`.github/workflows/installer-validation.yml`), which builds and smoke-tests
+  only and uploads no artifacts.
+
+See [`release-validation.md`](release-validation.md) for the full policy and
+diagrams.
 
 ## macOS Scope
 

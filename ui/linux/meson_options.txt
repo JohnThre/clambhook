@@ -11,3 +11,10 @@ option(
   value: '',
   description: 'Path to a clambhook-tui executable to install into bindir.',
 )
+
+option(
+  'clambhook_license',
+  type: 'string',
+  value: '',
+  description: 'Path to a clambhook-license helper executable to install into libexecdir.',
+)

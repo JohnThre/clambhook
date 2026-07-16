@@ -86,3 +86,6 @@ CRUSH.md
 docs/superpowers/
 .ai-local/
 .ai-history/
+
+# Stray root build artifact from `go build ./cmd/clambhook-license`
+/clambhook-license
