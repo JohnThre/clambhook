@@ -58,3 +58,34 @@ if otool -L "$DAEMON" | grep -q '/opt/homebrew'; then
     otool -L "$DAEMON" >&2
     exit 1
 fi
+
+# The terminal UI is a pure-Go API client; it ships alongside the daemon in
+# Contents/MacOS. Validate the Apple Silicon-only slice and, defensively,
+# repoint any libsodium linkage at the bundled dylib so the executable never
+# depends on a Homebrew runtime.
+TUI="$ROOT_DIR/bin/clambhook-tui"
+if [[ ! -x "$TUI" ]]; then
+    echo "missing tui executable at $TUI" >&2
+    exit 1
+fi
+
+tui_archs="$(lipo -archs "$TUI" 2>/dev/null || true)"
+if [[ " $tui_archs " != *" arm64 "* ]]; then
+    echo "tui must contain an arm64 slice for Apple Silicon-only macOS builds; found: ${tui_archs:-unknown}" >&2
+    exit 1
+fi
+if [[ " $tui_archs " == *" x86_64 "* || " $tui_archs " == *" i386 "* ]]; then
+    echo "tui must not contain Intel slices for Apple Silicon-only macOS builds; found: $tui_archs" >&2
+    exit 1
+fi
+
+tui_sodium_path="$(otool -L "$TUI" | awk '/libsodium/ { print $1; exit }')"
+if [[ -n "$tui_sodium_path" && "$tui_sodium_path" != "$SODIUM_BUNDLE_PATH" ]]; then
+    install_name_tool -change "$tui_sodium_path" "$SODIUM_BUNDLE_PATH" "$TUI"
+fi
+
+if otool -L "$TUI" | grep -q '/opt/homebrew'; then
+    echo "tui still contains a Homebrew runtime dependency" >&2
+    otool -L "$TUI" >&2
+    exit 1
+fi
