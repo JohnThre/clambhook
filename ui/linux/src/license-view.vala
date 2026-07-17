@@ -218,13 +218,10 @@ namespace Clambhook {
         }
 
         private void open_uri(string uri) {
-            var launcher = new UriLauncher(uri);
-            launcher.launch.begin(get_root() as Gtk.Window, null, (obj, res) => {
-                try {
-                    launcher.launch.end(res);
-                } catch (Error err) {
-                }
-            });
+            try {
+                Gtk.show_uri(get_root() as Gtk.Window, uri, Gdk.CURRENT_TIME);
+            } catch (Error err) {
+            }
         }
     }
 }

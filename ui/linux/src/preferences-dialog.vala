@@ -102,19 +102,19 @@ namespace Clambhook {
         }
 
         private void choose_file(string title, Entry target) {
-            var dialog = new FileDialog();
-            dialog.title = title;
-            dialog.accept_label = "Select";
-            dialog.modal = true;
-            dialog.open.begin(this, null, (obj, res) => {
-                try {
-                    var file = dialog.open.end(res);
-                    if (file.get_path() != null) {
+            var dialog = new FileChooserDialog(title, this, FileChooserAction.OPEN,
+                "_Cancel", ResponseType.CANCEL,
+                "_Select", ResponseType.ACCEPT);
+            dialog.response.connect((response) => {
+                if (response == ResponseType.ACCEPT) {
+                    var file = dialog.get_file();
+                    if (file != null && file.get_path() != null) {
                         target.text = file.get_path();
                     }
-                } catch (Error err) {
                 }
+                dialog.destroy();
             });
+            dialog.show();
         }
 
         private void validate() {

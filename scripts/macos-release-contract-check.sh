@@ -194,6 +194,10 @@ if [[ -d "$ROOT_DIR/.github" ]]; then
     reject_tree_text "$ROOT_DIR/.github" "softprops/action-gh-release" "GitHub workflow release policy"
     reject_tree_text "$ROOT_DIR/.github" ".dmg" "GitHub workflow release policy"
     reject_tree_text "$ROOT_DIR/.github" ".pkg" "GitHub workflow release policy"
+    reject_tree_text "$ROOT_DIR/.github" ".deb" "GitHub workflow release policy"
+    reject_tree_text "$ROOT_DIR/.github" ".rpm" "GitHub workflow release policy"
+    reject_tree_text "$ROOT_DIR/.github" ".flatpak" "GitHub workflow release policy"
+    reject_tree_text "$ROOT_DIR/.github" ".AppImage" "GitHub workflow release policy"
 fi
 
 python3 - "$product_fixture" <<'PY'

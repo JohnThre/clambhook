@@ -6,9 +6,21 @@ export CGO_ENABLED=1
 	dh $@
 
 override_dh_auto_build:
+	# Prefer an in-tree /usr/local/go or a builder-installed toolchain so the
+	# exact go.mod Go version is used; fall back to the system Go if present.
+	if [ -x /usr/local/go/bin/go ]; then export PATH=/usr/local/go/bin:$$PATH; fi
+	export GO111MODULE=on
+	export GOFLAGS=-mod=vendor
 	$(MAKE) build VERSION=$$(dpkg-parsechangelog -SVersion | sed 's/-.*//')
 	$(MAKE) build-linux VERSION=$$(dpkg-parsechangelog -SVersion | sed 's/-.*//')
 
 override_dh_auto_install:
+	if [ -x /usr/local/go/bin/go ]; then export PATH=/usr/local/go/bin:$$PATH; fi
+	export GO111MODULE=on
+	export GOFLAGS=-mod=vendor
 	$(MAKE) install DESTDIR=$(CURDIR)/debian/clambhook PREFIX=/usr
 	$(MAKE) install-linux DESTDIR=$(CURDIR)/debian/clambhook PREFIX=/usr
+
+override_dh_dwz:
+	# Skip dwz: Go binaries have compressed debug sections that break dwz.
+

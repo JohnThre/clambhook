@@ -94,6 +94,14 @@ namespace Clambhook.Tests {
         public async Gee.ArrayList<DeveloperEntryPayload> developer_entries() throws Error {
             return new Gee.ArrayList<DeveloperEntryPayload>();
         }
+
+        public async DeveloperEntryPayload developer_entry(string id) throws Error {
+            return new DeveloperEntryPayload();
+        }
+
+        public async DeveloperEntryPayload repeat_developer_entry(string id) throws Error {
+            return new DeveloperEntryPayload();
+        }
     }
 
     public void add_dashboard_store_tests() {

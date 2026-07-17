@@ -71,6 +71,10 @@ upload-release-r2:
 	$(internal-release-notice)
 	./scripts/upload-release-r2.sh
 
+upload-release-linux:
+	$(internal-release-notice)
+	./scripts/upload-release-linux.sh
+
 release-check:
 	$(internal-release-notice)
 	$(MAKE) macos-release-contract-check test lint package-smoke e2e-release
@@ -103,7 +107,7 @@ test-linux: check-linux-ui-deps
 	cd ui/linux && meson setup builddir --reconfigure && meson test -C builddir
 
 build-linux: check-linux-ui-deps build-daemon build-tui build-license
-	cd ui/linux && meson setup builddir --reconfigure -Dclambhook_daemon="$(abspath bin/clambhook)" -Dclambhook_tui="$(abspath bin/clambhook-tui)" -Dclambhook_license="$(abspath bin/clambhook-license)" && meson compile -C builddir
+	cd ui/linux && find . -type f -exec touch {} + && sleep 1 && rm -rf builddir && meson setup builddir -Dclambhook_daemon="$(abspath bin/clambhook)" -Dclambhook_tui="$(abspath bin/clambhook-tui)" -Dclambhook_license="$(abspath bin/clambhook-license)" && meson compile -C builddir
 
 test:
 	go test ./...

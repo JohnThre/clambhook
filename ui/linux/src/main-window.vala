@@ -10,7 +10,9 @@ namespace Clambhook {
         private EventStreamClient event_stream;
         private AppSettings settings;
         private LicenseManager license;
-        private Adw.Banner license_banner;
+        private Box license_banner;
+        private Button license_banner_button;
+        private Label license_banner_label;
         private PolicyView policy_view;
         private FirewallView firewall_view;
         private DnsView dns_view;
@@ -120,10 +122,24 @@ namespace Clambhook {
             header.pack_end(preferences_button);
             root.append(header);
 
-            license_banner = new Adw.Banner("");
-            license_banner.button_label = "License";
-            license_banner.revealed = false;
-            license_banner.button_clicked.connect(() => main_stack.set_visible_child_name("license"));
+            license_banner = new Box(Orientation.HORIZONTAL, 12);
+            license_banner.add_css_class("banner");
+            license_banner.add_css_class("accent");
+            license_banner.margin_top = 6;
+            license_banner.margin_bottom = 6;
+            license_banner.margin_start = 12;
+            license_banner.margin_end = 12;
+            license_banner.visible = false;
+
+            license_banner_label = new Label("");
+            license_banner_label.xalign = 0;
+            license_banner_label.hexpand = true;
+            license_banner_label.wrap = true;
+            license_banner.append(license_banner_label);
+
+            license_banner_button = new Button.with_label("License");
+            license_banner_button.clicked.connect(() => main_stack.set_visible_child_name("license"));
+            license_banner.append(license_banner_button);
             root.append(license_banner);
 
             policy_view = new PolicyView(client);
@@ -390,25 +406,28 @@ namespace Clambhook {
                 return;
             }
             if (!license.initialized) {
-                license_banner.revealed = false;
+                license_banner.visible = false;
                 return;
             }
             if (!license.status.decision.can_use_app()) {
-                license_banner.title = "ClambHook trial ended. Activate a license key to continue.";
-                license_banner.revealed = true;
+                license_banner_label.label = "ClambHook trial ended. Activate a license key to continue.";
+                license_banner_button.label = "License";
+                license_banner.visible = true;
                 return;
             }
             if (license.status.decision.reason == "trial") {
-                license_banner.title = "%d days left in your ClambHook trial.".printf(license.status.decision.trial_days_remaining);
-                license_banner.revealed = true;
+                license_banner_label.label = "%d days left in your ClambHook trial.".printf(license.status.decision.trial_days_remaining);
+                license_banner_button.label = "License";
+                license_banner.visible = true;
                 return;
             }
             if (license.status.decision.reason == "offlineGrace") {
-                license_banner.title = license.status.decision.detail();
-                license_banner.revealed = true;
+                license_banner_label.label = license.status.decision.detail();
+                license_banner_button.label = "License";
+                license_banner.visible = true;
                 return;
             }
-            license_banner.revealed = false;
+            license_banner.visible = false;
         }
 
         private void render_profiles() {
@@ -908,26 +927,20 @@ namespace Clambhook {
             return value.strip() == "" ? "--" : value;
         }
 
+        private static Widget empty_state_widget(string title, string detail, string icon_name) {
+            var status = new Adw.StatusPage();
+            status.title = title;
+            status.description = detail;
+            status.icon_name = icon_name;
+            status.vexpand = true;
+            status.valign = Align.CENTER;
+            return status;
+        }
+
         private static ListBoxRow empty_state_row(string title, string detail) {
-            var box = new Box(Orientation.VERTICAL, 3);
-            box.margin_top = 10;
-            box.margin_bottom = 10;
-            box.margin_start = 10;
-            box.margin_end = 10;
-
-            var title_label = new Label(title);
-            title_label.xalign = 0;
-            title_label.wrap = true;
-
-            var detail_label = new Label(detail);
-            detail_label.xalign = 0;
-            detail_label.wrap = true;
-            detail_label.add_css_class("dim-label");
-
-            box.append(title_label);
-            box.append(detail_label);
             var row = new ListBoxRow();
-            row.set_child(box);
+            row.selectable = false;
+            row.set_child(empty_state_widget(title, detail, "dialog-information-symbolic"));
             return row;
         }
 

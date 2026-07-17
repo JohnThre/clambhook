@@ -7,7 +7,7 @@ namespace Clambhook {
         private SecretLicenseKeyVault license_key_vault;
 
         public ClambhookApplication() {
-            Object(application_id: "com.clambhook.Clambhook", flags: ApplicationFlags.DEFAULT_FLAGS);
+            Object(application_id: "com.clambhook.Clambhook", flags: ApplicationFlags.NON_UNIQUE);
             settings_store = new FileSettingsStore();
             token_vault = new SecretTokenVault();
             daemon = new DaemonSupervisor();
