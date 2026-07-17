@@ -39,6 +39,32 @@ namespace Clambhook {
         return row;
     }
 
+    private static Box parity_empty_state(string title, string detail, string icon_name) {
+        var box = new Box(Orientation.VERTICAL, 8);
+        box.halign = Align.CENTER;
+        box.valign = Align.CENTER;
+        box.vexpand = true;
+        box.margin_top = 24;
+        box.margin_bottom = 24;
+
+        var image = new Image.from_icon_name(icon_name);
+        image.set_icon_size(Gtk.IconSize.LARGE);
+        image.add_css_class("dim-label");
+        box.append(image);
+
+        var title_label = new Label(title);
+        title_label.add_css_class("heading");
+        box.append(title_label);
+
+        var detail_label = new Label(detail);
+        detail_label.wrap = true;
+        detail_label.max_width_chars = 48;
+        detail_label.add_css_class("dim-label");
+        box.append(detail_label);
+
+        return box;
+    }
+
     // Surge-style policy groups: manual select and url-test latency display.
     public class PolicyView : Box {
         private ClambhookApiProviding api;
@@ -71,9 +97,7 @@ namespace Clambhook {
 
             groups_list = new ListBox();
             groups_list.selection_mode = SelectionMode.NONE;
-            var frame = new Frame(null);
-            frame.set_child(groups_list);
-            append(frame);
+            append(groups_list);
         }
 
         public async void refresh() {
@@ -99,7 +123,7 @@ namespace Clambhook {
         private void render(PolicyGroupsPayload payload) {
             parity_clear(groups_list);
             if (payload.groups.size == 0) {
-                groups_list.append(parity_row("No policy groups", "This profile routes through fixed chains only."));
+                groups_list.append(parity_empty_state("No policy groups", "This profile routes through fixed chains only. Add a url-test or select group to see it here.", "edit-find-symbolic"));
                 return;
             }
             foreach (var group in payload.groups) {
@@ -214,9 +238,7 @@ namespace Clambhook {
 
             prompts_list = new ListBox();
             prompts_list.selection_mode = SelectionMode.NONE;
-            var frame = new Frame(null);
-            frame.set_child(prompts_list);
-            append(frame);
+            append(prompts_list);
         }
 
         public async void refresh() {
@@ -230,7 +252,7 @@ namespace Clambhook {
         private void render(PromptsPayload payload) {
             parity_clear(prompts_list);
             if (payload.prompts.size == 0) {
-                prompts_list.append(parity_row("No pending prompts", "Undecided connections appear here for an allow/block choice."));
+                prompts_list.append(parity_empty_state("No pending prompts", "Undecided connections appear here for an allow/block choice. Enable interactive prompts in the daemon config.", "dialog-question-symbolic"));
                 return;
             }
             foreach (var prompt in payload.prompts) {
@@ -315,9 +337,7 @@ namespace Clambhook {
 
             upstreams_list = new ListBox();
             upstreams_list.selection_mode = SelectionMode.NONE;
-            var frame = new Frame(null);
-            frame.set_child(upstreams_list);
-            append(frame);
+            append(upstreams_list);
         }
 
         public async void refresh() {
@@ -340,7 +360,7 @@ namespace Clambhook {
 
             parity_clear(upstreams_list);
             if (payload.upstreams.size == 0) {
-                upstreams_list.append(parity_row("No encrypted upstreams", "Add DoH/DoT/DoQ or a Control D resolver in the profile config."));
+                upstreams_list.append(parity_empty_state("No encrypted upstreams", "Add DoH/DoT/DoQ or a Control D resolver in the profile config to use encrypted DNS.", "network-offline-symbolic"));
                 return;
             }
             foreach (var upstream in payload.upstreams) {
@@ -392,9 +412,9 @@ namespace Clambhook {
 
             entries_list = new ListBox();
             entries_list.selection_mode = SelectionMode.NONE;
-            var frame = new Frame(null);
-            frame.set_child(entries_list);
-            append(frame);
+            entries_list.activate_on_single_click = true;
+            entries_list.row_activated.connect((row) => open_detail_for_row(row));
+            append(entries_list);
         }
 
         public async void refresh() {
@@ -417,6 +437,16 @@ namespace Clambhook {
             });
         }
 
+        private void open_detail_for_row(ListBoxRow row) {
+            var entry = row.get_data<DeveloperEntryPayload>("entry");
+            if (entry == null) {
+                return;
+            }
+            var dialog = new CaptureDetailDialog(entry, api);
+            dialog.set_transient_for((Window) get_root());
+            dialog.present();
+        }
+
         private void render(DeveloperStatusPayload status) {
             capture_enabled = status.enabled;
             toggle_button.label = status.enabled ? "Disable capture" : "Enable capture";
@@ -427,7 +457,7 @@ namespace Clambhook {
 
             parity_clear(entries_list);
             if (!status.enabled) {
-                entries_list.append(parity_row("Capture disabled", "Turn on capture to record recent transactions."));
+                entries_list.append(parity_empty_state("Capture disabled", "Turn on capture to record request/response metadata for routed HTTP(S) traffic. HTTPS bodies require a user-trusted CA.", "media-record-symbolic"));
                 return;
             }
             fetch_entries();
@@ -439,16 +469,144 @@ namespace Clambhook {
                     var entries = api.developer_entries.end(res);
                     parity_clear(entries_list);
                     if (entries.size == 0) {
-                        entries_list.append(parity_row("No transactions yet", "Routed HTTP(S) requests appear here while capture is on."));
+                        entries_list.append(parity_empty_state("No transactions yet", "Routed HTTP(S) requests appear here while capture is on.", "view-wrapped-symbolic"));
                         return;
                     }
                     foreach (var entry in entries) {
-                        var method = entry.method == "" ? "GET" : entry.method;
-                        var code = entry.status_code == 0 ? "pending" : entry.status_code.to_string();
-                        entries_list.append(parity_row("%s %s".printf(method, entry.url == "" ? entry.host : entry.url), "status %s · %lld B".printf(code, entry.response_bytes)));
+                        var row = capture_entry_row(entry);
+                        row.set_data("entry", entry);
+                        entries_list.append(row);
                     }
                 } catch (Error err) {
                     status_label.label = "Could not load captures: %s".printf(err.message);
+                }
+            });
+        }
+
+        private ListBoxRow capture_entry_row(DeveloperEntryPayload entry) {
+            var row = new ListBoxRow();
+            row.selectable = false;
+            row.add_css_class("activatable");
+            var box = new Box(Orientation.HORIZONTAL, 10);
+            box.margin_top = 8;
+            box.margin_bottom = 8;
+            box.margin_start = 10;
+            box.margin_end = 10;
+
+            var text = new Box(Orientation.VERTICAL, 2);
+            text.hexpand = true;
+            var method = entry.method == "" ? "GET" : entry.method;
+            var code = entry.status_code == 0 ? "pending" : entry.status_code.to_string();
+            var title = new Label("%s %s".printf(method, entry.url == "" ? entry.host : entry.url));
+            title.xalign = 0;
+            title.wrap = true;
+            text.append(title);
+
+            var secondary = new Label("status %s · %lld B · click for details".printf(code, entry.response_bytes));
+            secondary.xalign = 0;
+            secondary.add_css_class("dim-label");
+            text.append(secondary);
+
+            box.append(text);
+            var detail_icon = new Image.from_icon_name("go-next-symbolic");
+            detail_icon.add_css_class("dim-label");
+            box.append(detail_icon);
+            row.set_child(box);
+            return row;
+        }
+    }
+
+    // Detail dialog for a captured HTTP(S) transaction, with a Proxyman-style
+    // request/response split and a Repeat action.
+    public class CaptureDetailDialog : Window {
+        private DeveloperEntryPayload entry;
+        private ClambhookApiProviding api;
+        private Label status_label;
+
+        public CaptureDetailDialog(DeveloperEntryPayload entry, ClambhookApiProviding api) {
+            Object(title: "Capture detail", modal: true, default_width: 720, default_height: 540);
+            this.entry = entry;
+            this.api = api;
+            set_child(build_content());
+        }
+
+        private Widget build_content() {
+            var root = new Box(Orientation.VERTICAL, 12);
+            root.margin_top = 18;
+            root.margin_bottom = 18;
+            root.margin_start = 18;
+            root.margin_end = 18;
+
+            var header = new Box(Orientation.HORIZONTAL, 8);
+            var title = new Label("%s %s".printf(entry.method.up(), entry.url == "" ? entry.host : entry.url));
+            title.xalign = 0;
+            title.wrap = true;
+            title.add_css_class("heading");
+            title.hexpand = true;
+            header.append(title);
+
+            var repeat_button = new Button.with_label("Repeat");
+            repeat_button.tooltip_text = "Resend this request through the daemon";
+            repeat_button.clicked.connect(on_repeat);
+            header.append(repeat_button);
+            root.append(header);
+
+            status_label = new Label("");
+            status_label.xalign = 0;
+            status_label.add_css_class("dim-label");
+            status_label.visible = false;
+            root.append(status_label);
+
+            var notebook = new Notebook();
+            notebook.append_page(message_tab("Request", entry.request), new Label("Request"));
+            notebook.append_page(message_tab("Response", entry.response), new Label("Response"));
+            notebook.hexpand = true;
+            notebook.vexpand = true;
+            root.append(notebook);
+
+            var actions = new Box(Orientation.HORIZONTAL, 8);
+            actions.halign = Align.END;
+            var close = new Button.with_label("Close");
+            close.clicked.connect(() => this.close());
+            actions.append(close);
+            root.append(actions);
+
+            return root;
+        }
+
+        private static Widget message_tab(string title, CapturedMessage message) {
+            var paned = new Paned(Orientation.VERTICAL);
+            paned.position = 180;
+
+            var headers = new TextView();
+            headers.editable = false;
+            headers.monospace = true;
+            headers.buffer.text = message.headers_text();
+            var headers_scroll = new ScrolledWindow();
+            headers_scroll.set_child(headers);
+            paned.set_start_child(headers_scroll);
+
+            var body = new TextView();
+            body.editable = false;
+            body.monospace = true;
+            body.wrap_mode = WrapMode.WORD;
+            body.buffer.text = message.body_text();
+            var body_scroll = new ScrolledWindow();
+            body_scroll.set_child(body);
+            paned.set_end_child(body_scroll);
+
+            return paned;
+        }
+
+        private void on_repeat() {
+            status_label.label = "Repeating request...";
+            status_label.visible = true;
+            api.repeat_developer_entry.begin(entry.id, (obj, res) => {
+                try {
+                    var repeated = api.repeat_developer_entry.end(res);
+                    status_label.label = "Repeated · status %d · %lld B".printf(repeated.status_code, repeated.response_bytes);
+                } catch (Error err) {
+                    status_label.label = "Repeat failed: %s".printf(err.message);
                 }
             });
         }

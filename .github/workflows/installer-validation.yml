@@ -29,7 +29,8 @@ jobs:
       fail-fast: false
       matrix:
         # PureOS validates via the Debian path; Bazzite via the Fedora path +
-        # Flatpak manifest (see packaging/README.md).
+        # Flatpak manifest (see packaging/README.md). The four matrix jobs cover
+        # all six listed distributions without adding redundant container lanes.
         distro: [ubuntu, debian, fedora, rocky]
     steps:
       - uses: actions/checkout@v4

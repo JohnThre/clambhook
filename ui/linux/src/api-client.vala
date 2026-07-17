@@ -27,6 +27,8 @@ namespace Clambhook {
         public abstract async DeveloperStatusPayload developer_status() throws Error;
         public abstract async DeveloperStatusPayload set_developer_capture(bool enabled) throws Error;
         public abstract async Gee.ArrayList<DeveloperEntryPayload> developer_entries() throws Error;
+        public abstract async DeveloperEntryPayload developer_entry(string id) throws Error;
+        public abstract async DeveloperEntryPayload repeat_developer_entry(string id) throws Error;
     }
 
     public class ClambhookApiClient : Object, ClambhookApiProviding {
@@ -124,6 +126,27 @@ namespace Clambhook {
 
         public async Gee.ArrayList<DeveloperEntryPayload> developer_entries() throws Error {
             return DeveloperEntryPayload.list_from_json(yield send("GET", "/api/v1/developer/entries"));
+        }
+
+        public async DeveloperEntryPayload developer_entry(string id) throws Error {
+            var path = "/api/v1/developer/entries/%s".printf(Uri.escape_string(id, null, false));
+            return DeveloperEntryPayload.from_json(yield send("GET", path));
+        }
+
+        public async DeveloperEntryPayload repeat_developer_entry(string id) throws Error {
+            var body = repeat_entry_body(id);
+            return DeveloperEntryPayload.from_json(yield send("POST", "/api/v1/developer/repeat", body));
+        }
+
+        public static string repeat_entry_body(string id) {
+            var builder = new Json.Builder();
+            builder.begin_object();
+            builder.set_member_name("entry_id");
+            builder.add_string_value(id);
+            builder.end_object();
+            var generator = new Json.Generator();
+            generator.set_root(builder.get_root());
+            return generator.to_data(null);
         }
 
         public static string group_selection_body(string group, string chain) {

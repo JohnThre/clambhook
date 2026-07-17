@@ -22,10 +22,15 @@ License:        LicenseRef-Clambhook-Proprietary-View-Only
 URL:            https://store.clambercloud.com/clambhook/
 Source0:        %{name}-%{version}.tar.gz
 
-BuildRequires:  golang >= 1.25
 BuildRequires:  gcc
+# BuildRequires: golang  # deliberately omitted: the spec uses /usr/local/go
+# installed by the release harness so the exact go.mod Go version is used.
 BuildRequires:  pkgconf-pkg-config
+%if 0%{?rhel} && 0%{?rhel} < 10
+BuildRequires:  meson
+%else
 BuildRequires:  meson >= 1.0.0
+%endif
 BuildRequires:  ninja-build
 BuildRequires:  vala
 BuildRequires:  gtk4-devel
@@ -33,7 +38,11 @@ BuildRequires:  libadwaita-devel
 BuildRequires:  libgee-devel
 BuildRequires:  json-glib-devel
 BuildRequires:  libsecret-devel
+%if 0%{?rhel} && 0%{?rhel} < 10
+BuildRequires:  libsoup-devel
+%else
 BuildRequires:  libsoup3-devel
+%endif
 BuildRequires:  libsodium-devel
 BuildRequires:  glib2-devel
 
@@ -42,7 +51,11 @@ Requires:       libadwaita
 Requires:       libgee
 Requires:       json-glib
 Requires:       libsecret
+%if 0%{?rhel} && 0%{?rhel} < 10
+Requires:       libsoup
+%else
 Requires:       libsoup3
+%endif
 Requires:       libsodium
 
 %description
@@ -60,10 +73,17 @@ store.swiphtgroup.com (Creem or NOWPayments; PayPal is not accepted).
 
 %build
 export CGO_ENABLED=1
+# Prefer a project-provided or builder-installed Go over the system one so
+# the exact Go version from go.mod is used, while still satisfying the loose
+# BuildRequires.
+if [ -x /usr/local/go/bin/go ]; then export PATH=/usr/local/go/bin:$PATH; fi
+export GOTOOLCHAIN=auto
 make build VERSION=%{version}
 make build-linux VERSION=%{version}
 
 %install
+if [ -x /usr/local/go/bin/go ]; then export PATH=/usr/local/go/bin:$PATH; fi
+export GOTOOLCHAIN=auto
 make install DESTDIR=%{buildroot} PREFIX=%{_prefix}
 make install-linux DESTDIR=%{buildroot} PREFIX=%{_prefix}
 
@@ -71,11 +91,14 @@ make install-linux DESTDIR=%{buildroot} PREFIX=%{_prefix}
 %{_bindir}/clambhook
 %{_bindir}/clambhook-tui
 %{_bindir}/clambhook-license
+%{_bindir}/clambhook-linux
 %{_libexecdir}/clambhook
 %{_libexecdir}/clambhook-license
 %{_datadir}/applications/com.clambhook.Clambhook.desktop
 %{_datadir}/metainfo/com.clambhook.Clambhook.metainfo.xml
 %{_datadir}/icons/hicolor/1024x1024/apps/com.clambhook.Clambhook.png
+%{_unitdir}/clambhook-daemon.service
+%{_datadir}/polkit-1/actions/com.clambhook.Clambhook.policy
 
 %changelog
 * Wed Jul 15 2026 Pengfan Chang <developer@jpfchang.org> - 0.1.0-1
