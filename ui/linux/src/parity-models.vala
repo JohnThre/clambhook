@@ -261,6 +261,9 @@ namespace Clambhook {
         public string host { get; set; default = ""; }
         public int status_code { get; set; default = 0; }
         public int64 response_bytes { get; set; default = 0; }
+        public string error { get; set; default = ""; }
+        public CapturedMessage request { get; set; default = new CapturedMessage(); }
+        public CapturedMessage response { get; set; default = new CapturedMessage(); }
 
         public static Gee.ArrayList<DeveloperEntryPayload> list_from_json(string json) {
             var list = new Gee.ArrayList<DeveloperEntryPayload>();
@@ -271,19 +274,115 @@ namespace Clambhook {
                 }
                 var entries = object.get_array_member("entries");
                 for (uint i = 0; i < entries.get_length(); i++) {
-                    var item = entries.get_object_element(i);
-                    var entry = new DeveloperEntryPayload();
-                    entry.id = JsonReader.string_member(item, "id");
-                    entry.method = JsonReader.string_member(item, "method");
-                    entry.url = JsonReader.string_member(item, "url");
-                    entry.host = JsonReader.string_member(item, "host");
-                    entry.status_code = JsonReader.int_member(item, "status_code");
-                    entry.response_bytes = JsonReader.int64_member(item, "response_bytes");
-                    list.add(entry);
+                    list.add(entry_from_object(entries.get_object_element(i)));
                 }
             } catch (Error err) {
             }
             return list;
+        }
+
+        public static DeveloperEntryPayload from_json(string json) {
+            try {
+                return entry_from_object(JsonReader.root_object(json));
+            } catch (Error err) {
+                return new DeveloperEntryPayload();
+            }
+        }
+
+        private static DeveloperEntryPayload entry_from_object(Json.Object object) {
+            var entry = new DeveloperEntryPayload();
+            entry.id = JsonReader.string_member(object, "id");
+            entry.method = JsonReader.string_member(object, "method");
+            entry.url = JsonReader.string_member(object, "url");
+            entry.host = JsonReader.string_member(object, "host");
+            entry.status_code = JsonReader.int_member(object, "status");
+            if (entry.status_code == 0) {
+                entry.status_code = JsonReader.int_member(object, "status_code");
+            }
+            entry.response_bytes = JsonReader.int64_member(object, "response_bytes");
+            entry.error = JsonReader.string_member(object, "error");
+            if (JsonReader.has_object(object, "request")) {
+                entry.request = message_from_object(object.get_object_member("request"));
+            }
+            if (JsonReader.has_object(object, "response")) {
+                entry.response = message_from_object(object.get_object_member("response"));
+            }
+            return entry;
+        }
+
+        private static CapturedMessage message_from_object(Json.Object object) {
+            var message = new CapturedMessage();
+            if (JsonReader.has_object(object, "body")) {
+                message.body = body_from_object(object.get_object_member("body"));
+            }
+            if (JsonReader.has_array(object, "headers")) {
+                var headers = object.get_array_member("headers");
+                for (uint i = 0; i < headers.get_length(); i++) {
+                    message.headers.add(header_from_object(headers.get_object_element(i)));
+                }
+            }
+            return message;
+        }
+
+        private static CapturedHeader header_from_object(Json.Object object) {
+            var header = new CapturedHeader();
+            header.name = JsonReader.string_member(object, "name");
+            header.value = JsonReader.string_member(object, "value");
+            header.redacted = JsonReader.bool_member(object, "redacted");
+            header.truncated = JsonReader.bool_member(object, "truncated");
+            return header;
+        }
+
+        private static CapturedBody body_from_object(Json.Object object) {
+            var body = new CapturedBody();
+            body.size = JsonReader.int64_member(object, "size");
+            body.preview = JsonReader.string_member(object, "preview");
+            body.preview_base64 = JsonReader.string_member(object, "preview_base64");
+            body.truncated = JsonReader.bool_member(object, "truncated");
+            return body;
+        }
+    }
+
+    public class CapturedHeader : Object {
+        public string name { get; set; default = ""; }
+        public string value { get; set; default = ""; }
+        public bool redacted { get; set; default = false; }
+        public bool truncated { get; set; default = false; }
+    }
+
+    public class CapturedBody : Object {
+        public int64 size { get; set; default = 0; }
+        public string preview { get; set; default = ""; }
+        public string preview_base64 { get; set; default = ""; }
+        public bool truncated { get; set; default = false; }
+    }
+
+    public class CapturedMessage : Object {
+        public Gee.ArrayList<CapturedHeader> headers { get; private set; default = new Gee.ArrayList<CapturedHeader>(); }
+        public CapturedBody body { get; set; default = new CapturedBody(); }
+
+        public string headers_text() {
+            if (headers.size == 0) {
+                return "(no headers captured)";
+            }
+            var builder = new StringBuilder();
+            foreach (var header in headers) {
+                builder.append_printf("%s: %s\n", header.name, header.value);
+            }
+            return builder.str;
+        }
+
+        public string body_text() {
+            if (body.preview != "") {
+                return body.preview;
+            }
+            if (body.preview_base64 != "") {
+                return "[base64 preview: %s]".printf(body.preview_base64);
+            }
+            if (body.size == 0) {
+                return "(empty body)";
+            }
+            return "(%lld bytes; preview unavailable)".printf(body.size);
         }
     }
 }

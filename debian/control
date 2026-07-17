@@ -4,8 +4,10 @@ Priority: optional
 Maintainer: Pengfan Chang <developer@jpfchang.org>
 Build-Depends:
  debhelper-compat (= 13),
+ ca-certificates,
+ wget | curl,
  dh-golang,
- golang-any,
+ golang-any (>= 2:1.25~) | golang-go (>= 2:1.25~),
  libadwaita-1-dev,
  libgee-0.8-dev,
  libglib2.0-dev,

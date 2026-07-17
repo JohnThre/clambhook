@@ -104,19 +104,63 @@ for target in $TARGETS; do
   "build_$target"
 done
 
+# Generate the GNU/Linux update manifest after all packages are built and signed.
+# The website serves this at /api/clambhook/linux-manifest so users and package
+# managers can discover the current release without hitting GitHub.
+MANIFEST="$DIST_DIR/clambhook-linux-manifest.json"
+PUBLISHED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+write_manifest_entry() {
+  local pkg="$1" file_suffix="$2" url_key="$3"
+  local artifact="$DIST_DIR/clambhook-${VERSION}-${ARCH}.${file_suffix}"
+  local sha256=""
+  if [[ -f "$artifact.sha256" ]]; then
+    sha256="$(awk '{print $1}' "$artifact.sha256")"
+  fi
+  printf '    "%s": {\n' "$pkg"
+  printf '      "url": "${%s}",\n' "$url_key"
+  if [[ -n "$sha256" ]]; then
+    printf '      "sha256": "%s"\n' "$sha256"
+  else
+    printf '      "sha256": ""\n'
+  fi
+  printf '    }'
+}
+
+{
+  printf '{\n'
+  printf '  "version": "%s",\n' "$VERSION"
+  printf '  "publishedAt": "%s",\n' "$PUBLISHED_AT"
+  printf '  "architecture": "%s",\n' "$ARCH"
+  printf '  "packages": {\n'
+  write_manifest_entry "deb" "deb" "CLAMBHOOK_${CHAN}_LINUX_DEB_URL"
+  printf ',\n'
+  write_manifest_entry "rpm" "rpm" "CLAMBHOOK_${CHAN}_LINUX_RPM_URL"
+  printf ',\n'
+  write_manifest_entry "flatpak" "flatpak" "CLAMBHOOK_${CHAN}_LINUX_FLATPAK_URL"
+  printf ',\n'
+  write_manifest_entry "appimage" "AppImage" "CLAMBHOOK_${CHAN}_LINUX_APPIMAGE_URL"
+  printf '\n  }\n'
+  printf '}\n'
+} > "$MANIFEST"
+
+gpg_sign "$MANIFEST"
+
+echo "Generated $MANIFEST"
+
 CHAN="$(echo "$UPDATE_CHANNEL" | tr '[:lower:]' '[:upper:]')"
 cat <<SUMMARY
 
 Linux release artifacts written to $DIST_DIR
 Upload each to r2://$BUCKET/clambhook/linux/ and set these Pages variables:
-  CLAMBHOOK_${CHAN}_LINUX_DEB_URL        → .deb
-  CLAMBHOOK_${CHAN}_LINUX_DEB_SHA256_URL → .deb.sha256
-  CLAMBHOOK_${CHAN}_LINUX_RPM_URL        → .rpm
-  CLAMBHOOK_${CHAN}_LINUX_RPM_SHA256_URL → .rpm.sha256
-  CLAMBHOOK_${CHAN}_LINUX_FLATPAK_URL        → .flatpak
-  CLAMBHOOK_${CHAN}_LINUX_FLATPAK_SHA256_URL → .flatpak.sha256
-  CLAMBHOOK_${CHAN}_LINUX_APPIMAGE_URL        → .AppImage
-  CLAMBHOOK_${CHAN}_LINUX_APPIMAGE_SHA256_URL → .AppImage.sha256
+  CLAMBHOOK_${CHAN}_LINUX_DEB_URL        → clambhook-${VERSION}-${ARCH}.deb
+  CLAMBHOOK_${CHAN}_LINUX_DEB_SHA256_URL → clambhook-${VERSION}-${ARCH}.deb.sha256
+  CLAMBHOOK_${CHAN}_LINUX_RPM_URL        → clambhook-${VERSION}-${ARCH}.rpm
+  CLAMBHOOK_${CHAN}_LINUX_RPM_SHA256_URL → clambhook-${VERSION}-${ARCH}.rpm.sha256
+  CLAMBHOOK_${CHAN}_LINUX_FLATPAK_URL        → clambhook-${VERSION}-${ARCH}.flatpak
+  CLAMBHOOK_${CHAN}_LINUX_FLATPAK_SHA256_URL → clambhook-${VERSION}-${ARCH}.flatpak.sha256
+  CLAMBHOOK_${CHAN}_LINUX_APPIMAGE_URL        → clambhook-${VERSION}-${ARCH}.AppImage
+  CLAMBHOOK_${CHAN}_LINUX_APPIMAGE_SHA256_URL → clambhook-${VERSION}-${ARCH}.AppImage.sha256
   CLAMBHOOK_${CHAN}_LINUX_MANIFEST_URL   → clambhook-linux-manifest.json
 Do not publish these on GitHub Releases or package mirrors.
 SUMMARY
