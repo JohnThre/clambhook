@@ -137,6 +137,37 @@ class DashboardRepositoryTest {
     }
 
     @Test
+    fun actionDomainErrorKeepsApiOnline() = runBlocking {
+        // Embedded config-edit primitives surface Go domain rejections as a
+        // plain java.lang.Exception, which must not take the API offline.
+        val api = FakeApi(actionError = Exception("profile not found"))
+        val repository = DashboardRepository(api)
+        repository.refreshDashboard()
+        assertTrue(repository.state.value.apiOnline)
+
+        repository.createRule(RulePayload(name = "x", action = "block"))
+
+        val state = repository.state.value
+        assertTrue("domain rejection must not take the API offline", state.apiOnline)
+        assertEquals("profile not found", state.errorText)
+        assertNull(state.actionInProgress)
+    }
+
+    @Test
+    fun actionAvailabilityErrorMarksApiOffline() = runBlocking {
+        val api = FakeApi(actionError = java.io.IOException("connection refused"))
+        val repository = DashboardRepository(api)
+        repository.refreshDashboard()
+        assertTrue(repository.state.value.apiOnline)
+
+        repository.createRule(RulePayload(name = "x", action = "block"))
+
+        val state = repository.state.value
+        assertFalse("transport failure must take the API offline", state.apiOnline)
+        assertEquals("connection refused", state.errorText)
+    }
+
+    @Test
     fun createTemporaryRuleFromConnectionRefreshesDashboardAfterSuccess() = runBlocking {
         val api = FakeApi()
         val repository = DashboardRepository(api)
@@ -196,7 +227,8 @@ private class FakeApi(
     private var rules: RulesPayload = RulesPayload(profile = "A"),
     private var ruleSets: RuleSetsPayload = RuleSetsPayload(profile = "A"),
     private val traffic: TrafficSnapshotPayload = TrafficSnapshotPayload(),
-    private val error: Throwable? = null
+    private val error: Throwable? = null,
+    private val actionError: Throwable? = null
 ) : ClambhookApi {
     val actions = mutableListOf<String>()
     var statusCalls = 0
@@ -281,6 +313,7 @@ private class FakeApi(
     }
 
     override suspend fun createRule(rule: RulePayload): RulesPayload {
+        actionError?.let { throw it }
         actions += "rule:${rule.name}"
         rules = RulesPayload(profile = "A", rules = listOf(rule))
         return rules

@@ -19,6 +19,7 @@ cd "$ROOT_DIR"
 
 VERSION="${VERSION:-$(git describe --tags --always --dirty 2>/dev/null | sed 's/^v//' || echo dev)}"
 UPDATE_CHANNEL="${UPDATE_CHANNEL:-stable}"
+CHAN="$(echo "$UPDATE_CHANNEL" | tr '[:lower:]' '[:upper:]')"
 REQUIRE_SIGNING="${REQUIRE_SIGNING:-1}"
 GPG_KEY="${GPG_KEY:-EAA876B70B1832F5}"
 ARCH="$(uname -m)"
@@ -148,7 +149,6 @@ gpg_sign "$MANIFEST"
 
 echo "Generated $MANIFEST"
 
-CHAN="$(echo "$UPDATE_CHANNEL" | tr '[:lower:]' '[:upper:]')"
 cat <<SUMMARY
 
 Linux release artifacts written to $DIST_DIR

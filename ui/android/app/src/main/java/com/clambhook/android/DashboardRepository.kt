@@ -211,7 +211,7 @@ class DashboardRepository(
             action()
             refreshDashboard()
         } catch (error: Throwable) {
-            markOffline(error)
+            handleActionError(error)
         } finally {
             _state.update {
                 it.copy(
@@ -220,6 +220,24 @@ class DashboardRepository(
                 )
             }
         }
+    }
+
+    private fun handleActionError(error: Throwable) {
+        if (isAvailabilityError(error)) {
+            markOffline(error)
+        } else {
+            _state.update { it.copy(errorText = error.message ?: error.toString()) }
+        }
+    }
+
+    // Only transport or runtime-availability failures take the API offline.
+    // Domain rejections (validation, stale suggestions, missing profiles) keep
+    // the API online and surface as an inline error message.
+    private fun isAvailabilityError(error: Throwable): Boolean = when (error) {
+        is ApiHttpException -> error.statusCode >= 500
+        is IllegalStateException -> true
+        is java.io.IOException -> true
+        else -> false
     }
 
     private fun markOffline(error: Throwable) {

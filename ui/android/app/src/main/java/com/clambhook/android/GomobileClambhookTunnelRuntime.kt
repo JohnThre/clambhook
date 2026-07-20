@@ -39,6 +39,23 @@ interface ClambhookTunnelRuntime {
         ttlSeconds: Long,
     ): String
 
+    fun createRuleFromConnectionJson(
+        configPath: String,
+        connId: String,
+        profile: String,
+        name: String,
+        action: String,
+        scope: String,
+    ): String
+    fun cleanupRuleJson(
+        configPath: String,
+        profile: String,
+        kind: String,
+        ruleName: String,
+        targetRuleName: String,
+        operation: String,
+    ): String
+
     fun testRuleJson(profile: String, network: String, target: String, source: String): String
 }
 
@@ -76,6 +93,24 @@ class GomobileClambhookTunnelRuntime(
         ttlSeconds: Long,
     ): String = delegate.createTemporaryRuleFromConnectionJSON(connId, profile, name, action, scope, ttlSeconds)
 
+    override fun createRuleFromConnectionJson(
+        configPath: String,
+        connId: String,
+        profile: String,
+        name: String,
+        action: String,
+        scope: String,
+    ): String = delegate.createRuleFromConnectionJSON(configPath, connId, profile, name, action, scope)
+
+    override fun cleanupRuleJson(
+        configPath: String,
+        profile: String,
+        kind: String,
+        ruleName: String,
+        targetRuleName: String,
+        operation: String,
+    ): String = delegate.cleanupRuleJSON(configPath, profile, kind, ruleName, targetRuleName, operation)
+
     override fun testRuleJson(profile: String, network: String, target: String, source: String): String =
         delegate.testRuleJSON(profile, network, target, source)
 }
@@ -85,6 +120,18 @@ object GomobileClambhookTunnelRuntimeFactory {
 
     fun replaceRulesJson(configPath: String, profile: String, rulesJson: String) =
         Mobile.replaceTunnelRulesJSON(configPath, profile, rulesJson)
+
+    fun appendRuleJson(configPath: String, profile: String, ruleJson: String): String =
+        Mobile.appendTunnelRuleJSON(configPath, profile, ruleJson)
+
+    fun replaceRuleSetsJson(configPath: String, profile: String, ruleSetsJson: String) =
+        Mobile.replaceTunnelRuleSetsJSON(configPath, profile, ruleSetsJson)
+
+    fun refreshRuleSetsJson(configPath: String, profile: String, namesJson: String): String =
+        Mobile.refreshRuleSetsJSON(configPath, profile, namesJson)
+
+    fun ruleSetsJson(configPath: String, profile: String): String =
+        Mobile.ruleSetsJSON(configPath, profile)
 
     fun create(packetWriter: PacketWriter): ClambhookTunnelRuntime =
         GomobileClambhookTunnelRuntime(Mobile.newTunnelRuntime(packetWriter))

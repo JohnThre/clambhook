@@ -747,7 +747,7 @@ struct AppSettingsView: View {
     }
 
     private func saveProxyPorts() {
-        model.saveConfigSettings(listen: ConfigListenSettingsPayload(
+        model.saveConfigSettings(listen: ConfigListenSettingsUpdatePayload(
             socks5: socks5Listen,
             socks5Chain: socks5Chain,
             http: httpListen,
@@ -776,11 +776,7 @@ struct AppSettingsView: View {
     }
 
     private func saveTUN() {
-        model.saveConfigSettings(listen: ConfigListenSettingsPayload(
-            socks5: socks5Listen,
-            socks5Chain: socks5Chain,
-            http: httpListen,
-            httpChain: httpChain,
+        model.saveConfigSettings(listen: ConfigListenSettingsUpdatePayload(
             tun: ConfigTUNSettingsPayload(
                 enabled: tunEnabled,
                 name: tunName,

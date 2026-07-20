@@ -11,8 +11,8 @@ import kotlinx.serialization.encodeToString
 /**
  * [ClambhookApi] backed by the on-device packet-tunnel runtime instead of the
  * daemon HTTP API. Reads decode the runtime's JSON payloads; mutations apply
- * live against the running packet stack. Config-editing operations not yet
- * supported on device throw [UnsupportedOperationException].
+ * to the on-device config via the embedded config-edit primitives and take
+ * effect after a runtime reload.
  */
 class LocalTunnelApi(
     private val appContext: Context,
@@ -97,23 +97,59 @@ class LocalTunnelApi(
         io { ClambhookVpnService.stop(appContext) }
     }
 
-    // Config-editing operations pending on-device support (Phase 3).
-    override suspend fun createRule(rule: RulePayload): RulesPayload = unsupported("adding rules")
+    override suspend fun createRule(rule: RulePayload): RulesPayload = io {
+        val rt = runtime()
+        val configPath = session.configPath
+        val json = GomobileClambhookTunnelRuntimeFactory.appendRuleJson(configPath, "", ApiJson.encodeToString(rule))
+        rt.reload(configPath)
+        ApiJson.decodeFromString(json)
+    }
 
-    override suspend fun createRuleFromConnection(connection: TrafficConnectionPayload, rule: RulePayload): RulesPayload =
-        unsupported("adding rules from a connection")
+    override suspend fun createRuleFromConnection(connection: TrafficConnectionPayload, rule: RulePayload): RulesPayload = io {
+        val rt = runtime()
+        val configPath = session.configPath
+        val json = rt.createRuleFromConnectionJson(
+            configPath,
+            connection.connId,
+            connection.profile,
+            rule.name,
+            rule.action,
+            "auto",
+        )
+        rt.reload(configPath)
+        ApiJson.decodeFromString(json)
+    }
 
-    override suspend fun cleanupRule(suggestion: TrafficCleanupSuggestionPayload): RulesPayload =
-        unsupported("rule cleanup")
+    override suspend fun cleanupRule(suggestion: TrafficCleanupSuggestionPayload): RulesPayload = io {
+        val rt = runtime()
+        val configPath = session.configPath
+        val json = rt.cleanupRuleJson(
+            configPath,
+            suggestion.profile,
+            suggestion.kind,
+            suggestion.ruleName,
+            suggestion.targetRuleName.ifBlank { suggestion.ruleName },
+            suggestion.operation,
+        )
+        rt.reload(configPath)
+        ApiJson.decodeFromString(json)
+    }
 
-    override suspend fun replaceRuleSets(profile: String, ruleSets: List<RuleSetPayload>): RuleSetsPayload =
-        unsupported("editing rule sets")
+    override suspend fun replaceRuleSets(profile: String, ruleSets: List<RuleSetPayload>): RuleSetsPayload = io {
+        val rt = runtime()
+        val configPath = session.configPath
+        GomobileClambhookTunnelRuntimeFactory.replaceRuleSetsJson(configPath, profile, ApiJson.encodeToString(ruleSets))
+        rt.reload(configPath)
+        ApiJson.decodeFromString(GomobileClambhookTunnelRuntimeFactory.ruleSetsJson(configPath, profile))
+    }
 
-    override suspend fun refreshRuleSets(profile: String, names: List<String>): RuleSetsPayload =
-        unsupported("refreshing rule sets")
-
-    private fun unsupported(what: String): Nothing =
-        throw UnsupportedOperationException("$what is not available in on-device tunnel mode yet")
+    override suspend fun refreshRuleSets(profile: String, names: List<String>): RuleSetsPayload = io {
+        val rt = runtime()
+        val configPath = session.configPath
+        val json = GomobileClambhookTunnelRuntimeFactory.refreshRuleSetsJson(configPath, profile, ApiJson.encodeToString(names))
+        rt.reload(configPath)
+        ApiJson.decodeFromString(json)
+    }
 }
 
 /** Subset of the runtime dashboard payload used to source aggregate views. */
