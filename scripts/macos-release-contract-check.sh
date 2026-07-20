@@ -35,14 +35,6 @@ reject_text() {
     fi
 }
 
-reject_tree_text() {
-    local root="$1"
-    local pattern="$2"
-    local label="$3"
-    if [[ -d "$root" ]] && grep -RFiq "$pattern" "$root"; then
-        fail "$label contains prohibited text: $pattern"
-    fi
-}
 
 require_command grep
 require_command python3
@@ -188,17 +180,7 @@ require_text "$sparkle_updater" "including critical, bug, and security updates" 
 require_text "$purchase_view" "Buy license - USD" "macOS website license purchase copy"
 require_text "$mobile_support" "ClambHook License" "macOS website license product copy"
 
-if [[ -d "$ROOT_DIR/.github" ]]; then
-    reject_tree_text "$ROOT_DIR/.github" "upload-artifact" "GitHub workflow release policy"
-    reject_tree_text "$ROOT_DIR/.github" "gh release upload" "GitHub workflow release policy"
-    reject_tree_text "$ROOT_DIR/.github" "softprops/action-gh-release" "GitHub workflow release policy"
-    reject_tree_text "$ROOT_DIR/.github" ".dmg" "GitHub workflow release policy"
-    reject_tree_text "$ROOT_DIR/.github" ".pkg" "GitHub workflow release policy"
-    reject_tree_text "$ROOT_DIR/.github" ".deb" "GitHub workflow release policy"
-    reject_tree_text "$ROOT_DIR/.github" ".rpm" "GitHub workflow release policy"
-    reject_tree_text "$ROOT_DIR/.github" ".flatpak" "GitHub workflow release policy"
-    reject_tree_text "$ROOT_DIR/.github" ".AppImage" "GitHub workflow release policy"
-fi
+"$ROOT_DIR/scripts/check-source-only.sh" "$ROOT_DIR"
 
 python3 - "$product_fixture" <<'PY'
 import json

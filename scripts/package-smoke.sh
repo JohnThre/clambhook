@@ -280,7 +280,9 @@ smoke_debian() {
     prepare_source_tree "$src"
     mkdir -p "$root"
 
-    (cd "$src" && dpkg-buildpackage -us -uc -b)
+    # CI installs the exact go.mod toolchain from go.dev rather than an older
+    # distro Go package, so the explicit tool checks above are authoritative.
+    (cd "$src" && dpkg-buildpackage -d -us -uc -b)
 
     local deb
     deb="$(find "$src_parent" -maxdepth 1 -name 'clambhook_*.deb' -print -quit)"

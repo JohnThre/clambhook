@@ -57,13 +57,15 @@ declare -A IMAGE=(
 )
 
 apt_setup='export DEBIAN_FRONTEND=noninteractive; apt-get update -qq && apt-get install -y -qq \
-  gcc pkg-config meson ninja-build valac \
+  gcc make pkg-config meson ninja-build valac \
   libgtk-4-dev libadwaita-1-dev libgee-0.8-dev libjson-glib-dev \
-  libsecret-1-dev libsoup-3.0-dev libsodium-dev git curl ca-certificates tar >/dev/null'
+  libsecret-1-dev libsoup-3.0-dev libsodium-dev libglib2.0-dev \
+  debhelper dh-golang dpkg-dev fakeroot rsync git curl wget ca-certificates tar file >/dev/null'
 
-dnf_setup='dnf install -y -q gcc pkgconf-pkg-config meson ninja-build vala \
-  gtk4-devel libadwaita-devel libgee-devel json-glib-devel \
-  libsecret-devel libsoup3-devel libsodium-devel git curl tar >/dev/null'
+dnf_setup='dnf install -y -q gcc make rpm-build pkgconf-pkg-config meson ninja-build vala \
+  gtk4-devel libadwaita-devel libgee-devel json-glib-devel glib2-devel \
+  libsecret-devel libsoup3-devel libsodium-devel systemd-rpm-macros polkit-devel \
+  git curl tar gzip file which >/dev/null'
 
 # Stock distro Go packages are older than the go.mod requirement, so install the
 # pinned official Go toolchain (the exact version from go.mod) into /usr/local.
@@ -95,13 +97,28 @@ run_one() {
     echo "Unknown distro: $distro (known: ${!IMAGE[*]})" >&2
     return 2
   fi
-  local setup="$apt_setup"
+  local setup="$apt_setup" recipe=""
   case "$distro" in
-    fedora|rocky|bazzite) setup="$dnf_setup" ;;
+    ubuntu)
+      setup="$apt_setup; apt-get install -y -qq flatpak flatpak-builder >/dev/null"
+      recipe='./scripts/ci-linux-package-recipes.sh debian; ./scripts/ci-linux-package-recipes.sh portable'
+      ;;
+    debian|pureos)
+      recipe='./scripts/ci-linux-package-recipes.sh debian'
+      ;;
+    fedora|bazzite)
+      setup="$dnf_setup"
+      recipe='./scripts/ci-linux-package-recipes.sh rpm'
+      ;;
+    rocky)
+      setup='dnf install -y -q epel-release >/dev/null; '
+      setup+="$dnf_setup"
+      recipe='./scripts/ci-linux-package-recipes.sh rpm'
+      ;;
   esac
   echo "==================== $distro ($image) ===================="
   "$engine" run --rm -v "$repo_root":/src${mount_suffix} -w /src "$image" \
-    bash -lc "$setup; $go_setup; $smoke"
+    bash -lc "$setup; $go_setup; $smoke; $recipe"
   echo "==================== $distro: PASS ===================="
 }
 

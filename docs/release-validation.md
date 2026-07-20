@@ -95,3 +95,14 @@ flowchart TD
 Distro-to-image mapping mirrors `packaging/README.md`: PureOS validates through
 the Debian image (Debian-based) and Bazzite through the Fedora image plus the
 Flatpak manifest.
+
+## Local `release-check` scope
+
+`make release-check` (`macos-release-contract-check test lint package-smoke
+e2e-release`) gates the Go core: it runs `go test ./...`, `go vet`, the Debian
+package smoke build, and the real-server protocol e2e suite. It intentionally
+does **not** run the UI test suites (`test-apple`, `test-android`,
+`test-linux`); those are validated by CI instead — the Apple client on Xcode
+Cloud and the Android and GNU/Linux UIs on GitHub Actions
+(`.github/workflows/installer-validation.yml`). Run the platform UI targets
+directly when iterating on a specific client.

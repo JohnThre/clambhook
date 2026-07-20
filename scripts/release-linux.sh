@@ -17,6 +17,8 @@ echo "internal-only: building GNU/Linux release artifacts for store.clambercloud
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
+"$ROOT_DIR/scripts/check-source-only.sh" "$ROOT_DIR"
+
 VERSION="${VERSION:-$(git describe --tags --always --dirty 2>/dev/null | sed 's/^v//' || echo dev)}"
 UPDATE_CHANNEL="${UPDATE_CHANNEL:-stable}"
 CHAN="$(echo "$UPDATE_CHANNEL" | tr '[:lower:]' '[:upper:]')"
