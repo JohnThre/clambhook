@@ -172,7 +172,7 @@ See [`docs/macos-v1-scope.md`](docs/macos-v1-scope.md) for the full scope.
 | macOS 14+ (Apple Silicon) | SwiftUI | Public release |
 | GNU/Linux (Bazzite, Rocky Linux, PureOS, Ubuntu, Debian, Fedora) | GTK4 / libadwaita (Vala) | Public release |
 | Windows 11 | — | Discontinued (no planned resumption) |
-| Android 12+ | Kotlin / Compose | Internal developer QA |
+| Android 11+ | Kotlin / Compose | Internal developer QA |
 
 macOS supports menu bar integration and widgets.
 
@@ -185,19 +185,22 @@ Terminal, PowerShell, GNOME Terminal, Xfce Terminal, and KDE Konsole.
 
 The build uses `CGO_ENABLED=1` and requires `libsodium` discoverable through
 `pkg-config`.
+Building, running, and testing require prior written permission from Pengfan
+Chang; see [`LICENSE`](LICENSE). The commands below are for the author and
+authorized parties, not a general contribution or redistribution grant.
 
 | Command | Result |
 | --- | --- |
 | `make build` | Builds `clib/libcnet.a`, then both Go binaries into `bin/`. |
 | `make build-daemon` | Builds only `bin/clambhook`. |
 | `make build-tui` | Builds only `bin/clambhook-tui`. |
-| `make test` | Runs `go test ./...`. |
+| `make test` | Builds `clib/libcnet.a`, then runs `go test ./...`. |
 | `make lint` | Runs `go vet ./...` (and `staticcheck` when installed). |
 | `make clean` | Removes `bin/` and build artifacts. |
 
 A configuration template lives at [`configs/example.toml`](configs/example.toml).
-See [`AGENTS.md`](AGENTS.md) for repository structure and contributor
-conventions. To validate the GNU/Linux packages across all six supported
+See the [Repository layout](#repository-layout) section below and the
+[`docs/`](docs/) directory for repository structure and conventions. To validate the GNU/Linux packages across all six supported
 distributions from a Mac, use Apple's [`container`](https://github.com/apple/container)
 tool via `scripts/validate-linux-distros.sh` (podman/docker on Linux); see
 [`packaging/README.md`](packaging/README.md). Installers are validated in CI

@@ -123,21 +123,21 @@ No P0 findings. Six P1 items should block release.
 
 ## Then — CI and contract integrity
 
-- [ ] Add CI for `make test`, `make lint`, `make test-linux` (Meson), and a
+- [x] Add CI for `make test`, `make lint`, `make test-linux` (Meson), and a
   scheduled/manual protocol `e2e` lane (`test/e2e/README.md` references a
   non-existent `.github/workflows/e2e.yml`).
-- [ ] Exercise the real `.deb`/RPM/Flatpak/AppImage recipes in CI, not just
+- [x] Exercise the real `.deb`/RPM/Flatpak/AppImage recipes in CI, not just
   binary builds.
-- [ ] Apply the source-only GitHub publication guard to the Linux release path,
+- [x] Apply the source-only GitHub publication guard to the Linux release path,
   not only macOS.
-- [ ] Reconcile the Android floor: build is `minSdk 30` (Android 11); README
+- [x] Reconcile the Android floor: build is `minSdk 30` (Android 11); README
   says "Android 12+".
-- [ ] Remove or replace the README link to `AGENTS.md`, which is gitignored and
+- [x] Remove or replace the README link to `AGENTS.md`, which is gitignored and
   absent.
-- [ ] Reconcile the README build/test instructions with the LICENSE prohibition
+- [x] Reconcile the README build/test instructions with the LICENSE prohibition
   on building, running, and testing.
-- [ ] Add `SECURITY.md` with a coordinated vulnerability-disclosure route.
-- [ ] Document whether `release-check` intentionally defers Apple/Android/Linux
+- [x] Add `SECURITY.md` with a coordinated vulnerability-disclosure route.
+- [x] Document whether `release-check` intentionally defers Apple/Android/Linux
   UI test suites to CI.
 
 ## Decide / incubate
