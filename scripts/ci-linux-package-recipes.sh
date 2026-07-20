@@ -63,7 +63,7 @@ best_effort_recipe() {
         status=$?
     fi
     if is_container_limit "$output"; then
-        log "SKIP: $name recipe reached a container FUSE/mount/namespace limitation; native package jobs remain authoritative"
+        log "SKIP: $name recipe reached a container FUSE/mount/namespace limitation; the required native portable job remains authoritative"
         rm -f "$output"
         return 0
     fi
@@ -72,41 +72,17 @@ best_effort_recipe() {
     return "$status"
 }
 
-flatpak_recipe() {
-    command -v flatpak >/dev/null 2>&1
-    command -v flatpak-builder >/dev/null 2>&1
-
-    local workdir
-    workdir="$(mktemp -d "${TMPDIR:-/tmp}/clambhook-flatpak-ci.XXXXXX")"
-    export XDG_DATA_HOME="$workdir/data"
-    export XDG_CACHE_HOME="$workdir/cache"
-    export XDG_RUNTIME_DIR="$workdir/runtime"
-    mkdir -p "$XDG_DATA_HOME" "$XDG_CACHE_HOME" "$XDG_RUNTIME_DIR"
-    chmod 700 "$XDG_RUNTIME_DIR"
-
-    flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
-    flatpak install --user --noninteractive -y flathub \
-        org.gnome.Platform//47 \
-        org.gnome.Sdk//47 \
-        org.freedesktop.Sdk.Extension.golang//24.08
-    flatpak-builder --user --disable-rofiles-fuse --force-clean \
-        "$workdir/build" "$ROOT_DIR/packaging/flatpak/com.clambhook.Clambhook.yaml"
-}
-
-appimage_recipe() {
-    APPIMAGE_EXTRACT_AND_RUN=1 VERSION=ci \
-        "$ROOT_DIR/packaging/appimage/build-appimage.sh"
-}
-
-build_portable() {
-    best_effort_recipe flatpak flatpak_recipe
-    best_effort_recipe appimage appimage_recipe
+build_portable_probe() {
+    best_effort_recipe flatpak \
+        "$ROOT_DIR/scripts/ci-linux-portable-recipes.sh" flatpak
+    best_effort_recipe appimage \
+        "$ROOT_DIR/scripts/ci-linux-portable-recipes.sh" appimage
 }
 
 case "$MODE" in
     debian) build_debian ;;
     rpm) build_rpm ;;
-    portable) build_portable ;;
+    portable) build_portable_probe ;;
     *)
         echo "usage: scripts/ci-linux-package-recipes.sh debian|rpm|portable" >&2
         exit 2

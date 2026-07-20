@@ -19,14 +19,28 @@ type NetworkInfo struct {
 	IsWiFi        bool
 }
 
+// sourceFunc reports the currently active network. It is the injectable seam
+// behind Watcher: production uses the platform current() implementation, while
+// tests supply a deterministic function.
+type sourceFunc func() (NetworkInfo, error)
+
 // Watcher polls the network state and emits on changes.
 type Watcher struct {
 	interval time.Duration
+	source   sourceFunc
 }
 
-// New creates a Watcher with the default poll interval.
+// New creates a Watcher with the default poll interval backed by the platform
+// network probe.
 func New() *Watcher {
-	return &Watcher{interval: defaultPollInterval}
+	return &Watcher{interval: defaultPollInterval, source: current}
+}
+
+// newWithSource creates a Watcher with an explicit poll interval and network
+// source. It exists so tests can drive Watch deterministically without touching
+// platform state.
+func newWithSource(interval time.Duration, source sourceFunc) *Watcher {
+	return &Watcher{interval: interval, source: source}
 }
 
 // Watch returns a channel that emits NetworkInfo whenever the network
@@ -34,6 +48,10 @@ func New() *Watcher {
 // when ctx is done.
 func (w *Watcher) Watch(ctx context.Context) <-chan NetworkInfo {
 	ch := make(chan NetworkInfo, 1)
+	source := w.source
+	if source == nil {
+		source = current
+	}
 	go func() {
 		defer close(ch)
 		last := NetworkInfo{}
@@ -53,7 +71,7 @@ func (w *Watcher) Watch(ctx context.Context) <-chan NetworkInfo {
 				}
 			}
 			first = false
-			info, err := current()
+			info, err := source()
 			if err != nil {
 				log.Printf("netwatch: %v", err)
 				continue

@@ -22,6 +22,9 @@ func AES128GCMEncrypt(key, nonce, plaintext, aad []byte) (ciphertext, tag []byte
 	if err != nil {
 		return nil, nil, err
 	}
+	if len(nonce) != gcm.NonceSize() {
+		return nil, nil, fmt.Errorf("aes128gcm: nonce size %d, want %d", len(nonce), gcm.NonceSize())
+	}
 	// Seal returns ciphertext||tag concatenated; split for detached-tag API.
 	sealed := gcm.Seal(nil, nonce, plaintext, aad)
 	tagSize := gcm.Overhead()
@@ -33,6 +36,9 @@ func AES128GCMDecrypt(key, nonce, ciphertext, aad, tag []byte) (plaintext []byte
 	gcm, err := newAES128GCM(key)
 	if err != nil {
 		return nil, err
+	}
+	if len(nonce) != gcm.NonceSize() {
+		return nil, fmt.Errorf("aes128gcm: nonce size %d, want %d", len(nonce), gcm.NonceSize())
 	}
 	// Recombine ciphertext||tag for the stdlib Open call.
 	sealed := make([]byte, 0, len(ciphertext)+len(tag))

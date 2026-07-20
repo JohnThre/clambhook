@@ -38,8 +38,14 @@ func (d *dialer) DialPacket(ctx context.Context, address string) (protocol.Packe
 
 // DialPacketThrough is declined for the same reason as DialThrough:
 // WireGuard expects a UDP-bound transport. See wireguard.go:DialThrough.
+//
+// Ownership contract (protocol.PacketDialer.DialPacketThrough): underlying
+// is ours the moment we're handed it, so close it before returning the
+// decline error rather than leaking the prior chain hop's socket.
 func (d *dialer) DialPacketThrough(ctx context.Context, underlying io.ReadWriteCloser, address string) (protocol.PacketConn, error) {
-	_ = underlying
+	if underlying != nil {
+		_ = underlying.Close()
+	}
 	return nil, errors.New("wireguard: cannot tunnel WireGuard inside another protocol; place it as a single-hop chain")
 }
 

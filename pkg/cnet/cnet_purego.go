@@ -19,6 +19,9 @@ func SHA224(data []byte) []byte {
 
 // AES256GCMEncrypt encrypts plaintext using AES-256-GCM.
 func AES256GCMEncrypt(key, nonce, plaintext, aad []byte) (ciphertext, tag []byte, err error) {
+	if len(key) != 32 {
+		return nil, nil, fmt.Errorf("aes256gcm: key size %d, want 32", len(key))
+	}
 	block, err := aes.NewCipher(key)
 	if err != nil {
 		return nil, nil, fmt.Errorf("aes256gcm: new cipher: %w", err)
@@ -32,6 +35,9 @@ func AES256GCMEncrypt(key, nonce, plaintext, aad []byte) (ciphertext, tag []byte
 
 // AES256GCMDecrypt decrypts ciphertext using AES-256-GCM.
 func AES256GCMDecrypt(key, nonce, ciphertext, aad, tag []byte) (plaintext []byte, err error) {
+	if len(key) != 32 {
+		return nil, fmt.Errorf("aes256gcm: key size %d, want 32", len(key))
+	}
 	block, err := aes.NewCipher(key)
 	if err != nil {
 		return nil, fmt.Errorf("aes256gcm: new cipher: %w", err)

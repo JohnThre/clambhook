@@ -6,19 +6,70 @@ Wants=network-online.target
 
 [Service]
 Type=simple
+# Run as a dedicated, unprivileged system user created by the package
+# (sysusers.d: packaging/systemd/clambhook-sysusers.conf) instead of root.
+# The only privileges the daemon keeps are the two ambient capabilities below.
+User=clambhook
+Group=clambhook
+
 # Device-wide Enhanced/TUN routing creates a TUN interface, assigns addresses,
 # installs split default routes, and rewrites DNS. That requires CAP_NET_ADMIN
 # (and CAP_NET_RAW). The desktop app talks to this service over the local API.
 ExecStart=/usr/libexec/clambhook -api 127.0.0.1:9090 -config /etc/clambhook/config.toml
+
+# Least privilege: hand the unprivileged user exactly the two capabilities TUN
+# routing needs and nothing else. NoNewPrivileges keeps the child `ip` helpers
+# from ever gaining more than these ambient caps (ambient caps survive exec).
 AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW
 CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW
-# Hardening: the daemon needs network administration but nothing else.
-NoNewPrivileges=false
+NoNewPrivileges=true
+
+# Managed directories. systemd creates them, chowns them to User/Group, and
+# (unlike the rest of the filesystem under ProtectSystem=strict) leaves them
+# writable, so the daemon can read/rewrite config, rule-set/subscription caches,
+# and persist metadata-only traffic history without any host-wide write access.
+ConfigurationDirectory=clambhook
+ConfigurationDirectoryMode=0750
+StateDirectory=clambhook
+StateDirectoryMode=0750
+RuntimeDirectory=clambhook
+RuntimeDirectoryMode=0750
+
+# Filesystem confinement.
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/etc/clambhook /var/lib/clambhook
-RuntimeDirectory=clambhook
-StateDirectory=clambhook
+PrivateTmp=true
+
+# TUN needs the tunnel device node, so a fully private /dev (PrivateDevices=yes)
+# would remove /dev/net/tun. Deny all devices except the standard pseudo nodes
+# and the tunnel device the daemon opens.
+DevicePolicy=closed
+DeviceAllow=/dev/net/tun rw
+
+# Kernel/host surface hardening. ProtectKernelTunables stays on because the
+# daemon only reads /proc/net (socket attribution, wifi state) and drives the
+# kernel via netlink/`ip`; it never writes /proc/sys or /sys. ProtectProc/
+# ProcSubset are intentionally left at their defaults because per-process
+# connection attribution reads /proc/net and /proc/<pid>/fd.
+ProtectClock=true
+ProtectControlGroups=true
+ProtectHostname=true
+ProtectKernelLogs=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+
+# Behavioural restrictions compatible with a Go network daemon that shells out
+# to `ip` and speaks netlink.
+LockPersonality=true
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+UMask=0077
+
 Restart=on-failure
 RestartSec=2
 

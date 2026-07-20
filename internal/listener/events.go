@@ -198,6 +198,7 @@ func (c *connEvents) emitClosed(reason string) {
 		RxTotal:    rx,
 		TxTotal:    tx,
 	})
+	c.bus.RetireShard(c.shard)
 }
 
 // rxCounter returns the rx atomic counter for wrapping in a MeteredReader,

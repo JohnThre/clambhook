@@ -6,7 +6,8 @@ usage() {
 Usage: scripts/package-smoke.sh [--strict]
 
 Runs internal-only packaging smoke checks. By default, checks that packaging
-metadata exists, stages the shared install path under a temporary DESTDIR, and
+metadata exists, validates the hardened systemd unit and its runtime-user
+provisioning, stages the shared install path under a temporary DESTDIR, and
 builds the Debian package when the toolchain is available. These checks must not
 publish end-user installers or packages on GitHub.
 
@@ -16,7 +17,7 @@ Options:
 
 Environment:
   PACKAGE_SMOKE_TARGETS          Space-separated targets to run.
-                                 Default: paths install linux-gui homebrew debian
+                                 Default: paths systemd install linux-gui homebrew debian
   PACKAGE_SMOKE_VERSION          Version string used for staged install checks.
                                  Default: package-smoke
   PACKAGE_SMOKE_REQUIRE_TOOLS    If 1, missing optional packaging tools fail.
@@ -27,7 +28,7 @@ USAGE
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 echo "internal-only: packaging checks must not publish end-user installers or packages on GitHub." >&2
 HOST_OS="$(uname -s 2>/dev/null || echo unknown)"
-TARGETS="${PACKAGE_SMOKE_TARGETS:-paths install linux-gui homebrew debian}"
+TARGETS="${PACKAGE_SMOKE_TARGETS:-paths systemd install linux-gui homebrew debian}"
 SMOKE_VERSION="${PACKAGE_SMOKE_VERSION:-package-smoke}"
 REQUIRE_TOOLS="${PACKAGE_SMOKE_REQUIRE_TOOLS:-0}"
 HOMEBREW_INSTALL="${PACKAGE_SMOKE_HOMEBREW_INSTALL:-0}"
@@ -169,6 +170,24 @@ smoke_installed_linux_gui() {
     assert_file "$base/share/icons/hicolor/1024x1024/apps/com.clambhook.Clambhook.png"
 }
 
+# Assert the native package payload ships the daemon service plus the sysusers.d
+# and tmpfiles.d files that create/own the daemon's dedicated runtime user.
+smoke_installed_daemon_assets() {
+    local root="$1"
+    local prefix="${2-/usr}"
+    local base="$root$prefix"
+
+    assert_file "$base/lib/systemd/system/clambhook-daemon.service"
+    if ! find "$base/lib/sysusers.d" -maxdepth 1 -name '*.conf' 2>/dev/null | grep -q .; then
+        echo "package-smoke: package is missing a sysusers.d file under $base/lib/sysusers.d" >&2
+        exit 1
+    fi
+    if ! find "$base/lib/tmpfiles.d" -maxdepth 1 -name '*.conf' 2>/dev/null | grep -q .; then
+        echo "package-smoke: package is missing a tmpfiles.d file under $base/lib/tmpfiles.d" >&2
+        exit 1
+    fi
+}
+
 prepare_source_tree() {
     local dest="$1"
     mkdir -p "$dest"
@@ -219,6 +238,12 @@ smoke_paths() {
     assert_file "$ROOT/debian/changelog"
     assert_file "$ROOT/ui/android/app/build.gradle.kts"
     assert_file "$ROOT/ui/android/app/src/main/AndroidManifest.xml"
+}
+
+smoke_systemd() {
+    want systemd || return 0
+    log "validating hardened systemd unit and runtime-user provisioning"
+    "$ROOT/scripts/validate-systemd-unit.sh"
 }
 
 smoke_linux_gui_install() {
@@ -293,9 +318,27 @@ smoke_debian() {
     dpkg-deb -x "$deb" "$root"
     smoke_installed_root "$root" /usr
     smoke_installed_linux_gui "$root" /usr
+    smoke_installed_daemon_assets "$root" /usr
+
+    # The runtime user must be created and its directories owned before the
+    # service starts: dh_installsysusers/dh_installtmpfiles wire these into the
+    # maintainer scripts. Fail if the payload ships the files but forgets to
+    # activate them.
+    local ctl="$WORKDIR/debian-control"
+    mkdir -p "$ctl"
+    dpkg-deb -e "$deb" "$ctl"
+    if ! grep -rqE 'systemd-sysusers|sysusers' "$ctl"; then
+        echo "package-smoke: Debian maintainer scripts do not provision the sysusers user" >&2
+        exit 1
+    fi
+    if ! grep -rqE 'systemd-tmpfiles|tmpfiles' "$ctl"; then
+        echo "package-smoke: Debian maintainer scripts do not create the tmpfiles directories" >&2
+        exit 1
+    fi
 }
 
 smoke_paths
+smoke_systemd
 smoke_make_install
 smoke_linux_gui_install
 smoke_homebrew

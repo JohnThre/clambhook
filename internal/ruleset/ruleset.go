@@ -184,7 +184,7 @@ func RefreshOne(ctx context.Context, configPath, profileName string, set config.
 			req.Header.Set("If-Modified-Since", old.LastModified)
 		}
 	}
-	resp, err := client.Do(req)
+	resp, err := subscription.ClientWithSafeRedirects(client).Do(req)
 	if err != nil {
 		return err
 	}

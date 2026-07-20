@@ -38,9 +38,32 @@ type CreateRequest struct {
 // Manager stores temporary rules ordered by creation time. Newer temporary
 // rules are evaluated before older ones so a short-lived correction can
 // override an earlier temporary choice.
+//
+// Compiled rule engines are cached per profile and rebuilt only when the rule
+// set changes (mutation or TTL expiry) or when the caller's chain/group
+// context changes. generation is bumped whenever the stored rules change;
+// nextExpiryNs records the soonest upcoming expiry so Decide can serve the
+// unchanged hot path under a shared read lock and escalate to an exclusive
+// lock only when a rule is due to expire.
 type Manager struct {
-	mu    sync.RWMutex
-	rules []Rule
+	mu           sync.RWMutex
+	rules        []Rule
+	generation   uint64
+	nextExpiryNs int64
+	cache        map[string]*compiledProfile
+	compileCount uint64
+}
+
+// compiledProfile is a cached, immutable compilation of a profile's temporary
+// rules. engine is nil when empty is true (no temporary rules for the
+// profile). Once stored it is never mutated; a rebuild replaces the pointer.
+type compiledProfile struct {
+	generation   uint64
+	defaultChain string
+	chainsHash   uint64
+	groupsHash   uint64
+	engine       *rules.Engine
+	empty        bool
 }
 
 // New creates an empty temporary-rule manager.
@@ -81,6 +104,8 @@ func (m *Manager) Create(req CreateRequest) (Rule, error) {
 	defer m.mu.Unlock()
 	m.pruneExpiredLocked(now)
 	m.rules = append([]Rule{rule}, m.rules...)
+	m.generation++
+	m.recomputeNextExpiryLocked()
 	return rule, nil
 }
 
@@ -101,6 +126,8 @@ func (m *Manager) Delete(id string) bool {
 			continue
 		}
 		m.rules = append(m.rules[:i], m.rules[i+1:]...)
+		m.generation++
+		m.recomputeNextExpiryLocked()
 		return true
 	}
 	return false
@@ -129,17 +156,89 @@ func (m *Manager) Snapshot(profile string) []Rule {
 
 // Decide evaluates non-expired temporary rules for a profile. ok is false
 // when no temporary rule matched.
+//
+// The compiled engine is reused across calls: as long as the rule set,
+// generation, and the caller's default chain / known chains / known groups are
+// unchanged and no rule is due to expire, Decide serves from cache under a
+// shared read lock and never recompiles.
 func (m *Manager) Decide(profile, defaultChain, network, target, source, procName, procPath string, knownChains, knownGroups map[string]struct{}) (rules.Decision, bool, error) {
 	if m == nil {
 		return rules.Decision{}, false, nil
 	}
 	profile = strings.TrimSpace(profile)
-	current := m.Snapshot(profile)
-	if len(current) == 0 {
+	nowNs := time.Now().UnixNano()
+	chainsHash := hashSet(knownChains)
+	groupsHash := hashSet(knownGroups)
+
+	m.mu.RLock()
+	if m.nextExpiryNs == 0 || nowNs < m.nextExpiryNs {
+		if entry := m.cache[profile]; entry != nil &&
+			entry.generation == m.generation &&
+			entry.defaultChain == defaultChain &&
+			entry.chainsHash == chainsHash &&
+			entry.groupsHash == groupsHash {
+			engine := entry.engine
+			empty := entry.empty
+			m.mu.RUnlock()
+			if empty {
+				return rules.Decision{}, false, nil
+			}
+			return decideWith(engine, network, target, source, procName, procPath)
+		}
+	}
+	m.mu.RUnlock()
+
+	return m.decideSlow(profile, defaultChain, network, target, source, procName, procPath, knownChains, knownGroups, chainsHash, groupsHash)
+}
+
+// decideSlow prunes expired rules, (re)compiles the profile engine when the
+// cache is stale, and evaluates the request. It holds the exclusive lock only
+// while touching shared state; the immutable engine is evaluated after unlock.
+func (m *Manager) decideSlow(profile, defaultChain, network, target, source, procName, procPath string, knownChains, knownGroups map[string]struct{}, chainsHash, groupsHash uint64) (rules.Decision, bool, error) {
+	m.mu.Lock()
+	m.pruneExpiredLocked(time.Now())
+	entry := m.cache[profile]
+	if entry == nil ||
+		entry.generation != m.generation ||
+		entry.defaultChain != defaultChain ||
+		entry.chainsHash != chainsHash ||
+		entry.groupsHash != groupsHash {
+		engine, empty, err := m.compileProfileLocked(profile, defaultChain, knownChains, knownGroups)
+		if err != nil {
+			m.mu.Unlock()
+			return rules.Decision{}, false, err
+		}
+		entry = &compiledProfile{
+			generation:   m.generation,
+			defaultChain: defaultChain,
+			chainsHash:   chainsHash,
+			groupsHash:   groupsHash,
+			engine:       engine,
+			empty:        empty,
+		}
+		if m.cache == nil {
+			m.cache = make(map[string]*compiledProfile)
+		}
+		m.cache[profile] = entry
+	}
+	engine := entry.engine
+	empty := entry.empty
+	m.mu.Unlock()
+
+	if empty {
 		return rules.Decision{}, false, nil
 	}
-	runtimeRules := make([]rules.Rule, 0, len(current))
-	for _, temp := range current {
+	return decideWith(engine, network, target, source, procName, procPath)
+}
+
+// compileProfileLocked builds a rules engine from the profile's current
+// temporary rules. empty is true when the profile has no temporary rules.
+func (m *Manager) compileProfileLocked(profile, defaultChain string, knownChains, knownGroups map[string]struct{}) (*rules.Engine, bool, error) {
+	runtimeRules := make([]rules.Rule, 0, len(m.rules))
+	for _, temp := range m.rules {
+		if profile != "" && temp.Profile != profile {
+			continue
+		}
 		rule := temp.Rule
 		runtimeRules = append(runtimeRules, rules.Rule{
 			Name:           rule.Name,
@@ -155,10 +254,20 @@ func (m *Manager) Decide(profile, defaultChain, network, target, source, procNam
 			Processes:      rule.Processes,
 		})
 	}
+	if len(runtimeRules) == 0 {
+		return nil, true, nil
+	}
 	engine, err := rules.CompileWithRuleSets(runtimeRules, defaultChain, knownChains, knownGroups, nil)
 	if err != nil {
-		return rules.Decision{}, false, err
+		return nil, false, err
 	}
+	m.compileCount++
+	return engine, false, nil
+}
+
+// decideWith evaluates an already-compiled engine. The engine is immutable
+// after compilation so this is safe to call without holding any lock.
+func decideWith(engine *rules.Engine, network, target, source, procName, procPath string) (rules.Decision, bool, error) {
 	decision := engine.DecideContext(rules.MatchContext{
 		Network:     network,
 		Target:      target,
@@ -176,12 +285,58 @@ func (m *Manager) Decide(profile, defaultChain, network, target, source, procNam
 func (m *Manager) pruneExpiredLocked(now time.Time) {
 	nowNs := now.UnixNano()
 	dst := m.rules[:0]
+	removed := false
 	for _, rule := range m.rules {
 		if rule.ExpiresTsNs > nowNs {
 			dst = append(dst, rule)
+		} else {
+			removed = true
 		}
 	}
+	for i := len(dst); i < len(m.rules); i++ {
+		m.rules[i] = Rule{}
+	}
 	m.rules = dst
+	if removed {
+		m.generation++
+		m.recomputeNextExpiryLocked()
+	}
+}
+
+// recomputeNextExpiryLocked refreshes the soonest upcoming rule expiry. It is
+// zero when no temporary rules remain.
+func (m *Manager) recomputeNextExpiryLocked() {
+	var next int64
+	for _, rule := range m.rules {
+		if next == 0 || rule.ExpiresTsNs < next {
+			next = rule.ExpiresTsNs
+		}
+	}
+	m.nextExpiryNs = next
+}
+
+// hashSet returns an order-independent fingerprint of a name set so Decide can
+// detect chain/group context changes without allocating or sorting.
+func hashSet(set map[string]struct{}) uint64 {
+	const prime = 1099511628211
+	var xorAcc, sumAcc uint64
+	for name := range set {
+		h := fnv64(name)
+		xorAcc ^= h
+		sumAcc += h
+	}
+	return (xorAcc * prime) ^ sumAcc ^ (uint64(len(set)) * prime)
+}
+
+func fnv64(s string) uint64 {
+	const offset = 14695981039346656037
+	const prime = 1099511628211
+	h := uint64(offset)
+	for i := range len(s) {
+		h ^= uint64(s[i])
+		h *= prime
+	}
+	return h
 }
 
 func cloneRule(rule Rule) Rule {
