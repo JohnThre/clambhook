@@ -85,9 +85,9 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-      - name: Install gomobile (embedded daemon AAR)
+      - name: Install gomobile and gobind (embedded daemon AAR)
         run: |
-          go install golang.org/x/mobile/cmd/gomobile@latest
+          go install golang.org/x/mobile/cmd/gomobile@latest golang.org/x/mobile/cmd/gobind@latest
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
       - name: Point gomobile at the runner NDK
         run: echo "ANDROID_NDK_HOME=$ANDROID_NDK_LATEST_HOME" >> "$GITHUB_ENV"
