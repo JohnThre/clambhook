@@ -8,6 +8,10 @@
 	<array>
 		<string>group.org.jpfchang.clambhook</string>
 	</array>
+	<key>keychain-access-groups</key>
+	<array>
+		<string>$(AppIdentifierPrefix)org.jpfchang.clambhook</string>
+	</array>
 	<key>com.apple.security.network.client</key>
 	<true/>
 </dict>

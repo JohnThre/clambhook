@@ -7,10 +7,15 @@
     let
       systems = [
         "aarch64-darwin"
+        "aarch64-linux"
         "x86_64-darwin"
+        "x86_64-linux"
       ];
       forAllSystems = nixpkgs.lib.genAttrs systems;
     in {
+      # The Nix package intentionally covers only the Go daemon and TUI. The
+      # GTK/libadwaita desktop UI remains distro-packaging/AppImage/Flatpak
+      # scope because it has a separate Meson build and desktop integration.
       packages = forAllSystems (system:
         let
           pkgs = import nixpkgs { inherit system; };
@@ -43,7 +48,7 @@
                 redistributable = false;
               };
               mainProgram = "clambhook";
-              platforms = platforms.darwin;
+              platforms = platforms.unix;
             };
           };
         });

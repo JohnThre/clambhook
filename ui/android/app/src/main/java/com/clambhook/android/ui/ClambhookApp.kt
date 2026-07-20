@@ -61,11 +61,10 @@ private enum class AppTab {
 fun ClambhookApp(
     viewModel: DashboardViewModel,
     settings: AppSettings,
-    token: String,
     configToml: String,
     supportPurchaseState: SupportPurchaseState,
     licenseState: LicenseUiState,
-    onSaveSettings: suspend (AppSettings, String, String) -> Unit,
+    onSaveSettings: suspend (AppSettings, String) -> Unit,
     onValidateConfig: suspend (String) -> Unit,
     onPurchaseSupport: (String) -> Unit,
     onClearSupportPurchaseMessage: () -> Unit,
@@ -103,9 +102,8 @@ fun ClambhookApp(
         }
     }
 
-    androidx.compose.runtime.LaunchedEffect(settings.embeddedDaemonEnabled) {
+    androidx.compose.runtime.LaunchedEffect(Unit) {
         if (
-            settings.embeddedDaemonEnabled &&
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
         ) {
@@ -278,7 +276,6 @@ fun ClambhookApp(
 
                         AppTab.Settings -> SettingsScreen(
                             settings = settings,
-                            token = token,
                             configToml = configToml,
                             supportPurchaseState = supportPurchaseState,
                             onSave = onSaveSettings,

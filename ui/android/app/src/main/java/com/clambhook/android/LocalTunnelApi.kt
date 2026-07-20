@@ -15,9 +15,15 @@ import kotlinx.serialization.encodeToString
  * effect after a runtime reload.
  */
 class LocalTunnelApi(
-    private val appContext: Context,
+    private val onConnect: () -> Unit,
+    private val onDisconnect: () -> Unit,
     private val session: ClambhookTunnelSession = ClambhookTunnelSession,
 ) : ClambhookApi {
+    constructor(context: Context) : this(
+        onConnect = { ClambhookVpnService.start(context.applicationContext) },
+        onDisconnect = { ClambhookVpnService.stop(context.applicationContext) },
+    )
+
     private fun runtime(): ClambhookTunnelRuntime =
         session.runtime.value ?: throw IllegalStateException("tunnel is not running")
 
@@ -90,11 +96,11 @@ class LocalTunnelApi(
     }
 
     override suspend fun connect() {
-        io { ClambhookVpnService.start(appContext) }
+        io { onConnect() }
     }
 
     override suspend fun disconnect() {
-        io { ClambhookVpnService.stop(appContext) }
+        io { onDisconnect() }
     }
 
     override suspend fun createRule(rule: RulePayload): RulesPayload = io {

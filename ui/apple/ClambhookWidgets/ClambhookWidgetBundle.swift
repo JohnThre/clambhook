@@ -294,7 +294,8 @@ enum WidgetEnvironment {
 
     static func client() -> ClambhookAPIClient {
         let settings = settings()
-        let token = (try? KeychainCredentialStore().readToken(account: settings.apiEndpoint.absoluteString)) ?? ""
+        let token = (try? KeychainCredentialStore(accessGroup: defaultAppleKeychainAccessGroup)
+            .readToken(account: settings.apiEndpoint.absoluteString)) ?? ""
         return ClambhookAPIClient(baseURL: settings.apiEndpoint, tokenProvider: { token.isEmpty ? nil : token })
     }
 

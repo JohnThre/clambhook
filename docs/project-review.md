@@ -13,7 +13,7 @@ No P0 findings. Six P1 items should block release.
 
 ## Now — release and security blockers
 
-- [ ] **Secure the loopback control API against local browsers.**
+- [x] **Secure the loopback control API against local browsers.**
   `internal/api/events_ws.go:42-47` sets `InsecureSkipVerify: true`, disabling
   the WebSocket same-origin check. Empty auth is permitted on loopback binds
   (`internal/api/auth.go:33-56`, `cmd/clambhook/main.go:42-43`), and
@@ -24,14 +24,14 @@ No P0 findings. Six P1 items should block release.
   credential on state-changing routes.
   Done when an arbitrary webpage cannot read `/api/v1/events` or toggle routing.
 
-- [ ] **Remove tracked Cloudflare account data.** `.wrangler/cache/wrangler-account.json`
+- [x] **Remove tracked Cloudflare account data.** `.wrangler/cache/wrangler-account.json`
   and `.wrangler/cache/pages.json` are git-tracked and expose a Cloudflare
   account ID and a personal iCloud address in a source-available repo; they are
   also a wrong-repo artifact. Delete `.wrangler/`, add it to `.gitignore`, and
   purge it from reachable history.
   Done when the tree and history contain no Wrangler account cache.
 
-- [ ] **Fix the Apple widget license bypass.** `ClambhookWidgetBundle.swift:129-131`
+- [x] **Fix the Apple widget license bypass.** `ClambhookWidgetBundle.swift:129-131`
   hardcodes `canUseApp = true`; `ConnectIntent`/`NextProfileIntent` act with no
   license check while `WidgetEnvironment.licenseDecision()` goes unused. An
   expired trial can start the tunnel and switch profiles from the widget. Gate
@@ -39,7 +39,7 @@ No P0 findings. Six P1 items should block release.
   defense in depth.
   Done when an expired trial cannot start routing from any client entry point.
 
-- [ ] **Stop proxy-only saves from erasing Enhanced Mode.**
+- [x] **Stop proxy-only saves from erasing Enhanced Mode.**
   `ConfigListenSettingsPayload` (`ui/apple/Sources/ClambhookShared/ConfigSettings.swift:64-101`)
   always encodes a `tun` object; `saveProxyPorts` and the system-proxy toggle
   (`SharedApp/SettingsViews.swift:293-301,749-756`) omit current TUN values, so
@@ -48,13 +48,13 @@ No P0 findings. Six P1 items should block release.
   `tun` optional in partial updates and add a preservation round-trip test.
   Done when changing proxy ports leaves every TUN field unchanged.
 
-- [ ] **Repair the Linux release script.** `scripts/release-linux.sh:136`
+- [x] **Repair the Linux release script.** `scripts/release-linux.sh:136`
   expands `$CHAN` under `set -euo pipefail`, but `CHAN` is not assigned until
   line 151, so `make release-linux` aborts before writing or signing the
   manifest. Move the channel normalization above the manifest block.
   Done when the script emits correctly named channel fields and signed checksums.
 
-- [ ] **Resolve the Android rule-management stubs.**
+- [x] **Resolve the Android rule-management stubs.**
   `LocalTunnelApi.kt:100-116` throws `UnsupportedOperationException` for rule
   create/cleanup/ruleset ops in the default embedded mode; the UI exposes these
   actions and `DashboardRepository.performAction` reports the throw as a fake
@@ -67,58 +67,58 @@ No P0 findings. Six P1 items should block release.
 
 ### Backend
 
-- [ ] Validate key/nonce/tag lengths before cgo libsodium calls in
+- [x] Validate key/nonce/tag lengths before cgo libsodium calls in
   `pkg/cnet/cnet.go`; the `purego` and AES-128 paths already do, so the cgo
   build is silently memory-unsafe on misuse.
-- [ ] Add malformed-input and cgo-vs-`purego` parity tests for the crypto
+- [x] Add malformed-input and cgo-vs-`purego` parity tests for the crypto
   boundary (`pkg/cnet/cnet_test.go`).
-- [ ] Remove or implement the unused `cnet_buf` "zero-copy pool"
+- [x] Remove or implement the unused `cnet_buf` "zero-copy pool"
   (`clib/include/cnet.h`, `clib/src/netio.c`); it is dead `malloc`/`free`.
-- [ ] Make the `test` target depend on `build-clib`; `go test ./...` fails on a
+- [x] Make the `test` target depend on `build-clib`; `go test ./...` fails on a
   clean checkout because `internal/api` links against a missing `libcnet.a`.
 
 ### Apple
 
-- [ ] Stop passing the API bearer token in daemon argv (`DaemonSupervisor.swift:121-130`,
+- [x] Stop passing the API bearer token in daemon argv (`DaemonSupervisor.swift:121-130`,
   `ClambhookMacHelper/main.swift:65-80`); argv is world-readable via `ps`. Use
   environment, a file descriptor, or an IPC handshake, and restrict the helper
   log file mode.
-- [ ] Give the widget the shared keychain access group and entitlement so
+- [x] Give the widget the shared keychain access group and entitlement so
   token-enabled widget actions stop failing silently with 401.
-- [ ] Validate privileged-helper XPC peers via the audit token, not the reusable
+- [x] Validate privileged-helper XPC peers via the audit token, not the reusable
   PID (`ClambhookMacHelper/main.swift:141-158`).
-- [ ] Make system-proxy enablement idempotent and reconcile/restore stale proxy
+- [x] Make system-proxy enablement idempotent and reconcile/restore stale proxy
   state on launch, quit, crash, and license lockout (`MacSystemProxyManager.swift`).
-- [ ] Remove `MainActor.assumeIsolated` from Sparkle callbacks unless the
+- [x] Remove `MainActor.assumeIsolated` from Sparkle callbacks unless the
   main-thread guarantee is established (`MacSparkleUpdater.swift:47-61`).
-- [ ] Add app-target tests for helper validation, daemon arguments, proxy
+- [x] Add app-target tests for helper validation, daemon arguments, proxy
   snapshot restoration, widget intents, license networking, and Sparkle gating.
 
 ### Android
 
-- [ ] Serialize `ClambhookVpnService` start/stop transitions; unsynchronized
+- [x] Serialize `ClambhookVpnService` start/stop transitions; unsynchronized
   cross-thread field mutation can leak a freshly established TUN descriptor.
-- [ ] Handle excluded routes on Android 11/12 (`SDK_INT < TIRAMISU`) or surface a
+- [x] Handle excluded routes on Android 11/12 (`SDK_INT < TIRAMISU`) or surface a
   blocking warning; today they are dropped and become a full tunnel silently.
-- [ ] Decide the non-embedded daemon mode: either wire `LocalDaemonService` and
+- [x] Decide the non-embedded daemon mode: either wire `LocalDaemonService` and
   permit secure loopback transport, or remove the dead service, its
   `FOREGROUND_SERVICE_DATA_SYNC` permission, and the HTTP client mode.
-- [ ] Test update checksum rejection, update-license gating, license offline
+- [x] Test update checksum rejection, update-license gating, license offline
   grace, VPN route/prefix parsing, and `LocalTunnelApi` dispatch.
 
 ### Linux and release engineering
 
-- [ ] Ship `/etc/clambhook/config.toml` (deb conffile / rpm `%config(noreplace)`)
+- [x] Ship `/etc/clambhook/config.toml` (deb conffile / rpm `%config(noreplace)`)
   or fall back to defaults on missing config; the packaged systemd unit
   crash-loops on a fresh install.
-- [ ] Add systemd scriptlets/macros and explicit systemd/polkit runtime
+- [x] Add systemd scriptlets/macros and explicit systemd/polkit runtime
   dependencies to RPM and Debian packaging.
-- [ ] Pin AppImage tooling to immutable versions and verify SHA-256 before
+- [x] Pin AppImage tooling to immutable versions and verify SHA-256 before
   execution (`packaging/appimage/build-appimage.sh`).
-- [ ] Commit `flake.lock`; support Linux systems in the flake or document it as
+- [x] Commit `flake.lock`; support Linux systems in the flake or document it as
   Darwin-daemon-only.
-- [ ] Drop `--share=network` from the vendored Flatpak build.
-- [ ] Replace the `touch`/`sleep` Meson rebuild workaround in `make build-linux`
+- [x] Drop `--share=network` from the vendored Flatpak build.
+- [x] Replace the `touch`/`sleep` Meson rebuild workaround in `make build-linux`
   with deterministic dependency handling.
 
 ## Then — CI and contract integrity
