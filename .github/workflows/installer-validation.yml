@@ -22,8 +22,44 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  go-quality:
+    name: Go unit tests and lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Install native and lint dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config libsodium-dev
+          go install honnef.co/go/tools/cmd/staticcheck@2025.1.1
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+      - name: Go unit tests
+        run: make test
+      - name: Go lint
+        run: make lint
+
+  linux-unit:
+    name: GNU/Linux Meson and Vala unit tests
+    runs-on: ubuntu-latest
+    container: ubuntu:24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install GTK test dependencies
+        run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y \
+            build-essential pkg-config meson ninja-build valac \
+            libgtk-4-dev libadwaita-1-dev libgee-0.8-dev \
+            libjson-glib-dev libsecret-1-dev libsoup-3.0-dev libsodium-dev
+      - name: Linux unit tests
+        run: make test-linux
+
   linux:
-    name: GNU/Linux installers (${{ matrix.distro }})
+    name: GNU/Linux package recipes (${{ matrix.distro }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -34,7 +70,7 @@ jobs:
         distro: [ubuntu, debian, fedora, rocky]
     steps:
       - uses: actions/checkout@v4
-      - name: Build + headless smoke in a ${{ matrix.distro }} container
+      - name: Build package recipes and run headless smoke in a ${{ matrix.distro }} container
         run: scripts/validate-linux-distros.sh ${{ matrix.distro }}
 
   android:
