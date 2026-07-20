@@ -60,6 +60,9 @@ Requires:       libsoup3
 Requires:       libsodium
 Requires:       polkit
 Requires:       systemd
+Requires:       iproute
+# The daemon runs as a dedicated unprivileged system user created in %%pre.
+Requires(pre):  shadow-utils
 
 %description
 ClambHook is a private VPN and proxy router with its own protocol core and
@@ -90,9 +93,24 @@ export GOTOOLCHAIN=auto
 make install DESTDIR=%{buildroot} PREFIX=%{_prefix}
 make install-linux DESTDIR=%{buildroot} PREFIX=%{_prefix}
 install -Dpm 0644 packaging/config/config.toml %{buildroot}%{_sysconfdir}/clambhook/config.toml
+install -Dpm 0644 packaging/systemd/clambhook-sysusers.conf %{buildroot}%{_sysusersdir}/clambhook.conf
+install -Dpm 0644 packaging/systemd/clambhook-tmpfiles.conf %{buildroot}%{_tmpfilesdir}/clambhook.conf
 install -d %{buildroot}%{_localstatedir}/lib/clambhook
 
+%pre
+# Create the dedicated system user/group before the payload is laid down so the
+# %%attr ownership below (and the daemon's least-privilege runtime user) resolve.
+getent group clambhook >/dev/null || groupadd -r clambhook
+getent passwd clambhook >/dev/null || \
+    useradd -r -g clambhook -d %{_localstatedir}/lib/clambhook -s /sbin/nologin \
+            -c "ClambHook daemon" clambhook
+exit 0
+
 %post
+# Reconcile the runtime user and create/own the config + state directories,
+# then register the service.
+%sysusers_create_compat %{_sysusersdir}/clambhook.conf
+%tmpfiles_create %{_tmpfilesdir}/clambhook.conf
 %systemd_post clambhook-daemon.service
 
 %preun
@@ -111,16 +129,24 @@ install -d %{buildroot}%{_localstatedir}/lib/clambhook
 %{_datadir}/applications/com.clambhook.Clambhook.desktop
 %{_datadir}/metainfo/com.clambhook.Clambhook.metainfo.xml
 %{_datadir}/icons/hicolor/1024x1024/apps/com.clambhook.Clambhook.png
-%dir %{_sysconfdir}/clambhook
-%config(noreplace) %{_sysconfdir}/clambhook/config.toml
-# Owned so rpm tracks it; systemd StateDirectory=clambhook also creates it with
-# the right ownership at service start. %attr avoids depending on the build
-# umask for the on-disk mode.
-%attr(0755,root,root) %dir %{_localstatedir}/lib/clambhook
+# The daemon's runtime user owns its config directory so it can atomically
+# rewrite config, rule-set/subscription caches, and the developer CA. The
+# config file itself stays root-owned but group-readable by the daemon.
+%attr(0750,clambhook,clambhook) %dir %{_sysconfdir}/clambhook
+%attr(0640,root,clambhook) %config(noreplace) %{_sysconfdir}/clambhook/config.toml
+# Owned so rpm tracks it; the daemon's StateDirectory=clambhook keeps it correct
+# at runtime. %attr sets ownership to the runtime user up front (created in %%pre).
+%attr(0750,clambhook,clambhook) %dir %{_localstatedir}/lib/clambhook
+%{_sysusersdir}/clambhook.conf
+%{_tmpfilesdir}/clambhook.conf
 %{_unitdir}/clambhook-daemon.service
 %{_datadir}/polkit-1/actions/com.clambhook.Clambhook.policy
 
 %changelog
+* Mon Jul 20 2026 Pengfan Chang <developer@jpfchang.org> - 0.1.0-2
+- Run clambhook-daemon.service as a dedicated unprivileged clambhook user with
+  only CAP_NET_ADMIN/CAP_NET_RAW; create the user via shadow-utils/sysusers and
+  own the config/state directories via tmpfiles and %%attr.
 * Wed Jul 15 2026 Pengfan Chang <developer@jpfchang.org> - 0.1.0-1
 - Initial ClambHook RPM for Fedora and Rocky Linux with daemon, GTK desktop
   controller, terminal dashboard, and license helper.

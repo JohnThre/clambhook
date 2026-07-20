@@ -301,7 +301,8 @@ func (s *SOCKSv5) acceptLoop(ctx context.Context, ln net.Listener) {
 // is determined by ctx) and "relay finished cleanly".
 func (s *SOCKSv5) handleConn(ctx context.Context, client net.Conn, ce *connEvents) error {
 	// Bound the handshake so a silent client can't pin a goroutine forever.
-	// Once relaying starts we clear the deadline.
+	// Cleared once the request is read, before route planning may wait on a
+	// prompt.
 	_ = client.SetDeadline(time.Now().Add(s.handshakeTimeout()))
 
 	if err := s.negotiate(client); err != nil {
@@ -315,6 +316,10 @@ func (s *SOCKSv5) handleConn(ctx context.Context, client net.Conn, ce *connEvent
 		_ = writeReply(client, repGeneralFailure, "")
 		return nil
 	}
+	// The handshake read phase is done. Route planning may wait on an
+	// interactive prompt whose timeout can exceed the handshake budget, so
+	// clear the deadline before dispatching.
+	_ = client.SetDeadline(time.Time{})
 
 	switch req.cmd {
 	case cmdConnect:
@@ -373,14 +378,11 @@ func (s *SOCKSv5) negotiate(client net.Conn) error {
 }
 
 func (s *SOCKSv5) handleConnect(ctx context.Context, client net.Conn, req request, ce *connEvents) error {
-	dialCtx, cancelDial := context.WithTimeout(ctx, 30*time.Second)
-	defer cancelDial()
-
-	// Attach event plumbing so chain.Dial can emit per-hop events.
-	dialCtx = ce.attach(dialCtx)
-
+	// Route planning may wait on an interactive prompt. It belongs to the
+	// handler lifetime, not the outbound dial budget.
+	planCtx := ce.attach(ctx)
 	target := req.target()
-	plan, err := s.plan(dialCtx, "tcp", target, client.RemoteAddr().String())
+	plan, err := s.plan(planCtx, "tcp", target, client.RemoteAddr().String())
 	if err != nil {
 		log.Printf("socks5: route plan %s failed: %v", target, err)
 		_ = writeReply(client, repGeneralFailure, "")
@@ -396,6 +398,8 @@ func (s *SOCKSv5) handleConnect(ctx context.Context, client net.Conn, req reques
 		return ErrRouteBlocked
 	}
 
+	dialCtx, cancelDial := context.WithTimeout(planCtx, 30*time.Second)
+	defer cancelDial()
 	remote, err := plan.Dial(dialCtx, "tcp", target)
 	if err != nil {
 		log.Printf("socks5: chain dial %s failed: %v", target, err)
@@ -408,10 +412,20 @@ func (s *SOCKSv5) handleConnect(ctx context.Context, client net.Conn, req reques
 		log.Printf("socks5: write success reply: %v", err)
 		return err
 	}
-	// Relay begins now — clear the handshake deadline.
-	_ = client.SetDeadline(time.Time{})
-
 	ce.emitEstablished()
+
+	// Closing both endpoints on listener cancellation unblocks an established
+	// relay so Stop/profile reload can drain within stopGrace.
+	stopCh := make(chan struct{})
+	defer close(stopCh)
+	go func() {
+		select {
+		case <-ctx.Done():
+			_ = remote.Close()
+			_ = client.Close()
+		case <-stopCh:
+		}
+	}()
 
 	return relay(client, remote, ce.rxCounter(), ce.txCounter())
 }

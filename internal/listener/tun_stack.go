@@ -356,22 +356,20 @@ func (s *PacketStack) handleTCPFlow(ctx context.Context, local *gonet.TCPConn, i
 	}, s.opts.ProfileName, idClientAddr(id), s.opts.ChainName)
 	ce.emitOpened()
 
-	dialCtx, cancel := context.WithTimeout(ctx, tunDialTimeout)
-	defer cancel()
-	dialCtx = ce.attach(dialCtx)
-
+	planCtx := ce.attach(ctx)
 	if s.shouldProxyDNS("tcp", target) {
-		s.handleDNSTCPFlow(ce.attach(ctx), local, target, ce)
+		s.handleDNSTCPFlow(planCtx, local, target, ce)
 		return
 	}
 
 	source := idClientAddr(id)
-	plan, err := s.planWithSource(dialCtx, "tcp", target, source)
+	plan, dialCtx, cancel, err := s.planFlow(planCtx, "tcp", target, source)
 	if err != nil {
 		log.Printf("tun tcp: route plan %s failed: %v", target, err)
 		ce.emitClosed(events.ReasonError)
 		return
 	}
+	defer cancel()
 	ce.emitRuleDecision(plan)
 	ce.emitDialingPlan(plan)
 	if plan.Action == RouteActionBlock || plan.Action == RouteActionReject {
@@ -442,22 +440,20 @@ func (s *PacketStack) handleUDPFlow(ctx context.Context, local *gonet.UDPConn, i
 	}, s.opts.ProfileName, idClientAddr(id), s.opts.ChainName)
 	ce.emitOpened()
 
-	dialCtx, cancel := context.WithTimeout(ctx, tunDialTimeout)
-	defer cancel()
-	dialCtx = ce.attach(dialCtx)
-
+	planCtx := ce.attach(ctx)
 	if s.shouldProxyDNS("udp", target) {
-		s.handleDNSUDPFlow(ce.attach(ctx), local, target, ce)
+		s.handleDNSUDPFlow(planCtx, local, target, ce)
 		return
 	}
 
 	source := idClientAddr(id)
-	plan, err := s.planWithSource(dialCtx, "udp", target, source)
+	plan, dialCtx, cancel, err := s.planFlow(planCtx, "udp", target, source)
 	if err != nil {
 		log.Printf("tun udp: route plan %s failed: %v", target, err)
 		ce.emitClosed(events.ReasonError)
 		return
 	}
+	defer cancel()
 	if plan.Port == "53" {
 		plan.Visibility = events.VisibilityInfo{Kind: "dns", Host: plan.Host, Port: plan.Port}
 	}
@@ -630,6 +626,18 @@ func (s *PacketStack) handleDNSTCPFlow(ctx context.Context, local *gonet.TCPConn
 			rx.Add(uint64(len(resp) + 2))
 		}
 	}
+}
+
+// planFlow lets route planning use the full handler lifetime, then creates the
+// bounded context used only for the outbound dial. This ordering is shared by
+// TCP and UDP TUN flows so a prompt cannot consume the dial budget.
+func (s *PacketStack) planFlow(ctx context.Context, network, target, source string) (RoutePlan, context.Context, context.CancelFunc, error) {
+	plan, err := s.planWithSource(ctx, network, target, source)
+	if err != nil {
+		return RoutePlan{}, nil, nil, err
+	}
+	dialCtx, cancel := context.WithTimeout(ctx, tunDialTimeout)
+	return plan, dialCtx, cancel, nil
 }
 
 func (s *PacketStack) planWithSource(ctx context.Context, network, target, source string) (RoutePlan, error) {

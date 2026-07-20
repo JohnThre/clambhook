@@ -29,6 +29,16 @@ type instance struct {
 
 	r    *reliable
 	ctrl *control
+
+	// mu owns the session state that is published *after* construction, by
+	// the handshake and netstack bring-up, and then read concurrently by
+	// the background data-plane goroutines. The UDP read loop is started
+	// in newInstance before any of these fields are set, so it races the
+	// handshake unless every read and write goes through this lock. The
+	// guarded set is: data, tunDev, tnet, peerID, cipher, addresses,
+	// dnsServers, mtu. Access it only through the accessors / locked blocks
+	// below — never touch these fields directly from another goroutine.
+	mu   sync.RWMutex
 	data *dataChannel
 
 	tunDev tun.Device
@@ -36,7 +46,8 @@ type instance struct {
 
 	// Session-assigned by the server in PUSH_REPLY. The muxer goroutines
 	// and data.seal need it to be set before they can emit data packets
-	// the server will accept.
+	// the server will accept. It is copied into the dataChannel (via
+	// setPeerID) before data is published, so the two stay coupled.
 	peerID uint32
 
 	// Negotiated cipher, chosen by NCP in handshake.go.
@@ -58,6 +69,37 @@ type instance struct {
 	wg        sync.WaitGroup
 	closeOnce sync.Once
 	closeErr  error
+}
+
+// dataChannelRef returns the currently published data channel, or nil if
+// the handshake has not yet built it. Cheap enough for the per-packet hot
+// path: the RLock is uncontended once the session is up.
+func (i *instance) dataChannelRef() *dataChannel {
+	i.mu.RLock()
+	defer i.mu.RUnlock()
+	return i.data
+}
+
+// device returns the currently published TUN device, or nil before
+// startNetstack has run (or after Close nils nothing — it only stops it).
+func (i *instance) device() tun.Device {
+	i.mu.RLock()
+	defer i.mu.RUnlock()
+	return i.tunDev
+}
+
+// network returns the published netstack, or nil before startNetstack.
+func (i *instance) network() *netstack.Net {
+	i.mu.RLock()
+	defer i.mu.RUnlock()
+	return i.tnet
+}
+
+// interiorAddrs returns the netstack NIC addresses pushed by the server.
+func (i *instance) interiorAddrs() []netip.Addr {
+	i.mu.RLock()
+	defer i.mu.RUnlock()
+	return i.addresses
 }
 
 // newInstance runs the full bring-up sequence:
@@ -101,10 +143,10 @@ func newInstance(ctx context.Context, cfg *config) (*instance, error) {
 		ctx:     bgCtx,
 		cancel:  cancel,
 	}
-	// Data channel can't be created yet (no keys) — so the UDP read loop
-	// temporarily holds data packets in a small channel and flushes once
-	// data is ready. Simpler alternative: block data packet processing
-	// until data != nil. We'll do the latter.
+	// The UDP read loop starts now, before the handshake has produced a
+	// data channel or TUN. Until data is published it drops P_DATA_V2
+	// datagrams (stray keepalives), and it reads data/tunDev through the
+	// instance mutex so the handshake's later publication is race-free.
 	inst.wg.Add(1)
 	go inst.udpReadLoop()
 
@@ -114,8 +156,9 @@ func newInstance(ctx context.Context, cfg *config) (*instance, error) {
 		return nil, err
 	}
 
-	// Handshake populated inst.cipher, inst.peerID, inst.addresses, etc.
-	// Now bring up the netstack and wire the data-plane goroutines.
+	// Handshake published inst.cipher, inst.peerID, inst.addresses,
+	// inst.data, etc. Now bring up the netstack and wire the data-plane
+	// goroutines.
 	if err := inst.startNetstack(); err != nil {
 		inst.Close()
 		return nil, fmt.Errorf("openvpn: start netstack: %w", err)
@@ -127,21 +170,31 @@ func newInstance(ctx context.Context, cfg *config) (*instance, error) {
 
 // startNetstack creates the virtual TUN + userspace TCP/IP stack. Mirrors
 // the pattern in wireguard/device.go — same underlying library, same
-// calling convention.
+// calling convention. It reads the interior config the handshake published
+// and publishes tunDev/tnet under the same lock, since the UDP read loop
+// may already be delivering data packets that reach writeToTUN.
 func (i *instance) startNetstack() error {
-	if len(i.addresses) == 0 {
+	i.mu.RLock()
+	addrs := i.addresses
+	dns := i.dnsServers
+	mtu := i.mtu
+	i.mu.RUnlock()
+
+	if len(addrs) == 0 {
 		return errors.New("openvpn: PUSH_REPLY did not set an interior IP (ifconfig)")
 	}
-	mtu := i.mtu
 	if mtu <= 0 {
 		mtu = 1500
 	}
-	tunDev, tnet, err := netstack.CreateNetTUN(i.addresses, i.dnsServers, mtu)
+	tunDev, tnet, err := netstack.CreateNetTUN(addrs, dns, mtu)
 	if err != nil {
 		return fmt.Errorf("openvpn: create netstack tun: %w", err)
 	}
+
+	i.mu.Lock()
 	i.tunDev = tunDev
 	i.tnet = tnet
+	i.mu.Unlock()
 	return nil
 }
 
@@ -157,8 +210,8 @@ func (i *instance) close(wait bool) error {
 		if i.cancel != nil {
 			i.cancel()
 		}
-		if i.tunDev != nil {
-			if err := i.tunDev.Close(); err != nil && firstErr == nil {
+		if dev := i.device(); dev != nil {
+			if err := dev.Close(); err != nil && firstErr == nil {
 				firstErr = err
 			}
 		}
@@ -221,7 +274,8 @@ func (i *instance) udpReadLoop() {
 		}
 		opcode, _ := splitOpByte(buf[0])
 		if opcode == OpcodeDataV2 {
-			if i.data == nil {
+			dc := i.dataChannelRef()
+			if dc == nil {
 				// Drop until data channel is ready — this should only
 				// happen for stray keepalives during the handshake window.
 				continue
@@ -229,7 +283,7 @@ func (i *instance) udpReadLoop() {
 			// Copy before handing off; the data loop keeps the slice past
 			// this iteration via its write to the TUN.
 			pkt := append([]byte(nil), buf[:n]...)
-			pt, err := i.data.open(pkt)
+			pt, err := dc.open(pkt)
 			if err != nil {
 				// Ignore decryption failures. A misauthenticated packet
 				// shouldn't take down the tunnel — an attacker could
@@ -256,11 +310,12 @@ func (i *instance) udpReadLoop() {
 // uses a batched write API; we build a 1-element batch. Offset 0 matches
 // how wireguard-go's own netstack uses the TUN.
 func (i *instance) writeToTUN(pkt []byte) {
-	if i.tunDev == nil {
+	dev := i.device()
+	if dev == nil {
 		return
 	}
 	// The batched Write signature wants [][]byte with each element an
 	// IP-packet-sized buffer, and offset where the payload starts.
 	bufs := [][]byte{pkt}
-	_, _ = i.tunDev.Write(bufs, 0)
+	_, _ = dev.Write(bufs, 0)
 }

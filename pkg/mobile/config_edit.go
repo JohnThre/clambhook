@@ -101,7 +101,7 @@ func TunnelConfigDashboardJSON(configPath string) (string, error) {
 // ReplaceTunnelRulesJSON replaces the active profile's ordered rules and
 // writes the config atomically. rulesJSON must encode []config.RuleConfig.
 func ReplaceTunnelRulesJSON(configPath, profileName, rulesJSON string) error {
-	cfg, err := loadTunnelConfig(configPath)
+	cfg, err := loadEditableTunnelConfig(configPath)
 	if err != nil {
 		return err
 	}
@@ -123,7 +123,7 @@ func ReplaceTunnelRulesJSON(configPath, profileName, rulesJSON string) error {
 // AppendTunnelRuleJSON appends one rule to the selected profile and writes the
 // tunnel config atomically. ruleJSON must encode config.RuleConfig.
 func AppendTunnelRuleJSON(configPath, profileName, ruleJSON string) (string, error) {
-	cfg, err := loadTunnelConfig(configPath)
+	cfg, err := loadEditableTunnelConfig(configPath)
 	if err != nil {
 		return "", err
 	}
@@ -148,7 +148,7 @@ func AppendTunnelRuleJSON(configPath, profileName, ruleJSON string) (string, err
 // appendConnectionRuleToTunnelConfig derives a rule from a tracked connection
 // and appends it to the selected profile in configPath, writing atomically.
 func appendConnectionRuleToTunnelConfig(configPath, profileName string, conn traffic.Connection, name, action, scope string) (string, error) {
-	cfg, err := loadTunnelConfig(configPath)
+	cfg, err := loadEditableTunnelConfig(configPath)
 	if err != nil {
 		return "", err
 	}
@@ -205,7 +205,7 @@ func applyTunnelCleanupToConfig(configPath, profileName string, suggestions []tr
 	if !matched {
 		return "", errors.New("cleanup suggestion is stale")
 	}
-	cfg, err := loadTunnelConfig(configPath)
+	cfg, err := loadEditableTunnelConfig(configPath)
 	if err != nil {
 		return "", err
 	}
@@ -268,7 +268,7 @@ func indexMobileRuleByName(rules []config.RuleConfig, name string) int {
 // SelectPolicyGroupJSON updates a select policy group's selected chain and
 // writes the tunnel config atomically.
 func SelectPolicyGroupJSON(configPath, profileName, groupName, chainName string) (string, error) {
-	cfg, err := loadTunnelConfig(configPath)
+	cfg, err := loadEditableTunnelConfig(configPath)
 	if err != nil {
 		return "", err
 	}
@@ -318,7 +318,7 @@ func SelectPolicyGroupJSON(configPath, profileName, groupName, chainName string)
 // and writes the config atomically. policyGroupsJSON must encode
 // []config.PolicyGroupConfig.
 func ReplaceTunnelPolicyGroupsJSON(configPath, profileName, policyGroupsJSON string) error {
-	cfg, err := loadTunnelConfig(configPath)
+	cfg, err := loadEditableTunnelConfig(configPath)
 	if err != nil {
 		return err
 	}
@@ -364,7 +364,7 @@ func RuleSetsJSON(configPath, profileName string) (string, error) {
 // ReplaceTunnelRuleSetsJSON replaces the active profile's named rule sets and
 // writes the config atomically. ruleSetsJSON must encode []config.RuleSetConfig.
 func ReplaceTunnelRuleSetsJSON(configPath, profileName, ruleSetsJSON string) error {
-	cfg, err := loadTunnelConfig(configPath)
+	cfg, err := loadEditableTunnelConfig(configPath)
 	if err != nil {
 		return err
 	}
@@ -434,7 +434,7 @@ func RuleSubscriptionsJSON(configPath, profileName string) (string, error) {
 // subscriptions and writes the config atomically. subscriptionsJSON must encode
 // []config.RuleSubscriptionConfig.
 func ReplaceTunnelRuleSubscriptionsJSON(configPath, profileName, subscriptionsJSON string) error {
-	cfg, err := loadTunnelConfig(configPath)
+	cfg, err := loadEditableTunnelConfig(configPath)
 	if err != nil {
 		return err
 	}
@@ -563,7 +563,7 @@ func CreateTunnelProfileConfigJSON(configPath, requestJSON string) error {
 	}
 	req.Settings = normalizeJSONSettingsMap(req.Settings)
 
-	cfg, err := loadTunnelConfig(configPath)
+	cfg, err := loadEditableTunnelConfig(configPath)
 	if err != nil {
 		if !isMissingConfigError(err) {
 			return err
@@ -600,7 +600,6 @@ func CreateTunnelProfileConfigJSON(configPath, requestJSON string) error {
 	if cfg.Traffic == (config.TrafficConfig{}) {
 		cfg.Traffic = config.DefaultTrafficConfig()
 	}
-	ensureTunnelConfig(cfg)
 	if err := engine.ValidateConfig(cfg); err != nil {
 		return err
 	}
@@ -610,7 +609,7 @@ func CreateTunnelProfileConfigJSON(configPath, requestJSON string) error {
 // SetActiveTunnelProfileConfig sets the active profile in configPath and writes
 // the updated tunnel config atomically.
 func SetActiveTunnelProfileConfig(configPath, profileName string) error {
-	cfg, err := loadTunnelConfig(configPath)
+	cfg, err := loadEditableTunnelConfig(configPath)
 	if err != nil {
 		return err
 	}
@@ -622,7 +621,6 @@ func SetActiveTunnelProfileConfig(configPath, profileName string) error {
 		return fmt.Errorf("profile %q not found", profileName)
 	}
 	cfg.Active = profileName
-	ensureTunnelConfig(cfg)
 	if err := engine.ValidateConfig(cfg); err != nil {
 		return err
 	}
@@ -638,7 +636,6 @@ func parseTunnelImportConfig(importText string) (*config.Config, error) {
 	if err := toml.Unmarshal([]byte(importText), &cfg); err != nil {
 		return nil, fmt.Errorf("parse import config: %w", err)
 	}
-	ensureTunnelConfig(&cfg)
 	if err := engine.ValidateConfig(&cfg); err != nil {
 		return nil, fmt.Errorf("validate import config: %w", err)
 	}
@@ -688,7 +685,7 @@ func buildReviewedTunnelImportConfig(configPath, requestJSON string) (*config.Co
 		return nil, fmt.Errorf("select at least one profile")
 	}
 
-	cfg, err := loadTunnelConfig(configPath)
+	cfg, err := loadEditableTunnelConfig(configPath)
 	if err != nil {
 		if !isMissingConfigError(err) {
 			return nil, err
@@ -753,7 +750,6 @@ func buildReviewedTunnelImportConfig(configPath, requestJSON string) (*config.Co
 	} else if placeholder || cfg.Active == "" {
 		cfg.Active = nextProfiles[0].Name
 	}
-	ensureTunnelConfig(cfg)
 	if err := engine.ValidateConfig(cfg); err != nil {
 		return nil, err
 	}
@@ -841,6 +837,17 @@ func selectProfileForEdit(cfg *config.Config, profileName string) *config.Profil
 		return nil
 	}
 	return profile
+}
+
+// loadEditableTunnelConfig loads configPath for a persisted edit. Unlike
+// loadTunnelConfig it deliberately does NOT apply the mobile runtime overlay:
+// it must not force-enable TUN or inject default routes into every profile, and
+// it must not reset the user's [developer] section to mobile defaults. A
+// persisted rule/policy/config edit changes only its target and leaves
+// unrelated profiles and sections byte-semantically unchanged; the TUN and
+// developer-safety overlays are applied in memory at runtime start instead.
+func loadEditableTunnelConfig(configPath string) (*config.Config, error) {
+	return loadConfig(configPath, defaultAPIAddr)
 }
 
 func writeTunnelConfig(configPath string, cfg *config.Config) error {

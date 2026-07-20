@@ -343,8 +343,14 @@ func (d *dialer) Dial(ctx context.Context, network, address string) (protocol.Co
 // another protocol's stream without explicit framing, which is out of
 // scope for v1. Surfacing a structured error steers users at valid
 // chain configurations rather than failing mysteriously deeper down.
+//
+// Ownership contract (protocol.Dialer.DialThrough): underlying becomes
+// ours the moment it's handed to us, so we close it before returning the
+// decline error rather than leaking the prior chain hop's socket.
 func (d *dialer) DialThrough(ctx context.Context, underlying io.ReadWriteCloser, address string) (protocol.Conn, error) {
-	_ = underlying
+	if underlying != nil {
+		_ = underlying.Close()
+	}
 	return nil, errors.New("wireguard: cannot tunnel WireGuard inside another stream protocol (place it as a single-hop chain or as the chain's entry hop)")
 }
 

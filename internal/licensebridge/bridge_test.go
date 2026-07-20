@@ -178,23 +178,98 @@ func TestMarkVerificationFailureStartsOfflineGrace(t *testing.T) {
 		Transactions:   []license.Transaction{{ProductID: license.LifetimeUnlockProductID, PurchaseDate: purchase}},
 		LastVerifiedAt: &verified,
 	}
-	snapJSON, _ := json.Marshal(snap)
 
-	failMillis := license.UTCDate(2026, 6, 20).UnixMilli()
-	updatedJSON, err := MarkLicenseVerificationFailureJSON(string(snapJSON), failMillis)
+	failedAt := license.UTCDate(2026, 6, 20)
+	payload := markVerificationFailure(t, snap, failedAt)
+	if payload.Snapshot.LastVerificationFailedAt == nil || !payload.Snapshot.LastVerificationFailedAt.Equal(failedAt) {
+		t.Fatalf("failure timestamp = %v, want %v", payload.Snapshot.LastVerificationFailedAt, failedAt)
+	}
+	if payload.Decision.Reason != license.ReasonOfflineGrace {
+		t.Fatalf("reason = %s, want offlineGrace", payload.Decision.Reason)
+	}
+}
+
+func TestConsecutiveVerificationFailuresDoNotExtendOfflineGrace(t *testing.T) {
+	purchase := license.UTCDate(2026, 6, 3)
+	verifiedAt := license.UTCDate(2026, 6, 10)
+	firstFailedAt := license.UTCDate(2026, 6, 20)
+	snap := license.Snapshot{
+		Transactions:   []license.Transaction{{ProductID: license.LifetimeUnlockProductID, PurchaseDate: purchase}},
+		LastVerifiedAt: &verifiedAt,
+	}
+
+	first := markVerificationFailure(t, snap, firstFailedAt)
+	withinGrace := markVerificationFailure(t, first.Snapshot, license.UTCDate(2026, 6, 26))
+	if withinGrace.Snapshot.LastVerificationFailedAt == nil || !withinGrace.Snapshot.LastVerificationFailedAt.Equal(firstFailedAt) {
+		t.Fatalf("second failure moved grace origin to %v, want %v", withinGrace.Snapshot.LastVerificationFailedAt, firstFailedAt)
+	}
+	wantGraceEnd := license.UTCDate(2026, 6, 27)
+	if withinGrace.Decision.OfflineGraceEndsAt == nil || !withinGrace.Decision.OfflineGraceEndsAt.Equal(wantGraceEnd) {
+		t.Fatalf("grace end = %v, want %v", withinGrace.Decision.OfflineGraceEndsAt, wantGraceEnd)
+	}
+
+	afterGrace := markVerificationFailure(t, withinGrace.Snapshot, license.UTCDate(2026, 6, 28))
+	if afterGrace.Snapshot.LastVerificationFailedAt == nil || !afterGrace.Snapshot.LastVerificationFailedAt.Equal(firstFailedAt) {
+		t.Fatalf("third failure moved grace origin to %v, want %v", afterGrace.Snapshot.LastVerificationFailedAt, firstFailedAt)
+	}
+	if afterGrace.Decision.Reason != license.ReasonLifetime || afterGrace.Decision.OfflineGraceEndsAt != nil {
+		t.Fatalf("expired consecutive-failure grace = %+v, want lifetime without grace", afterGrace.Decision)
+	}
+}
+
+func TestSuccessfulVerificationThenFailureRestartsOfflineGrace(t *testing.T) {
+	purchase := license.UTCDate(2026, 6, 3)
+	verifiedAt := license.UTCDate(2026, 6, 10)
+	initial := license.Snapshot{
+		Transactions:   []license.Transaction{{ProductID: license.LifetimeUnlockProductID, PurchaseDate: purchase}},
+		LastVerifiedAt: &verifiedAt,
+	}
+	first := markVerificationFailure(t, initial, license.UTCDate(2026, 6, 20))
+
+	succeededAt := license.UTCDate(2026, 6, 22)
+	resp := license.ServerResponse{
+		Grant: license.ServerGrant{
+			Version:           1,
+			IssuedAt:          succeededAt,
+			ExpiresAt:         license.UTCDate(2027, 6, 22),
+			Reason:            license.ReasonLifetime,
+			HasLifetimeUnlock: true,
+			Transactions:      first.Snapshot.Transactions,
+			Signature:         "sig",
+		},
+		Snapshot: license.GrantSnapshot{
+			Reason:            license.ReasonLifetime,
+			HasLifetimeUnlock: true,
+			Transactions:      first.Snapshot.Transactions,
+		},
+	}
+	raw, err := json.Marshal(resp)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var payload verificationFailurePayload
-	if err := json.Unmarshal([]byte(updatedJSON), &payload); err != nil {
+	appliedJSON, err := applyServerResponse(raw, "install-1", succeededAt)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if payload.Snapshot.LastVerificationFailedAt == nil {
-		t.Fatal("failure timestamp not recorded")
+	var applied appliedLicensePayload
+	if err := json.Unmarshal([]byte(appliedJSON), &applied); err != nil {
+		t.Fatal(err)
 	}
-	// Within 7-day grace of the failure the app still works.
-	if payload.Decision.Reason != license.ReasonOfflineGrace {
-		t.Fatalf("reason = %s, want offlineGrace", payload.Decision.Reason)
+	if applied.Snapshot.LastVerificationFailedAt != nil {
+		t.Fatalf("successful verification retained failure timestamp %v", applied.Snapshot.LastVerificationFailedAt)
+	}
+	if applied.Snapshot.LastVerifiedAt == nil || !applied.Snapshot.LastVerifiedAt.Equal(succeededAt) {
+		t.Fatalf("last verified = %v, want %v", applied.Snapshot.LastVerifiedAt, succeededAt)
+	}
+
+	nextFailedAt := license.UTCDate(2026, 6, 25)
+	next := markVerificationFailure(t, applied.Snapshot, nextFailedAt)
+	if next.Snapshot.LastVerificationFailedAt == nil || !next.Snapshot.LastVerificationFailedAt.Equal(nextFailedAt) {
+		t.Fatalf("new failure sequence started at %v, want %v", next.Snapshot.LastVerificationFailedAt, nextFailedAt)
+	}
+	wantGraceEnd := license.UTCDate(2026, 7, 2)
+	if next.Decision.Reason != license.ReasonOfflineGrace || next.Decision.OfflineGraceEndsAt == nil || !next.Decision.OfflineGraceEndsAt.Equal(wantGraceEnd) {
+		t.Fatalf("new failure sequence decision = %+v, want grace through %v", next.Decision, wantGraceEnd)
 	}
 }
 
@@ -207,6 +282,23 @@ func TestNewLicenseInstallIDIsLowercaseUnique(t *testing.T) {
 	if a != strings.ToLower(a) {
 		t.Fatalf("install id not lowercase: %s", a)
 	}
+}
+
+func markVerificationFailure(t *testing.T, snap license.Snapshot, at time.Time) verificationFailurePayload {
+	t.Helper()
+	snapJSON, err := json.Marshal(snap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	updatedJSON, err := MarkLicenseVerificationFailureJSON(string(snapJSON), at.UnixMilli())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload verificationFailurePayload
+	if err := json.Unmarshal([]byte(updatedJSON), &payload); err != nil {
+		t.Fatal(err)
+	}
+	return payload
 }
 
 func ptrTime(t time.Time) *time.Time { return &t }

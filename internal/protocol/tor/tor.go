@@ -86,6 +86,12 @@ func (d *dialer) Dial(ctx context.Context, network, address string) (protocol.Co
 func (d *dialer) DialThrough(ctx context.Context, underlying io.ReadWriteCloser, address string) (protocol.Conn, error) {
 	adapter := &netConnAdapter{rwc: underlying}
 	if err := d.handshake(ctx, adapter, address); err != nil {
+		// The SOCKS5 handshake failed, so the tunnel to `address` never
+		// came up and this stream is unusable. We take ownership of the
+		// underlying conn the moment it's handed to us, so close it on
+		// every error path rather than leaking the prior chain hop's
+		// socket — mirroring how Dial closes its freshly dialed conn.
+		_ = adapter.Close()
 		return nil, err
 	}
 	return &conn{Conn: adapter}, nil

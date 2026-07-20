@@ -157,7 +157,7 @@ type appliedLicensePayload struct {
 }
 
 // applyServerResponse mirrors the macOS MacLicenseManager.apply: persist the
-// grant, build a verified local snapshot, normalize device state, and evaluate.
+// grant, build a local snapshot, normalize device state, and evaluate.
 func applyServerResponse(raw []byte, installID string, now time.Time) (string, error) {
 	var resp license.ServerResponse
 	if err := json.Unmarshal(raw, &resp); err != nil {
@@ -272,15 +272,18 @@ type verificationFailurePayload struct {
 }
 
 // MarkLicenseVerificationFailureJSON records a failed verification against the
-// snapshot (starting or extending offline grace) and returns the updated
-// snapshot plus the re-evaluated decision.
+// snapshot. The first failure after a success starts offline grace; subsequent
+// consecutive failures preserve that timestamp so they cannot extend grace.
 func MarkLicenseVerificationFailureJSON(snapshotJSON string, nowUnixMillis int64) (string, error) {
 	snap, err := decodeSnapshot(snapshotJSON)
 	if err != nil {
 		return "", err
 	}
 	now := nowOrDefault(nowUnixMillis)
-	snap.LastVerificationFailedAt = &now
+	if snap.LastVerificationFailedAt == nil ||
+		(snap.LastVerifiedAt != nil && snap.LastVerificationFailedAt.Before(*snap.LastVerifiedAt)) {
+		snap.LastVerificationFailedAt = &now
+	}
 	snap.CachedAt = now
 	return marshalString(verificationFailurePayload{
 		Snapshot: snap,

@@ -36,17 +36,31 @@ func (i *instance) startMuxers() {
 func (i *instance) tunToUDP() {
 	defer i.wg.Done()
 
+	// The data channel and TUN device are published (under the instance
+	// lock) before startMuxers runs, so a single snapshot here is safe and
+	// stable for the life of the goroutine — they are set once and never
+	// mutated. Reading them through the accessors keeps all data-plane
+	// access to these fields synchronised with the handshake goroutine.
+	dev := i.device()
+	dc := i.dataChannelRef()
+	if dev == nil || dc == nil {
+		return
+	}
+	i.mu.RLock()
+	mtu := i.mtu
+	i.mu.RUnlock()
+
 	// Batch capacity of 1 keeps memory modest and ordering trivial; the
 	// netstack isn't doing GRO so we almost always get single packets
 	// anyway. Size the buffer for a full Ethernet-MTU packet plus slack.
-	batchSize := i.tunDev.BatchSize()
+	batchSize := dev.BatchSize()
 	if batchSize < 1 {
 		batchSize = 1
 	}
 	bufs := make([][]byte, batchSize)
 	sizes := make([]int, batchSize)
 	for j := range bufs {
-		bufs[j] = make([]byte, i.mtu+128)
+		bufs[j] = make([]byte, mtu+128)
 	}
 
 	for {
@@ -59,7 +73,7 @@ func (i *instance) tunToUDP() {
 		// Offset 0: we don't need headroom for a protocol-specific header
 		// because we copy into a fresh buffer in seal() anyway. A future
 		// optimisation could seal in-place with headroom reserved.
-		n, err := i.tunDev.Read(bufs, sizes, 0)
+		n, err := dev.Read(bufs, sizes, 0)
 		if err != nil {
 			// Expected on shutdown. If it ever happens live, the daemon
 			// should restart the instance — but we don't have that
@@ -68,7 +82,7 @@ func (i *instance) tunToUDP() {
 		}
 		for j := 0; j < n; j++ {
 			pkt := bufs[j][:sizes[j]]
-			ct, err := i.data.seal(pkt)
+			ct, err := dc.seal(pkt)
 			if err != nil {
 				if errors.Is(err, errDataChannelRekeyRequired) {
 					// Without OpenVPN soft-reset renegotiation, continuing

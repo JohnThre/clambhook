@@ -81,6 +81,9 @@ func (s *Server) handleUpdateConfigSettings(w http.ResponseWriter, r *http.Reque
 }
 
 func (s *Server) persistConfigSettings(req updateConfigSettingsRequest) (configSettingsPayload, error) {
+	// Serialize the whole read-modify-validate-write-reload transaction against
+	// every other config mutation so concurrent edits cannot overwrite each other.
+	defer s.lockConfigTxn()()
 	cfg, err := config.Load(s.configPath)
 	if err != nil {
 		return configSettingsPayload{}, rulePersistenceError{status: http.StatusInternalServerError, err: err}

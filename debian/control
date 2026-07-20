@@ -32,6 +32,7 @@ Architecture: any
 Depends:
  ${misc:Depends},
  ${shlibs:Depends},
+ iproute2,
  polkitd | policykit-1,
  systemd
 Description: local network client daemon, GTK desktop controller, and terminal dashboard

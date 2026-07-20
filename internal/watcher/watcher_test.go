@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -135,7 +136,7 @@ func TestWatcherCoalescesRapidWrites(t *testing.T) {
 
 	rec := startWatcher(t, path, 100*time.Millisecond)
 
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		writeFile(t, path, validTOML)
 		time.Sleep(10 * time.Millisecond)
 	}
@@ -176,6 +177,76 @@ func TestWatcherStopReturnsPromptly(t *testing.T) {
 	}
 
 	// Second Stop should be a no-op.
+	if err := w.Stop(); err != nil {
+		t.Errorf("second Stop: %v", err)
+	}
+}
+
+// TestWatcherStopWaitsForInflightReload proves Stop blocks until an in-flight
+// debounced reload callback has finished. Without this guarantee Stop could
+// return while a reload was mid-flight, and a caller's teardown (Engine.Stop)
+// could then race the callback's Engine.Reload and resurrect listeners.
+func TestWatcherStopWaitsForInflightReload(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "cfg.toml")
+	writeFile(t, path, validTOML)
+
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	var enterOnce sync.Once
+	var reloadDone atomic.Bool
+
+	reload := func(cfg *config.Config) error {
+		enterOnce.Do(func() { close(entered) })
+		<-release
+		reloadDone.Store(true)
+		return nil
+	}
+
+	w, err := New(path, reload, nil)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	w.debounce = 20 * time.Millisecond
+	if err := w.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	// Trigger a debounced reload and wait for the callback to enter.
+	writeFile(t, path, `active = "p2"`+"\n[[profile]]\nname = \"p2\"\n")
+	select {
+	case <-entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("reload callback never started")
+	}
+
+	// Stop must block while the callback is in flight.
+	stopDone := make(chan error, 1)
+	go func() { stopDone <- w.Stop() }()
+	select {
+	case <-stopDone:
+		t.Fatal("Stop returned while reload callback was still in flight")
+	case <-time.After(300 * time.Millisecond):
+	}
+	if reloadDone.Load() {
+		t.Fatal("reload callback finished though it should be blocked")
+	}
+
+	// Release the callback; Stop must now complete promptly.
+	close(release)
+	select {
+	case err := <-stopDone:
+		if err != nil {
+			t.Errorf("Stop: %v", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("Stop did not return after reload callback completed")
+	}
+	if !reloadDone.Load() {
+		t.Fatal("reload callback did not finish before Stop returned")
+	}
+
+	// Stop stays idempotent after waiting for the in-flight callback.
 	if err := w.Stop(); err != nil {
 		t.Errorf("second Stop: %v", err)
 	}

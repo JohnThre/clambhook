@@ -1,5 +1,5 @@
-# Real proxy protocol coverage is intentionally scheduled/manual rather than
-# running on every source change. Built packages and test outputs stay in CI.
+# Real proxy protocol and privileged TUN coverage is intentionally
+# scheduled/manual rather than running on every source change.
 name: Protocol end-to-end
 
 on:
@@ -16,7 +16,7 @@ concurrency:
 
 jobs:
   protocol-e2e:
-    name: sing-box, Tor, and optional OpenVPN
+    name: sing-box, Tor, ClambBack, and optional OpenVPN
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
@@ -33,7 +33,9 @@ jobs:
       - name: Install native protocol dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential pkg-config libsodium-dev tor
+          sudo apt-get install -y \
+            build-essential pkg-config libsodium-dev tor curl \
+            libboost-system-dev libboost-program-options-dev libssl-dev
       - name: Configure optional OpenVPN credentials
         env:
           OPENVPN_CA: ${{ secrets.CLAMBHOOK_E2E_OPENVPN_CA }}
@@ -49,7 +51,27 @@ jobs:
             echo "CLAMBHOOK_E2E_OPENVPN_CLIENT_CERT=$RUNNER_TEMP/openvpn-client-cert.pem" >> "$GITHUB_ENV"
             echo "CLAMBHOOK_E2E_OPENVPN_CLIENT_KEY=$RUNNER_TEMP/openvpn-client-key.pem" >> "$GITHUB_ENV"
           else
-            echo "OpenVPN credentials are not configured; the regular suite will report that coverage as skipped."
+            echo "OpenVPN credentials are not configured; external OpenVPN coverage remains optional in this scheduled suite."
           fi
-      - name: Run real-server protocol suite
-        run: make e2e
+      - name: Run required real-server protocol suite
+        run: make e2e-required
+
+  tun-e2e:
+    name: Privileged Linux TUN packet round-trip
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Install TUN harness dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential pkg-config libsodium-dev curl iproute2 python3 \
+            libboost-system-dev libboost-program-options-dev libssl-dev
+          test -c /dev/net/tun
+      - name: Start daemon in TUN mode and verify packet round-trip
+        run: make e2e-tun

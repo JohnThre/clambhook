@@ -696,6 +696,8 @@ func (s *Server) persistRules(profileName string, nextRules func([]config.RuleCo
 }
 
 func (s *Server) persistRulesWithError(profileName string, nextRules func(string, []config.RuleConfig) ([]config.RuleConfig, error)) (rulePersistenceResponse, error) {
+	// Serialize the whole read-modify-validate-write-reload transaction.
+	defer s.lockConfigTxn()()
 	cfg, err := config.Load(s.configPath)
 	if err != nil {
 		return rulePersistenceResponse{}, rulePersistenceError{status: http.StatusInternalServerError, err: err}
@@ -737,6 +739,8 @@ func (s *Server) persistRulesWithError(profileName string, nextRules func(string
 }
 
 func (s *Server) persistRuleSets(profileName string, nextRuleSets []config.RuleSetConfig) (ruleSetPersistenceResponse, error) {
+	// Serialize the whole read-modify-validate-write-reload transaction.
+	defer s.lockConfigTxn()()
 	cfg, err := config.Load(s.configPath)
 	if err != nil {
 		return ruleSetPersistenceResponse{}, rulePersistenceError{status: http.StatusInternalServerError, err: err}
@@ -772,6 +776,8 @@ func (s *Server) persistRuleSets(profileName string, nextRuleSets []config.RuleS
 }
 
 func (s *Server) persistPolicyGroups(profileName string, nextPolicyGroups []config.PolicyGroupConfig) (policyGroupPersistenceResponse, error) {
+	// Serialize the whole read-modify-validate-write-reload transaction.
+	defer s.lockConfigTxn()()
 	cfg, err := config.Load(s.configPath)
 	if err != nil {
 		return policyGroupPersistenceResponse{}, rulePersistenceError{status: http.StatusInternalServerError, err: err}
@@ -807,6 +813,8 @@ func (s *Server) persistPolicyGroups(profileName string, nextPolicyGroups []conf
 }
 
 func (s *Server) persistRuleSubscriptions(profileName string, nextSubscriptions []config.RuleSubscriptionConfig) (ruleSubscriptionPersistenceResponse, error) {
+	// Serialize the whole read-modify-validate-write-reload transaction.
+	defer s.lockConfigTxn()()
 	cfg, err := config.Load(s.configPath)
 	if err != nil {
 		return ruleSubscriptionPersistenceResponse{}, rulePersistenceError{status: http.StatusInternalServerError, err: err}
@@ -848,6 +856,8 @@ func (s *Server) persistDeveloperConfig(update func(config.DeveloperConfig) conf
 }
 
 func (s *Server) persistDeveloperConfigWithError(update func(config.DeveloperConfig) (config.DeveloperConfig, error)) (developerRulesPersistenceResponse, error) {
+	// Serialize the whole read-modify-validate-write-reload transaction.
+	defer s.lockConfigTxn()()
 	cfg, err := config.Load(s.configPath)
 	if err != nil {
 		return developerRulesPersistenceResponse{}, rulePersistenceError{status: http.StatusInternalServerError, err: err}
@@ -971,6 +981,8 @@ func (s *Server) handleSetActiveProfile(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if strings.TrimSpace(s.configPath) != "" {
+		// Serialize the whole read-modify-validate-write-reload transaction.
+		defer s.lockConfigTxn()()
 		cfg, err := config.Load(s.configPath)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)

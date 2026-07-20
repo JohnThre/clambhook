@@ -257,12 +257,14 @@ func (r *TunnelRuntime) SetActiveProfile(name string) error {
 func (r *TunnelRuntime) SelectPolicyGroup(profileName, groupName, chainName string) error {
 	r.mu.Lock()
 	cfg := r.cfg
-	r.mu.Unlock()
 	if cfg == nil {
+		r.mu.Unlock()
 		return errors.New("tunnel: runtime is not running")
 	}
-	next := *cfg
-	profile := selectProfileForEdit(&next, profileName)
+	next := cloneConfigForPolicyEdit(cfg)
+	r.mu.Unlock()
+
+	profile := selectProfileForEdit(next, profileName)
 	if profile == nil {
 		return fmt.Errorf("profile %q not found", profileName)
 	}
@@ -295,10 +297,26 @@ func (r *TunnelRuntime) SelectPolicyGroup(profileName, groupName, chainName stri
 		return fmt.Errorf("policy group %q has no member chain %q", groupName, chainName)
 	}
 	group.Selected = chainName
-	if err := engine.ValidateConfig(&next); err != nil {
+	if err := engine.ValidateConfig(next); err != nil {
 		return err
 	}
-	return r.restartWithConfig(&next)
+	return r.restartWithConfig(next)
+}
+
+// cloneConfigForPolicyEdit copies the config data that SelectPolicyGroup may
+// mutate. The clone is made while r.mu is held, and its independent profile and
+// policy-group backing arrays can be validated and edited after unlocking
+// without writing into the live config observed by JSON readers.
+func cloneConfigForPolicyEdit(cfg *config.Config) *config.Config {
+	next := *cfg
+	next.Profiles = append([]config.Profile(nil), cfg.Profiles...)
+	for i := range next.Profiles {
+		next.Profiles[i].PolicyGroups = append([]config.PolicyGroupConfig(nil), cfg.Profiles[i].PolicyGroups...)
+		for j := range next.Profiles[i].PolicyGroups {
+			next.Profiles[i].PolicyGroups[j].Chains = append([]string(nil), cfg.Profiles[i].PolicyGroups[j].Chains...)
+		}
+	}
+	return &next
 }
 
 func (r *TunnelRuntime) restartWithConfig(cfg *config.Config) error {

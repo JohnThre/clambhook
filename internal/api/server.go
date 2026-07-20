@@ -26,7 +26,34 @@ type Server struct {
 	configPath string
 	server     *http.Server
 	mu         sync.RWMutex
-	addr       string
+	// configMu serializes every on-disk configuration
+	// read-modify-validate-write-reload transaction. It is deliberately
+	// separate from mu (which guards mutable server fields) and is only ever
+	// held through lockConfigTxn. See that method for the discipline.
+	configMu sync.Mutex
+	addr     string
+}
+
+// lockConfigTxn acquires the configuration transaction mutex and returns the
+// matching unlock function so callers can guard a whole transaction with a
+// single deferred statement:
+//
+//	defer s.lockConfigTxn()()
+//
+// Every code path that loads the on-disk config, mutates a section, validates,
+// writes it back, and reloads the engine (rules, rule sets, policy groups and
+// selections, subscriptions, developer config, active profile, config
+// settings, DNS settings, and import) MUST guard its body this way. Without
+// it, two concurrent edits load the same base config, mutate different
+// sections, and race to write, so the last writer silently drops the other's
+// change. Read-only getters intentionally stay lock-free and concurrent.
+//
+// The lock is non-reentrant: a guarded body must never invoke another guarded
+// body, otherwise it self-deadlocks. Acquire it only after any request-body
+// read so a slow client cannot stall other edits.
+func (s *Server) lockConfigTxn() func() {
+	s.configMu.Lock()
+	return s.configMu.Unlock
 }
 
 // New creates a new API server. bus may be nil to disable the

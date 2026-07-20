@@ -1,1 +1,3 @@
 packaging/config/config.toml etc/clambhook/
+packaging/systemd/clambhook-sysusers.conf usr/lib/sysusers.d/
+packaging/systemd/clambhook-tmpfiles.conf usr/lib/tmpfiles.d/

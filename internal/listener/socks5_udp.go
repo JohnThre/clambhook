@@ -40,9 +40,13 @@ import (
 //     target peers in its frames, which matches our needs — we don't need
 //     a per-target session.
 func (s *SOCKSv5) handleUDPAssociate(ctx context.Context, control net.Conn, ce *connEvents) {
-	// Local UDP relay socket — bind to any available port on a wildcard
-	// address so either IPv4 or IPv6 clients can reach it.
-	relay, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv4zero, Port: 0})
+	// The relay socket and the BND.ADDR we return must be reachable by the
+	// SOCKS client on the same IP family as the TCP control connection: an
+	// IPv6 client cannot reach a relay bound on the IPv4 wildcard, and an
+	// IPv4 client cannot reach an IPv6-only relay. Bind the relay to the
+	// control connection's family so the reported endpoint is reachable.
+	relayNetwork, wildcard, bndFallback := relayBindForControl(control)
+	relay, err := net.ListenUDP(relayNetwork, &net.UDPAddr{IP: wildcard, Port: 0})
 	if err != nil {
 		log.Printf("socks5 udp: listen relay: %v", err)
 		_ = writeReply(control, repGeneralFailure, "")
@@ -50,13 +54,13 @@ func (s *SOCKSv5) handleUDPAssociate(ctx context.Context, control net.Conn, ce *
 	}
 	defer relay.Close()
 
-	// The BND.ADDR we return must be reachable by the SOCKS client. For a
-	// localhost-bound listener (our default) we can send back 127.0.0.1;
-	// when bound on a real interface, derive from the TCP control's local
-	// addr so NAT / multi-homed hosts resolve correctly.
-	bndHost, _, _ := net.SplitHostPort(control.LocalAddr().String())
-	if bndHost == "" {
-		bndHost = "127.0.0.1"
+	// The BND.ADDR we return must be reachable by the SOCKS client. Derive it
+	// from the TCP control's local addr so loopback, NAT, and multi-homed
+	// hosts resolve correctly; fall back to the loopback of the relay's family
+	// when the local addr is unavailable.
+	bndHost, _, err := net.SplitHostPort(control.LocalAddr().String())
+	if err != nil || bndHost == "" {
+		bndHost = bndFallback
 	}
 	bndPort := relay.LocalAddr().(*net.UDPAddr).Port
 	if err := writeReply(control, repSuccess, net.JoinHostPort(bndHost, strconv.Itoa(bndPort))); err != nil {
@@ -81,6 +85,7 @@ func (s *SOCKSv5) handleUDPAssociate(ctx context.Context, control net.Conn, ce *
 
 	// Signalling: close this to tear down both goroutines.
 	udpCtx, udpCancel := context.WithCancel(ctx)
+	udpCtx = ce.attach(udpCtx)
 	defer udpCancel()
 	defer func() {
 		sessionMu.Lock()
@@ -151,7 +156,11 @@ func (s *SOCKSv5) handleUDPAssociate(ctx context.Context, control net.Conn, ce *
 		}
 		sessionMu.Unlock()
 
-		pc, err := plan.DialPacket(udpCtx, target)
+		// Planning (including prompts) already completed on udpCtx. Give only
+		// the outbound session setup its own fresh dial budget.
+		dialCtx, cancelDial := context.WithTimeout(udpCtx, 30*time.Second)
+		pc, err := plan.DialPacket(dialCtx, target)
+		cancelDial()
 		if err != nil {
 			return nil, err
 		}
@@ -248,11 +257,54 @@ func (s *SOCKSv5) handleUDPAssociate(ctx context.Context, control net.Conn, ce *
 		}
 	}()
 
-	// Keep the TCP control conn open. RFC 1928: the UDP association is
-	// tied to the TCP control — when the client closes the control, we
-	// tear everything down.
+	// Keep the TCP control conn open. RFC 1928 ties the association to this
+	// connection. Listener cancellation must close it too; otherwise io.Copy
+	// can pin the handler until the client eventually disconnects.
+	stopCh := make(chan struct{})
+	defer close(stopCh)
+	go func() {
+		select {
+		case <-ctx.Done():
+			udpCancel()
+			_ = relay.Close()
+			_ = control.Close()
+		case <-stopCh:
+		}
+	}()
 	_, _ = io.Copy(io.Discard, control)
 	udpCancel()
+}
+
+// relayBindForControl selects the UDP relay bind parameters matching the TCP
+// control connection's IP family. A UDP-associate relay bound on the wrong
+// family is unreachable by the client, so an IPv6 control connection gets an
+// IPv6 relay (and IPv6 loopback BND fallback); everything else defaults to
+// IPv4.
+func relayBindForControl(control net.Conn) (network string, wildcard net.IP, bndFallback string) {
+	if ip := controlLocalIP(control); ip != nil && ip.To4() == nil && ip.To16() != nil {
+		return "udp6", net.IPv6zero, "::1"
+	}
+	return "udp4", net.IPv4zero, "127.0.0.1"
+}
+
+// controlLocalIP returns the local IP of the control connection, or nil when
+// it cannot be determined.
+func controlLocalIP(control net.Conn) net.IP {
+	if control == nil {
+		return nil
+	}
+	local := control.LocalAddr()
+	if local == nil {
+		return nil
+	}
+	if tcp, ok := local.(*net.TCPAddr); ok {
+		return tcp.IP
+	}
+	host, _, err := net.SplitHostPort(local.String())
+	if err != nil {
+		return nil
+	}
+	return net.ParseIP(host)
 }
 
 // addrForWrite is the net.Addr passed to PacketConn.WriteTo when forwarding

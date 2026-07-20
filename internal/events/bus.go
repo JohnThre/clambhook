@@ -111,6 +111,17 @@ func (b *Bus) NewShard() *Shard {
 	return s
 }
 
+// RetireShard releases replay history for a completed connection. The caller
+// must publish the connection.closed event first so current subscribers receive
+// it before the ring is removed. Shard 0 is reserved for listener events and is
+// never retired.
+func (b *Bus) RetireShard(shard *Shard) {
+	if b == nil || shard == nil || shard.ID() == 0 {
+		return
+	}
+	b.rings.Delete(shard.ID())
+}
+
 // Publish records an event at Lamport = shard.Tick() and broadcasts to all
 // matching subscribers. If a subscriber's buffered channel is full, its ctx
 // is cancelled so the WS handler can close the connection with a "slow

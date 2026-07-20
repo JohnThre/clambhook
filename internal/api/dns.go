@@ -167,6 +167,9 @@ func (s *Server) handleUpdateDNS(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	// Serialize the whole read-modify-validate-write-reload transaction so a
+	// concurrent edit to another config section cannot clobber this one.
+	defer s.lockConfigTxn()()
 	cfg, err := config.Load(s.configPath)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)

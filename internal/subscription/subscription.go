@@ -259,7 +259,7 @@ func RefreshOne(ctx context.Context, configPath, profileName string, sub config.
 			req.Header.Set("If-Modified-Since", old.LastModified)
 		}
 	}
-	resp, err := client.Do(req)
+	resp, err := ClientWithSafeRedirects(client).Do(req)
 	if err != nil {
 		return err
 	}

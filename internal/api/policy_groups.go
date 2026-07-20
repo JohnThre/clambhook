@@ -90,6 +90,9 @@ func (s *Server) handlePolicyGroupSelection(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	// Serialize the whole read-modify-validate-write-reload transaction so a
+	// concurrent edit to another config section cannot clobber this selection.
+	defer s.lockConfigTxn()()
 	cfg, err := config.Load(s.configPath)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)

@@ -160,6 +160,24 @@ func TestBusReplayGapSignal(t *testing.T) {
 	}
 }
 
+func TestBusRetireShardReleasesRing(t *testing.T) {
+	b := NewBus(Config{SubBufferSize: 8, RingCapacity: 8, MeterInterval: time.Hour})
+	defer b.Close()
+
+	for range 1000 {
+		shard := b.NewShard()
+		b.Publish(shard, TypeConnectionClosed, ConnectionClosedData{})
+		b.RetireShard(shard)
+		if _, ok := b.rings.Load(shard.ID()); ok {
+			t.Fatalf("ring for retired shard %d is still registered", shard.ID())
+		}
+	}
+
+	if _, ok := b.rings.Load(uint64(0)); !ok {
+		t.Fatal("reserved listener shard was retired")
+	}
+}
+
 // drain collects all events available within d and returns them.
 func drain(sub *Subscription, d time.Duration) []Event {
 	var out []Event
