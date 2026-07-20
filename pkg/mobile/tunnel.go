@@ -560,6 +560,49 @@ func (r *TunnelRuntime) CreateTemporaryRuleFromConnectionJSON(connID, profileNam
 	})
 }
 
+// CreateRuleFromConnectionJSON derives and persists a rule from a tracked
+// connection. The caller reloads the runtime after this atomic config edit.
+func (r *TunnelRuntime) CreateRuleFromConnectionJSON(configPath, connID, profileName, name, action, scope string) (string, error) {
+	r.mu.Lock()
+	trf := r.trf
+	r.mu.Unlock()
+	if trf == nil || trf.Store() == nil {
+		return "", errors.New("tunnel: runtime is not running")
+	}
+	conn, ok := trf.Store().Connection(strings.TrimSpace(connID))
+	if !ok {
+		return "", errors.New("connection not found")
+	}
+	return appendConnectionRuleToTunnelConfig(configPath, profileName, conn, name, action, scope)
+}
+
+// CleanupRuleJSON verifies that a dashboard cleanup suggestion is still current
+// against live traffic, applies it to the persisted config, and returns the
+// updated rules. The caller reloads the runtime after this atomic config edit.
+func (r *TunnelRuntime) CleanupRuleJSON(configPath, profileName, kind, ruleName, targetRuleName, operation string) (string, error) {
+	r.mu.Lock()
+	trf := r.trf
+	cfg := r.cfg
+	r.mu.Unlock()
+	if trf == nil || trf.Store() == nil {
+		return "", errors.New("tunnel: runtime is not running")
+	}
+	resolvedProfile := strings.TrimSpace(profileName)
+	if resolvedProfile == "" {
+		resolvedProfile = activeProfileName(cfg)
+	}
+	var rules []config.RuleConfig
+	if profile := selectProfileForEdit(cfg, resolvedProfile); profile != nil {
+		rules = profile.Rules
+	}
+	snapshot := trf.Store().SnapshotWithOptions(traffic.SnapshotOptions{
+		State:         "all",
+		ActiveProfile: resolvedProfile,
+		Rules:         rules,
+	})
+	return applyTunnelCleanupToConfig(configPath, profileName, snapshot.CleanupSuggestions, kind, ruleName, targetRuleName, operation)
+}
+
 func (r *TunnelRuntime) DeveloperStatusJSON() (string, error) {
 	r.mu.Lock()
 	dev := r.dev

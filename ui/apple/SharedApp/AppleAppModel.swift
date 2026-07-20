@@ -705,7 +705,7 @@ final class AppleAppModel: ObservableObject {
     }
 
     func saveConfigSettings(
-        listen: ConfigListenSettingsPayload? = nil,
+        listen: ConfigListenSettingsUpdatePayload? = nil,
         dns: ConfigDNSSettingsPayload? = nil,
         networkTriggers: [ConfigNetworkTriggerPayload]? = nil
     ) {
