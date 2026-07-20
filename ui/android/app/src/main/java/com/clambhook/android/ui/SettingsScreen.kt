@@ -16,18 +16,15 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.Restore
 import androidx.compose.material.icons.rounded.Save
-import androidx.compose.material.icons.rounded.Visibility
-import androidx.compose.material.icons.rounded.VisibilityOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
+import androidx.compose.material3.Switch
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -40,8 +37,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import androidx.compose.foundation.layout.heightIn
@@ -55,26 +50,20 @@ import androidx.compose.ui.text.style.TextOverflow
 @Composable
 fun SettingsScreen(
     settings: AppSettings,
-    token: String,
     configToml: String,
     supportPurchaseState: SupportPurchaseState,
-    onSave: suspend (AppSettings, String, String) -> Unit,
+    onSave: suspend (AppSettings, String) -> Unit,
     onValidateConfig: suspend (String) -> Unit,
     onPurchaseSupport: (String) -> Unit,
     onShowMessage: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val scope = rememberCoroutineScope()
-    var apiBaseUrl by remember { mutableStateOf(settings.apiBaseUrl) }
-    var apiToken by remember { mutableStateOf(token) }
     var refreshSeconds by remember { mutableStateOf(settings.refreshIntervalSeconds.toString()) }
-    var eventsEnabled by remember { mutableStateOf(settings.eventStreamEnabled) }
-    var embeddedDaemonEnabled by remember { mutableStateOf(settings.embeddedDaemonEnabled) }
     var configText by remember { mutableStateOf(configToml) }
-    var tokenVisible by remember { mutableStateOf(false) }
     var saving by remember { mutableStateOf(false) }
     var confirmRestore by remember { mutableStateOf(false) }
-    var showApiSettings by remember { mutableStateOf(true) }
+    var showDashboardSettings by remember { mutableStateOf(true) }
     var showConfigEditor by remember { mutableStateOf(false) }
     var showSupportOptions by remember { mutableStateOf(false) }
     var showAppRouting by remember { mutableStateOf(false) }
@@ -86,12 +75,8 @@ fun SettingsScreen(
     var appsLoading by remember { mutableStateOf(false) }
     val context = LocalContext.current
 
-    LaunchedEffect(settings, token, configToml) {
-        apiBaseUrl = settings.apiBaseUrl
-        apiToken = token
+    LaunchedEffect(settings, configToml) {
         refreshSeconds = settings.refreshIntervalSeconds.toString()
-        eventsEnabled = settings.eventStreamEnabled
-        embeddedDaemonEnabled = settings.embeddedDaemonEnabled
         configText = configToml
         splitMode = settings.normalizedSplitTunnelMode
         selectedPackages = settings.normalizedSplitTunnelPackages
@@ -106,17 +91,10 @@ fun SettingsScreen(
     }
 
     val validation = validateSettingsInput(
-        apiBaseUrl = apiBaseUrl,
-        apiToken = apiToken,
         refreshSeconds = refreshSeconds,
-        embeddedDaemonEnabled = embeddedDaemonEnabled,
         configToml = configText
     )
-    val hasChanges = apiBaseUrl != settings.apiBaseUrl ||
-        apiToken != token ||
-        refreshSeconds != settings.refreshIntervalSeconds.toString() ||
-        eventsEnabled != settings.eventStreamEnabled ||
-        embeddedDaemonEnabled != settings.embeddedDaemonEnabled ||
+    val hasChanges = refreshSeconds != settings.refreshIntervalSeconds.toString() ||
         splitMode != settings.normalizedSplitTunnelMode ||
         selectedPackages != settings.normalizedSplitTunnelPackages ||
         configText != configToml
@@ -152,48 +130,14 @@ fun SettingsScreen(
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         SettingsDisclosureHeader(
-            title = "Daemon API",
-            expanded = showApiSettings,
-            onToggle = { showApiSettings = !showApiSettings }
+            title = "Dashboard refresh",
+            expanded = showDashboardSettings,
+            onToggle = { showDashboardSettings = !showDashboardSettings }
         )
-        if (showApiSettings) {
+        if (showDashboardSettings) {
             Card {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                Text("Daemon API", style = MaterialTheme.typography.titleMedium)
-                SettingSwitchRow(
-                    label = "Embedded daemon",
-                    checked = embeddedDaemonEnabled,
-                    onCheckedChange = { embeddedDaemonEnabled = it }
-                )
-                OutlinedTextField(
-                    value = apiBaseUrl,
-                    onValueChange = { apiBaseUrl = it },
-                    label = { Text("Base URL") },
-                    singleLine = true,
-                    enabled = !embeddedDaemonEnabled,
-                    isError = validation.apiBaseUrl != null,
-                    supportingText = validation.apiBaseUrl?.let { { Text(it) } },
-                    modifier = Modifier.fillMaxWidth(),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri)
-                )
-                OutlinedTextField(
-                    value = apiToken,
-                    onValueChange = { apiToken = it },
-                    label = { Text("Bearer token") },
-                    singleLine = true,
-                    isError = validation.apiToken != null,
-                    supportingText = validation.apiToken?.let { { Text(it) } },
-                    visualTransformation = if (tokenVisible) VisualTransformation.None else PasswordVisualTransformation(),
-                    trailingIcon = {
-                        IconButton(onClick = { tokenVisible = !tokenVisible }) {
-                            Icon(
-                                if (tokenVisible) Icons.Rounded.VisibilityOff else Icons.Rounded.Visibility,
-                                contentDescription = if (tokenVisible) "Hide token" else "Show token"
-                            )
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth()
-                )
+                Text("Dashboard refresh", style = MaterialTheme.typography.titleMedium)
                 OutlinedTextField(
                     value = refreshSeconds,
                     onValueChange = { refreshSeconds = it.filter(Char::isDigit) },
@@ -203,11 +147,6 @@ fun SettingsScreen(
                     supportingText = validation.refreshSeconds?.let { { Text(it) } },
                     modifier = Modifier.fillMaxWidth(),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
-                )
-                SettingSwitchRow(
-                    label = "Event stream",
-                    checked = eventsEnabled,
-                    onCheckedChange = { eventsEnabled = it }
                 )
             }
         }
@@ -405,14 +344,10 @@ fun SettingsScreen(
                         onValidateConfig(configText)
                         onSave(
                             AppSettings(
-                                apiBaseUrl = apiBaseUrl,
                                 refreshIntervalSeconds = refreshSeconds.toIntOrNull() ?: 5,
-                                eventStreamEnabled = eventsEnabled,
-                                embeddedDaemonEnabled = embeddedDaemonEnabled,
                                 splitTunnelMode = splitMode,
                                 splitTunnelPackages = selectedPackages
                             ),
-                            apiToken,
                             configText
                         )
                         onShowMessage("Settings saved")
@@ -452,6 +387,7 @@ private fun SettingsDisclosureHeader(
         )
     }
 }
+
 
 @Composable
 private fun SettingSwitchRow(

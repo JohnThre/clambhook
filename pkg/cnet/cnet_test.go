@@ -221,3 +221,135 @@ func TestChaCha20Poly1305Tamper(t *testing.T) {
 		t.Fatal("decrypt unexpectedly succeeded on tampered ciphertext")
 	}
 }
+
+// TestAEADInvalidLengths verifies that every cgo/purego AEAD entrypoint rejects
+// wrong-length key/nonce/tag inputs with an error instead of dereferencing
+// &slice[0] on an empty or short slice (which would panic / corrupt memory).
+// The table is valid under both the default cgo build and `-tags purego`,
+// since both implementations must honor the same key=32/nonce=12/tag=16
+// contract.
+func TestAEADInvalidLengths(t *testing.T) {
+	const (
+		keySize   = 32
+		nonceSize = 12
+		tagSize   = 16
+	)
+	goodKey := bytes.Repeat([]byte{0x01}, keySize)
+	goodNonce := bytes.Repeat([]byte{0x02}, nonceSize)
+	pt := []byte("payload")
+
+	type sizes struct{ key, nonce, tag int }
+	bad := []struct {
+		name string
+		sizes
+	}{
+		{"empty key", sizes{0, nonceSize, tagSize}},
+		{"short key", sizes{keySize - 1, nonceSize, tagSize}},
+		{"long key", sizes{keySize + 1, nonceSize, tagSize}},
+		{"empty nonce", sizes{keySize, 0, tagSize}},
+		{"short nonce", sizes{keySize, nonceSize - 1, tagSize}},
+		{"long nonce", sizes{keySize, nonceSize + 1, tagSize}},
+		{"empty tag", sizes{keySize, nonceSize, 0}},
+		{"short tag", sizes{keySize, nonceSize, tagSize - 1}},
+		{"long tag", sizes{keySize, nonceSize, tagSize + 1}},
+	}
+
+	type cipher struct {
+		name    string
+		encrypt func(key, nonce, plaintext, aad []byte) ([]byte, []byte, error)
+		decrypt func(key, nonce, ciphertext, aad, tag []byte) ([]byte, error)
+	}
+	ciphers := []cipher{
+		{"aes256gcm", AES256GCMEncrypt, AES256GCMDecrypt},
+		{"chacha20poly1305", ChaCha20Poly1305Encrypt, ChaCha20Poly1305Decrypt},
+	}
+
+	for _, c := range ciphers {
+		for _, tc := range bad {
+			key := bytes.Repeat([]byte{0x01}, tc.key)
+			nonce := bytes.Repeat([]byte{0x02}, tc.nonce)
+			tag := bytes.Repeat([]byte{0x03}, tc.tag)
+
+			// Encrypt ignores tag length (it produces the tag), so only run
+			// encrypt cases where the key or nonce is the invalid dimension.
+			if tc.key != keySize || tc.nonce != nonceSize {
+				t.Run(c.name+"/encrypt/"+tc.name, func(t *testing.T) {
+					if _, _, err := c.encrypt(key, nonce, pt, nil); err == nil {
+						t.Fatalf("%s encrypt accepted bad input (key=%d nonce=%d)",
+							c.name, tc.key, tc.nonce)
+					}
+				})
+			}
+			t.Run(c.name+"/decrypt/"+tc.name, func(t *testing.T) {
+				if _, err := c.decrypt(key, nonce, pt, nil, tag); err == nil {
+					t.Fatalf("%s decrypt accepted bad input (key=%d nonce=%d tag=%d)",
+						c.name, tc.key, tc.nonce, tc.tag)
+				}
+			})
+		}
+	}
+
+	// Sanity: the good lengths must still succeed, so the rejections above are
+	// about length and not a blanket failure.
+	for _, c := range ciphers {
+		if c.name == "aes256gcm" && !AES256GCMAvailable() {
+			continue
+		}
+		ct, tag, err := c.encrypt(goodKey, goodNonce, pt, nil)
+		if err != nil {
+			t.Fatalf("%s encrypt with valid lengths failed: %v", c.name, err)
+		}
+		if _, err := c.decrypt(goodKey, goodNonce, ct, nil, tag); err != nil {
+			t.Fatalf("%s decrypt with valid lengths failed: %v", c.name, err)
+		}
+	}
+}
+
+// TestAEADEmptyPlaintext exercises the empty-plaintext / empty-ciphertext path,
+// which must not dereference &slice[0] on the zero-length buffer. The tag is a
+// known-answer vector (all-zero key + nonce) computed from Go's crypto/aes and
+// x/crypto/chacha20poly1305, so it holds identically under the cgo and purego
+// builds — pinning cgo-vs-purego equivalence on the empty input.
+func TestAEADEmptyPlaintext(t *testing.T) {
+	key := make([]byte, 32)
+	nonce := make([]byte, 12)
+
+	cases := []struct {
+		name    string
+		avail   func() bool
+		encrypt func(key, nonce, plaintext, aad []byte) ([]byte, []byte, error)
+		decrypt func(key, nonce, ciphertext, aad, tag []byte) ([]byte, error)
+		wantTag string
+	}{
+		{"aes256gcm", AES256GCMAvailable, AES256GCMEncrypt, AES256GCMDecrypt,
+			"530f8afbc74536b9a963b4f1c4cb738b"},
+		{"chacha20poly1305", func() bool { return true },
+			ChaCha20Poly1305Encrypt, ChaCha20Poly1305Decrypt,
+			"4eb972c9a8fb3a1b382bb4d36f5ffad1"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if !tc.avail() {
+				t.Skipf("%s not available on this host", tc.name)
+			}
+			ct, tag, err := tc.encrypt(key, nonce, nil, nil)
+			if err != nil {
+				t.Fatalf("encrypt empty: %v", err)
+			}
+			if len(ct) != 0 {
+				t.Errorf("ciphertext for empty plaintext: got %d bytes, want 0", len(ct))
+			}
+			if got := mustHex(t, tc.wantTag); !bytes.Equal(tag, got) {
+				t.Errorf("tag mismatch\n  got  %x\n  want %s", tag, tc.wantTag)
+			}
+			pt, err := tc.decrypt(key, nonce, nil, nil, tag)
+			if err != nil {
+				t.Fatalf("decrypt empty: %v", err)
+			}
+			if len(pt) != 0 {
+				t.Errorf("plaintext for empty ciphertext: got %d bytes, want 0", len(pt))
+			}
+		})
+	}
+}

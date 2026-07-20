@@ -1,0 +1,31 @@
+# Minimal default ClambHook daemon configuration.
+#
+# Installed by the .deb / .rpm packages as a dpkg conffile / rpm
+# %config(noreplace) so the systemd service (clambhook-daemon.service) starts
+# cleanly on a fresh install instead of crash-looping on a missing config.
+# Edits made here are preserved across package upgrades.
+#
+# This default boots the daemon as a local control-plane service: it serves the
+# HTTP control API on loopback so the desktop app / TUI can connect and
+# configure upstream servers, chains, rules, proxy listeners, and device-wide
+# TUN routing. No proxy listeners or upstreams are defined yet, so a fresh
+# install starts cleanly without relying on placeholder credentials. See the
+# fully annotated template at configs/example.toml (installed under
+# /usr/share/doc/clambhook/ on Debian) for listener, chain, and rule examples.
+
+active = "local"
+
+[traffic]
+enabled = true
+history_limit = 500
+history_max_age = "168h"
+# Persist metadata-only traffic history under the service StateDirectory
+# (/var/lib/clambhook, created by systemd) so it survives daemon restarts and
+# stays inside the unit's ReadWritePaths.
+history_path = "/var/lib/clambhook/traffic-history.json"
+
+[[profile]]
+name = "local"
+
+  [profile.api]
+  listen = "127.0.0.1:9090"

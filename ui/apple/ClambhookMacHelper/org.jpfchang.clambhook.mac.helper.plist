@@ -11,6 +11,8 @@
 		<key>org.jpfchang.clambhook.mac.helper</key>
 		<true/>
 	</dict>
+	<key>Umask</key>
+	<integer>63</integer>
 	<key>StandardOutPath</key>
 	<string>/var/log/clambhook-helper.log</string>
 	<key>StandardErrorPath</key>

@@ -32,12 +32,19 @@ func SHA224(data []byte) []byte {
 
 // AES256GCMEncrypt encrypts plaintext using AES-256-GCM.
 func AES256GCMEncrypt(key, nonce, plaintext, aad []byte) (ciphertext, tag []byte, err error) {
+	if len(key) != 32 {
+		return nil, nil, fmt.Errorf("aes256gcm: key size %d, want 32", len(key))
+	}
+	if len(nonce) != 12 {
+		return nil, nil, fmt.Errorf("aes256gcm: nonce size %d, want 12", len(nonce))
+	}
 	ct := make([]byte, len(plaintext))
 	t := make([]byte, 16)
 
-	var ptPtr, aadPtr *C.uint8_t
+	var ptPtr, aadPtr, ctPtr *C.uint8_t
 	if len(plaintext) > 0 {
 		ptPtr = (*C.uint8_t)(unsafe.Pointer(&plaintext[0]))
+		ctPtr = (*C.uint8_t)(unsafe.Pointer(&ct[0]))
 	}
 	if len(aad) > 0 {
 		aadPtr = (*C.uint8_t)(unsafe.Pointer(&aad[0]))
@@ -50,7 +57,7 @@ func AES256GCMEncrypt(key, nonce, plaintext, aad []byte) (ciphertext, tag []byte
 		C.size_t(len(plaintext)),
 		aadPtr,
 		C.size_t(len(aad)),
-		(*C.uint8_t)(unsafe.Pointer(&ct[0])),
+		ctPtr,
 		(*C.uint8_t)(unsafe.Pointer(&t[0])),
 	)
 	if rc != 0 {
@@ -61,11 +68,21 @@ func AES256GCMEncrypt(key, nonce, plaintext, aad []byte) (ciphertext, tag []byte
 
 // AES256GCMDecrypt decrypts ciphertext using AES-256-GCM.
 func AES256GCMDecrypt(key, nonce, ciphertext, aad, tag []byte) (plaintext []byte, err error) {
+	if len(key) != 32 {
+		return nil, fmt.Errorf("aes256gcm: key size %d, want 32", len(key))
+	}
+	if len(nonce) != 12 {
+		return nil, fmt.Errorf("aes256gcm: nonce size %d, want 12", len(nonce))
+	}
+	if len(tag) != 16 {
+		return nil, fmt.Errorf("aes256gcm: tag size %d, want 16", len(tag))
+	}
 	pt := make([]byte, len(ciphertext))
 
-	var ctPtr, aadPtr *C.uint8_t
+	var ctPtr, aadPtr, ptPtr *C.uint8_t
 	if len(ciphertext) > 0 {
 		ctPtr = (*C.uint8_t)(unsafe.Pointer(&ciphertext[0]))
+		ptPtr = (*C.uint8_t)(unsafe.Pointer(&pt[0]))
 	}
 	if len(aad) > 0 {
 		aadPtr = (*C.uint8_t)(unsafe.Pointer(&aad[0]))
@@ -79,7 +96,7 @@ func AES256GCMDecrypt(key, nonce, ciphertext, aad, tag []byte) (plaintext []byte
 		aadPtr,
 		C.size_t(len(aad)),
 		(*C.uint8_t)(unsafe.Pointer(&tag[0])),
-		(*C.uint8_t)(unsafe.Pointer(&pt[0])),
+		ptPtr,
 	)
 	if rc != 0 {
 		return nil, fmt.Errorf("aes256gcm decrypt failed: %d", rc)
@@ -98,12 +115,19 @@ func AES256GCMAvailable() bool {
 
 // ChaCha20Poly1305Encrypt encrypts plaintext using ChaCha20-Poly1305-IETF.
 func ChaCha20Poly1305Encrypt(key, nonce, plaintext, aad []byte) (ciphertext, tag []byte, err error) {
+	if len(key) != 32 {
+		return nil, nil, fmt.Errorf("chacha20poly1305: key size %d, want 32", len(key))
+	}
+	if len(nonce) != 12 {
+		return nil, nil, fmt.Errorf("chacha20poly1305: nonce size %d, want 12", len(nonce))
+	}
 	ct := make([]byte, len(plaintext))
 	t := make([]byte, 16)
 
-	var ptPtr, aadPtr *C.uint8_t
+	var ptPtr, aadPtr, ctPtr *C.uint8_t
 	if len(plaintext) > 0 {
 		ptPtr = (*C.uint8_t)(unsafe.Pointer(&plaintext[0]))
+		ctPtr = (*C.uint8_t)(unsafe.Pointer(&ct[0]))
 	}
 	if len(aad) > 0 {
 		aadPtr = (*C.uint8_t)(unsafe.Pointer(&aad[0]))
@@ -116,7 +140,7 @@ func ChaCha20Poly1305Encrypt(key, nonce, plaintext, aad []byte) (ciphertext, tag
 		C.size_t(len(plaintext)),
 		aadPtr,
 		C.size_t(len(aad)),
-		(*C.uint8_t)(unsafe.Pointer(&ct[0])),
+		ctPtr,
 		(*C.uint8_t)(unsafe.Pointer(&t[0])),
 	)
 	if rc != 0 {
@@ -127,11 +151,21 @@ func ChaCha20Poly1305Encrypt(key, nonce, plaintext, aad []byte) (ciphertext, tag
 
 // ChaCha20Poly1305Decrypt decrypts ciphertext using ChaCha20-Poly1305-IETF.
 func ChaCha20Poly1305Decrypt(key, nonce, ciphertext, aad, tag []byte) (plaintext []byte, err error) {
+	if len(key) != 32 {
+		return nil, fmt.Errorf("chacha20poly1305: key size %d, want 32", len(key))
+	}
+	if len(nonce) != 12 {
+		return nil, fmt.Errorf("chacha20poly1305: nonce size %d, want 12", len(nonce))
+	}
+	if len(tag) != 16 {
+		return nil, fmt.Errorf("chacha20poly1305: tag size %d, want 16", len(tag))
+	}
 	pt := make([]byte, len(ciphertext))
 
-	var ctPtr, aadPtr *C.uint8_t
+	var ctPtr, aadPtr, ptPtr *C.uint8_t
 	if len(ciphertext) > 0 {
 		ctPtr = (*C.uint8_t)(unsafe.Pointer(&ciphertext[0]))
+		ptPtr = (*C.uint8_t)(unsafe.Pointer(&pt[0]))
 	}
 	if len(aad) > 0 {
 		aadPtr = (*C.uint8_t)(unsafe.Pointer(&aad[0]))
@@ -145,7 +179,7 @@ func ChaCha20Poly1305Decrypt(key, nonce, ciphertext, aad, tag []byte) (plaintext
 		aadPtr,
 		C.size_t(len(aad)),
 		(*C.uint8_t)(unsafe.Pointer(&tag[0])),
-		(*C.uint8_t)(unsafe.Pointer(&pt[0])),
+		ptPtr,
 	)
 	if rc != 0 {
 		return nil, fmt.Errorf("chacha20poly1305 decrypt failed: %d", rc)

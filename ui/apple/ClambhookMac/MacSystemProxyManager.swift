@@ -24,13 +24,56 @@ final class MacSystemProxyManager: ObservableObject {
                     try enable(listen: listen)
                     statusMessage = "System proxy enabled"
                 } else {
-                    try disable()
+                    try disableSystemProxy()
                     statusMessage = "System proxy restored"
                 }
             } catch {
                 statusMessage = error.localizedDescription
             }
             isApplying = false
+        }
+    }
+
+    /// Reconcile persisted proxy state when the app launches. A surviving
+    /// snapshot means a prior run did not restore cleanly (for example after a
+    /// crash). If proxying is still desired, re-apply without overwriting that
+    /// snapshot; otherwise restore it immediately.
+    func reconcileOnLaunch(desiredEnabled: Bool, listen: ConfigListenSettingsPayload) {
+        switch MacSystemProxyPlanner.reconcileAction(
+            hasSnapshot: hasSavedSnapshot,
+            desiredEnabled: desiredEnabled
+        ) {
+        case .none:
+            return
+        case .enable:
+            apply(enabled: true, listen: listen)
+        case .restore:
+            apply(enabled: false, listen: listen)
+        }
+    }
+
+    /// Synchronous best-effort restore for app termination. Termination cannot
+    /// wait for an unstructured Task, so this path performs `networksetup`
+    /// before returning to AppKit.
+    func restoreForTermination() {
+        restoreNow(context: "termination")
+    }
+
+    /// Restore immediately when licensing locks the tunnel feature.
+    func restoreForLockout() {
+        restoreNow(context: "license lockout")
+    }
+
+    private var hasSavedSnapshot: Bool {
+        defaults.data(forKey: snapshotKey) != nil
+    }
+
+    private func restoreNow(context: String) {
+        do {
+            try restoreSnapshot()
+            statusMessage = "System proxy restored for \(context)"
+        } catch {
+            statusMessage = error.localizedDescription
         }
     }
 
@@ -41,15 +84,25 @@ final class MacSystemProxyManager: ObservableObject {
         }
         let http = ProxyEndpoint(rawValue: listen.http, fallbackPort: 8080)
         let socks = ProxyEndpoint(rawValue: listen.socks5, fallbackPort: 1080)
-        let snapshot = try services.map { service in
-            MacProxyServiceSnapshot(
-                service: service,
-                web: try readState(kind: .web, service: service),
-                secureWeb: try readState(kind: .secureWeb, service: service),
-                socks: try readState(kind: .socks, service: service)
-            )
+
+        // Capture only once. Re-enabling while a snapshot exists must preserve
+        // the genuine pre-clambhook state for a later restore.
+        if !hasSavedSnapshot {
+            let captured = try services.map { service in
+                MacProxyServiceSnapshot(
+                    service: service,
+                    web: try readState(kind: .web, service: service),
+                    secureWeb: try readState(kind: .secureWeb, service: service),
+                    socks: try readState(kind: .socks, service: service)
+                )
+            }
+            if let snapshot = MacSystemProxyPlanner.snapshotToPersist(
+                existing: defaults.data(forKey: snapshotKey),
+                captured: captured
+            ) {
+                try saveSnapshot(snapshot)
+            }
         }
-        try saveSnapshot(snapshot)
         for service in services {
             try set(kind: .web, service: service, endpoint: http, enabled: true)
             try set(kind: .secureWeb, service: service, endpoint: http, enabled: true)
@@ -57,14 +110,11 @@ final class MacSystemProxyManager: ObservableObject {
         }
     }
 
-    private func disable() throws {
+    private func restoreSnapshot() throws {
         let snapshot = try loadSnapshot()
-        if snapshot.isEmpty {
-            for service in try activeServices() {
-                try setState(kind: .web, service: service, enabled: false)
-                try setState(kind: .secureWeb, service: service, enabled: false)
-                try setState(kind: .socks, service: service, enabled: false)
-            }
+        guard !snapshot.isEmpty else {
+            // Without a snapshot, clambhook has no evidence that it changed the
+            // system proxies. Leave the user's configuration untouched.
             return
         }
         for row in snapshot {
@@ -73,6 +123,21 @@ final class MacSystemProxyManager: ObservableObject {
             try restore(kind: .socks, service: row.service, state: row.socks)
         }
         defaults.removeObject(forKey: snapshotKey)
+    }
+
+    /// Explicit user-driven disable. Restores the captured pre-clambhook state
+    /// if we have one; otherwise forces the proxies off to honor the user's
+    /// stated intent.
+    private func disableSystemProxy() throws {
+        if hasSavedSnapshot {
+            try restoreSnapshot()
+            return
+        }
+        for service in try activeServices() {
+            try setState(kind: .web, service: service, enabled: false)
+            try setState(kind: .secureWeb, service: service, enabled: false)
+            try setState(kind: .socks, service: service, enabled: false)
+        }
     }
 
     private func activeServices() throws -> [String] {
@@ -88,9 +153,10 @@ final class MacSystemProxyManager: ObservableObject {
     }
 
     private func restore(kind: ProxyKind, service: String, state: MacProxyState) throws {
-        if !state.server.isEmpty, state.port > 0 {
-            try set(kind: kind, service: service, endpoint: ProxyEndpoint(host: state.server, port: state.port), enabled: state.enabled)
-        } else {
+        switch MacSystemProxyPlanner.restoreCommand(for: state) {
+        case let .set(host, port, enabled):
+            try set(kind: kind, service: service, endpoint: ProxyEndpoint(host: host, port: port), enabled: enabled)
+        case .disable:
             try setState(kind: kind, service: service, enabled: false)
         }
     }
@@ -173,47 +239,6 @@ private struct ProxyEndpoint: Equatable {
     }
 }
 
-private struct MacProxyServiceSnapshot: Codable, Equatable {
-    var service: String
-    var web: MacProxyState
-    var secureWeb: MacProxyState
-    var socks: MacProxyState
-}
-
-private struct MacProxyState: Codable, Equatable {
-    var enabled: Bool
-    var server: String
-    var port: Int
-
-    init(enabled: Bool = false, server: String = "", port: Int = 0) {
-        self.enabled = enabled
-        self.server = server
-        self.port = port
-    }
-
-    init(output: String) {
-        var enabled = false
-        var server = ""
-        var port = 0
-        for line in output.components(separatedBy: .newlines) {
-            let parts = line.split(separator: ":", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            guard parts.count == 2 else {
-                continue
-            }
-            switch parts[0].lowercased() {
-            case "enabled":
-                enabled = ["yes", "1", "on"].contains(parts[1].lowercased())
-            case "server":
-                server = parts[1]
-            case "port":
-                port = Int(parts[1]) ?? 0
-            default:
-                continue
-            }
-        }
-        self.init(enabled: enabled, server: server, port: port)
-    }
-}
 
 private enum MacSystemProxyError: Error, LocalizedError {
     case noNetworkServices
