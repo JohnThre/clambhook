@@ -52,19 +52,19 @@ class UpdateManager(
             }
             val manifest = json.decodeFromString<AndroidUpdateManifest>(body)
             val current = currentVersionCode()
-            when {
-                manifest.versionCode <= current ->
+            when (classifyUpdate(manifest, current, Build.VERSION.SDK_INT)) {
+                UpdateClassification.UpToDate ->
                     _state.update { it.copy(available = null, upToDate = true, message = "ClambHook is up to date.") }
-                Build.VERSION.SDK_INT < manifest.minSdk ->
+                UpdateClassification.NeedsNewerAndroid ->
                     _state.update {
                         it.copy(
                             available = null,
                             message = "Update ${manifest.versionName} needs a newer Android version.",
                         )
                     }
-                manifest.apkUrl.isBlank() || manifest.sha256.isBlank() ->
+                UpdateClassification.IncompleteManifest ->
                     _state.update { it.copy(available = null, message = "Update manifest is incomplete.") }
-                else -> {
+                UpdateClassification.Installable -> {
                     val millis = parsePublishedAt(manifest.publishedAt)
                     val installable = licenseGate(millis)
                     _state.update {
@@ -125,8 +125,8 @@ class UpdateManager(
                 }
             }
         }
-        val actual = digest.digest().joinToString("") { "%02x".format(it) }
-        if (!actual.equals(manifest.sha256.trim(), ignoreCase = true)) {
+        val actual = digest.digest().toHexString()
+        if (!checksumMatches(manifest.sha256, actual)) {
             target.delete()
             error("checksum mismatch; download rejected")
         }
@@ -160,4 +160,41 @@ class UpdateManager(
     private companion object {
         const val MANIFEST_URL = "https://clambercloud.com/api/clambhook/android-manifest"
     }
+}
+
+/**
+ * Outcome of comparing a fetched manifest against the installed build. Pure so
+ * the version/SDK/completeness gating can be unit tested without the network,
+ * the package manager, or the license bridge.
+ */
+enum class UpdateClassification {
+    UpToDate,
+    NeedsNewerAndroid,
+    IncompleteManifest,
+    Installable,
+}
+
+/** Classifies a manifest against the installed version code and running SDK. */
+fun classifyUpdate(
+    manifest: AndroidUpdateManifest,
+    currentVersionCode: Long,
+    currentSdk: Int,
+): UpdateClassification = when {
+    manifest.versionCode <= currentVersionCode -> UpdateClassification.UpToDate
+    currentSdk < manifest.minSdk -> UpdateClassification.NeedsNewerAndroid
+    manifest.apkUrl.isBlank() || manifest.sha256.isBlank() -> UpdateClassification.IncompleteManifest
+    else -> UpdateClassification.Installable
+}
+
+/** Lowercase hex encoding of a digest. */
+fun ByteArray.toHexString(): String = joinToString("") { "%02x".format(it) }
+
+/**
+ * Whether a downloaded artifact's [actualHex] SHA-256 matches the manifest's
+ * [expectedHex]. Comparison is trimmed and case-insensitive; a blank expected
+ * checksum never matches so unsigned/incomplete manifests are rejected.
+ */
+fun checksumMatches(expectedHex: String, actualHex: String): Boolean {
+    val expected = expectedHex.trim()
+    return expected.isNotEmpty() && expected.equals(actualHex.trim(), ignoreCase = true)
 }

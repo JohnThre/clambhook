@@ -107,9 +107,9 @@ test-linux: check-linux-ui-deps
 	cd ui/linux && meson setup builddir --reconfigure && meson test -C builddir
 
 build-linux: check-linux-ui-deps build-daemon build-tui build-license
-	cd ui/linux && find . -type f -exec touch {} + && sleep 1 && rm -rf builddir && meson setup builddir -Dclambhook_daemon="$(abspath bin/clambhook)" -Dclambhook_tui="$(abspath bin/clambhook-tui)" -Dclambhook_license="$(abspath bin/clambhook-license)" && meson compile -C builddir
+	cd ui/linux && rm -rf builddir && meson setup builddir -Dclambhook_daemon="$(abspath bin/clambhook)" -Dclambhook_tui="$(abspath bin/clambhook-tui)" -Dclambhook_license="$(abspath bin/clambhook-license)" && meson compile -C builddir
 
-test:
+test: build-clib
 	go test ./...
 
 e2e: build-daemon

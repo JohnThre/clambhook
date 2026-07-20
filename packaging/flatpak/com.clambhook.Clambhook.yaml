@@ -51,9 +51,6 @@ modules:
 
   - name: clambhook
     buildsystem: simple
-    build-options:
-      build-args:
-        - --share=network
     build-commands:
       - make build VERSION=${FLATPAK_BUILD_VERSION:-flatpak}
       - make install PREFIX=/app

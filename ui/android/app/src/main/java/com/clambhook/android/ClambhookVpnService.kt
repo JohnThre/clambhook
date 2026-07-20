@@ -18,10 +18,11 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import java.io.FileInputStream
@@ -42,64 +43,94 @@ class ClambhookVpnService : VpnService() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val json = Json { ignoreUnknownKeys = true; coerceInputValues = true }
     private val writeLock = Any()
-    private var tunInterface: ParcelFileDescriptor? = null
-    private var runtime: ClambhookTunnelRuntime? = null
-    private var readJob: Job? = null
-    private var outStream: FileOutputStream? = null
-
-    @Volatile
-    private var running = false
+    private val lifecycle = SerializedTunnelLifecycle<TunnelResources>(::closeTunnelResources)
+    private var transitionJob: Job? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
-            stopTunnel()
-            stopForeground(STOP_FOREGROUND_REMOVE)
-            stopSelf(startId)
+            enqueueTransition {
+                stopTunnel()
+                stopForeground(STOP_FOREGROUND_REMOVE)
+                stopSelf(startId)
+            }
             return START_NOT_STICKY
         }
         startForegroundNotification(getString(R.string.vpn_notification_connecting))
-        scope.launch { startTunnel() }
+        enqueueTransition { startTunnel() }
         return START_STICKY
     }
 
     override fun onRevoke() {
-        stopTunnel()
-        stopForeground(STOP_FOREGROUND_REMOVE)
-        stopSelf()
+        enqueueTransition {
+            stopTunnel()
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelf()
+        }
         super.onRevoke()
     }
 
     override fun onDestroy() {
-        stopTunnel()
+        runBlocking {
+            transitionJob?.join()
+            stopTunnel()
+        }
         scope.cancel()
         super.onDestroy()
     }
 
+    private fun enqueueTransition(block: suspend () -> Unit) {
+        val previous = transitionJob
+        transitionJob = scope.launch {
+            previous?.join()
+            block()
+        }
+    }
+
     private suspend fun startTunnel() {
-        runCatching {
+        try {
+            lifecycle.replace(
+                create = ::createTunnelResources,
+                activate = { resources ->
+                    ClambhookTunnelSession.publish(resources.runtime, resources.configPath)
+                    resources.readJob = startReadLoop(resources.pfd, resources.runtime)
+                    updateNotification(
+                        getString(
+                            if (resources.compatRouting) R.string.vpn_notification_connected_compat
+                            else R.string.vpn_notification_connected
+                        )
+                    )
+                },
+            )
+        } catch (error: Throwable) {
+            Log.e(logTag, "failed to start clambhook packet tunnel", error)
+            updateNotification(getString(R.string.vpn_notification_error, notificationError(error)))
+            lifecycle.stop()
+        }
+    }
+
+    private suspend fun createTunnelResources(): TunnelResources {
+        var pfd: ParcelFileDescriptor? = null
+        var out: FileOutputStream? = null
+        var rt: ClambhookTunnelRuntime? = null
+        try {
             val configPath = AndroidConfigStore(this).ensureConfig()
             val settings = json.decodeFromString<TunnelNetworkSettings>(
                 GomobileClambhookTunnelRuntimeFactory.networkSettingsJson(configPath)
             )
             val appSettings = DataStoreSettingsStore(this).settings.first()
-            val pfd = establishInterface(settings, appSettings)
+            pfd = establishInterface(settings, appSettings)
                 ?: error("system rejected VPN interface establishment")
-
-            val out = FileOutputStream(pfd.fileDescriptor)
-            val rt = GomobileClambhookTunnelRuntimeFactory.create(PacketWriterImpl(out, writeLock))
+            out = FileOutputStream(pfd.fileDescriptor)
+            rt = GomobileClambhookTunnelRuntimeFactory.create(PacketWriterImpl(out, writeLock))
             rt.start(configPath)
-
-            tunInterface = pfd
-            outStream = out
-            runtime = rt
-            running = true
-            ClambhookTunnelSession.publish(rt, configPath)
-            startReadLoop(pfd, rt)
-            updateNotification(getString(R.string.vpn_notification_connected))
-        }.onFailure { error ->
-            Log.e(logTag, "failed to start clambhook packet tunnel", error)
-            updateNotification(getString(R.string.vpn_notification_error, notificationError(error)))
-            stopTunnel()
+            val compatRouting = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU &&
+                settings.excludedRoutes.isNotEmpty()
+            return TunnelResources(pfd, out, rt, configPath, compatRouting)
+        } catch (error: Throwable) {
+            runCatching { rt?.stop() }
+            synchronized(writeLock) { runCatching { out?.close() } }
+            runCatching { pfd?.close() }
+            throw error
         }
     }
 
@@ -113,18 +144,27 @@ class ClambhookVpnService : VpnService() {
             builder.addAddress(address.address, address.prefixLen)
         }
         val routes = settings.includedRoutes.ifEmpty { DEFAULT_ROUTES }
-        for (route in routes) {
-            parsePrefix(route)?.let { builder.addRoute(it.first, it.second) }
+        val effectiveRoutes = if (
+            Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU && settings.excludedRoutes.isNotEmpty()
+        ) {
+            inverseRoutes(routes, settings.excludedRoutes)
+        } else {
+            routes.mapNotNull(::parseRoutePrefix)
+        }
+        for (route in effectiveRoutes) {
+            runCatching { builder.addRoute(route.address, route.prefixLength) }
+                .onFailure { Log.w(logTag, "skip included route $route", it) }
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             for (route in settings.excludedRoutes) {
-                parsePrefix(route)?.let { (addr, len) ->
-                    runCatching { builder.excludeRoute(IpPrefix(InetAddress.getByName(addr), len)) }
-                        .onFailure { Log.w(logTag, "skip excluded route $route", it) }
+                parseRoutePrefix(route)?.let { parsed ->
+                    runCatching {
+                        builder.excludeRoute(
+                            IpPrefix(InetAddress.getByName(parsed.address), parsed.prefixLength)
+                        )
+                    }.onFailure { Log.w(logTag, "skip excluded route $route", it) }
                 }
             }
-        } else if (settings.excludedRoutes.isNotEmpty()) {
-            Log.w(logTag, "excluded routes require Android 13+; running full tunnel")
         }
         for (dns in settings.dnsServers) {
             builder.addDnsServer(dns)
@@ -137,29 +177,33 @@ class ClambhookVpnService : VpnService() {
     }
 
     private fun applyPerAppRouting(builder: Builder, appSettings: AppSettings) {
-        val selectedPackages = appSettings.normalizedSplitTunnelPackages
-            .filter { it != packageName }
-            .toSortedSet()
-        when (appSettings.normalizedSplitTunnelMode) {
-            SplitTunnelMode.Include -> {
-                if (selectedPackages.isEmpty()) {
-                    Log.w(logTag, "include-only app routing selected with no apps; falling back to all apps")
-                    disallowOwnPackage(builder)
-                    return
-                }
-                selectedPackages.forEach { pkg ->
-                    runCatching { builder.addAllowedApplication(pkg) }
-                        .onFailure { Log.w(logTag, "skip allowed app $pkg", it) }
-                }
+        when (
+            val plan = resolveSplitTunnel(
+                appSettings.normalizedSplitTunnelMode,
+                appSettings.normalizedSplitTunnelPackages,
+                packageName,
+            )
+        ) {
+            is SplitTunnelPlan.AllowOnly -> plan.packages.forEach { pkg ->
+                runCatching { builder.addAllowedApplication(pkg) }
+                    .onFailure { Log.w(logTag, "skip allowed app $pkg", it) }
             }
-            SplitTunnelMode.Exclude -> {
+            is SplitTunnelPlan.DisallowOwnAnd -> {
                 disallowOwnPackage(builder)
-                selectedPackages.forEach { pkg ->
+                plan.packages.forEach { pkg ->
                     runCatching { builder.addDisallowedApplication(pkg) }
                         .onFailure { Log.w(logTag, "skip excluded app $pkg", it) }
                 }
             }
-            else -> disallowOwnPackage(builder)
+            SplitTunnelPlan.DisallowOwnOnly -> {
+                if (
+                    appSettings.normalizedSplitTunnelMode == SplitTunnelMode.Include &&
+                    appSettings.normalizedSplitTunnelPackages.isEmpty()
+                ) {
+                    Log.w(logTag, "include-only app routing selected with no apps; falling back to all apps")
+                }
+                disallowOwnPackage(builder)
+            }
         }
     }
 
@@ -169,12 +213,12 @@ class ClambhookVpnService : VpnService() {
             .onFailure { Log.w(logTag, "could not exclude own package from tunnel", it) }
     }
 
-    private fun startReadLoop(pfd: ParcelFileDescriptor, rt: ClambhookTunnelRuntime) {
-        readJob = scope.launch {
+    private fun startReadLoop(pfd: ParcelFileDescriptor, rt: ClambhookTunnelRuntime): Job =
+        scope.launch {
             val input = FileInputStream(pfd.fileDescriptor)
             val buffer = ByteArray(MAX_PACKET_SIZE)
             try {
-                while (isActive && running) {
+                while (isActive) {
                     val n = input.read(buffer)
                     if (n < 0) break
                     if (n == 0) continue
@@ -182,23 +226,22 @@ class ClambhookVpnService : VpnService() {
                         .onFailure { Log.w(logTag, "inject packet failed", it) }
                 }
             } catch (error: Throwable) {
-                if (running) Log.w(logTag, "tun read loop ended", error)
+                if (isActive) Log.w(logTag, "tun read loop ended", error)
             }
         }
+
+    private suspend fun stopTunnel() {
+        lifecycle.stop()
     }
 
-    private fun stopTunnel() {
-        running = false
+    private fun closeTunnelResources(resources: TunnelResources) {
         ClambhookTunnelSession.clear()
-        readJob?.cancel()
-        readJob = null
-        runCatching { runtime?.stop() }
+        resources.readJob?.cancel()
+        resources.readJob = null
+        runCatching { resources.runtime.stop() }
             .onFailure { Log.w(logTag, "stop runtime failed", it) }
-        runtime = null
-        runCatching { outStream?.close() }
-        outStream = null
-        runCatching { tunInterface?.close() }
-        tunInterface = null
+        synchronized(writeLock) { runCatching { resources.out.close() } }
+        runCatching { resources.pfd.close() }
     }
 
     private fun startForegroundNotification(contentText: String) {
@@ -265,17 +308,15 @@ class ClambhookVpnService : VpnService() {
     private fun notificationError(error: Throwable): String =
         (error.message ?: error.toString()).lineSequence().firstOrNull().orEmpty().take(96)
 
-    /** Splits a CIDR string ("0.0.0.0/0") into an address and a prefix length. */
-    private fun parsePrefix(cidr: String): Pair<String, Int>? {
-        val trimmed = cidr.trim()
-        val slash = trimmed.indexOf('/')
-        if (slash <= 0 || slash == trimmed.length - 1) {
-            Log.w(logTag, "ignoring malformed route $cidr")
-            return null
-        }
-        val prefix = trimmed.substring(slash + 1).toIntOrNull() ?: return null
-        return trimmed.substring(0, slash) to prefix
-    }
+
+    private class TunnelResources(
+        val pfd: ParcelFileDescriptor,
+        val out: FileOutputStream,
+        val runtime: ClambhookTunnelRuntime,
+        val configPath: String,
+        val compatRouting: Boolean,
+        var readJob: Job? = null,
+    )
 
     private class PacketWriterImpl(
         private val out: FileOutputStream,

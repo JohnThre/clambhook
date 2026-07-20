@@ -126,6 +126,13 @@ final class AppleAppModel: ObservableObject {
             await refreshDeveloperCANow()
             syncProfileRecoveryIssue()
             enforceLicenseState()
+            #if os(macOS)
+            systemProxyManager.reconcileOnLaunch(
+                desiredEnabled: settingsStore.settings.systemProxyEnabled,
+                listen: configSettings.listen
+            )
+            refreshSparkleGate()
+            #endif
         }
     }
 
@@ -143,6 +150,7 @@ final class AppleAppModel: ObservableObject {
                 daemonSupervisor.stop()
             }
         }
+        systemProxyManager.restoreForTermination()
         #endif
         started = false
     }
@@ -154,6 +162,9 @@ final class AppleAppModel: ObservableObject {
         settingsStore.settings = settingsStore.settings.normalized()
         try? credentialStore.saveToken(apiToken, account: settingsStore.settings.apiEndpoint.absoluteString)
         settingsStore.save()
+        #if os(macOS)
+        refreshSparkleGate()
+        #endif
         reloadClient()
         if started {
             if let apiClient {
@@ -946,18 +957,13 @@ final class AppleAppModel: ObservableObject {
 
     #if os(macOS)
     private func configureSparkleUpdater() {
-        sparkleUpdater.feedURLProvider = { [weak self] in
-            (self?.settingsStore.settings.appcastFeedURL ?? defaultStableAppcastURL).absoluteString
-        }
-        sparkleUpdater.canInstallUpdate = { [weak self] publishedAt in
-            self?.canInstallFeatureUpdate(publishedAt: publishedAt) ?? false
-        }
+        refreshSparkleGate()
     }
 
-    func canInstallFeatureUpdate(publishedAt: Date?) -> Bool {
-        MobileLicenseUpdatePolicy.canInstallUpdate(
-            decision: mobileLicenseDecision,
-            publishedAt: publishedAt
+    func refreshSparkleGate() {
+        sparkleUpdater.refreshGate(
+            feedURLString: settingsStore.settings.appcastFeedURL.absoluteString,
+            decision: mobileLicenseDecision
         )
     }
 
@@ -1117,11 +1123,15 @@ final class AppleAppModel: ObservableObject {
     private func enforceLicenseState() {
         #if os(macOS)
         licenseManager.refreshDecision()
-        guard !licenseManager.decision.canUseApp, dashboard.status.running else {
+        refreshSparkleGate()
+        guard !licenseManager.decision.canUseApp else {
             return
         }
-        Task {
-            await dashboard.disconnect()
+        systemProxyManager.restoreForLockout()
+        if dashboard.status.running {
+            Task {
+                await dashboard.disconnect()
+            }
         }
         #endif
     }

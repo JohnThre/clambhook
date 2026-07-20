@@ -55,7 +55,14 @@ final class DaemonSupervisor: ObservableObject {
             }
             let process = Process()
             process.executableURL = executable
-            process.arguments = daemonArguments(settings: normalized, token: token, configURL: configURL)
+            process.arguments = DaemonLaunchPlanner.arguments(
+                apiHostPort: normalized.apiEndpoint.hostPort,
+                configPath: configURL?.path
+            )
+            process.environment = DaemonLaunchPlanner.environment(
+                base: ProcessInfo.processInfo.environment,
+                token: token
+            )
             process.terminationHandler = { [weak self] _ in
                 Task { @MainActor in
                     guard let self else { return }
@@ -116,17 +123,6 @@ final class DaemonSupervisor: ObservableObject {
             return URL(fileURLWithPath: settings.daemonConfigPath)
         }
         return nil
-    }
-
-    private func daemonArguments(settings: AppSettings, token: String, configURL: URL?) -> [String] {
-        var args: [String] = ["-api", settings.apiEndpoint.hostPort]
-        if !token.isEmpty {
-            args += ["-api-token", token]
-        }
-        if let configURL {
-            args += ["-config", configURL.path]
-        }
-        return args
     }
 
     private func bookmarkedURL(_ data: Data?) -> URL? {

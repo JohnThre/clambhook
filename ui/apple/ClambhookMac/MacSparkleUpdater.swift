@@ -11,17 +11,14 @@ final class MacSparkleUpdater: NSObject, ObservableObject {
 
     private let controller: SPUStandardUpdaterController
     private let delegate: SparkleDelegate
+    private let gate = SparkleUpdateGate()
     private var canCheckObservation: NSKeyValueObservation?
 
-    var feedURLProvider: @MainActor () -> String = { defaultStableAppcastURL.absoluteString }
-    var canInstallUpdate: @MainActor (Date?) -> Bool = { _ in false }
-
     override init() {
-        delegate = SparkleDelegate()
+        delegate = SparkleDelegate(gate: gate)
         controller = SPUStandardUpdaterController(startingUpdater: true, updaterDelegate: delegate, userDriverDelegate: nil)
         automaticallyChecksForUpdates = controller.updater.automaticallyChecksForUpdates
         super.init()
-        delegate.owner = self
         canCheckForUpdates = controller.updater.canCheckForUpdates
         canCheckObservation = controller.updater.observe(\.canCheckForUpdates, options: [.initial, .new]) { [weak self] updater, _ in
             Task { @MainActor in self?.canCheckForUpdates = updater.canCheckForUpdates }
@@ -32,27 +29,26 @@ final class MacSparkleUpdater: NSObject, ObservableObject {
         controller.updater.checkForUpdates()
     }
 
-    fileprivate func currentFeedURLString() -> String {
-        feedURLProvider()
-    }
-
-    fileprivate func allowsUpdate(publishedAt: Date?) -> Bool {
-        canInstallUpdate(publishedAt)
+    /// Push the current feed URL and license decision into the thread-safe gate
+    /// read by Sparkle's (possibly off-main) delegate callbacks.
+    func refreshGate(feedURLString: String, decision: MobileLicenseDecision) {
+        gate.update(feedURLString: feedURLString, decision: decision)
     }
 }
 
 private final class SparkleDelegate: NSObject, SPUUpdaterDelegate {
-    weak var owner: MacSparkleUpdater?
+    private let gate: SparkleUpdateGate
+
+    init(gate: SparkleUpdateGate) {
+        self.gate = gate
+    }
 
     func feedURLString(for updater: SPUUpdater) -> String? {
-        MainActor.assumeIsolated { owner?.currentFeedURLString() }
+        gate.feedURLString()
     }
 
     func updater(_ updater: SPUUpdater, shouldProceedWithUpdate updateItem: SUAppcastItem, updateCheck: SPUUpdateCheck) throws {
-        let allowed = MainActor.assumeIsolated {
-            owner?.allowsUpdate(publishedAt: updateItem.date) ?? false
-        }
-        guard !allowed else { return }
+        guard !gate.allowsUpdate(publishedAt: updateItem.date) else { return }
         throw NSError(
             domain: "org.jpfchang.clambhook.sparkle",
             code: 1,

@@ -45,6 +45,7 @@ BuildRequires:  libsoup3-devel
 %endif
 BuildRequires:  libsodium-devel
 BuildRequires:  glib2-devel
+BuildRequires:  systemd-rpm-macros
 
 Requires:       gtk4
 Requires:       libadwaita
@@ -57,6 +58,8 @@ Requires:       libsoup
 Requires:       libsoup3
 %endif
 Requires:       libsodium
+Requires:       polkit
+Requires:       systemd
 
 %description
 ClambHook is a private VPN and proxy router with its own protocol core and
@@ -86,6 +89,17 @@ if [ -x /usr/local/go/bin/go ]; then export PATH=/usr/local/go/bin:$PATH; fi
 export GOTOOLCHAIN=auto
 make install DESTDIR=%{buildroot} PREFIX=%{_prefix}
 make install-linux DESTDIR=%{buildroot} PREFIX=%{_prefix}
+install -Dpm 0644 packaging/config/config.toml %{buildroot}%{_sysconfdir}/clambhook/config.toml
+install -d %{buildroot}%{_localstatedir}/lib/clambhook
+
+%post
+%systemd_post clambhook-daemon.service
+
+%preun
+%systemd_preun clambhook-daemon.service
+
+%postun
+%systemd_postun_with_restart clambhook-daemon.service
 
 %files
 %{_bindir}/clambhook
@@ -97,6 +111,12 @@ make install-linux DESTDIR=%{buildroot} PREFIX=%{_prefix}
 %{_datadir}/applications/com.clambhook.Clambhook.desktop
 %{_datadir}/metainfo/com.clambhook.Clambhook.metainfo.xml
 %{_datadir}/icons/hicolor/1024x1024/apps/com.clambhook.Clambhook.png
+%dir %{_sysconfdir}/clambhook
+%config(noreplace) %{_sysconfdir}/clambhook/config.toml
+# Owned so rpm tracks it; systemd StateDirectory=clambhook also creates it with
+# the right ownership at service start. %attr avoids depending on the build
+# umask for the on-disk mode.
+%attr(0755,root,root) %dir %{_localstatedir}/lib/clambhook
 %{_unitdir}/clambhook-daemon.service
 %{_datadir}/polkit-1/actions/com.clambhook.Clambhook.policy
 

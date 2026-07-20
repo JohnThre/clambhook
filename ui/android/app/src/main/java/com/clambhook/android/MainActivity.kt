@@ -24,7 +24,6 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         val settingsStore = DataStoreSettingsStore(this)
-        val tokenStore = EncryptedTokenStore(this)
         val configStore = AndroidConfigStore(this)
         val configValidator = AndroidConfigValidator(this)
 
@@ -32,7 +31,6 @@ class MainActivity : ComponentActivity() {
             val supportPurchaseManager = remember { SupportPurchaseManager(this@MainActivity) }
             val supportPurchaseState by supportPurchaseManager.state.collectAsState()
             val settings by settingsStore.settings.collectAsState(initial = AppSettings())
-            val token by tokenStore.token.collectAsState(initial = tokenStore.currentToken())
             var configToml by remember { mutableStateOf(defaultAndroidConfigToml) }
             val licenseManager = remember { LicenseManager(this@MainActivity) }
             val licenseState by licenseManager.state.collectAsState()
@@ -75,67 +73,35 @@ class MainActivity : ComponentActivity() {
             LaunchedEffect(Unit) {
                 configToml = configStore.readConfig()
             }
-            LaunchedEffect(settings.embeddedDaemonEnabled, token, licenseState.initialized, licenseState.decision.canUseApp) {
+            LaunchedEffect(licenseState.initialized, licenseState.decision.canUseApp) {
                 configStore.ensureConfig()
-                if (settings.embeddedDaemonEnabled && licenseState.decision.canUseApp) {
+                if (licenseState.decision.canUseApp) {
                     startTunnel()
                 } else {
                     ClambhookTunnelController.stop(this@MainActivity)
                 }
             }
 
-            val effectiveSettings = if (settings.embeddedDaemonEnabled) {
-                settings.copy(apiBaseUrl = defaultAndroidApiBaseUrl)
-            } else {
-                settings
-            }
-            val useLocalTunnel = effectiveSettings.embeddedDaemonEnabled
-            val dashboardApi: ClambhookApi
-            val eventStream: ClambhookEventStream?
-            if (useLocalTunnel) {
-                dashboardApi = LocalTunnelApi(applicationContext)
-                eventStream = null
-            } else {
-                val httpClient = ClambhookApiClient(
-                    baseUrl = effectiveSettings.normalizedBaseUrl,
-                    tokenProvider = { token }
-                )
-                dashboardApi = httpClient
-                eventStream = httpClient
-            }
+            val dashboardApi = remember { LocalTunnelApi(applicationContext) }
             val viewModel: DashboardViewModel = viewModel(
-                key = "${effectiveSettings.normalizedBaseUrl}:${token.hashCode()}:$useLocalTunnel",
-                factory = DashboardViewModelFactory(dashboardApi, eventStream)
+                key = "local-tunnel",
+                factory = DashboardViewModelFactory(dashboardApi, null)
             )
 
-            LaunchedEffect(viewModel, effectiveSettings.normalizedRefreshIntervalSeconds) {
-                viewModel.startPolling(effectiveSettings.normalizedRefreshIntervalSeconds)
-            }
-            LaunchedEffect(viewModel, effectiveSettings.eventStreamEnabled) {
-                viewModel.startEventStream(effectiveSettings.eventStreamEnabled)
+            LaunchedEffect(viewModel, settings.normalizedRefreshIntervalSeconds) {
+                viewModel.startPolling(settings.normalizedRefreshIntervalSeconds)
             }
 
             ClambhookApp(
                 viewModel = viewModel,
-                settings = effectiveSettings,
-                token = token,
+                settings = settings,
                 configToml = configToml,
                 supportPurchaseState = supportPurchaseState,
-                onSaveSettings = { nextSettings, nextToken, nextConfigToml ->
-                    val normalizedSettings = if (nextSettings.embeddedDaemonEnabled) {
-                        nextSettings.copy(apiBaseUrl = defaultAndroidApiBaseUrl)
-                    } else {
-                        nextSettings
-                    }
+                onSaveSettings = { nextSettings, nextConfigToml ->
                     configStore.saveConfig(nextConfigToml)
                     configToml = nextConfigToml
-                    settingsStore.save(normalizedSettings)
-                    tokenStore.saveToken(nextToken)
-                    if (normalizedSettings.embeddedDaemonEnabled) {
-                        startTunnel()
-                    } else {
-                        ClambhookTunnelController.stop(this@MainActivity)
-                    }
+                    settingsStore.save(nextSettings)
+                    startTunnel()
                 },
                 onValidateConfig = configValidator::validate,
                 onPurchaseSupport = { productId ->
@@ -157,7 +123,7 @@ class MainActivity : ComponentActivity() {
                 onProfilesImported = {
                     licenseScope.launch {
                         configToml = configStore.readConfig()
-                        if (effectiveSettings.embeddedDaemonEnabled && licenseState.decision.canUseApp) {
+                        if (licenseState.decision.canUseApp) {
                             ClambhookTunnelController.stop(this@MainActivity)
                             startTunnel()
                         }

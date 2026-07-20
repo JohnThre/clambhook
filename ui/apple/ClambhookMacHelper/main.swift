@@ -6,6 +6,9 @@ anchor apple generic and certificate leaf[subject.OU] = "\(defaultAllowedTeamIde
 """
 private let defaultAllowedTeamIdentifier = "V6GG4HYABJ"
 private let defaultAllowedClientIdentifier = "org.jpfchang.clambhook.mac"
+private let daemonAPITokenEnvironmentKey = "CLAMBHOOK_API_TOKEN"
+// Must match StandardOutPath / StandardErrorPath in the helper launchd plist.
+private let helperLogPath = "/var/log/clambhook-helper.log"
 
 final class ClambhookPrivilegedHelperService: NSObject, ClambhookPrivilegedHelperProtocol {
     private let lock = NSLock()
@@ -33,7 +36,8 @@ final class ClambhookPrivilegedHelperService: NSObject, ClambhookPrivilegedHelpe
             let executable = try bundledDaemonURL()
             let process = Process()
             process.executableURL = executable
-            process.arguments = daemonArguments(configPath: configPath, apiAddress: apiAddress, apiToken: apiToken)
+            process.arguments = daemonArguments(configPath: configPath, apiAddress: apiAddress)
+            process.environment = daemonEnvironment(apiToken: apiToken)
             process.terminationHandler = { [weak self] _ in
                 self?.lock.lock()
                 defer { self?.lock.unlock() }
@@ -62,21 +66,31 @@ final class ClambhookPrivilegedHelperService: NSObject, ClambhookPrivilegedHelpe
         reply(statusReply(locked: true, message: "daemon stopped"))
     }
 
-    private func daemonArguments(configPath: String, apiAddress: String, apiToken: String) -> [String] {
+    private func daemonArguments(configPath: String, apiAddress: String) -> [String] {
         var args: [String] = []
         let trimmedAPI = apiAddress.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmedAPI.isEmpty {
             args += ["-api", trimmedAPI]
-        }
-        let trimmedToken = apiToken.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !trimmedToken.isEmpty {
-            args += ["-api-token", trimmedToken]
         }
         let trimmedConfig = configPath.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmedConfig.isEmpty {
             args += ["-config", trimmedConfig]
         }
         return args
+    }
+
+    // The API bearer token is passed through the child environment instead of the
+    // argument vector so it never appears in `ps` output. The daemon reads
+    // CLAMBHOOK_API_TOKEN as the default for its `-api-token` flag.
+    private func daemonEnvironment(apiToken: String) -> [String: String] {
+        var env = ProcessInfo.processInfo.environment
+        let trimmedToken = apiToken.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmedToken.isEmpty {
+            env.removeValue(forKey: daemonAPITokenEnvironmentKey)
+        } else {
+            env[daemonAPITokenEnvironmentKey] = trimmedToken
+        }
+        return env
     }
 
     private func bundledDaemonURL() throws -> URL {
@@ -140,8 +154,18 @@ final class ClambhookPrivilegedHelperListenerDelegate: NSObject, NSXPCListenerDe
 
 enum ClientCodeRequirementValidator {
     static func isAllowed(connection: NSXPCConnection) -> Bool {
+        // Pin the peer by its kernel-provided audit token rather than its PID:
+        // a PID can be recycled or spoofed in a check/use window.
+        guard let auditToken = connection.clambhookAuditToken else {
+            return false
+        }
+        return isAllowed(auditToken: auditToken)
+    }
+
+    static func isAllowed(auditToken: audit_token_t) -> Bool {
+        let tokenData = withUnsafeBytes(of: auditToken) { Data($0) }
         var code: SecCode?
-        let attrs = [kSecGuestAttributePid as String: connection.processIdentifier] as CFDictionary
+        let attrs = [kSecGuestAttributeAudit as String: tokenData] as CFDictionary
         guard SecCodeCopyGuestWithAttributes(nil, attrs, SecCSFlags(), &code) == errSecSuccess,
               let code
         else {
@@ -158,6 +182,27 @@ enum ClientCodeRequirementValidator {
     }
 }
 
+private extension NSXPCConnection {
+    /// The audit token of the peer process.
+    ///
+    /// `NSXPCConnection` exposes `auditToken` as SPI; it is read here via KVC so
+    /// no bridging header is required. Returns `nil` (fail-closed) if the
+    /// property is unavailable.
+    var clambhookAuditToken: audit_token_t? {
+        let selector = Selector(("auditToken"))
+        guard responds(to: selector),
+              let value = value(forKey: "auditToken") as? NSValue
+        else {
+            return nil
+        }
+        var token = audit_token_t()
+        withUnsafeMutableBytes(of: &token) { raw in
+            value.getValue(raw.baseAddress!, size: raw.count)
+        }
+        return token
+    }
+}
+
 enum HelperError: LocalizedError {
     case missingDaemon(String)
 
@@ -169,6 +214,20 @@ enum HelperError: LocalizedError {
     }
 }
 
+// The launchd-redirected helper log can contain sensitive daemon output, so it
+// must never be world-readable. launchd may create it with the process umask
+// before this runs, so tighten it explicitly on startup.
+func restrictHelperLog() {
+    let fm = FileManager.default
+    let attrs: [FileAttributeKey: Any] = [.posixPermissions: 0o600]
+    if fm.fileExists(atPath: helperLogPath) {
+        try? fm.setAttributes(attrs, ofItemAtPath: helperLogPath)
+    } else {
+        fm.createFile(atPath: helperLogPath, contents: nil, attributes: attrs)
+    }
+}
+
+restrictHelperLog()
 let delegate = ClambhookPrivilegedHelperListenerDelegate()
 let listener = NSXPCListener(machServiceName: macPrivilegedHelperMachServiceName)
 listener.delegate = delegate

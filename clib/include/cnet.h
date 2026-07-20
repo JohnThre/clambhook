@@ -59,14 +59,4 @@ int cnet_chacha20poly1305_decrypt(const uint8_t *key, const uint8_t *nonce,
 /* SHA-224 hash (used by Trojan protocol) */
 void cnet_sha224(const uint8_t *data, size_t len, uint8_t *hash);
 
-/* Buffer pool for zero-copy packet handling */
-typedef struct cnet_buf {
-    uint8_t *data;
-    size_t   len;
-    size_t   cap;
-} cnet_buf_t;
-
-cnet_buf_t *cnet_buf_alloc(size_t cap);
-void        cnet_buf_free(cnet_buf_t *buf);
-
 #endif /* CNET_H */
