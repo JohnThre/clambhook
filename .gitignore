@@ -1,10 +1,12 @@
 .DS_Store
+.wrangler/
 
 # Build artifacts
 .worktrees/
 bin/
 dist/
 ui/apple/.build/
+ui/apple/build/
 ui/apple/.swiftpm/
 ui/apple/**/xcuserdata/
 ui/apple/Frameworks/*.xcframework/

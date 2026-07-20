@@ -47,6 +47,28 @@ final class LicensingTests: XCTestCase {
         XCTAssertFalse(decision.canUseFeature(.routingRules))
     }
 
+    func testLockedWidgetActionsCannotStartOrSwitchRoutingButCanDisconnect() {
+        let decision = MobileLicenseEvaluator.evaluate(
+            snapshot: MobileLicenseSnapshot(trialStartDate: mobileLicenseUTCDate(year: 2026, month: 6, day: 3)),
+            now: mobileLicenseUTCDate(year: 2026, month: 8, day: 4)
+        )
+
+        XCTAssertFalse(WidgetLicenseActionPolicy.isAllowed(.connect, decision: decision))
+        XCTAssertFalse(WidgetLicenseActionPolicy.isAllowed(.nextProfile, decision: decision))
+        XCTAssertTrue(WidgetLicenseActionPolicy.isAllowed(.disconnect, decision: decision))
+    }
+
+    func testUnlockedWidgetActionsCanStartSwitchAndDisconnect() {
+        let decision = MobileLicenseEvaluator.evaluate(
+            snapshot: MobileLicenseSnapshot(trialStartDate: mobileLicenseUTCDate(year: 2026, month: 6, day: 3)),
+            now: mobileLicenseUTCDate(year: 2026, month: 6, day: 4)
+        )
+
+        XCTAssertTrue(WidgetLicenseActionPolicy.isAllowed(.connect, decision: decision))
+        XCTAssertTrue(WidgetLicenseActionPolicy.isAllowed(.nextProfile, decision: decision))
+        XCTAssertTrue(WidgetLicenseActionPolicy.isAllowed(.disconnect, decision: decision))
+    }
+
     func testMacLicenseRemainsUsableWithoutRecentVerification() {
         let purchaseDate = mobileLicenseUTCDate(year: 2026, month: 6, day: 3)
         let snapshot = MobileLicenseSnapshot(

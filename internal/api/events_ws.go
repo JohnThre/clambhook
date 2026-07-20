@@ -39,11 +39,13 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// InsecureSkipVerify disables the same-origin check. The daemon binds
-	// to 127.0.0.1 so any caller is already local; skipping origin lets
-	// browser-based TUIs connect without a preflight dance.
+	// The guardMiddleware has already rejected any non-loopback, non-bind
+	// Origin and any untrusted Host before we get here. OriginPatterns keeps
+	// the library's own same-origin check in agreement with that policy for
+	// local cross-port browser clients; native clients send no Origin and are
+	// always accepted.
 	c, err := websocket.Accept(w, r, &websocket.AcceptOptions{
-		InsecureSkipVerify: true,
+		OriginPatterns: loopbackWSOriginPatterns,
 	})
 	if err != nil {
 		log.Printf("api: ws accept: %v", err)

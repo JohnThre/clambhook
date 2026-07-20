@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/BurntSushi/toml"
+	api "github.com/JohnThre/clambhook/internal/api"
 	"github.com/JohnThre/clambhook/internal/config"
 	"github.com/JohnThre/clambhook/internal/engine"
 	"github.com/JohnThre/clambhook/internal/geo"
@@ -117,6 +118,151 @@ func ReplaceTunnelRulesJSON(configPath, profileName, rulesJSON string) error {
 		return err
 	}
 	return writeTunnelConfig(configPath, cfg)
+}
+
+// AppendTunnelRuleJSON appends one rule to the selected profile and writes the
+// tunnel config atomically. ruleJSON must encode config.RuleConfig.
+func AppendTunnelRuleJSON(configPath, profileName, ruleJSON string) (string, error) {
+	cfg, err := loadTunnelConfig(configPath)
+	if err != nil {
+		return "", err
+	}
+	var rule config.RuleConfig
+	if err := json.Unmarshal([]byte(ruleJSON), &rule); err != nil {
+		return "", fmt.Errorf("parse rule: %w", err)
+	}
+	profile := selectProfileForEdit(cfg, profileName)
+	if profile == nil {
+		return "", fmt.Errorf("profile %q not found", profileName)
+	}
+	profile.Rules = append(profile.Rules, rule)
+	if err := engine.ValidateConfig(cfg); err != nil {
+		return "", err
+	}
+	if err := writeTunnelConfig(configPath, cfg); err != nil {
+		return "", err
+	}
+	return marshalString(rulesPayload{Profile: profile.Name, Rules: profile.Rules})
+}
+
+// appendConnectionRuleToTunnelConfig derives a rule from a tracked connection
+// and appends it to the selected profile in configPath, writing atomically.
+func appendConnectionRuleToTunnelConfig(configPath, profileName string, conn traffic.Connection, name, action, scope string) (string, error) {
+	cfg, err := loadTunnelConfig(configPath)
+	if err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(profileName) == "" {
+		profileName = conn.Profile
+	}
+	profile := selectProfileForEdit(cfg, profileName)
+	if profile == nil {
+		return "", fmt.Errorf("profile %q not found", profileName)
+	}
+	rule, err := api.RuleFromConnection(profile, conn, name, action, scope)
+	if err != nil {
+		return "", err
+	}
+	rule.Name = uniqueMobileRuleName(profile.Rules, rule.Name)
+	profile.Rules = append(profile.Rules, rule)
+	if err := engine.ValidateConfig(cfg); err != nil {
+		return "", err
+	}
+	if err := writeTunnelConfig(configPath, cfg); err != nil {
+		return "", err
+	}
+	return marshalString(rulesPayload{Profile: profile.Name, Rules: profile.Rules})
+}
+
+// applyTunnelCleanupToConfig applies a cleanup suggestion to the persisted
+// config. The request is rejected as stale unless suggestions contains a live
+// match, mirroring the daemon's staleness guard.
+func applyTunnelCleanupToConfig(configPath, profileName string, suggestions []traffic.CleanupSuggestion, kind, ruleName, targetRuleName, operation string) (string, error) {
+	kind = strings.TrimSpace(kind)
+	ruleName = strings.TrimSpace(ruleName)
+	targetRuleName = strings.TrimSpace(targetRuleName)
+	operation = strings.TrimSpace(operation)
+	if kind == "" {
+		return "", errors.New("kind is required")
+	}
+	if ruleName == "" {
+		return "", errors.New("rule_name is required")
+	}
+	if targetRuleName == "" {
+		return "", errors.New("target_rule_name is required")
+	}
+	if operation != "delete_rule" && operation != "move_rule_to_end" {
+		return "", errors.New("operation must be delete_rule or move_rule_to_end")
+	}
+	matched := false
+	for _, suggestion := range suggestions {
+		if suggestion.Kind == kind && suggestion.RuleName == ruleName &&
+			suggestion.TargetRuleName == targetRuleName && suggestion.Operation == operation {
+			matched = true
+			break
+		}
+	}
+	if !matched {
+		return "", errors.New("cleanup suggestion is stale")
+	}
+	cfg, err := loadTunnelConfig(configPath)
+	if err != nil {
+		return "", err
+	}
+	profile := selectProfileForEdit(cfg, profileName)
+	if profile == nil {
+		return "", fmt.Errorf("profile %q not found", profileName)
+	}
+	idx := indexMobileRuleByName(profile.Rules, targetRuleName)
+	if idx < 0 {
+		return "", errors.New("cleanup target rule not found")
+	}
+	switch operation {
+	case "delete_rule":
+		profile.Rules = append(profile.Rules[:idx:idx], profile.Rules[idx+1:]...)
+	case "move_rule_to_end":
+		if idx != len(profile.Rules)-1 {
+			rule := profile.Rules[idx]
+			profile.Rules = append(profile.Rules[:idx:idx], profile.Rules[idx+1:]...)
+			profile.Rules = append(profile.Rules, rule)
+		}
+	}
+	if err := engine.ValidateConfig(cfg); err != nil {
+		return "", err
+	}
+	if err := writeTunnelConfig(configPath, cfg); err != nil {
+		return "", err
+	}
+	return marshalString(rulesPayload{Profile: profile.Name, Rules: profile.Rules})
+}
+
+func uniqueMobileRuleName(existing []config.RuleConfig, base string) string {
+	base = strings.TrimSpace(base)
+	if base == "" {
+		base = "connection-rule"
+	}
+	used := make(map[string]struct{}, len(existing))
+	for _, rule := range existing {
+		used[rule.Name] = struct{}{}
+	}
+	if _, exists := used[base]; !exists {
+		return base
+	}
+	for suffix := 2; ; suffix++ {
+		candidate := fmt.Sprintf("%s-%d", base, suffix)
+		if _, exists := used[candidate]; !exists {
+			return candidate
+		}
+	}
+}
+
+func indexMobileRuleByName(rules []config.RuleConfig, name string) int {
+	for i := range rules {
+		if rules[i].Name == name {
+			return i
+		}
+	}
+	return -1
 }
 
 // SelectPolicyGroupJSON updates a select policy group's selected chain and

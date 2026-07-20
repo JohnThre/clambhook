@@ -48,7 +48,7 @@ func NewWithOptions(eng *engine.Engine, bus *events.Bus, opts Options) *Server {
 	mux := http.NewServeMux()
 	s.registerRoutes(mux)
 	s.server = &http.Server{
-		Handler:           s.authMiddleware(mux),
+		Handler:           s.guardMiddleware(s.authMiddleware(mux)),
 		ReadHeaderTimeout: 5 * time.Second,
 		IdleTimeout:       2 * time.Minute,
 		MaxHeaderBytes:    1 << 20,

@@ -201,7 +201,7 @@ final class APIClientTests: XCTestCase {
 
         let response = try await client.updateConfigSettings(ConfigSettingsUpdateRequest(
             profile: "Work",
-            listen: ConfigListenSettingsPayload(
+            listen: ConfigListenSettingsUpdatePayload(
                 socks5: "127.0.0.1:1180",
                 http: "127.0.0.1:18080",
                 tun: ConfigTUNSettingsPayload(enabled: true, name: "utun", chain: "proxy", mtu: 1500)
@@ -215,9 +215,47 @@ final class APIClientTests: XCTestCase {
         let decoded = try JSONDecoder().decode(ConfigSettingsUpdateRequest.self, from: body)
         XCTAssertEqual(decoded.profile, "Work")
         XCTAssertEqual(decoded.listen?.socks5, "127.0.0.1:1180")
-        XCTAssertEqual(decoded.listen?.tun.enabled, true)
-        XCTAssertEqual(decoded.listen?.tun.chain, "proxy")
+        XCTAssertEqual(decoded.listen?.tun?.enabled, true)
+        XCTAssertEqual(decoded.listen?.tun?.chain, "proxy")
         XCTAssertNil(decoded.dns)
+    }
+
+    func testProxyOnlyConfigUpdateOmitsTUNAndPreservesExistingTUNAcrossJSONRoundTrip() throws {
+        let existingTUN = ConfigTUNSettingsPayload(
+            enabled: true,
+            name: "utun-custom",
+            chain: "private-chain",
+            mtu: 1380,
+            addresses: ["10.88.0.1/24"],
+            routes: ["10.0.0.0/8"],
+            excludeCIDRs: ["10.20.0.0/16"]
+        )
+        let request = ConfigSettingsUpdateRequest(
+            profile: "Work",
+            listen: ConfigListenSettingsUpdatePayload(
+                socks5: "127.0.0.1:1180",
+                socks5Chain: "proxy",
+                http: "127.0.0.1:18080",
+                httpChain: "proxy"
+            )
+        )
+
+        let data = try JSONEncoder().encode(request)
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let listenJSON = try XCTUnwrap(json["listen"] as? [String: Any])
+        XCTAssertNil(listenJSON["tun"])
+
+        let decoded = try JSONDecoder().decode(ConfigSettingsUpdateRequest.self, from: data)
+        XCTAssertNil(decoded.listen?.tun)
+        XCTAssertEqual(existingTUN, ConfigTUNSettingsPayload(
+            enabled: true,
+            name: "utun-custom",
+            chain: "private-chain",
+            mtu: 1380,
+            addresses: ["10.88.0.1/24"],
+            routes: ["10.0.0.0/8"],
+            excludeCIDRs: ["10.20.0.0/16"]
+        ))
     }
 
     func testDeveloperSettingsRequestDecodesSafeCaptureDefaults() async throws {

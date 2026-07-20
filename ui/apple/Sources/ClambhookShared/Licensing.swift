@@ -441,6 +441,29 @@ public enum MobileLicenseSnapshotStore {
     }
 }
 
+public enum WidgetLicenseAction: Sendable {
+    case connect
+    case disconnect
+    case nextProfile
+}
+
+public enum WidgetLicenseActionPolicy {
+    public static func isAllowed(_ action: WidgetLicenseAction, decision: MobileLicenseDecision) -> Bool {
+        switch action {
+        case .connect, .nextProfile:
+            return decision.canUseFeature(.tunnelRouting)
+        case .disconnect:
+            return true
+        }
+    }
+
+    public static func requireAllowed(_ action: WidgetLicenseAction, decision: MobileLicenseDecision) throws {
+        guard isAllowed(action, decision: decision) else {
+            throw MobileLicenseRuntimeError.locked
+        }
+    }
+}
+
 public enum MobileLicenseRuntimeError: Error, LocalizedError {
     case locked
 

@@ -174,9 +174,39 @@ public struct ConfigDNSSettingsPayload: Codable, Equatable, Sendable {
     }
 }
 
+public struct ConfigListenSettingsUpdatePayload: Codable, Equatable, Sendable {
+    public var socks5: String?
+    public var socks5Chain: String?
+    public var http: String?
+    public var httpChain: String?
+    public var tun: ConfigTUNSettingsPayload?
+
+    enum CodingKeys: String, CodingKey {
+        case socks5
+        case socks5Chain = "socks5_chain"
+        case http
+        case httpChain = "http_chain"
+        case tun
+    }
+
+    public init(
+        socks5: String? = nil,
+        socks5Chain: String? = nil,
+        http: String? = nil,
+        httpChain: String? = nil,
+        tun: ConfigTUNSettingsPayload? = nil
+    ) {
+        self.socks5 = socks5
+        self.socks5Chain = socks5Chain
+        self.http = http
+        self.httpChain = httpChain
+        self.tun = tun
+    }
+}
+
 public struct ConfigSettingsUpdateRequest: Codable, Equatable, Sendable {
     public var profile: String
-    public var listen: ConfigListenSettingsPayload?
+    public var listen: ConfigListenSettingsUpdatePayload?
     public var dns: ConfigDNSSettingsPayload?
     public var networkTriggers: [ConfigNetworkTriggerPayload]?
 
@@ -189,7 +219,7 @@ public struct ConfigSettingsUpdateRequest: Codable, Equatable, Sendable {
 
     public init(
         profile: String = "",
-        listen: ConfigListenSettingsPayload? = nil,
+        listen: ConfigListenSettingsUpdatePayload? = nil,
         dns: ConfigDNSSettingsPayload? = nil,
         networkTriggers: [ConfigNetworkTriggerPayload]? = nil
     ) {

@@ -111,12 +111,12 @@ struct StatusWidgetView: View {
                 Button(intent: DisconnectIntent()) {
                     Label("Stop", systemImage: "stop.fill")
                 }
-            } else if canUseApp {
+            } else if canStartRouting {
                 Button(intent: ConnectIntent()) {
                     Label("Start", systemImage: "play.fill")
                 }
             }
-            if family == .systemMedium, canUseApp {
+            if family == .systemMedium, canSwitchProfile {
                 Button(intent: NextProfileIntent()) {
                     Label("Next", systemImage: "arrow.right.circle")
                 }
@@ -126,8 +126,12 @@ struct StatusWidgetView: View {
         .buttonStyle(.bordered)
     }
 
-    private var canUseApp: Bool {
-        true
+    private var canStartRouting: Bool {
+        WidgetLicenseActionPolicy.isAllowed(.connect, decision: WidgetEnvironment.licenseDecision())
+    }
+
+    private var canSwitchProfile: Bool {
+        WidgetLicenseActionPolicy.isAllowed(.nextProfile, decision: WidgetEnvironment.licenseDecision())
     }
 }
 
@@ -194,6 +198,7 @@ struct ConnectIntent: AppIntent {
     static var title: LocalizedStringResource = "Connect clambhook"
 
     func perform() async throws -> some IntentResult {
+        try WidgetLicenseActionPolicy.requireAllowed(.connect, decision: WidgetEnvironment.licenseDecision())
         let client = WidgetEnvironment.client()
         try await client.connect()
         await WidgetEnvironment.refreshSnapshot(from: client)
@@ -206,6 +211,7 @@ struct DisconnectIntent: AppIntent {
     static var title: LocalizedStringResource = "Disconnect clambhook"
 
     func perform() async throws -> some IntentResult {
+        try WidgetLicenseActionPolicy.requireAllowed(.disconnect, decision: WidgetEnvironment.licenseDecision())
         let client = WidgetEnvironment.client()
         try await client.disconnect()
         await WidgetEnvironment.refreshSnapshot(from: client)
@@ -218,6 +224,7 @@ struct NextProfileIntent: AppIntent {
     static var title: LocalizedStringResource = "Switch to next clambhook profile"
 
     func perform() async throws -> some IntentResult {
+        try WidgetLicenseActionPolicy.requireAllowed(.nextProfile, decision: WidgetEnvironment.licenseDecision())
         let client = WidgetEnvironment.client()
         let payload = try await client.profiles()
         guard !payload.profiles.isEmpty else {
