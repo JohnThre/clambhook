@@ -43,6 +43,7 @@ type Watcher struct {
 	timer   *time.Timer
 	cancel  context.CancelFunc
 	done    chan struct{}
+	firing  sync.WaitGroup
 	started bool
 	stopped bool
 }
@@ -98,10 +99,18 @@ func (w *Watcher) Start(ctx context.Context) error {
 	return nil
 }
 
-// Stop tears the watcher down. Idempotent. Waits for the event loop to exit
-// but does not wait for an in-flight fire() — a reload that started just
-// before Stop will complete on its own; the caller's ReloadFunc is expected
-// to be safe to invoke during shutdown (Engine.Reload takes e.mu).
+// Stop tears the watcher down. Idempotent.
+//
+// Stop marks the watcher stopped (so no new debounced fire can start), tears
+// down the fsnotify watch, waits for the event loop to exit, and then waits
+// for any in-flight reload callback to finish. Waiting for the callback is
+// what makes shutdown ordering safe: once Stop returns, no ReloadFunc is
+// running, so a caller can tear down the resources the callback touches
+// (e.g. Engine.Stop) without a concurrent Reload racing in behind it and
+// resurrecting listeners.
+//
+// The reload callback never takes w.mu, so waiting on it here cannot deadlock
+// against fire(); Stop releases w.mu before waiting.
 func (w *Watcher) Stop() error {
 	w.mu.Lock()
 	if w.stopped {
@@ -121,6 +130,11 @@ func (w *Watcher) Stop() error {
 	if started {
 		<-w.done
 	}
+	// Wait for any reload callback that began before we set stopped. A fire
+	// that had already passed the stopped check will have registered on
+	// w.firing; a fire that races Stop sees stopped and returns without
+	// registering, so this converges.
+	w.firing.Wait()
 	return err
 }
 
@@ -168,6 +182,20 @@ func (w *Watcher) scheduleReload() {
 }
 
 func (w *Watcher) fire() {
+	// Register this fire as in-flight before doing any work, and only if the
+	// watcher has not been stopped. Both the check and the registration
+	// happen under w.mu, and Stop sets stopped under the same lock, so once
+	// Stop has observed stopped there can be no later Add — Stop's
+	// w.firing.Wait() sees a stable count.
+	w.mu.Lock()
+	if w.stopped {
+		w.mu.Unlock()
+		return
+	}
+	w.firing.Add(1)
+	w.mu.Unlock()
+	defer w.firing.Done()
+
 	cfg, err := config.Load(w.path)
 	if err != nil {
 		log.Printf("watcher: reload %s: parse failed: %v", w.path, err)

@@ -185,7 +185,7 @@ func (d *dialer) Dial(ctx context.Context, network, address string) (protocol.Co
 		return nil, err
 	}
 
-	tcp, err := inst.tnet.DialContextTCPAddrPort(ctx, netip.AddrPortFrom(ip, uint16(port)))
+	tcp, err := inst.network().DialContextTCPAddrPort(ctx, netip.AddrPortFrom(ip, uint16(port)))
 	if err != nil {
 		return nil, fmt.Errorf("openvpn: dial %s: %w", address, err)
 	}
@@ -196,8 +196,15 @@ func (d *dialer) Dial(ctx context.Context, network, address string) (protocol.Co
 // UDP datagrams and cannot run inside another protocol's stream.
 // Surface a clear error rather than letting the user hit a deeper
 // mystery failure.
+//
+// Ownership contract (protocol.Dialer.DialThrough): we take ownership of
+// underlying the moment it's handed to us, so we must close it before
+// returning the decline error — leaving it open would leak the prior
+// chain hop's socket. Mirrors tor/shadowsocks DialThrough error paths.
 func (d *dialer) DialThrough(_ context.Context, underlying io.ReadWriteCloser, _ string) (protocol.Conn, error) {
-	_ = underlying
+	if underlying != nil {
+		_ = underlying.Close()
+	}
 	return nil, errors.New("openvpn: cannot tunnel OpenVPN inside another stream protocol (place it as a single-hop chain or as the chain's entry hop)")
 }
 
@@ -209,7 +216,7 @@ func resolveTunnel(ctx context.Context, inst *instance, host string) (netip.Addr
 	if ip, err := netip.ParseAddr(host); err == nil {
 		return ip, nil
 	}
-	addrs, err := inst.tnet.LookupContextHost(ctx, host)
+	addrs, err := inst.network().LookupContextHost(ctx, host)
 	if err != nil || len(addrs) == 0 {
 		return netip.Addr{}, fmt.Errorf("openvpn: resolve %q: %w", host, err)
 	}

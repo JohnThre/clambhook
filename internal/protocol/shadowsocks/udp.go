@@ -58,8 +58,15 @@ func (d *dialer) DialPacket(ctx context.Context, address string) (protocol.Packe
 // semantics, which an upstream stream-tunnel can't reliably preserve without
 // explicit framing beyond SS's spec. Surface a loud error so callers fail
 // fast rather than silently dropping traffic.
+//
+// Ownership contract (protocol.PacketDialer.DialPacketThrough): underlying
+// is ours the moment we're handed it, so close it before returning the
+// decline error rather than leaking the prior chain hop's socket — the same
+// discipline DialThrough follows on its handshake error path.
 func (d *dialer) DialPacketThrough(ctx context.Context, underlying io.ReadWriteCloser, address string) (protocol.PacketConn, error) {
-	_ = underlying
+	if underlying != nil {
+		_ = underlying.Close()
+	}
 	return nil, errors.New("shadowsocks: UDP over a tunneled stream is not supported")
 }
 

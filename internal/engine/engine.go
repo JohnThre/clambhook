@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -524,38 +525,63 @@ func (e *Engine) NetworkInfo() netwatch.NetworkInfo {
 // goroutine launched by startLocked and exits when ctx is cancelled.
 func (e *Engine) runNetworkWatch(ctx context.Context) {
 	for info := range e.watcher.Watch(ctx) {
-		e.mu.Lock()
-		e.currentNetwork = info
-		cfg := e.cfg
-		oldActive := cfg.Active
-		e.mu.Unlock()
+		e.handleNetworkObservation(info)
+	}
+}
 
-		for _, profile := range cfg.Profiles {
-			if profile.Name == oldActive {
-				continue
-			}
-			for _, trigger := range profile.NetworkTriggers {
-				if !info.MatchesTrigger(trigger.SSID, trigger.Interface) {
-					continue
-				}
-				log.Printf("netwatch: network %q (iface %q) matches trigger for profile %q; switching",
-					info.SSID, info.InterfaceName, profile.Name)
-				if err := e.SetActiveProfile(profile.Name); err != nil {
-					log.Printf("netwatch: auto-switch to profile %q failed: %v", profile.Name, err)
-					break
-				}
-				e.bus.PublishListener(events.TypeProfileNetworkSwitch, events.ProfileNetworkSwitchData{
-					OldProfile:    oldActive,
-					NewProfile:    profile.Name,
-					TriggerSSID:   trigger.SSID,
-					TriggerIface:  trigger.Interface,
-					DetectedSSID:  info.SSID,
-					DetectedIface: info.InterfaceName,
-				})
-				break
+// handleNetworkObservation reacts to a single network observation. At most
+// one profile is selected per observation: the first profile in config
+// order with a matching NetworkTrigger wins. When the winner is already
+// active, nothing happens; otherwise exactly one profile switch (one
+// listener rebuild) and one ProfileNetworkSwitch event occur. A failed
+// switch to the winning profile is logged and does not cascade to any
+// later matching profile — "first match wins" is authoritative.
+func (e *Engine) handleNetworkObservation(info netwatch.NetworkInfo) {
+	e.mu.Lock()
+	e.currentNetwork = info
+	cfg := e.cfg
+	oldActive := cfg.Active
+	e.mu.Unlock()
+
+	winner, trigger, found := firstMatchingProfile(cfg.Profiles, info)
+	if !found {
+		return
+	}
+	// Already on the winning profile — selecting a later match here would
+	// violate first-match-wins, and re-switching to the active profile
+	// would rebuild listeners for no reason.
+	if winner.Name == oldActive {
+		return
+	}
+
+	log.Printf("netwatch: network %q (iface %q) matches trigger for profile %q; switching",
+		info.SSID, info.InterfaceName, winner.Name)
+	if err := e.SetActiveProfile(winner.Name); err != nil {
+		log.Printf("netwatch: auto-switch to profile %q failed: %v", winner.Name, err)
+		return
+	}
+	e.bus.PublishListener(events.TypeProfileNetworkSwitch, events.ProfileNetworkSwitchData{
+		OldProfile:    oldActive,
+		NewProfile:    winner.Name,
+		TriggerSSID:   trigger.SSID,
+		TriggerIface:  trigger.Interface,
+		DetectedSSID:  info.SSID,
+		DetectedIface: info.InterfaceName,
+	})
+}
+
+// firstMatchingProfile returns the first profile (in config order) whose
+// NetworkTriggers match info, along with the matching trigger. found is
+// false when no profile matches.
+func firstMatchingProfile(profiles []config.Profile, info netwatch.NetworkInfo) (winner config.Profile, trigger config.NetworkTriggerConfig, found bool) {
+	for _, profile := range profiles {
+		for _, t := range profile.NetworkTriggers {
+			if info.MatchesTrigger(t.SSID, t.Interface) {
+				return profile, t, true
 			}
 		}
 	}
+	return config.Profile{}, config.NetworkTriggerConfig{}, false
 }
 
 // GeoReader returns the current geo reader. The returned value may be nil
@@ -1169,9 +1195,20 @@ type directPacketConn struct {
 	*net.UDPConn
 }
 
-func newDirectPacketConn(ctx context.Context, _ string) (net.PacketConn, error) {
+// newDirectPacketConn validates the target before opening a socket. Direct
+// domain resolution would leak the target to the host resolver and bypass the
+// configured routed/encrypted DNS path, so direct UDP accepts only IP literals.
+func newDirectPacketConn(ctx context.Context, address string) (net.PacketConn, error) {
+	target, err := directUDPAddr(address)
+	if err != nil {
+		return nil, err
+	}
+	network, bind := "udp6", "[::]:0"
+	if target.IP.To4() != nil {
+		network, bind = "udp4", "0.0.0.0:0"
+	}
 	var lc net.ListenConfig
-	conn, err := lc.ListenPacket(ctx, "udp", "0.0.0.0:0")
+	conn, err := lc.ListenPacket(ctx, network, bind)
 	if err != nil {
 		return nil, err
 	}
@@ -1187,12 +1224,31 @@ func (c *directPacketConn) WriteTo(b []byte, addr net.Addr) (int, error) {
 	udpAddr, ok := addr.(*net.UDPAddr)
 	if !ok {
 		var err error
-		udpAddr, err = net.ResolveUDPAddr("udp", addr.String())
+		udpAddr, err = directUDPAddr(addr.String())
 		if err != nil {
 			return 0, err
 		}
+	} else if udpAddr.IP == nil {
+		return 0, errors.New("direct UDP: target must be an IP literal; domain resolution must use a routed chain")
 	}
 	return c.UDPConn.WriteToUDP(b, udpAddr)
+}
+
+// directUDPAddr parses a numeric UDP target without consulting any resolver.
+func directUDPAddr(address string) (*net.UDPAddr, error) {
+	host, portText, err := net.SplitHostPort(address)
+	if err != nil {
+		return nil, fmt.Errorf("direct UDP target %q: %w", address, err)
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return nil, fmt.Errorf("direct UDP: target %q must be an IP literal; domain resolution must use a routed chain", host)
+	}
+	port, err := strconv.ParseUint(portText, 10, 16)
+	if err != nil {
+		return nil, fmt.Errorf("direct UDP target %q: invalid port: %w", address, err)
+	}
+	return &net.UDPAddr{IP: ip, Port: int(port)}, nil
 }
 
 // chainFromConfig converts a TOML-parsed chain stanza into the protocol-layer

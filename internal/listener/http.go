@@ -324,6 +324,11 @@ func (s *HTTP) handleConn(ctx context.Context, client net.Conn, ce *connEvents) 
 		return nil
 	}
 	cr.capped = false
+	// The header read phase is done. Route planning may wait on an interactive
+	// prompt whose timeout can exceed the handshake budget, so clear the
+	// deadline before dispatching. Handlers re-arm nothing; long-lived tunnels
+	// and large bodies must not time out.
+	_ = client.SetDeadline(time.Time{})
 
 	if !s.checkProxyAuth(req.Header) {
 		writeProxyAuthRequired(client, req.Proto)
@@ -380,11 +385,10 @@ func (s *HTTP) handleConnect(ctx context.Context, client net.Conn, br *bufio.Rea
 		return nil
 	}
 
-	dialCtx, cancel := context.WithTimeout(ctx, dialTimeout)
-	defer cancel()
-
-	dialCtx = ce.attach(dialCtx)
-	plan, err := s.plan(dialCtx, "tcp", req.Host, client.RemoteAddr().String())
+	// Prompt waiting is part of the handler lifetime. Start the bounded
+	// outbound dial budget only after route planning has completed.
+	planCtx := ce.attach(ctx)
+	plan, err := s.plan(planCtx, "tcp", req.Host, client.RemoteAddr().String())
 	if err != nil {
 		log.Printf("http: route plan %s failed: %v", req.Host, err)
 		writeSimpleStatus(client, req.Proto, http.StatusBadGateway, "Bad Gateway")
@@ -401,6 +405,8 @@ func (s *HTTP) handleConnect(ctx context.Context, client net.Conn, br *bufio.Rea
 		return ErrRouteBlocked
 	}
 
+	dialCtx, cancel := context.WithTimeout(planCtx, dialTimeout)
+	defer cancel()
 	remote, err := plan.Dial(dialCtx, "tcp", req.Host)
 	if err != nil {
 		log.Printf("http: CONNECT chain dial %s failed: %v", req.Host, err)
@@ -460,11 +466,8 @@ func (s *HTTP) handleMITMConnect(ctx context.Context, client net.Conn, br *bufio
 		return nil
 	}
 
-	dialCtx, cancel := context.WithTimeout(ctx, dialTimeout)
-	defer cancel()
-
-	dialCtx = ce.attach(dialCtx)
-	plan, err := s.plan(dialCtx, "tcp", req.Host, client.RemoteAddr().String())
+	planCtx := ce.attach(ctx)
+	plan, err := s.plan(planCtx, "tcp", req.Host, client.RemoteAddr().String())
 	if err != nil {
 		log.Printf("http: MITM route plan %s failed: %v", req.Host, err)
 		writeSimpleStatus(client, req.Proto, http.StatusBadGateway, "Bad Gateway")
@@ -569,15 +572,13 @@ func (s *HTTP) forwardMITMRequest(ctx context.Context, client io.Writer, req *ht
 	}
 
 	target := mitmRequestTarget(req, connectTarget)
-	dialCtx, cancel := context.WithTimeout(ctx, dialTimeout)
-	defer cancel()
-	if ce != nil {
-		dialCtx = ce.attach(dialCtx)
-	}
-	plan, err := s.plan(dialCtx, "tcp", target, clientAddr)
+	planCtx := ce.attach(ctx)
+	plan, err := s.plan(planCtx, "tcp", target, clientAddr)
 	if err != nil {
 		return err
 	}
+	dialCtx, cancel := context.WithTimeout(planCtx, dialTimeout)
+	defer cancel()
 	remote, err := plan.Dial(dialCtx, "tcp", target)
 	if err != nil {
 		return err
@@ -767,11 +768,9 @@ func (s *HTTP) handleForward(ctx context.Context, client net.Conn, req *http.Req
 	}
 	target := net.JoinHostPort(host, port)
 
-	dialCtx, dialCancel := context.WithTimeout(ctx, dialTimeout)
-	dialCtx = ce.attach(dialCtx)
-	plan, err := s.plan(dialCtx, "tcp", target, client.RemoteAddr().String())
+	planCtx := ce.attach(ctx)
+	plan, err := s.plan(planCtx, "tcp", target, client.RemoteAddr().String())
 	if err != nil {
-		dialCancel()
 		log.Printf("http: route plan %s failed: %v", target, err)
 		writeSimpleStatus(client, req.Proto, http.StatusBadGateway, "Bad Gateway")
 		return err
@@ -780,7 +779,6 @@ func (s *HTTP) handleForward(ctx context.Context, client net.Conn, req *http.Req
 	ce.emitRuleDecision(plan)
 	ce.emitDialingPlan(plan)
 	if plan.Action == RouteActionBlock || plan.Action == RouteActionReject {
-		dialCancel()
 		writeSimpleStatus(client, req.Proto, http.StatusForbidden, "Forbidden")
 		if plan.Action == RouteActionReject {
 			return ErrRouteRejected
@@ -788,6 +786,7 @@ func (s *HTTP) handleForward(ctx context.Context, client net.Conn, req *http.Req
 		return ErrRouteBlocked
 	}
 
+	dialCtx, dialCancel := context.WithTimeout(planCtx, dialTimeout)
 	remote, err := plan.Dial(dialCtx, "tcp", target)
 	dialCancel()
 	if err != nil {

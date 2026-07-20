@@ -53,6 +53,9 @@ func (s *Server) handleImportConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	cfg.Path = configPath
+	// Serialize the validate-write-reload transaction so an import cannot
+	// interleave with a concurrent config edit and drop either change.
+	defer s.lockConfigTxn()()
 	if err := engine.ValidateConfig(&cfg); err != nil {
 		http.Error(w, "validate config: "+err.Error(), http.StatusBadRequest)
 		return

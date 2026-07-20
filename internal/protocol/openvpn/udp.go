@@ -24,11 +24,12 @@ func (d *dialer) DialPacket(ctx context.Context, address string) (protocol.Packe
 	if err != nil {
 		return nil, err
 	}
-	if len(inst.addresses) == 0 {
+	addrs := inst.interiorAddrs()
+	if len(addrs) == 0 {
 		return nil, errors.New("openvpn: no interior address configured")
 	}
-	src := netip.AddrPortFrom(inst.addresses[0], 0)
-	udp, err := inst.tnet.ListenUDPAddrPort(src)
+	src := netip.AddrPortFrom(addrs[0], 0)
+	udp, err := inst.network().ListenUDPAddrPort(src)
 	if err != nil {
 		return nil, fmt.Errorf("openvpn: listen udp: %w", err)
 	}
@@ -37,8 +38,14 @@ func (d *dialer) DialPacket(ctx context.Context, address string) (protocol.Packe
 
 // DialPacketThrough is declined for the same reason as DialThrough:
 // OpenVPN expects a UDP-bound transport and cannot be nested inside a stream.
+//
+// Ownership contract (protocol.PacketDialer.DialPacketThrough): underlying
+// is ours the moment we're handed it, so close it before returning the
+// decline error rather than leaking the prior chain hop's socket.
 func (d *dialer) DialPacketThrough(_ context.Context, underlying io.ReadWriteCloser, _ string) (protocol.PacketConn, error) {
-	_ = underlying
+	if underlying != nil {
+		_ = underlying.Close()
+	}
 	return nil, errors.New("openvpn: cannot tunnel OpenVPN inside another protocol; place it as a single-hop chain")
 }
 

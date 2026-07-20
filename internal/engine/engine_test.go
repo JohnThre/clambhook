@@ -11,7 +11,9 @@ import (
 
 	"github.com/JohnThre/clambhook/internal/chain"
 	"github.com/JohnThre/clambhook/internal/config"
+	"github.com/JohnThre/clambhook/internal/events"
 	"github.com/JohnThre/clambhook/internal/listener"
+	"github.com/JohnThre/clambhook/internal/netwatch"
 	"github.com/JohnThre/clambhook/internal/policy"
 	"github.com/JohnThre/clambhook/internal/procattr"
 	"github.com/JohnThre/clambhook/internal/prompt"
@@ -722,5 +724,206 @@ func TestSOCKS5PromptBlocksEndToEnd(t *testing.T) {
 	name := <-attributed
 	if name == "" {
 		t.Skip("live process attribution unavailable in this sandbox; gate still blocked the connection")
+	}
+}
+
+// TestSOCKS5PromptDefaultAllowAfterTimeoutEndToEnd proves that when a prompt
+// times out with DefaultAllow=true, the SOCKS5 handler waits out the prompt on
+// the handler lifetime (not the 30s dial budget) and then dials with a fresh
+// budget, letting the CONNECT succeed. A prompt Timeout longer than the dial
+// budget is therefore honored.
+func TestSOCKS5PromptDefaultAllowAfterTimeoutEndToEnd(t *testing.T) {
+	profile := lifecycleProfile(t.Name(), freePort(t), t.Name()+"/primary")
+
+	resolver := newChainResolver(&profile, "", nil, nil)
+	if err := resolver.ensureBuilt(); err != nil {
+		t.Fatalf("ensureBuilt: %v", err)
+	}
+	t.Cleanup(func() { _ = closeChains(resolver.chains) })
+	planner, err := resolver.routePlanner("", nil)
+	if err != nil {
+		t.Fatalf("routePlanner: %v", err)
+	}
+	// Force attribution so the prompt gate reliably fires regardless of the
+	// sandbox's live process-lookup support.
+	planner.procLookup = func(_, _ string) (procattr.Process, bool) {
+		return procattr.Process{PID: 7, Name: "curl", Path: "/usr/bin/curl"}, true
+	}
+	pm := prompt.New()
+	pm.Configure(prompt.Config{Enabled: true, Timeout: 31 * time.Second, DefaultAllow: true})
+	planner.prompts = pm
+
+	s := listener.NewSOCKSv5WithPlanner("127.0.0.1:0", nil, planner, listener.Options{})
+	if err := s.Start(context.Background()); err != nil {
+		t.Fatalf("start socks5: %v", err)
+	}
+	t.Cleanup(func() { _ = s.Stop() })
+
+	// Confirm the prompt actually pauses the connection before the default
+	// allow is applied.
+	promptSeen := make(chan struct{}, 1)
+	go func() {
+		deadline := time.After(2 * time.Second)
+		for {
+			if len(pm.Pending()) > 0 {
+				promptSeen <- struct{}{}
+				return
+			}
+			select {
+			case <-deadline:
+				return
+			default:
+				time.Sleep(2 * time.Millisecond)
+			}
+		}
+	}()
+
+	client, err := net.Dial("tcp", s.Addr())
+	if err != nil {
+		t.Fatalf("dial listener: %v", err)
+	}
+	defer client.Close()
+	if _, err := client.Write([]byte{0x05, 0x01, 0x00}); err != nil {
+		t.Fatal(err)
+	}
+	sel := make([]byte, 2)
+	if _, err := io.ReadFull(client, sel); err != nil {
+		t.Fatal(err)
+	}
+	req := append([]byte{0x05, 0x01, 0x00, 0x03, 11}, []byte("example.com")...)
+	req = append(req, 0x00, 0x50)
+	if _, err := client.Write(req); err != nil {
+		t.Fatal(err)
+	}
+
+	select {
+	case <-promptSeen:
+	case <-time.After(2 * time.Second):
+		t.Fatal("prompt never appeared; connection was not paused")
+	}
+
+	reply := make([]byte, 10)
+	_ = client.SetReadDeadline(time.Now().Add(35 * time.Second))
+	if _, err := io.ReadFull(client, reply); err != nil {
+		t.Fatalf("read reply: %v", err)
+	}
+	if reply[0] != 0x05 {
+		t.Fatalf("reply version = %d, want 5", reply[0])
+	}
+	if reply[1] != 0x00 {
+		t.Fatalf("reply = %#x, want success; DefaultAllow after prompt timeout not honored", reply[1])
+	}
+}
+
+// triggerProfile builds a fixedPortProfile that auto-switches when the given
+// interface is observed.
+func triggerProfile(name, socksAddr, iface string) config.Profile {
+	p := fixedPortProfile(name, socksAddr)
+	p.NetworkTriggers = []config.NetworkTriggerConfig{{Interface: iface}}
+	return p
+}
+
+// TestEngineNetworkObservationFirstMatchWins proves that a single network
+// observation selects at most one profile: when two profiles match the same
+// network, the first in config order wins, exactly one switch event fires,
+// and the event's OldProfile is the pre-switch active profile.
+func TestEngineNetworkObservationFirstMatchWins(t *testing.T) {
+	baseAddr := freePort(t)
+	firstAddr := freePort(t)
+	secondAddr := freePort(t)
+
+	cfg := &config.Config{
+		Active: "base",
+		Profiles: []config.Profile{
+			fixedPortProfile("base", baseAddr),
+			triggerProfile("first", firstAddr, "en0"),
+			triggerProfile("second", secondAddr, "en0"),
+		},
+	}
+
+	bus := events.NewBus(events.Config{SubBufferSize: 64, RingCapacity: 64, MeterInterval: time.Hour})
+	defer bus.Close()
+	sub := bus.Subscribe(events.Filter{Types: []string{events.TypeProfileNetworkSwitch}})
+	defer sub.Unsubscribe()
+
+	e := New(cfg, bus)
+	if err := e.Start(context.Background()); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	defer e.Stop()
+
+	e.handleNetworkObservation(netwatch.NetworkInfo{InterfaceName: "en0"})
+
+	select {
+	case ev := <-sub.Ch():
+		data, ok := ev.Data.(events.ProfileNetworkSwitchData)
+		if !ok {
+			t.Fatalf("event data type = %T, want ProfileNetworkSwitchData", ev.Data)
+		}
+		if data.NewProfile != "first" {
+			t.Errorf("NewProfile = %q, want %q (first config-order match wins)", data.NewProfile, "first")
+		}
+		if data.OldProfile != "base" {
+			t.Errorf("OldProfile = %q, want %q (pre-switch active profile)", data.OldProfile, "base")
+		}
+		if data.TriggerIface != "en0" {
+			t.Errorf("TriggerIface = %q, want %q", data.TriggerIface, "en0")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("expected exactly one ProfileNetworkSwitch event, got none")
+	}
+
+	// A single observation must not cascade into a second switch/event, even
+	// though "second" also matches en0.
+	select {
+	case ev := <-sub.Ch():
+		t.Fatalf("unexpected second switch event: %+v", ev.Data)
+	case <-time.After(150 * time.Millisecond):
+	}
+
+	if status := e.Status(); status.Profile != "first" {
+		t.Errorf("status.Profile = %q, want %q", status.Profile, "first")
+	}
+	if len(cfg.Profiles) != 3 {
+		t.Fatalf("config profiles mutated: %+v", cfg.Profiles)
+	}
+}
+
+// TestEngineNetworkObservationAlreadyActiveNoSwitch proves that when the
+// first matching profile is already active, the observation is a no-op:
+// no switch event and no listener rebuild.
+func TestEngineNetworkObservationAlreadyActiveNoSwitch(t *testing.T) {
+	activeAddr := freePort(t)
+	otherAddr := freePort(t)
+
+	cfg := &config.Config{
+		Active: "active",
+		Profiles: []config.Profile{
+			triggerProfile("active", activeAddr, "en0"),
+			triggerProfile("other", otherAddr, "en0"),
+		},
+	}
+
+	bus := events.NewBus(events.Config{SubBufferSize: 64, RingCapacity: 64, MeterInterval: time.Hour})
+	defer bus.Close()
+	sub := bus.Subscribe(events.Filter{Types: []string{events.TypeProfileNetworkSwitch}})
+	defer sub.Unsubscribe()
+
+	e := New(cfg, bus)
+	if err := e.Start(context.Background()); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	defer e.Stop()
+
+	e.handleNetworkObservation(netwatch.NetworkInfo{InterfaceName: "en0"})
+
+	select {
+	case ev := <-sub.Ch():
+		t.Fatalf("unexpected switch event when first match already active: %+v", ev.Data)
+	case <-time.After(150 * time.Millisecond):
+	}
+
+	if status := e.Status(); status.Profile != "active" {
+		t.Errorf("status.Profile = %q, want %q", status.Profile, "active")
 	}
 }

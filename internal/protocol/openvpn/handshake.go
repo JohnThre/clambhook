@@ -112,21 +112,34 @@ func (i *instance) runHandshake(ctx context.Context) error {
 	if !isSupportedCipher(cipher) {
 		return fmt.Errorf("openvpn: server picked unsupported cipher %q", cipher)
 	}
-	i.cipher = cipher
-	i.peerID = parsed.peerID
-	i.addresses = parsed.addresses
-	i.dnsServers = parsed.dnsServers
-	if parsed.mtu > 0 {
-		i.mtu = parsed.mtu
-	}
 
-	// --- Derive keys from TLS-EKM and build data channel ---
+	// --- Derive keys from TLS-EKM and build the data channel ---
 	km, err := deriveKeys(&state, cipher)
 	if err != nil {
 		return err
 	}
-	i.data = newDataChannel(cipher, 0, km)
-	i.data.setPeerID(parsed.peerID)
+	dc := newDataChannel(cipher, 0, km)
+	dc.setPeerID(parsed.peerID)
+
+	mtu := i.mtu
+	if parsed.mtu > 0 {
+		mtu = parsed.mtu
+	}
+
+	// Publish the whole session state in one locked hand-off. The UDP read
+	// loop is already running and reads i.data (and, via writeToTUN, the
+	// TUN once startNetstack publishes it) through the same mutex, so this
+	// is the single synchronisation point between the handshake goroutine
+	// and the background data plane. peerID is baked into dc before it is
+	// stored, keeping the two coupled with no separate publication.
+	i.mu.Lock()
+	i.cipher = cipher
+	i.peerID = parsed.peerID
+	i.addresses = parsed.addresses
+	i.dnsServers = parsed.dnsServers
+	i.mtu = mtu
+	i.data = dc
+	i.mu.Unlock()
 
 	// The TLS conn is no longer needed — post-handshake, OpenVPN runs
 	// no traffic over it (renegotiation not in scope). Close releases

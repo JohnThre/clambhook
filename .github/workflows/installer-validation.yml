@@ -23,7 +23,7 @@ concurrency:
 
 jobs:
   go-quality:
-    name: Go unit tests and lint
+    name: Go unit, race, and lint checks
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -39,6 +39,8 @@ jobs:
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
       - name: Go unit tests
         run: make test
+      - name: Go race tests
+        run: make test-race
       - name: Go lint
         run: make lint
 
@@ -72,6 +74,34 @@ jobs:
       - uses: actions/checkout@v4
       - name: Build package recipes and run headless smoke in a ${{ matrix.distro }} container
         run: scripts/validate-linux-distros.sh ${{ matrix.distro }}
+
+  portable-strict:
+    name: Required Flatpak and AppImage builds
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Install portable package build dependencies
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
+            build-essential pkg-config meson ninja-build valac rsync \
+            libgtk-4-dev libadwaita-1-dev libgee-0.8-dev \
+            libjson-glib-dev libsecret-1-dev libsoup-3.0-dev libsodium-dev \
+            flatpak flatpak-builder fuse3 libfuse2t64 kmod curl file
+      - name: Require native namespace and FUSE support
+        run: |
+          test "$(cat /proc/sys/user/max_user_namespaces)" -gt 0
+          sudo modprobe fuse
+          test -c /dev/fuse
+      - name: Verify strict portable recipe failure behavior
+        run: scripts/test-ci-linux-portable-recipes.sh
+      - name: Build Flatpak and AppImage recipes strictly
+        run: scripts/ci-linux-portable-recipes.sh
 
   android:
     name: Android installer (.apk)

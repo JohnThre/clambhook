@@ -6,7 +6,9 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/JohnThre/clambhook/internal/config"
@@ -993,4 +995,209 @@ name = "backup"
 		t.Fatal(err)
 	}
 	return path
+}
+
+func writeSelectPolicyGroupTestConfig(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "clambhook.toml")
+	if err := os.WriteFile(path, []byte(`
+active = "default"
+
+[[profile]]
+name = "default"
+
+  [[profile.policy_group]]
+  name = "manual"
+  type = "select"
+  chains = ["proxy", "backup"]
+  selected = "proxy"
+
+  [[profile.chain]]
+  name = "proxy"
+
+    [[profile.chain.server]]
+    name = "example"
+    address = "example.invalid:443"
+    protocol = "shadowsocks"
+
+      [profile.chain.server.settings]
+      method = "chacha20-ietf-poly1305"
+      password = "secret"
+
+  [[profile.chain]]
+  name = "backup"
+
+    [[profile.chain.server]]
+    name = "backup"
+    address = "backup.invalid:443"
+    protocol = "shadowsocks"
+
+      [profile.chain.server.settings]
+      method = "chacha20-ietf-poly1305"
+      password = "secret"
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func dashboardSelectedChain(t *testing.T, runtime *TunnelRuntime, group string) string {
+	t.Helper()
+	raw, err := runtime.DashboardJSON()
+	if err != nil {
+		t.Fatalf("DashboardJSON: %v", err)
+	}
+	var payload dashboardPayload
+	if err := json.Unmarshal([]byte(raw), &payload); err != nil {
+		t.Fatalf("decode dashboard: %v", err)
+	}
+	for _, g := range payload.PolicyGroups.Groups {
+		if g.Name == group {
+			return g.SelectedChain
+		}
+	}
+	t.Fatalf("policy group %q not found in dashboard %+v", group, payload.PolicyGroups)
+	return ""
+}
+
+// TestSelectPolicyGroupIsRaceCleanWithConcurrentReaders drives SelectPolicyGroup
+// against concurrent DashboardJSON/ProfilesJSON/RulesJSON reads. Before the deep
+// copy fix, SelectPolicyGroup shallow-mutated the live config's policy-group
+// backing array outside the mutex, which the race detector flags here.
+func TestSelectPolicyGroupIsRaceCleanWithConcurrentReaders(t *testing.T) {
+	path := writeSelectPolicyGroupTestConfig(t)
+	runtime := NewTunnelRuntime(discardPacketWriter{})
+	if err := runtime.Start(path); err != nil {
+		t.Fatalf("runtime Start: %v", err)
+	}
+	defer runtime.Stop()
+
+	var wg sync.WaitGroup
+	stop := make(chan struct{})
+
+	reader := func(read func() (string, error)) {
+		defer wg.Done()
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			if _, err := read(); err != nil {
+				t.Errorf("reader: %v", err)
+				return
+			}
+		}
+	}
+
+	wg.Add(3)
+	go reader(runtime.DashboardJSON)
+	go reader(runtime.ProfilesJSON)
+	go reader(runtime.RulesJSON)
+
+	chains := []string{"proxy", "backup"}
+	for i := 0; i < 12; i++ {
+		if err := runtime.SelectPolicyGroup("default", "manual", chains[i%2]); err != nil {
+			t.Fatalf("SelectPolicyGroup: %v", err)
+		}
+	}
+
+	close(stop)
+	wg.Wait()
+
+	if got := dashboardSelectedChain(t, runtime, "manual"); got != "backup" {
+		t.Fatalf("selected chain = %q, want backup", got)
+	}
+}
+
+func TestSelectPolicyGroupRuntimeMatchesPersistedSelection(t *testing.T) {
+	persistedPath := writeSelectPolicyGroupTestConfig(t)
+	rawPersisted, err := SelectPolicyGroupJSON(persistedPath, "", " manual ", " backup ")
+	if err != nil {
+		t.Fatalf("SelectPolicyGroupJSON: %v", err)
+	}
+	var persisted struct {
+		Groups []struct {
+			Name          string `json:"name"`
+			SelectedChain string `json:"selected_chain"`
+		} `json:"groups"`
+	}
+	if err := json.Unmarshal([]byte(rawPersisted), &persisted); err != nil {
+		t.Fatalf("decode persisted policy groups: %v", err)
+	}
+	if len(persisted.Groups) != 1 || persisted.Groups[0].Name != "manual" {
+		t.Fatalf("persisted policy groups = %+v", persisted.Groups)
+	}
+
+	runtime := NewTunnelRuntime(discardPacketWriter{})
+	if err := runtime.Start(writeSelectPolicyGroupTestConfig(t)); err != nil {
+		t.Fatalf("runtime Start: %v", err)
+	}
+	defer runtime.Stop()
+	if err := runtime.SelectPolicyGroup("", " manual ", " backup "); err != nil {
+		t.Fatalf("runtime SelectPolicyGroup: %v", err)
+	}
+	if got, want := dashboardSelectedChain(t, runtime, "manual"), persisted.Groups[0].SelectedChain; got != want {
+		t.Fatalf("runtime selected chain = %q, persisted selected chain = %q", got, want)
+	}
+}
+
+// TestSelectPolicyGroupValidationFailurePreservesLiveState verifies validation
+// runs against a private candidate. The intentionally invalid live config lets
+// selection reach engine.ValidateConfig; the old shallow copy changed Selected
+// before validation rejected the candidate.
+func TestSelectPolicyGroupValidationFailurePreservesLiveState(t *testing.T) {
+	cfg, err := config.Load(writeSelectPolicyGroupTestConfig(t))
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	cfg.Profiles[0].PolicyGroups[0].Timeout = -1
+	runtime := NewTunnelRuntime(discardPacketWriter{})
+	runtime.cfg = cfg
+
+	statusBefore, err := runtime.StatusJSON()
+	if err != nil {
+		t.Fatalf("StatusJSON before: %v", err)
+	}
+	dashboardBefore, err := runtime.DashboardJSON()
+	if err != nil {
+		t.Fatalf("DashboardJSON before: %v", err)
+	}
+	if got := dashboardSelectedChain(t, runtime, "manual"); got != "proxy" {
+		t.Fatalf("selected chain before = %q, want proxy", got)
+	}
+
+	err = runtime.SelectPolicyGroup("default", "manual", "backup")
+	if err == nil || !strings.Contains(err.Error(), "timeout must be >= 0") {
+		t.Fatalf("SelectPolicyGroup error = %v, want validation failure", err)
+	}
+
+	statusAfter, err := runtime.StatusJSON()
+	if err != nil {
+		t.Fatalf("StatusJSON after: %v", err)
+	}
+	dashboardAfter, err := runtime.DashboardJSON()
+	if err != nil {
+		t.Fatalf("DashboardJSON after: %v", err)
+	}
+	if statusAfter != statusBefore {
+		t.Fatalf("status changed after validation failure: before=%s after=%s", statusBefore, statusAfter)
+	}
+	var beforePayload, afterPayload dashboardPayload
+	if err := json.Unmarshal([]byte(dashboardBefore), &beforePayload); err != nil {
+		t.Fatalf("decode dashboard before: %v", err)
+	}
+	if err := json.Unmarshal([]byte(dashboardAfter), &afterPayload); err != nil {
+		t.Fatalf("decode dashboard after: %v", err)
+	}
+	// Dashboard traffic snapshots are timestamped at read time; normalize that
+	// volatile field before comparing all observable dashboard state.
+	beforePayload.Traffic.UpdatedTsNs = 0
+	afterPayload.Traffic.UpdatedTsNs = 0
+	if !reflect.DeepEqual(afterPayload, beforePayload) {
+		t.Fatalf("dashboard changed after validation failure: before=%+v after=%+v", beforePayload, afterPayload)
+	}
+	if got := dashboardSelectedChain(t, runtime, "manual"); got != "proxy" {
+		t.Fatalf("selected chain after = %q, want proxy preserved", got)
+	}
 }
