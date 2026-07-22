@@ -76,6 +76,7 @@ func (s *Server) handleImportConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.engine.Reload(&cfg); err != nil {
+		restoreConfigBackup(configPath, result.BackupPath)
 		http.Error(w, "reload engine: "+err.Error(), http.StatusInternalServerError)
 		return
 	}

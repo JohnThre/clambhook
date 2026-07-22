@@ -432,7 +432,14 @@ final class AppleAppModel: ObservableObject {
         #if os(macOS)
         return licenseManager.decision
         #else
-        return MobileLicenseEvaluator.evaluate(snapshot: MobileLicenseSnapshot(trialStartDate: Date()))
+        // Persist and reuse the trial start date across app launches so the
+        // trial actually expires. Without this, every call creates a fresh
+        // snapshot with trialStartDate = today, granting an endless trial.
+        let snapshot = MobileLicenseTrialStore.resolvedSnapshot(
+            snapshot: MobileLicenseSnapshot(),
+            credentialStore: credentialStore
+        )
+        return MobileLicenseEvaluator.evaluate(snapshot: snapshot)
         #endif
     }
 
@@ -1128,28 +1135,25 @@ final class AppleAppModel: ObservableObject {
         }
         sparkleChangeCancellable = sparkleUpdater.objectWillChange.sink { [weak self] _ in
             Task { @MainActor in self?.objectWillChange.send() }
-        }
-        configureSparkleUpdater()
-        privilegedHelperChangeCancellable = privilegedHelperManager.objectWillChange.sink { [weak self] _ in
-            Task { @MainActor in self?.objectWillChange.send() }
-        }
     }
-    #endif
 
     private func enforceLicenseState() {
+        let decision = mobileLicenseDecision
         #if os(macOS)
         licenseManager.refreshDecision()
         refreshSparkleGate()
-        guard !licenseManager.decision.canUseApp else {
+        #endif
+        guard !decision.canUseApp else {
             return
         }
+        #if os(macOS)
         systemProxyManager.restoreForLockout()
+        #endif
         if dashboard.status.running {
             Task {
                 await dashboard.disconnect()
             }
         }
-        #endif
     }
 
     private func startPolling() {

@@ -147,6 +147,14 @@ func (s *Server) SetHTTPClient(c *http.Client) {
 	s.httpClient = c
 }
 
+// getHTTPClient returns the outbound HTTP client for rule-set and subscription
+// refreshes, acquiring the read lock for thread-safe access.
+func (s *Server) getHTTPClient() *http.Client {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.httpClient
+}
+
 // SetDeveloper swaps the manager backing /api/v1/developer/*.
 func (s *Server) SetDeveloper(dev *developer.Manager) {
 	s.mu.Lock()

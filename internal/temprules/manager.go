@@ -3,6 +3,7 @@ package temprules
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -316,16 +317,25 @@ func (m *Manager) recomputeNextExpiryLocked() {
 }
 
 // hashSet returns an order-independent fingerprint of a name set so Decide can
-// detect chain/group context changes without allocating or sorting.
+// detect chain/group context changes. Names are sorted and chained so the
+// fingerprint is collision-resistant: two different sets cannot produce the
+// same value (unlike XOR+SUM, which admits trivial collisions).
 func hashSet(set map[string]struct{}) uint64 {
-	const prime = 1099511628211
-	var xorAcc, sumAcc uint64
+	names := make([]string, 0, len(set))
 	for name := range set {
-		h := fnv64(name)
-		xorAcc ^= h
-		sumAcc += h
+		names = append(names, name)
 	}
-	return (xorAcc * prime) ^ sumAcc ^ (uint64(len(set)) * prime)
+	sort.Strings(names)
+	h := uint64(14695981039346656037) // FNV-1a offset basis
+	for _, name := range names {
+		for i := range len(name) {
+			h ^= uint64(name[i])
+			h *= 1099511628211 // FNV-1a prime
+		}
+		h ^= 0x1f // separator between names to prevent boundary ambiguity
+		h *= 1099511628211
+	}
+	return h
 }
 
 func fnv64(s string) uint64 {

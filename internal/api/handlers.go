@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 
@@ -329,7 +331,7 @@ func (s *Server) handleRefreshRuleSets(w http.ResponseWriter, r *http.Request) {
 	if currentProfile != "" {
 		fetchCfg.Active = currentProfile
 	}
-	payload, err := ruleset.RefreshProfile(r.Context(), fetchCfg, req.Profile, req.Names, s.httpClient)
+	payload, err := ruleset.RefreshProfile(r.Context(), fetchCfg, req.Profile, req.Names, s.getHTTPClient())
 	if err != nil {
 		status := http.StatusBadRequest
 		if strings.Contains(err.Error(), "not found") {
@@ -373,6 +375,7 @@ func (s *Server) handleRefreshRuleSets(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.engine.Reload(cfg); err != nil {
+		restoreConfigBackup(configPath, result.BackupPath)
 		http.Error(w, "reload engine: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -414,7 +417,7 @@ func (s *Server) handleRefreshRuleSubscriptions(w http.ResponseWriter, r *http.R
 	if currentProfile != "" {
 		fetchCfg.Active = currentProfile
 	}
-	payload, err := subscription.RefreshProfile(r.Context(), fetchCfg, req.Profile, req.Names, s.httpClient)
+	payload, err := subscription.RefreshProfile(r.Context(), fetchCfg, req.Profile, req.Names, s.getHTTPClient())
 	if err != nil {
 		status := http.StatusBadRequest
 		if strings.Contains(err.Error(), "not found") {
@@ -452,6 +455,7 @@ func (s *Server) handleRefreshRuleSubscriptions(w http.ResponseWriter, r *http.R
 		return
 	}
 	if err := s.engine.Reload(cfg); err != nil {
+		restoreConfigBackup(configPath, result.BackupPath)
 		http.Error(w, "reload engine: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -803,6 +807,7 @@ func (s *Server) persistRulesWithError(profileName string, nextRules func(string
 		return rulePersistenceResponse{}, rulePersistenceError{status: http.StatusInternalServerError, err: err}
 	}
 	if err := s.engine.Reload(cfg); err != nil {
+		restoreConfigBackup(s.configPath, result.BackupPath)
 		return rulePersistenceResponse{}, rulePersistenceError{status: http.StatusInternalServerError, err: err}
 	}
 	return rulePersistenceResponse{
@@ -840,6 +845,7 @@ func (s *Server) persistRuleSets(profileName string, nextRuleSets []config.RuleS
 		return ruleSetPersistenceResponse{}, rulePersistenceError{status: http.StatusInternalServerError, err: err}
 	}
 	if err := s.engine.Reload(cfg); err != nil {
+		restoreConfigBackup(s.configPath, result.BackupPath)
 		return ruleSetPersistenceResponse{}, rulePersistenceError{status: http.StatusInternalServerError, err: err}
 	}
 	return ruleSetPersistenceResponse{
@@ -877,6 +883,7 @@ func (s *Server) persistPolicyGroups(profileName string, nextPolicyGroups []conf
 		return policyGroupPersistenceResponse{}, rulePersistenceError{status: http.StatusInternalServerError, err: err}
 	}
 	if err := s.engine.Reload(cfg); err != nil {
+		restoreConfigBackup(s.configPath, result.BackupPath)
 		return policyGroupPersistenceResponse{}, rulePersistenceError{status: http.StatusInternalServerError, err: err}
 	}
 	return policyGroupPersistenceResponse{
@@ -914,6 +921,7 @@ func (s *Server) persistRuleSubscriptions(profileName string, nextSubscriptions 
 		return ruleSubscriptionPersistenceResponse{}, rulePersistenceError{status: http.StatusInternalServerError, err: err}
 	}
 	if err := s.engine.Reload(cfg); err != nil {
+		restoreConfigBackup(s.configPath, result.BackupPath)
 		return ruleSubscriptionPersistenceResponse{}, rulePersistenceError{status: http.StatusInternalServerError, err: err}
 	}
 	return ruleSubscriptionPersistenceResponse{
@@ -949,6 +957,7 @@ func (s *Server) persistDeveloperConfigWithError(update func(config.DeveloperCon
 		return developerRulesPersistenceResponse{}, rulePersistenceError{status: http.StatusInternalServerError, err: err}
 	}
 	if err := s.engine.Reload(cfg); err != nil {
+		restoreConfigBackup(s.configPath, result.BackupPath)
 		return developerRulesPersistenceResponse{}, rulePersistenceError{status: http.StatusInternalServerError, err: err}
 	}
 	dev := s.developerManager()
@@ -1077,6 +1086,7 @@ func (s *Server) handleSetActiveProfile(w http.ResponseWriter, r *http.Request) 
 			return
 		}
 		if err := s.engine.Reload(cfg); err != nil {
+			restoreConfigBackup(s.configPath, result.BackupPath)
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -1424,4 +1434,22 @@ func (s *Server) handleDeveloperClear(w http.ResponseWriter, r *http.Request) {
 func writeJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(v)
+}
+
+// restoreConfigBackup copies the backup file back to the config path after a
+// failed engine reload, so the on-disk config stays consistent with the
+// running engine's rolled-back state. Errors are logged, not returned,
+// because the caller is already handling a failure.
+func restoreConfigBackup(configPath, backupPath string) {
+	if backupPath == "" {
+		return
+	}
+	data, err := os.ReadFile(backupPath)
+	if err != nil {
+		log.Printf("api: restore backup read %q: %v", backupPath, err)
+		return
+	}
+	if err := os.WriteFile(configPath, data, 0o600); err != nil {
+		log.Printf("api: restore backup write %q: %v", configPath, err)
+	}
 }
