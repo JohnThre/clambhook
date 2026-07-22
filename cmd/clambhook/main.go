@@ -41,6 +41,7 @@ func main() {
 	configPath := flag.String("config", "", "path to config file")
 	apiAddr := flag.String("api", "127.0.0.1:9090", "API listen address")
 	apiToken := flag.String("api-token", os.Getenv("CLAMBHOOK_API_TOKEN"), "bearer token required for API access")
+	licensePath := flag.String("license", os.Getenv("CLAMBHOOK_LICENSE_PATH"), "path to the cached license snapshot JSON; gates state-changing API routes when set")
 	noWatch := flag.Bool("no-watch", false, "disable config file hot-reload")
 	showVersion := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
@@ -113,6 +114,7 @@ func main() {
 		TrafficStore: trafficMgr.Store(),
 		Developer:    developerMgr,
 		ConfigPath:   *configPath,
+		LicensePath:  *licensePath,
 	})
 	if err := srv.Start(resolvedAPIAddr); err != nil {
 		log.Fatalf("start api: %v", err)

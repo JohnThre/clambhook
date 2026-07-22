@@ -4,6 +4,7 @@ public let defaultAPIEndpoint = URL(string: "http://127.0.0.1:9090")!
 public let defaultAppGroupIdentifier = "group.org.jpfchang.clambhook"
 public let defaultAppleDeveloperTeamIdentifier = "V6GG4HYABJ"
 public let defaultAppleKeychainAccessGroup = "\(defaultAppleDeveloperTeamIdentifier).org.jpfchang.clambhook"
+// Resolves to V6GG4HYABJ.org.jpfchang.clambhook — the shared keychain group.
 public let clambhookMacAppBundleIdentifier = "org.jpfchang.clambhook.mac"
 public let clambhookMacWidgetBundleIdentifier = "org.jpfchang.clambhook.mac.widgets"
 public let clambhookMacPrivilegedHelperLabel = "org.jpfchang.clambhook.mac.helper"

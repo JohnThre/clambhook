@@ -27,10 +27,12 @@ type Options struct {
 	// ConfigPath enables API routes that persist changes to the daemon config.
 	ConfigPath string
 
-	// HTTPClient, when non-nil, is used for outbound rule-set and subscription
-	// refreshes instead of the default production client. It exists primarily
-	// for tests that need to dial a local test listener through a public-host URL.
-	HTTPClient *http.Client
+	// LicensePath, when non-empty, gates state-changing API routes on the
+	// cached license snapshot at that path. Empty disables daemon-side
+	// licensing so local development and tests that run without a license
+	// file keep working. When set, the file must contain a license.Snapshot
+	// JSON document; a missing or unreadable file fails closed (403).
+	LicensePath string
 }
 
 // ValidateAuthConfig rejects exposing an unauthenticated control API on

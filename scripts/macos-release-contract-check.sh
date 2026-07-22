@@ -179,6 +179,8 @@ reject_text "$sparkle_updater" "isCriticalUpdate ||" "Sparkle critical-update by
 require_text "$sparkle_updater" "including critical, bug, and security updates" "Sparkle strict update-cutoff copy"
 require_text "$purchase_view" "Buy license - USD" "macOS website license purchase copy"
 require_text "$mobile_support" "ClambHook License" "macOS website license product copy"
+require_text "$settings" "V6GG4HYABJ.org.jpfchang.clambhook" "macOS keychain access group constant"
+require_text "$ROOT_DIR/ui/apple/project.yml" "V6GG4HYABJ.org.jpfchang.clambhook" "macOS widget keychain access group build assertion"
 
 "$ROOT_DIR/scripts/check-source-only.sh" "$ROOT_DIR"
 

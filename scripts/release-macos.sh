@@ -178,15 +178,20 @@ echo "Checksum: $DMG_SHA256"
 
 # Sign release artifacts so users, the website, and Sparkle can verify them.
 # ClambHook releases MUST carry the developer@jpfchang.org GPG signature (DMG
-# checksum + update manifest) AND an EdDSA-signed Sparkle appcast. GPG defaults
-# to the git signing key; pass CLAMBHOOK_GPG_KEY to override. Set
-# CLAMBHOOK_SKIP_GPG=1 ONLY for internal build-validation archives that are
-# never published — it disables both GPG and appcast signing.
-GPG_KEY="${CLAMBHOOK_GPG_KEY:-$(git -C "$ROOT_DIR" config user.signingkey 2>/dev/null || true)}"
+# checksum + update manifest) AND an EdDSA-signed Sparkle appcast. The release
+# key is pinned to EAA876B70B1832F5; pass CLAMBHOOK_GPG_KEY to override for a
+# non-production environment. Set CLAMBHOOK_SKIP_GPG=1 ONLY for internal
+# build-validation archives that are never published — it disables both GPG
+# and appcast signing.
+EXPECTED_GPG_KEY="EAA876B70B1832F5"
+GPG_KEY="${CLAMBHOOK_GPG_KEY:-$EXPECTED_GPG_KEY}"
 REQUIRE_SIGNING=1
 if [[ "${CLAMBHOOK_SKIP_GPG:-0}" == "1" ]]; then
     REQUIRE_SIGNING=0
     echo "CLAMBHOOK_SKIP_GPG=1 set: skipping GPG + appcast signing (internal build-validation archive; do not publish)." >&2
+fi
+if [[ "$REQUIRE_SIGNING" == "1" && "$GPG_KEY" != "$EXPECTED_GPG_KEY" ]]; then
+    echo "WARNING: GPG key $GPG_KEY does not match the project release key $EXPECTED_GPG_KEY. Only use this for non-production builds." >&2
 fi
 
 gpg_sign_release() {
