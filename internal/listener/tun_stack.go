@@ -163,6 +163,9 @@ func (s *PacketStack) Stop() error {
 	s.cancel = nil
 	s.stack = nil
 	s.linkEP = nil
+	if linkEP != nil {
+		linkEP.Close()
+	}
 	s.mu.Unlock()
 
 	if cancel != nil {
@@ -170,9 +173,6 @@ func (s *PacketStack) Stop() error {
 	}
 	if stk != nil {
 		stk.Close()
-	}
-	if linkEP != nil {
-		linkEP.Close()
 	}
 
 	done := make(chan struct{})
@@ -199,11 +199,12 @@ func (s *PacketStack) Stop() error {
 func (s *PacketStack) InjectPacket(pkt []byte) error {
 	s.mu.Lock()
 	linkEP := s.linkEP
-	s.mu.Unlock()
 	if linkEP == nil {
+		s.mu.Unlock()
 		return errors.New("tun: packet stack is not running")
 	}
 	injectPacket(linkEP, pkt)
+	s.mu.Unlock()
 	return nil
 }
 

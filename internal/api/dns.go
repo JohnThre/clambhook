@@ -204,11 +204,13 @@ func (s *Server) handleUpdateDNS(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	if _, err := config.WriteAtomicWithBackup(s.configPath, cfg); err != nil {
+	result, err := config.WriteAtomicWithBackup(s.configPath, cfg)
+	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	if err := s.engine.Reload(cfg); err != nil {
+		restoreConfigBackup(s.configPath, result.BackupPath)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
