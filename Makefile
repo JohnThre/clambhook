@@ -24,8 +24,8 @@ internal-release-notice = @printf '%s\n' "internal-only: this target is for deve
 all: build
 
 check-linux-ui-deps:
-	$(call require-command,meson,Linux UI targets,Install Meson and the GTK development toolchain from the Debian build dependencies.)
-	$(call require-command,valac,Linux UI targets,Install Vala plus GTK4/libadwaita/gee/json-glib/libsoup 3/libsecret development packages from the Debian build dependencies.)
+	$(call require-command,java,Linux UI targets,Install JDK 17 or later.)
+	$(call require-command,gradle,Linux UI targets,Install Gradle 8+ or use the bundled ./gradlew in ui/linux.)
 
 build-clib:
 	$(MAKE) -C clib
@@ -51,8 +51,24 @@ install: build
 	install -m 0755 bin/clambhook-license "$(DESTDIR)$(PREFIX)/bin/clambhook-license"
 
 install-linux: check-linux-ui-deps build-daemon build-tui build-license
-	cd ui/linux && meson setup builddir --prefix="$(LINUX_MESON_PREFIX)" --libexecdir="$(LINUX_MESON_LIBEXECDIR)" --reconfigure -Dclambhook_daemon="$(abspath bin/clambhook)" -Dclambhook_tui="$(abspath bin/clambhook-tui)" -Dclambhook_license="$(abspath bin/clambhook-license)"
-	cd ui/linux && meson install -C builddir $(if $(DESTDIR),--destdir "$(abspath $(DESTDIR))",)
+	cd ui/linux && ./gradlew --no-daemon installDist -PclambhookDaemon="$(abspath bin/clambhook)" -PclambhookTui="$(abspath bin/clambhook-tui)" -PclambhookLicense="$(abspath bin/clambhook-license)"
+	install -d "$(DESTDIR)$(PREFIX)/bin"
+	install -m 0755 ui/linux/build/install/clambhook-linux/bin/clambhook-linux "$(DESTDIR)$(PREFIX)/bin/clambhook-linux"
+	cp -R ui/linux/build/install/clambhook-linux/lib "$(DESTDIR)$(PREFIX)/lib/clambhook-linux"
+	install -d "$(DESTDIR)$(LINUX_MESON_LIBEXECDIR)"
+	install -m 0755 bin/clambhook "$(DESTDIR)$(LINUX_MESON_LIBEXECDIR)/clambhook"
+	install -m 0755 bin/clambhook-tui "$(DESTDIR)$(PREFIX)/bin/clambhook-tui"
+	install -m 0755 bin/clambhook-license "$(DESTDIR)$(LINUX_MESON_LIBEXECDIR)/clambhook-license"
+	install -d "$(DESTDIR)$(PREFIX)/share/applications"
+	install -m 0644 ui/linux/data/com.clambhook.Clambhook.desktop.in "$(DESTDIR)$(PREFIX)/share/applications/com.clambhook.Clambhook.desktop"
+	install -d "$(DESTDIR)$(PREFIX)/share/metainfo"
+	install -m 0644 ui/linux/data/com.clambhook.Clambhook.metainfo.xml.in "$(DESTDIR)$(PREFIX)/share/metainfo/com.clambhook.Clambhook.metainfo.xml"
+	install -d "$(DESTDIR)$(PREFIX)/share/icons/hicolor/1024x1024/apps"
+	install -m 0644 clambhook-icon-1024.png "$(DESTDIR)$(PREFIX)/share/icons/hicolor/1024x1024/apps/com.clambhook.Clambhook.png"
+	install -d "$(DESTDIR)/lib/systemd/system"
+	install -m 0644 packaging/systemd/clambhook-daemon.service "$(DESTDIR)/lib/systemd/system/clambhook-daemon.service"
+	install -d "$(DESTDIR)$(PREFIX)/share/polkit-1/actions"
+	install -m 0644 packaging/polkit/com.clambhook.Clambhook.policy "$(DESTDIR)$(PREFIX)/share/polkit-1/actions/com.clambhook.Clambhook.policy"
 
 prepare-apple-runtime:
 	GOOS=darwin GOARCH=arm64 CGO_ENABLED=1 $(MAKE) build-daemon
@@ -122,10 +138,10 @@ upload-release-android:
 	./scripts/upload-release-android.sh
 
 test-linux: check-linux-ui-deps
-	cd ui/linux && meson setup builddir --reconfigure && meson test -C builddir
+	cd ui/linux && ./gradlew --no-daemon test
 
 build-linux: check-linux-ui-deps build-daemon build-tui build-license
-	cd ui/linux && rm -rf builddir && meson setup builddir -Dclambhook_daemon="$(abspath bin/clambhook)" -Dclambhook_tui="$(abspath bin/clambhook-tui)" -Dclambhook_license="$(abspath bin/clambhook-license)" && meson compile -C builddir
+	cd ui/linux && ./gradlew --no-daemon installDist -PclambhookDaemon="$(abspath bin/clambhook)" -PclambhookTui="$(abspath bin/clambhook-tui)" -PclambhookLicense="$(abspath bin/clambhook-license)"
 
 test: build-clib
 	go test ./...

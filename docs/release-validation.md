@@ -5,7 +5,7 @@ to an approved store channel. The CI system is chosen by platform family:
 
 - **Apple platforms — Xcode Cloud first.** macOS, iOS, iPadOS, watchOS, and
   visionOS installers are built and tested on Xcode Cloud before release.
-- **Non-Apple platforms — GitHub CI/CD first.** GNU/Linux, Windows, and Android
+- **Non-Apple platforms — GitHub CI/CD first.** GNU/Linux and Android
   installers are built and tested with GitHub Actions before release.
 
 CI validates builds and installers; it never publishes end-user installers.
@@ -18,9 +18,9 @@ Distribution stays on the approved channels only (see
 flowchart LR
     commit["Commit / PR / release tag"] --> gate{Platform family}
     gate -->|Apple| xcode["Xcode Cloud<br/>(validate first)"]
-    gate -->|"GNU/Linux · Windows · Android"| github["GitHub Actions<br/>(validate first)"]
+    gate -->|"GNU/Linux · Android"| github["GitHub Actions<br/>(validate first)"]
     xcode --> apple["macOS · iOS · iPadOS<br/>watchOS · visionOS"]
-    github --> other["GNU/Linux · Windows · Android"]
+    github --> other["GNU/Linux · Android"]
     apple --> qa["Manual QA + sign + notarize"]
     other --> qa
     qa --> dist["Distribute via approved store channels only<br/>(never GitHub Releases)"]
@@ -36,13 +36,12 @@ flowchart LR
 | watchOS | Xcode Cloud | watch app | Build + tests | Not shipped for ClambHook |
 | visionOS | Xcode Cloud | vision app | Build + tests on simulator | Not shipped for ClambHook |
 | GNU/Linux | GitHub Actions | `.deb` / `.rpm` / Flatpak / AppImage | Container build + headless smoke (`scripts/validate-linux-distros.sh`) | Shipping (public) |
-| Windows | GitHub Actions | installer | Build + smoke | Discontinued (no planned resumption) |
 | Android | GitHub Actions | `.apk` | `gradlew` unit tests + `assembleDebug` + lint | Internal developer QA |
 
 ClambHook's Apple surface is currently macOS only; the iOS/iPadOS/watchOS/
 visionOS lanes are defined so the same policy applies automatically if those
-targets are added. Windows is discontinued, so its GitHub lane stays defined but
-inactive until a Windows target returns.
+targets are added. Windows development is discontinued with no planned
+resumption date; the Windows CI lane has been removed.
 
 ## Apple lane — Xcode Cloud
 
@@ -83,7 +82,6 @@ flowchart TD
     push["Push / PR / workflow_dispatch"] --> jobs{Job matrix}
     jobs --> linux["linux: container images<br/>ubuntu:24.04 · debian:12 · fedora:41 · rockylinux:9"]
     jobs --> android["android: JDK 17 + Android SDK"]
-    jobs --> windows["windows: defined but inactive<br/>(discontinued)"]
     linux --> lbuild["make build + make build-linux<br/>+ package build (deb/rpm)"]
     lbuild --> lsmoke["Headless smoke:<br/>clambhook-license trial · daemon/tui -version"]
     android --> abuild["gradlew testDebugUnitTest + assembleDebug + lint"]

@@ -22,12 +22,14 @@ Validation is run with `scripts/validate-linux-distros.sh` before release. See `
 Use a dedicated GNU/Linux build host (x86_64 or aarch64) with:
 
 - Go toolchain matching `go.mod`.
-- `gcc`, `pkg-config`, `meson`, `ninja-build`, `valac`.
-- GTK4, libadwaita, gee, json-glib, libsoup 3, libsecret, libsodium development packages.
+- `gcc`, `pkg-config`.
+- JDK 17+ (Kotlin/Compose desktop controller build; provides `javac`/`gradle`).
+- libsodium-dev (Go daemon build).
+- libsecret (runtime; used via `secret-tool` CLI for token storage).
 - For `.deb`: `dpkg-buildpackage`, `dpkg-deb`.
 - For `.rpm`: `rpmbuild`.
-- For Flatpak: `flatpak-builder` plus `org.gnome.Platform//47`, `org.gnome.Sdk//47`, `org.freedesktop.Sdk.Extension.golang//24.08`.
-- For AppImage: the script downloads `linuxdeploy` + plugin + `appimagetool` on first run.
+- For Flatpak: `flatpak-builder` plus `org.freedesktop.Platform//24.08`, `org.freedesktop.Sdk//24.08`, `org.freedesktop.Sdk.Extension.openjdk17//24.08`, `org.freedesktop.Sdk.Extension.golang//24.08`.
+- For AppImage: the script downloads `linuxdeploy` + `appimagetool` on first run.
 - GnuPG with the release key available.
 
 ### 0.2 GPG release key

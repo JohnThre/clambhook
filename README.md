@@ -30,7 +30,7 @@ C library for performance-critical paths.
 graph TD
     subgraph clients["UI clients"]
         mac["macOS app<br/>SwiftUI"]
-        linux["Linux app<br/>GTK4 / Vala"]
+        linux["Linux app<br/>Kotlin / Compose"]
         android["Android app<br/>Kotlin / Compose"]
         tui["Terminal UI<br/>Go / Bubble Tea"]
     end
@@ -170,9 +170,10 @@ See [`docs/macos-v1-scope.md`](docs/macos-v1-scope.md) for the full scope.
 | Platform | UI framework | Status |
 | --- | --- | --- |
 | macOS 14+ (Apple Silicon) | SwiftUI | Public release |
-| GNU/Linux (Bazzite, Rocky Linux, PureOS, Ubuntu, Debian, Fedora) | GTK4 / libadwaita (Vala) | Public release |
-| Windows 11 | — | Discontinued (no planned resumption) |
+| GNU/Linux (Bazzite, Rocky Linux, PureOS, Ubuntu, Debian, Fedora) | Kotlin / Compose Multiplatform | Public release |
 | Android 11+ | Kotlin / Compose | Internal developer QA |
+
+Windows development is discontinued with no planned resumption date.
 
 macOS supports menu bar integration and widgets.
 

@@ -66,8 +66,7 @@ macOS and GNU/Linux ship as public downloads from `store.clambercloud.com`.
 GNU/Linux packages (`.deb`, `.rpm`, Flatpak, AppImage) are still never published
 as GitHub release artifacts. Android is distributed only from
 `clambercloud.com` as a sideloaded APK, never through Google Play. Windows
-development is discontinued
-with no planned resumption date.
+development is discontinued with no planned resumption date.
 
 ## CI Validation Before Release
 
@@ -76,8 +75,7 @@ approved channel — never on GitHub Releases:
 
 - Apple platforms (macOS, iOS, iPadOS, watchOS, visionOS) are validated on
   **Xcode Cloud** first (`ci_scripts/ci_post_clone.sh`).
-- GNU/Linux, Windows, and Android are validated on **GitHub Actions** first
-  (`.github/workflows/installer-validation.yml`), which builds and smoke-tests
+- GNU/Linux and Android are validated on **GitHub Actions** first
   only and uploads no artifacts.
 
 See [`release-validation.md`](release-validation.md) for the full policy and
