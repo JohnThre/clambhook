@@ -15,20 +15,27 @@ final class MacLicenseManager: ObservableObject {
     @Published private(set) var installID = ""
     @Published private(set) var isLoading = false
     @Published private(set) var statusMessage = ""
+    @Published private(set) var lastRevalidationAt: Date?
+    @Published private(set) var isRevalidating = false
 
     private let defaults: UserDefaults
     private let credentialStore: CredentialStoring
-    private let licenseClient: MacLicenseValidationClient
+    private let licenseClient: any MacLicenseValidationClienting
     private var started = false
+    private var lastRevalidationAttemptAt: Date?
+
+    /// Minimum interval between periodic server revalidation attempts.
+    static let revalidationMinInterval: TimeInterval = 60 * 60 * 6  // 6 hours
 
     init(
         defaults: UserDefaults = UserDefaults(suiteName: defaultAppGroupIdentifier) ?? .standard,
         credentialStore: CredentialStoring = KeychainCredentialStore(service: "org.jpfchang.clambhook.license"),
-        licenseValidationEndpoint: URL = defaultLicenseValidationURL
+        licenseValidationEndpoint: URL = defaultLicenseValidationURL,
+        licenseClient: (any MacLicenseValidationClienting)? = nil
     ) {
         self.defaults = defaults
         self.credentialStore = credentialStore
-        self.licenseClient = MacLicenseValidationClient(endpoint: licenseValidationEndpoint)
+        self.licenseClient = licenseClient ?? MacLicenseValidationClient(endpoint: licenseValidationEndpoint)
         let initialSnapshot = Self.initialSnapshot(defaults: defaults)
         let initialInstallID = (try? credentialStore.readToken(account: macLicenseInstallAccount)) ?? ""
         self.snapshot = initialSnapshot
@@ -80,6 +87,49 @@ final class MacLicenseManager: ObservableObject {
             try credentialStore.saveToken(normalizedOptional(email), account: macLicenseEmailAccount)
             apply(response, message: "License activated.")
         }
+    }
+
+    /// Periodically revalidate the cached license against the hosted backend
+    /// so a refunded or revoked paid license is caught without waiting for the
+    /// user to manually activate. No-op for trial-only devices (no saved key).
+    /// Offline failures fail open: the cached snapshot stays in force and the
+    /// evaluator's offline-grace window (7 days) governs continued use.
+    func revalidateIfNeeded(now: Date = Date(), force: Bool = false) {
+        let trimmedKey = savedLicenseKey().trimmingCharacters(in: .whitespaceAndNewlines)
+        guard !trimmedKey.isEmpty else { return }
+        guard force || shouldRevalidate(now: now) else { return }
+        guard !isRevalidating else { return }
+        lastRevalidationAttemptAt = now
+        isRevalidating = true
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let response = try await self.licenseClient.activate(
+                    licenseKey: trimmedKey,
+                    email: normalizedOptional(self.savedEmail()),
+                    device: self.deviceRegistration()
+                )
+                await MainActor.run {
+                    self.applySilently(response)
+                    self.lastRevalidationAt = Date()
+                }
+            } catch {
+                // Offline failures fail open: the cached snapshot stays in
+                // force and the evaluator's offline-grace window governs
+                // continued use. Only record the failure timestamp.
+                await MainActor.run {
+                    self.markSilentVerificationFailure(error)
+                }
+            }
+            await MainActor.run { self.isRevalidating = false }
+        }
+    }
+
+    private func shouldRevalidate(now: Date) -> Bool {
+        if let last = lastRevalidationAttemptAt {
+            return now.timeIntervalSince(last) >= Self.revalidationMinInterval
+        }
+        return true
     }
 
     func deactivateCurrentDevice() async {
@@ -154,6 +204,33 @@ final class MacLicenseManager: ObservableObject {
         statusMessage = error.localizedDescription
     }
 
+    /// Silent revalidation success: apply the server response without
+    /// touching isLoading or statusMessage, so background revalidation does
+    /// not flash the UI. Still calls save() → refreshDecision() so a
+    /// revocation is enforced immediately.
+    private func applySilently(_ response: MacLicenseServerResponse) {
+        MobileServerLicenseGrantStore.save(response.grant, defaults: defaults)
+        var next = response.snapshot.licenseSnapshot
+        let now = Date()
+        next.lastVerifiedAt = now
+        next.lastVerificationFailedAt = nil
+        next.cachedAt = now
+        save(next, now: now)
+        let nextDeviceState = response.deviceState.withCurrentInstallID(installID)
+        deviceState = nextDeviceState
+        MobileLicenseDeviceStateStore.save(nextDeviceState, defaults: defaults)
+    }
+
+    /// Silent revalidation failure: record the failure timestamp so the
+    /// offline-grace window starts, but do not overwrite statusMessage.
+    private func markSilentVerificationFailure(_ error: Error) {
+        var next = snapshot
+        let now = Date()
+        next.lastVerificationFailedAt = now
+        next.cachedAt = now
+        save(next, now: now)
+    }
+
     private func save(_ next: MobileLicenseSnapshot, now: Date = Date()) {
         snapshot = next
         MobileLicenseSnapshotStore.save(next, defaults: defaults)
@@ -209,8 +286,25 @@ final class MacLicenseManager: ObservableObject {
         return MobileLicenseSnapshotStore.load(defaults: defaults)
     }
 }
+protocol MacLicenseValidationClienting {
+    func activate(
+        licenseKey: String,
+        email: String?,
+        device: MobileLicenseDeviceRegistration
+    ) async throws -> MacLicenseServerResponse
 
-private final class MacLicenseValidationClient {
+    func deviceAction(
+        path: String,
+        licenseKey: String,
+        installID: String,
+        deviceID: String?,
+        device: MobileLicenseDeviceRegistration
+    ) async throws -> MacLicenseServerResponse
+}
+
+
+
+private final class MacLicenseValidationClient: MacLicenseValidationClienting {
     private let endpoint: URL
     private let session: URLSession
     private let encoder: JSONEncoder

@@ -24,7 +24,20 @@ struct MacCommandRunner: MacCommandRunning {
         process.standardError = stderr
 
         try process.run()
-        process.waitUntilExit()
+
+        // Bound the wait so a hung child (e.g. networksetup waiting on a stale
+        // service) cannot block app termination indefinitely.
+        let deadline = DispatchTime.now() + .seconds(10)
+        let waitGroup = DispatchGroup()
+        waitGroup.enter()
+        DispatchQueue.global().async {
+            process.waitUntilExit()
+            waitGroup.leave()
+        }
+        if waitGroup.wait(timeout: deadline) == .timedOut {
+            process.terminate()
+            throw MacCommandError.failed("command timed out: \(executable)")
+        }
 
         let outData = stdout.fileHandleForReading.readDataToEndOfFile()
         let errData = stderr.fileHandleForReading.readDataToEndOfFile()
