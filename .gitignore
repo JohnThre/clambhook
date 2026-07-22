@@ -91,3 +91,6 @@ docs/superpowers/
 
 # Stray root build artifact from `go build ./cmd/clambhook-license`
 /clambhook-license
+/clambhook
+/clambhook-tui
+/socks5_udp

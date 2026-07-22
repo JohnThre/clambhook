@@ -10,9 +10,9 @@ final class MacSystemProxyManager: ObservableObject {
     private let defaults: UserDefaults
     private let snapshotKey = "clambhook.mac.system-proxy.snapshot"
 
-    init(runner: MacCommandRunning = MacCommandRunner(), defaults: UserDefaults = .standard) {
+    init(runner: MacCommandRunning = MacCommandRunner(), defaults: UserDefaults? = nil) {
         self.runner = runner
-        self.defaults = defaults
+        self.defaults = defaults ?? (UserDefaults(suiteName: defaultAppGroupIdentifier) ?? .standard)
     }
 
     func apply(enabled: Bool, listen: ConfigListenSettingsPayload) {

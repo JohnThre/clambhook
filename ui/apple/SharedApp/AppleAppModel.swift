@@ -139,6 +139,7 @@ final class AppleAppModel: ObservableObject {
                 listen: configSettings.listen
             )
             refreshSparkleGate()
+            licenseManager.revalidateIfNeeded(force: true)
             #endif
         }
     }
@@ -1164,10 +1165,10 @@ final class AppleAppModel: ObservableObject {
                 await self?.dashboard.refreshStatus()
                 await self?.refreshPendingPromptsNow()
                 await MainActor.run {
-                    _ = self?.syncProfileRecoveryIssue()
                     self?.enforceLicenseState()
                     #if os(macOS)
                     self?.refreshAttributionSnapshot()
+                    self?.licenseManager.revalidateIfNeeded()
                     #endif
                 }
             }
