@@ -10,6 +10,10 @@ import "sync"
 // an append + a concurrent Since walk must not tear. RWMutex would be
 // tempting but append writes every 2 fields, so read-heavy optimization is
 // not worth the added complexity.
+//
+// The caller (Bus) is responsible for inserting events in per-shard Lamport
+// order. Ring.Since walks entries in insertion order and relies on that
+// invariant to return monotonic replay streams.
 type Ring struct {
 	mu    sync.Mutex
 	buf   []Event
@@ -65,6 +69,10 @@ func (r *Ring) Since(since uint64) (events []Event, okAll bool) {
 	// No gap iff the subscriber's cursor is at or after the event just
 	// before our oldest retained entry. I.e., we have event `since+1` or
 	// they already saw everything we dropped.
+	//
+	// Using `oldestLamport <= since+1` rather than `oldestLamport-1 <= since`
+	// avoids the wraparound corner case where since == math.MaxUint64 would
+	// incorrectly report no gap.
 	okAll = oldestLamport <= since+1
 
 	out := make([]Event, 0, r.size)

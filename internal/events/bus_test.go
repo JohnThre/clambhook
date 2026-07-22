@@ -1,9 +1,166 @@
 package events
 
 import (
+	"fmt"
+	"sync"
 	"testing"
 	"time"
 )
+
+// marker is a tiny sentinel payload so the test can distinguish event sources
+// without relying on the public data types.
+type marker struct {
+	Source string `json:"source"`
+}
+
+func TestBusConcurrentPublishReplayOrderAndGap(t *testing.T) {
+	// Small ring to force eviction and gap signals under high contention.
+	b := NewBus(Config{SubBufferSize: 256, RingCapacity: 64, MeterInterval: time.Hour})
+	defer b.Close()
+
+	const publishers = 16
+	const eventsPerPublisher = 200
+
+	// One heavily contended shard: many goroutines + scanner-like bytes events.
+	contended := b.NewShard()
+
+	// Two unrelated shards to prove no cross-shard serialization/ordering.
+	unrelatedA := b.NewShard()
+	unrelatedB := b.NewShard()
+
+	var wg sync.WaitGroup
+
+	// Flood the contended shard with mixed event types, including
+	// connection.bytes to mimic the scanner goroutine racing with handlers.
+	for i := range publishers {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			for j := range eventsPerPublisher {
+				if j%5 == 0 {
+					b.Publish(contended, TypeConnectionBytes, ConnectionBytesData{
+						ConnID:  "c1",
+						RxDelta: uint64(id + 1),
+						TxDelta: 0,
+					})
+				} else {
+					b.Publish(contended, "test.seq", marker{Source: fmt.Sprintf("g%d", id)})
+				}
+			}
+		}(i)
+	}
+
+	// Absorb edges on the contended shard from one of the unrelated shards.
+	// This exercises the cross-shard Lamport merge path under contention.
+	for range 4 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := range 50 {
+				remote := unrelatedA.Snapshot()
+				if remote == 0 {
+					// Unrelated shard hasn't emitted yet; fall back to a synthetic value.
+					remote = uint64(j)
+				}
+				b.NewEmitter(contended).EmitAbsorb(remote, "test.absorb", marker{Source: "absorb"})
+			}
+		}()
+	}
+
+	// Independent traffic on unrelated shards; must remain ordered and gap-free.
+	for range 4 {
+		wg.Add(1)
+		go func(shard *Shard, name string) {
+			defer wg.Done()
+			for range 40 {
+				b.Publish(shard, "unrelated", marker{Source: name})
+			}
+		}(unrelatedA, "A")
+		wg.Add(1)
+		go func(shard *Shard, name string) {
+			defer wg.Done()
+			for range 40 {
+				b.Publish(shard, "unrelated", marker{Source: name})
+			}
+		}(unrelatedB, "B")
+	}
+
+	wg.Wait()
+
+	// Verify contended shard replay: gap first, then strictly monotonic.
+	subCont := b.Subscribe(Filter{Since: map[uint64]uint64{contended.ID(): 0}})
+	var contReplay []Event
+	if err := b.DrainReplay(subCont, func(ev Event) error {
+		contReplay = append(contReplay, ev)
+		return nil
+	}); err != nil {
+		t.Fatalf("DrainReplay contended: %v", err)
+	}
+	if len(contReplay) == 0 || contReplay[0].Type != TypeReplayGap {
+		t.Fatalf("contended shard: expected replay.gap first, got %d events, first=%+v", len(contReplay), contReplay)
+	}
+	gapData := contReplay[0].Data.(ReplayGapData)
+	if gapData.ShardID != contended.ID() {
+		t.Fatalf("contended gap shard_id=%d want %d", gapData.ShardID, contended.ID())
+	}
+	if gapData.OldestLamport == 0 {
+		t.Fatalf("contended gap oldest_lamport should be non-zero, got %+v", gapData)
+	}
+	var prev uint64
+	for i, ev := range contReplay[1:] {
+		if ev.ShardID != contended.ID() {
+			t.Fatalf("contended replay[%d]: shard_id=%d want %d", i, ev.ShardID, contended.ID())
+		}
+		if ev.Lamport <= prev {
+			t.Fatalf("contended replay not monotonic at %d: prev=%d ev=%+v", i, prev, ev)
+		}
+		prev = ev.Lamport
+	}
+	if got := len(contReplay) - 1; got > b.cfg.RingCapacity {
+		t.Fatalf("contended replay returned %d events, want <= ring capacity %d", got, b.cfg.RingCapacity)
+	}
+
+	// Verify unrelated shards are monotonic. They may or may not produce a
+	// gap depending on how many events each goroutine managed to publish,
+	// so we only assert monotonicity and that any gap is well-formed.
+	for _, shard := range []*Shard{unrelatedA, unrelatedB} {
+		sub := b.Subscribe(Filter{Since: map[uint64]uint64{shard.ID(): 0}})
+		var replay []Event
+		if err := b.DrainReplay(sub, func(ev Event) error {
+			replay = append(replay, ev)
+			return nil
+		}); err != nil {
+			t.Fatalf("DrainReplay shard %d: %v", shard.ID(), err)
+		}
+		if len(replay) == 0 {
+			t.Fatalf("shard %d: expected replay events, got none", shard.ID())
+		}
+		start := 0
+		if replay[0].Type == TypeReplayGap {
+			gapData := replay[0].Data.(ReplayGapData)
+			if gapData.ShardID != shard.ID() {
+				t.Fatalf("shard %d gap shard_id=%d want %d", shard.ID(), gapData.ShardID, shard.ID())
+			}
+			if gapData.OldestLamport == 0 {
+				t.Fatalf("shard %d gap oldest_lamport should be non-zero", shard.ID())
+			}
+			start = 1
+		}
+		prev = 0
+		for i, ev := range replay[start:] {
+			if ev.Lamport <= prev {
+				t.Fatalf("shard %d replay not monotonic at %d: prev=%d ev=%+v", shard.ID(), i, prev, ev)
+			}
+			prev = ev.Lamport
+		}
+		if got := len(replay) - start; got > b.cfg.RingCapacity {
+			t.Fatalf("shard %d replay returned %d events, want <= ring capacity %d", shard.ID(), got, b.cfg.RingCapacity)
+		}
+		sub.Unsubscribe()
+	}
+
+	subCont.Unsubscribe()
+}
 
 func TestBusPublishFanOut(t *testing.T) {
 	b := NewBus(Config{SubBufferSize: 8, RingCapacity: 8, MeterInterval: time.Hour})
@@ -88,7 +245,7 @@ func TestBusSlowConsumerDisconnect(t *testing.T) {
 
 	shard := b.NewShard()
 	// Flood past the 2-event buffer without draining.
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		b.Publish(shard, "spam", nil)
 	}
 
@@ -108,7 +265,7 @@ func TestBusReplaySince(t *testing.T) {
 	defer b.Close()
 
 	shard := b.NewShard()
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		b.Publish(shard, "seq", nil)
 	}
 
@@ -141,7 +298,7 @@ func TestBusReplayGapSignal(t *testing.T) {
 
 	shard := b.NewShard()
 	// Fill beyond cap so lamports 1-2 are evicted.
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		b.Publish(shard, "seq", nil)
 	}
 

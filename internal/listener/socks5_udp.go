@@ -40,13 +40,11 @@ import (
 //     target peers in its frames, which matches our needs — we don't need
 //     a per-target session.
 func (s *SOCKSv5) handleUDPAssociate(ctx context.Context, control net.Conn, ce *connEvents) {
-	// The relay socket and the BND.ADDR we return must be reachable by the
-	// SOCKS client on the same IP family as the TCP control connection: an
-	// IPv6 client cannot reach a relay bound on the IPv4 wildcard, and an
-	// IPv4 client cannot reach an IPv6-only relay. Bind the relay to the
-	// control connection's family so the reported endpoint is reachable.
-	relayNetwork, wildcard, bndFallback := relayBindForControl(control)
-	relay, err := net.ListenUDP(relayNetwork, &net.UDPAddr{IP: wildcard, Port: 0})
+	// Bind the relay to the same local address used by the TCP control
+	// connection. Binding to a wildcard here would expose a loopback-only
+	// SOCKS listener's authenticated UDP association on every interface.
+	relayNetwork, bindIP, bndFallback := relayBindForControl(control)
+	relay, err := net.ListenUDP(relayNetwork, &net.UDPAddr{IP: bindIP, Port: 0})
 	if err != nil {
 		log.Printf("socks5 udp: listen relay: %v", err)
 		_ = writeReply(control, repGeneralFailure, "")
@@ -54,12 +52,9 @@ func (s *SOCKSv5) handleUDPAssociate(ctx context.Context, control net.Conn, ce *
 	}
 	defer relay.Close()
 
-	// The BND.ADDR we return must be reachable by the SOCKS client. Derive it
-	// from the TCP control's local addr so loopback, NAT, and multi-homed
-	// hosts resolve correctly; fall back to the loopback of the relay's family
-	// when the local addr is unavailable.
-	bndHost, _, err := net.SplitHostPort(control.LocalAddr().String())
-	if err != nil || bndHost == "" {
+	// Advertise the address on which the relay is actually listening.
+	bndHost := bindIP.String()
+	if bndHost == "" {
 		bndHost = bndFallback
 	}
 	bndPort := relay.LocalAddr().(*net.UDPAddr).Port
@@ -275,16 +270,20 @@ func (s *SOCKSv5) handleUDPAssociate(ctx context.Context, control net.Conn, ce *
 	udpCancel()
 }
 
-// relayBindForControl selects the UDP relay bind parameters matching the TCP
-// control connection's IP family. A UDP-associate relay bound on the wrong
-// family is unreachable by the client, so an IPv6 control connection gets an
-// IPv6 relay (and IPv6 loopback BND fallback); everything else defaults to
-// IPv4.
-func relayBindForControl(control net.Conn) (network string, wildcard net.IP, bndFallback string) {
-	if ip := controlLocalIP(control); ip != nil && ip.To4() == nil && ip.To16() != nil {
-		return "udp6", net.IPv6zero, "::1"
+// relayBindForControl binds the UDP relay to the TCP control connection's
+// local address. This keeps an association reachable through the same
+// interface without exposing a loopback-only SOCKS listener on wildcard UDP.
+// If the address is unknown or unspecified, fail closed to loopback.
+func relayBindForControl(control net.Conn) (network string, bindIP net.IP, bndFallback string) {
+	if ip := controlLocalIP(control); ip != nil {
+		if ip4 := ip.To4(); ip4 != nil && !ip4.IsUnspecified() {
+			return "udp4", ip4, "127.0.0.1"
+		}
+		if ip6 := ip.To16(); ip6 != nil && !ip6.IsUnspecified() {
+			return "udp6", ip6, "::1"
+		}
 	}
-	return "udp4", net.IPv4zero, "127.0.0.1"
+	return "udp4", net.IPv4(127, 0, 0, 1), "127.0.0.1"
 }
 
 // controlLocalIP returns the local IP of the control connection, or nil when

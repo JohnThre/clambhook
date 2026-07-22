@@ -15,9 +15,15 @@ import (
 
 	"github.com/JohnThre/clambhook/internal/config"
 	"github.com/JohnThre/clambhook/internal/listener"
+	"github.com/JohnThre/clambhook/internal/subscription"
 )
 
 const breakpointTimeout = 30 * time.Second
+
+// repeatHTTPClient is the HTTP client used by Repeat. It is overridable in
+// tests so replay traffic can be routed to a local server without touching
+// the public network.
+var repeatHTTPClient *http.Client
 
 // RepeatRequest asks the daemon to resend a captured request.
 type RepeatRequest struct {
@@ -286,6 +292,9 @@ func (m *Manager) Repeat(ctx context.Context, repeat RepeatRequest) (RepeatRespo
 	if err != nil {
 		return RepeatResponse{}, err
 	}
+	if err := subscription.ValidatePublicHTTPURL(ctx, req.URL); err != nil {
+		return RepeatResponse{}, err
+	}
 	if len(repeat.Headers) > 0 {
 		for _, header := range repeat.Headers {
 			req.Header.Add(header.Name, header.Value)
@@ -329,7 +338,11 @@ func (m *Manager) Repeat(ctx context.Context, repeat RepeatRequest) (RepeatRespo
 			},
 		},
 	}
-	resp, err := (&http.Client{Timeout: 30 * time.Second}).Do(req)
+	client := repeatHTTPClient
+	if client == nil {
+		client = &http.Client{Timeout: 30 * time.Second}
+	}
+	resp, err := subscription.ClientWithSafeRedirects(client).Do(req)
 	out.FinishedAt = time.Now()
 	if err != nil {
 		out.Error = err.Error()

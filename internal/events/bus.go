@@ -131,10 +131,17 @@ func (b *Bus) RetireShard(shard *Shard) {
 // The shard parameter determines which Lamport counter and which ring
 // buffer the event lives in. Callers typically use Emitter.Emit instead of
 // this method directly.
+//
+// Per-shard Lamport assignment and ring insertion are serialized by the
+// shard's mutex so replay always sees events in monotonic Lamport order,
+// even when handler goroutines and the scanner race on the same shard.
+// Live fan-out is non-blocking and runs after the shard lock is released,
+// so unrelated shards are never delayed by each other.
 func (b *Bus) Publish(shard *Shard, eventType string, data any) {
 	if b.closed.Load() {
 		return
 	}
+	shard.mu.Lock()
 	ev := Event{
 		ShardID: shard.ID(),
 		Lamport: shard.Tick(),
@@ -142,25 +149,23 @@ func (b *Bus) Publish(shard *Shard, eventType string, data any) {
 		Type:    eventType,
 		Data:    data,
 	}
-	b.deliver(ev)
+	b.appendRing(ev)
+	shard.mu.Unlock()
+	b.fanout(ev)
 }
 
-// publishPreTicked broadcasts an event whose Lamport was already assigned
-// (e.g., after Absorb). Internal helper for EmitAbsorb and replay-gap
-// synthesis.
-func (b *Bus) publishPreTicked(ev Event) {
-	if b.closed.Load() {
-		return
-	}
-	b.deliver(ev)
-}
-
-// deliver appends to the shard ring and fans out to subscribers.
-func (b *Bus) deliver(ev Event) {
+// appendRing stores ev in its shard's replay ring. Must be called while
+// holding the shard mutex (or otherwise serialized per-shard) so that ring
+// insertion order matches Lamport order.
+func (b *Bus) appendRing(ev Event) {
 	if r, ok := b.rings.Load(ev.ShardID); ok {
 		r.(*Ring).Append(ev)
 	}
+}
 
+// fanout delivers ev to all matching subscribers without blocking the caller.
+// Slow subscribers are marked and cancelled rather than stalling the bus.
+func (b *Bus) fanout(ev Event) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 	for _, sub := range b.subs {
@@ -193,17 +198,22 @@ func (e *busEmitter) Emit(eventType string, data any) {
 }
 
 func (e *busEmitter) EmitAbsorb(remote uint64, eventType string, data any) {
-	if e.bus.closed.Load() {
+	b := e.bus
+	if b.closed.Load() {
 		return
 	}
+	shard := e.shard
+	shard.mu.Lock()
 	ev := Event{
-		ShardID: e.shard.ID(),
-		Lamport: e.shard.Absorb(remote),
+		ShardID: shard.ID(),
+		Lamport: shard.Absorb(remote),
 		TsNs:    time.Now().UnixNano(),
 		Type:    eventType,
 		Data:    data,
 	}
-	e.bus.publishPreTicked(ev)
+	b.appendRing(ev)
+	shard.mu.Unlock()
+	b.fanout(ev)
 }
 
 // NewEmitter returns an Emitter bound to the given shard. Every connection

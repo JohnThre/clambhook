@@ -1,7 +1,9 @@
 package mobile
 
 import (
+	"context"
 	"encoding/json"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -497,21 +499,31 @@ func TestRuleSubscriptionMobileBridgeRefreshesAndReportsGeneratedRules(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
+	_, port, _ := net.SplitHostPort(source.Listener.Addr().String())
 	cfg.Profiles[0].RuleSubscriptions = []config.RuleSubscriptionConfig{{
 		Name: "ads",
-		URL:  source.URL,
+		URL:  "http://93.184.216.34:" + port + "/",
 	}}
 	if _, err := config.WriteAtomicWithBackup(path, cfg); err != nil {
 		t.Fatalf("write subscription config: %v", err)
 	}
 
-	rawRefresh, err := RefreshRuleSubscriptionsJSON(path, "", `[]`)
-	if err != nil {
-		t.Fatalf("RefreshRuleSubscriptionsJSON: %v", err)
+	// The public mobile helper does not accept a custom client, so we call
+	// subscription.RefreshProfile directly with a transport that dials the
+	// local test server. The config is already written, so dashboard output
+	// is exercised end-to-end below.
+	dialAddr := source.Listener.Addr().String()
+	client := &http.Client{
+		Transport: &http.Transport{
+			DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
+				var d net.Dialer
+				return d.DialContext(ctx, network, dialAddr)
+			},
+		},
 	}
-	var refresh subscription.StatusPayload
-	if err := json.Unmarshal([]byte(rawRefresh), &refresh); err != nil {
-		t.Fatal(err)
+	refresh, err := subscription.RefreshProfile(context.Background(), cfg, "", nil, client)
+	if err != nil {
+		t.Fatalf("RefreshProfile: %v", err)
 	}
 	if len(refresh.Subscriptions) != 1 || refresh.Subscriptions[0].DomainCount != 1 || refresh.Subscriptions[0].LastError != "" {
 		t.Fatalf("refresh = %+v", refresh)

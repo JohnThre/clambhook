@@ -1,6 +1,9 @@
 package events
 
-import "sync/atomic"
+import (
+	"sync"
+	"sync/atomic"
+)
 
 // Shard is a per-connection Lamport counter. Every connection handler owns
 // exactly one Shard; all events that connection emits share it. Emits are
@@ -9,6 +12,13 @@ import "sync/atomic"
 type Shard struct {
 	id      uint64
 	lamport atomic.Uint64
+
+	// mu serializes Lamport assignment and ring insertion for this shard.
+	// The bus holds it across Tick/Absorb + Ring.Append so that insertion
+	// order in the replay buffer always matches per-shard Lamport order,
+	// even when the scanner goroutine races with the connection handler.
+	// Fan-out happens after releasing mu to keep live delivery non-blocking.
+	mu sync.Mutex
 }
 
 // ID returns the shard's immutable identifier.

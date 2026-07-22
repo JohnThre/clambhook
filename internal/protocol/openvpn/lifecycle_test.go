@@ -3,8 +3,11 @@ package openvpn
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/netip"
@@ -18,6 +21,56 @@ import (
 	"golang.zx2c4.com/wireguard/tun"
 	"golang.zx2c4.com/wireguard/tun/netstack"
 )
+
+func TestOpenVPNHandshakeTimesOutOnStalledPeer(t *testing.T) {
+	oldFactory := newOpenVPNInstance
+	newOpenVPNInstance = newInstance
+	t.Cleanup(func() { newOpenVPNInstance = oldFactory })
+
+	// Bind a UDP port and immediately release it so we have a remote
+	// address that accepts writes but never replies. This is a
+	// deterministic blackhole peer.
+	ln, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0})
+	if err != nil {
+		t.Fatalf("bind placeholder udp: %v", err)
+	}
+	port := ln.LocalAddr().(*net.UDPAddr).Port
+	_ = ln.Close()
+
+	caPEM, certPEM, keyPEM := testFixturePEMs(t)
+	pool := x509.NewCertPool()
+	if !pool.AppendCertsFromPEM([]byte(caPEM)) {
+		t.Fatal("failed to load fixture CA")
+	}
+	cert, err := tls.X509KeyPair([]byte(certPEM), []byte(keyPEM))
+	if err != nil {
+		t.Fatalf("load fixture key pair: %v", err)
+	}
+	cfg := &config{
+		remote:     fmt.Sprintf("127.0.0.1:%d", port),
+		caPool:     pool,
+		clientCert: cert,
+		tunMTU:     1500,
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+
+	start := time.Now()
+	inst, err := newInstance(ctx, cfg)
+	if inst != nil {
+		_ = inst.Close()
+	}
+	if err == nil {
+		t.Fatal("expected handshake to fail on a blackhole peer")
+	}
+	if !errors.Is(err, context.DeadlineExceeded) && !strings.Contains(err.Error(), "context deadline exceeded") {
+		t.Fatalf("handshake err = %v, want context deadline exceeded", err)
+	}
+	if elapsed := time.Since(start); elapsed > 2*time.Second {
+		t.Fatalf("handshake took %s to time out, expected < 2s", elapsed)
+	}
+}
 
 const (
 	openVPNLifecycleTargetIP      = "10.65.0.1"

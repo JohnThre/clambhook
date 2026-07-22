@@ -71,8 +71,8 @@ func Start(configPath, apiAddr, apiToken string) error {
 	bus := events.NewBus(events.DefaultConfig())
 	log.SetOutput(io.MultiWriter(os.Stderr, logstream.NewWriter(bus)))
 	eng := engine.New(cfg, bus)
-	trafficMgr, err := traffic.NewManager(cfg.Traffic, func(address string) (*geo.Location, error) {
-		return eng.GeoReader().Lookup(address)
+	trafficMgr, err := traffic.NewManager(cfg.Traffic, func(ctx context.Context, address string) (*geo.Location, error) {
+		return eng.GeoReader().LookupCtx(ctx, address)
 	})
 	if err != nil {
 		eng.Stop()

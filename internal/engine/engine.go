@@ -152,6 +152,9 @@ func (e *Engine) SetHTTPInspector(inspector listener.HTTPInspector) {
 // cancelling a slow listener bind). Listener lifetime is governed by the
 // engine's own internal context; callers with a short-lived ctx (like an
 // HTTP handler) can safely return without tearing listeners down.
+//
+// If ctx is cancelled before startup completes, partially-constructed
+// listeners and chains are rolled back.
 func (e *Engine) Start(ctx context.Context) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -162,7 +165,7 @@ func (e *Engine) Start(ctx context.Context) error {
 	if err := validateRuntimeConfig(e.cfg); err != nil {
 		return fmt.Errorf("start engine: validate: %w", err)
 	}
-	return e.startLocked()
+	return e.startLocked(ctx)
 }
 
 // Stop shuts down the engine.
@@ -205,10 +208,10 @@ func (e *Engine) Reload(cfg *config.Config) error {
 		log.Printf("reload: stop listeners: %v", err)
 	}
 	e.cfg = cfg
-	if err := e.startLocked(); err != nil {
+	if err := e.startLocked(context.Background()); err != nil {
 		startErr := err
 		e.cfg = oldCfg
-		if rollbackErr := e.startLocked(); rollbackErr != nil {
+		if rollbackErr := e.startLocked(context.Background()); rollbackErr != nil {
 			return fmt.Errorf("reload: restart: %w; rollback failed: %v", startErr, rollbackErr)
 		}
 		return fmt.Errorf("reload: restart: %w; rolled back to previous config", startErr)
@@ -242,10 +245,10 @@ func (e *Engine) SetActiveProfile(name string) error {
 	if err := e.stopLocked(); err != nil {
 		log.Printf("profile switch: stop listeners: %v", err)
 	}
-	if err := e.startLocked(); err != nil {
+	if err := e.startLocked(context.Background()); err != nil {
 		startErr := err
 		e.cfg.Active = oldActive
-		if rollbackErr := e.startLocked(); rollbackErr != nil {
+		if rollbackErr := e.startLocked(context.Background()); rollbackErr != nil {
 			return fmt.Errorf("profile switch: restart: %w; rollback failed: %v", startErr, rollbackErr)
 		}
 		return fmt.Errorf("profile switch: restart: %w; rolled back to profile %q", startErr, oldActive)
@@ -255,7 +258,9 @@ func (e *Engine) SetActiveProfile(name string) error {
 }
 
 // startLocked performs the actual listener setup. Caller holds e.mu.
-func (e *Engine) startLocked() error {
+// parent bounds the startup (bind) phase; the engine's long-lived internal
+// context starts from a background context when startup succeeds.
+func (e *Engine) startLocked(parent context.Context) error {
 	profile, err := e.cfg.ActiveProfile()
 	if err != nil {
 		return fmt.Errorf("start engine: %w", err)
@@ -264,8 +269,14 @@ func (e *Engine) startLocked() error {
 
 	// Engine owns its own context — independent of any caller's ctx. This
 	// lets short-lived callers (HTTP handlers, CLI one-shots) invoke Start
-	// without their ctx cancellation tearing listeners down.
+	// without their ctx cancellation tearing listeners down. The caller's
+	// ctx still bounds the bind/setup phase.
 	ctx, cancel := context.WithCancel(context.Background())
+	defer func() {
+		if parent.Err() != nil {
+			cancel()
+		}
+	}()
 
 	e.promptMgr.Configure(prompt.Config{
 		Enabled:      e.cfg.Prompt.Enabled,
@@ -279,6 +290,23 @@ func (e *Engine) startLocked() error {
 	}
 
 	for _, l := range listeners {
+		if parent.Err() != nil {
+			// Roll back because the caller cancelled during an earlier
+			// listener's slow start.
+			for j := 0; j < len(listeners); j++ {
+				if stopErr := listeners[j].Stop(); stopErr != nil {
+					log.Printf("engine: rollback stop %s: %v", listeners[j].Protocol(), stopErr)
+				}
+			}
+			if closeErr := closeChains(chains); closeErr != nil {
+				log.Printf("engine: rollback close chains: %v", closeErr)
+			}
+			if policies != nil {
+				_ = policies.Close()
+			}
+			cancel()
+			return fmt.Errorf("start %s: %w", l.Protocol(), context.Cause(parent))
+		}
 		if startErr := l.Start(ctx); startErr != nil {
 			// Roll back all constructed listeners. Unstarted listeners are
 			// expected to no-op but may still own prebuilt resources.
@@ -306,11 +334,23 @@ func (e *Engine) startLocked() error {
 		e.policies.Start(ctx)
 	}
 	e.running = true
-	if e.watcher != nil {
+	if e.watcher != nil && profilesHaveNetworkTriggers(e.cfg.Profiles) {
 		go e.runNetworkWatch(ctx)
 	}
 	log.Printf("engine started with profile %q (%d listeners)", profile.Name, len(listeners))
 	return nil
+}
+
+// profilesHaveNetworkTriggers reports whether any profile wants automatic
+// profile switching based on network changes. This avoids spawning the
+// netwatch poller when no triggers are configured.
+func profilesHaveNetworkTriggers(profiles []config.Profile) bool {
+	for i := range profiles {
+		if len(profiles[i].NetworkTriggers) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // stopLocked performs the actual listener teardown. Caller holds e.mu.

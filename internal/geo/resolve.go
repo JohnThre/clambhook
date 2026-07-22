@@ -25,6 +25,13 @@ var resolver ipResolver = net.DefaultResolver
 // a bounded context. IPv4 is preferred over IPv6 because MMDB IPv6 records
 // are often sparser; fallback to the first IPv6 if no IPv4 was returned.
 func resolveAddress(address string) (net.IP, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), resolveTimeout)
+	defer cancel()
+	return resolveAddressCtx(ctx, address)
+}
+
+// resolveAddressCtx is the context-aware form of resolveAddress.
+func resolveAddressCtx(ctx context.Context, address string) (net.IP, error) {
 	if address == "" {
 		return nil, fmt.Errorf("empty address")
 	}
@@ -38,9 +45,9 @@ func resolveAddress(address string) (net.IP, error) {
 		return ip, nil
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), resolveTimeout)
+	resolveCtx, cancel := context.WithTimeout(ctx, resolveTimeout)
 	defer cancel()
-	addrs, err := resolver.LookupIPAddr(ctx, host)
+	addrs, err := resolver.LookupIPAddr(resolveCtx, host)
 	if err != nil {
 		return nil, fmt.Errorf("resolve %q: %w", host, err)
 	}

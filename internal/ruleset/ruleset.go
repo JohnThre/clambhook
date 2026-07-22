@@ -176,6 +176,9 @@ func RefreshOne(ctx context.Context, configPath, profileName string, set config.
 	if err != nil {
 		return err
 	}
+	if err := subscription.ValidatePublicHTTPURL(ctx, req.URL); err != nil {
+		return err
+	}
 	if oldErr == nil {
 		if old.ETag != "" {
 			req.Header.Set("If-None-Match", old.ETag)

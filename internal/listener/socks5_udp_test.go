@@ -203,6 +203,35 @@ func (timeoutErr) Error() string   { return "i/o timeout" }
 func (timeoutErr) Timeout() bool   { return true }
 func (timeoutErr) Temporary() bool { return true }
 
+type localAddrConn struct {
+	net.Conn
+	local net.Addr
+}
+
+func (c localAddrConn) LocalAddr() net.Addr { return c.local }
+
+func TestRelayBindForControlUsesLocalIP(t *testing.T) {
+	tests := []struct {
+		name        string
+		local       net.Addr
+		wantNetwork string
+		wantIP      net.IP
+	}{
+		{name: "IPv4 loopback", local: &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 1080}, wantNetwork: "udp4", wantIP: net.IPv4(127, 0, 0, 1)},
+		{name: "IPv6 loopback", local: &net.TCPAddr{IP: net.IPv6loopback, Port: 1080}, wantNetwork: "udp6", wantIP: net.IPv6loopback},
+		{name: "unknown address", wantNetwork: "udp4", wantIP: net.IPv4(127, 0, 0, 1)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			network, bindIP, _ := relayBindForControl(localAddrConn{local: tt.local})
+			if network != tt.wantNetwork || !bindIP.Equal(tt.wantIP) {
+				t.Fatalf("relay bind = %s %s, want %s %s", network, bindIP, tt.wantNetwork, tt.wantIP)
+			}
+		})
+	}
+}
+
 func TestSOCKSv5UDPAssociateRoundTrip(t *testing.T) {
 	fake := newFakePacketConn()
 
@@ -298,6 +327,53 @@ func TestSOCKSv5UDPAssociateRoundTrip(t *testing.T) {
 	}
 	if string(payload) != "DNS REPLY" {
 		t.Errorf("payload = %q, want 'DNS REPLY'", payload)
+	}
+}
+
+type udpRoutePlanner struct {
+	packet net.PacketConn
+}
+
+func (p udpRoutePlanner) DefaultChainName() string { return "test" }
+
+func (p udpRoutePlanner) Plan(context.Context, string, string) (RoutePlan, error) {
+	return RoutePlan{
+		Action:    RouteActionChain,
+		ChainName: "test",
+		DialPacket: func(context.Context, string) (net.PacketConn, error) {
+			return p.packet, nil
+		},
+	}, nil
+}
+
+func TestSOCKSv5UDPAssociateAcceptedWithPlanner(t *testing.T) {
+	s := NewSOCKSv5WithPlanner("127.0.0.1:0", nil, udpRoutePlanner{packet: newFakePacketConn()}, Options{})
+	if err := s.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Stop() })
+
+	control, err := net.Dial("tcp", s.Addr())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer control.Close()
+	if _, err := control.Write([]byte{0x05, 0x01, 0x00}); err != nil {
+		t.Fatal(err)
+	}
+	method := make([]byte, 2)
+	if _, err := readFull(control, method); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := control.Write([]byte{0x05, cmdUDPAssociate, 0, atypIPv4, 0, 0, 0, 0, 0, 0}); err != nil {
+		t.Fatal(err)
+	}
+	reply := make([]byte, 10)
+	if _, err := readFull(control, reply); err != nil {
+		t.Fatal(err)
+	}
+	if reply[1] != repSuccess {
+		t.Fatalf("UDP ASSOCIATE reply = %#x, want success for planner-provided UDP", reply[1])
 	}
 }
 

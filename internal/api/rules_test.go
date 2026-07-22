@@ -2,7 +2,9 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -15,6 +17,17 @@ import (
 	_ "github.com/JohnThre/clambhook/internal/protocol/tor"
 	"github.com/JohnThre/clambhook/internal/traffic"
 )
+
+// publicTestIP is a well-known public address used in place of a local test
+// server so the SSRF policy permits refresh requests. The test transport dials
+// the actual local listener regardless of the URL host.
+const publicTestIP = "93.184.216.34"
+
+func publicHostURL(srv *httptest.Server, path string) string {
+	_, port, _ := net.SplitHostPort(srv.Listener.Addr().String())
+	return "http://" + publicTestIP + ":" + port + path
+}
+
 
 func TestRulesEndpointReturnsActiveProfileRules(t *testing.T) {
 	cfg := testServersConfig("A")
@@ -849,7 +862,7 @@ func TestRuleSubscriptionRefreshGeneratesEffectiveRules(t *testing.T) {
 	cfg := testRuleCreateConfig()
 	cfg.Profiles[0].RuleSubscriptions = []config.RuleSubscriptionConfig{{
 		Name:   "ads",
-		URL:    source.URL,
+		URL:    publicHostURL(source, "/"),
 		Format: "auto",
 		Action: "block",
 	}}
@@ -857,6 +870,14 @@ func TestRuleSubscriptionRefreshGeneratesEffectiveRules(t *testing.T) {
 		t.Fatalf("write initial config: %v", err)
 	}
 	srv := NewWithOptions(engine.New(cfg, nil), nil, Options{ConfigPath: path})
+	srv.SetHTTPClient(&http.Client{
+		Transport: &http.Transport{
+			DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
+				var d net.Dialer
+				return d.DialContext(ctx, network, source.Listener.Addr().String())
+			},
+		},
+	})
 
 	refreshReq := httptest.NewRequest(http.MethodPost, "/api/v1/rule-subscriptions/refresh", bytes.NewReader([]byte(`{}`)))
 	refreshRec := httptest.NewRecorder()
@@ -969,7 +990,7 @@ func TestRuleSetRefreshFeedsRouteExplain(t *testing.T) {
 	cfg := testRuleCreateConfig()
 	cfg.Profiles[0].RuleSets = []config.RuleSetConfig{{
 		Name:   "ads",
-		URL:    source.URL,
+		URL:    publicHostURL(source, "/"),
 		Format: "auto",
 	}}
 	cfg.Profiles[0].Rules = []config.RuleConfig{{
@@ -982,6 +1003,14 @@ func TestRuleSetRefreshFeedsRouteExplain(t *testing.T) {
 		t.Fatalf("write initial config: %v", err)
 	}
 	srv := NewWithOptions(engine.New(cfg, nil), nil, Options{ConfigPath: path})
+	srv.SetHTTPClient(&http.Client{
+		Transport: &http.Transport{
+			DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
+				var d net.Dialer
+				return d.DialContext(ctx, network, source.Listener.Addr().String())
+			},
+		},
+	})
 
 	refreshReq := httptest.NewRequest(http.MethodPost, "/api/v1/rule-sets/refresh", bytes.NewReader([]byte(`{}`)))
 	refreshRec := httptest.NewRecorder()

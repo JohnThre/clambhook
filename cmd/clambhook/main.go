@@ -90,8 +90,8 @@ func main() {
 		log.Fatalf("developer: %v", err)
 	}
 	eng.SetHTTPInspector(developerMgr)
-	trafficMgr, err := traffic.NewManager(cfg.Traffic, func(address string) (*geo.Location, error) {
-		return eng.GeoReader().Lookup(address)
+	trafficMgr, err := traffic.NewManager(cfg.Traffic, func(ctx context.Context, address string) (*geo.Location, error) {
+		return eng.GeoReader().LookupCtx(ctx, address)
 	})
 	if err != nil {
 		log.Fatalf("traffic: %v", err)

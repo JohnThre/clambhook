@@ -11,6 +11,15 @@ import (
 	"strings"
 )
 
+// ipResolver matches the net.Resolver method used for public-host checks.
+type ipResolver interface {
+	LookupNetIP(ctx context.Context, network, host string) ([]netip.Addr, error)
+}
+
+// resolver is the host resolver used by ValidatePublicHTTPURL and redirect
+// validation. Tests override it with deterministic stubs.
+var resolver ipResolver = net.DefaultResolver
+
 // ClientWithSafeRedirects returns a shallow copy of client that revalidates
 // every redirect without mutating the caller's client. Same-origin redirects
 // are allowed. A cross-origin redirect requires an existing CheckRedirect
@@ -47,6 +56,20 @@ func ClientWithSafeRedirects(client *http.Client) *http.Client {
 		return configuredPolicy(req, via)
 	}
 	return &redirectClient
+}
+
+// ValidatePublicHTTPURL applies the same public-host SSRF policy used for
+// redirects to an initial request URL. It rejects non-HTTP(S) URLs, missing
+// hosts, and any host that is loopback, private, link-local, unspecified,
+// multicast, CGNAT, or resolves entirely to such addresses.
+func ValidatePublicHTTPURL(ctx context.Context, u *url.URL) error {
+	if err := validateRedirectURL(u); err != nil {
+		return err
+	}
+	if err := validatePublicRedirectHost(ctx, u.Hostname()); err != nil {
+		return err
+	}
+	return nil
 }
 
 func validateRedirectURL(target *url.URL) error {
@@ -103,7 +126,7 @@ func validatePublicRedirectHost(ctx context.Context, rawHost string) error {
 		return nil
 	}
 
-	addrs, err := net.DefaultResolver.LookupNetIP(ctx, "ip", host)
+	addrs, err := resolver.LookupNetIP(ctx, "ip", host)
 	if err != nil {
 		return fmt.Errorf("resolve redirect target host %q: %w", rawHost, err)
 	}

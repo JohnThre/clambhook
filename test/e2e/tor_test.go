@@ -82,7 +82,7 @@ Log notice stdout
 		t.Fatalf("tor echo = %q, want %q", got, payload)
 	}
 
-	if err := ch.CheckPacketSupport(); err == nil || !strings.Contains(err.Error(), "does not support UDP") {
+	if err := ch.CheckPacketSupport(); err == nil || !strings.Contains(err.Error(), "Tor does not carry UDP") {
 		t.Fatalf("Tor UDP support err = %v, want unsupported", err)
 	}
 }
@@ -96,7 +96,7 @@ func TestTorUDPUnsupportedWithoutDaemon(t *testing.T) {
 		},
 	}
 	defer ch.Close()
-	if err := ch.CheckPacketSupport(); err == nil || !strings.Contains(err.Error(), "does not support UDP") {
+	if err := ch.CheckPacketSupport(); err == nil || !strings.Contains(err.Error(), "Tor does not carry UDP") {
 		t.Fatalf("Tor UDP support err = %v, want unsupported", err)
 	}
 }

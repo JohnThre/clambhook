@@ -24,6 +24,7 @@ import (
 const (
 	defaultTimeout = 5 * time.Second
 	maxDNSMessage  = 65535
+	minDNSMessage  = 12
 
 	protocolDoH = "doh"
 	protocolDoT = "dot"
@@ -652,8 +653,8 @@ func readDNSFrame(r io.Reader) ([]byte, error) {
 		return nil, err
 	}
 	n := int(binary.BigEndian.Uint16(lenBuf[:]))
-	if n == 0 {
-		return nil, errors.New("empty DNS response")
+	if n < minDNSMessage {
+		return nil, errors.New("DNS response too short")
 	}
 	resp := make([]byte, n)
 	if _, err := io.ReadFull(r, resp); err != nil {
