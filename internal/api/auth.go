@@ -26,6 +26,11 @@ type Options struct {
 
 	// ConfigPath enables API routes that persist changes to the daemon config.
 	ConfigPath string
+
+	// HTTPClient, when non-nil, is used for outbound rule-set and subscription
+	// refreshes instead of the default production client. It exists primarily
+	// for tests that need to dial a local test listener through a public-host URL.
+	HTTPClient *http.Client
 }
 
 // ValidateAuthConfig rejects exposing an unauthenticated control API on

@@ -2,7 +2,9 @@ package traffic
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -13,25 +15,33 @@ import (
 
 func TestStoreAggregatesAndPersistsClosedHistory(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "traffic-history.json")
+	bus := events.NewBus(events.Config{MeterInterval: time.Hour})
+	defer bus.Close()
+
 	store, err := NewStore(config.TrafficConfig{
 		Enabled:       true,
 		HistoryLimit:  10,
 		HistoryMaxAge: config.Duration(time.Hour),
 		HistoryPath:   path,
-	}, func(address string) (*geo.Location, error) {
+	}, func(ctx context.Context, address string) (*geo.Location, error) {
 		return &geo.Location{Country: "United States", CountryCode: "US", City: "New York"}, nil
 	})
 	if err != nil {
 		t.Fatalf("NewStore: %v", err)
 	}
+	defer store.Close()
 
-	store.ApplyEvent(events.Event{TsNs: 1, Type: events.TypeConnectionOpened, Data: events.ConnectionOpenedData{
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	store.Start(ctx, bus)
+
+	store.ApplyEvent(events.Event{TsNs: time.Now().UnixNano(), Type: events.TypeConnectionOpened, Data: events.ConnectionOpenedData{
 		ConnID:     "c1",
 		Listener:   events.ListenerInfo{Protocol: "socks5", Addr: "127.0.0.1:1080"},
 		ClientAddr: "127.0.0.1:50000",
 		ChainName:  "default",
 	}})
-	store.ApplyEvent(events.Event{TsNs: 2, Type: events.TypeConnectionDialing, Data: events.ConnectionDialingData{
+	store.ApplyEvent(events.Event{TsNs: time.Now().UnixNano(), Type: events.TypeConnectionDialing, Data: events.ConnectionDialingData{
 		ConnID:     "c1",
 		Target:     "example.com:443",
 		TargetHost: "example.com",
@@ -86,6 +96,16 @@ func TestStoreAggregatesAndPersistsClosedHistory(t *testing.T) {
 	if conn.Application != "HTTPS" || conn.RxBps != 2048 || conn.TxBps != 1024 {
 		t.Fatalf("live connection = %+v", conn)
 	}
+	// Geo is resolved asynchronously; wait for it to land.
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		c, ok := store.Connection("c1")
+		if ok && c.Geo.CountryCode == "US" {
+			conn = c
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 	if conn.Geo.CountryCode != "US" {
 		t.Fatalf("geo = %+v", conn.Geo)
 	}
@@ -115,6 +135,12 @@ func TestStoreAggregatesAndPersistsClosedHistory(t *testing.T) {
 		t.Fatalf("closed connection = %+v", closed.Connections[0])
 	}
 
+	// Cancel the store context and wait for the final coalesced flush.
+	cancel()
+	if err := store.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
 	reloaded, err := NewStore(config.TrafficConfig{
 		Enabled:       true,
 		HistoryLimit:  10,
@@ -124,6 +150,7 @@ func TestStoreAggregatesAndPersistsClosedHistory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reload NewStore: %v", err)
 	}
+	defer reloaded.Close()
 	if got := len(reloaded.Snapshot("closed", 0).Connections); got != 1 {
 		t.Fatalf("reloaded closed connections = %d, want 1", got)
 	}
@@ -298,7 +325,7 @@ func TestRuleSuggestionsSuppressEffectiveRuleCoverage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewStore: %v", err)
 	}
-	store.ApplyEvent(events.Event{TsNs: 1, Type: events.TypeConnectionOpened, Data: events.ConnectionOpenedData{
+	store.ApplyEvent(events.Event{TsNs: time.Now().UnixNano(), Type: events.TypeConnectionOpened, Data: events.ConnectionOpenedData{
 		ConnID:  "c1",
 		Profile: "Work",
 	}})
@@ -388,7 +415,7 @@ func TestStoreReconfigureDisabledStopsRecording(t *testing.T) {
 	if err := store.Reconfigure(config.TrafficConfig{Enabled: false, HistoryLimit: 10, HistoryMaxAge: config.Duration(time.Hour)}); err != nil {
 		t.Fatalf("Reconfigure: %v", err)
 	}
-	store.ApplyEvent(events.Event{TsNs: 1, Type: events.TypeConnectionOpened, Data: events.ConnectionOpenedData{ConnID: "c1"}})
+	store.ApplyEvent(events.Event{TsNs: time.Now().UnixNano(), Type: events.TypeConnectionOpened, Data: events.ConnectionOpenedData{ConnID: "c1"}})
 	if got := len(store.Snapshot("all", 0).Connections); got != 0 {
 		t.Fatalf("connections after disabled recording = %d, want 0", got)
 	}
@@ -473,6 +500,316 @@ func TestManagerReconfigureUpdatesExistingStore(t *testing.T) {
 	if snapshot.Summary.HistoryLimit != 20 || snapshot.Summary.HistoryPath != pathB {
 		t.Fatalf("summary = %+v, want limit/path update", snapshot.Summary)
 	}
+}
+
+// newTestStore creates an enabled store wired to a fresh event bus.
+func newTestStore(t *testing.T, cfg config.TrafficConfig, lookup GeoLookupFunc) (*Store, *events.Bus, context.Context, context.CancelFunc) {
+	t.Helper()
+	bus := events.NewBus(events.Config{MeterInterval: time.Hour})
+	t.Cleanup(bus.Close)
+	store, err := NewStore(cfg, lookup)
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	ctx, cancel := context.WithCancel(context.Background())
+	store.Start(ctx, bus)
+	return store, bus, ctx, cancel
+}
+
+// TestAsyncGeoLookupDoesNotBlockEventOrdering verifies that a slow hostname/geo
+// lookup never holds the store lock and never delays lifecycle events.
+func TestAsyncGeoLookupDoesNotBlockEventOrdering(t *testing.T) {
+	var calls int64
+	blocked := make(chan struct{})
+	resume := make(chan struct{})
+
+	store, _, _, cancel := newTestStore(t, config.TrafficConfig{
+		Enabled:       true,
+		HistoryLimit:  10,
+		HistoryMaxAge: config.Duration(time.Hour),
+		HistoryPath:   filepath.Join(t.TempDir(), "traffic-history.json"),
+	}, func(ctx context.Context, address string) (*geo.Location, error) {
+		atomic.AddInt64(&calls, 1)
+		close(blocked)
+		select {
+		case <-resume:
+			return &geo.Location{Country: "United States", CountryCode: "US", City: "New York"}, nil
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	})
+	defer cancel()
+
+	store.ApplyEvent(events.Event{TsNs: time.Now().UnixNano(), Type: events.TypeConnectionOpened, Data: events.ConnectionOpenedData{
+		ConnID: "c1",
+	}})
+	store.ApplyEvent(events.Event{TsNs: 2, Type: events.TypeConnectionDialing, Data: events.ConnectionDialingData{
+		ConnID: "c1",
+		Target: "example.com:443",
+	}})
+	// Dialing blocks the enrichment worker but must not block ApplyEvent.
+	select {
+	case <-blocked:
+	case <-time.After(time.Second):
+		t.Fatal("geo lookup was never invoked")
+	}
+
+	// Lifecycle events must continue to arrive while geo is stalled.
+	store.ApplyEvent(events.Event{TsNs: time.Now().UnixNano(), Type: events.TypeConnectionEstablished, Data: events.ConnectionEstablishedData{
+		ConnID:      "c1",
+		TotalDialNs: int64(10 * time.Millisecond),
+	}})
+	store.ApplyEvent(events.Event{TsNs: time.Now().UnixNano(), Type: events.TypeConnectionClosed, Data: events.ConnectionClosedData{
+		ConnID:  "c1",
+		Reason:  events.ReasonClientEOF,
+		RxTotal: 100,
+		TxTotal: 50,
+	}})
+
+	if c, ok := store.Connection("c1"); !ok || c.State != StateClosed {
+		t.Fatalf("connection should be closed while geo blocked, got %+v", c)
+	}
+
+	close(resume)
+	// Once geo resolves, the enrichment result must land on the closed record.
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		c, ok := store.Connection("c1")
+		if ok && c.Geo.CountryCode == "US" {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("geo result never landed on closed connection")
+}
+
+// TestEnrichmentCannotWriteOntoReplacedConnection verifies that a stale async
+// geo result is discarded when the same conn_id is replaced before the lookup
+// completes.
+func TestEnrichmentCannotWriteOntoReplacedConnection(t *testing.T) {
+	resumeFirst := make(chan struct{})
+	resumeSecond := make(chan struct{})
+	firstStarted := make(chan struct{}, 1)
+	secondStarted := make(chan struct{}, 1)
+
+	store, _, _, cancel := newTestStore(t, config.TrafficConfig{
+		Enabled:       true,
+		HistoryLimit:  10,
+		HistoryMaxAge: config.Duration(time.Hour),
+		HistoryPath:   filepath.Join(t.TempDir(), "traffic-history.json"),
+	}, func(ctx context.Context, address string) (*geo.Location, error) {
+		if address == "old.example.com:443" {
+			firstStarted <- struct{}{}
+			select {
+			case <-resumeFirst:
+				return &geo.Location{Country: "Oldland", CountryCode: "OL"}, nil
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+		}
+		secondStarted <- struct{}{}
+		select {
+		case <-resumeSecond:
+			return &geo.Location{Country: "Newland", CountryCode: "NW"}, nil
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	})
+	defer cancel()
+
+	store.ApplyEvent(events.Event{TsNs: time.Now().UnixNano(), Type: events.TypeConnectionOpened, Data: events.ConnectionOpenedData{
+		ConnID: "c1",
+	}})
+	store.ApplyEvent(events.Event{TsNs: 2, Type: events.TypeConnectionDialing, Data: events.ConnectionDialingData{
+		ConnID: "c1",
+		Target: "old.example.com:443",
+	}})
+	<-firstStarted
+
+	// Replace the connection under the same ID before the first lookup returns.
+	store.ApplyEvent(events.Event{TsNs: 3, Type: events.TypeConnectionOpened, Data: events.ConnectionOpenedData{
+		ConnID: "c1",
+	}})
+	store.ApplyEvent(events.Event{TsNs: 4, Type: events.TypeConnectionDialing, Data: events.ConnectionDialingData{
+		ConnID: "c1",
+		Target: "new.example.com:443",
+	}})
+
+	// The single enrichWorker processes jobs serially, so release the first
+	// lookup to let the second one start.
+	close(resumeFirst)
+	<-secondStarted
+	close(resumeSecond)
+
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		c, ok := store.Connection("c1")
+		if ok && c.Geo.CountryCode == "NW" {
+			if c.GeoError != "" || c.Geo.CountryCode == "OL" {
+				t.Fatalf("stale geo result landed: %+v", c.Geo)
+			}
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("expected new geo result, got %+v", store.Snapshot("all", 0).Connections)
+}
+
+// TestPersistenceCoalescesManyCloses verifies that a burst of closed connections
+// produces a bounded number of atomic disk writes and that the final file
+// contains the latest state.
+func TestPersistenceCoalescesManyCloses(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "traffic-history.json")
+
+	var writes int64
+	store, _, _, cancel := newTestStore(t, config.TrafficConfig{
+		Enabled:       true,
+		HistoryLimit:  100,
+		HistoryMaxAge: config.Duration(time.Hour),
+		HistoryPath:   path,
+	}, nil)
+	store.persistCoalesce = 5 * time.Millisecond
+	store.persistHook = func() { atomic.AddInt64(&writes, 1) }
+	defer cancel()
+
+	for i := 0; i < 20; i++ {
+		id := fmt.Sprintf("c%d", i)
+		store.ApplyEvent(events.Event{TsNs: time.Now().UnixNano(), Type: events.TypeConnectionOpened, Data: events.ConnectionOpenedData{
+			ConnID: id,
+		}})
+		store.ApplyEvent(events.Event{TsNs: time.Now().UnixNano(), Type: events.TypeConnectionClosed, Data: events.ConnectionClosedData{
+			ConnID:  id,
+			Reason:  events.ReasonClientEOF,
+			RxTotal: uint64(i + 1),
+			TxTotal: uint64(i + 1),
+		}})
+	}
+
+	// Wait for coalesced writes to settle.
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+	if err := store.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	if got := atomic.LoadInt64(&writes); got <= 0 || got >= 20 {
+		t.Fatalf("persistence writes = %d, want bounded and < 20", got)
+	}
+
+	reloaded, err := NewStore(config.TrafficConfig{
+		Enabled:       true,
+		HistoryLimit:  100,
+		HistoryMaxAge: config.Duration(time.Hour),
+		HistoryPath:   path,
+	}, nil)
+	if err != nil {
+		t.Fatalf("reload NewStore: %v", err)
+	}
+	defer reloaded.Close()
+	closed := reloaded.Snapshot("closed", 0).Connections
+	if len(closed) != 20 {
+		t.Fatalf("reloaded closed = %d, want 20", len(closed))
+	}
+	var total uint64
+	for _, c := range closed {
+		total += c.RxTotal
+	}
+	wantTotal := uint64(20 * 21 / 2)
+	if total != wantTotal {
+		t.Fatalf("reloaded rx total = %d, want %d", total, wantTotal)
+	}
+}
+
+// TestCloseFlushesFinalPersistence verifies that cancelling the store context
+// does not lose the most recent closed connection.
+func TestCloseFlushesFinalPersistence(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "traffic-history.json")
+
+	store, _, _, cancel := newTestStore(t, config.TrafficConfig{
+		Enabled:       true,
+		HistoryLimit:  10,
+		HistoryMaxAge: config.Duration(time.Hour),
+		HistoryPath:   path,
+	}, nil)
+	store.persistCoalesce = time.Hour // coalesce must not delay the final flush
+	defer cancel()
+
+	store.ApplyEvent(events.Event{TsNs: time.Now().UnixNano(), Type: events.TypeConnectionOpened, Data: events.ConnectionOpenedData{
+		ConnID: "last",
+	}})
+	store.ApplyEvent(events.Event{TsNs: time.Now().UnixNano(), Type: events.TypeConnectionClosed, Data: events.ConnectionClosedData{
+		ConnID:  "last",
+		Reason:  events.ReasonClientEOF,
+		RxTotal: 1234,
+		TxTotal: 567,
+	}})
+
+	cancel()
+	if err := store.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	reloaded, err := NewStore(config.TrafficConfig{
+		Enabled:       true,
+		HistoryLimit:  10,
+		HistoryMaxAge: config.Duration(time.Hour),
+		HistoryPath:   path,
+	}, nil)
+	if err != nil {
+		t.Fatalf("reload NewStore: %v", err)
+	}
+	defer reloaded.Close()
+	if got := len(reloaded.Snapshot("closed", 0).Connections); got != 1 {
+		t.Fatalf("reloaded closed = %d, want 1", got)
+	}
+}
+
+// TestEnrichmentBackpressureDropsWithoutBlocking verifies that when the bounded
+// enrichment queue fills, the event loop stays responsive.
+func TestEnrichmentBackpressureDropsWithoutBlocking(t *testing.T) {
+	block := make(chan struct{})
+	store, _, _, cancel := newTestStore(t, config.TrafficConfig{
+		Enabled:       true,
+		HistoryLimit:  10,
+		HistoryMaxAge: config.Duration(time.Hour),
+		HistoryPath:   filepath.Join(t.TempDir(), "traffic-history.json"),
+	}, func(ctx context.Context, address string) (*geo.Location, error) {
+		select {
+		case <-block:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+		return &geo.Location{Country: "United States", CountryCode: "US"}, nil
+	})
+	defer cancel()
+
+	// Queue size is 256; oversaturate it while the worker is blocked.
+	for i := 0; i < 300; i++ {
+		id := fmt.Sprintf("c%d", i)
+		store.ApplyEvent(events.Event{TsNs: time.Now().UnixNano(), Type: events.TypeConnectionOpened, Data: events.ConnectionOpenedData{
+			ConnID: id,
+		}})
+		store.ApplyEvent(events.Event{TsNs: time.Now().UnixNano(), Type: events.TypeConnectionDialing, Data: events.ConnectionDialingData{
+			ConnID: id,
+			Target: fmt.Sprintf("host%d.example.com:443", i),
+		}})
+	}
+
+	// The last connection must be able to close despite the stalled worker.
+	store.ApplyEvent(events.Event{TsNs: time.Now().UnixNano(), Type: events.TypeConnectionClosed, Data: events.ConnectionClosedData{
+		ConnID:  "c299",
+		Reason:  events.ReasonClientEOF,
+		RxTotal: 1,
+	}})
+
+	if c, ok := store.Connection("c299"); !ok || c.State != StateClosed {
+		t.Fatalf("last connection should be closed under backpressure, got %+v", c)
+	}
+
+	close(block)
+	// Unblock the worker so it can exit cleanly.
+	time.Sleep(10 * time.Millisecond)
 }
 
 func waitForConnections(t *testing.T, store *Store, want int) {

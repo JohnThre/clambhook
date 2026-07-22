@@ -32,6 +32,10 @@ type Server struct {
 	// held through lockConfigTxn. See that method for the discipline.
 	configMu sync.Mutex
 	addr     string
+	// httpClient is used for outbound rule-set/subscription refreshes. It is
+	// normally nil so production uses the default safe-redirects client; tests
+	// may inject a transport that dials local listeners under a public-host URL.
+	httpClient *http.Client
 }
 
 // lockConfigTxn acquires the configuration transaction mutex and returns the
@@ -83,8 +87,13 @@ func NewWithOptions(eng *engine.Engine, bus *events.Bus, opts Options) *Server {
 	return s
 }
 
-// Start begins listening on the given address.
+// Start begins listening on the given address. It enforces that a non-empty
+// bearer token is configured whenever addr is not a loopback interface, so
+// non-loopback tokenless exposure is impossible for any caller.
 func (s *Server) Start(addr string) error {
+	if err := ValidateAuthConfig(addr, s.authToken); err != nil {
+		return err
+	}
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
 		return err
@@ -120,6 +129,15 @@ func (s *Server) trafficStore() *traffic.Store {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.traffic
+}
+
+// SetHTTPClient injects the outbound HTTP client used for rule-set and
+// subscription refreshes. Tests use it to redirect requests to local
+// listeners under a public-host URL.
+func (s *Server) SetHTTPClient(c *http.Client) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.httpClient = c
 }
 
 // SetDeveloper swaps the manager backing /api/v1/developer/*.

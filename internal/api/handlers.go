@@ -316,16 +316,20 @@ func (s *Server) handleRefreshRuleSets(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	cfg, err := config.Load(configPath)
+
+	// Fetch remote data while NOT holding the config transaction lock. Slow
+	// fetches must not block other config edits, and the fetched cache files
+	// on disk are already atomically replaced by ruleset.RefreshProfile.
+	fetchCfg, err := config.Load(configPath)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	currentProfile := strings.TrimSpace(s.engine.Status().Profile)
 	if currentProfile != "" {
-		cfg.Active = currentProfile
+		fetchCfg.Active = currentProfile
 	}
-	payload, err := ruleset.RefreshProfile(r.Context(), cfg, req.Profile, req.Names, nil)
+	payload, err := ruleset.RefreshProfile(r.Context(), fetchCfg, req.Profile, req.Names, s.httpClient)
 	if err != nil {
 		status := http.StatusBadRequest
 		if strings.Contains(err.Error(), "not found") {
@@ -334,15 +338,49 @@ func (s *Server) handleRefreshRuleSets(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), status)
 		return
 	}
-	if err := s.engine.Reload(cfg); err != nil {
+
+	// Finalize: reload the latest disk config under the serializing lock so a
+	// concurrent edit committed during the fetch is not overwritten by the
+	// stale pre-fetch config, then write and reload the engine.
+	defer s.lockConfigTxn()()
+	cfg, err := config.Load(configPath)
+	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	profile, _ := selectAPIProfile(cfg, req.Profile)
+	if currentProfile != "" {
+		cfg.Active = currentProfile
+	}
+	profile, ok := cfg.ProfileByName(payload.Profile)
+	if !ok {
+		// The profile could have been renamed or deleted while we were
+		// unlocked; fall back to reporting the payload we fetched.
+		profile, _ = fetchCfg.ProfileByName(payload.Profile)
+	}
+	if profile != nil {
+		// Ensure the returned config snapshot reflects any rule-set entries
+		// that were present on disk before the fetch (the cache files were
+		// already updated atomically by the fetch).
+		_ = profile
+	}
+	if err := engine.ValidateConfig(cfg); err != nil {
+		http.Error(w, "validate config: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	result, err := config.WriteAtomicWithBackup(configPath, cfg)
+	if err != nil {
+		http.Error(w, "write config: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if err := s.engine.Reload(cfg); err != nil {
+		http.Error(w, "reload engine: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
 	writeJSON(w, map[string]any{
-		"profile":   payload.Profile,
-		"rule_sets": append([]config.RuleSetConfig(nil), profile.RuleSets...),
-		"statuses":  payload.RuleSets,
+		"profile":    payload.Profile,
+		"rule_sets":  append([]config.RuleSetConfig(nil), profile.RuleSets...),
+		"statuses":   payload.RuleSets,
+		"backup_path": result.BackupPath,
 	})
 }
 
@@ -363,16 +401,20 @@ func (s *Server) handleRefreshRuleSubscriptions(w http.ResponseWriter, r *http.R
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	cfg, err := config.Load(configPath)
+
+	// Fetch remote data while NOT holding the config transaction lock. Slow
+	// fetches must not block other config edits; subscription cache files are
+	// atomically replaced by subscription.RefreshProfile.
+	fetchCfg, err := config.Load(configPath)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	currentProfile := strings.TrimSpace(s.engine.Status().Profile)
 	if currentProfile != "" {
-		cfg.Active = currentProfile
+		fetchCfg.Active = currentProfile
 	}
-	payload, err := subscription.RefreshProfile(r.Context(), cfg, req.Profile, req.Names, nil)
+	payload, err := subscription.RefreshProfile(r.Context(), fetchCfg, req.Profile, req.Names, s.httpClient)
 	if err != nil {
 		status := http.StatusBadRequest
 		if strings.Contains(err.Error(), "not found") {
@@ -381,11 +423,43 @@ func (s *Server) handleRefreshRuleSubscriptions(w http.ResponseWriter, r *http.R
 		http.Error(w, err.Error(), status)
 		return
 	}
-	if err := s.engine.Reload(cfg); err != nil {
+
+	// Finalize: reload the latest disk config under the serializing lock so a
+	// concurrent edit committed during the fetch is not overwritten by the
+	// stale pre-fetch config, then write and reload the engine.
+	defer s.lockConfigTxn()()
+	cfg, err := config.Load(configPath)
+	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	writeJSON(w, payload)
+	if currentProfile != "" {
+		cfg.Active = currentProfile
+	}
+	if _, ok := cfg.ProfileByName(payload.Profile); !ok {
+		// The profile could have been renamed or deleted while we were
+		// unlocked. Report the fetched payload but do not write anything.
+		writeJSON(w, payload)
+		return
+	}
+	if err := engine.ValidateConfig(cfg); err != nil {
+		http.Error(w, "validate config: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	result, err := config.WriteAtomicWithBackup(configPath, cfg)
+	if err != nil {
+		http.Error(w, "write config: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if err := s.engine.Reload(cfg); err != nil {
+		http.Error(w, "reload engine: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, map[string]any{
+		"profile":     payload.Profile,
+		"subscriptions": payload.Subscriptions,
+		"backup_path": result.BackupPath,
+	})
 }
 
 func validateRuleTestTarget(target string) error {

@@ -297,6 +297,91 @@ func writeSelfSignedCert(t *testing.T, dir string) (certPath, keyPath string) {
 	return certPath, keyPath
 }
 
+func writeOpenVPNPKI(t *testing.T, dir string) (caPEM, serverCertPEM, serverKeyPEM, clientCertPEM, clientKeyPEM string) {
+	t.Helper()
+
+	notBefore := time.Now().Add(-time.Hour)
+	notAfter := time.Now().Add(24 * time.Hour)
+
+	caKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	caTpl := &x509.Certificate{
+		SerialNumber:          big.NewInt(1),
+		Subject:               pkix.Name{CommonName: "clambhook-test-openvpn-ca"},
+		NotBefore:             notBefore,
+		NotAfter:              notAfter,
+		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageDigitalSignature,
+		IsCA:                  true,
+		BasicConstraintsValid: true,
+	}
+	caDER, err := x509.CreateCertificate(rand.Reader, caTpl, caTpl, &caKey.PublicKey, caKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	serverKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	serverTpl := &x509.Certificate{
+		SerialNumber: big.NewInt(2),
+		Subject:      pkix.Name{CommonName: "localhost"},
+		NotBefore:    notBefore,
+		NotAfter:     notAfter,
+		KeyUsage:     x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		DNSNames:     []string{"localhost"},
+		IPAddresses:  []net.IP{net.ParseIP("127.0.0.1").To4()},
+	}
+	serverDER, err := x509.CreateCertificate(rand.Reader, serverTpl, caTpl, &serverKey.PublicKey, caKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	serverKeyDER, err := x509.MarshalPKCS8PrivateKey(serverKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	clientKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	clientTpl := &x509.Certificate{
+		SerialNumber: big.NewInt(3),
+		Subject:      pkix.Name{CommonName: "clambhook-test-openvpn-client"},
+		NotBefore:    notBefore,
+		NotAfter:     notAfter,
+		KeyUsage:     x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+	}
+	clientDER, err := x509.CreateCertificate(rand.Reader, clientTpl, caTpl, &clientKey.PublicKey, caKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	clientKeyDER, err := x509.MarshalPKCS8PrivateKey(clientKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	write := func(name string, blockType string, der []byte) string {
+		path := filepath.Join(dir, name)
+		pemBytes := pem.EncodeToMemory(&pem.Block{Type: blockType, Bytes: der})
+		if err := os.WriteFile(path, pemBytes, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return string(pemBytes)
+	}
+
+	caPEM = write("ca.pem", "CERTIFICATE", caDER)
+	serverCertPEM = write("server-cert.pem", "CERTIFICATE", serverDER)
+	serverKeyPEM = write("server-key.pem", "PRIVATE KEY", serverKeyDER)
+	clientCertPEM = write("client-cert.pem", "CERTIFICATE", clientDER)
+	clientKeyPEM = write("client-key.pem", "PRIVATE KEY", clientKeyDER)
+	return
+}
+
 func socks5TCPRoundTrip(t *testing.T, proxy, target string) {
 	t.Helper()
 	conn, err := net.DialTimeout("tcp", proxy, 5*time.Second)

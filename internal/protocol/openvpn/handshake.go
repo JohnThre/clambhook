@@ -32,10 +32,14 @@ import (
 // peer-id assignment — live here rather than being sprinkled across the
 // codec files.
 func (i *instance) runHandshake(ctx context.Context) error {
-	i.ctrl = newControl(i.r, i.ctx)
-
+	// The control channel lives only for the handshake. Give it the
+	// handshake context so that cancellation/timeout of that context
+	// interrupts blocked reliable reads and writes rather than falling
+	// back to the long-lived instance context.
 	hsCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
+
+	i.ctrl = newControl(i.r, hsCtx)
 
 	if err := i.ctrl.hardResetClient(hsCtx); err != nil {
 		return err

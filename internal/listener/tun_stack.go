@@ -32,12 +32,21 @@ import (
 )
 
 const (
-	tunNICID           tcpip.NICID = 1
-	tunQueueSize                   = 1024
-	tunMaxTCPInFlight              = 1024
-	tunDialTimeout                 = 30 * time.Second
-	tunUDPIdleTimeout              = 2 * time.Minute
-	tunUDPPollInterval             = 30 * time.Second
+	tunNICID                    tcpip.NICID = 1
+	tunQueueSize                            = 1024
+	tunMaxTCPInFlight                       = 1024
+	tunDialTimeout                          = 30 * time.Second
+	tunUDPIdleTimeout                       = 2 * time.Minute
+	tunUDPPollInterval                      = 30 * time.Second
+	// tunMaxWriteConsecutiveErrors is the number of transient WritePacket
+	// errors the stack-to-writer loop tolerates before giving up. It bounds
+	// the cost of a permanently broken writer without exiting on a single
+	// hiccup.
+	tunMaxWriteConsecutiveErrors = 10
+	// tunWriteTransientBackoff is the base delay between consecutive failed
+	// writes. It doubles up to tunWriteTransientMaxBackoff.
+	tunWriteTransientBackoff     = 5 * time.Millisecond
+	tunWriteTransientMaxBackoff  = 250 * time.Millisecond
 )
 
 // PacketWriter receives raw IP packets emitted by the userspace packet stack.
@@ -291,6 +300,8 @@ func injectPacket(linkEP *channel.Endpoint, pkt []byte) {
 func (s *PacketStack) stackToWriterLoop(ctx context.Context, linkEP *channel.Endpoint) {
 	defer s.wg.Done()
 
+	consecutive := 0
+	backoff := tunWriteTransientBackoff
 	for {
 		pkt := linkEP.ReadContext(ctx)
 		if pkt == nil {
@@ -305,12 +316,31 @@ func (s *PacketStack) stackToWriterLoop(ctx context.Context, linkEP *channel.End
 		out := append([]byte(nil), view.AsSlice()...)
 		err := s.writer.WritePacket(out)
 		view.Release()
-		if err != nil {
-			if ctx.Err() != nil || errors.Is(err, os.ErrClosed) {
-				return
-			}
-			log.Printf("tun: write: %v", err)
+		if err == nil {
+			consecutive = 0
+			backoff = tunWriteTransientBackoff
+			continue
+		}
+
+		if ctx.Err() != nil || errors.Is(err, os.ErrClosed) {
 			return
+		}
+		consecutive++
+		if consecutive >= tunMaxWriteConsecutiveErrors {
+			log.Printf("tun: write: %v (giving up after %d consecutive errors)", err, consecutive)
+			return
+		}
+		log.Printf("tun: write: %v (consecutive errors %d/%d, backing off %v)", err, consecutive, tunMaxWriteConsecutiveErrors, backoff)
+		select {
+		case <-time.After(backoff):
+		case <-ctx.Done():
+			return
+		}
+		if backoff < tunWriteTransientMaxBackoff {
+			backoff *= 2
+			if backoff > tunWriteTransientMaxBackoff {
+				backoff = tunWriteTransientMaxBackoff
+			}
 		}
 	}
 }

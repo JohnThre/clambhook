@@ -35,6 +35,7 @@ type reliable struct {
 
 	// Outbound sequencing.
 	wmu          sync.Mutex
+	writeMu      sync.Mutex               // serialises control-plane writes and write-deadline changes
 	nextPacketID packetID
 	pending      map[packetID]*outstanding // sent, awaiting ACK
 	pendingAcks  []packetID                // incoming packet IDs we owe peer an ACK for
@@ -101,11 +102,15 @@ func newReliable(conn *net.UDPConn) (*reliable, error) {
 		cancel:   cancel,
 		done:     make(chan struct{}),
 	}
-	// nextPacketID starts at 1 — OpenVPN reserves 0 in some contexts; it's
-	// universally safer to begin at 1 and every reference implementation
-	// does the same.
-	r.nextPacketID = 1
-	r.nextExpected = 1
+	// OpenVPN upstream src/openvpn/reliable.c initializes a struct reliable
+	// with CLEAR(*rel), zeroing rel->packet_id, and
+	// reliable_mark_active_outgoing assigns e->packet_id = rel->packet_id++.
+	// The reliable control channel is therefore 0-based per direction:
+	// the first HARD_RESET_CLIENT_V2 / HARD_RESET_SERVER_V2 each carry
+	// packet-id 0. Starting at 1 would drop the server's id-0 reset in
+	// the pkt.packetID < r.nextExpected duplicate check.
+	r.nextPacketID = 0
+	r.nextExpected = 0
 	go r.retransmitLoop()
 	return r, nil
 }
@@ -152,13 +157,9 @@ func (r *reliable) send(ctx context.Context, opcode byte, payload []byte) error 
 	r.pending[pid] = &outstanding{pid: pid, bytes: buf, sentAt: time.Now()}
 	r.wmu.Unlock()
 
-	if _, err := r.conn.Write(buf); err != nil {
-		// Writing to a connected UDPConn can fail if the kernel refuses
-		// the datagram (ENOBUFS) or the conn is closed. Propagate; the
-		// caller above us (control handshake) will treat this as fatal.
+	if err := r.writeControl(ctx, buf); err != nil {
 		return fmt.Errorf("openvpn: write control: %w", err)
 	}
-	_ = ctx // retransmit loop carries its own ctx; caller's ctx is advisory here
 	return nil
 }
 
@@ -189,7 +190,7 @@ func (r *reliable) sendAck() error {
 	if err != nil {
 		return fmt.Errorf("openvpn: encode ack: %w", err)
 	}
-	if _, err := r.conn.Write(buf); err != nil {
+	if err := r.writeControl(context.Background(), buf); err != nil {
 		return fmt.Errorf("openvpn: write ack: %w", err)
 	}
 	return nil
@@ -340,9 +341,32 @@ func (r *reliable) retransmit() error {
 	}
 
 	for _, buf := range toSend {
-		if _, err := r.conn.Write(buf); err != nil {
+		if err := r.writeControl(context.Background(), buf); err != nil {
 			return fmt.Errorf("openvpn: retransmit write: %w", err)
 		}
+	}
+	return nil
+}
+
+// writeControl performs a single control-plane UDP write under a mutex so
+// that deadline changes made for one caller (e.g. a context deadline during
+// the handshake) do not race with other control-plane writers. The data
+// channel bypasses this path and writes the same UDPConn directly, which is
+// safe because control-plane deadlines are never left in place after send
+// returns.
+func (r *reliable) writeControl(ctx context.Context, buf []byte) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	r.writeMu.Lock()
+	defer r.writeMu.Unlock()
+
+	if dl, ok := ctx.Deadline(); ok {
+		_ = r.conn.SetWriteDeadline(dl)
+		defer r.conn.SetWriteDeadline(time.Time{})
+	}
+	if _, err := r.conn.Write(buf); err != nil {
+		return err
 	}
 	return nil
 }

@@ -251,6 +251,9 @@ func RefreshOne(ctx context.Context, configPath, profileName string, sub config.
 	if err != nil {
 		return err
 	}
+	if err := ValidatePublicHTTPURL(ctx, req.URL); err != nil {
+		return err
+	}
 	if oldErr == nil {
 		if old.ETag != "" {
 			req.Header.Set("If-None-Match", old.ETag)
