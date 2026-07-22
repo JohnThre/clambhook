@@ -12,7 +12,7 @@ public enum DaemonLaunchPlanner {
     public static let apiTokenEnvironmentKey = "CLAMBHOOK_API_TOKEN"
 
     /// Daemon CLI arguments. The token is intentionally omitted here.
-    public static func arguments(apiHostPort: String, configPath: String?) -> [String] {
+    public static func arguments(apiHostPort: String, configPath: String?, licensePath: String? = nil) -> [String] {
         var args: [String] = []
         let trimmedAPI = apiHostPort.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmedAPI.isEmpty {
@@ -22,6 +22,12 @@ public enum DaemonLaunchPlanner {
             let trimmedConfig = configPath.trimmingCharacters(in: .whitespacesAndNewlines)
             if !trimmedConfig.isEmpty {
                 args += ["-config", trimmedConfig]
+            }
+        }
+        if let licensePath {
+            let trimmedLicense = licensePath.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmedLicense.isEmpty {
+                args += ["-license", trimmedLicense]
             }
         }
         return args

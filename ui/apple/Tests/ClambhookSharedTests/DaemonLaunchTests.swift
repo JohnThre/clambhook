@@ -31,4 +31,21 @@ final class DaemonLaunchTests: XCTestCase {
         // default for -api-token; the key must match exactly.
         XCTAssertEqual(DaemonLaunchPlanner.apiTokenEnvironmentKey, "CLAMBHOOK_API_TOKEN")
     }
+
+    func testArgumentsIncludeLicensePathWhenProvided() {
+        let args = DaemonLaunchPlanner.arguments(apiHostPort: "127.0.0.1:9090", configPath: "/tmp/c.toml", licensePath: "/tmp/license.json")
+        XCTAssertEqual(args, ["-api", "127.0.0.1:9090", "-config", "/tmp/c.toml", "-license", "/tmp/license.json"])
+    }
+
+    func testArgumentsOmitLicensePathWhenNil() {
+        let args = DaemonLaunchPlanner.arguments(apiHostPort: "127.0.0.1:9090", configPath: "/tmp/c.toml", licensePath: nil)
+        XCTAssertEqual(args, ["-api", "127.0.0.1:9090", "-config", "/tmp/c.toml"])
+        XCTAssertFalse(args.contains("-license"))
+    }
+
+    func testArgumentsOmitEmptyLicensePath() {
+        let args = DaemonLaunchPlanner.arguments(apiHostPort: "127.0.0.1:9090", configPath: nil, licensePath: "   ")
+        XCTAssertEqual(args, ["-api", "127.0.0.1:9090"])
+        XCTAssertFalse(args.contains("-license"))
+    }
 }

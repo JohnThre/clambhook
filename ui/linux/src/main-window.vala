@@ -399,7 +399,7 @@ namespace Clambhook {
         }
 
         private bool license_allows_use() {
-            return !license.initialized || license.status.decision.can_use_app();
+            return license.initialized && license.status.decision.can_use_app();
         }
 
         private void render_license_banner() {
@@ -1003,7 +1003,7 @@ namespace Clambhook {
         }
 
         private void start_daemon() {
-            daemon.start.begin(settings, api_token, DaemonSupervisor.default_app_base_dir(), (obj, res) => {
+            daemon.start.begin(settings, api_token, DaemonSupervisor.default_app_base_dir(), license.daemon_snapshot_path(), (obj, res) => {
                 try {
                     daemon.start.end(res);
                     store.refresh_dashboard.begin();

@@ -17,6 +17,7 @@ enum MacPrivilegedHelperReplyKey {
         configPath: String,
         apiAddress: String,
         apiToken: String,
+        licensePath: String,
         withReply reply: @escaping (NSDictionary) -> Void
     )
     func stopDaemon(withReply reply: @escaping (NSDictionary) -> Void)

@@ -417,6 +417,8 @@ public enum MobileLicenseProductStateBuilder {
 }
 
 public enum MobileLicenseSnapshotStore {
+    public static let daemonSnapshotFileName = "license-snapshot.json"
+
     public static func load(
         defaults: UserDefaults = UserDefaults(suiteName: defaultAppGroupIdentifier) ?? .standard,
         key: String = mobileLicenseSnapshotDefaultsKey
@@ -438,6 +440,44 @@ public enum MobileLicenseSnapshotStore {
         if let data = try? JSONEncoder().encode(snapshot) {
             defaults.set(data, forKey: key)
         }
+        exportForDaemon(snapshot, defaults: defaults, key: key)
+    }
+
+    /// exportForDaemon writes the snapshot as JSON to the app group container
+    /// so the daemon can read it via its `--license` flag for defense-in-depth
+    /// enforcement. Returns the file URL, or nil if the container is unavailable.
+    @discardableResult
+    public static func exportForDaemon(
+        _ snapshot: MobileLicenseSnapshot,
+        groupIdentifier: String = defaultAppGroupIdentifier,
+        defaults: UserDefaults = UserDefaults(suiteName: defaultAppGroupIdentifier) ?? .standard,
+        key: String = mobileLicenseSnapshotDefaultsKey
+    ) -> URL? {
+        guard let containerURL = FileSnapshotStore.appGroupURL(
+            groupIdentifier: groupIdentifier,
+            fileName: daemonSnapshotFileName
+        ) else {
+            return nil
+        }
+        let snapshotToExport = snapshot
+        guard let data = try? JSONEncoder().encode(snapshotToExport) else {
+            return nil
+        }
+        let parent = containerURL.deletingLastPathComponent()
+        try? FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
+        try? data.write(to: containerURL, options: [.atomic])
+        return containerURL
+    }
+
+    /// daemonSnapshotPath returns the file path the daemon should read via
+    /// `--license`, or nil if the app group container is unavailable.
+    public static func daemonSnapshotPath(
+        groupIdentifier: String = defaultAppGroupIdentifier
+    ) -> String? {
+        FileSnapshotStore.appGroupURL(
+            groupIdentifier: groupIdentifier,
+            fileName: daemonSnapshotFileName
+        )?.path
     }
 }
 

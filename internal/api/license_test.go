@@ -83,6 +83,9 @@ func TestLicenseGateBlocksLockedTrial(t *testing.T) {
 		{"update config settings", http.MethodPut, "/api/v1/config/settings"},
 		{"regenerate developer CA", http.MethodPost, "/api/v1/developer/ca/regenerate"},
 		{"resolve prompt", http.MethodPost, "/api/v1/prompts/abc/resolve"},
+		{"delete developer entries", http.MethodDelete, "/api/v1/developer/entries"},
+		{"delete developer map rule", http.MethodDelete, "/api/v1/developer/map-rules/xyz"},
+		{"delete developer breakpoint rule", http.MethodDelete, "/api/v1/developer/breakpoint-rules/xyz"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -142,6 +145,22 @@ func TestLicenseGateAllowsDisconnectWhenLocked(t *testing.T) {
 	rec := licenseRequest(t, srv, http.MethodPost, "/api/v1/disconnect")
 	if rec.Code == http.StatusForbidden {
 		t.Fatalf("disconnect blocked by license gate when locked: %d body=%q", rec.Code, rec.Body.String())
+	}
+}
+
+// TestLicenseGateAllowsTemporaryRuleCleanupWhenLocked verifies the second
+// intentional exemption: a locked user can still delete temporary rules to
+// tear down state from before lockout.
+func TestLicenseGateAllowsTemporaryRuleCleanupWhenLocked(t *testing.T) {
+	snap := license.Snapshot{
+		TrialStartDate: ptrTime(license.UTCDate(2026, 1, 1)),
+	}
+	path := writeLicenseFixture(t, snap)
+	srv := newLicenseServer(t, path)
+
+	rec := licenseRequest(t, srv, http.MethodDelete, "/api/v1/rules/temporary/abc")
+	if rec.Code == http.StatusForbidden {
+		t.Fatalf("temporary rule cleanup blocked by license gate when locked: %d body=%q", rec.Code, rec.Body.String())
 	}
 }
 
