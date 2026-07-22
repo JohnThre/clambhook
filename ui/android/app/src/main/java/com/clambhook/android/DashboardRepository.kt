@@ -230,12 +230,12 @@ class DashboardRepository(
         }
     }
 
-    // Only transport or runtime-availability failures take the API offline.
-    // Domain rejections (validation, stale suggestions, missing profiles) keep
-    // the API online and surface as an inline error message.
+    // Only transport or server-side failures take the API offline.
+    // IllegalStateException is thrown when the tunnel is not running — the
+    // API may still be reachable, so surface it as an inline error, not a
+    // connectivity failure.
     private fun isAvailabilityError(error: Throwable): Boolean = when (error) {
         is ApiHttpException -> error.statusCode >= 500
-        is IllegalStateException -> true
         is java.io.IOException -> true
         else -> false
     }

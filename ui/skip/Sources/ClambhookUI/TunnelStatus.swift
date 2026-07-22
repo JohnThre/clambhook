@@ -38,7 +38,9 @@ public struct TunnelStatus: Hashable, Sendable {
 /// Formats a byte-rate as a compact human-readable string, e.g. "1.2 MB/s".
 public func formatByteRate(_ bytesPerSecond: Double) -> String {
     let units = ["B/s", "KB/s", "MB/s", "GB/s", "TB/s"]
-    var value = max(0, bytesPerSecond)
+    // Guard against NaN and negative values: max(0, .nan) returns .nan,
+    // and Int(.nan) traps at runtime. Treat both as zero.
+    var value = (bytesPerSecond.isFinite && bytesPerSecond > 0) ? bytesPerSecond : 0
     var unit = 0
     while value >= 1024 && unit < units.count - 1 {
         value /= 1024

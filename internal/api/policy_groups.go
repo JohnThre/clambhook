@@ -148,6 +148,7 @@ func (s *Server) handlePolicyGroupSelection(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	if err := s.engine.Reload(cfg); err != nil {
+		restoreConfigBackup(s.configPath, result.BackupPath)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}

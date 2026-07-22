@@ -117,6 +117,7 @@ func (s *Server) persistConfigSettings(req updateConfigSettingsRequest) (configS
 		return configSettingsPayload{}, rulePersistenceError{status: http.StatusInternalServerError, err: err}
 	}
 	if err := s.engine.Reload(cfg); err != nil {
+		restoreConfigBackup(s.configPath, result.BackupPath)
 		return configSettingsPayload{}, rulePersistenceError{status: http.StatusInternalServerError, err: err}
 	}
 	return configSettingsSnapshot(profile, result.BackupPath), nil

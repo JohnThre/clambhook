@@ -215,20 +215,20 @@ func (r *TunnelRuntime) Stop() error {
 // Reload restarts the packet stack with configPath when running, or just
 // validates the config when idle.
 func (r *TunnelRuntime) Reload(configPath string) error {
+	cfg, err := loadTunnelConfig(configPath)
+	if err != nil {
+		return err
+	}
+	if err := engine.ValidateConfig(cfg); err != nil {
+		return err
+	}
 	r.mu.Lock()
 	running := r.stack != nil
 	r.mu.Unlock()
 	if !running {
-		cfg, err := loadTunnelConfig(configPath)
-		if err != nil {
-			return err
-		}
-		return engine.ValidateConfig(cfg)
+		return nil
 	}
-	if err := r.Stop(); err != nil {
-		return err
-	}
-	return r.Start(configPath)
+	return r.restartWithConfig(cfg)
 }
 
 // SetActiveProfile switches the active profile and restarts the live packet
@@ -320,19 +320,68 @@ func cloneConfigForPolicyEdit(cfg *config.Config) *config.Config {
 }
 
 func (r *TunnelRuntime) restartWithConfig(cfg *config.Config) error {
+	// Hold the lock across the entire stop→start sequence so a concurrent
+	// Stop() cannot nil the runtime between teardown and restart (which
+	// would resurrect a tunnel the caller expected to be stopped), and two
+	// concurrent restarts cannot interleave.
 	r.mu.Lock()
-	r.cfg = cfg
-	r.mu.Unlock()
+	defer r.mu.Unlock()
 
-	if err := r.Stop(); err != nil {
-		return err
+	// If another goroutine already stopped the runtime, don't restart it.
+	if r.stack == nil && r.cfg == nil {
+		return errors.New("tunnel: runtime is not running")
 	}
-	return r.startConfig(cfg)
+
+	// Teardown: snapshot and nil the fields, then close resources, all
+	// under the lock. Stop() does this outside the lock for latency, but
+	// restart is an internal operation where correctness matters more.
+	cancel := r.cancel
+	stack := r.stack
+	proxyEngine := r.proxy
+	chains := r.chains
+	trf := r.trf
+	geoReader := r.geo
+	bus := r.bus
+	r.cancel = nil
+	r.stack = nil
+	r.proxy = nil
+	r.chains = nil
+	r.trf = nil
+	r.dev = nil
+	r.geo = nil
+	r.bus = nil
+	r.cfg = nil
+
+	if cancel != nil {
+		cancel()
+	}
+	if stack != nil {
+		_ = stack.Stop()
+	}
+	if proxyEngine != nil {
+		_ = proxyEngine.Stop()
+		_ = proxyEngine.CloseGeo()
+	}
+	_ = closePacketChains(chains)
+	if trf != nil {
+		trf.Stop()
+	}
+	_ = geoReader.Close()
+	if bus != nil {
+		bus.Close()
+	}
+
+	return r.startConfigLocked(cfg)
 }
 
 func (r *TunnelRuntime) startConfig(cfg *config.Config) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	return r.startConfigLocked(cfg)
+}
+
+// startConfigLocked builds and starts the packet stack. Caller holds r.mu.
+func (r *TunnelRuntime) startConfigLocked(cfg *config.Config) error {
 	if r.stack != nil {
 		return nil
 	}

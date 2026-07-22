@@ -42,6 +42,7 @@ namespace Clambhook {
         private DropDown traffic_filter;
         private uint refresh_source = 0;
         private uint event_reconnect_source = 0;
+        private uint event_reconnect_attempts = 0;
         private bool closing = false;
         private bool event_stream_active = false;
 
@@ -1062,7 +1063,13 @@ namespace Clambhook {
             if (closing || !settings.event_stream_enabled || event_reconnect_source != 0) {
                 return;
             }
-            event_reconnect_source = Timeout.add_seconds(3, () => {
+            event_reconnect_attempts++;
+            // Exponential backoff: 3, 6, 12, 24, 30, 30, … capped at 30s.
+            uint delay = (uint)(3 * Math.pow(2, event_reconnect_attempts - 1));
+            if (delay > 30) {
+                delay = 30;
+            }
+            event_reconnect_source = Timeout.add_seconds(delay, () => {
                 event_reconnect_source = 0;
                 start_event_stream();
                 return Source.REMOVE;

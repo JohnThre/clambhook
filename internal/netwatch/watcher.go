@@ -5,6 +5,7 @@ package netwatch
 
 import (
 	"context"
+	"errors"
 	"log"
 	"strings"
 	"time"
@@ -71,8 +72,14 @@ func (w *Watcher) Watch(ctx context.Context) <-chan NetworkInfo {
 				}
 			}
 			first = false
-			info, err := source()
+			// Run the platform probe with a timeout so a hanging subprocess
+			// (e.g. scutil, networksetup) cannot block the watcher goroutine
+			// indefinitely or leak it past context cancellation.
+			info, err := probeWithTimeout(ctx, source, 5*time.Second)
 			if err != nil {
+				if ctx.Err() != nil {
+					return
+				}
 				log.Printf("netwatch: %v", err)
 				continue
 			}
@@ -104,4 +111,30 @@ func (info NetworkInfo) MatchesTrigger(ssid, iface string) bool {
 		return false
 	}
 	return true
+}
+
+// probeWithTimeout runs source() in a goroutine and returns its result or
+// ctx.Err() when either the parent context or the timeout fires. This
+// prevents a hanging platform subprocess from blocking the watcher past
+// context cancellation.
+func probeWithTimeout(ctx context.Context, source sourceFunc, timeout time.Duration) (NetworkInfo, error) {
+	type result struct {
+		info NetworkInfo
+		err  error
+	}
+	done := make(chan result, 1)
+	go func() {
+		info, err := source()
+		done <- result{info, err}
+	}()
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	select {
+	case r := <-done:
+		return r.info, r.err
+	case <-ctx.Done():
+		return NetworkInfo{}, ctx.Err()
+	case <-timer.C:
+		return NetworkInfo{}, errors.New("netwatch: probe timed out")
+	}
 }
