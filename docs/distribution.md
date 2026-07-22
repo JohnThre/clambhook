@@ -64,9 +64,9 @@ macOS installer artifacts.
 
 macOS and GNU/Linux ship as public downloads from `store.clambercloud.com`.
 GNU/Linux packages (`.deb`, `.rpm`, Flatpak, AppImage) are still never published
-as GitHub release artifacts. Android build, package, and release targets remain
-Pengfan Chang's internal developer QA until a supported public download channel
-is configured under `store.clambercloud.com`. Windows development is discontinued
+as GitHub release artifacts. Android is distributed only from
+`clambercloud.com` as a sideloaded APK, never through Google Play. Windows
+development is discontinued
 with no planned resumption date.
 
 ## CI Validation Before Release
