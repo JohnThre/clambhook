@@ -26,37 +26,19 @@ BuildRequires:  gcc
 # BuildRequires: golang  # deliberately omitted: the spec uses /usr/local/go
 # installed by the release harness so the exact go.mod Go version is used.
 BuildRequires:  pkgconf-pkg-config
-%if 0%{?rhel} && 0%{?rhel} < 10
-BuildRequires:  meson
-%else
-BuildRequires:  meson >= 1.0.0
-%endif
-BuildRequires:  ninja-build
-BuildRequires:  vala
-BuildRequires:  gtk4-devel
-BuildRequires:  libadwaita-devel
-BuildRequires:  libgee-devel
-BuildRequires:  json-glib-devel
-BuildRequires:  libsecret-devel
-%if 0%{?rhel} && 0%{?rhel} < 10
-BuildRequires:  libsoup-devel
-%else
-BuildRequires:  libsoup3-devel
-%endif
+# The Linux desktop controller is built with Kotlin/Compose Multiplatform on
+# the JVM; the daemon is built with Go. JDK 17+ provides javac/gradle.
+BuildRequires:  java-17-openjdk-devel
 BuildRequires:  libsodium-devel
 BuildRequires:  glib2-devel
 BuildRequires:  systemd-rpm-macros
 
-Requires:       gtk4
-Requires:       libadwaita
-Requires:       libgee
-Requires:       json-glib
+# The desktop controller bundles its own JVM runtime via the Gradle
+# installDist distribution, so it only needs a JRE at runtime.
+Requires:       java-17-openjdk-headless
+# libsecret is used via the secret-tool CLI for API token and license key
+# storage against the host Secret Service.
 Requires:       libsecret
-%if 0%{?rhel} && 0%{?rhel} < 10
-Requires:       libsoup
-%else
-Requires:       libsoup3
-%endif
 Requires:       libsodium
 Requires:       polkit
 Requires:       systemd
@@ -67,9 +49,9 @@ Requires(pre):  shadow-utils
 %description
 ClambHook is a private VPN and proxy router with its own protocol core and
 local, metadata-first traffic inspection. This package installs the clambhook
-daemon, the GTK/libadwaita desktop controller, the terminal dashboard, and the
-private license helper used for trial and license activation against the hosted
-store backend.
+daemon, the Kotlin/Compose Multiplatform desktop controller, the terminal
+dashboard, and the private license helper used for trial and license activation
+against the hosted store backend.
 
 Continued use after the one-month trial requires a license purchased from
 store.swiphtgroup.com (Creem or NOWPayments; PayPal is not accepted).
@@ -148,5 +130,5 @@ exit 0
   only CAP_NET_ADMIN/CAP_NET_RAW; create the user via shadow-utils/sysusers and
   own the config/state directories via tmpfiles and %%attr.
 * Wed Jul 15 2026 Pengfan Chang <developer@jpfchang.org> - 0.1.0-1
-- Initial ClambHook RPM for Fedora and Rocky Linux with daemon, GTK desktop
-  controller, terminal dashboard, and license helper.
+- Initial ClambHook RPM for Fedora and Rocky Linux with daemon, Kotlin/Compose
+  Multiplatform desktop controller, terminal dashboard, and license helper.

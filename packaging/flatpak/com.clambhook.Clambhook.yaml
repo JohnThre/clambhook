@@ -3,8 +3,15 @@
 # This is the primary path for immutable/atomic distributions such as Bazzite,
 # and works on every supported distro (Ubuntu, Debian, PureOS, Fedora, Rocky).
 #
+# The desktop controller is built with Kotlin/Compose Multiplatform on the JVM;
+# the daemon is built with Go. Compose Multiplatform bundles its own JVM
+# runtime in the Gradle installDist distribution, so the Flatpak only needs a
+# JDK build extension and no GTK runtime.
+#
 # Build from the repository root:
-#   flatpak install -y flathub org.gnome.Platform//47 org.gnome.Sdk//47 \
+#   flatpak install -y flathub org.freedesktop.Platform//24.08 \
+#     org.freedesktop.Sdk//24.08 \
+#     org.freedesktop.Sdk.Extension.openjdk17//24.08 \
 #     org.freedesktop.Sdk.Extension.golang//24.08
 #   flatpak-builder --force-clean --repo=repo build-dir \
 #     packaging/flatpak/com.clambhook.Clambhook.yaml
@@ -13,10 +20,11 @@
 # wide Enhanced/TUN routing needs CAP_NET_ADMIN and is only available from the
 # native .deb/.rpm packages, not from the sandboxed Flatpak.
 app-id: com.clambhook.Clambhook
-runtime: org.gnome.Platform
-runtime-version: '47'
-sdk: org.gnome.Sdk
+runtime: org.freedesktop.Platform
+runtime-version: '24.08'
+sdk: org.freedesktop.Sdk
 sdk-extensions:
+  - org.freedesktop.Sdk.Extension.openjdk17
   - org.freedesktop.Sdk.Extension.golang
 command: clambhook-linux
 finish-args:
@@ -31,10 +39,11 @@ finish-args:
   - --talk-name=org.freedesktop.portal.OpenURI
 
 build-options:
-  append-path: /usr/lib/sdk/golang/bin
+  append-path: /usr/lib/sdk/golang/bin:/usr/lib/sdk/openjdk17/bin
   env:
     GOFLAGS: '-mod=vendor'
     CGO_ENABLED: '1'
+    JAVA_HOME: /usr/lib/sdk/openjdk17
 
 modules:
   - name: libsodium
@@ -54,7 +63,7 @@ modules:
     build-commands:
       - make build VERSION=${FLATPAK_BUILD_VERSION:-flatpak}
       - make install PREFIX=/app
-      - make install-linux PREFIX=/app LINUX_MESON_LIBEXECDIR=/app/libexec
+      - make install-linux PREFIX=/app
     sources:
       - type: dir
         path: ../..

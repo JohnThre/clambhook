@@ -1,5 +1,5 @@
-# Non-Apple installer validation — GitHub CI/CD runs first for GNU/Linux,
-# Windows, and Android, before any manual QA or store upload. See
+# Non-Apple installer validation — GitHub CI/CD runs first for GNU/Linux
+# and Android, before any manual QA or store upload. See
 # docs/release-validation.md. Apple platforms (macOS/iOS/iPadOS/watchOS/
 # visionOS) are validated on Xcode Cloud, not here.
 #
@@ -45,20 +45,17 @@ jobs:
         run: make lint
 
   linux-unit:
-    name: GNU/Linux Meson and Vala unit tests
+    name: GNU/Linux Kotlin unit tests
     runs-on: ubuntu-latest
-    container: ubuntu:24.04
     steps:
       - uses: actions/checkout@v4
-      - name: Install GTK test dependencies
-        run: |
-          apt-get update
-          DEBIAN_FRONTEND=noninteractive apt-get install -y \
-            build-essential pkg-config meson ninja-build valac \
-            libgtk-4-dev libadwaita-1-dev libgee-0.8-dev \
-            libjson-glib-dev libsecret-1-dev libsoup-3.0-dev libsodium-dev
-      - name: Linux unit tests
-        run: make test-linux
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Linux Kotlin unit tests
+        working-directory: ui/linux
+        run: ./gradlew --no-daemon test
 
   linux:
     name: GNU/Linux package recipes (${{ matrix.distro }})
@@ -85,13 +82,15 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
       - name: Install portable package build dependencies
         run: |
           sudo apt-get update
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
-            build-essential pkg-config meson ninja-build valac rsync \
-            libgtk-4-dev libadwaita-1-dev libgee-0.8-dev \
-            libjson-glib-dev libsecret-1-dev libsoup-3.0-dev libsodium-dev \
+            build-essential pkg-config rsync libsodium-dev \
             flatpak flatpak-builder fuse3 libfuse2t64 kmod curl file
       - name: Require native namespace and FUSE support
         run: |
@@ -125,13 +124,3 @@ jobs:
         working-directory: ui/android
         run: ./gradlew --no-daemon :app:testDebugUnitTest :app:assembleDebug :app:lintDebug
 
-  windows:
-    name: Windows installer
-    # Windows development is discontinued with no planned resumption date. The
-    # lane stays defined so validation runs automatically if a Windows target
-    # returns; enable by removing this guard. See docs/release-validation.md.
-    if: false
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-      - run: echo "Windows target is discontinued; no installer to validate."

@@ -1,37 +1,34 @@
 # clambhook GNU/Linux
 
-This is the native GNU/Linux desktop controller for clambhook. It uses Vala,
-GTK4, libadwaita, libsoup 3, json-glib, libsecret, and Meson. It prefers the
-Wayland GDK backend and falls back to X11 automatically; set `GDK_BACKEND` to
-override the preference.
+This is the native GNU/Linux desktop controller for clambhook. It is written in
+Kotlin and uses Compose Multiplatform (JVM Desktop) for the UI, OkHttp for HTTP
+and WebSocket, and kotlinx.serialization for JSON. It targets JDK 17+ and
+builds with Gradle.
 
 ## Development
 
-Install the Debian build dependencies listed in `debian/control`, including
-`valac`, `meson`, GTK4, libadwaita, gee, json-glib, libsoup 3, and libsecret
-development packages, then run:
+Install JDK 17 or later, then run from `ui/linux`:
 
 ```sh
-meson setup builddir --reconfigure
-meson test -C builddir
-meson compile -C builddir
+./gradlew test
+./gradlew installDist
 ```
 
-From the repository root, `make test-linux` runs the Meson test suite and
-`make build-linux` builds the daemon before compiling the Linux app.
+From the repository root, `make test-linux` runs the Kotlin unit test suite and
+`make build-linux` builds the daemon before compiling and staging the Linux app.
 `make install-linux DESTDIR=/tmp/stage PREFIX=/usr` stages the desktop app,
 desktop file, AppStream metadata, icon, and a private daemon helper under
 `libexec`.
 
 Settings are stored in `$XDG_CONFIG_HOME/clambhook/linux-settings.json`, falling
-back to `~/.config/clambhook/linux-settings.json` through GLib. The API bearer
-token is stored through Secret Service via libsecret.
+back to `~/.config/clambhook/linux-settings.json`. The API bearer token is stored
+through the platform Secret Service via `secret-tool` (libsecret/GNOME Keyring).
 
 ## Debian Packaging
 
 The Linux desktop app installs as `com.clambhook.Clambhook` and includes:
 
-- `clambhook-linux`, the GTK/libadwaita controller
+- `clambhook-linux`, the Kotlin/Compose desktop controller
 - `clambhook`, installed as a private helper under `libexec`
 - a desktop launcher, AppStream metadata, and the hicolor app icon
 

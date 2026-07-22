@@ -15,10 +15,10 @@ mirrors.
 | Bazzite, any distro | Flatpak | `packaging/flatpak/com.clambhook.Clambhook.yaml` |
 | Any distro | AppImage | `packaging/appimage/build-appimage.sh` |
 
-Every package installs the daemon (`clambhook`), the GTK/libadwaita desktop
-controller (`clambhook-linux`), the terminal dashboard (`clambhook-tui`), and
-the private license helper (`clambhook-license`) used for trial and license
-activation.
+Every package installs the daemon (`clambhook`), the Kotlin/Compose
+Multiplatform desktop controller (`clambhook-linux`), the terminal dashboard
+(`clambhook-tui`), and the private license helper (`clambhook-license`) used for
+trial and license activation.
 
 ## Privilege model (TUN / Enhanced mode)
 
@@ -62,8 +62,8 @@ scripts/validate-linux-distros.sh fedora
 Per distro the harness installs the build toolchain, runs `make build` +
 `make build-linux`, then smoke-tests headlessly: `clambhook-license` seeds and
 evaluates a trial (expects `"ok":true`), and `clambhook` / `clambhook-tui`
-report their versions. GUI rendering is out of scope for headless containers and
-is covered by the meson test suite plus manual desktop QA.
+report their versions. GUI rendering is out of scope for headless containers
+and is covered by the Gradle test suite plus manual desktop QA.
 
 ```mermaid
 flowchart TD

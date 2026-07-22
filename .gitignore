@@ -23,6 +23,9 @@ ui/android/**/*.keystore
 ui/android/**/*.p12
 ui/android/**/keystore.properties
 ui/linux/builddir/
+ui/linux/build/
+ui/linux/.gradle/
+ui/linux/resources/
 *.o
 *.a
 *.so

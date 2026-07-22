@@ -8,17 +8,8 @@ Build-Depends:
  wget | curl,
  dh-golang,
  golang-any (>= 2:1.25~) | golang-go (>= 2:1.25~),
- libadwaita-1-dev,
- libgee-0.8-dev,
- libglib2.0-dev,
- libgtk-4-dev,
- libjson-glib-dev,
- libsecret-1-dev,
- libsoup-3.0-dev,
+ default-jdk-headless (>= 17) | openjdk-17-jdk-headless,
  libsodium-dev,
- meson,
- ninja-build,
- valac,
  pkgconf
 Standards-Version: 4.7.0
 Homepage: https://github.com/JohnThre/clambhook
@@ -35,8 +26,8 @@ Depends:
  iproute2,
  polkitd | policykit-1,
  systemd
-Description: local network client daemon, GTK desktop controller, and terminal dashboard
+Description: local network client daemon, Kotlin/Compose desktop controller, and terminal dashboard
  clambhook provides a local network client daemon, HTTP control API, and a
- native GTK/libadwaita desktop controller (Wayland with X11 fallback) plus a
- terminal dashboard. It includes a private license helper used by the desktop
- app for trial and license activation against the hosted store backend.
+ Kotlin/Compose Multiplatform desktop controller plus a terminal dashboard. It
+ includes a private license helper used by the desktop app for trial and license
+ activation against the hosted store backend.
