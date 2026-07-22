@@ -2,6 +2,7 @@ package ruleset
 
 import (
 	"context"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -11,6 +12,26 @@ import (
 
 	"github.com/JohnThre/clambhook/internal/config"
 )
+
+const publicTestIP = "93.184.216.34"
+
+func publicHostURL(srv *httptest.Server, path string) string {
+	_, port, _ := net.SplitHostPort(srv.Listener.Addr().String())
+	return "http://" + publicTestIP + ":" + port + path
+}
+
+func publicHostClient(t *testing.T, srv *httptest.Server) *http.Client {
+	t.Helper()
+	dialAddr := srv.Listener.Addr().String()
+	return &http.Client{
+		Transport: &http.Transport{
+			DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
+				var d net.Dialer
+				return d.DialContext(ctx, network, dialAddr)
+			},
+		},
+	}
+}
 
 func TestRefreshOneFollowsSameOriginRedirect(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -23,8 +44,8 @@ func TestRefreshOneFollowsSameOriginRedirect(t *testing.T) {
 	defer srv.Close()
 
 	path := filepath.Join(t.TempDir(), "clambhook.toml")
-	set := config.RuleSetConfig{Name: "ads", URL: srv.URL + "/set"}
-	if err := RefreshOne(context.Background(), path, "default", set, srv.Client()); err != nil {
+	set := config.RuleSetConfig{Name: "ads", URL: publicHostURL(srv, "/set")}
+	if err := RefreshOne(context.Background(), path, "default", set, publicHostClient(t, srv)); err != nil {
 		t.Fatalf("RefreshOne: %v", err)
 	}
 	cache, err := LoadCache(path, "default", set)
@@ -63,8 +84,8 @@ func TestRefreshOneRejectsUnsafeRedirectsBeforeReachingTarget(t *testing.T) {
 			defer srv.Close()
 
 			path := filepath.Join(t.TempDir(), "clambhook.toml")
-			set := config.RuleSetConfig{Name: "ads", URL: srv.URL}
-			err := RefreshOne(context.Background(), path, "default", set, srv.Client())
+			set := config.RuleSetConfig{Name: "ads", URL: publicHostURL(srv, "/")}
+			err := RefreshOne(context.Background(), path, "default", set, publicHostClient(t, srv))
 			if err == nil {
 				t.Fatalf("RefreshOne followed redirect to %q, want error", tc.location)
 			}
@@ -78,6 +99,31 @@ func TestRefreshOneRejectsUnsafeRedirectsBeforeReachingTarget(t *testing.T) {
 				t.Fatal("cache written despite rejected redirect")
 			}
 		})
+	}
+}
+
+func TestRefreshOneRejectsInitialPrivateURL(t *testing.T) {
+	var hits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		_, _ = w.Write([]byte("ads.example.com\n"))
+	}))
+	defer srv.Close()
+
+	path := filepath.Join(t.TempDir(), "clambhook.toml")
+	set := config.RuleSetConfig{Name: "ads", URL: srv.URL + "/list"}
+	err := RefreshOne(context.Background(), path, "default", set, srv.Client())
+	if err == nil {
+		t.Fatal("RefreshOne fetched private URL, want error")
+	}
+	if !strings.Contains(err.Error(), "not public") {
+		t.Fatalf("error = %v, want SSRF rejection", err)
+	}
+	if hits.Load() != 0 {
+		t.Fatalf("server reached %d times, want 0", hits.Load())
+	}
+	if _, err := LoadCache(path, "default", set); err == nil {
+		t.Fatal("cache written despite rejected URL")
 	}
 }
 
@@ -95,11 +141,11 @@ func TestRefreshOnePreservesConditionalGET(t *testing.T) {
 	defer srv.Close()
 
 	path := filepath.Join(t.TempDir(), "clambhook.toml")
-	set := config.RuleSetConfig{Name: "ads", URL: srv.URL}
-	if err := RefreshOne(context.Background(), path, "default", set, srv.Client()); err != nil {
+	set := config.RuleSetConfig{Name: "ads", URL: publicHostURL(srv, "/")}
+	if err := RefreshOne(context.Background(), path, "default", set, publicHostClient(t, srv)); err != nil {
 		t.Fatalf("first RefreshOne: %v", err)
 	}
-	if err := RefreshOne(context.Background(), path, "default", set, srv.Client()); err != nil {
+	if err := RefreshOne(context.Background(), path, "default", set, publicHostClient(t, srv)); err != nil {
 		t.Fatalf("second RefreshOne: %v", err)
 	}
 	if !conditional.Load() {
@@ -111,5 +157,35 @@ func TestRefreshOnePreservesConditionalGET(t *testing.T) {
 	}
 	if len(cache.DomainSuffixes) != 1 {
 		t.Fatalf("cache after 304 lost data: %#v", cache.DomainSuffixes)
+	}
+}
+
+func TestRefreshOneRejectsRedirectToPrivate(t *testing.T) {
+	var hits atomic.Int32
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		_, _ = w.Write([]byte("ads.example.com\n"))
+	}))
+	defer target.Close()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, target.URL, http.StatusFound)
+	}))
+	defer srv.Close()
+
+	path := filepath.Join(t.TempDir(), "clambhook.toml")
+	set := config.RuleSetConfig{Name: "ads", URL: publicHostURL(srv, "/")}
+	err := RefreshOne(context.Background(), path, "default", set, publicHostClient(t, srv))
+	if err == nil {
+		t.Fatal("RefreshOne followed redirect to private target, want error")
+	}
+	if !strings.Contains(err.Error(), "not public") {
+		t.Fatalf("error = %v, want SSRF rejection", err)
+	}
+	if hits.Load() != 0 {
+		t.Fatalf("target reached %d times, want 0", hits.Load())
+	}
+	if _, err := LoadCache(path, "default", set); err == nil {
+		t.Fatal("cache written despite rejected redirect")
 	}
 }

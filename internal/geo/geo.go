@@ -5,10 +5,10 @@
 package geo
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"sync"
-
 	"github.com/oschwald/maxminddb-golang"
 )
 
@@ -70,11 +70,24 @@ func Open(path string) (*Reader, error) {
 	return &Reader{db: db}, nil
 }
 
+// LookupCtx is the context-aware form of Lookup. The supplied ctx bounds
+// DNS resolution; a cancelled ctx returns early without blocking.
+func (r *Reader) LookupCtx(ctx context.Context, address string) (*Location, error) {
+	if r == nil {
+		return &Location{}, nil
+	}
+	ip, err := resolveAddressCtx(ctx, address)
+	if err != nil {
+		return nil, err
+	}
+	return r.LookupIP(ip)
+}
+
 // Lookup resolves a host, IP, or host:port to a Location.
 //
 // A nil or closed Reader returns an empty Location and nil error — the
 // feature degrades silently so an unconfigured or stale reader never breaks
-// the caller's happy path. IPs not present in the database likewise return
+// the caller.s happy path. IPs not present in the database likewise return
 // an empty Location with nil error.
 func (r *Reader) Lookup(address string) (*Location, error) {
 	if r == nil {

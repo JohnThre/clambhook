@@ -32,23 +32,23 @@ func TestControlPacketRoundTrip(t *testing.T) {
 		p    *controlPacket
 	}{
 		{
-			name: "HARD_RESET_CLIENT_V2 no acks",
+			name: "HARD_RESET_CLIENT_V2 no acks, id 0",
 			p: &controlPacket{
 				opcode:         OpcodeControlHardResetClientV2,
 				keyID:          0,
 				localSessionID: lsid,
-				packetID:       1,
+				packetID:       0,
 			},
 		},
 		{
-			name: "CONTROL_V1 with ACKs",
+			name: "CONTROL_V1 with ACKs starting at 0",
 			p: &controlPacket{
 				opcode:          OpcodeControlV1,
 				keyID:           0,
 				localSessionID:  lsid,
 				remoteSessionID: rsid,
-				ackedIDs:        []packetID{1, 2, 3},
-				packetID:        4,
+				ackedIDs:        []packetID{0, 1, 2},
+				packetID:        3,
 				payload:         []byte("hello tls"),
 			},
 		},

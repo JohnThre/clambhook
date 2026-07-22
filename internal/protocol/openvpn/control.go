@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"os"
 	"sync"
 	"time"
 )
@@ -28,10 +29,18 @@ type control struct {
 	rmu  sync.Mutex
 	rbuf bytes.Buffer
 	rerr error
-	rctx context.Context
 
-	// Write-side state — no buffer needed; fragmentation happens inline.
-	wctx context.Context
+	// Read-side context and deadline. The base context is usually the
+	// handshake context so that parent cancellation interrupts a blocked
+	// reliable recv; SetReadDeadline narrows it further.
+	rctx      context.Context
+	rdlMu     sync.Mutex
+	rdeadline time.Time
+
+	// Write-side context and deadline, symmetrical to the read side.
+	wctx      context.Context
+	wdlMu     sync.Mutex
+	wdeadline time.Time
 }
 
 // tlsFragmentSize is the max payload bytes we put into one P_CONTROL_V1.
@@ -86,8 +95,10 @@ func (c *control) hardResetClient(ctx context.Context) error {
 	}
 }
 
-// Read implements io.Reader for the TLS state machine. Blocks until
-// bytes are available; returns io.EOF when the reliable layer closes.
+// Read implements io.Reader for the TLS state machine. It honours both the
+// base context (usually the handshake context) and any read deadline set
+// via SetReadDeadline / SetDeadline, returning os.ErrDeadlineExceeded
+// when the deadline expires.
 func (c *control) Read(p []byte) (int, error) {
 	c.rmu.Lock()
 	defer c.rmu.Unlock()
@@ -96,21 +107,20 @@ func (c *control) Read(p []byte) (int, error) {
 		return 0, c.rerr
 	}
 	for c.rbuf.Len() == 0 {
-		pkt, err := c.r.recv(c.rctx)
+		ctx, cancel := c.readContext()
+		pkt, err := c.r.recv(ctx)
+		cancel()
 		if err != nil {
 			c.rerr = err
+			if c.rctx.Err() == nil && context.Cause(ctx) == os.ErrDeadlineExceeded {
+				return 0, os.ErrDeadlineExceeded
+			}
 			return 0, err
 		}
 		if pkt.opcode != OpcodeControlV1 {
-			// HARD_RESET_SERVER_V2 may arrive here on unlucky timing (the
-			// server retransmitted after we already started the TLS
-			// handshake). Silently drop — it's already been ACKed via
-			// reliable.handleIncoming.
 			continue
 		}
 		if len(pkt.payload) == 0 {
-			// Empty CONTROL_V1 — shouldn't happen in practice but is legal
-			// per the wire format. Ignore.
 			continue
 		}
 		c.rbuf.Write(pkt.payload)
@@ -118,13 +128,16 @@ func (c *control) Read(p []byte) (int, error) {
 	return c.rbuf.Read(p)
 }
 
-// Write implements io.Writer for the TLS state machine. Fragments the
-// input into CONTROL_V1 packets of at most tlsFragmentSize bytes.
-//
-// TLS writes records (≤16 KiB) in one call to the underlying writer.
-// OpenVPN's reliable layer delivers them in order, so fragmenting
-// transparently is correct: the receiving peer's TLS layer sees one
-// unbroken byte stream.
+func (c *control) readContext() (context.Context, context.CancelFunc) {
+	c.rdlMu.Lock()
+	dl := c.rdeadline
+	c.rdlMu.Unlock()
+	return contextWithDeadline(c.rctx, dl, os.ErrDeadlineExceeded)
+}
+
+// Write implements io.Writer for the TLS state machine. It fragments the
+// input into CONTROL_V1 packets and honours the write context plus any
+// write deadline.
 func (c *control) Write(p []byte) (int, error) {
 	written := 0
 	for len(p) > 0 {
@@ -132,16 +145,45 @@ func (c *control) Write(p []byte) (int, error) {
 		if n > len(p) {
 			n = len(p)
 		}
-		// Defensive copy: reliable retains the payload buffer until ACK,
-		// and the caller (tls.Conn) may reuse its record buffer.
 		chunk := append([]byte(nil), p[:n]...)
-		if err := c.r.send(c.wctx, OpcodeControlV1, chunk); err != nil {
+
+		ctx, cancel := c.writeContext()
+		err := c.r.send(ctx, OpcodeControlV1, chunk)
+		cancel()
+		if err != nil {
+			if c.wctx.Err() == nil && context.Cause(ctx) == os.ErrDeadlineExceeded {
+				return written, os.ErrDeadlineExceeded
+			}
 			return written, err
 		}
 		written += n
 		p = p[n:]
 	}
 	return written, nil
+}
+
+func (c *control) writeContext() (context.Context, context.CancelFunc) {
+	c.wdlMu.Lock()
+	dl := c.wdeadline
+	c.wdlMu.Unlock()
+	return contextWithDeadline(c.wctx, dl, os.ErrDeadlineExceeded)
+}
+
+// contextWithDeadline returns parent unchanged when dl is zero or when the
+// parent already has an earlier deadline. Otherwise it returns a child
+// context that expires at dl with the supplied cause (e.g.
+// os.ErrDeadlineExceeded). The caller must invoke the returned CancelFunc.
+func contextWithDeadline(parent context.Context, dl time.Time, cause error) (context.Context, context.CancelFunc) {
+	if dl.IsZero() {
+		return parent, func() {}
+	}
+	if err := parent.Err(); err != nil {
+		return parent, func() {}
+	}
+	if pdl, ok := parent.Deadline(); ok && pdl.Before(dl) {
+		return parent, func() {}
+	}
+	return context.WithDeadlineCause(parent, dl, cause)
 }
 
 // Close is a no-op: control doesn't own the reliable layer (the caller
@@ -159,9 +201,23 @@ func (c *control) Close() error { return nil }
 
 func (c *control) LocalAddr() net.Addr                { return controlAddr{} }
 func (c *control) RemoteAddr() net.Addr               { return controlAddr{} }
-func (c *control) SetDeadline(t time.Time) error      { return nil }
-func (c *control) SetReadDeadline(t time.Time) error  { return nil }
-func (c *control) SetWriteDeadline(t time.Time) error { return nil }
+func (c *control) SetDeadline(t time.Time) error {
+	c.SetReadDeadline(t)
+	c.SetWriteDeadline(t)
+	return nil
+}
+func (c *control) SetReadDeadline(t time.Time) error {
+	c.rdlMu.Lock()
+	c.rdeadline = t
+	c.rdlMu.Unlock()
+	return nil
+}
+func (c *control) SetWriteDeadline(t time.Time) error {
+	c.wdlMu.Lock()
+	c.wdeadline = t
+	c.wdlMu.Unlock()
+	return nil
+}
 
 type controlAddr struct{}
 

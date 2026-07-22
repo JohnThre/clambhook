@@ -359,3 +359,17 @@ func testDNSResponse(query []byte) []byte {
 	resp[3] = 0x80
 	return resp
 }
+
+func TestReadDNSFrameRejectsShortResponse(t *testing.T) {
+	var frame bytes.Buffer
+	if err := writeDNSFrame(&frame, []byte{0x00}); err != nil {
+		t.Fatalf("write frame: %v", err)
+	}
+	resp, err := readDNSFrame(&frame)
+	if err == nil {
+		t.Fatalf("readDNSFrame accepted %d-byte response, want error", len(resp))
+	}
+	if !strings.Contains(err.Error(), "too short") {
+		t.Fatalf("readDNSFrame error = %v, want too short", err)
+	}
+}

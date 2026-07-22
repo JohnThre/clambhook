@@ -12,6 +12,12 @@ import (
 	"github.com/JohnThre/clambhook/internal/engine"
 )
 
+// maxConfigTransferBytes bounds both config export and import bodies. It is
+// intentionally the same value in both directions so export/import is a
+// symmetric round-trip contract: any config the daemon can export, a caller
+// can import.
+const maxConfigTransferBytes = 4 << 20
+
 func (s *Server) handleExportConfig(w http.ResponseWriter, r *http.Request) {
 	configPath := strings.TrimSpace(s.configPath)
 	if configPath == "" {
@@ -21,6 +27,10 @@ func (s *Server) handleExportConfig(w http.ResponseWriter, r *http.Request) {
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		http.Error(w, "read config: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if int64(len(data)) > maxConfigTransferBytes {
+		http.Error(w, "config exceeds export size limit", http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
@@ -34,7 +44,7 @@ func (s *Server) handleImportConfig(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "config import requires daemon config path", http.StatusConflict)
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, maxJSONRequestBytes)
+	r.Body = http.MaxBytesReader(w, r.Body, maxConfigTransferBytes)
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		http.Error(w, "read body: "+err.Error(), http.StatusBadRequest)

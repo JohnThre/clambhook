@@ -68,9 +68,8 @@ const (
 type dialFunc func(ctx context.Context, network, address string) (net.Conn, error)
 
 // packetDialFunc abstracts "open a UDP-carrying session through the chain".
-// Production wires it to chain.DialPacket; tests stub it out. nil means the
-// listener's chain does not support UDP — UDP ASSOCIATE requests will be
-// rejected with reply 0x07 (command not supported).
+// Production's fixed-chain constructor wires it to chain.DialPacket; tests
+// stub it out. A nil dialer only disables UDP when no route planner is present.
 type packetDialFunc func(ctx context.Context, address string) (net.PacketConn, error)
 
 // SOCKSv5 is a SOCKS5 TCP listener that routes each accepted connection
@@ -79,7 +78,7 @@ type SOCKSv5 struct {
 	addr       string
 	auth       *AuthCreds
 	dial       dialFunc
-	dialPacket packetDialFunc // optional — nil means UDP ASSOCIATE is rejected
+	dialPacket packetDialFunc // optional; dynamic planners provide per-route UDP dialers
 	planner    RoutePlanner
 	ch         *chain.Chain // kept for HopInfo emission; nil disables hop events
 	chainName  string       // for logging
@@ -325,7 +324,7 @@ func (s *SOCKSv5) handleConn(ctx context.Context, client net.Conn, ce *connEvent
 	case cmdConnect:
 		return s.handleConnect(ctx, client, req, ce)
 	case cmdUDPAssociate:
-		if s.dialPacket == nil {
+		if s.dialPacket == nil && s.planner == nil {
 			_ = writeReply(client, repCmdNotSupported, "")
 			return nil
 		}

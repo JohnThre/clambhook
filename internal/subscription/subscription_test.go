@@ -121,11 +121,11 @@ func TestRefreshProfileKeepsPreviousCacheOnFetchFailure(t *testing.T) {
 			Name: "default",
 			RuleSubscriptions: []config.RuleSubscriptionConfig{{
 				Name: "ads",
-				URL:  srv.URL,
+				URL:  publicHostURL(srv, "/"),
 			}},
 		}},
 	}
-	payload, err := RefreshProfile(context.Background(), cfg, "", nil, srv.Client())
+	payload, err := RefreshProfile(context.Background(), cfg, "", nil, publicHostClient(t, srv))
 	if err != nil {
 		t.Fatalf("RefreshProfile: %v", err)
 	}
@@ -133,7 +133,7 @@ func TestRefreshProfileKeepsPreviousCacheOnFetchFailure(t *testing.T) {
 		t.Fatalf("refresh payload = %+v", payload.Subscriptions[0])
 	}
 	fail = true
-	payload, err = RefreshProfile(context.Background(), cfg, "", nil, srv.Client())
+	payload, err = RefreshProfile(context.Background(), cfg, "", nil, publicHostClient(t, srv))
 	if err != nil {
 		t.Fatalf("RefreshProfile after failure: %v", err)
 	}

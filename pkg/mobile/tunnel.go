@@ -96,8 +96,8 @@ func (r *TunnelRuntime) Start(configPath string) error {
 	if err != nil {
 		log.Printf("geo: %v; continuing without geo lookups", err)
 	}
-	trafficMgr, err := traffic.NewManager(cfg.Traffic, func(address string) (*geo.Location, error) {
-		return geoReader.Lookup(address)
+	trafficMgr, err := traffic.NewManager(cfg.Traffic, func(ctx context.Context, address string) (*geo.Location, error) {
+		return geoReader.LookupCtx(ctx, address)
 	})
 	if err != nil {
 		if closeErr := geoReader.Close(); closeErr != nil {
@@ -348,8 +348,8 @@ func (r *TunnelRuntime) startConfig(cfg *config.Config) error {
 	if err != nil {
 		log.Printf("geo: %v; continuing without geo lookups", err)
 	}
-	trafficMgr, err := traffic.NewManager(cfg.Traffic, func(address string) (*geo.Location, error) {
-		return geoReader.Lookup(address)
+	trafficMgr, err := traffic.NewManager(cfg.Traffic, func(ctx context.Context, address string) (*geo.Location, error) {
+		return geoReader.LookupCtx(ctx, address)
 	})
 	if err != nil {
 		_ = geoReader.Close()

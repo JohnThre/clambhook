@@ -31,7 +31,7 @@ const (
 )
 
 // GeoLookupFunc enriches target addresses with optional location metadata.
-type GeoLookupFunc func(address string) (*geo.Location, error)
+type GeoLookupFunc func(ctx context.Context, address string) (*geo.Location, error)
 
 // Store records live connection metadata and a bounded recent closed history.
 type Store struct {
@@ -47,6 +47,38 @@ type Store struct {
 	closed      []Connection // newest first
 	persistErr  string
 	lastSavedNs int64
+
+	// Asynchronous enrichment (hostname / geo resolution).
+	enrichCh       chan enrichJob
+	enrichResultCh chan enrichResult
+
+	// Coalesced persistence.
+	persistCh       chan struct{}
+	persistPending  bool
+	persistCoalesce time.Duration
+	persistHook     func() // optional test hook called after each flush
+
+	// Lifecycle.
+	ctx    context.Context
+	cancel context.CancelFunc
+	wg     sync.WaitGroup
+}
+
+// enrichJob is queued by the event loop and executed by a single enrichment
+// worker so hostname/geo resolution never blocks the store lock.
+type enrichJob struct {
+	connID string
+	target string
+	gen    int64
+}
+
+// enrichResult is delivered back to the store's event loop and applied only
+// when the connection's generation still matches.
+type enrichResult struct {
+	connID string
+	loc    *geo.Location
+	err    error
+	gen    int64
 }
 
 // Listener identifies the local ingress that accepted a connection.
@@ -127,6 +159,8 @@ type Connection struct {
 	TxTotal     uint64  `json:"tx_total"`
 	DurationNs  int64   `json:"duration_ns,omitempty"`
 	CloseReason string  `json:"close_reason,omitempty"`
+	// Geo enrichment generation; used to discard stale async geo results.
+	enrichGen int64
 }
 
 // Summary is the aggregate traffic state in a snapshot.
@@ -365,18 +399,21 @@ func NewStore(cfg config.TrafficConfig, geoLookup GeoLookupFunc) (*Store, error)
 	}
 
 	s := &Store{
-		enabled:       true,
-		historyLimit:  limit,
-		historyMaxAge: maxAge,
-		historyPath:   path,
-		geoLookup:     geoLookup,
-		active:        make(map[string]*Connection),
+		enabled:         true,
+		historyLimit:    limit,
+		historyMaxAge:   maxAge,
+		historyPath:     path,
+		geoLookup:       geoLookup,
+		active:          make(map[string]*Connection),
+		persistCoalesce: 100 * time.Millisecond,
 	}
 	if err := s.loadHistory(); err != nil {
 		s.persistErr = err.Error()
 	}
 	return s, nil
 }
+
+const defaultPersistCoalesce = 100 * time.Millisecond
 
 // Reconfigure updates bounded-history settings after config reload. A store
 // that was never created because traffic started disabled cannot be enabled
@@ -398,8 +435,6 @@ func (s *Store) Reconfigure(cfg config.TrafficConfig) error {
 		path = defaultHistoryPath()
 	}
 
-	var save []Connection
-	var savePath string
 	s.mu.Lock()
 	s.enabled = cfg.Enabled
 	s.historyLimit = limit
@@ -409,16 +444,15 @@ func (s *Store) Reconfigure(cfg config.TrafficConfig) error {
 		s.active = make(map[string]*Connection)
 	}
 	s.pruneClosedLocked(time.Now())
+	// Path changes and disabling require the current closed history to be
+	// durably written to the (possibly new) path before this call returns.
 	if cfg.Enabled {
-		save = cloneConnections(s.closed)
-		savePath = s.historyPath
+		s.persistPending = true
 	}
 	s.mu.Unlock()
 
-	if save != nil {
-		err := writeHistory(savePath, save)
-		s.setPersistResult(err)
-		return err
+	if cfg.Enabled {
+		return s.flush()
 	}
 	return nil
 }
@@ -436,23 +470,289 @@ func (s *Store) Start(ctx context.Context, bus *events.Bus) {
 	if s == nil || bus == nil {
 		return
 	}
+	s.mu.Lock()
+	if s.cancel != nil {
+		s.mu.Unlock()
+		return
+	}
+	s.ctx, s.cancel = context.WithCancel(ctx)
+	if s.persistCoalesce <= 0 {
+		s.persistCoalesce = defaultPersistCoalesce
+	}
+	if s.enrichCh == nil {
+		s.enrichCh = make(chan enrichJob, 256)
+	}
+	if s.enrichResultCh == nil {
+		s.enrichResultCh = make(chan enrichResult, 256)
+	}
+	if s.persistCh == nil {
+		s.persistCh = make(chan struct{}, 1)
+	}
+	s.mu.Unlock()
+
+	s.wg.Add(1)
+	go s.enrichWorker()
+	s.wg.Add(1)
+	go s.persistWorker()
+
 	sub := bus.Subscribe(events.Filter{Types: []string{"connection.*", "hop.*", "rule.*"}})
-	go func() {
-		defer sub.Unsubscribe()
+	go s.runEventLoop(sub)
+}
+
+// runEventLoop reads events from the subscription, applies enrichment results,
+// and triggers a final flush on shutdown. The subscription is owned by this
+// method and unsubscribed on exit.
+func (s *Store) runEventLoop(sub *events.Subscription) {
+	defer sub.Unsubscribe()
+
+	ctx := s.ctx
+	for {
+		select {
+		case ev, ok := <-sub.Ch():
+			if !ok {
+				s.shutdownFlush()
+				return
+			}
+			s.ApplyEvent(ev)
+		case res := <-s.enrichResultCh:
+			s.applyEnrichmentResult(res)
+		case <-ctx.Done():
+			// Drain any remaining events before shutdown so final persistence
+			// is complete.
+			for {
+				select {
+				case ev := <-sub.Ch():
+					s.ApplyEvent(ev)
+				case res := <-s.enrichResultCh:
+					s.applyEnrichmentResult(res)
+				default:
+					s.shutdownFlush()
+					return
+				}
+			}
+		}
+	}
+}
+
+// Close cancels the store's background workers and waits for them to finish.
+// It performs a final flush when a history path is configured. Safe to call
+// more than once.
+func (s *Store) Close() error {
+	if s == nil {
+		return nil
+	}
+	s.mu.Lock()
+	cancel := s.cancel
+	s.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+	s.wg.Wait()
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.persistErr != "" {
+		return errors.New(s.persistErr)
+	}
+	return nil
+}
+
+// shutdownFlush signals the persistence worker to write once more. It is
+// called from the event loop shutdown path and must NOT call wg.Wait()
+// because the event loop is the sole consumer of enrichResultCh — waiting
+// for the enrichWorker here would deadlock if it is blocked sending a result.
+// Close() does the authoritative worker wait.
+func (s *Store) shutdownFlush() {
+	s.mu.Lock()
+	if s.persistCh != nil {
+		select {
+		case s.persistCh <- struct{}{}:
+		default:
+		}
+	}
+	s.mu.Unlock()
+	select {
+	case <-time.After(50 * time.Millisecond):
+	case <-s.ctx.Done():
+	}
+}
+
+// enrichWorker is the sole goroutine that performs hostname/geo resolution.
+// It is bounded by the capacity of enrichCh and never spawns further workers.
+func (s *Store) enrichWorker() {
+	defer s.wg.Done()
+	lookup := s.geoLookup
+	if lookup == nil {
 		for {
 			select {
-			case ev, ok := <-sub.Ch():
+			case _, ok := <-s.enrichCh:
 				if !ok {
 					return
 				}
-				s.ApplyEvent(ev)
-			case <-ctx.Done():
-				return
-			case <-sub.Context().Done():
+			case <-s.ctx.Done():
 				return
 			}
 		}
-	}()
+	}
+	for {
+		select {
+		case job, ok := <-s.enrichCh:
+			if !ok {
+				return
+			}
+			loc, err := lookup(s.ctx, job.target)
+			select {
+			case s.enrichResultCh <- enrichResult{connID: job.connID, loc: loc, err: err, gen: job.gen}:
+			case <-s.ctx.Done():
+				return
+			}
+		case <-s.ctx.Done():
+			return
+		}
+	}
+}
+
+// persistWorker writes closed history to disk, coalescing many close events
+// into a single atomic 0600 write. A final flush runs when the worker context
+// is cancelled.
+func (s *Store) persistWorker() {
+	defer s.wg.Done()
+
+	var timer *time.Timer
+	var timerC <-chan time.Time
+	for {
+		select {
+		case <-s.ctx.Done():
+			if timer != nil {
+				if !timer.Stop() {
+					select {
+					case <-timerC:
+					default:
+					}
+				}
+			}
+			s.flush()
+			return
+		case _, ok := <-s.persistCh:
+			if !ok {
+				s.flush()
+				return
+			}
+			if timer == nil {
+				timer = time.NewTimer(s.persistCoalesce)
+				timerC = timer.C
+			} else {
+				if !timer.Stop() {
+					select {
+					case <-timerC:
+					default:
+					}
+				}
+				timer.Reset(s.persistCoalesce)
+			}
+		case <-timerC:
+			timer = nil
+			timerC = nil
+			if s.flush(); s.persistPending {
+				// More closes arrived while we were flushing; schedule again.
+				if timer == nil {
+					timer = time.NewTimer(0)
+					timerC = timer.C
+				}
+			}
+		}
+	}
+}
+
+// signalPersistLocked schedules a coalesced persistence write. The store lock
+// must be held.
+func (s *Store) signalPersistLocked() {
+	if s.persistCh == nil {
+		return
+	}
+	s.persistPending = true
+	select {
+	case s.persistCh <- struct{}{}:
+	default:
+	}
+}
+
+// enqueueEnrichmentLocked schedules an async geo lookup. The store lock must
+// be held. If the bounded job queue is full, the job is dropped and the
+// connection is marked with a backpressure error.
+func (s *Store) enqueueEnrichmentLocked(c *Connection, target string) {
+	if s.geoLookup == nil || target == "" || s.enrichCh == nil {
+		return
+	}
+	c.enrichGen++
+	job := enrichJob{connID: c.ConnID, target: target, gen: c.enrichGen}
+	select {
+	case s.enrichCh <- job:
+	default:
+		c.GeoError = "geo lookup backpressure"
+	}
+}
+
+// applyEnrichmentResult writes the geo result only if the connection still
+// exists with the same enrichment generation.
+func (s *Store) applyEnrichmentResult(res enrichResult) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.enabled {
+		return
+	}
+	c, ok := s.active[res.connID]
+	if !ok {
+		// Connection may have been closed; search the closed history.
+		for i := range s.closed {
+			if s.closed[i].ConnID == res.connID {
+				if s.closed[i].enrichGen != res.gen {
+					return
+				}
+				if res.err != nil {
+					s.closed[i].Geo = geo.Location{}
+					s.closed[i].GeoError = res.err.Error()
+				} else if res.loc != nil {
+					s.closed[i].Geo = *res.loc
+					s.closed[i].GeoError = ""
+				}
+				return
+			}
+		}
+		return
+	}
+	if c.enrichGen != res.gen {
+		return
+	}
+	if res.err != nil {
+		c.Geo = geo.Location{}
+		c.GeoError = res.err.Error()
+	} else if res.loc != nil {
+		c.Geo = *res.loc
+		c.GeoError = ""
+	}
+}
+
+// flush writes the current closed history to disk and records any error. It is
+// safe to call both inside and outside the event loop.
+func (s *Store) flush() error {
+	s.mu.Lock()
+	if !s.enabled || s.historyPath == "" {
+		s.persistPending = false
+		s.mu.Unlock()
+		return nil
+	}
+	path := s.historyPath
+	closed := cloneConnections(s.closed)
+	s.persistPending = false
+	s.mu.Unlock()
+
+	err := writeHistory(path, closed)
+	s.setPersistResult(err)
+	if s.persistHook != nil {
+		s.persistHook()
+	}
+	return err
 }
 
 // ApplyEvent updates traffic state from one daemon event.
@@ -464,8 +764,6 @@ func (s *Store) ApplyEvent(ev events.Event) {
 		ev.TsNs = time.Now().UnixNano()
 	}
 
-	var save []Connection
-	var path string
 	s.mu.Lock()
 	if !s.enabled {
 		s.mu.Unlock()
@@ -491,18 +789,12 @@ func (s *Store) ApplyEvent(ev events.Event) {
 	case events.TypeConnectionClosed:
 		if s.applyClosedLocked(ev) {
 			s.pruneClosedLocked(time.Now())
-			save = cloneConnections(s.closed)
-			path = s.historyPath
+			s.signalPersistLocked()
 		}
 	case events.TypeRuleMatched, events.TypeRuleDirect, events.TypeRuleBlocked:
 		s.applyRuleDecisionLocked(ev)
 	}
 	s.mu.Unlock()
-
-	if save != nil {
-		err := writeHistory(path, save)
-		s.setPersistResult(err)
-	}
 }
 
 // Snapshot returns a consistent copy of the current traffic state.
@@ -1764,16 +2056,9 @@ func (s *Store) applyDialingLocked(ev events.Event) {
 			State:    "pending",
 		})
 	}
-	if s.geoLookup != nil && c.Target != "" {
-		loc, err := s.geoLookup(c.Target)
-		if err != nil {
-			c.Geo = geo.Location{}
-			c.GeoError = err.Error()
-		} else if loc != nil {
-			c.Geo = *loc
-			c.GeoError = ""
-		}
-	}
+	// Enrichment (hostname/geo resolution) is performed asynchronously so the
+	// store write lock is never held during DNS or MMDB I/O.
+	s.enqueueEnrichmentLocked(c, c.Target)
 	c.UpdatedTsNs = ev.TsNs
 	addTimeline(c, ev, "Dialing", c.Target)
 }
@@ -1812,6 +2097,7 @@ func (s *Store) applyRuleDecisionLocked(ev events.Event) {
 	if c.Source == "" {
 		c.Source = data.Source
 	}
+	s.enqueueEnrichmentLocked(c, c.Target)
 	c.UpdatedTsNs = ev.TsNs
 	addTimeline(c, ev, "Decision", decisionDetail(c.RuleName, c.RuleAction, c.ChainName))
 }
