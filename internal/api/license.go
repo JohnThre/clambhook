@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/JohnThre/clambhook/internal/license"
@@ -18,38 +19,17 @@ import (
 const licenseCacheTTL = 10 * time.Second
 
 // licenseGatedMethods are the HTTP methods that mutate daemon state and are
-// therefore gated by the license middleware. GET (read-only) and DELETE on
-// temporary rules (cleanup) are intentionally excluded so a locked user can
-// still observe state and tear down temporary rules.
+// therefore gated by the license middleware. GET (read-only) is intentionally
+// excluded so a locked user can still observe state and diagnostics.
 //
-// disconnect is excluded everywhere (see licenseGatedPath) so a locked user can
-// always stop routing.
+// disconnect is excluded everywhere (see isLicenseGatedRequest) so a locked
+// user can always stop routing.
 func (s *Server) licenseGatedMethods() map[string]struct{} {
 	return map[string]struct{}{
-		http.MethodPost: {},
-		http.MethodPut:  {},
+		http.MethodPost:   {},
+		http.MethodPut:    {},
+		http.MethodDelete: {},
 	}
-}
-
-// licenseGatedPath reports whether a request path is gated by the license
-// middleware. It gates every state-changing route except disconnect, which
-// must remain usable from a locked state to stop routing. Read-only GET routes
-// are not gated by method.
-func licenseGatedPath(path string) bool {
-	switch path {
-	case "/api/v1/disconnect":
-		return false
-	case "/api/v1/developer/ca/regenerate",
-		"/api/v1/developer/map-rules",
-		"/api/v1/developer/breakpoint-rules",
-		"/api/v1/developer/entries":
-		// These developer mutation routes accept POST/PUT/DELETE. DELETE on
-		// /developer/entries clears capture data and is gated; the method
-		// check below excludes non-mutating methods.
-		return true
-	}
-	// Every other /api/v1 route that accepts a mutating method is gated.
-	return true
 }
 
 // licenseMiddleware gates state-changing routes on the cached license
@@ -81,10 +61,15 @@ func (s *Server) licenseMiddleware(next http.Handler) http.Handler {
 }
 
 // isLicenseGatedRequest reports whether this specific request should be gated.
-// A path is gated only when its method is mutating, except disconnect which is
-// never gated.
+// A request is gated when its method is mutating, with two exemptions so a
+// locked user can always stop routing and tear down temporary rules:
+//   - POST /api/v1/disconnect is never gated.
+//   - DELETE /api/v1/rules/temporary/{id} is never gated (cleanup).
 func (s *Server) isLicenseGatedRequest(r *http.Request) bool {
 	if r.URL.Path == "/api/v1/disconnect" {
+		return false
+	}
+	if r.Method == http.MethodDelete && strings.HasPrefix(r.URL.Path, "/api/v1/rules/temporary/") {
 		return false
 	}
 	_, gated := s.licenseGatedMethods()[r.Method]

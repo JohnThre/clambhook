@@ -57,7 +57,8 @@ final class DaemonSupervisor: ObservableObject {
             process.executableURL = executable
             process.arguments = DaemonLaunchPlanner.arguments(
                 apiHostPort: normalized.apiEndpoint.hostPort,
-                configPath: configURL?.path
+                configPath: configURL?.path,
+                licensePath: MobileLicenseSnapshotStore.daemonSnapshotPath(groupIdentifier: normalized.appGroupIdentifier)
             )
             process.environment = DaemonLaunchPlanner.environment(
                 base: ProcessInfo.processInfo.environment,

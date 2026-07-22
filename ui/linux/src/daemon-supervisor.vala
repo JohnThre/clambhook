@@ -24,7 +24,7 @@ namespace Clambhook {
             }
         }
 
-        public async void start(AppSettings settings, string token, string app_base_dir) throws Error {
+        public async void start(AppSettings settings, string token, string app_base_dir, string? license_path = null) throws Error {
             if (is_running) {
                 transition_state(DaemonState.RUNNING);
                 return;
@@ -37,7 +37,7 @@ namespace Clambhook {
                     throw new DaemonError.MISSING_EXECUTABLE("clambhook daemon executable was not found");
                 }
 
-                var argv = build_argv(settings, token);
+                var argv = build_argv(settings, token, license_path);
                 argv.insert(0, executable);
                 process = new Subprocess.newv(argv.to_array(), SubprocessFlags.NONE);
                 transition_state(DaemonState.RUNNING);
@@ -108,15 +108,15 @@ namespace Clambhook {
             return FileUtils.test(bundled, FileTest.EXISTS) ? bundled : null;
         }
 
-        public static string build_arguments(AppSettings settings, string token) {
+        public static string build_arguments(AppSettings settings, string token, string? license_path = null) {
             var parts = new Gee.ArrayList<string>();
-            foreach (var arg in build_argv(settings, token)) {
+            foreach (var arg in build_argv(settings, token, license_path)) {
                 parts.add(arg.has_prefix("-") ? arg : quote(arg));
             }
             return string.joinv(" ", parts.to_array());
         }
 
-        private static Gee.ArrayList<string> build_argv(AppSettings settings, string token) {
+        private static Gee.ArrayList<string> build_argv(AppSettings settings, string token, string? license_path = null) {
             var normalized = settings.normalized();
             var args = new Gee.ArrayList<string>();
             args.add("-api");
@@ -129,6 +129,10 @@ namespace Clambhook {
             if (normalized.config_path != "") {
                 args.add("-config");
                 args.add(normalized.config_path);
+            }
+            if (license_path != null && license_path.strip() != "") {
+                args.add("-license");
+                args.add(license_path.strip());
             }
             return args;
         }

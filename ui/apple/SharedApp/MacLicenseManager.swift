@@ -40,6 +40,7 @@ final class MacLicenseManager: ObservableObject {
         let initialInstallID = (try? credentialStore.readToken(account: macLicenseInstallAccount)) ?? ""
         self.snapshot = initialSnapshot
         self.decision = MobileLicenseEvaluator.evaluate(snapshot: initialSnapshot)
+        MobileLicenseSnapshotStore.exportForDaemon(initialSnapshot, defaults: defaults)
         self.deviceState = MobileLicenseDeviceStateStore
             .load(defaults: defaults)
             .withCurrentInstallID(initialInstallID)
