@@ -141,6 +141,7 @@ namespace Clambhook {
     public interface LicenseStateStore : Object {
         public abstract LicensePersistedState load();
         public abstract void save(LicensePersistedState state) throws Error;
+        public abstract string daemon_snapshot_path();
     }
 
     public class FileLicenseStateStore : Object, LicenseStateStore {
@@ -171,6 +172,22 @@ namespace Clambhook {
             var parent = Path.get_dirname(path);
             DirUtils.create_with_parents(parent, 0700);
             FileUtils.set_contents(path, to_json(state));
+            export_daemon_snapshot(state);
+        }
+
+        /// Writes the raw license snapshot JSON to a standalone file the
+        /// daemon reads via its `--license` flag for defense-in-depth
+        /// enforcement. Returns the file path.
+        public string daemon_snapshot_path() {
+            return Path.build_filename(Path.get_dirname(path), "license-snapshot.json");
+        }
+
+        private void export_daemon_snapshot(LicensePersistedState state) throws Error {
+            var snapshot = state.snapshot_json.strip();
+            if (snapshot == "") {
+                snapshot = "{}";
+            }
+            FileUtils.set_contents(daemon_snapshot_path(), snapshot);
         }
 
         public static string default_path() {
@@ -328,6 +345,9 @@ namespace Clambhook {
         public string email { get; private set; default = ""; }
         public string message { get; private set; default = ""; }
 
+        public string daemon_snapshot_path() {
+            return state_store.daemon_snapshot_path();
+        }
         public signal void changed();
 
         public LicenseManager(LicenseStateStore state_store, LicenseKeyVault key_vault, LicenseHelperClient helper) {

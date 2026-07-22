@@ -19,11 +19,10 @@ final class ClambhookPrivilegedHelperService: NSObject, ClambhookPrivilegedHelpe
     // times with exponential backoff. The last launch parameters are captured
     // so relaunch uses the same config, address, and token. relaunchAttempts
     // resets to 0 on a successful stop or a fresh startDaemon call.
-    // isStopping distinguishes an intentional stopDaemon (SIGTERM → non-zero
-    // exit) from a genuine crash.
     private var lastConfigPath: String?
     private var lastAPIAddress: String?
     private var lastAPIToken: String?
+    private var lastLicensePath: String?
     private var relaunchAttempts = 0
     private var isStopping = false
     private let maxRelaunchAttempts = 3
@@ -37,6 +36,7 @@ final class ClambhookPrivilegedHelperService: NSObject, ClambhookPrivilegedHelpe
         configPath: String,
         apiAddress: String,
         apiToken: String,
+        licensePath: String,
         withReply reply: @escaping (NSDictionary) -> Void
     ) {
         lock.lock()
@@ -51,13 +51,14 @@ final class ClambhookPrivilegedHelperService: NSObject, ClambhookPrivilegedHelpe
         lastConfigPath = configPath
         lastAPIAddress = apiAddress
         lastAPIToken = apiToken
+        lastLicensePath = licensePath
         relaunchAttempts = 0
         isStopping = false
         do {
             let executable = try bundledDaemonURL()
             let process = Process()
             process.executableURL = executable
-            process.arguments = daemonArguments(configPath: configPath, apiAddress: apiAddress)
+            process.arguments = daemonArguments(configPath: configPath, apiAddress: apiAddress, licensePath: licensePath)
             process.environment = daemonEnvironment(apiToken: apiToken)
             process.terminationHandler = { [weak self] proc in
                 self?.handleDaemonTermination(proc)
@@ -80,18 +81,15 @@ final class ClambhookPrivilegedHelperService: NSObject, ClambhookPrivilegedHelpe
         daemonProcess = nil
         let wasIntentional = isStopping
         isStopping = false
-        let shouldRelaunch = !wasIntentional && relaunchAttempts < maxRelaunchAttempts
-        if shouldRelaunch {
-            relaunchAttempts += 1
-            let attempt = relaunchAttempts
             let configPath = lastConfigPath
             let apiAddress = lastAPIAddress
             let apiToken = lastAPIToken
+            let licensePath = lastLicensePath
             lock.unlock()
             let delay = relaunchBaseDelay * pow(2.0, Double(attempt - 1))
             logHelper("daemon exited unexpectedly (status \(proc.terminationStatus)); relaunch attempt \(attempt)/\(maxRelaunchAttempts) in \(Int(delay))s")
             DispatchQueue.global().asyncAfter(deadline: .now() + delay) { [weak self] in
-                self?.relaunchDaemon(configPath: configPath, apiAddress: apiAddress, apiToken: apiToken)
+                self?.relaunchDaemon(configPath: configPath, apiAddress: apiAddress, apiToken: apiToken, licensePath: licensePath)
             }
         } else {
             lock.unlock()
@@ -102,8 +100,7 @@ final class ClambhookPrivilegedHelperService: NSObject, ClambhookPrivilegedHelpe
     }
 
     // relaunchDaemon attempts to restart the daemon with the last-known
-    // parameters. Called off the lock after a backoff delay.
-    private func relaunchDaemon(configPath: String?, apiAddress: String?, apiToken: String?) {
+    private func relaunchDaemon(configPath: String?, apiAddress: String?, apiToken: String?, licensePath: String?) {
         lock.lock()
         defer { lock.unlock() }
         guard let configPath, let apiAddress, let apiToken else { return }
@@ -112,11 +109,8 @@ final class ClambhookPrivilegedHelperService: NSObject, ClambhookPrivilegedHelpe
             let executable = try bundledDaemonURL()
             let process = Process()
             process.executableURL = executable
-            process.arguments = daemonArguments(configPath: configPath, apiAddress: apiAddress)
+            process.arguments = daemonArguments(configPath: configPath, apiAddress: apiAddress, licensePath: licensePath)
             process.environment = daemonEnvironment(apiToken: apiToken)
-            process.terminationHandler = { [weak self] proc in
-                self?.handleDaemonTermination(proc)
-            }
             try process.run()
             daemonProcess = process
             logHelper("daemon relaunched (attempt \(relaunchAttempts)/\(maxRelaunchAttempts))")
@@ -135,6 +129,7 @@ final class ClambhookPrivilegedHelperService: NSObject, ClambhookPrivilegedHelpe
         lastConfigPath = nil
         lastAPIAddress = nil
         lastAPIToken = nil
+        lastLicensePath = nil
 
         guard let daemonProcess else {
             reply(statusReply(locked: true, message: "daemon stopped"))
@@ -147,7 +142,7 @@ final class ClambhookPrivilegedHelperService: NSObject, ClambhookPrivilegedHelpe
         reply(statusReply(locked: true, message: "daemon stopped"))
     }
 
-    private func daemonArguments(configPath: String, apiAddress: String) -> [String] {
+    private func daemonArguments(configPath: String, apiAddress: String, licensePath: String?) -> [String] {
         var args: [String] = []
         let trimmedAPI = apiAddress.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmedAPI.isEmpty {
@@ -156,6 +151,12 @@ final class ClambhookPrivilegedHelperService: NSObject, ClambhookPrivilegedHelpe
         let trimmedConfig = configPath.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmedConfig.isEmpty {
             args += ["-config", trimmedConfig]
+        }
+        if let licensePath {
+            let trimmedLicense = licensePath.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmedLicense.isEmpty {
+                args += ["-license", trimmedLicense]
+            }
         }
         return args
     }

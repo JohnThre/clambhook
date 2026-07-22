@@ -89,6 +89,7 @@ final class MacPrivilegedHelperManager: ObservableObject {
                 configPath: settings.daemonConfigPath,
                 apiAddress: settings.apiEndpoint.hostPort,
                 apiToken: token,
+                licensePath: MobileLicenseSnapshotStore.daemonSnapshotPath(groupIdentifier: settings.appGroupIdentifier) ?? "",
                 withReply: completion
             )
         }
