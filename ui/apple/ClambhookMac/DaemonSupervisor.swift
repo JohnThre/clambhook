@@ -63,15 +63,26 @@ final class DaemonSupervisor: ObservableObject {
                 base: ProcessInfo.processInfo.environment,
                 token: token
             )
-            process.terminationHandler = { [weak self] _ in
+            process.terminationHandler = { [weak self] proc in
                 Task { @MainActor in
                     guard let self else { return }
                     self.process = nil
                     self.cleanupSecurityScopes()
+                    if case .stopping = self.state {
+                        self.state = .stopped
+                        return
+                    }
                     if case .failed = self.state {
                         return
                     }
-                    self.state = .stopped
+                    // An unexpected exit (non-zero) surfaces as .failed so
+                    // the app can show crash diagnostics rather than silently
+                    // showing .stopped.
+                    if proc.terminationStatus != 0 {
+                        self.state = .failed("daemon exited with status \(proc.terminationStatus)")
+                    } else {
+                        self.state = .stopped
+                    }
                 }
             }
             try process.run()

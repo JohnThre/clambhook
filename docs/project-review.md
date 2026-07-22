@@ -153,6 +153,38 @@ No P0 findings. Six P1 items should block release.
 - [ ] Sequence v1.1 (network conditioner, protocol-specific viewers) and the
   planned VLESS/VMess/Reality/scripting work only after the blockers above close.
 
+## macOS review — completed 2026-07-22
+
+All prior P1 items confirmed fixed in current code. New items addressed:
+
+- [x] **Daemon-side license enforcement.** Added `internal/api/license.go`
+  middleware gating state-changing API routes on a cached `license.Snapshot`
+  via the `--license` flag. Fail-closed on missing/expired; 10s cache TTL;
+  disconnect exempt. 8 tests in `internal/api/license_test.go`.
+- [x] **Daemon crash recovery.** Privileged helper (`main.swift`) relaunches
+  the daemon up to 3 times with exponential backoff on unexpected exit.
+  `isStopping` flag distinguishes intentional stops from crashes. User-session
+  `DaemonSupervisor` surfaces `.failed` state on non-zero exit.
+- [x] **Source-only guard.** `check-source-only.sh` now scans the repo tree
+  for installer artifacts by extension, not just workflow text.
+- [x] **GPG key pinning.** `release-macos.sh` pins `EXPECTED_GPG_KEY` to
+  `EAA876B70B1832F5` and warns on mismatch.
+- [x] **CI tool pinning.** `ci_post_clone.sh` pins Go and XcodeGen versions.
+- [x] **MacSidebarSections split.** 3,818-line monolith split into 10
+  per-section files. Duplicated `private` helpers consolidated to `internal`.
+- [x] **Keychain error surfacing.** `AppleAppModel` no longer silently swallows
+  keychain read/write errors; surfaces via `keychainReadFailed` + `daemonMessage`.
+- [x] **Widget keychain build assertion.** `project.yml` and the release
+  contract check validate `V6GG4HYABJ.org.jpfchang.clambhook`.
+- [x] **Force-unwrapped URLs.** Inline `URL(string:...)!` buy links replaced
+  with `defaultLicensePurchaseURL` constant.
+- [x] **signing.md DEVELOPMENT_TEAM fix.** Corrected stale claim; documented
+  notarytool keychain profile setup.
+
+Verification: Go tests pass (`internal/api`, `internal/license`,
+`internal/licensebridge`), `go vet` clean, Swift build succeeds,
+`swift test` 164 tests pass, `macos-release-contract-check.sh` passes.
+
 ## Verified baseline
 
 - The Go suite passed for every package once `clib/libcnet.a` was built; only the

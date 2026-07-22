@@ -1,9 +1,8 @@
 # macOS Developer ID Signing
 
-ClambHook keeps `DEVELOPMENT_TEAM` empty in `ui/apple/project.yml` so the
-XcodeGen source remains team-agnostic. The public macOS archive is signed,
-notarized, stapled, packaged as a DMG, and uploaded to the website artifact
-bucket through the macOS release scripts.
+ClambHook sets `DEVELOPMENT_TEAM` to `V6GG4HYABJ` in `ui/apple/project.yml`.
+The public macOS archive is signed, notarized, stapled, packaged as a DMG,
+and uploaded to the website artifact bucket through the macOS release scripts.
 
 ## Required Apple Identifiers
 
@@ -37,6 +36,38 @@ export NOTARYTOOL_PROFILE=clambhook-notary
 export CLAMBHOOK_R2_BUCKET=clambhook-artifacts
 ```
 
+
+## Notarytool Keychain Profile (one-time)
+
+`make release-macos` is blocked until the `clambhook-notary` notarytool
+keychain profile is created. Create it once with an Apple Connect API key
+(Developer portal > Users and Access > Keys > Connect API, access App
+Manager or higher):
+
+```sh
+xcrun notarytool store-keychain-profile "clambhook-notary" \
+    --apple-id "developer@jpfchang.org" \
+    --team-id "V6GG4HYABJ" \
+    --password "<app-specific-password>"
+```
+
+Or, with a Connect API key (`AuthKey_XXXXXX.p8`):
+
+```sh
+xcrun notarytool store-keychain-profile "clambhook-notary" \
+    --key "AuthKey_XXXXXX.p8" \
+    --key-id "XXXXXX" \
+    --issuer "xxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+```
+
+Verify it is stored:
+
+```sh
+xcrun notarytool history --keychain-profile "clambhook-notary"
+```
+
+After this, `export NOTARYTOOL_PROFILE=clambhook-notary` unblocks
+`make release-macos`.
 Do not commit private keys, notary credentials, provisioning profiles, generated
 archives, exported apps, ZIPs, DMGs, checksums, or update manifests.
 

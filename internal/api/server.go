@@ -21,16 +21,22 @@ type Server struct {
 	engine     *engine.Engine
 	bus        *events.Bus
 	traffic    *traffic.Store
-	developer  *developer.Manager
-	authToken  string
-	configPath string
+	developer   *developer.Manager
+	authToken   string
+	configPath  string
+	licensePath string
 	server     *http.Server
 	mu         sync.RWMutex
 	// configMu serializes every on-disk configuration
 	// read-modify-validate-write-reload transaction. It is deliberately
 	// separate from mu (which guards mutable server fields) and is only ever
-	// held through lockConfigTxn. See that method for the discipline.
 	configMu sync.Mutex
+
+	// licenseMu guards the licensePath, licenseCache, and the cached
+	// license decision. It is separate from mu and configMu so license
+	// reads never block config transactions or field mutations.
+	licenseMu    sync.Mutex
+	licenseCache licenseCacheEntry
 	addr     string
 	// httpClient is used for outbound rule-set/subscription refreshes. It is
 	// normally nil so production uses the default safe-redirects client; tests
@@ -73,13 +79,14 @@ func NewWithOptions(eng *engine.Engine, bus *events.Bus, opts Options) *Server {
 		bus:        bus,
 		traffic:    opts.TrafficStore,
 		developer:  opts.Developer,
-		authToken:  strings.TrimSpace(opts.AuthToken),
-		configPath: strings.TrimSpace(opts.ConfigPath),
+		authToken:   strings.TrimSpace(opts.AuthToken),
+		configPath:  strings.TrimSpace(opts.ConfigPath),
+		licensePath: strings.TrimSpace(opts.LicensePath),
 	}
 	mux := http.NewServeMux()
 	s.registerRoutes(mux)
 	s.server = &http.Server{
-		Handler:           s.guardMiddleware(s.authMiddleware(mux)),
+		Handler:           s.guardMiddleware(s.authMiddleware(s.licenseMiddleware(mux))),
 		ReadHeaderTimeout: 5 * time.Second,
 		IdleTimeout:       2 * time.Minute,
 		MaxHeaderBytes:    1 << 20,

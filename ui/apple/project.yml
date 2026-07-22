@@ -108,6 +108,11 @@ targets:
         CODE_SIGN_ENTITLEMENTS: ClambhookWidgets/ClambhookMacWidgetExtension.entitlements
         ENABLE_APP_SANDBOX: YES
         SKIP_INSTALL: YES
+        # Document the expected keychain access group. $(AppIdentifierPrefix)
+        # must resolve to V6GG4HYABJ. for the widget to read the API token
+        # from the shared keychain. The macos-release-contract-check validates
+        # that this matches defaultAppleKeychainAccessGroup in Settings.swift.
+        CLAMBHOOK_KEYCHAIN_ACCESS_GROUP: "V6GG4HYABJ.org.jpfchang.clambhook"
 schemes:
   ClambhookMac:
     build:

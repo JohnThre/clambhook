@@ -2,6 +2,7 @@ import Foundation
 
 public let defaultLicenseValidationURL = URL(string: "https://store.swiphtgroup.com/clambhook/license")!
 public let defaultLicensePortalURL = URL(string: "https://store.swiphtgroup.com/clambhook/portal")!
+public let defaultLicensePurchaseURL = URL(string: "https://store.swiphtgroup.com/clambhook/buy")!
 public let mobileLicenseServerGrantDefaultsKey = "clambhook.apple.license.server-grant"
 
 public struct MobileServerLicenseGrantResponse: Codable, Equatable, Sendable {
