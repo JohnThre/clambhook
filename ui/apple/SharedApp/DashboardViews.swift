@@ -186,18 +186,8 @@ private func dashboardCleanupActionTitle(_ suggestion: TrafficCleanupSuggestionP
     suggestion.operation == "move_rule_to_end" ? "Move to End" : "Delete"
 }
 
-@MainActor
-private func dashboardFallbackProxyChain(_ dashboard: DashboardStore) -> String {
-    for group in dashboard.policyGroups.groups {
-        if !group.selectedChain.isEmpty {
-            return group.selectedChain
-        }
-        if !group.selected.isEmpty {
-            return group.selected
-        }
-    }
-    return dashboard.servers.chains.first?.name ?? ""
-}
+// dashboardFallbackProxyChain and timeAgoShort are defined in
+// MacActivitySection.swift as internal helpers shared across the target.
 
 struct TrafficSummaryView: View {
     var traffic: TrafficSnapshotPayload

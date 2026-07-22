@@ -24,6 +24,7 @@ final class AppleAppModel: ObservableObject {
     @Published private(set) var developerCAPEMText = ""
     @Published var apiToken = ""
     @Published var daemonMessage = ""
+    @Published private(set) var keychainReadFailed = false
 
     let platform: AppPlatform
     private let credentialStore: CredentialStoring
@@ -79,7 +80,13 @@ final class AppleAppModel: ObservableObject {
             licenseValidationEndpoint: settingsStore.settings.licenseValidationEndpoint
         )
         #endif
-        let initialToken = (try? credentialStore.readToken(account: settingsStore.settings.apiEndpoint.absoluteString)) ?? ""
+        let initialToken: String
+        do {
+            initialToken = try credentialStore.readToken(account: settingsStore.settings.apiEndpoint.absoluteString) ?? ""
+        } catch {
+            initialToken = ""
+            keychainReadFailed = true
+        }
         self.apiToken = initialToken
         let initialAPIClient = ClambhookAPIClient(baseURL: settingsStore.settings.apiEndpoint, tokenProvider: { initialToken })
         self.apiClient = initialAPIClient
@@ -160,7 +167,13 @@ final class AppleAppModel: ObservableObject {
         prepareEnhancedModeConfigIfNeeded()
         #endif
         settingsStore.settings = settingsStore.settings.normalized()
-        try? credentialStore.saveToken(apiToken, account: settingsStore.settings.apiEndpoint.absoluteString)
+        do {
+            try credentialStore.saveToken(apiToken, account: settingsStore.settings.apiEndpoint.absoluteString)
+            keychainReadFailed = false
+        } catch {
+            daemonMessage = "Keychain error: \(error.localizedDescription)"
+            keychainReadFailed = true
+        }
         settingsStore.save()
         #if os(macOS)
         refreshSparkleGate()
@@ -533,7 +546,7 @@ final class AppleAppModel: ObservableObject {
         case .openAppSettings, .openSettings:
             daemonMessage = "open settings"
         case .buyLicense:
-            openExternalURL(URL(string: "https://store.swiphtgroup.com/clambhook/buy")!)
+            openExternalURL(defaultLicensePurchaseURL)
         case .activateLicense:
             daemonMessage = "open license"
         case .openLicensePortal, .renewUpdates:
@@ -960,6 +973,8 @@ final class AppleAppModel: ObservableObject {
         refreshSparkleGate()
     }
 
+    // Update installs are gated via MobileLicenseUpdatePolicy.canInstallUpdate
+    // in SparkleUpdateGate so the app never installs past the update cutoff.
     func refreshSparkleGate() {
         sparkleUpdater.refreshGate(
             feedURLString: settingsStore.settings.appcastFeedURL.absoluteString,

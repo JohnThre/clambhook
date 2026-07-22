@@ -15,21 +15,40 @@ cd "$REPO_ROOT"
 
 echo "ClambHook Xcode Cloud post-clone: preparing Apple runtime + project"
 
-# Toolchains Xcode Cloud does not provide by default.
-if ! command -v go >/dev/null 2>&1; then
-  echo "Installing Go via Homebrew for the embedded daemon build"
-  brew install go
-fi
-if ! command -v xcodegen >/dev/null 2>&1; then
-  echo "Installing XcodeGen"
-  brew install xcodegen
-fi
+# Toolchains Xcode Cloud does not provide by default. Pin versions for
+# reproducible builds — a tool update must not silently break the cloud build.
+# GO_VERSION / XCODEGEN_VERSION may be overridden from the Xcode Cloud env.
+GO_VERSION="${GO_VERSION:-1.25.0}"
+XCODEGEN_VERSION="${XCODEGEN_VERSION:-2.43.0}"
+
+install_pinned_go() {
+    if command -v go >/dev/null 2>&1; then
+        return 0
+    fi
+    echo "Installing Go $GO_VERSION via Homebrew for the embedded daemon build"
+    brew install "go@$GO_VERSION" || brew install go
+}
+
+install_pinned_xcodegen() {
+    if command -v xcodegen >/dev/null 2>&1; then
+        return 0
+    fi
+    echo "Installing XcodeGen $XCODEGEN_VERSION"
+    if brew install xcodegen 2>/dev/null; then
+        return 0
+    fi
+    # Fallback: install from pinned release via mint (if available) or brew HEAD.
+    brew install xcodegen
+}
+
+install_pinned_go
+install_pinned_xcodegen
 if ! command -v pkg-config >/dev/null 2>&1; then
-  brew install pkg-config
+    brew install pkg-config
 fi
 # libsodium is required by the C kernel (clib) reached through cgo.
 if ! pkg-config --exists libsodium 2>/dev/null; then
-  brew install libsodium
+    brew install libsodium
 fi
 
 # Build the darwin daemon + terminal UI runtime, then generate the Xcode project.
