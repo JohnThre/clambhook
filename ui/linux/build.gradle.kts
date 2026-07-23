@@ -95,53 +95,38 @@ tasks.register("installDist") {
         resDir.mkdirs()
 
         // Copy all resolved runtime classpath artifacts into lib/.
-        // Copy all runtime classpath JARs into lib/.
+        // Copy JARs from runtimeClasspath into lib/ (for the classpath).
         configurations.runtimeClasspath.get().files.forEach { f ->
             if (f.name.endsWith(".jar")) {
                 f.copyTo(file("$libDir/${f.name}"), overwrite = true)
             }
         }
 
-        // The Skiko native lib (.so/.dylib) is a platform-specific artifact
-        // resolved by Gradle's variant-aware resolution. It's not in the
-        // runtimeClasspath.files (which only has JARs). Find it in the
-        // Gradle cache by searching for skiko native artifacts.
-        configurations.runtimeClasspath.get().resolvedConfiguration.resolvedArtifacts.forEach { art ->
-            val f = art.file
-            if (f.name.endsWith(".so") || f.name.endsWith(".dylib") || f.name.endsWith(".dll") ||
-                f.name.endsWith(".so.sha256") || f.name.endsWith(".dylib.sha256") || f.name.endsWith(".dll.sha256")) {
-                f.copyTo(file("$libDir/${f.name}"), overwrite = true)
-            }
-        }
-
-
-        // Copy native libs from createDistributable output (jpackage app image).
-        // createDistributable downloads and places platform-specific native
-        // libs (libskiko-linux-x64.so) in the app image directory.
+        // Copy the entire createDistributable output (jpackage app image) which
+        // includes the native launcher, native libs, and the bundled JRE.
+        // The jpackage native launcher at bin/clambhook-linux handles JVM
+        // loading, classpath, and Skiko native lib loading automatically.
         val appBase = layout.buildDirectory.dir("compose/binaries/main/app").get().asFile
         if (appBase.exists()) {
-            appBase.walkTopDown().forEach { f ->
-                if (f.isFile && (f.name.endsWith(".so") || f.name.endsWith(".so.sha256"))) {
-                    f.copyTo(file("$libDir/${f.name}"), overwrite = true)
+            val appDir = appBase.listFiles()?.firstOrNull { it.isDirectory }
+            if (appDir != null) {
+                appDir.walkTopDown().forEach { f ->
+                    if (!f.isFile) return@forEach
+                    val rel = f.relativeTo(appDir)
+                    val target = file("${installDir.get().asFile.path}/$rel")
+                    target.parentFile.mkdirs()
+                    f.copyTo(target, overwrite = true)
+                    if (f.canExecute()) target.setExecutable(true)
                 }
             }
         }
-        // Copy the project JAR.
+
+        // Copy the project JAR into lib/app/ (where jpackage expects it).
+        val appLibDir = file("$libDir/app")
+        appLibDir.mkdirs()
         tasks.jar.get().archiveFile.get().asFile.copyTo(
-            file("$libDir/${tasks.jar.get().archiveFileName.get()}"), overwrite = true
+            file("$appLibDir/${tasks.jar.get().archiveFileName.get()}"), overwrite = true
         )
-
-        // Generate the launcher script using system java.
-        // Note: do NOT set -Dskiko.library.path — Skiko auto-extracts its
-        // native lib from the skiko-awt JAR on the classpath at runtime.
-        val script = file("$binDir/clambhook-linux")
-        script.writeText("""#!/bin/sh
-APP_HOME=`dirname "${'$'}0"`/..
-CLASSPATH="${'$'}APP_HOME/lib/*"
-exec java -classpath "${'$'}CLASSPATH" com.clambhook.linux.MainKt "${'$'}@"
-""")
-        script.setExecutable(true)
-
         // Copy staged daemon binaries.
         val stagedBinaries = layout.projectDirectory.dir("resources/app/bin").asFile
         if (stagedBinaries.exists()) {
