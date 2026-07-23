@@ -78,28 +78,39 @@ jobs:
             curl -fsSL "https://go.dev/dl/go${GO_VER}.linux-${GOARCH}.tar.gz" | tar -C /usr/local -xz
             export PATH=/usr/local/go/bin:$PATH'
 
-          docker run --rm -v "$PWD":/src -w /src "${{ matrix.image }}" bash -lc "
+          docker run --rm -e "VERSION=$VERSION" -e "DISTRO=${{ matrix.distro }}" -v "$PWD":/src -w /src "${{ matrix.image }}" bash -lc '
             set -e
-            $SETUP
+            '"$SETUP"'
             if [[ "${{ matrix.setup }}" == "apt" ]]; then apt-get install -y -qq xvfb >/dev/null 2>&1 || true; fi
-            $GO_SETUP
+            '"$GO_SETUP"'
             go version
-            export PATH=/usr/local/go/bin:\$PATH
+            export PATH=/usr/local/go/bin:$PATH
             export GOFLAGS=-buildvcs=false
-            make build VERSION=\"$VERSION\"
+            make build VERSION="$VERSION"
             make build-linux
             ./bin/clambhook -version
             ./bin/clambhook-tui -version
-            echo '{\"command\":\"ensure-trial\",\"snapshot\":\"\"}' | ./bin/clambhook-license | grep '\"ok\":true'
+            echo "{\"command\":\"ensure-trial\",\"snapshot\":\"\"}" | ./bin/clambhook-license | grep "\"ok\":true"
             # Verify the Compose Multiplatform GUI controller starts under Xvfb.
-            # It's a JVM app — needs a display. Give it 10s to initialize, then kill.
+            # It is a JVM app that needs a display. Give it 15s to initialize.
+            # A timeout exit (124) means it started successfully and was killed.
             if command -v xvfb-run >/dev/null 2>&1; then
-              timeout 15 xvfb-run -a ui/linux/build/install/clambhook-linux/bin/clambhook-linux 2>&1 || true
-              echo 'GUI controller smoke test passed for ${{ matrix.distro }}'
+              set +e
+              timeout 15 xvfb-run -a ui/linux/build/install/clambhook-linux/bin/clambhook-linux >/tmp/gui.log 2>&1
+              gui_rc=$?
+              set -e
+              if [ $gui_rc -eq 124 ] || [ $gui_rc -eq 0 ]; then
+                echo "GUI controller started successfully on $DISTRO"
+              else
+                echo "GUI controller failed on $DISTRO (exit $gui_rc):" >&2
+                cat /tmp/gui.log >&2
+                exit 1
+              fi
             else
-              echo 'Skipping GUI smoke test (xvfb-run not available on ${{ matrix.distro }})'
+              echo "Skipping GUI smoke test (xvfb-run not available on $DISTRO)"
             fi
-            echo 'Smoke test passed for ${{ matrix.distro }}'
+            echo "Smoke test passed for $DISTRO"
+          '
 
       - name: Build ${{ matrix.distro }} package artifact
         run: |
@@ -222,11 +233,24 @@ jobs:
       - name: Smoke test — verify GUI controller starts
         run: |
           sudo apt-get update -qq && sudo apt-get install -y -qq xvfb >/dev/null 2>&1
-          # Run the AppImage under Xvfb for 15s. It should start without crashing.
-          chmod +x dist/Clambhook-1.0.1-x86_64.AppImage
-          timeout 15 xvfb-run -a dist/Clambhook-1.0.1-x86_64.AppImage 2>&1 || true
-          # Also verify the installDist-built controller starts
-          timeout 15 xvfb-run -a ui/linux/build/install/clambhook-linux/bin/clambhook-linux 2>&1 || true
+          chmod +x dist/Clambhook-${{ steps.ver.outputs.version }}-x86_64.AppImage
+          # timeout exit (124) means the app started successfully and was killed
+          set +e
+          timeout 15 xvfb-run -a dist/Clambhook-${{ steps.ver.outputs.version }}-x86_64.AppImage >/tmp/appimage.log 2>&1
+          appimage_rc=$?
+          timeout 15 xvfb-run -a ui/linux/build/install/clambhook-linux/bin/clambhook-linux >/tmp/controller.log 2>&1
+          controller_rc=$?
+          set -e
+          for name_rc in "AppImage:$appimage_rc" "Controller:$controller_rc"; do
+            name="${name_rc%%:*}"
+            rc="${name_rc##*:}"
+            if [ "$rc" -ne 124 ] && [ "$rc" -ne 0 ]; then
+              echo "$name failed (exit $rc):" >&2
+              cat "/tmp/$(echo $name | tr A-Z a-z).log" >&2
+              exit 1
+            fi
+            echo "$name started successfully"
+          done
           echo "GUI smoke test passed"
       - uses: actions/upload-artifact@v4
         with:
