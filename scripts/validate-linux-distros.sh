@@ -58,13 +58,12 @@ declare -A IMAGE=(
 )
 
 apt_setup='export DEBIAN_FRONTEND=noninteractive; apt-get update -qq && apt-get install -y -qq \
-  gcc make pkg-config \
-  libsodium-dev \
-  default-jdk-headless gradle \
+  gcc make pkg-config libsodium-dev \
+  default-jdk-headless \
   debhelper dh-golang dpkg-dev fakeroot rsync git curl wget ca-certificates tar file >/dev/null'
 
 dnf_setup='dnf install -y -q gcc make rpm-build pkgconf-pkg-config \
-  java-17-openjdk-devel gradle libsodium-devel systemd-rpm-macros polkit-devel \
+  java-17-openjdk-devel libsodium-devel systemd-rpm-macros polkit-devel \
   git curl tar gzip file which >/dev/null'
 
 # Stock distro Go packages are older than the go.mod requirement, so install the
