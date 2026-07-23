@@ -50,7 +50,7 @@ install: build
 	install -m 0755 bin/clambhook-tui "$(DESTDIR)$(PREFIX)/bin/clambhook-tui"
 	install -m 0755 bin/clambhook-license "$(DESTDIR)$(PREFIX)/bin/clambhook-license"
 
-install-linux: check-linux-ui-deps build-daemon build-tui build-license
+install-linux: build-daemon build-tui build-license
 	cd ui/linux && ./gradlew --no-daemon installDist -PclambhookDaemon="$(abspath bin/clambhook)" -PclambhookTui="$(abspath bin/clambhook-tui)" -PclambhookLicense="$(abspath bin/clambhook-license)"
 	install -d "$(DESTDIR)$(PREFIX)/bin"
 	install -m 0755 ui/linux/build/install/clambhook-linux/bin/clambhook-linux "$(DESTDIR)$(PREFIX)/bin/clambhook-linux"
@@ -140,7 +140,7 @@ upload-release-android:
 test-linux: check-linux-ui-deps
 	cd ui/linux && ./gradlew --no-daemon test
 
-build-linux: check-linux-ui-deps build-daemon build-tui build-license
+build-linux: build-daemon build-tui build-license
 	cd ui/linux && ./gradlew --no-daemon installDist -PclambhookDaemon="$(abspath bin/clambhook)" -PclambhookTui="$(abspath bin/clambhook-tui)" -PclambhookLicense="$(abspath bin/clambhook-license)"
 
 test: build-clib

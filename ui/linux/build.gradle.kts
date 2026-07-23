@@ -92,39 +92,40 @@ tasks.register("installDist") {
         val resDir = installDir.get().dir("resources/app/bin").asFile
         binDir.mkdirs()
         resDir.mkdirs()
-        val libDir = installDir.get().dir("lib").asFile
-        libDir.mkdirs()
 
-        // createDistributable produces a platform-specific app directory.
-        // Copy all JARs and native libs (.so/.dylib/.dll/.sha256) from the
-        // output, excluding the bundled JRE runtime (we use system Java).
+        // createDistributable produces a self-contained app directory with a
+        // bundled JRE and platform-specific native libs (libskiko-linux-x64.so).
+        // On Linux: compose/binaries/main/app/clambhook-linux/{bin,lib/app,lib/runtime}
+        // On macOS: compose/binaries/main/app/clambhook-linux.app/Contents/{MacOS,app,runtime}
+        // We normalize to a Linux-style layout: bin/, lib/app/, lib/runtime/
         val appBase = layout.buildDirectory.dir("compose/binaries/main/app").get().asFile
         if (appBase.exists()) {
-            appBase.walkTopDown().forEach { f ->
+            // Find the top-level app directory (clambhook-linux or clambhook-linux.app)
+            val appDir = appBase.listFiles()?.firstOrNull { it.isDirectory } ?: return@doLast
+            // On macOS, look inside Contents/ for the real layout
+            val contentsDir = appDir.resolve("Contents")
+            val sourceRoot = if (contentsDir.exists()) contentsDir else appDir
+            sourceRoot.walkTopDown().forEach { f ->
                 if (!f.isFile) return@forEach
-                // Skip JRE runtime files (libjvm, libnet, libnio, etc.)
-                val path = f.relativeTo(appBase).path
-                if (path.contains("/runtime/") || path.contains("/Home/lib/")) return@forEach
-                if (f.name.endsWith(".jar") || f.name.endsWith(".so") ||
-                    f.name.endsWith(".dylib") || f.name.endsWith(".dll") ||
-                    f.name.endsWith(".sha256")) {
-                    f.copyTo(file("$libDir/${f.name}"), overwrite = true)
-                }
+                val rel = f.relativeTo(sourceRoot)
+                val target = file("${installDir.get().asFile.path}/$rel")
+                target.parentFile.mkdirs()
+                f.copyTo(target, overwrite = true)
+                if (f.canExecute()) target.setExecutable(true)
             }
         }
 
-        // Copy the project JAR.
-        tasks.jar.get().archiveFile.get().asFile.copyTo(
-            file("$libDir/${tasks.jar.get().archiveFileName.get()}"), overwrite = true
-        )
-
-        // Generate the launcher script. Uses java from PATH (the .deb/.rpm
-        // depend on default-jre-headless or java-17-openjdk).
+        // Generate the launcher script that uses the bundled JRE.
+        // The JRE bin/java is at <install>/bin/java (Linux) or
+                // <install>/MacOS/clambhook-linux (macOS). On Linux the
+                // createDistributable output has bin/clambhook-linux already,
+                // but we overwrite it with our own that also sets the classpath
+                // and daemon binary paths.
         val script = file("$binDir/clambhook-linux")
         script.writeText("""#!/bin/sh
 APP_HOME=`dirname "${'$'}0"`/..
-CLASSPATH="${'$'}APP_HOME/lib/*"
-exec java -classpath "${'$'}CLASSPATH" -Dskiko.library.path="${'$'}APP_HOME/lib" com.clambhook.linux.MainKt "${'$'}@"
+CLASSPATH="${'$'}APP_HOME/lib/app/*"
+exec "${'$'}APP_HOME/lib/runtime/bin/java" -classpath "${'$'}CLASSPATH" -Dskiko.library.path="${'$'}APP_HOME/lib/app" com.clambhook.linux.MainKt "${'$'}@"
 """)
         script.setExecutable(true)
 
