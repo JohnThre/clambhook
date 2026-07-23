@@ -96,7 +96,7 @@ final class MacLicenseManager: ObservableObject {
     /// Offline failures fail open: the cached snapshot stays in force and the
     /// evaluator's offline-grace window (7 days) governs continued use.
     func revalidateIfNeeded(now: Date = Date(), force: Bool = false) {
-        let trimmedKey = savedLicenseKey().trimmingCharacters(in: .whitespaceAndNewlines)
+        let trimmedKey = savedLicenseKey().trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedKey.isEmpty else { return }
         guard force || shouldRevalidate(now: now) else { return }
         guard !isRevalidating else { return }
