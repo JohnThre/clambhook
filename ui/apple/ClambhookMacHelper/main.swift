@@ -81,6 +81,9 @@ final class ClambhookPrivilegedHelperService: NSObject, ClambhookPrivilegedHelpe
         daemonProcess = nil
         let wasIntentional = isStopping
         isStopping = false
+        if !wasIntentional && relaunchAttempts < maxRelaunchAttempts {
+            relaunchAttempts += 1
+            let attempt = relaunchAttempts
             let configPath = lastConfigPath
             let apiAddress = lastAPIAddress
             let apiToken = lastAPIToken

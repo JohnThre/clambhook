@@ -1135,7 +1135,9 @@ final class AppleAppModel: ObservableObject {
         }
         sparkleChangeCancellable = sparkleUpdater.objectWillChange.sink { [weak self] _ in
             Task { @MainActor in self?.objectWillChange.send() }
+        }
     }
+    #endif
 
     private func enforceLicenseState() {
         let decision = mobileLicenseDecision
