@@ -64,9 +64,12 @@ jobs:
               default-jdk \
               debhelper dh-golang dpkg-dev fakeroot rsync git curl wget ca-certificates tar file'
           else
-            SETUP='dnf install -y -q epel-release >/dev/null; dnf install -y -q gcc make rpm-build pkgconf-pkg-config \
+            SETUP='dnf install -y -q --allowerasing gcc make rpm-build pkgconf-pkg-config \
               java-17-openjdk-devel libsodium-devel systemd-rpm-macros polkit-devel \
               git curl tar gzip file which'
+            if [[ "${{ matrix.distro }}" == "rocky" || "${{ matrix.distro }}" == "almalinux" ]]; then
+              SETUP="dnf install -y -q epel-release >/dev/null; $SETUP"
+            fi
           fi
 
           GO_SETUP='GO_VER=$(sed -n "s/^go \([0-9.][0-9.]*\)$/\1/p" go.mod | head -1)
@@ -114,8 +117,8 @@ jobs:
             fedora|rocky|almalinux)
               docker run --rm -v "$PWD":/src -w /src "${{ matrix.image }}" bash -lc "
                 set -e
-                dnf install -y -q epel-release >/dev/null
-                dnf install -y -q gcc make rpm-build pkgconf-pkg-config \
+                if [[ "${{ matrix.distro }}" != "fedora" ]]; then dnf install -y -q epel-release >/dev/null; fi
+                dnf install -y -q --allowerasing gcc make rpm-build pkgconf-pkg-config \
                   java-17-openjdk-devel libsodium-devel systemd-rpm-macros polkit-devel \
                   git curl tar gzip file which
                 GO_VER=\$(sed -n 's/^go \([0-9.][0-9.]*\)\$/\1/p' go.mod | head -1)
