@@ -102,7 +102,7 @@ jobs:
               if [ $gui_rc -eq 124 ] || [ $gui_rc -eq 0 ]; then
                 echo "GUI controller started successfully on $DISTRO"
               else
-                echo "::warning::GUI controller failed on $DISTRO (exit $gui_rc) — this may be caused by the JetBrains Space Maven repo being temporarily unavailable, which prevents the Skiko native rendering library from being downloaded:"
+                echo "::warning::GUI controller failed on $DISTRO (exit $gui_rc) - this may be caused by the JetBrains Space Maven repo being temporarily unavailable, which prevents the Skiko native rendering library from being downloaded:"
                 cat /tmp/gui.log >&2
                 echo "GUI smoke test failed but continuing (daemon/TUI/license passed)"
               fi
@@ -244,7 +244,7 @@ jobs:
             name="${name_rc%%:*}"
             rc="${name_rc##*:}"
             if [ "$rc" -ne 124 ] && [ "$rc" -ne 0 ]; then
-              echo "::warning::$name failed (exit $rc) — Skiko native lib may be missing due to JetBrains Space Maven repo being temporarily unavailable:"
+              echo "::warning::$name failed (exit $rc) - Skiko native lib may be missing due to JetBrains Space Maven repo being temporarily unavailable:"
               cat "/tmp/$(echo $name | tr A-Z a-z).log" >&2
             else
               echo "$name started successfully"
