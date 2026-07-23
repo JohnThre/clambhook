@@ -61,7 +61,7 @@ jobs:
           if [[ "${{ matrix.setup }}" == "apt" ]]; then
             SETUP='export DEBIAN_FRONTEND=noninteractive; apt-get update -qq && apt-get install -y -qq \
               gcc make pkg-config libsodium-dev \
-              default-jdk \
+              openjdk-17-jdk \
               debhelper dh-golang dpkg-dev fakeroot rsync git curl wget ca-certificates tar file'
           else
             SETUP='dnf install -y -q --allowerasing gcc make rpm-build pkgconf-pkg-config \
@@ -95,46 +95,69 @@ jobs:
       - name: Build ${{ matrix.distro }} package artifact
         run: |
           VERSION="${{ steps.ver.outputs.version }}"
-          case "${{ matrix.distro }}" in
-            ubuntu|debian)
-              docker run --rm -e "VERSION=$VERSION" -v "$PWD":/src -w /src "${{ matrix.image }}" bash -lc "
-                set -e
-                export DEBIAN_FRONTEND=noninteractive
-                apt-get update -qq && apt-get install -y -qq \
-                  gcc make pkg-config libsodium-dev \
-                  default-jdk \
-                  debhelper dh-golang dpkg-dev fakeroot rsync git curl wget ca-certificates tar file
-                GO_VER=\$(sed -n 's/^go \([0-9.][0-9.]*\)\$/\1/p' go.mod | head -1)
-                case \"\$(uname -m)\" in x86_64) GOARCH=amd64 ;; aarch64|arm64) GOARCH=arm64 ;; esac
-                curl -fsSL \"https://go.dev/dl/go\${GO_VER}.linux-\${GOARCH}.tar.gz\" | tar -C /usr/local -xz
-                export PATH=/usr/local/go/bin:\$PATH
-                export GOFLAGS=-buildvcs=false
-                mkdir -p /src/dist
-                dpkg-buildpackage -us -uc -b -d
-                cp ../clambhook_*_*.deb /src/dist/clambhook-\${VERSION}-\$(uname -m).deb
-              "
-              ;;
-            fedora|rocky|almalinux)
-              docker run --rm -e "VERSION=$VERSION" -v "$PWD":/src -w /src "${{ matrix.image }}" bash -lc "
-                set -e
-                if [[ "${{ matrix.distro }}" != "fedora" ]]; then dnf install -y -q epel-release >/dev/null; fi
-                dnf install -y -q --allowerasing gcc make rpm-build pkgconf-pkg-config \
-                  java-17-openjdk-devel libsodium-devel systemd-rpm-macros polkit-devel \
-                  git curl tar gzip file which
-                GO_VER=\$(sed -n 's/^go \([0-9.][0-9.]*\)\$/\1/p' go.mod | head -1)
-                export PATH=/usr/local/go/bin:\$PATH
-                export GOFLAGS=-buildvcs=false
-                rpmver=\${VERSION//-/.}
-                mkdir -p /src/dist /tmp/rpmbuild/{BUILD,RPMS,SOURCES,SPECS,SRPMS}
-                tar --exclude-vcs --exclude='./dist' \
-                  --transform \"s,^\.,clambhook-\${rpmver},\" \
-                  -czf /tmp/rpmbuild/SOURCES/clambhook-\${rpmver}.tar.gz .
-                rpmbuild --define \"_topdir /tmp/rpmbuild\" --define \"version \${rpmver}\" \
-                  -bb packaging/rpm/clambhook.spec
-                cp /tmp/rpmbuild/RPMS/*/clambhook-*.rpm /src/dist/clambhook-\${VERSION}-\$(uname -m).rpm
-              "
-              ;;
-          esac
+          ARCH="$(uname -m)"
+          if [[ "${{ matrix.setup }}" == "apt" ]]; then
+            SETUP='export DEBIAN_FRONTEND=noninteractive; apt-get update -qq && apt-get install -y -qq \
+              gcc make pkg-config libsodium-dev openjdk-17-jdk \
+              dpkg-dev fakeroot rsync git curl wget ca-certificates tar file'
+          else
+            SETUP='if [[ "${{ matrix.distro }}" != "fedora" ]]; then dnf install -y -q epel-release >/dev/null; fi
+              dnf install -y -q --allowerasing gcc make rpm-build pkgconf-pkg-config \
+              java-17-openjdk-devel libsodium-devel systemd-rpm-macros polkit-devel \
+              git curl tar gzip file which'
+          fi
+
+          GO_SETUP='GO_VER=$(sed -n "s/^go \([0-9.][0-9.]*\)$/\1/p" go.mod | head -1)
+            case "$(uname -m)" in x86_64) GOARCH=amd64 ;; aarch64|arm64) GOARCH=arm64 ;; *) exit 2 ;; esac
+            curl -fsSL "https://go.dev/dl/go${GO_VER}.linux-${GOARCH}.tar.gz" | tar -C /usr/local -xz
+            export PATH=/usr/local/go/bin:$PATH'
+
+          docker run --rm -e "VERSION=$VERSION" -v "$PWD":/src -w /src "${{ matrix.image }}" bash -lc "
+            set -e
+            $SETUP
+            $GO_SETUP
+            go version
+            export PATH=/usr/local/go/bin:\$PATH
+            export GOFLAGS=-buildvcs=false
+            mkdir -p /src/dist
+
+            # Build daemon, TUI, license helper, and Linux controller.
+            make build VERSION=\"\$VERSION\"
+            make build-linux
+            make install-linux DESTDIR=/tmp/pkgroot PREFIX=/usr
+
+            # Build .deb for Debian/Ubuntu.
+            if [[ "${{ matrix.setup }}" == "apt" ]]; then
+              mkdir -p /tmp/deb/DEBIAN /tmp/deb/usr
+              cp -a /tmp/pkgroot/* /tmp/deb/
+              cat > /tmp/deb/DEBIAN/control <<CTRL
+          Package: clambhook
+          Version: \${VERSION}-1
+          Architecture: \$(dpkg --print-architecture)
+          Maintainer: Pengfan Chang <developer@jpfchang.org>
+          Section: net
+          Priority: optional
+          Depends: libsodium23, default-jre-headless | java-runtime-headless
+          Description: Private VPN and proxy router with local metadata-first inspection
+           ClambHook manages daemon connectivity, proxy profiles, policy groups,
+           routing rules, interactive connection prompts, encrypted DNS, opt-in
+           HTTP(S) capture, listener state, recent traffic, and log activity.
+          CTRL
+              dpkg-deb --build /tmp/deb /src/dist/clambhook-\${VERSION}-\${ARCH}.deb
+            fi
+
+            # Build .rpm for Fedora/Rocky/AlmaLinux.
+            if [[ "${{ matrix.setup }}" == "dnf" ]]; then
+              rpmver=\${VERSION//-/.}
+              mkdir -p /tmp/rpmbuild/{BUILD,RPMS,SOURCES,SPECS,SRPMS}
+              tar --exclude-vcs --exclude='./dist' \
+                --transform \"s,^\.,clambhook-\${rpmver},\" \
+                -czf /tmp/rpmbuild/SOURCES/clambhook-\${rpmver}.tar.gz .
+              rpmbuild --define \"_topdir /tmp/rpmbuild\" --define \"version \${rpmver}\" \
+                -bb packaging/rpm/clambhook.spec
+              cp /tmp/rpmbuild/RPMS/*/clambhook-*.rpm /src/dist/clambhook-\${VERSION}-\${ARCH}.rpm
+            fi
+          "
 
       - uses: actions/upload-artifact@v4
         with:
