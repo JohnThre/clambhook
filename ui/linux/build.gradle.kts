@@ -135,7 +135,7 @@ APP_HOME=`dirname "${'$'}0"`/..
 CLASSPATH="${'$'}APP_HOME/lib/app/*"
 JAVA="${'$'}APP_HOME/lib/runtime/bin/java"
 if [ ! -x "${'$'}JAVA" ]; then
-  JAVA=`find "${'$'}APP_HOME" -name java -type f -executable | head -1`
+  JAVA=`find "${'$'}APP_HOME" -name java \( -type f -o -type l \) 2>/dev/null | head -1`
 fi
 exec "${'$'}JAVA" -classpath "${'$'}CLASSPATH" -Dskiko.library.path="${'$'}APP_HOME/lib/app" com.clambhook.linux.MainKt "${'$'}@"
 """)
