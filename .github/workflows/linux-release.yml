@@ -91,6 +91,9 @@ jobs:
             ./bin/clambhook -version
             ./bin/clambhook-tui -version
             echo "{\"command\":\"ensure-trial\",\"snapshot\":\"\"}" | ./bin/clambhook-license | grep "\"ok\":true"
+            # Debug: show the install layout and find java
+            echo "=== Install layout ===" && find ui/linux/build/install/clambhook-linux -maxdepth 4 -type d 2>/dev/null | head -20
+            echo "=== Java binaries ===" && find ui/linux/build/install/clambhook-linux -name "java" -type f 2>/dev/null
             # Verify the Compose Multiplatform GUI controller starts under Xvfb.
             # It is a JVM app that needs a display. Give it 15s to initialize.
             # A timeout exit (124) means it started successfully and was killed.
