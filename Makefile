@@ -25,7 +25,7 @@ all: build
 
 check-linux-ui-deps:
 	$(call require-command,java,Linux UI targets,Install JDK 17 or later.)
-	$(call require-command,gradle,Linux UI targets,Install Gradle 8+ or use the bundled ./gradlew in ui/linux.)
+	@command -v gradle >/dev/null 2>&1 || test -x ui/linux/gradlew || { echo "Gradle is required: install Gradle 8+ or use the bundled ./gradlew in ui/linux." >&2; exit 1; }
 
 build-clib:
 	$(MAKE) -C clib

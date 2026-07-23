@@ -157,7 +157,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
-            build-essential pkg-config libsodium-dev fuse3 libfuse2t64 kmod curl file
+            build-essential pkg-config libsodium-dev fuse3 libfuse2t64 kmod curl file imagemagick
           sudo modprobe fuse || true
       - name: Resolve version
         id: ver
