@@ -80,7 +80,8 @@ jobs:
             $GO_SETUP
             go version
             export PATH=/usr/local/go/bin:\$PATH
-            make build
+            export GOFLAGS=-buildvcs=false
+            make build VERSION=\"$VERSION\"
             make build-linux
             ./bin/clambhook -version
             ./bin/clambhook-tui -version
@@ -104,6 +105,8 @@ jobs:
                 case \"\$(uname -m)\" in x86_64) GOARCH=amd64 ;; aarch64|arm64) GOARCH=arm64 ;; esac
                 curl -fsSL \"https://go.dev/dl/go\${GO_VER}.linux-\${GOARCH}.tar.gz\" | tar -C /usr/local -xz
                 export PATH=/usr/local/go/bin:\$PATH
+                export GOFLAGS=-buildvcs=false
+                mkdir -p /src/dist
                 dpkg-buildpackage -us -uc -b
                 cp ../clambhook_*_*.deb /src/dist/clambhook-\${VERSION}-\$(uname -m).deb
               "
@@ -116,11 +119,10 @@ jobs:
                   java-17-openjdk-devel libsodium-devel systemd-rpm-macros polkit-devel \
                   git curl tar gzip file which
                 GO_VER=\$(sed -n 's/^go \([0-9.][0-9.]*\)\$/\1/p' go.mod | head -1)
-                case \"\$(uname -m)\" in x86_64) GOARCH=amd64 ;; aarch64|arm64) GOARCH=arm64 ;; esac
-                curl -fsSL \"https://go.dev/dl/go\${GO_VER}.linux-\${GOARCH}.tar.gz\" | tar -C /usr/local -xz
                 export PATH=/usr/local/go/bin:\$PATH
+                export GOFLAGS=-buildvcs=false
                 rpmver=\${VERSION//-/.}
-                mkdir -p /tmp/rpmbuild/{BUILD,RPMS,SOURCES,SPECS,SRPMS}
+                mkdir -p /src/dist /tmp/rpmbuild/{BUILD,RPMS,SOURCES,SPECS,SRPMS}
                 tar --exclude-vcs --exclude='./dist' \
                   --transform \"s,^\.,clambhook-\${rpmver},\" \
                   -czf /tmp/rpmbuild/SOURCES/clambhook-\${rpmver}.tar.gz .
@@ -167,8 +169,10 @@ jobs:
             echo "version=$v" >> "$GITHUB_OUTPUT"
           fi
       - name: Build daemon and controller
+        env:
+          GOFLAGS: "-buildvcs=false"
         run: |
-          make build
+          make build VERSION="${{ steps.ver.outputs.version }}"
           make build-linux
       - name: Build AppImage
         run: |
