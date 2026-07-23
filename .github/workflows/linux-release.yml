@@ -61,7 +61,7 @@ jobs:
           if [[ "${{ matrix.setup }}" == "apt" ]]; then
             SETUP='export DEBIAN_FRONTEND=noninteractive; apt-get update -qq && apt-get install -y -qq \
               gcc make pkg-config libsodium-dev \
-              default-jdk-headless \
+              default-jdk \
               debhelper dh-golang dpkg-dev fakeroot rsync git curl wget ca-certificates tar file'
           else
             SETUP='dnf install -y -q epel-release >/dev/null; dnf install -y -q gcc make rpm-build pkgconf-pkg-config \
@@ -99,7 +99,7 @@ jobs:
                 export DEBIAN_FRONTEND=noninteractive
                 apt-get update -qq && apt-get install -y -qq \
                   gcc make pkg-config libsodium-dev \
-                  default-jdk-headless \
+                  default-jdk \
                   debhelper dh-golang dpkg-dev fakeroot rsync git curl wget ca-certificates tar file
                 GO_VER=\$(sed -n 's/^go \([0-9.][0-9.]*\)\$/\1/p' go.mod | head -1)
                 case \"\$(uname -m)\" in x86_64) GOARCH=amd64 ;; aarch64|arm64) GOARCH=arm64 ;; esac
@@ -107,7 +107,7 @@ jobs:
                 export PATH=/usr/local/go/bin:\$PATH
                 export GOFLAGS=-buildvcs=false
                 mkdir -p /src/dist
-                dpkg-buildpackage -us -uc -b
+                dpkg-buildpackage -us -uc -b -d
                 cp ../clambhook_*_*.deb /src/dist/clambhook-\${VERSION}-\$(uname -m).deb
               "
               ;;
