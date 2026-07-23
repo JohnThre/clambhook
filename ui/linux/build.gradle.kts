@@ -95,33 +95,22 @@ tasks.register("installDist") {
         resDir.mkdirs()
 
         // Copy all resolved runtime classpath artifacts into lib/.
-        // Using resolvedConfiguration gets ALL artifacts including
-        // platform-specific native libs (.so) that aren't in .files.
-        val byBaseName = mutableMapOf<String, java.io.File>()
-        configurations.runtimeClasspath.get().resolvedConfiguration.lenientConfiguration.allModuleDependencies.forEach { dep ->
-            dep.allModuleArtifacts.forEach { art ->
-                val f = art.file
-                if (f.name.endsWith(".jar") || f.name.endsWith(".so") ||
-                    f.name.endsWith(".dylib") || f.name.endsWith(".dll") ||
-                    f.name.endsWith(".sha256")) {
-                    val base = f.name.substringBeforeLast("-")
-                    val ver = f.name.substringAfterLast("-").removeSuffix(".jar").removeSuffix(".so").removeSuffix(".sha256")
-                    val existing = byBaseName[base]
-                    if (existing == null || ver > existing.name.substringAfterLast("-")) {
-                        byBaseName[base] = f
-                    }
-                }
+        // Copy all runtime classpath JARs into lib/.
+        configurations.runtimeClasspath.get().files.forEach { f ->
+            if (f.name.endsWith(".jar")) {
+                f.copyTo(file("$libDir/${f.name}"), overwrite = true)
             }
         }
-        byBaseName.values.forEach { f -> f.copyTo(file("$libDir/${f.name}"), overwrite = true) }
 
-        // Debug: list all skiko-related resolved artifacts
-        configurations.runtimeClasspath.get().resolvedConfiguration.lenientConfiguration.allModuleDependencies.forEach { dep ->
-            if (dep.moduleGroup.contains("skiko")) {
-                println("installDist: skiko dep: ${dep.moduleGroup}:${dep.moduleName}:${dep.moduleVersion}")
-                dep.allModuleArtifacts.forEach { art ->
-                    println("  artifact: ${art.file.name} (file=${art.file.isFile}, exists=${art.file.exists()})")
-                }
+        // The Skiko native lib (.so/.dylib) is a platform-specific artifact
+        // resolved by Gradle's variant-aware resolution. It's not in the
+        // runtimeClasspath.files (which only has JARs). Find it in the
+        // Gradle cache by searching for skiko native artifacts.
+        configurations.runtimeClasspath.get().resolvedConfiguration.resolvedArtifacts.forEach { art ->
+            val f = art.file
+            if (f.name.endsWith(".so") || f.name.endsWith(".dylib") || f.name.endsWith(".dll") ||
+                f.name.endsWith(".so.sha256") || f.name.endsWith(".dylib.sha256") || f.name.endsWith(".dll.sha256")) {
+                f.copyTo(file("$libDir/${f.name}"), overwrite = true)
             }
         }
 
