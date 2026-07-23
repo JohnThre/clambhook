@@ -115,6 +115,15 @@ tasks.register("installDist") {
         }
         byBaseName.values.forEach { f -> f.copyTo(file("$libDir/${f.name}"), overwrite = true) }
 
+        // Debug: list all skiko-related resolved artifacts
+        configurations.runtimeClasspath.get().resolvedConfiguration.lenientConfiguration.allModuleDependencies.forEach { dep ->
+            if (dep.moduleGroup.contains("skiko")) {
+                println("installDist: skiko dep: ${dep.moduleGroup}:${dep.moduleName}:${dep.moduleVersion}")
+                dep.allModuleArtifacts.forEach { art ->
+                    println("  artifact: ${art.file.name} (file=${art.file.isFile}, exists=${art.file.exists()})")
+                }
+            }
+        }
 
         // Copy the project JAR.
         tasks.jar.get().archiveFile.get().asFile.copyTo(
