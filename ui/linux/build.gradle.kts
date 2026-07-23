@@ -110,6 +110,8 @@ tasks.register("installDist") {
                 val contentsDir = appDir.resolve("Contents")
                 val sourceRoot = if (contentsDir.exists()) contentsDir else appDir
                 println("installDist: sourceRoot = ${sourceRoot.absolutePath}")
+                println("installDist: sourceRoot contents (first 20):")
+                sourceRoot.walkTopDown().take(20).forEach { println("  ${it.relativeTo(sourceRoot)} (file=${it.isFile})") }
                 sourceRoot.walkTopDown().forEach { f ->
                     if (!f.isFile) return@forEach
                     val rel = f.relativeTo(sourceRoot)
