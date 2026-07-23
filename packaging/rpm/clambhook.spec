@@ -106,6 +106,7 @@ exit 0
 %{_bindir}/clambhook-tui
 %{_bindir}/clambhook-license
 %{_bindir}/clambhook-linux
+%{_libdir}/clambhook-linux
 %{_libexecdir}/clambhook
 %{_libexecdir}/clambhook-license
 %{_datadir}/applications/com.clambhook.Clambhook.desktop
@@ -125,7 +126,7 @@ exit 0
 %{_datadir}/polkit-1/actions/com.clambhook.Clambhook.policy
 
 %changelog
-* Tue Jul 22 2026 Pengfan Chang <developer@jpfchang.org> - 1.0.1-1
+* Wed Jul 22 2026 Pengfan Chang <developer@jpfchang.org> - 1.0.1-1
 - Release 1.0.1: Kotlin/Compose Multiplatform desktop controller and Go daemon.
 
 * Mon Jul 20 2026 Pengfan Chang <developer@jpfchang.org> - 0.1.0-2
