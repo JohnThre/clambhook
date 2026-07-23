@@ -65,8 +65,8 @@ install-linux: check-linux-ui-deps build-daemon build-tui build-license
 	sed 's/@app_id@/com.clambhook.Clambhook/g' ui/linux/data/com.clambhook.Clambhook.metainfo.xml.in > "$(DESTDIR)$(PREFIX)/share/metainfo/com.clambhook.Clambhook.metainfo.xml"
 	install -d "$(DESTDIR)$(PREFIX)/share/icons/hicolor/1024x1024/apps"
 	install -m 0644 clambhook-icon-1024.png "$(DESTDIR)$(PREFIX)/share/icons/hicolor/1024x1024/apps/com.clambhook.Clambhook.png"
-	install -d "$(DESTDIR)/lib/systemd/system"
-	install -m 0644 packaging/systemd/clambhook-daemon.service "$(DESTDIR)/lib/systemd/system/clambhook-daemon.service"
+	install -d "$(DESTDIR)$(PREFIX)/lib/systemd/system"
+	install -m 0644 packaging/systemd/clambhook-daemon.service "$(DESTDIR)$(PREFIX)/lib/systemd/system/clambhook-daemon.service"
 	install -d "$(DESTDIR)$(PREFIX)/share/polkit-1/actions"
 	install -m 0644 packaging/polkit/com.clambhook.Clambhook.policy "$(DESTDIR)$(PREFIX)/share/polkit-1/actions/com.clambhook.Clambhook.policy"
 
