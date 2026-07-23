@@ -121,11 +121,14 @@ tasks.register("installDist") {
                 // createDistributable output has bin/clambhook-linux already,
                 // but we overwrite it with our own that also sets the classpath
                 // and daemon binary paths.
-        val script = file("$binDir/clambhook-linux")
         script.writeText("""#!/bin/sh
 APP_HOME=`dirname "${'$'}0"`/..
 CLASSPATH="${'$'}APP_HOME/lib/app/*"
-exec "${'$'}APP_HOME/lib/runtime/bin/java" -classpath "${'$'}CLASSPATH" -Dskiko.library.path="${'$'}APP_HOME/lib/app" com.clambhook.linux.MainKt "${'$'}@"
+JAVA="${'$'}APP_HOME/lib/runtime/bin/java"
+if [ ! -x "${'$'}JAVA" ]; then
+  JAVA=`find "${'$'}APP_HOME" -name java -type f -executable | head -1`
+fi
+exec "${'$'}JAVA" -classpath "${'$'}CLASSPATH" -Dskiko.library.path="${'$'}APP_HOME/lib/app" com.clambhook.linux.MainKt "${'$'}@"
 """)
         script.setExecutable(true)
 
