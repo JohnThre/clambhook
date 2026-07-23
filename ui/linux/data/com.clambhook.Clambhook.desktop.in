@@ -1,11 +1,11 @@
 [Desktop Entry]
 Name=clambhook
 GenericName=Network Client
-Comment=Control clambhook proxy profiles, listeners, and traffic on X11
+Comment=Control clambhook proxy profiles, listeners, and traffic
 Exec=clambhook-linux
 Icon=@app_id@
 Terminal=false
 Type=Application
-Categories=Network;GTK;Utility;
+Categories=Network;Utility;
 Keywords=proxy;vpn;tunnel;network;traffic;
 StartupNotify=true

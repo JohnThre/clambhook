@@ -12,7 +12,7 @@
 %global _build_id_links none
 
 Name:           clambhook
-Version:        %{?version}%{!?version:0.1.0}
+Version:        %{?version}%{!?version:1.0.1}
 Release:        1%{?dist}
 Summary:        Private VPN and proxy router with local metadata-first inspection
 
@@ -125,6 +125,9 @@ exit 0
 %{_datadir}/polkit-1/actions/com.clambhook.Clambhook.policy
 
 %changelog
+* Tue Jul 22 2026 Pengfan Chang <developer@jpfchang.org> - 1.0.1-1
+- Release 1.0.1: Kotlin/Compose Multiplatform desktop controller and Go daemon.
+
 * Mon Jul 20 2026 Pengfan Chang <developer@jpfchang.org> - 0.1.0-2
 - Run clambhook-daemon.service as a dedicated unprivileged clambhook user with
   only CAP_NET_ADMIN/CAP_NET_RAW; create the user via shadow-utils/sysusers and
