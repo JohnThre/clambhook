@@ -73,10 +73,9 @@
 			isa = PBXCopyFilesBuildPhase;
 			buildActionMask = 2147483647;
 			dstPath = "";
-			dstSubfolderSpec = 6;
+			dstSubfolderSpec = 10;
 			files = (
-				3792B993B246938C4220AC8D /* clambhook in CopyFiles */,
-				BB8C3384CE0BE926F18BDCEC /* clambhook-tui in CopyFiles */,
+				069007F5D0A7675880D40F9B /* libsodium.26.dylib in CopyFiles */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -84,9 +83,10 @@
 			isa = PBXCopyFilesBuildPhase;
 			buildActionMask = 2147483647;
 			dstPath = "";
-			dstSubfolderSpec = 10;
+			dstSubfolderSpec = 6;
 			files = (
-				069007F5D0A7675880D40F9B /* libsodium.26.dylib in CopyFiles */,
+				3792B993B246938C4220AC8D /* clambhook in CopyFiles */,
+				BB8C3384CE0BE926F18BDCEC /* clambhook-tui in CopyFiles */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -144,7 +144,6 @@
 		D51002549457E19CB6EE988D /* MacUpdateChecker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacUpdateChecker.swift; sourceTree = "<group>"; };
 		D92091F3B5B6E2E4A8F4665B /* MacCertificateManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacCertificateManager.swift; sourceTree = "<group>"; };
 		DCFAEA45C0B462E990EB4D44 /* MacLogsSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacLogsSection.swift; sourceTree = "<group>"; };
-		E0B72BED6576EF183CAD2854 /* ClambhookDaemon.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = ClambhookDaemon.entitlements; sourceTree = "<group>"; };
 		E3D0AEE6DFC679ECAEE8FA8B /* MacHTTPCaptureSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacHTTPCaptureSection.swift; sourceTree = "<group>"; };
 		E5D820AE96C5A0080AA5CF1F /* DashboardViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashboardViews.swift; sourceTree = "<group>"; };
 		E681AB16A57ACC705B85B4FD /* clambhook-tui */ = {isa = PBXFileReference; path = "clambhook-tui"; sourceTree = "<group>"; };
@@ -177,7 +176,6 @@
 		02DBE71539B0AF31E3C21C10 /* ClambhookMac */ = {
 			isa = PBXGroup;
 			children = (
-				E0B72BED6576EF183CAD2854 /* ClambhookDaemon.entitlements */,
 				B1CF51F1CEED770CC79EBC8C /* ClambhookMac.entitlements */,
 				02A8B8AC40D9FACBCFC83187 /* ClambhookMacApp.swift */,
 				161BB19C1F5E8ECCC7ABF371 /* ClambhookMenuBarIcon.swift */,
@@ -618,7 +616,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 1.0.0;
+				MARKETING_VERSION = 1.0.1;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = NO;
@@ -708,7 +706,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 1.0.0;
+				MARKETING_VERSION = 1.0.1;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = NO;
