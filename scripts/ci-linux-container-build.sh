@@ -9,7 +9,7 @@ SETUP_TYPE="$3"
 VERSION="$4"
 
 if [[ "$SETUP_TYPE" == "apt" ]]; then
-  PKG_INSTALL='export DEBIAN_FRONTEND=noninteractive; apt-get update -qq && apt-get install -y -qq \
+  PKG_INSTALL='export DEBIAN_FRONTEND=noninteractive; apt-get -qq update && apt-get install -y -qq \
     gcc make pkg-config libsodium-dev openjdk-17-jdk xvfb \
     debhelper dh-golang dpkg-dev fakeroot rsync git curl wget ca-certificates tar file'
 else
