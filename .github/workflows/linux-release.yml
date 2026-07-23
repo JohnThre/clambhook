@@ -91,9 +91,11 @@ jobs:
             ./bin/clambhook -version
             ./bin/clambhook-tui -version
             echo "{\"command\":\"ensure-trial\",\"snapshot\":\"\"}" | ./bin/clambhook-license | grep "\"ok\":true"
-            # Debug: show the install layout and find java
-            echo "=== Install layout ===" && find ui/linux/build/install/clambhook-linux -maxdepth 4 -type d 2>/dev/null | head -20
-            echo "=== Java binaries ===" && find ui/linux/build/install/clambhook-linux -name "java" -type f 2>/dev/null
+            # Debug: show install layout, skiko JAR contents, and lib dir
+            echo "=== Install layout ===" && find ui/linux/build/install/clambhook-linux -maxdepth 3 -type d 2>/dev/null | head -20
+            echo "=== Lib dir ===" && ls ui/linux/build/install/clambhook-linux/lib/ 2>/dev/null | head -20
+            echo "=== Skiko JAR contents ===" && SKIKO=$(find ui/linux/build/install/clambhook-linux/lib -name "skiko*" | head -1) && jar tf "$SKIKO" 2>/dev/null | grep "\.so\|\.dylib\|\.dll\|sha256" | head -10
+            echo "=== Native libs in lib ===" && find ui/linux/build/install/clambhook-linux/lib -name "*.so" -o -name "*.sha256" 2>/dev/null | head -10
             # Verify the Compose Multiplatform GUI controller starts under Xvfb.
             # It is a JVM app that needs a display. Give it 15s to initialize.
             # A timeout exit (124) means it started successfully and was killed.
