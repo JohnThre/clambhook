@@ -95,22 +95,20 @@ tasks.register("installDist") {
         val libDir = installDir.get().dir("lib").asFile
         libDir.mkdirs()
 
-        // createDistributable produces a platform-specific app directory with
-        // all JARs, native libs (libskiko-*.so), and a bundled JRE.
-        // We only copy from the 'app' subdirectory (JARs + native libs),
-        // not the 'runtime' directory (bundled JRE — we use system Java).
+        // createDistributable produces a platform-specific app directory.
+        // Copy all JARs and native libs (.so/.dylib/.dll/.sha256) from the
+        // output, excluding the bundled JRE runtime (we use system Java).
         val appBase = layout.buildDirectory.dir("compose/binaries/main/app").get().asFile
         if (appBase.exists()) {
-            appBase.walkTopDown().forEach { dir ->
-                if (dir.isDirectory && dir.name == "app") {
-                    dir.listFiles()?.forEach { f ->
-                        if (!f.isFile) return@forEach
-                        if (f.name.endsWith(".jar") || f.name.endsWith(".so") ||
-                            f.name.endsWith(".dylib") || f.name.endsWith(".dll") ||
-                            f.name.endsWith(".sha256")) {
-                            f.copyTo(file("$libDir/${f.name}"), overwrite = true)
-                        }
-                    }
+            appBase.walkTopDown().forEach { f ->
+                if (!f.isFile) return@forEach
+                // Skip JRE runtime files (libjvm, libnet, libnio, etc.)
+                val path = f.relativeTo(appBase).path
+                if (path.contains("/runtime/") || path.contains("/Home/lib/")) return@forEach
+                if (f.name.endsWith(".jar") || f.name.endsWith(".so") ||
+                    f.name.endsWith(".dylib") || f.name.endsWith(".dll") ||
+                    f.name.endsWith(".sha256")) {
+                    f.copyTo(file("$libDir/${f.name}"), overwrite = true)
                 }
             }
         }
