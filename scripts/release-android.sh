@@ -68,6 +68,9 @@ echo "== Building release APK =="
 ( cd "$ROOT_DIR/ui/android" && ANDROID_HOME="$ANDROID_HOME" ./gradlew :app:assembleRelease )
 
 APK_SRC="$ROOT_DIR/ui/android/app/build/outputs/apk/release/app-release.apk"
+if [[ ! -f "$APK_SRC" ]]; then
+    APK_SRC="$ROOT_DIR/ui/android/app/build/outputs/apk/release/app-release-unsigned.apk"
+fi
 APK_NAME="ClambHook-${VERSION}.apk"
 APK="$DIST_DIR/$APK_NAME"
 cp "$APK_SRC" "$APK"
