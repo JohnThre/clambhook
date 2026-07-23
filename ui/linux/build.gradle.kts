@@ -83,7 +83,7 @@ tasks.test {
 // (build/install/clambhook-linux/bin/ + lib/) without the Gradle application
 // plugin (which conflicts with Compose Multiplatform's run task).
 tasks.register("installDist") {
-    dependsOn("jar", "stageDaemonBinaries")
+    dependsOn("jar", "stageDaemonBinaries", "createDistributable")
     val installDir = layout.buildDirectory.dir("install/clambhook-linux")
     outputs.dir(installDir)
     doLast {
@@ -114,6 +114,18 @@ tasks.register("installDist") {
             }
         }
 
+
+        // Copy native libs from createDistributable output (jpackage app image).
+        // createDistributable downloads and places platform-specific native
+        // libs (libskiko-linux-x64.so) in the app image directory.
+        val appBase = layout.buildDirectory.dir("compose/binaries/main/app").get().asFile
+        if (appBase.exists()) {
+            appBase.walkTopDown().forEach { f ->
+                if (f.isFile && (f.name.endsWith(".so") || f.name.endsWith(".so.sha256"))) {
+                    f.copyTo(file("$libDir/${f.name}"), overwrite = true)
+                }
+            }
+        }
         // Copy the project JAR.
         tasks.jar.get().archiveFile.get().asFile.copyTo(
             file("$libDir/${tasks.jar.get().archiveFileName.get()}"), overwrite = true
