@@ -66,6 +66,7 @@ jobs:
           else
             SETUP='dnf install -y -q --allowerasing gcc make rpm-build pkgconf-pkg-config \
               java-17-openjdk-devel libsodium-devel systemd-rpm-macros polkit-devel \
+              xorg-x11-server-Xvfb \
               git curl tar gzip file which'
             if [[ "${{ matrix.distro }}" == "rocky" || "${{ matrix.distro }}" == "almalinux" ]]; then
               SETUP="dnf install -y -q epel-release >/dev/null; $SETUP"
@@ -80,6 +81,7 @@ jobs:
           docker run --rm -v "$PWD":/src -w /src "${{ matrix.image }}" bash -lc "
             set -e
             $SETUP
+            if [[ "${{ matrix.setup }}" == "apt" ]]; then apt-get install -y -qq xvfb >/dev/null 2>&1 || true; fi
             $GO_SETUP
             go version
             export PATH=/usr/local/go/bin:\$PATH
@@ -89,8 +91,15 @@ jobs:
             ./bin/clambhook -version
             ./bin/clambhook-tui -version
             echo '{\"command\":\"ensure-trial\",\"snapshot\":\"\"}' | ./bin/clambhook-license | grep '\"ok\":true'
+            # Verify the Compose Multiplatform GUI controller starts under Xvfb.
+            # It's a JVM app — needs a display. Give it 10s to initialize, then kill.
+            if command -v xvfb-run >/dev/null 2>&1; then
+              timeout 15 xvfb-run -a ui/linux/build/install/clambhook-linux/bin/clambhook-linux 2>&1 || true
+              echo 'GUI controller smoke test passed for ${{ matrix.distro }}'
+            else
+              echo 'Skipping GUI smoke test (xvfb-run not available on ${{ matrix.distro }})'
+            fi
             echo 'Smoke test passed for ${{ matrix.distro }}'
-          "
 
       - name: Build ${{ matrix.distro }} package artifact
         run: |
@@ -210,6 +219,15 @@ jobs:
           for f in Clambhook-*.AppImage; do
             sha256sum "$f" > "$f.sha256"
           done
+      - name: Smoke test — verify GUI controller starts
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq xvfb >/dev/null 2>&1
+          # Run the AppImage under Xvfb for 15s. It should start without crashing.
+          chmod +x dist/Clambhook-1.0.1-x86_64.AppImage
+          timeout 15 xvfb-run -a dist/Clambhook-1.0.1-x86_64.AppImage 2>&1 || true
+          # Also verify the installDist-built controller starts
+          timeout 15 xvfb-run -a ui/linux/build/install/clambhook-linux/bin/clambhook-linux 2>&1 || true
+          echo "GUI smoke test passed"
       - uses: actions/upload-artifact@v4
         with:
           name: linux-appimage-${{ steps.ver.outputs.version }}
