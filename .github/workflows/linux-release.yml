@@ -241,15 +241,20 @@ jobs:
           ls -la dist/linux/
 
       - name: GPG sign
+        env:
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
         run: |
           echo "${{ secrets.GPG_PRIVATE_KEY }}" | gpg --batch --import
           for f in dist/linux/*.sha256; do
             gpg --batch --yes --pinentry-mode loopback \
+              --passphrase "$GPG_PASSPHRASE" \
               --local-user ${{ secrets.GPG_KEY_ID }} \
               --detach-sign --armor --output "$f.sig" "$f"
           done
 
       - name: Generate Linux manifest
+        env:
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
         run: |
           VERSION="${{ steps.ver.outputs.version }}"
           ARCH="$(uname -m)"
@@ -279,6 +284,7 @@ jobs:
           }
           MANIFEST
           gpg --batch --yes --pinentry-mode loopback \
+            --passphrase "$GPG_PASSPHRASE" \
             --local-user ${{ secrets.GPG_KEY_ID }} \
             --detach-sign --armor --output dist/linux/clambhook-linux-manifest.json.sig dist/linux/clambhook-linux-manifest.json
 
