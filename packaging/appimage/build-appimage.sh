@@ -42,6 +42,18 @@ mkdir -p "$appdir" "$tools" "$repo_root/dist"
 make build VERSION="$version"
 make install-linux DESTDIR="$appdir" PREFIX=/usr
 
+# Generate a 512x512 icon (linuxdeploy rejects 1024x1024).
+icon_src="$repo_root/clambhook-icon-1024.png"
+icon_512="$appdir/usr/share/icons/hicolor/512x512/apps/com.clambhook.Clambhook.png"
+mkdir -p "$(dirname "$icon_512")"
+if command -v convert >/dev/null 2>&1; then
+  convert "$icon_src" -resize 512x512 "$icon_512"
+elif command -v sips >/dev/null 2>&1; then
+  sips -z 512 512 "$icon_src" --out "$icon_512" >/dev/null 2>&1
+else
+  cp "$icon_src" "$icon_512"
+fi
+
 # 2. Fetch bundling tools (idempotent), pinned to specific upstream versions
 # and verified against recorded SHA-256 digests before they are made
 # executable or run. linuxdeploy and appimagetool are pinned to tagged
@@ -108,7 +120,7 @@ export OUTPUT="$out"
 "$tools/linuxdeploy-${ld_arch}.AppImage" \
   --appdir "$appdir" \
   --desktop-file "$appdir/usr/share/applications/com.clambhook.Clambhook.desktop" \
-  --icon-file "$appdir/usr/share/icons/hicolor/1024x1024/apps/com.clambhook.Clambhook.png" \
+  --icon-file "$appdir/usr/share/icons/hicolor/512x512/apps/com.clambhook.Clambhook.png" \
   --output appimage
 
 echo "Built $out"
