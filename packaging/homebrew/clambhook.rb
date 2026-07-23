@@ -4,7 +4,7 @@ class Clambhook < Formula
   desc "Local connectivity utility with terminal interface"
   homepage "https://github.com/JohnThre/clambhook"
   url "https://github.com/JohnThre/clambhook.git",
-      tag:      "v0.1.0"
+      tag:      "v1.0.1"
   license :cannot_represent
 
   depends_on "go" => :build

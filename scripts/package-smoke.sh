@@ -227,7 +227,6 @@ smoke_paths() {
     log "checking packaging metadata paths"
 
     assert_file "$ROOT/packaging/homebrew/clambhook.rb"
-    assert_file "$ROOT/ui/linux/meson_options.txt"
     assert_file "$ROOT/ui/linux/data/com.clambhook.Clambhook.desktop.in"
     assert_file "$ROOT/ui/linux/data/com.clambhook.Clambhook.metainfo.xml.in"
     assert_file "$ROOT/clambhook-icon-1024.png"
@@ -251,9 +250,9 @@ smoke_linux_gui_install() {
     log "staging Linux GUI install under temporary DESTDIR"
 
     require_linux_target "Linux GUI install" || return 0
-    need_tools go meson valac pkg-config || return 0
-    if ! pkg-config --exists gtk4 libadwaita-1 gee-0.8 json-glib-1.0 libsoup-3.0 libsecret-1; then
-        skip_or_fail "missing GTK/libadwaita development pkg-config dependencies"
+    need_tools go java gradle pkg-config || return 0
+    if ! pkg-config --exists libsodium; then
+        skip_or_fail "missing libsodium development pkg-config dependency"
         return 0
     fi
 
