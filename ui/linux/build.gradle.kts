@@ -77,3 +77,51 @@ tasks.matching { it.name.startsWith("package") || it.name == "createDistributabl
 tasks.test {
     useJUnitPlatform()
 }
+
+// Custom installDist task that produces a standard install layout
+// (build/install/clambhook-linux/bin/ + lib/) without the Gradle application
+// plugin (which conflicts with Compose Multiplatform's run task).
+tasks.register("installDist") {
+    dependsOn("jar", "stageDaemonBinaries")
+    val installDir = layout.buildDirectory.dir("install/clambhook-linux")
+    outputs.dir(installDir)
+    doLast {
+        val binDir = installDir.get().dir("bin").asFile
+        val libDir = installDir.get().dir("lib").asFile
+        val resDir = installDir.get().dir("resources/app/bin").asFile
+        binDir.mkdirs()
+        libDir.mkdirs()
+        resDir.mkdirs()
+
+        // Copy all runtime classpath JARs into lib/.
+        configurations.runtimeClasspath.get().files.forEach { jar ->
+            file(jar).copyTo(file("$libDir/${jar.name}"), overwrite = true)
+        }
+
+        // Copy the project JAR.
+        tasks.jar.get().archiveFile.get().asFile.copyTo(
+            file("$libDir/${tasks.jar.get().archiveFileName.get()}"), overwrite = true
+        )
+
+        // Generate the launcher script.
+        val script = file("$binDir/clambhook-linux")
+        script.writeText("""#!/bin/sh
+APP_HOME=`dirname "${'$'}0"`/..
+CLASSPATH="${'$'}APP_HOME/lib/*"
+exec java -classpath "${'$'}CLASSPATH" com.clambhook.linux.MainKt "${'$'}@"
+""")
+        script.setExecutable(true)
+
+        // Copy staged daemon binaries.
+        val stagedBinaries = layout.projectDirectory.dir("resources/app/bin").asFile
+        if (stagedBinaries.exists()) {
+            stagedBinaries.walkTopDown().forEach { f ->
+                if (f.isFile) {
+                    val rel = f.relativeTo(stagedBinaries)
+                    f.copyTo(file("$resDir/${rel.path}"), overwrite = true)
+                    file("$resDir/${rel.path}").setExecutable(true)
+                }
+            }
+        }
+    }
+}
