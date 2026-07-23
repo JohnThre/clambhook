@@ -121,6 +121,7 @@ tasks.register("installDist") {
                 // createDistributable output has bin/clambhook-linux already,
                 // but we overwrite it with our own that also sets the classpath
                 // and daemon binary paths.
+        val script = file("$binDir/clambhook-linux")
         script.writeText("""#!/bin/sh
 APP_HOME=`dirname "${'$'}0"`/..
 CLASSPATH="${'$'}APP_HOME/lib/app/*"
