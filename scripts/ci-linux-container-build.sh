@@ -9,14 +9,9 @@ SETUP_TYPE="$3"
 VERSION="$4"
 
 if [[ "$SETUP_TYPE" == "apt" ]]; then
-  PKG_INSTALL='export DEBIAN_FRONTEND=noninteractive; apt-get -qq update && apt-get install -y -qq \
-    gcc make pkg-config libsodium-dev openjdk-17-jdk xvfb \
-    debhelper dh-golang dpkg-dev fakeroot rsync git curl wget ca-certificates tar file'
+  PKG_INSTALL='export DEBIAN_FRONTEND=noninteractive; apt-get -qq update && apt-get install -y -qq gcc make pkg-config libsodium-dev openjdk-17-jdk xvfb debhelper dh-golang dpkg-dev fakeroot rsync git curl wget ca-certificates tar file'
 else
-  PKG_INSTALL='if [[ "'"$DISTRO"'" != "fedora" ]]; then dnf install -y -q epel-release >/dev/null; fi
-    dnf install -y -q --allowerasing gcc make rpm-build pkgconf-pkg-config \
-    java-17-openjdk-devel libsodium-devel systemd-rpm-macros polkit-devel \
-    xorg-x11-server-Xvfb git curl tar gzip file which'
+  PKG_INSTALL='if [[ "'"$DISTRO"'" != "fedora" ]]; then dnf install -y -q epel-release >/dev/null; fi; dnf install -y -q --allowerasing gcc make rpm-build pkgconf-pkg-config java-17-openjdk-devel libsodium-devel systemd-rpm-macros polkit-devel xorg-x11-server-Xvfb git curl tar gzip file which'
 fi
 
 # Build the container script using a heredoc to avoid quoting hell.
@@ -54,10 +49,7 @@ INNER_EOF
 )
 
 # Substitute the setup commands into the container script.
-GO_SETUP='GO_VER=$(sed -n "s/^go \([0-9.][0-9.]*\)$/\1/p" go.mod | head -1)
-  case "$(uname -m)" in x86_64) GOARCH=amd64 ;; aarch64|arm64) GOARCH=arm64 ;; *) exit 2 ;; esac
-  curl -fsSL "https://go.dev/dl/go${GO_VER}.linux-${GOARCH}.tar.gz" | tar -C /usr/local -xz
-  export PATH=/usr/local/go/bin:$PATH'
+GO_SETUP='GO_VER=$(sed -n "s/^go \([0-9.][0-9.]*\)$/\1/p" go.mod | head -1); case "$(uname -m)" in x86_64) GOARCH=amd64 ;; aarch64|arm64) GOARCH=arm64 ;; *) exit 2 ;; esac; curl -fsSL "https://go.dev/dl/go${GO_VER}.linux-${GOARCH}.tar.gz" | tar -C /usr/local -xz; export PATH=/usr/local/go/bin:$PATH'
 
 CONTAINER_SCRIPT="${CONTAINER_SCRIPT//__PKG_INSTALL__/$PKG_INSTALL}"
 CONTAINER_SCRIPT="${CONTAINER_SCRIPT//__GO_SETUP__/$GO_SETUP}"
