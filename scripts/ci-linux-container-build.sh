@@ -51,8 +51,8 @@ INNER_EOF
 # Substitute the setup commands into the container script.
 GO_SETUP='GO_VER=$(sed -n "s/^go \([0-9.][0-9.]*\)$/\1/p" go.mod | head -1); case "$(uname -m)" in x86_64) GOARCH=amd64 ;; aarch64|arm64) GOARCH=arm64 ;; *) exit 2 ;; esac; curl -fsSL "https://go.dev/dl/go${GO_VER}.linux-${GOARCH}.tar.gz" | tar -C /usr/local -xz; export PATH=/usr/local/go/bin:$PATH'
 
-CONTAINER_SCRIPT="${CONTAINER_SCRIPT//__PKG_INSTALL__/$PKG_INSTALL}"
-CONTAINER_SCRIPT="${CONTAINER_SCRIPT//__GO_SETUP__/$GO_SETUP}"
+CONTAINER_SCRIPT="${CONTAINER_SCRIPT//__PKG_INSTALL__/${PKG_INSTALL//&/\\&}}"
 
+CONTAINER_SCRIPT="${CONTAINER_SCRIPT//__GO_SETUP__/${GO_SETUP//&/\\&}}"
 docker run --rm -e "VERSION=$VERSION" -e "DISTRO=$DISTRO" \
   -v "$PWD":/src -w /src "$IMAGE" bash -lc "$CONTAINER_SCRIPT"
