@@ -10,14 +10,14 @@ override_dh_auto_build:
 	# exact go.mod Go version is used; fall back to the system Go if present.
 	if [ -x /usr/local/go/bin/go ]; then export PATH=/usr/local/go/bin:$$PATH; fi
 	export GO111MODULE=on
-	export GOFLAGS=-mod=vendor
+	export GOFLAGS=-mod=vendor -buildvcs=false
 	$(MAKE) build VERSION=$$(dpkg-parsechangelog -SVersion | sed 's/-.*//')
 	$(MAKE) build-linux VERSION=$$(dpkg-parsechangelog -SVersion | sed 's/-.*//')
 
 override_dh_auto_install:
 	if [ -x /usr/local/go/bin/go ]; then export PATH=/usr/local/go/bin:$$PATH; fi
 	export GO111MODULE=on
-	export GOFLAGS=-mod=vendor
+	export GOFLAGS=-mod=vendor -buildvcs=false
 	$(MAKE) install DESTDIR=$(CURDIR)/debian/clambhook PREFIX=/usr
 	$(MAKE) install-linux DESTDIR=$(CURDIR)/debian/clambhook PREFIX=/usr
 
