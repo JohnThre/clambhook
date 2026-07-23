@@ -33,8 +33,8 @@ BuildRequires:  libsodium-devel
 BuildRequires:  glib2-devel
 BuildRequires:  systemd-rpm-macros
 
-# The desktop controller bundles its own JVM runtime via the Gradle
-# createDistributable/installDist distribution, so no system Java needed.
+# The desktop controller uses system Java at runtime.
+Requires:       java-17-openjdk-headless
 # libsecret is used via the secret-tool CLI for API token and license key
 # storage against the host Secret Service.
 Requires:       libsecret

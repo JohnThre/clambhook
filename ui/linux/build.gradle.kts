@@ -84,53 +84,64 @@ tasks.test {
 // (build/install/clambhook-linux/bin/ + lib/) without the Gradle application
 // plugin (which conflicts with Compose Multiplatform's run task).
 tasks.register("installDist") {
-    dependsOn("createDistributable", "stageDaemonBinaries")
+    dependsOn("jar", "stageDaemonBinaries")
     val installDir = layout.buildDirectory.dir("install/clambhook-linux")
     outputs.dir(installDir)
     doLast {
         val binDir = installDir.get().dir("bin").asFile
+        val libDir = installDir.get().dir("lib").asFile
         val resDir = installDir.get().dir("resources/app/bin").asFile
         binDir.mkdirs()
+        libDir.mkdirs()
         resDir.mkdirs()
 
-        // createDistributable produces a self-contained app directory with a
-        // bundled JRE and platform-specific native libs (libskiko-linux-x64.so).
-        // On Linux: compose/binaries/main/app/clambhook-linux/{bin,lib/app,lib/runtime}
-        // On macOS: compose/binaries/main/app/clambhook-linux.app/Contents/{MacOS,app,runtime}
-        // We normalize to a Linux-style layout: bin/, lib/app/, lib/runtime/
-        val appBase = layout.buildDirectory.dir("compose/binaries/main/app").get().asFile
-        if (appBase.exists()) {
-            println("installDist: appBase = ${appBase.absolutePath}")
-            appBase.listFiles()?.forEach { println("  entry: ${it.name} (dir=${it.isDirectory})") }
-            val appDir = appBase.listFiles()?.firstOrNull { it.isDirectory }
-            if (appDir == null) {
-                println("installDist: no subdirectory found in appBase, skipping copy")
-            } else {
-                println("installDist: appDir = ${appDir.absolutePath}")
-                val contentsDir = appDir.resolve("Contents")
-                val sourceRoot = if (contentsDir.exists()) contentsDir else appDir
-                println("installDist: sourceRoot = ${sourceRoot.absolutePath}")
-                println("installDist: sourceRoot contents (first 20):")
-                sourceRoot.walkTopDown().take(20).forEach { println("  ${it.relativeTo(sourceRoot)} (file=${it.isFile})") }
-                sourceRoot.walkTopDown().forEach { f ->
-                    if (!f.isFile) return@forEach
-                    val rel = f.relativeTo(sourceRoot)
-                    val target = file("${installDir.get().asFile.path}/$rel")
-                    target.parentFile.mkdirs()
-                    f.copyTo(target, overwrite = true)
-                    if (f.canExecute()) target.setExecutable(true)
+        // Copy runtime classpath JARs into lib/, deduplicating by base name.
+        val byBaseName = mutableMapOf<String, java.io.File>()
+        configurations.runtimeClasspath.get().files.forEach { f ->
+            if (!f.name.endsWith(".jar")) return@forEach
+            val base = f.name.substringBeforeLast("-")
+            val ver = f.name.substringAfterLast("-").removeSuffix(".jar")
+            val existing = byBaseName[base]
+            if (existing == null || ver > existing.name.substringAfterLast("-").removeSuffix(".jar")) {
+                byBaseName[base] = f
+            }
+        }
+        byBaseName.values.forEach { f -> f.copyTo(file("$libDir/${f.name}"), overwrite = true) }
+
+        // Extract native libraries from the skiko JAR. On Linux the JAR
+        // contains libskiko-linux-x64.so and libskiko-linux-x64.so.sha256
+        // as resource entries. Extract them to lib/ so the launcher can
+        // find them via -Dskiko.library.path.
+        byBaseName.values.find { it.name.startsWith("skiko-awt-") }?.let { skikoJar ->
+            val jf = JarFile(skikoJar)
+            val entries = jf.entries()
+            while (entries.hasMoreElements()) {
+                val e = entries.nextElement()
+                val n = e.name
+                if (n.endsWith(".so") || n.endsWith(".dylib") || n.endsWith(".dll") ||
+                    n.endsWith(".so.sha256") || n.endsWith(".dylib.sha256") || n.endsWith(".dll.sha256")) {
+                    val out = file("$libDir/" + n.substringAfterLast('/'))
+                    jf.getInputStream(e).use { input ->
+                        out.outputStream().use { output -> input.copyTo(output) }
+                    }
                 }
             }
-        } else {
-            println("installDist: appBase does not exist: ${appBase.absolutePath}")
+            jf.close()
         }
 
-        // Note: jpackage creates a native launcher at bin/clambhook-linux
-        // that handles JVM loading, classpath, and native libs automatically.
-        // We don't need to generate our own launcher script.
-        // The jpackage launcher reads lib/app/clambhook-linux.cfg for classpath
-        // and JVM options. We just need to ensure the daemon binaries are in
-        // the right place.
+        // Copy the project JAR.
+        tasks.jar.get().archiveFile.get().asFile.copyTo(
+            file("$libDir/${tasks.jar.get().archiveFileName.get()}"), overwrite = true
+        )
+
+        // Generate the launcher script using system java.
+        val script = file("$binDir/clambhook-linux")
+        script.writeText("""#!/bin/sh
+APP_HOME=`dirname "${'$'}0"`/..
+CLASSPATH="${'$'}APP_HOME/lib/*"
+exec java -classpath "${'$'}CLASSPATH" -Dskiko.library.path="${'$'}APP_HOME/lib" com.clambhook.linux.MainKt "${'$'}@"
+""")
+        script.setExecutable(true)
 
         // Copy staged daemon binaries.
         val stagedBinaries = layout.projectDirectory.dir("resources/app/bin").asFile
