@@ -34,8 +34,7 @@ BuildRequires:  glib2-devel
 BuildRequires:  systemd-rpm-macros
 
 # The desktop controller bundles its own JVM runtime via the Gradle
-# installDist distribution, so it only needs a JRE at runtime.
-Requires:       java-17-openjdk-headless
+# createDistributable/installDist distribution, so no system Java needed.
 # libsecret is used via the secret-tool CLI for API token and license key
 # storage against the host Secret Service.
 Requires:       libsecret
