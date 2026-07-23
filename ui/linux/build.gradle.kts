@@ -1,4 +1,5 @@
 import org.jetbrains.compose.desktop.application.dsl.TargetFormat
+import java.util.jar.JarFile
 
 plugins {
     kotlin("jvm") version "2.3.20"
@@ -83,7 +84,7 @@ tasks.test {
 // (build/install/clambhook-linux/bin/ + lib/) without the Gradle application
 // plugin (which conflicts with Compose Multiplatform's run task).
 tasks.register("installDist") {
-    dependsOn("createDistributable")
+    dependsOn("jar", "stageDaemonBinaries")
     val installDir = layout.buildDirectory.dir("install/clambhook-linux")
     outputs.dir(installDir)
     doLast {
@@ -94,19 +95,37 @@ tasks.register("installDist") {
         libDir.mkdirs()
         resDir.mkdirs()
 
-        // Copy the createDistributable output (app dir with JARs + native libs).
-        // On macOS the layout is compose/binaries/main/app/clambhook-linux.app/Contents/app/
-        // On Linux it is compose/binaries/main/app/clambhook-linux/lib/app/
-        val appBase = layout.buildDirectory.dir("compose/binaries/main/app").get().asFile
-        val appDirs = appBase.walkTopDown().filter { it.name == "app" && it.isDirectory }.toList()
-        appDirs.forEach { ad ->
-            ad.listFiles()?.forEach { f ->
-                if (f.isFile && f.name.endsWith(".jar")) {
-                    f.copyTo(file("$libDir/${f.name}"), overwrite = true)
-                } else if (f.isFile && (f.name.endsWith(".so") || f.name.endsWith(".sha256"))) {
-                    f.copyTo(file("$libDir/${f.name}"), overwrite = true)
+        // Copy runtime classpath JARs into lib/, keeping only the highest
+        // version per artifact base name (dedup).
+        val byBaseName = mutableMapOf<String, java.io.File>()
+        configurations.runtimeClasspath.get().files.forEach { f ->
+            if (!f.name.endsWith(".jar")) return@forEach
+            val base = f.name.substringBeforeLast("-")
+            val ver = f.name.substringAfterLast("-").removeSuffix(".jar")
+            val existing = byBaseName[base]
+            if (existing == null || ver > existing.name.substringAfterLast("-").removeSuffix(".jar")) {
+                byBaseName[base] = f
+            }
+        }
+        byBaseName.values.forEach { f -> f.copyTo(file("$libDir/${f.name}"), overwrite = true) }
+
+        // Extract native libraries from the skiko JAR (libskiko-*.so/.dylib/.dll)
+        // so the launcher can find them via -Dskiko.library.path.
+        byBaseName.values.find { it.name.startsWith("skiko-awt-") }?.let { skikoJar ->
+            val jf = JarFile(skikoJar)
+            val entries = jf.entries()
+            while (entries.hasMoreElements()) {
+                val e = entries.nextElement()
+                val n = e.name
+                if (n.endsWith(".so") || n.endsWith(".dylib") || n.endsWith(".dll") ||
+                    n.endsWith(".so.sha256") || n.endsWith(".dylib.sha256") || n.endsWith(".dll.sha256")) {
+                    val out = file("$libDir/" + n.substringAfterLast('/'))
+                    jf.getInputStream(e).use { input ->
+                        out.outputStream().use { output -> input.copyTo(output) }
+                    }
                 }
             }
+            jf.close()
         }
 
         // Copy the project JAR.
