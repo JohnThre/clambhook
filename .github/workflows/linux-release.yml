@@ -97,7 +97,7 @@ jobs:
           VERSION="${{ steps.ver.outputs.version }}"
           case "${{ matrix.distro }}" in
             ubuntu|debian)
-              docker run --rm -v "$PWD":/src -w /src "${{ matrix.image }}" bash -lc "
+              docker run --rm -e "VERSION=$VERSION" -v "$PWD":/src -w /src "${{ matrix.image }}" bash -lc "
                 set -e
                 export DEBIAN_FRONTEND=noninteractive
                 apt-get update -qq && apt-get install -y -qq \
@@ -115,7 +115,7 @@ jobs:
               "
               ;;
             fedora|rocky|almalinux)
-              docker run --rm -v "$PWD":/src -w /src "${{ matrix.image }}" bash -lc "
+              docker run --rm -e "VERSION=$VERSION" -v "$PWD":/src -w /src "${{ matrix.image }}" bash -lc "
                 set -e
                 if [[ "${{ matrix.distro }}" != "fedora" ]]; then dnf install -y -q epel-release >/dev/null; fi
                 dnf install -y -q --allowerasing gcc make rpm-build pkgconf-pkg-config \
