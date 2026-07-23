@@ -25,8 +25,8 @@ dependencies {
         exclude(group = "org.jetbrains.compose.material")
     }
     implementation("org.jetbrains.compose.material3:material3:1.9.0")
-    implementation("androidx.compose.material:material-icons-core:1.7.8")
-    implementation("androidx.compose.material:material-icons-extended:1.7.8")
+    implementation("androidx.compose.material:material-icons-core:1.7.8") { exclude(group = "androidx.compose.ui"); exclude(group = "androidx.lifecycle"); exclude(group = "androidx.compose.runtime"); exclude(group = "androidx.compose.animation"); exclude(group = "androidx.compose.foundation") }
+    implementation("androidx.compose.material:material-icons-extended:1.7.8") { exclude(group = "androidx.compose.ui"); exclude(group = "androidx.lifecycle"); exclude(group = "androidx.compose.runtime"); exclude(group = "androidx.compose.animation"); exclude(group = "androidx.compose.foundation") }
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.9.0")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
@@ -34,6 +34,7 @@ dependencies {
     testImplementation(kotlin("test"))
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")
 }
+
 
 compose.desktop {
     application {
@@ -93,10 +94,20 @@ tasks.register("installDist") {
         libDir.mkdirs()
         resDir.mkdirs()
 
-        // Copy all runtime classpath JARs into lib/.
-        configurations.runtimeClasspath.get().files.forEach { jar ->
-            file(jar).copyTo(file("$libDir/${jar.name}"), overwrite = true)
+        // Copy runtime classpath JARs into lib/, keeping only one version per
+        // artifact (Gradle may include multiple versions on the classpath;
+        // we keep the highest by version string comparison).
+        val byBaseName = mutableMapOf<String, java.io.File>()
+        configurations.runtimeClasspath.get().files.forEach { f ->
+            if (!f.name.endsWith(".jar")) return@forEach
+            val base = f.name.substringBeforeLast("-")
+            val ver = f.name.substringAfterLast("-").removeSuffix(".jar")
+            val existing = byBaseName[base]
+            if (existing == null || ver > existing.name.substringAfterLast("-").removeSuffix(".jar")) {
+                byBaseName[base] = f
+            }
         }
+        byBaseName.values.forEach { f -> f.copyTo(file("$libDir/${f.name}"), overwrite = true) }
 
         // Copy the project JAR.
         tasks.jar.get().archiveFile.get().asFile.copyTo(
