@@ -55,6 +55,7 @@ declare -A IMAGE=(
   [fedora]="docker.io/library/fedora:41"
   [rocky]="docker.io/library/rockylinux:9"
   [bazzite]="docker.io/library/fedora:41"  # Bazzite is Fedora-based; Flatpak channel
+  [almalinux]="docker.io/library/almalinux:9"
 )
 
 apt_setup='export DEBIAN_FRONTEND=noninteractive; apt-get update -qq && apt-get install -y -qq \
@@ -116,14 +117,20 @@ run_one() {
       ;;
   esac
   echo "==================== $distro ($image) ===================="
+  local rc=0
   "$engine" run --rm -v "$repo_root":/src${mount_suffix} -w /src "$image" \
-    bash -lc "$setup; $go_setup; $smoke; $recipe"
-  echo "==================== $distro: PASS ===================="
+    bash -lc "$setup; $go_setup; $smoke; $recipe" || rc=$?
+  if [[ $rc -eq 0 ]]; then
+    echo "==================== $distro: PASS ===================="
+  else
+    echo "==================== $distro: FAIL (exit $rc) ===================="
+    return 1
+  fi
 }
 
 targets=("$@")
 if [[ ${#targets[@]} -eq 0 ]]; then
-  targets=(ubuntu debian pureos fedora rocky bazzite)
+  targets=(ubuntu debian pureos fedora rocky almalinux bazzite)
 fi
 
 failed=()

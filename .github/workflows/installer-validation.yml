@@ -66,7 +66,7 @@ jobs:
         # PureOS validates via the Debian path; Bazzite via the Fedora path +
         # Flatpak manifest (see packaging/README.md). The four matrix jobs cover
         # all six listed distributions without adding redundant container lanes.
-        distro: [ubuntu, debian, fedora, rocky]
+        distro: [ubuntu, debian, fedora, rocky, almalinux]
     steps:
       - uses: actions/checkout@v4
       - name: Build package recipes and run headless smoke in a ${{ matrix.distro }} container
