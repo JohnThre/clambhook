@@ -83,7 +83,7 @@ tasks.test {
 // (build/install/clambhook-linux/bin/ + lib/) without the Gradle application
 // plugin (which conflicts with Compose Multiplatform's run task).
 tasks.register("installDist") {
-    dependsOn("jar", "stageDaemonBinaries")
+    dependsOn("createDistributable")
     val installDir = layout.buildDirectory.dir("install/clambhook-linux")
     outputs.dir(installDir)
     doLast {
@@ -94,20 +94,20 @@ tasks.register("installDist") {
         libDir.mkdirs()
         resDir.mkdirs()
 
-        // Copy runtime classpath JARs into lib/, keeping only one version per
-        // artifact (Gradle may include multiple versions on the classpath;
-        // we keep the highest by version string comparison).
-        val byBaseName = mutableMapOf<String, java.io.File>()
-        configurations.runtimeClasspath.get().files.forEach { f ->
-            if (!f.name.endsWith(".jar")) return@forEach
-            val base = f.name.substringBeforeLast("-")
-            val ver = f.name.substringAfterLast("-").removeSuffix(".jar")
-            val existing = byBaseName[base]
-            if (existing == null || ver > existing.name.substringAfterLast("-").removeSuffix(".jar")) {
-                byBaseName[base] = f
+        // Copy the createDistributable output (app dir with JARs + native libs).
+        // On macOS the layout is compose/binaries/main/app/clambhook-linux.app/Contents/app/
+        // On Linux it is compose/binaries/main/app/clambhook-linux/lib/app/
+        val appBase = layout.buildDirectory.dir("compose/binaries/main/app").get().asFile
+        val appDirs = appBase.walkTopDown().filter { it.name == "app" && it.isDirectory }.toList()
+        appDirs.forEach { ad ->
+            ad.listFiles()?.forEach { f ->
+                if (f.isFile && f.name.endsWith(".jar")) {
+                    f.copyTo(file("$libDir/${f.name}"), overwrite = true)
+                } else if (f.isFile && (f.name.endsWith(".so") || f.name.endsWith(".sha256"))) {
+                    f.copyTo(file("$libDir/${f.name}"), overwrite = true)
+                }
             }
         }
-        byBaseName.values.forEach { f -> f.copyTo(file("$libDir/${f.name}"), overwrite = true) }
 
         // Copy the project JAR.
         tasks.jar.get().archiveFile.get().asFile.copyTo(
@@ -119,7 +119,7 @@ tasks.register("installDist") {
         script.writeText("""#!/bin/sh
 APP_HOME=`dirname "${'$'}0"`/..
 CLASSPATH="${'$'}APP_HOME/lib/*"
-exec java -classpath "${'$'}CLASSPATH" com.clambhook.linux.MainKt "${'$'}@"
+exec java -classpath "${'$'}CLASSPATH" -Dskiko.library.path="${'$'}APP_HOME/lib" com.clambhook.linux.MainKt "${'$'}@"
 """)
         script.setExecutable(true)
 
