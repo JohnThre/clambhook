@@ -58,58 +58,7 @@ jobs:
       - name: Build in ${{ matrix.distro }} container
         run: |
           VERSION="${{ steps.ver.outputs.version }}"
-          if [[ "${{ matrix.setup }}" == "apt" ]]; then
-            SETUP='export DEBIAN_FRONTEND=noninteractive; apt-get update -qq && apt-get install -y -qq \
-              gcc make pkg-config libsodium-dev \
-              openjdk-17-jdk \
-              debhelper dh-golang dpkg-dev fakeroot rsync git curl wget ca-certificates tar file'
-          else
-            SETUP='dnf install -y -q --allowerasing gcc make rpm-build pkgconf-pkg-config \
-              java-17-openjdk-devel libsodium-devel systemd-rpm-macros polkit-devel \
-              xorg-x11-server-Xvfb \
-              git curl tar gzip file which'
-            if [[ "${{ matrix.distro }}" == "rocky" || "${{ matrix.distro }}" == "almalinux" ]]; then
-              SETUP="dnf install -y -q epel-release >/dev/null; $SETUP"
-            fi
-          fi
-
-          GO_SETUP='GO_VER=$(sed -n "s/^go \([0-9.][0-9.]*\)$/\1/p" go.mod | head -1)
-            case "$(uname -m)" in x86_64) GOARCH=amd64 ;; aarch64|arm64) GOARCH=arm64 ;; *) exit 2 ;; esac
-            curl -fsSL "https://go.dev/dl/go${GO_VER}.linux-${GOARCH}.tar.gz" | tar -C /usr/local -xz
-            export PATH=/usr/local/go/bin:$PATH'
-
-          docker run --rm -e "VERSION=$VERSION" -e "DISTRO=${{ matrix.distro }}" -v "$PWD":/src -w /src "${{ matrix.image }}" bash -lc '
-            set -e
-            '"$SETUP"'
-            if [[ "${{ matrix.setup }}" == "apt" ]]; then apt-get install -y -qq xvfb >/dev/null 2>&1 || true; fi
-            '"$GO_SETUP"'
-            go version
-            export PATH=/usr/local/go/bin:$PATH
-            export GOFLAGS=-buildvcs=false
-            make build VERSION="$VERSION"
-            make build-linux
-            ./bin/clambhook -version
-            ./bin/clambhook-tui -version
-            echo "{\"command\":\"ensure-trial\",\"snapshot\":\"\"}" | ./bin/clambhook-license | grep "\"ok\":true"
-            # Verify the Compose Multiplatform GUI controller starts under Xvfb.
-            # It is a JVM app that needs a display. Give it 15s to initialize.
-            # A timeout exit (124) means it started successfully and was killed.
-            if command -v xvfb-run >/dev/null 2>&1; then
-              set +e
-              timeout 15 xvfb-run -a ui/linux/build/install/clambhook-linux/bin/clambhook-linux >/tmp/gui.log 2>&1
-              gui_rc=$?
-              set -e
-              if [ $gui_rc -eq 124 ] || [ $gui_rc -eq 0 ]; then
-                echo "GUI controller started successfully on $DISTRO"
-              else
-                echo "::warning::GUI controller failed on $DISTRO (exit $gui_rc) - this may be caused by the JetBrains Space Maven repo being temporarily unavailable, which prevents the Skiko native rendering library from being downloaded:"
-                cat /tmp/gui.log >&2
-                echo "GUI smoke test failed but continuing (daemon/TUI/license passed)"
-              fi
-            else
-              echo "Skipping GUI smoke test (xvfb-run not available on $DISTRO)"
-            fi
-            echo "Smoke test passed for $DISTRO"
+          scripts/ci-linux-container-build.sh "${{ matrix.distro }}" "${{ matrix.image }}" "${{ matrix.setup }}" "$VERSION"
 
       - name: Build ${{ matrix.distro }} package artifact
         run: |
