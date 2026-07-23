@@ -54,7 +54,7 @@ install-linux: check-linux-ui-deps build-daemon build-tui build-license
 	cd ui/linux && ./gradlew --no-daemon installDist -PclambhookDaemon="$(abspath bin/clambhook)" -PclambhookTui="$(abspath bin/clambhook-tui)" -PclambhookLicense="$(abspath bin/clambhook-license)"
 	install -d "$(DESTDIR)$(PREFIX)/bin"
 	install -m 0755 ui/linux/build/install/clambhook-linux/bin/clambhook-linux "$(DESTDIR)$(PREFIX)/bin/clambhook-linux"
-	cp -R ui/linux/build/install/clambhook-linux/lib "$(DESTDIR)$(PREFIX)/lib/clambhook-linux"
+	install -d "$(DESTDIR)$(PREFIX)/lib/clambhook-linux" && cp -R ui/linux/build/install/clambhook-linux/lib/. "$(DESTDIR)$(PREFIX)/lib/clambhook-linux"
 	install -d "$(DESTDIR)$(LINUX_MESON_LIBEXECDIR)"
 	install -m 0755 bin/clambhook "$(DESTDIR)$(LINUX_MESON_LIBEXECDIR)/clambhook"
 	install -m 0755 bin/clambhook-tui "$(DESTDIR)$(PREFIX)/bin/clambhook-tui"
@@ -141,7 +141,7 @@ test-linux: check-linux-ui-deps
 	cd ui/linux && ./gradlew --no-daemon test
 
 build-linux: check-linux-ui-deps build-daemon build-tui build-license
-	cd ui/linux && ./gradlew --no-daemon createDistributable -PclambhookDaemon="$(abspath bin/clambhook)" -PclambhookTui="$(abspath bin/clambhook-tui)" -PclambhookLicense="$(abspath bin/clambhook-license)"
+	cd ui/linux && ./gradlew --no-daemon installDist -PclambhookDaemon="$(abspath bin/clambhook)" -PclambhookTui="$(abspath bin/clambhook-tui)" -PclambhookLicense="$(abspath bin/clambhook-license)"
 
 test: build-clib
 	go test ./...
