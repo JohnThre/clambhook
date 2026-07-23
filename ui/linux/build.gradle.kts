@@ -123,23 +123,12 @@ tasks.register("installDist") {
             println("installDist: appBase does not exist: ${appBase.absolutePath}")
         }
 
-        // Generate the launcher script that uses the bundled JRE.
-        // The JRE bin/java is at <install>/bin/java (Linux) or
-                // <install>/MacOS/clambhook-linux (macOS). On Linux the
-                // createDistributable output has bin/clambhook-linux already,
-                // but we overwrite it with our own that also sets the classpath
-                // and daemon binary paths.
-        val script = file("$binDir/clambhook-linux")
-        script.writeText("""#!/bin/sh
-APP_HOME=`dirname "${'$'}0"`/..
-CLASSPATH="${'$'}APP_HOME/lib/app/*"
-JAVA="${'$'}APP_HOME/lib/runtime/bin/java"
-if [ ! -x "${'$'}JAVA" ]; then
-  JAVA=`find "${'$'}APP_HOME" -name java \( -type f -o -type l \) 2>/dev/null | head -1`
-fi
-exec "${'$'}JAVA" -classpath "${'$'}CLASSPATH" -Dskiko.library.path="${'$'}APP_HOME/lib/app" com.clambhook.linux.MainKt "${'$'}@"
-""")
-        script.setExecutable(true)
+        // Note: jpackage creates a native launcher at bin/clambhook-linux
+        // that handles JVM loading, classpath, and native libs automatically.
+        // We don't need to generate our own launcher script.
+        // The jpackage launcher reads lib/app/clambhook-linux.cfg for classpath
+        // and JVM options. We just need to ensure the daemon binaries are in
+        // the right place.
 
         // Copy staged daemon binaries.
         val stagedBinaries = layout.projectDirectory.dir("resources/app/bin").asFile
