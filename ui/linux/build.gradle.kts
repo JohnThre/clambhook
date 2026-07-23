@@ -84,43 +84,49 @@ tasks.test {
 // (build/install/clambhook-linux/bin/ + lib/) without the Gradle application
 // plugin (which conflicts with Compose Multiplatform's run task).
 tasks.register("installDist") {
-    dependsOn("jar", "stageDaemonBinaries")
+    dependsOn("createDistributable", "stageDaemonBinaries")
     val installDir = layout.buildDirectory.dir("install/clambhook-linux")
     outputs.dir(installDir)
     doLast {
         val binDir = installDir.get().dir("bin").asFile
-        val libDir = installDir.get().dir("lib").asFile
         val resDir = installDir.get().dir("resources/app/bin").asFile
         binDir.mkdirs()
-        libDir.mkdirs()
         resDir.mkdirs()
+        val libDir = installDir.get().dir("lib").asFile
+        libDir.mkdirs()
 
-        // Copy runtime classpath JARs into lib/, keeping only the highest
-        // version per artifact base name (dedup).
-        val byBaseName = mutableMapOf<String, java.io.File>()
-        configurations.runtimeClasspath.get().files.forEach { f ->
-            if (!f.name.endsWith(".jar")) return@forEach
-            val base = f.name.substringBeforeLast("-")
-            val ver = f.name.substringAfterLast("-").removeSuffix(".jar")
-            val existing = byBaseName[base]
-            if (existing == null || ver > existing.name.substringAfterLast("-").removeSuffix(".jar")) {
-                byBaseName[base] = f
+        // createDistributable produces a platform-specific app directory with
+        // all JARs, native libs (libskiko-*.so), and a bundled JRE.
+        // We only copy from the 'app' subdirectory (JARs + native libs),
+        // not the 'runtime' directory (bundled JRE — we use system Java).
+        val appBase = layout.buildDirectory.dir("compose/binaries/main/app").get().asFile
+        if (appBase.exists()) {
+            appBase.walkTopDown().forEach { dir ->
+                if (dir.isDirectory && dir.name == "app") {
+                    dir.listFiles()?.forEach { f ->
+                        if (!f.isFile) return@forEach
+                        if (f.name.endsWith(".jar") || f.name.endsWith(".so") ||
+                            f.name.endsWith(".dylib") || f.name.endsWith(".dll") ||
+                            f.name.endsWith(".sha256")) {
+                            f.copyTo(file("$libDir/${f.name}"), overwrite = true)
+                        }
+                    }
+                }
             }
         }
-        byBaseName.values.forEach { f -> f.copyTo(file("$libDir/${f.name}"), overwrite = true) }
-
 
         // Copy the project JAR.
         tasks.jar.get().archiveFile.get().asFile.copyTo(
             file("$libDir/${tasks.jar.get().archiveFileName.get()}"), overwrite = true
         )
 
-        // Generate the launcher script.
+        // Generate the launcher script. Uses java from PATH (the .deb/.rpm
+        // depend on default-jre-headless or java-17-openjdk).
         val script = file("$binDir/clambhook-linux")
         script.writeText("""#!/bin/sh
 APP_HOME=`dirname "${'$'}0"`/..
 CLASSPATH="${'$'}APP_HOME/lib/*"
-exec java -classpath "${'$'}CLASSPATH" com.clambhook.linux.MainKt "${'$'}@"
+exec java -classpath "${'$'}CLASSPATH" -Dskiko.library.path="${'$'}APP_HOME/lib" com.clambhook.linux.MainKt "${'$'}@"
 """)
         script.setExecutable(true)
 
