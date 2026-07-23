@@ -237,8 +237,15 @@ jobs:
       - name: Stage all artifacts
         run: |
           mkdir -p dist/linux
-          find artifacts -type f \( -name "*.deb" -o -name "*.rpm" -o -name "*.AppImage" -o -name "*.sha256" \) -exec cp {} dist/linux/ \;
-          ls -la dist/linux/
+          ARCH="$(uname -m)"
+          find artifacts -type f \( -name "*.deb" -o -name "*.rpm" -o -name "*.AppImage" \) -exec cp {} dist/linux/ \;
+          find artifacts -type f -name "*.sha256" -exec cp {} dist/linux/ \;
+          # Rename files missing arch suffix and generate missing checksums
+          cd dist/linux
+          for f in clambhook-*-.deb; do [ -f "$f" ] && mv "$f" "clambhook-1.0.1-${ARCH}.deb"; done
+          for f in clambhook-*-.rpm; do [ -f "$f" ] && mv "$f" "clambhook-1.0.1-${ARCH}.rpm"; done
+          for f in *.deb *.rpm *.AppImage; do [ -f "$f" ] && [ ! -f "$f.sha256" ] && sha256sum "$f" > "$f.sha256"; done
+          ls -la
 
       - name: GPG sign
         env:
