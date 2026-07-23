@@ -106,7 +106,7 @@ exit 0
 %{_bindir}/clambhook-tui
 %{_bindir}/clambhook-license
 %{_bindir}/clambhook-linux
-%{_libdir}/clambhook-linux
+%{_prefix}/lib/clambhook-linux
 %{_libexecdir}/clambhook
 %{_libexecdir}/clambhook-license
 %{_datadir}/applications/com.clambhook.Clambhook.desktop
