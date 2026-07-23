@@ -132,11 +132,13 @@ tasks.register("installDist") {
         )
 
         // Generate the launcher script using system java.
+        // Note: do NOT set -Dskiko.library.path — Skiko auto-extracts its
+        // native lib from the skiko-awt JAR on the classpath at runtime.
         val script = file("$binDir/clambhook-linux")
         script.writeText("""#!/bin/sh
 APP_HOME=`dirname "${'$'}0"`/..
 CLASSPATH="${'$'}APP_HOME/lib/*"
-exec java -classpath "${'$'}CLASSPATH" -Dskiko.library.path="${'$'}APP_HOME/lib" com.clambhook.linux.MainKt "${'$'}@"
+exec java -classpath "${'$'}CLASSPATH" com.clambhook.linux.MainKt "${'$'}@"
 """)
         script.setExecutable(true)
 
