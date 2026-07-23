@@ -109,24 +109,6 @@ tasks.register("installDist") {
         }
         byBaseName.values.forEach { f -> f.copyTo(file("$libDir/${f.name}"), overwrite = true) }
 
-        // Extract native libraries from the skiko JAR (libskiko-*.so/.dylib/.dll)
-        // so the launcher can find them via -Dskiko.library.path.
-        byBaseName.values.find { it.name.startsWith("skiko-awt-") }?.let { skikoJar ->
-            val jf = JarFile(skikoJar)
-            val entries = jf.entries()
-            while (entries.hasMoreElements()) {
-                val e = entries.nextElement()
-                val n = e.name
-                if (n.endsWith(".so") || n.endsWith(".dylib") || n.endsWith(".dll") ||
-                    n.endsWith(".so.sha256") || n.endsWith(".dylib.sha256") || n.endsWith(".dll.sha256")) {
-                    val out = file("$libDir/" + n.substringAfterLast('/'))
-                    jf.getInputStream(e).use { input ->
-                        out.outputStream().use { output -> input.copyTo(output) }
-                    }
-                }
-            }
-            jf.close()
-        }
 
         // Copy the project JAR.
         tasks.jar.get().archiveFile.get().asFile.copyTo(
@@ -138,7 +120,7 @@ tasks.register("installDist") {
         script.writeText("""#!/bin/sh
 APP_HOME=`dirname "${'$'}0"`/..
 CLASSPATH="${'$'}APP_HOME/lib/*"
-exec java -classpath "${'$'}CLASSPATH" -Dskiko.library.path="${'$'}APP_HOME/lib" com.clambhook.linux.MainKt "${'$'}@"
+exec java -classpath "${'$'}CLASSPATH" com.clambhook.linux.MainKt "${'$'}@"
 """)
         script.setExecutable(true)
 
