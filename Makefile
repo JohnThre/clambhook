@@ -141,7 +141,7 @@ test-linux: check-linux-ui-deps
 	cd ui/linux && ./gradlew --no-daemon test
 
 build-linux: check-linux-ui-deps build-daemon build-tui build-license
-	cd ui/linux && ./gradlew --no-daemon installDist -PclambhookDaemon="$(abspath bin/clambhook)" -PclambhookTui="$(abspath bin/clambhook-tui)" -PclambhookLicense="$(abspath bin/clambhook-license)"
+	cd ui/linux && ./gradlew --no-daemon createDistributable -PclambhookDaemon="$(abspath bin/clambhook)" -PclambhookTui="$(abspath bin/clambhook-tui)" -PclambhookLicense="$(abspath bin/clambhook-license)"
 
 test: build-clib
 	go test ./...
