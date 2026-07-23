@@ -1,5 +1,4 @@
 import org.jetbrains.compose.desktop.application.dsl.TargetFormat
-import java.util.jar.JarFile
 
 plugins {
     kotlin("jvm") version "2.3.20"
@@ -95,39 +94,27 @@ tasks.register("installDist") {
         libDir.mkdirs()
         resDir.mkdirs()
 
-        // Copy runtime classpath JARs into lib/, deduplicating by base name.
+        // Copy all resolved runtime classpath artifacts into lib/.
+        // Using resolvedConfiguration gets ALL artifacts including
+        // platform-specific native libs (.so) that aren't in .files.
         val byBaseName = mutableMapOf<String, java.io.File>()
-        configurations.runtimeClasspath.get().files.forEach { f ->
-            if (!f.name.endsWith(".jar")) return@forEach
-            val base = f.name.substringBeforeLast("-")
-            val ver = f.name.substringAfterLast("-").removeSuffix(".jar")
-            val existing = byBaseName[base]
-            if (existing == null || ver > existing.name.substringAfterLast("-").removeSuffix(".jar")) {
-                byBaseName[base] = f
+        configurations.runtimeClasspath.get().resolvedConfiguration.lenientConfiguration.allModuleDependencies.forEach { dep ->
+            dep.allModuleArtifacts.forEach { art ->
+                val f = art.file
+                if (f.name.endsWith(".jar") || f.name.endsWith(".so") ||
+                    f.name.endsWith(".dylib") || f.name.endsWith(".dll") ||
+                    f.name.endsWith(".sha256")) {
+                    val base = f.name.substringBeforeLast("-")
+                    val ver = f.name.substringAfterLast("-").removeSuffix(".jar").removeSuffix(".so").removeSuffix(".sha256")
+                    val existing = byBaseName[base]
+                    if (existing == null || ver > existing.name.substringAfterLast("-")) {
+                        byBaseName[base] = f
+                    }
+                }
             }
         }
         byBaseName.values.forEach { f -> f.copyTo(file("$libDir/${f.name}"), overwrite = true) }
 
-        // Extract native libraries from the skiko JAR. On Linux the JAR
-        // contains libskiko-linux-x64.so and libskiko-linux-x64.so.sha256
-        // as resource entries. Extract them to lib/ so the launcher can
-        // find them via -Dskiko.library.path.
-        byBaseName.values.find { it.name.startsWith("skiko-awt-") }?.let { skikoJar ->
-            val jf = JarFile(skikoJar)
-            val entries = jf.entries()
-            while (entries.hasMoreElements()) {
-                val e = entries.nextElement()
-                val n = e.name
-                if (n.endsWith(".so") || n.endsWith(".dylib") || n.endsWith(".dll") ||
-                    n.endsWith(".so.sha256") || n.endsWith(".dylib.sha256") || n.endsWith(".dll.sha256")) {
-                    val out = file("$libDir/" + n.substringAfterLast('/'))
-                    jf.getInputStream(e).use { input ->
-                        out.outputStream().use { output -> input.copyTo(output) }
-                    }
-                }
-            }
-            jf.close()
-        }
 
         // Copy the project JAR.
         tasks.jar.get().archiveFile.get().asFile.copyTo(
