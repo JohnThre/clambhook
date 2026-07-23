@@ -100,19 +100,27 @@ tasks.register("installDist") {
         // We normalize to a Linux-style layout: bin/, lib/app/, lib/runtime/
         val appBase = layout.buildDirectory.dir("compose/binaries/main/app").get().asFile
         if (appBase.exists()) {
-            // Find the top-level app directory (clambhook-linux or clambhook-linux.app)
-            val appDir = appBase.listFiles()?.firstOrNull { it.isDirectory } ?: return@doLast
-            // On macOS, look inside Contents/ for the real layout
-            val contentsDir = appDir.resolve("Contents")
-            val sourceRoot = if (contentsDir.exists()) contentsDir else appDir
-            sourceRoot.walkTopDown().forEach { f ->
-                if (!f.isFile) return@forEach
-                val rel = f.relativeTo(sourceRoot)
-                val target = file("${installDir.get().asFile.path}/$rel")
-                target.parentFile.mkdirs()
-                f.copyTo(target, overwrite = true)
-                if (f.canExecute()) target.setExecutable(true)
+            println("installDist: appBase = ${appBase.absolutePath}")
+            appBase.listFiles()?.forEach { println("  entry: ${it.name} (dir=${it.isDirectory})") }
+            val appDir = appBase.listFiles()?.firstOrNull { it.isDirectory }
+            if (appDir == null) {
+                println("installDist: no subdirectory found in appBase, skipping copy")
+            } else {
+                println("installDist: appDir = ${appDir.absolutePath}")
+                val contentsDir = appDir.resolve("Contents")
+                val sourceRoot = if (contentsDir.exists()) contentsDir else appDir
+                println("installDist: sourceRoot = ${sourceRoot.absolutePath}")
+                sourceRoot.walkTopDown().forEach { f ->
+                    if (!f.isFile) return@forEach
+                    val rel = f.relativeTo(sourceRoot)
+                    val target = file("${installDir.get().asFile.path}/$rel")
+                    target.parentFile.mkdirs()
+                    f.copyTo(target, overwrite = true)
+                    if (f.canExecute()) target.setExecutable(true)
+                }
             }
+        } else {
+            println("installDist: appBase does not exist: ${appBase.absolutePath}")
         }
 
         // Generate the launcher script that uses the bundled JRE.
