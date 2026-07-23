@@ -9,12 +9,13 @@
 #   scripts/validate-linux-distros.sh fedora     # one distro
 #
 # For each distro the harness installs the build toolchain, builds the daemon +
-# terminal UI + license helper + GTK controller, then smoke-tests headlessly:
+# terminal UI + license helper + Kotlin/Compose Multiplatform desktop
+# controller, then smoke-tests headlessly:
 #   1. clambhook-license seeds a trial and evaluates it (JSON ok, reason trial)
 #   2. clambhook -version runs
 #   3. clambhook-tui -version runs
 # GUI rendering is out of scope for headless containers; it is covered by the
-# meson test suite (parsing/store/license) and manual QA on a desktop.
+# Gradle test suite and manual QA on a desktop.
 #
 # PureOS is Debian-based and is validated through the Debian package path.
 # Bazzite is Fedora/atomic and is validated through the Fedora build plus the
@@ -57,14 +58,13 @@ declare -A IMAGE=(
 )
 
 apt_setup='export DEBIAN_FRONTEND=noninteractive; apt-get update -qq && apt-get install -y -qq \
-  gcc make pkg-config meson ninja-build valac \
-  libgtk-4-dev libadwaita-1-dev libgee-0.8-dev libjson-glib-dev \
-  libsecret-1-dev libsoup-3.0-dev libsodium-dev libglib2.0-dev \
+  gcc make pkg-config \
+  libsodium-dev \
+  default-jdk-headless gradle \
   debhelper dh-golang dpkg-dev fakeroot rsync git curl wget ca-certificates tar file >/dev/null'
 
-dnf_setup='dnf install -y -q gcc make rpm-build pkgconf-pkg-config meson ninja-build vala \
-  gtk4-devel libadwaita-devel libgee-devel json-glib-devel glib2-devel \
-  libsecret-devel libsoup3-devel libsodium-devel systemd-rpm-macros polkit-devel \
+dnf_setup='dnf install -y -q gcc make rpm-build pkgconf-pkg-config \
+  java-17-openjdk-devel gradle libsodium-devel systemd-rpm-macros polkit-devel \
   git curl tar gzip file which >/dev/null'
 
 # Stock distro Go packages are older than the go.mod requirement, so install the
@@ -83,7 +83,7 @@ go version'
 smoke='set -e; cd /src
 export PATH=/usr/local/go/bin:$PATH
 make build >/build.log 2>&1 || { tail -40 /build.log; exit 1; }
-make build-linux >/dev/null 2>&1 || { echo "GTK controller build failed"; exit 1; }
+make build-linux >/dev/null 2>&1 || { echo "Compose controller build failed"; exit 1; }
 SNAP=$(echo "{\"command\":\"ensure-trial\",\"snapshot\":\"\"}" | ./bin/clambhook-license)
 echo "license: $SNAP"
 echo "$SNAP" | grep -q "\"ok\":true" || { echo "license helper failed"; exit 1; }
