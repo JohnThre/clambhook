@@ -1,0 +1,271 @@
+# Build, sign, and upload GNU/Linux release artifacts to Cloudflare R2.
+# Triggered by release tags. Never publishes installers on GitHub.
+name: Linux release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version string (e.g. 1.0.1)"
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: linux-release-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build ${{ matrix.distro }} package
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - distro: ubuntu
+            image: ubuntu:24.04
+            setup: apt
+          - distro: debian
+            image: debian:12
+            setup: apt
+          - distro: fedora
+            image: fedora:41
+            setup: dnf
+          - distro: rocky
+            image: rockylinux:9
+            setup: dnf
+          - distro: almalinux
+            image: almalinux:9
+            setup: dnf
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: ver
+        run: |
+          if [[ -n "${{ inputs.version }}" ]]; then
+            echo "version=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+          else
+            v="${GITHUB_REF_NAME#v}"
+            echo "version=$v" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build in ${{ matrix.distro }} container
+        run: |
+          VERSION="${{ steps.ver.outputs.version }}"
+          if [[ "${{ matrix.setup }}" == "apt" ]]; then
+            SETUP='export DEBIAN_FRONTEND=noninteractive; apt-get update -qq && apt-get install -y -qq \
+              gcc make pkg-config libsodium-dev \
+              default-jdk-headless \
+              debhelper dh-golang dpkg-dev fakeroot rsync git curl wget ca-certificates tar file'
+          else
+            SETUP='dnf install -y -q epel-release >/dev/null; dnf install -y -q gcc make rpm-build pkgconf-pkg-config \
+              java-17-openjdk-devel libsodium-devel systemd-rpm-macros polkit-devel \
+              git curl tar gzip file which'
+          fi
+
+          GO_SETUP='GO_VER=$(sed -n "s/^go \([0-9.][0-9.]*\)$/\1/p" go.mod | head -1)
+            case "$(uname -m)" in x86_64) GOARCH=amd64 ;; aarch64|arm64) GOARCH=arm64 ;; *) exit 2 ;; esac
+            curl -fsSL "https://go.dev/dl/go${GO_VER}.linux-${GOARCH}.tar.gz" | tar -C /usr/local -xz
+            export PATH=/usr/local/go/bin:$PATH'
+
+          docker run --rm -v "$PWD":/src -w /src "${{ matrix.image }}" bash -lc "
+            set -e
+            $SETUP
+            $GO_SETUP
+            go version
+            export PATH=/usr/local/go/bin:\$PATH
+            make build
+            make build-linux
+            ./bin/clambhook -version
+            ./bin/clambhook-tui -version
+            echo '{\"command\":\"ensure-trial\",\"snapshot\":\"\"}' | ./bin/clambhook-license | grep '\"ok\":true'
+            echo 'Smoke test passed for ${{ matrix.distro }}'
+          "
+
+      - name: Build ${{ matrix.distro }} package artifact
+        run: |
+          VERSION="${{ steps.ver.outputs.version }}"
+          case "${{ matrix.distro }}" in
+            ubuntu|debian)
+              docker run --rm -v "$PWD":/src -w /src "${{ matrix.image }}" bash -lc "
+                set -e
+                export DEBIAN_FRONTEND=noninteractive
+                apt-get update -qq && apt-get install -y -qq \
+                  gcc make pkg-config libsodium-dev \
+                  default-jdk-headless \
+                  debhelper dh-golang dpkg-dev fakeroot rsync git curl wget ca-certificates tar file
+                GO_VER=\$(sed -n 's/^go \([0-9.][0-9.]*\)\$/\1/p' go.mod | head -1)
+                case \"\$(uname -m)\" in x86_64) GOARCH=amd64 ;; aarch64|arm64) GOARCH=arm64 ;; esac
+                curl -fsSL \"https://go.dev/dl/go\${GO_VER}.linux-\${GOARCH}.tar.gz\" | tar -C /usr/local -xz
+                export PATH=/usr/local/go/bin:\$PATH
+                dpkg-buildpackage -us -uc -b
+                cp ../clambhook_*_*.deb /src/dist/clambhook-\${VERSION}-\$(uname -m).deb
+              "
+              ;;
+            fedora|rocky|almalinux)
+              docker run --rm -v "$PWD":/src -w /src "${{ matrix.image }}" bash -lc "
+                set -e
+                dnf install -y -q epel-release >/dev/null
+                dnf install -y -q gcc make rpm-build pkgconf-pkg-config \
+                  java-17-openjdk-devel libsodium-devel systemd-rpm-macros polkit-devel \
+                  git curl tar gzip file which
+                GO_VER=\$(sed -n 's/^go \([0-9.][0-9.]*\)\$/\1/p' go.mod | head -1)
+                case \"\$(uname -m)\" in x86_64) GOARCH=amd64 ;; aarch64|arm64) GOARCH=arm64 ;; esac
+                curl -fsSL \"https://go.dev/dl/go\${GO_VER}.linux-\${GOARCH}.tar.gz\" | tar -C /usr/local -xz
+                export PATH=/usr/local/go/bin:\$PATH
+                rpmver=\${VERSION//-/.}
+                mkdir -p /tmp/rpmbuild/{BUILD,RPMS,SOURCES,SPECS,SRPMS}
+                tar --exclude-vcs --exclude='./dist' \
+                  --transform \"s,^\.,clambhook-\${rpmver},\" \
+                  -czf /tmp/rpmbuild/SOURCES/clambhook-\${rpmver}.tar.gz .
+                rpmbuild --define \"_topdir /tmp/rpmbuild\" --define \"version \${rpmver}\" \
+                  -bb packaging/rpm/clambhook.spec
+                cp /tmp/rpmbuild/RPMS/*/clambhook-*.rpm /src/dist/clambhook-\${VERSION}-\$(uname -m).rpm
+              "
+              ;;
+          esac
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-${{ matrix.distro }}-${{ steps.ver.outputs.version }}
+          path: dist/
+          if-no-files-found: warn
+
+  appimage:
+    name: Build AppImage (universal)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Install build deps
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
+            build-essential pkg-config libsodium-dev fuse3 libfuse2t64 kmod curl file
+          sudo modprobe fuse || true
+      - name: Resolve version
+        id: ver
+        run: |
+          if [[ -n "${{ inputs.version }}" ]]; then
+            echo "version=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+          else
+            v="${GITHUB_REF_NAME#v}"
+            echo "version=$v" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Build daemon and controller
+        run: |
+          make build
+          make build-linux
+      - name: Build AppImage
+        run: |
+          mkdir -p dist
+          VERSION="${{ steps.ver.outputs.version }}" packaging/appimage/build-appimage.sh
+      - name: Checksum
+        run: |
+          cd dist
+          for f in Clambhook-*.AppImage; do
+            sha256sum "$f" > "$f.sha256"
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-appimage-${{ steps.ver.outputs.version }}
+          path: dist/
+          if-no-files-found: warn
+
+  upload:
+    name: Sign and upload to R2
+    needs: [build, appimage]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: ver
+        run: |
+          v="${GITHUB_REF_NAME#v}"
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Stage all artifacts
+        run: |
+          mkdir -p dist/linux
+          find artifacts -type f \( -name "*.deb" -o -name "*.rpm" -o -name "*.AppImage" -o -name "*.sha256" \) -exec cp {} dist/linux/ \;
+          ls -la dist/linux/
+
+      - name: GPG sign
+        run: |
+          echo "${{ secrets.GPG_PRIVATE_KEY }}" | gpg --batch --import
+          for f in dist/linux/*.sha256; do
+            gpg --batch --yes --pinentry-mode loopback \
+              --local-user ${{ secrets.GPG_KEY_ID }} \
+              --detach-sign --armor --output "$f.sig" "$f"
+          done
+
+      - name: Generate Linux manifest
+        run: |
+          VERSION="${{ steps.ver.outputs.version }}"
+          ARCH="$(uname -m)"
+          PUBLISHED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          SHA256_DEB=$(awk '{print $1}' dist/linux/clambhook-${VERSION}-${ARCH}.deb.sha256 2>/dev/null || echo "")
+          SHA256_RPM=$(awk '{print $1}' dist/linux/clambhook-${VERSION}-${ARCH}.rpm.sha256 2>/dev/null || echo "")
+          SHA256_APPIMAGE=$(awk '{print $1}' dist/linux/Clambhook-${VERSION}-${ARCH}.AppImage.sha256 2>/dev/null || echo "")
+          cat > dist/linux/clambhook-linux-manifest.json <<MANIFEST
+          {
+            "version": "${VERSION}",
+            "publishedAt": "${PUBLISHED_AT}",
+            "architecture": "${ARCH}",
+            "packages": {
+              "deb": {
+                "url": "\${CLAMBHOOK_STABLE_LINUX_DEB_URL}",
+                "sha256": "${SHA256_DEB}"
+              },
+              "rpm": {
+                "url": "\${CLAMBHOOK_STABLE_LINUX_RPM_URL}",
+                "sha256": "${SHA256_RPM}"
+              },
+              "appimage": {
+                "url": "\${CLAMBHOOK_STABLE_LINUX_APPIMAGE_URL}",
+                "sha256": "${SHA256_APPIMAGE}"
+              }
+            }
+          }
+          MANIFEST
+          gpg --batch --yes --pinentry-mode loopback \
+            --local-user ${{ secrets.GPG_KEY_ID }} \
+            --detach-sign --armor --output dist/linux/clambhook-linux-manifest.json.sig dist/linux/clambhook-linux-manifest.json
+
+      - name: Upload to R2
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+        run: |
+          VERSION="${{ steps.ver.outputs.version }}"
+          BUCKET="clambhook-artifacts"
+          npx wrangler@latest r2 object put "$BUCKET/clambhook/linux/clambhook-${VERSION}-$(uname -m).deb" \
+            --file dist/linux/clambhook-${VERSION}-$(uname -m).deb --remote || true
+          npx wrangler@latest r2 object put "$BUCKET/clambhook/linux/clambhook-${VERSION}-$(uname -m).rpm" \
+            --file dist/linux/clambhook-${VERSION}-$(uname -m).rpm --remote || true
+          npx wrangler@latest r2 object put "$BUCKET/clambhook/linux/Clambhook-${VERSION}-$(uname -m).AppImage" \
+            --file dist/linux/Clambhook-${VERSION}-$(uname -m).AppImage --remote || true
+          for f in dist/linux/*.sha256 dist/linux/*.sha256.sig dist/linux/clambhook-linux-manifest.json*; do
+            npx wrangler@latest r2 object put "$BUCKET/clambhook/linux/$(basename $f)" \
+              --file "$f" --remote || true
+          done
