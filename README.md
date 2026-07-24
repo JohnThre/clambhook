@@ -4,17 +4,15 @@
 
 <h1 align="center">Clambhook</h1>
 
-<p align="center">A private VPN and proxy router with local, metadata-first inspection.</p>
+<p align="center">A powerful personalized network tool with local, metadata-first inspection.</p>
 
 ---
 
 ## Overview
 
-Clambhook is a macOS-first VPN and proxy router that supports proxy, tunnel, and
-anonymity protocols with local inspection for routing and connection review. It
-implements its own protocol core from scratch — it does not wrap sing-box,
-mihomo, or any other existing engine. The backend is written in Go and C; the
-macOS v1 client is a native SwiftUI app.
+Clambhook is a powerful personalized network tool with local inspection for
+routing and connection review. It implements its own protocol core from scratch.
+The backend is written in Go and C; the macOS v1 client is a native SwiftUI app.
 
 Activity inspection is metadata-only by default. Opt-in HTTP(S) capture adds a
 Proxyman-style debugging surface; HTTPS body capture requires a user-trusted
@@ -97,22 +95,9 @@ flowchart LR
 ## Protocols
 
 The protocol core registers dialers through the `internal/protocol` registry
-using stable lowercase identifiers.
-
-| Protocol | Identifier | Status |
-| --- | --- | --- |
-| Trojan | `trojan` | Implemented |
-| ClambBack | `clambback` | Implemented |
-| Shadowsocks | `shadowsocks` | Implemented |
-| WireGuard | `wireguard` | Implemented |
-| OpenVPN | `openvpn` | Implemented |
-| Tor | `tor` | Implemented |
-| VLESS | `vless` | Planned |
-| VMess | `vmess` | Planned |
-| Reality | `reality` | Planned |
-
-Chains route through one or more hops, and policy groups select between chains by
-manual choice or automatic latency testing (`url-test`).
+using stable lowercase identifiers. Chains route through one or more hops, and
+policy groups select between chains by manual choice or automatic latency
+testing (`url-test`).
 
 ## Features
 
