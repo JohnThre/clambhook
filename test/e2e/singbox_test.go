@@ -20,18 +20,21 @@ import (
 
 	_ "github.com/JohnThre/clambhook/internal/protocol/shadowsocks"
 	_ "github.com/JohnThre/clambhook/internal/protocol/trojan"
+	_ "github.com/JohnThre/clambhook/internal/protocol/vmess"
 )
 
 const (
 	singBoxImage         = "ghcr.io/sagernet/sing-box:v1.13.12"
 	ssPassword           = "clambhook-e2e-shadowsocks"
 	trojanPassword       = "clambhook-e2e-trojan"
+	vmessUUID            = "b831381d-6324-4d53-ad4f-8cda48b30811"
 	singBoxContainerWork = "/work"
 )
 
 type singBoxFixture struct {
 	ssAddr     string
 	trojanAddr string
+	vmessAddr  string
 }
 
 type singBoxRunner struct {
@@ -73,6 +76,15 @@ func TestSingBoxProtocolCompatibility(t *testing.T) {
 			udpDatagram:  udpEcho.addr,
 			udpSupported: true,
 		},
+		{
+			name: "vmess",
+			server: node("vmess", fx.vmessAddr, "vmess", map[string]any{
+				"uuid":     vmessUUID,
+				"security": "aes-128-gcm",
+			}),
+			udpDatagram:  udpEcho.addr,
+			udpSupported: true,
+		},
 	}
 
 	for _, tc := range cases {
@@ -103,11 +115,27 @@ func TestSingBoxChainCompatibility(t *testing.T) {
 		"sni":              "localhost",
 		"skip_cert_verify": true,
 	})
+	vmess := node("vmess-final", fx.vmessAddr, "vmess", map[string]any{
+		"uuid":     vmessUUID,
+		"security": "aes-128-gcm",
+	})
 
 	t.Run("tcp_shadowsocks_to_trojan", func(t *testing.T) {
 		ch := &chain.Chain{Name: "ss-to-trojan", Nodes: []protocol.Server{ss, trojan}}
 		defer ch.Close()
 		assertTCPRoundTrip(t, ch, tcpEcho.addr)
+	})
+
+	t.Run("tcp_shadowsocks_to_vmess", func(t *testing.T) {
+		ch := &chain.Chain{Name: "ss-to-vmess", Nodes: []protocol.Server{ss, vmess}}
+		defer ch.Close()
+		assertTCPRoundTrip(t, ch, tcpEcho.addr)
+	})
+
+	t.Run("udp_shadowsocks_to_vmess", func(t *testing.T) {
+		ch := &chain.Chain{Name: "ss-to-vmess-udp", Nodes: []protocol.Server{ss, vmess}}
+		defer ch.Close()
+		assertUDPRoundTrip(t, ch, "", udpEcho.addr)
 	})
 
 	t.Run("udp_shadowsocks_to_trojan", func(t *testing.T) {
@@ -134,6 +162,7 @@ func startSingBoxFixture(t *testing.T) singBoxFixture {
 	ports := map[string]int{
 		"ss":     mustFreePort(t),
 		"trojan": mustFreePort(t),
+		"vmess":  mustFreePort(t),
 	}
 	for _, p := range ports {
 		runner.ports = append(runner.ports, p)
@@ -174,6 +203,16 @@ func startSingBoxFixture(t *testing.T) singBoxFixture {
 					"key_path":         keyPath,
 				},
 			},
+			map[string]any{
+				"type":        "vmess",
+				"tag":         "vmess-in",
+				"listen":      listenHost,
+				"listen_port": ports["vmess"],
+				"users": []any{map[string]any{
+					"name": "clambhook",
+					"uuid": vmessUUID,
+				}},
+			},
 		},
 		"outbounds": []any{map[string]any{"type": "direct", "tag": "direct"}},
 		"route":     map[string]any{"final": "direct"},
@@ -190,7 +229,7 @@ func startSingBoxFixture(t *testing.T) singBoxFixture {
 	runner.check(t, configPath)
 	runner.start(t, configPath)
 
-	for _, p := range []int{ports["ss"], ports["trojan"]} {
+	for _, p := range []int{ports["ss"], ports["trojan"], ports["vmess"]} {
 		if err := waitTCP(net.JoinHostPort("127.0.0.1", strconv.Itoa(p)), 5*time.Second); err != nil {
 			t.Fatal(err)
 		}
@@ -199,6 +238,7 @@ func startSingBoxFixture(t *testing.T) singBoxFixture {
 	return singBoxFixture{
 		ssAddr:     net.JoinHostPort("127.0.0.1", strconv.Itoa(ports["ss"])),
 		trojanAddr: net.JoinHostPort("127.0.0.1", strconv.Itoa(ports["trojan"])),
+		vmessAddr:  net.JoinHostPort("127.0.0.1", strconv.Itoa(ports["vmess"])),
 	}
 }
 
