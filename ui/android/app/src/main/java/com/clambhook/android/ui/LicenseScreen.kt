@@ -188,7 +188,7 @@ private fun UpdatesCard(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 else -> Text(
-                    "Check clambercloud.com for a newer signed APK.",
+                    "Check store.clambercloud.com for a newer signed APK.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

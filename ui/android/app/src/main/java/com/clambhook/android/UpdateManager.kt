@@ -20,10 +20,11 @@ import java.security.MessageDigest
 import java.time.Instant
 
 /**
- * In-app sideload updater. Polls the clambercloud.com Android update manifest,
- * compares against the installed version, gates installs through the shared
- * license update policy (renewed update window), downloads the signed APK,
- * verifies its SHA-256, and hands it to the system installer.
+ * In-app sideload updater. Polls the store.clambercloud.com Android update
+ * manifest, compares against the installed version, gates installs through the
+ * shared license update policy (renewed update window), constrains the download
+ * to the trusted update origin, downloads the signed APK, verifies its SHA-256,
+ * and hands it to the system installer.
  *
  * @param licenseGate returns whether a release published at the given epoch-ms
  *   may be installed under the current license (delegates to [LicenseManager]).
@@ -109,6 +110,9 @@ class UpdateManager(
     fun clearMessage() = _state.update { it.copy(message = "") }
 
     private fun downloadVerified(manifest: AndroidUpdateManifest): File {
+        if (!isTrustedUpdateOrigin(manifest.apkUrl)) {
+            error("update origin not allowed; download rejected")
+        }
         val dir = File(appContext.cacheDir, "updates").apply { mkdirs() }
         val target = File(dir, "clambhook-update.apk")
         val digest = MessageDigest.getInstance("SHA-256")
@@ -158,7 +162,7 @@ class UpdateManager(
         runCatching { Instant.parse(value.trim()).toEpochMilli() }.getOrDefault(0L)
 
     private companion object {
-        const val MANIFEST_URL = "https://clambercloud.com/api/clambhook/android-manifest"
+        const val MANIFEST_URL = "https://store.clambercloud.com/api/clambhook/android-manifest"
     }
 }
 
@@ -184,6 +188,29 @@ fun classifyUpdate(
     currentSdk < manifest.minSdk -> UpdateClassification.NeedsNewerAndroid
     manifest.apkUrl.isBlank() || manifest.sha256.isBlank() -> UpdateClassification.IncompleteManifest
     else -> UpdateClassification.Installable
+}
+
+/**
+ * Hosts permitted to serve the signed update APK. Downloads are constrained to
+ * the trusted store origin so a compromised or spoofed manifest cannot redirect
+ * the installer to an arbitrary URL. The apex is accepted alongside the store
+ * subdomain because the release script currently emits an apex `apkUrl`.
+ */
+val trustedUpdateHosts = setOf(
+    "store.clambercloud.com",
+    "clambercloud.com",
+)
+
+/**
+ * Whether [apkUrl] is an HTTPS URL whose host is in [trustedUpdateHosts]. Pure
+ * so the origin gate can be unit tested without the network. Rejects blank,
+ * malformed, non-HTTPS, or off-origin URLs.
+ */
+fun isTrustedUpdateOrigin(apkUrl: String): Boolean {
+    val uri = runCatching { java.net.URI(apkUrl.trim()) }.getOrNull() ?: return false
+    if (!uri.scheme.equals("https", ignoreCase = true)) return false
+    val host = uri.host?.lowercase() ?: return false
+    return host in trustedUpdateHosts
 }
 
 /** Lowercase hex encoding of a digest. */

@@ -6,7 +6,6 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -28,8 +27,6 @@ class MainActivity : ComponentActivity() {
         val configValidator = AndroidConfigValidator(this)
 
         setContent {
-            val supportPurchaseManager = remember { SupportPurchaseManager(this@MainActivity) }
-            val supportPurchaseState by supportPurchaseManager.state.collectAsState()
             val settings by settingsStore.settings.collectAsState(initial = AppSettings())
             var configToml by remember { mutableStateOf(defaultAndroidConfigToml) }
             val licenseManager = remember { LicenseManager(this@MainActivity) }
@@ -65,10 +62,6 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-            DisposableEffect(supportPurchaseManager) {
-                supportPurchaseManager.start()
-                onDispose { supportPurchaseManager.close() }
-            }
             LaunchedEffect(Unit) { licenseManager.start() }
             LaunchedEffect(Unit) {
                 configToml = configStore.readConfig()
@@ -96,7 +89,6 @@ class MainActivity : ComponentActivity() {
                 viewModel = viewModel,
                 settings = settings,
                 configToml = configToml,
-                supportPurchaseState = supportPurchaseState,
                 onSaveSettings = { nextSettings, nextConfigToml ->
                     configStore.saveConfig(nextConfigToml)
                     configToml = nextConfigToml
@@ -104,10 +96,6 @@ class MainActivity : ComponentActivity() {
                     startTunnel()
                 },
                 onValidateConfig = configValidator::validate,
-                onPurchaseSupport = { productId ->
-                    supportPurchaseManager.purchase(this@MainActivity, productId)
-                },
-                onClearSupportPurchaseMessage = supportPurchaseManager::clearMessage,
                 licenseState = licenseState,
                 onActivateLicense = { key, email -> licenseScope.launch { licenseManager.activate(key, email) } },
                 onDeactivateLicense = { licenseScope.launch { licenseManager.deactivateCurrentDevice() } },

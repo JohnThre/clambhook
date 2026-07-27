@@ -78,9 +78,10 @@ checksum_and_sign "$APK"
 
 # 3. Generate the Android update manifest. The website serves this at
 #    /api/clambhook/android-manifest so the in-app UpdateManager can detect
-#    newer signed APKs from clambercloud.com. The apkUrl points at the
-#    clambercloud.com download route (same host as MANIFEST_URL in
-#    UpdateManager.kt).
+#    newer signed APKs from store.clambercloud.com. The apkUrl points at the
+#    store.clambercloud.com download route (same host as MANIFEST_URL in
+#    UpdateManager.kt); it must stay on a host in UpdateManager.trustedUpdateHosts
+#    or the in-app installer rejects the download.
 MANIFEST="$DIST_DIR/clambhook-android-manifest.json"
 PUBLISHED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 SHA256="$(awk '{print $1}' "$APK.sha256")"
@@ -95,7 +96,7 @@ MIN_SDK=30
   printf '  "versionName": "%s",\n' "$VERSION"
   printf '  "minSdk": %s,\n' "$MIN_SDK"
   printf '  "publishedAt": "%s",\n' "$PUBLISHED_AT"
-  printf '  "apkUrl": "https://clambercloud.com/api/clambhook/download?platform=android",\n'
+  printf '  "apkUrl": "https://store.clambercloud.com/api/clambhook/download?platform=android",\n'
   printf '  "sha256": "%s",\n' "$SHA256"
   printf '  "notes": ""\n'
   printf '}\n'

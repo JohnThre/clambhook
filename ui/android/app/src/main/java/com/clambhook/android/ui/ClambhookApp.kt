@@ -62,12 +62,9 @@ fun ClambhookApp(
     viewModel: DashboardViewModel,
     settings: AppSettings,
     configToml: String,
-    supportPurchaseState: SupportPurchaseState,
     licenseState: LicenseUiState,
     onSaveSettings: suspend (AppSettings, String) -> Unit,
     onValidateConfig: suspend (String) -> Unit,
-    onPurchaseSupport: (String) -> Unit,
-    onClearSupportPurchaseMessage: () -> Unit,
     onActivateLicense: (String, String) -> Unit,
     onDeactivateLicense: () -> Unit,
     onReactivateLicense: () -> Unit,
@@ -108,13 +105,6 @@ fun ClambhookApp(
             context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
         ) {
             notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-        }
-    }
-
-    androidx.compose.runtime.LaunchedEffect(supportPurchaseState.statusMessage) {
-        supportPurchaseState.statusMessage?.let { message ->
-            showMessage(message)
-            onClearSupportPurchaseMessage()
         }
     }
 
@@ -277,10 +267,8 @@ fun ClambhookApp(
                         AppTab.Settings -> SettingsScreen(
                             settings = settings,
                             configToml = configToml,
-                            supportPurchaseState = supportPurchaseState,
                             onSave = onSaveSettings,
                             onValidateConfig = onValidateConfig,
-                            onPurchaseSupport = onPurchaseSupport,
                             onShowMessage = showMessage,
                             modifier = Modifier.weight(1f)
                         )

@@ -13,7 +13,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.Restore
 import androidx.compose.material.icons.rounded.Save
 import androidx.compose.material3.AlertDialog
@@ -51,10 +50,8 @@ import androidx.compose.ui.text.style.TextOverflow
 fun SettingsScreen(
     settings: AppSettings,
     configToml: String,
-    supportPurchaseState: SupportPurchaseState,
     onSave: suspend (AppSettings, String) -> Unit,
     onValidateConfig: suspend (String) -> Unit,
-    onPurchaseSupport: (String) -> Unit,
     onShowMessage: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -65,7 +62,6 @@ fun SettingsScreen(
     var confirmRestore by remember { mutableStateOf(false) }
     var showDashboardSettings by remember { mutableStateOf(true) }
     var showConfigEditor by remember { mutableStateOf(false) }
-    var showSupportOptions by remember { mutableStateOf(false) }
     var showAppRouting by remember { mutableStateOf(false) }
     var splitMode by remember { mutableStateOf(settings.normalizedSplitTunnelMode) }
     var selectedPackages by remember { mutableStateOf(settings.normalizedSplitTunnelPackages) }
@@ -185,51 +181,6 @@ fun SettingsScreen(
                 )
             }
         }
-        }
-
-        if (supportPurchaseState.visible) {
-            SettingsDisclosureHeader(
-                title = "Support",
-                expanded = showSupportOptions,
-                onToggle = { showSupportOptions = !showSupportOptions }
-            )
-        }
-
-        if (supportPurchaseState.visible && showSupportOptions) {
-            Card {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text("Support", style = MaterialTheme.typography.titleMedium)
-                        if (supportPurchaseState.loading) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.height(18.dp).width(18.dp),
-                                strokeWidth = 2.dp
-                            )
-                        }
-                    }
-
-                    if (supportPurchaseState.products.isEmpty()) {
-                        Text("Support options unavailable", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    } else {
-                        supportPurchaseState.products.forEach { product ->
-                            OutlinedButton(
-                                onClick = { onPurchaseSupport(product.id) },
-                                enabled = !supportPurchaseState.purchasing,
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Icon(Icons.Rounded.Favorite, contentDescription = null)
-                                Spacer(Modifier.width(8.dp))
-                                Text(product.name, modifier = Modifier.weight(1f))
-                                Text(product.price)
-                            }
-                        }
-                    }
-                }
-            }
         }
 
         SettingsDisclosureHeader(

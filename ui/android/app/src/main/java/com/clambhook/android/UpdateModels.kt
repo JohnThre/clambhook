@@ -3,9 +3,10 @@ package com.clambhook.android
 import kotlinx.serialization.Serializable
 
 /**
- * Update manifest served by clambercloud.com's `/api/clambhook/android-manifest`.
- * ClambHook is sideloaded (no Play Store), so the app polls this to detect and
- * install newer signed APKs from clambercloud.com.
+ * Update manifest served by store.clambercloud.com's
+ * `/api/clambhook/android-manifest`. ClambHook is sideloaded (no Play Store), so
+ * the app polls this to detect and install newer signed APKs from
+ * store.clambercloud.com.
  */
 @Serializable
 data class AndroidUpdateManifest(

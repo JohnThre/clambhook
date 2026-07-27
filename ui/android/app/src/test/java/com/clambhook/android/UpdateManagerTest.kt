@@ -10,7 +10,7 @@ class UpdateManagerTest {
     private fun manifest(
         versionCode: Long = 2,
         minSdk: Int = 30,
-        apkUrl: String = "https://clambercloud.com/clambhook.apk",
+        apkUrl: String = "https://store.clambercloud.com/clambhook.apk",
         sha256: String = "abc123",
     ) = AndroidUpdateManifest(
         versionCode = versionCode,
@@ -76,5 +76,21 @@ class UpdateManagerTest {
     fun toHexStringProducesLowercaseTwoDigitBytes() {
         val hex = byteArrayOf(0x00, 0x0f.toByte(), 0xff.toByte(), 0xa5.toByte()).toHexString()
         assertEquals("000fffa5", hex)
+    }
+
+    @Test
+    fun trustedOriginAcceptsStoreAndApexOverHttps() {
+        assertTrue(isTrustedUpdateOrigin("https://store.clambercloud.com/api/clambhook/download?platform=android"))
+        assertTrue(isTrustedUpdateOrigin("https://clambercloud.com/clambhook.apk"))
+        assertTrue(isTrustedUpdateOrigin("  https://STORE.clambercloud.com/x.apk  "))
+    }
+
+    @Test
+    fun trustedOriginRejectsOffOriginNonHttpsAndMalformed() {
+        assertFalse(isTrustedUpdateOrigin("https://evil.example.com/clambhook.apk"))
+        assertFalse(isTrustedUpdateOrigin("https://clambercloud.com.evil.example.com/x.apk"))
+        assertFalse(isTrustedUpdateOrigin("http://store.clambercloud.com/x.apk"))
+        assertFalse(isTrustedUpdateOrigin(""))
+        assertFalse(isTrustedUpdateOrigin("not a url"))
     }
 }
