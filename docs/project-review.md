@@ -142,16 +142,28 @@ No P0 findings. Six P1 items should block release.
 
 ## Decide / incubate
 
-- [ ] `ui/skip`: integrate into a real client with behavioral tests, or mark it
-  explicitly experimental; it is currently unwired and its tests are
-  placeholders.
-- [ ] Android support-purchase flow: implement the direct-payment path or remove
-  the no-op `SupportPurchaseManager` and its wiring.
-- [ ] Confirm the Android updater manifest host (apex `clambercloud.com` vs
-  documented `store.clambercloud.com`); constrain the download origin or verify
-  the APK signing certificate.
-- [ ] Sequence v1.1 (network conditioner, protocol-specific viewers) and the
-  planned VLESS/VMess/Reality/scripting work only after the blockers above close.
+- [x] `ui/skip`: marked explicitly experimental. `ui/skip/README.md` now leads
+  with an experimental-status callout (unwired into every client, excluded from
+  `make test`, blocked by the Skip 1.9.4 standalone-library resolution defect),
+  and the placeholder `1 + 2 == 3` test is replaced with real behavioral tests
+  for `TunnelStatus` labels and `formatByteRate` edge cases (NaN/negative/inf,
+  unit scaling) that run in the proven `skip init` app workspace.
+- [x] Android support-purchase flow: removed the no-op `SupportPurchaseManager`,
+  `SupportPurchaseModels`, and their test, and stripped all wiring
+  (`MainActivity`, `ClambhookApp`, `SettingsScreen`). The app is sideloaded with
+  no billing dependency and payments run only through the website
+  (Creem/NOWPayments), so the dead direct-payment stub is gone;
+  `:app:compileDebugKotlin` and `:app:testDebugUnitTest` pass.
+- [x] Confirm the Android updater manifest host: standardized on
+  `store.clambercloud.com` (matching the macOS feeds and distribution docs) in
+  `UpdateManager`, `UpdateModels`, `LicenseScreen`, and `release-android.sh`, and
+  constrained the download origin via `isTrustedUpdateOrigin` (HTTPS + host
+  allowlist) enforced in `downloadVerified`, with unit tests for accept/reject.
+- [x] Sequence v1.1 (network conditioner, protocol-specific viewers) and the
+  planned VMess/Reality/scripting work only after the blockers above close.
+  `docs/roadmap.md` now carries an explicit sequence: v1.1 capture/network
+  tooling → Reality transport (VMess and ShadowTLS already ship) → scripting
+  engine, one cross-client change in flight at a time.
 
 ## macOS review — completed 2026-07-22
 

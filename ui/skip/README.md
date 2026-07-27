@@ -1,4 +1,15 @@
-# ClambHook shared Skip UI
+# ClambHook shared Skip UI (experimental)
+
+> **Status: experimental — not wired into any shipping client.** This package is
+> a proof-of-concept for a Swift-first shared UI. It is **not** built, tested, or
+> imported by the Apple, Android, TUI, or Linux clients in their release
+> pipelines, and it is excluded from `make test`. Its integration is blocked by a
+> Skip 1.9.4 standalone-library resolution defect (see "Known blocker" below), so
+> `swift build`/`swift test` do not run against it standalone. Treat everything
+> here as a design spike until that blocker clears and the module is consumed
+> inside a `skip init`-generated app workspace. The shared-model logic
+> (`TunnelStatus`, `formatByteRate`) has behavioral tests in
+> `Tests/ClambhookUITests` that run in that workspace.
 
 `ui/skip` is the Swift-first shared UI package for the Android client. It uses Skip Lite (`skipstone`) to transpile SwiftUI models/views into Kotlin/Jetpack Compose while keeping the source of truth in Swift.
 
