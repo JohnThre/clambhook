@@ -48,7 +48,7 @@ final class OperationalSupportTests: XCTestCase {
     func testProfileTemplateOrderKeepsAdvancedLast() {
         XCTAssertEqual(
             TunnelProfileTemplate.allCases.map(\.rawValue),
-            ["shadowsocks", "wireguard", "openvpn", "trojan", "vmess", "tor", "clambback", "advanced"]
+            ["shadowsocks", "shadowtls", "wireguard", "openvpn", "trojan", "vmess", "tor", "clambback", "advanced"]
         )
     }
 
@@ -66,6 +66,39 @@ final class OperationalSupportTests: XCTestCase {
         XCTAssertEqual(request.settingsTOML, "")
         XCTAssertEqual(request.settings?["method"], .string("chacha20-ietf-poly1305"))
         XCTAssertEqual(request.settings?["password"], .string("secret"))
+    }
+
+    func testShadowTLSTemplateBuildsTypedSettingsRequest() throws {
+        let draft = TunnelProfileCreateDraft(
+            template: .shadowtls,
+            serverAddress: "example.com:443",
+            shadowtls: TunnelShadowTLSTemplateSettings(
+                password: "secret",
+                sni: "www.microsoft.com",
+                alpn: "h2, http/1.1",
+                skipCertVerify: true
+            )
+        )
+
+        let request = try XCTUnwrap(draft.makeCreateRequest())
+
+        XCTAssertTrue(draft.isInputComplete)
+        XCTAssertEqual(request.protocol, "shadowtls")
+        XCTAssertEqual(request.serverAddress, "example.com:443")
+        XCTAssertEqual(request.settings?["password"], .string("secret"))
+        XCTAssertEqual(request.settings?["version"], .int(3))
+        XCTAssertEqual(request.settings?["sni"], .string("www.microsoft.com"))
+        XCTAssertEqual(request.settings?["alpn"], .array([.string("h2"), .string("http/1.1")]))
+        XCTAssertEqual(request.settings?["skip_cert_verify"], .bool(true))
+    }
+
+    func testShadowTLSTemplateWithoutPasswordIsIncomplete() {
+        let draft = TunnelProfileCreateDraft(
+            template: .shadowtls,
+            serverAddress: "example.com:443",
+            shadowtls: TunnelShadowTLSTemplateSettings(password: "")
+        )
+        XCTAssertFalse(draft.isInputComplete)
     }
 
     func testWireGuardTemplateBuildsNestedSettingsRequest() throws {

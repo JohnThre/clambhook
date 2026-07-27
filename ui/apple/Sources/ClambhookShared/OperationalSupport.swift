@@ -57,6 +57,7 @@ public enum TunnelImportDecoder {
 
 public enum TunnelProfileTemplate: String, CaseIterable, Codable, Identifiable, Sendable {
     case shadowsocks
+    case shadowtls
     case wireguard
     case openvpn
     case trojan
@@ -71,6 +72,8 @@ public enum TunnelProfileTemplate: String, CaseIterable, Codable, Identifiable, 
         switch self {
         case .shadowsocks:
             return "Shadowsocks"
+        case .shadowtls:
+            return "ShadowTLS"
         case .wireguard:
             return "WireGuard"
         case .openvpn:
@@ -160,6 +163,36 @@ public struct TunnelShadowsocksTemplateSettings: Equatable, Sendable {
             "method": .string(method.trimmedForProfileTemplate),
             "password": .string(password),
         ]
+    }
+}
+
+public struct TunnelShadowTLSTemplateSettings: Equatable, Sendable {
+    public var password: String
+    public var sni: String
+    public var alpn: String
+    public var skipCertVerify: Bool
+
+    public init(password: String = "", sni: String = "", alpn: String = "", skipCertVerify: Bool = false) {
+        self.password = password
+        self.sni = sni
+        self.alpn = alpn
+        self.skipCertVerify = skipCertVerify
+    }
+
+    public var settings: [String: TunnelProfileSettingValue] {
+        var settings: [String: TunnelProfileSettingValue] = [
+            "password": .string(password),
+            "version": .int(3),
+            "skip_cert_verify": .bool(skipCertVerify),
+        ]
+        if !sni.trimmedForProfileTemplate.isEmpty {
+            settings["sni"] = .string(sni.trimmedForProfileTemplate)
+        }
+        let alpnValues = TunnelProfileCreateDraft.stringListValues(from: alpn)
+        if !alpnValues.isEmpty {
+            settings["alpn"] = .array(alpnValues)
+        }
+        return settings
     }
 }
 
@@ -373,6 +406,7 @@ public struct TunnelProfileCreateDraft: Equatable, Sendable {
     public var serverAddress: String
     public var replace: Bool
     public var shadowsocks: TunnelShadowsocksTemplateSettings
+    public var shadowtls: TunnelShadowTLSTemplateSettings
     public var wireguard: TunnelWireGuardTemplateSettings
     public var openvpn: TunnelOpenVPNTemplateSettings
     public var trojan: TunnelTrojanTemplateSettings
@@ -389,6 +423,7 @@ public struct TunnelProfileCreateDraft: Equatable, Sendable {
         serverAddress: String = "",
         replace: Bool = true,
         shadowsocks: TunnelShadowsocksTemplateSettings = TunnelShadowsocksTemplateSettings(),
+        shadowtls: TunnelShadowTLSTemplateSettings = TunnelShadowTLSTemplateSettings(),
         wireguard: TunnelWireGuardTemplateSettings = TunnelWireGuardTemplateSettings(),
         openvpn: TunnelOpenVPNTemplateSettings = TunnelOpenVPNTemplateSettings(),
         trojan: TunnelTrojanTemplateSettings = TunnelTrojanTemplateSettings(),
@@ -404,6 +439,7 @@ public struct TunnelProfileCreateDraft: Equatable, Sendable {
         self.serverAddress = serverAddress
         self.replace = replace
         self.shadowsocks = shadowsocks
+        self.shadowtls = shadowtls
         self.wireguard = wireguard
         self.openvpn = openvpn
         self.trojan = trojan
@@ -419,6 +455,8 @@ public struct TunnelProfileCreateDraft: Equatable, Sendable {
             return !advancedTOML.trimmedForProfileTemplate.isEmpty
         case .shadowsocks:
             return hasCommonCreateFields && !shadowsocks.password.isEmpty
+        case .shadowtls:
+            return hasCommonCreateFields && !shadowtls.password.isEmpty
         case .wireguard:
             return hasCommonCreateFields &&
                 !wireguard.privateKey.trimmedForProfileTemplate.isEmpty &&
@@ -480,6 +518,8 @@ public struct TunnelProfileCreateDraft: Equatable, Sendable {
         switch template {
         case .shadowsocks:
             return shadowsocks.settings
+        case .shadowtls:
+            return shadowtls.settings
         case .wireguard:
             return wireguard.settings(endpoint: serverAddress)
         case .openvpn:
