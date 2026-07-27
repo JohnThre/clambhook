@@ -15,10 +15,10 @@ import (
 // Commercial contract constants. These MUST match the published terms and the
 // Apple MobileLicenseCommercialTerms values.
 const (
-	LicensePriceUSD         = "99.99"
+	LicensePriceUSD         = "49.99"
 	PaidUpdatePriceUSD      = "9.99"
 	IncludedUpdateYears     = 1
-	MaxActiveDevices        = 10
+	MaxActiveDevices        = 3
 	TrialMonths             = 1
 	OfflineGraceDays        = 7
 	LifetimeUnlockProductID = "org.jpfchang.clambhook.unlock.lifetime"

@@ -510,7 +510,7 @@ public enum MobileLicenseRuntimeError: Error, LocalizedError {
     public var errorDescription: String? {
         switch self {
         case .locked:
-            return "The one-calendar-month trial has ended. Buy or activate a USD 99.99 one-time ClambHook license to keep using ClambHook."
+            return "The one-calendar-month trial has ended. Buy or activate a USD 49.99 one-time ClambHook license to keep using ClambHook."
         }
     }
 }

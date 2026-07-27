@@ -72,7 +72,7 @@ data class LicenseDevice(
 data class LicenseDeviceState(
     @SerialName("current_install_id") val currentInstallId: String = "",
     @SerialName("current_device_id") val currentDeviceId: String = "",
-    @SerialName("max_active_devices") val maxActiveDevices: Int = 10,
+    @SerialName("max_active_devices") val maxActiveDevices: Int = 3,
     @SerialName("payment_provider") val paymentProvider: String = "",
     val devices: List<LicenseDevice> = emptyList()
 ) {
