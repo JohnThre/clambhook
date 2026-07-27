@@ -87,6 +87,23 @@ name = "local"
       [profile.chain.server.settings]
       token = "replace-with-private-value"
 
+  # Example VMESS server (AEAD-only; alter_id must be 0 or omitted). security
+  # accepts "auto" (default), "aes-128-gcm", or "chacha20-poly1305". Set tls =
+  # true to run VMESS over TLS, with optional sni / alpn / skip_cert_verify.
+  #   [[profile.chain]]
+  #   name = "vmess-example"
+  #
+  #     [[profile.chain.server]]
+  #     name = "vmess-node"
+  #     address = "vmess.example.invalid:443"
+  #     protocol = "vmess"
+  #
+  #       [profile.chain.server.settings]
+  #       uuid = "00000000-0000-0000-0000-000000000000"
+  #       security = "auto"
+  #       tls = true
+  #       sni = "vmess.example.invalid"
+
   [[profile.policy_group]]
   name = "auto"
   type = "url-test"

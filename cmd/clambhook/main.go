@@ -30,6 +30,7 @@ import (
 	_ "github.com/JohnThre/clambhook/internal/protocol/shadowsocks"
 	_ "github.com/JohnThre/clambhook/internal/protocol/tor"
 	_ "github.com/JohnThre/clambhook/internal/protocol/trojan"
+	_ "github.com/JohnThre/clambhook/internal/protocol/vmess"
 	_ "github.com/JohnThre/clambhook/internal/protocol/wireguard"
 )
 

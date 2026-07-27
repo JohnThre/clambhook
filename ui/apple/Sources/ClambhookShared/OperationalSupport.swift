@@ -60,6 +60,7 @@ public enum TunnelProfileTemplate: String, CaseIterable, Codable, Identifiable, 
     case wireguard
     case openvpn
     case trojan
+    case vmess
     case tor
     case clambback
     case advanced
@@ -76,6 +77,8 @@ public enum TunnelProfileTemplate: String, CaseIterable, Codable, Identifiable, 
             return "OpenVPN"
         case .trojan:
             return "Trojan"
+        case .vmess:
+            return "VMESS"
         case .tor:
             return "Tor"
         case .clambback:
@@ -309,6 +312,40 @@ public struct TunnelTrojanTemplateSettings: Equatable, Sendable {
     }
 }
 
+public struct TunnelVMESSTemplateSettings: Equatable, Sendable {
+    public var uuid: String
+    public var security: String
+    public var tls: Bool
+    public var sni: String
+    public var skipCertVerify: Bool
+
+    public init(uuid: String = "", security: String = "auto", tls: Bool = false, sni: String = "", skipCertVerify: Bool = false) {
+        self.uuid = uuid
+        self.security = security
+        self.tls = tls
+        self.sni = sni
+        self.skipCertVerify = skipCertVerify
+    }
+
+    public var settings: [String: TunnelProfileSettingValue] {
+        var settings: [String: TunnelProfileSettingValue] = [
+            "uuid": .string(uuid.trimmedForProfileTemplate),
+        ]
+        let trimmedSecurity = security.trimmedForProfileTemplate
+        if !trimmedSecurity.isEmpty {
+            settings["security"] = .string(trimmedSecurity)
+        }
+        if tls {
+            settings["tls"] = .bool(true)
+            settings["skip_cert_verify"] = .bool(skipCertVerify)
+            if !sni.trimmedForProfileTemplate.isEmpty {
+                settings["sni"] = .string(sni.trimmedForProfileTemplate)
+            }
+        }
+        return settings
+    }
+}
+
 public struct TunnelTorTemplateSettings: Equatable, Sendable {
     public var isolationUser: String
     public var isolationPass: String
@@ -339,6 +376,7 @@ public struct TunnelProfileCreateDraft: Equatable, Sendable {
     public var wireguard: TunnelWireGuardTemplateSettings
     public var openvpn: TunnelOpenVPNTemplateSettings
     public var trojan: TunnelTrojanTemplateSettings
+    public var vmess: TunnelVMESSTemplateSettings
     public var tor: TunnelTorTemplateSettings
     public var clambback: TunnelTrojanTemplateSettings
     public var advancedTOML: String
@@ -354,6 +392,7 @@ public struct TunnelProfileCreateDraft: Equatable, Sendable {
         wireguard: TunnelWireGuardTemplateSettings = TunnelWireGuardTemplateSettings(),
         openvpn: TunnelOpenVPNTemplateSettings = TunnelOpenVPNTemplateSettings(),
         trojan: TunnelTrojanTemplateSettings = TunnelTrojanTemplateSettings(),
+        vmess: TunnelVMESSTemplateSettings = TunnelVMESSTemplateSettings(),
         tor: TunnelTorTemplateSettings = TunnelTorTemplateSettings(),
         clambback: TunnelTrojanTemplateSettings = TunnelTrojanTemplateSettings(),
         advancedTOML: String = ""
@@ -368,6 +407,7 @@ public struct TunnelProfileCreateDraft: Equatable, Sendable {
         self.wireguard = wireguard
         self.openvpn = openvpn
         self.trojan = trojan
+        self.vmess = vmess
         self.tor = tor
         self.clambback = clambback
         self.advancedTOML = advancedTOML
@@ -392,6 +432,8 @@ public struct TunnelProfileCreateDraft: Equatable, Sendable {
                 !openvpn.clientKey.trimmedForProfileTemplate.isEmpty
         case .trojan:
             return hasCommonCreateFields && !trojan.password.isEmpty
+        case .vmess:
+            return hasCommonCreateFields && !vmess.uuid.trimmedForProfileTemplate.isEmpty
         case .tor:
             return hasCommonCreateFields &&
                 (tor.isolationUser.trimmedForProfileTemplate.isEmpty == tor.isolationPass.isEmpty)
@@ -444,6 +486,8 @@ public struct TunnelProfileCreateDraft: Equatable, Sendable {
             return openvpn.settings
         case .trojan:
             return trojan.settings
+        case .vmess:
+            return vmess.settings
         case .tor:
             return tor.settings
         case .clambback:

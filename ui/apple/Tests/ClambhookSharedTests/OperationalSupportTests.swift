@@ -48,7 +48,7 @@ final class OperationalSupportTests: XCTestCase {
     func testProfileTemplateOrderKeepsAdvancedLast() {
         XCTAssertEqual(
             TunnelProfileTemplate.allCases.map(\.rawValue),
-            ["shadowsocks", "wireguard", "openvpn", "trojan", "tor", "clambback", "advanced"]
+            ["shadowsocks", "wireguard", "openvpn", "trojan", "vmess", "tor", "clambback", "advanced"]
         )
     }
 
@@ -104,6 +104,40 @@ final class OperationalSupportTests: XCTestCase {
         XCTAssertEqual(peer["allowed_ips"] as? [String], ["0.0.0.0/0", "::/0"])
         XCTAssertEqual(peer["preshared_key"] as? String, "psk")
         XCTAssertEqual(peer["persistent_keepalive"] as? Int, 25)
+    }
+
+    func testVMESSTemplateBuildsTypedSettingsRequest() throws {
+        let draft = TunnelProfileCreateDraft(
+            template: .vmess,
+            serverAddress: "example.com:443",
+            vmess: TunnelVMESSTemplateSettings(
+                uuid: "b831381d-6324-4d53-ad4f-8cda48b30811",
+                security: "aes-128-gcm",
+                tls: true,
+                sni: "example.org",
+                skipCertVerify: true
+            )
+        )
+
+        let request = try XCTUnwrap(draft.makeCreateRequest())
+
+        XCTAssertTrue(draft.isInputComplete)
+        XCTAssertEqual(request.protocol, "vmess")
+        XCTAssertEqual(request.serverAddress, "example.com:443")
+        XCTAssertEqual(request.settings?["uuid"], .string("b831381d-6324-4d53-ad4f-8cda48b30811"))
+        XCTAssertEqual(request.settings?["security"], .string("aes-128-gcm"))
+        XCTAssertEqual(request.settings?["tls"], .bool(true))
+        XCTAssertEqual(request.settings?["sni"], .string("example.org"))
+        XCTAssertEqual(request.settings?["skip_cert_verify"], .bool(true))
+    }
+
+    func testVMESSTemplateWithoutUUIDIsIncomplete() {
+        let draft = TunnelProfileCreateDraft(
+            template: .vmess,
+            serverAddress: "example.com:443",
+            vmess: TunnelVMESSTemplateSettings(uuid: "")
+        )
+        XCTAssertFalse(draft.isInputComplete)
     }
 
     func testAdvancedTemplateDoesNotBuildSingleProfileRequest() {
