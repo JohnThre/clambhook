@@ -20,10 +20,10 @@
 ## Pricing
 
 - One-calendar-month free trial from first launch.
-- USD 99.99 one-time ClambHook license required after the trial.
+- USD 49.99 one-time ClambHook license required after the trial.
 - Includes one year of all updates from the purchase date.
 - Versions released on or before the update cutoff remain usable after the cutoff.
-- Covers a maximum of 10 concurrently active devices across supported platforms.
+- Covers a maximum of 3 concurrently active devices across supported platforms.
 - License seats can be deactivated and moved to another device.
 - A USD 9.99 renewal buys one additional update year, extending from the later of the current cutoff or the renewal payment date.
 - After the cutoff, no later updates are included, including critical, bug, and security updates.
@@ -45,7 +45,7 @@ the device unless the user explicitly exports or sends them.
 
 ## Copy Guardrails
 
-- Use "ClambHook license", "one-calendar-month trial", "USD 99.99 one-time license", "maximum of 10 concurrently active devices", and "USD 9.99 update-year renewal" for commercial copy.
+- Use "ClambHook license", "one-calendar-month trial", "USD 49.99 one-time license", "maximum of 3 concurrently active devices", and "USD 9.99 update-year renewal" for commercial copy.
 - Public download CTAs point to `store.clambercloud.com`.
 - Purchase, renewal, and license portal CTAs point to `store.swiphtgroup.com`.
 - Do not describe the current public release as a marketplace purchase, hosted account service, or subscription.

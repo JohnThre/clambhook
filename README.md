@@ -211,11 +211,11 @@ The end-user macOS app is distributed only from `https://store.clambercloud.com/
 as a free public DMG download for Apple Silicon Macs running macOS 14 or later. The GNU/Linux
 app is distributed only from the same host as free per-distro packages (`.deb`, `.rpm`, Flatpak,
 and AppImage) tested on Bazzite, Rocky Linux, PureOS, Ubuntu, Debian, and Fedora. First launch
-starts a one-calendar-month trial, after which a USD 99.99 one-time ClambHook license is
+starts a one-calendar-month trial, after which a USD 49.99 one-time ClambHook license is
 purchased from `https://store.swiphtgroup.com/clambhook/buy`.
 
 The license includes one year of all updates from the purchase date; versions released
-on or before the update cutoff remain usable after the cutoff. It covers a maximum of 10 concurrently active
+on or before the update cutoff remain usable after the cutoff. It covers a maximum of 3 concurrently active
 devices across supported platforms, and seats can be deactivated for transfers. After the
 cutoff, no later updates are included, including critical, bug, and security updates. A USD 9.99
 renewal buys one additional update year, extending from the later of the current cutoff or the
@@ -224,7 +224,7 @@ renewal payment date. Purchase payments are accepted only through Creem or NOWPa
 ```mermaid
 flowchart TD
     download["Free DMG<br/>store.clambercloud.com"] --> trial["One-calendar-month trial"]
-    trial --> buy["USD 99.99 license<br/>Creem / NOWPayments"]
+    trial --> buy["USD 49.99 license<br/>Creem / NOWPayments"]
     buy --> year["One update year<br/>from purchase date"]
     year --> cutoff{Past update cutoff?}
     cutoff -->|no| updates["Receives all updates"]

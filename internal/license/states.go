@@ -155,7 +155,7 @@ func ExpiredTrialState(d Decision) *RecoveryState {
 	message := "Buy or activate a ClambHook license to continue."
 	if d.TrialEndsAt != nil {
 		message = fmt.Sprintf(
-			"The one-calendar-month trial ended %s. Buy or activate a USD 99.99 one-time ClambHook license to continue.",
+			"The one-calendar-month trial ended %s. Buy or activate a USD 49.99 one-time ClambHook license to continue.",
 			formatDate(*d.TrialEndsAt),
 		)
 	}

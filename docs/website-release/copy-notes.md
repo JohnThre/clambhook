@@ -8,12 +8,12 @@ license device management happen on `store.swiphtgroup.com`.
 - Free public macOS DMG download from `https://store.clambercloud.com/clambhook/`.
 - Public macOS support is Apple Silicon, macOS 14.0 or later.
 - A one-calendar-month free trial starts at first launch.
-- ClambHook License: `org.jpfchang.clambhook.unlock.lifetime`, USD 99.99.
+- ClambHook License: `org.jpfchang.clambhook.unlock.lifetime`, USD 49.99.
 - ClambHook Update Year: `org.jpfchang.clambhook.feature_update`, USD 9.99.
 - A single renewal SKU applies to each additional update year; there is no per-year product identifier.
-- The USD 99.99 one-time license is required after the trial and includes one year of all updates from the purchase date.
+- The USD 49.99 one-time license is required after the trial and includes one year of all updates from the purchase date.
 - Versions released on or before the update cutoff remain usable after the cutoff.
-- One license covers a maximum of 10 concurrently active devices across supported platforms.
+- One license covers a maximum of 3 concurrently active devices across supported platforms.
 - License seats can be deactivated and moved to another device.
 - A USD 9.99 renewal buys one additional update year, extending from the later of the current cutoff or the renewal payment date.
 - After the cutoff, no later updates are included, including critical, bug, and security updates.

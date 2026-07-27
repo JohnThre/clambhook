@@ -118,7 +118,7 @@ private fun PurchaseCard(state: LicenseUiState, onOpenUrl: (String) -> Unit, buy
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text("Buy or renew", style = MaterialTheme.typography.titleMedium)
             Text(
-                "One-time USD 99.99 license includes 1 year of updates for up to 10 devices. " +
+                "One-time USD 49.99 license includes 1 year of updates for up to 3 devices. " +
                     "Each USD 9.99 renewal adds another update year. Checkout: Creem or NOWPayments only.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,

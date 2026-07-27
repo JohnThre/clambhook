@@ -49,17 +49,17 @@ stateDiagram-v2
     Transferred --> Active: activate on new device
 
     note right of Active
-        Max 10 concurrently
+        Max 3 concurrently
         active devices per license
     end note
 ```
 
 ## Distribution Contract
 
-A USD 99.99 one-time ClambHook license is required after the one-calendar-month
+A USD 49.99 one-time ClambHook license is required after the one-calendar-month
 trial and includes one year of all updates from the purchase date. Versions
 released on or before the update cutoff remain usable; each license covers a
-maximum of 10 concurrently active devices across supported platforms. Device
+maximum of 3 concurrently active devices across supported platforms. Device
 seats can be deactivated and moved to another device. Each USD 9.99 renewal buys
 one additional update year, extending from the later of the current cutoff or
 the renewal payment date. Releases after the cutoff are not included, including

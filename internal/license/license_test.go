@@ -317,13 +317,13 @@ func TestLicenseExpiredForUpdatesRecoveryState(t *testing.T) {
 	}
 }
 
-func TestDeviceStateHonorsTenActiveLimit(t *testing.T) {
-	devices := make([]Device, 0, 10)
-	for i := 1; i <= 10; i++ {
+func TestDeviceStateHonorsActiveLimit(t *testing.T) {
+	devices := make([]Device, 0, MaxActiveDevices)
+	for i := 1; i <= MaxActiveDevices; i++ {
 		devices = append(devices, Device{DeviceID: "d", InstallID: "i", ActivatedAt: UTCDate(2026, 6, 3)})
 	}
-	s := DeviceState{CurrentInstallID: "install-11", MaxActiveDevices: MaxActiveDevices, Devices: devices}.Normalized()
-	if s.MaxActiveDevices != 10 || s.ActiveDeviceCount() != 10 || s.RemainingActivations() != 0 {
+	s := DeviceState{CurrentInstallID: "install-extra", MaxActiveDevices: MaxActiveDevices, Devices: devices}.Normalized()
+	if s.MaxActiveDevices != MaxActiveDevices || s.ActiveDeviceCount() != MaxActiveDevices || s.RemainingActivations() != 0 {
 		t.Fatalf("limit wrong: max=%d active=%d rem=%d", s.MaxActiveDevices, s.ActiveDeviceCount(), s.RemainingActivations())
 	}
 	if s.CanActivateCurrentDevice() || s.CanReactivateCurrentDevice() {
@@ -331,18 +331,18 @@ func TestDeviceStateHonorsTenActiveLimit(t *testing.T) {
 	}
 }
 
-func TestDeviceStateCannotRaiseLimitAboveTen(t *testing.T) {
+func TestDeviceStateCannotRaiseLimitAboveMax(t *testing.T) {
 	var s DeviceState
 	if err := json.Unmarshal([]byte(`{"current_install_id":"install-11","max_active_devices":25,"devices":[]}`), &s); err != nil {
 		t.Fatal(err)
 	}
-	if got := s.Normalized().MaxActiveDevices; got != 10 {
-		t.Fatalf("max = %d, want 10", got)
+	if got := s.Normalized().MaxActiveDevices; got != MaxActiveDevices {
+		t.Fatalf("max = %d, want %d", got, MaxActiveDevices)
 	}
 }
 
 func TestCommercialTerms(t *testing.T) {
-	if LicensePriceUSD != "99.99" || PaidUpdatePriceUSD != "9.99" || IncludedUpdateYears != 1 || MaxActiveDevices != 10 {
+	if LicensePriceUSD != "49.99" || PaidUpdatePriceUSD != "9.99" || IncludedUpdateYears != 1 || MaxActiveDevices != 3 {
 		t.Fatal("commercial terms drifted from contract")
 	}
 }
@@ -379,10 +379,10 @@ func TestActiveCurrentDeviceCanRemainActiveAtLimit(t *testing.T) {
 		MaxActiveDevices: MaxActiveDevices,
 		Devices: []Device{
 			{DeviceID: "device-1", InstallID: "install-1", ActivatedAt: UTCDate(2026, 6, 3)},
-			{DeviceID: "device-2", InstallID: "install-2", ActivatedAt: UTCDate(2026, 6, 3)},
-			{DeviceID: "device-3", InstallID: "install-3", ActivatedAt: UTCDate(2026, 6, 3)},
-			{DeviceID: "device-4", InstallID: "install-4", ActivatedAt: UTCDate(2026, 6, 3)},
 		},
+	}
+	for i := 2; i <= MaxActiveDevices; i++ {
+		s.Devices = append(s.Devices, Device{DeviceID: "d", InstallID: "i", ActivatedAt: UTCDate(2026, 6, 3)})
 	}
 	if !s.IsCurrentDeviceActive() || !s.CanActivateCurrentDevice() || !s.CanTransferCurrentDevice() {
 		t.Fatal("active current device semantics wrong")
@@ -392,11 +392,11 @@ func TestActiveCurrentDeviceCanRemainActiveAtLimit(t *testing.T) {
 func TestReactivationRequiresAvailableSeat(t *testing.T) {
 	deactivated := Device{DeviceID: "device-1", InstallID: "install-1", ActivatedAt: UTCDate(2026, 6, 3), DeactivatedAt: ptr(UTCDate(2026, 7, 1))}
 	full := DeviceState{CurrentInstallID: "install-1", CurrentDeviceID: "device-1", MaxActiveDevices: MaxActiveDevices, Devices: []Device{deactivated}}
-	for i := 2; i <= 11; i++ {
+	for i := 0; i < MaxActiveDevices; i++ {
 		full.Devices = append(full.Devices, Device{DeviceID: "d", InstallID: "i", ActivatedAt: UTCDate(2026, 6, 3)})
 	}
 	available := DeviceState{CurrentInstallID: "install-1", CurrentDeviceID: "device-1", MaxActiveDevices: MaxActiveDevices, Devices: []Device{deactivated}}
-	for i := 2; i <= 10; i++ {
+	for i := 0; i < MaxActiveDevices-1; i++ {
 		available.Devices = append(available.Devices, Device{DeviceID: "d", InstallID: "i", ActivatedAt: UTCDate(2026, 6, 3)})
 	}
 	if full.CanReactivateCurrentDevice() {

@@ -544,20 +544,21 @@ final class LicensingTests: XCTestCase {
         XCTAssertEqual(snapshot.transactions.first?.productID, MobilePurchaseCatalog.macLicenseProductID)
     }
 
-    func testDeviceStateHonorsTenActiveDeviceLimit() {
+    func testDeviceStateHonorsActiveDeviceLimit() {
+        let max = MobileLicenseCommercialTerms.maxActiveDevices
         let state = MobileLicenseDeviceState(
-            currentInstallID: "install-11",
-            devices: (1...10).map { licenseDevice(id: "device-\($0)", installID: "install-\($0)") }
+            currentInstallID: "install-extra",
+            devices: (1...max).map { licenseDevice(id: "device-\($0)", installID: "install-\($0)") }
         )
 
-        XCTAssertEqual(state.maxActiveDevices, 10)
-        XCTAssertEqual(state.activeDeviceCount, 10)
+        XCTAssertEqual(state.maxActiveDevices, max)
+        XCTAssertEqual(state.activeDeviceCount, max)
         XCTAssertEqual(state.remainingActivations, 0)
         XCTAssertFalse(state.canActivateCurrentDevice)
         XCTAssertFalse(state.canReactivateCurrentDevice)
     }
 
-    func testDeviceStateCannotRaiseConcurrentDeviceLimitAboveTen() throws {
+    func testDeviceStateCannotRaiseConcurrentDeviceLimitAboveMax() throws {
         let initialized = MobileLicenseDeviceState(
             currentInstallID: "install-11",
             maxActiveDevices: 25
@@ -573,15 +574,15 @@ final class LicensingTests: XCTestCase {
             """.utf8)
         )
 
-        XCTAssertEqual(initialized.maxActiveDevices, 10)
-        XCTAssertEqual(decoded.maxActiveDevices, 10)
+        XCTAssertEqual(initialized.maxActiveDevices, 3)
+        XCTAssertEqual(decoded.maxActiveDevices, 3)
     }
 
     func testCommercialTermsMatchMacLicensePolicy() {
-        XCTAssertEqual(MobileLicenseCommercialTerms.licensePriceUSD, "99.99")
+        XCTAssertEqual(MobileLicenseCommercialTerms.licensePriceUSD, "49.99")
         XCTAssertEqual(MobileLicenseCommercialTerms.paidFeatureUpdatePriceUSD, "9.99")
         XCTAssertEqual(MobileLicenseCommercialTerms.includedFeatureUpdateYears, 1)
-        XCTAssertEqual(MobileLicenseCommercialTerms.maxActiveDevices, 10)
+        XCTAssertEqual(MobileLicenseCommercialTerms.maxActiveDevices, 3)
     }
 
     func testAcceptedPaymentProvidersAreExactlyCreemAndNOWPayments() {

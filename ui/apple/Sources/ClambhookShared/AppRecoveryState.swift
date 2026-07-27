@@ -325,7 +325,7 @@ public enum AppRecoveryStateBuilder {
 
     private static func expiredTrialMessage(decision: MobileLicenseDecision) -> String {
         if let trialEndsAt = decision.trialEndsAt {
-            return "The one-calendar-month trial ended \(trialEndsAt.formatted(date: .abbreviated, time: .omitted)). Buy or activate a USD 99.99 one-time ClambHook license to continue."
+            return "The one-calendar-month trial ended \(trialEndsAt.formatted(date: .abbreviated, time: .omitted)). Buy or activate a USD 49.99 one-time ClambHook license to continue."
         }
         return "Buy or activate a ClambHook license to continue."
     }
