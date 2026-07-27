@@ -24,6 +24,7 @@ import (
 	_ "github.com/JohnThre/clambhook/internal/protocol/clambback"
 	_ "github.com/JohnThre/clambhook/internal/protocol/openvpn"
 	_ "github.com/JohnThre/clambhook/internal/protocol/shadowsocks"
+	_ "github.com/JohnThre/clambhook/internal/protocol/shadowtls"
 	_ "github.com/JohnThre/clambhook/internal/protocol/tor"
 	_ "github.com/JohnThre/clambhook/internal/protocol/trojan"
 	_ "github.com/JohnThre/clambhook/internal/protocol/vmess"

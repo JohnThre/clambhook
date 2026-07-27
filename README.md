@@ -102,6 +102,8 @@ testing (`url-test`).
 ## Features
 
 - Own protocol core supporting proxy, tunnel, and anonymity protocols.
+- ShadowTLS (v3) transport obfuscation that wraps an inner protocol inside a
+  genuine TLS 1.3 handshake, used as an entry hop in front of a proxy hop.
 - Multi-hop chain proxying with `select` and `url-test` policy groups.
 - Metadata-only activity inspection: connection targets, routing decisions, byte
   counts, and hop status.

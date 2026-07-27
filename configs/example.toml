@@ -104,6 +104,34 @@ name = "local"
   #       tls = true
   #       sni = "vmess.example.invalid"
 
+  # Example ShadowTLS (v3) chain. ShadowTLS is a transport-obfuscation layer,
+  # not an addressed proxy: it performs a genuine TLS 1.3 handshake to a real
+  # handshake server (given by sni) and carries an inner protocol on top. Use it
+  # as an entry hop in front of a proxy hop (shadowsocks below) that carries the
+  # real destination. Only v3 (strict TLS 1.3) is supported.
+  #   [[profile.chain]]
+  #   name = "shadowtls-example"
+  #
+  #     [[profile.chain.server]]
+  #     name = "stls-entry"
+  #     address = "stls.example.invalid:443"
+  #     protocol = "shadowtls"
+  #
+  #       [profile.chain.server.settings]
+  #       password = "replace-with-shared-secret"
+  #       sni = "www.microsoft.com"   # a real TLS 1.3 handshake server
+  #       # alpn = ["h2", "http/1.1"]
+  #       # version = 3               # v3 only (default)
+  #
+  #     [[profile.chain.server]]
+  #     name = "ss-exit"
+  #     address = "stls.example.invalid:443"
+  #     protocol = "shadowsocks"
+  #
+  #       [profile.chain.server.settings]
+  #       method = "aes-128-gcm"
+  #       password = "replace-with-shadowsocks-password"
+
   [[profile.policy_group]]
   name = "auto"
   type = "url-test"

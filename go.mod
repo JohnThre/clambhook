@@ -2,6 +2,12 @@ module github.com/JohnThre/clambhook
 
 go 1.25.0
 
+// ShadowTLS v3 injects an HMAC into the TLS ClientHello session id via a
+// deterministic two-pass handshake (internal/protocol/shadowtls). That relies
+// on crypto/tls honoring tls.Config.Rand for ephemeral key generation, which
+// Go 1.24+ gates behind this setting. See internal/protocol/shadowtls/sessionid.go.
+godebug cryptocustomrand=1
+
 require (
 	github.com/BurntSushi/toml v1.6.0
 	github.com/charmbracelet/bubbletea v1.3.10
