@@ -235,10 +235,54 @@ flowchart TD
     renew --> year
 ```
 
+### Web presence and commerce separation
+
+ClambHook's public web presence is split across two independently deployed
+sites, each with a single responsibility. All landing and marketing pages —
+overview, features, pricing, download, privacy, and support — live on
+**Clamber Cloud** (`clambercloud.com`). Every purchase, subscription, renewal,
+and license-device action happens on the **Swipht Group store**
+(`store.swiphtgroup.com`). Marketing pages never process payments; they deep-link
+purchase calls-to-action to the store. This keeps the download/trial surface and
+the payment/licensing surface cleanly isolated.
+
+```mermaid
+flowchart LR
+    subgraph marketing["Marketing site (clambercloud.com)"]
+        overview["/clambhook/ overview"]
+        features["/clambhook/features/"]
+        pricing["/clambhook/pricing/"]
+        dl["/clambhook/download/<br/>free download + trial"]
+    end
+
+    subgraph store["Checkout + licensing (store.swiphtgroup.com)"]
+        buy["/clambhook/buy/<br/>Creem · NOWPayments"]
+        license["/clambhook/license/<br/>terms"]
+        portal["/clambhook/portal/<br/>device seats"]
+    end
+
+    user["End user"] --> overview
+    overview --> features --> pricing
+    pricing -->|"Buy / Renew CTA"| buy
+    dl -->|"trial expires"| buy
+    buy -->|"license key email"| activate["Activate in-app<br/>up to 3 devices"]
+    activate <--> portal
+    buy --> license
+```
+
+- **Marketing / download (`clambercloud.com`):** product content, feature and
+  pricing pages, and free downloads with the one-calendar-month trial. No
+  checkout runs here; the payment CTA redirect is the only commerce coupling.
+- **Checkout / licensing (`store.swiphtgroup.com`):** Creem and NOWPayments
+  checkout, license-key delivery, update-year renewals, and the device-seat
+  portal enforcing the 3 concurrently active device limit.
+
 Official public routes:
 
 - Product: `https://store.clambercloud.com/clambhook/`
 - Download: `https://store.clambercloud.com/clambhook/download/`
+- Features: `https://store.clambercloud.com/clambhook/features/`
+- Pricing: `https://store.clambercloud.com/clambhook/pricing/`
 - Buy or upgrade: `https://store.swiphtgroup.com/clambhook/buy/`
 - License portal: `https://store.swiphtgroup.com/clambhook/portal/`
 - License terms: `https://store.swiphtgroup.com/clambhook/license/`

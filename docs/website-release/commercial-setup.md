@@ -49,6 +49,22 @@ including critical, bug, and security updates.
 - The checkout page posts to `/api/clambhook/checkout`.
 - License issuance and update-year renewal application happen from verified Creem or NOWPayments webhook events.
 - Update-year renewal checkout requires an existing license key.
+- The live Creem license product is the USD 49.99 one-time SKU. Creem prices are
+  immutable, so a price change means creating a new product and repointing
+  `CLAMBHOOK_CREEM_LICENSE_PRODUCT_ID` (Cloudflare Pages secret) at it. The
+  update-year renewal remains the USD 9.99 one-time SKU.
+
+## Device seat limit
+
+- The current terms cover a maximum of 3 concurrently active devices per license.
+- The limit is enforced per license from `clambhook_licenses.max_active_devices`
+  in D1 and by the `clambhook_device_limit_insert` / `clambhook_device_limit_reactivate`
+  triggers. New licenses default to 3.
+- To force all end users onto the current limit, migration
+  `015_clambhook_3_device_seats` sets every existing license to 3 and recreates
+  the triggers with a fallback of 3. The downgrade is graceful: no device is
+  deactivated, but licenses already over the limit cannot add or reactivate a
+  seat beyond 3 until they deactivate one.
 
 ## Verification
 
