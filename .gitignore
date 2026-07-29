@@ -91,6 +91,28 @@ CRUSH.md
 docs/superpowers/
 .ai-local/
 .ai-history/
+.junie/
+JUNIE.md
+.fugu/
+FUGU.md
+.sakana/
+.aigenerated/
+.assistant/
+.chatgpt/
+.llm/
+memory:/
+memory/
+
+# JetBrains IDE local files and history
+#
+# Keep IDE project configuration on the developer machine only; do not commit
+# it to the public/remote repository.
+.idea/
+*.iml
+*.iws
+*.ipr
+.fleet/
+out/
 
 # Stray root build artifact from `go build ./cmd/clambhook-license`
 /clambhook-license
