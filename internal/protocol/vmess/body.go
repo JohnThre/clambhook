@@ -3,6 +3,7 @@ package vmess
 import (
 	"crypto/md5"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 
@@ -14,6 +15,18 @@ import (
 // a smaller, allocation-friendly bound for writes and tolerate any compliant
 // size on reads.
 const maxBodyChunk = 16384
+
+// errBodyNonceExhausted is returned once a chunk stream has consumed every
+// distinct nonce for its key. The AEAD nonce embeds the chunk counter as a
+// 16-bit big-endian value (count(2 BE) || IV[2:12]), so counts 0..65535 yield
+// distinct nonces; the next chunk would wrap the counter to 0 and reuse the
+// (key, nonce) pair. Nonce reuse in AES-GCM / ChaCha20-Poly1305 is catastrophic
+// (it leaks the XOR of plaintexts and enables tag forgery), so the stream is
+// torn down before the counter can wrap. The 16-bit counter is fixed by the
+// VMess wire format and cannot be widened without breaking interoperability;
+// callers must reconnect (re-key) to continue, deriving a fresh key + IV. See
+// docs/security-review.md (finding H-1).
+var errBodyNonceExhausted = errors.New("vmess: body nonce counter exhausted; reconnect required")
 
 // sealFunc / openFunc abstract the two supported AEAD ciphers so the chunk
 // stream code is cipher-agnostic.
@@ -68,10 +81,11 @@ func newOpen(security string, key []byte) (openFunc, error) {
 // chunkWriter frames outbound data as length-prefixed AEAD chunks. The 12-byte
 // nonce is count(2 BE) || IV[2:12], with count incrementing once per chunk.
 type chunkWriter struct {
-	w     io.Writer
-	seal  sealFunc
-	iv    [16]byte
-	count uint16
+	w         io.Writer
+	seal      sealFunc
+	iv        [16]byte
+	count     uint16
+	exhausted bool
 }
 
 func newChunkWriter(w io.Writer, security string, key, iv []byte) (*chunkWriter, error) {
@@ -94,6 +108,9 @@ func (cw *chunkWriter) nonce() []byte {
 func (cw *chunkWriter) Write(p []byte) (int, error) {
 	written := 0
 	for len(p) > 0 {
+		if cw.exhausted {
+			return written, errBodyNonceExhausted
+		}
 		chunk := p
 		if len(chunk) > maxBodyChunk {
 			chunk = chunk[:maxBodyChunk]
@@ -103,6 +120,12 @@ func (cw *chunkWriter) Write(p []byte) (int, error) {
 			return written, fmt.Errorf("vmess: seal chunk: %w", err)
 		}
 		cw.count++
+		if cw.count == 0 {
+			// The counter just wrapped back to 0: every distinct nonce for
+			// this key has now been used. Refuse further writes so the next
+			// chunk can never reuse a (key, nonce) pair.
+			cw.exhausted = true
+		}
 
 		frame := make([]byte, 2+len(ct)+len(tag))
 		binary.BigEndian.PutUint16(frame[0:2], uint16(len(ct)+len(tag)))
@@ -120,11 +143,12 @@ func (cw *chunkWriter) Write(p []byte) (int, error) {
 // chunkReader reverses chunkWriter. Decrypted plaintext is buffered so callers
 // can Read with arbitrarily small buffers.
 type chunkReader struct {
-	r     io.Reader
-	open  openFunc
-	iv    [16]byte
-	count uint16
-	buf   []byte
+	r         io.Reader
+	open      openFunc
+	iv        [16]byte
+	count     uint16
+	exhausted bool
+	buf       []byte
 }
 
 func newChunkReader(r io.Reader, security string, key, iv []byte) (*chunkReader, error) {
@@ -158,6 +182,9 @@ func (cr *chunkReader) Read(p []byte) (int, error) {
 }
 
 func (cr *chunkReader) readChunk() error {
+	if cr.exhausted {
+		return errBodyNonceExhausted
+	}
 	var lb [2]byte
 	if _, err := io.ReadFull(cr.r, lb[:]); err != nil {
 		return err
@@ -177,6 +204,12 @@ func (cr *chunkReader) readChunk() error {
 		return fmt.Errorf("vmess: open chunk: %w", err)
 	}
 	cr.count++
+	if cr.count == 0 {
+		// Counter wrapped: a compliant peer never sends this many chunks on
+		// one key. Refuse to decrypt further so a malicious peer cannot force
+		// nonce reuse on our side.
+		cr.exhausted = true
+	}
 	cr.buf = pt
 	return nil
 }
