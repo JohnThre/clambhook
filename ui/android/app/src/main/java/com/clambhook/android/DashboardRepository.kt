@@ -25,6 +25,10 @@ data class DashboardState(
     val traffic: TrafficSnapshotPayload = TrafficSnapshotPayload(),
     val developerStatus: DeveloperStatusPayload = DeveloperStatusPayload(),
     val developerEntries: List<DeveloperEntryPayload> = emptyList(),
+    val conditioner: ConditionerPayload? = null,
+    val conditionerEditable: Boolean = true,
+    val conditionerLoading: Boolean = false,
+    val conditionerError: String = "",
     val bandwidthSamples: List<BandwidthSample> = emptyList(),
     val logs: List<String> = emptyList(),
     val apiOnline: Boolean = false,
@@ -175,6 +179,59 @@ class DashboardRepository(
     }
 
     suspend fun developerHar(): String = api.developerHar()
+
+    val conditionerEditable: Boolean
+        get() = api.supportsConditionerEditing
+
+    suspend fun loadConditioner() {
+        _state.update {
+            it.copy(
+                conditionerLoading = true,
+                conditionerEditable = api.supportsConditionerEditing,
+                conditionerError = ""
+            )
+        }
+        try {
+            val conditioner = api.conditioner()
+            _state.update {
+                it.copy(
+                    conditioner = conditioner,
+                    conditionerEditable = api.supportsConditionerEditing,
+                    conditionerLoading = false,
+                    conditionerError = ""
+                )
+            }
+        } catch (error: Throwable) {
+            _state.update {
+                it.copy(
+                    conditionerLoading = false,
+                    conditionerError = error.message ?: error.toString()
+                )
+            }
+        }
+    }
+
+    suspend fun updateConditioner(request: ConditionerUpdateRequest) {
+        _state.update { it.copy(conditionerLoading = true, conditionerError = "") }
+        try {
+            val conditioner = api.updateConditioner(request)
+            _state.update {
+                it.copy(
+                    conditioner = conditioner,
+                    conditionerEditable = api.supportsConditionerEditing,
+                    conditionerLoading = false,
+                    conditionerError = ""
+                )
+            }
+        } catch (error: Throwable) {
+            _state.update {
+                it.copy(
+                    conditionerLoading = false,
+                    conditionerError = error.message ?: error.toString()
+                )
+            }
+        }
+    }
 
     fun applyEvent(event: DaemonEvent): Boolean {
         when (event.type) {

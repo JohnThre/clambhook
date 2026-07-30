@@ -156,6 +156,21 @@ class LocalTunnelApi(
         rt.reload(configPath)
         ApiJson.decodeFromString(json)
     }
+
+    // The gomobile runtime exposes no [profile.conditioner] config-read or
+    // config-edit primitive, and we cannot add native methods without
+    // rebuilding the Go .aar. So we derive a read-only, disabled snapshot from
+    // the active profile the runtime already reports, and reject edits — the
+    // network conditioner can only be mutated through the daemon HTTP API.
+    override suspend fun conditioner(profile: String): ConditionerPayload = io {
+        val active = profile.ifBlank { ApiJson.decodeFromString<StatusPayload>(runtime().statusJson()).profile }
+        ConditionerPayload(profile = active, enabled = false)
+    }
+
+    override suspend fun updateConditioner(request: ConditionerUpdateRequest): ConditionerPayload =
+        throw UnsupportedOperationException("conditioner editing requires the daemon HTTP API")
+
+    override val supportsConditionerEditing: Boolean get() = false
 }
 
 /** Subset of the runtime dashboard payload used to source aggregate views. */

@@ -825,6 +825,96 @@ func TestDeveloperViewRendersStatusAndCaptures(t *testing.T) {
 	}
 }
 
+func TestDeveloperDecodedTabRendersFrames(t *testing.T) {
+	entry := developerEntryPayload{
+		Method: "GET",
+		URL:    "https://example.com/ws",
+		Decoded: &developerDecodedPayload{
+			Kind: "websocket",
+			Frames: []developerDecodedFramePayload{
+				{Direction: "server", Opcode: "text", Preview: "hello frame"},
+			},
+		},
+	}
+	decodedTab := indexOf(developerDetailTabs, "Decoded")
+	lines := developerDetailTabLines(entry, decodedTab, 120)
+	joined := strings.Join(lines, "\n")
+	for _, want := range []string{"Decoded websocket", "server text", "hello frame"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("decoded tab missing %q:\n%s", want, joined)
+		}
+	}
+}
+
+func TestDeveloperDecodedTabFallsBackWhenAbsent(t *testing.T) {
+	entry := developerEntryPayload{Method: "GET", URL: "https://example.com/index.html"}
+	decodedTab := indexOf(developerDetailTabs, "Decoded")
+	lines := developerDetailTabLines(entry, decodedTab, 120)
+	joined := strings.Join(lines, "\n")
+	if !strings.Contains(joined, "No decoded protocol data") {
+		t.Fatalf("expected fallback message, got:\n%s", joined)
+	}
+}
+
+func TestSettingsViewRendersConditioner(t *testing.T) {
+	m := newModel("127.0.0.1:9090")
+	m.viewMode = viewModeSettings
+	m.conditioner = conditionerPayload{
+		Profile:      "Work",
+		Enabled:      true,
+		DownloadKbps: 1024,
+		UploadKbps:   512,
+		Latency:      "40ms",
+		LossPercent:  2.5,
+	}
+	view := m.View()
+	for _, want := range []string{"Network Conditioner", "State on", "1024 kbps", "40ms", "2.5%"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("settings view missing %q:\n%s", want, view)
+		}
+	}
+}
+
+func TestConditionerTogglePutsUpdate(t *testing.T) {
+	var methods []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		methods = append(methods, r.Method+" "+r.URL.Path)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"profile":"Work","enabled":true,"download_kbps":0,"upload_kbps":0,"loss_percent":0}`))
+	}))
+	defer srv.Close()
+
+	m := newModel("127.0.0.1:9090")
+	m.viewMode = viewModeSettings
+	m.client = newAPIClientFromBaseURL(srv.URL)
+	m.conditioner = conditionerPayload{Profile: "Work", Enabled: false}
+
+	_, cmd := m.Update(keyMsg("n"))
+	if cmd == nil {
+		t.Fatal("n key returned nil command in settings view")
+	}
+	msg := cmd()
+	toggled, ok := msg.(conditionerToggledMsg)
+	if !ok {
+		t.Fatalf("expected conditionerToggledMsg, got %T", msg)
+	}
+	if toggled.Err != nil || !toggled.Conditioner.Enabled {
+		t.Fatalf("toggle result = %+v", toggled)
+	}
+	if len(methods) == 0 || methods[0] != "PUT /api/v1/conditioner" {
+		t.Fatalf("requests = %v, want PUT /api/v1/conditioner", methods)
+	}
+}
+
+func indexOf(items []string, target string) int {
+	for i, it := range items {
+		if it == target {
+			return i
+		}
+	}
+	return 0
+}
+
 func TestProfileListRendersEmojiNamesAndActiveMarker(t *testing.T) {
 	m := newModel("127.0.0.1:9090")
 	m.viewMode = viewModeLibrary

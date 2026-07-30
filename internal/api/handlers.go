@@ -42,6 +42,8 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/config/import", s.handleImportConfig)
 	mux.HandleFunc("GET /api/v1/config/settings", s.handleConfigSettings)
 	mux.HandleFunc("PUT /api/v1/config/settings", s.handleUpdateConfigSettings)
+	mux.HandleFunc("GET /api/v1/conditioner", s.handleConditioner)
+	mux.HandleFunc("PUT /api/v1/conditioner", s.handleUpdateConditioner)
 	mux.HandleFunc("POST /api/v1/rules", s.handleCreateRule)
 	mux.HandleFunc("POST /api/v1/rules/cleanup", s.handleCleanupRule)
 	mux.HandleFunc("POST /api/v1/rules/from-connection", s.handleCreateRuleFromConnection)

@@ -46,7 +46,7 @@ fun MainWindow(viewModel: MainViewModel, onClose: () -> Unit = {}) {
         onDispose { viewModel.close() }
     }
 
-    val pages = listOf("now", "activity", "policies", "firewall", "dns", "capture", "library", "license")
+    val pages = listOf("now", "activity", "policies", "firewall", "dns", "capture", "conditioner", "library", "license")
 
     Window(
         title = "clambhook",
@@ -81,6 +81,7 @@ fun MainWindow(viewModel: MainViewModel, onClose: () -> Unit = {}) {
                     "firewall" -> FirewallPage(viewModel)
                     "dns" -> DnsPage(viewModel)
                     "capture" -> CapturePage(viewModel)
+                    "conditioner" -> ConditionerPage(viewModel)
                     "library" -> LibraryPage(storeState)
                     "license" -> LicensePage(viewModel, licenseState)
                 }
@@ -388,6 +389,7 @@ private fun CapturePage(vm: MainViewModel) {
     val scope = rememberCoroutineScope()
     var status by remember { mutableStateOf<DeveloperStatusPayload?>(null) }
     var entries by remember { mutableStateOf<List<DeveloperEntryPayload>>(emptyList()) }
+    var selectedEntry by remember { mutableStateOf<DeveloperEntryPayload?>(null) }
     var message by remember { mutableStateOf("Opt-in local capture of traffic routed through the daemon HTTP proxy.") }
     LaunchedEffect(Unit) { try { status = vm.client.developerStatus() } catch (e: Exception) { message = "Capture status unavailable: ${e.message}" } }
     LaunchedEffect(status?.enabled) {
@@ -410,7 +412,7 @@ private fun CapturePage(vm: MainViewModel) {
             else items(entries) { entry ->
                 val method = if (entry.method.isEmpty()) "GET" else entry.method
                 val code = if (entry.statusCode == 0) "pending" else entry.statusCode.toString()
-                Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                Row(modifier = Modifier.fillMaxWidth().clickable { selectedEntry = entry }.padding(vertical = 4.dp)) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text("$method ${if (entry.url.isEmpty()) entry.host else entry.url}")
                         Text("status $code · ${entry.responseBytes} B · click for details", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -418,6 +420,130 @@ private fun CapturePage(vm: MainViewModel) {
                     Icon(Icons.Default.ChevronRight, "")
                 }
                 Divider()
+            }
+        }
+    }
+    selectedEntry?.let { entry ->
+        CaptureDetailDialog(entry, onDismiss = { selectedEntry = null })
+    }
+}
+
+@Composable
+private fun CaptureDetailDialog(entry: DeveloperEntryPayload, onDismiss: () -> Unit) {
+    val decoded = entry.decoded
+    val hasDecoded = decoded != null && decoded.frames.isNotEmpty()
+    val method = if (entry.method.isEmpty()) "GET" else entry.method
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } },
+        title = { Text("$method ${if (entry.host.isEmpty()) entry.url else entry.host}") },
+        text = {
+            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                val code = if (entry.statusCode == 0) "pending" else entry.statusCode.toString()
+                Text("Status $code · ${entry.responseBytes} B", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (entry.error.isNotEmpty()) {
+                    Text(entry.error, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 4.dp))
+                }
+                Spacer(Modifier.height(8.dp))
+                if (hasDecoded) {
+                    // Decoded protocol view (websocket / grpc / graphql).
+                    Text("Decoded ${decoded!!.kind}", fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.primary)
+                    decoded.frames.forEach { frame ->
+                        val label = listOf(frame.direction, frame.opcode)
+                            .filter { it.isNotEmpty() }
+                            .joinToString(" · ") + if (frame.truncated) " · truncated" else ""
+                        Spacer(Modifier.height(6.dp))
+                        Text(label, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(frame.preview, fontFamily = FontFamily.Monospace, fontSize = 12.sp)
+                    }
+                } else {
+                    // Fall back to the raw request/response body preview.
+                    val requestBody = entry.request.bodyText()
+                    val responseBody = entry.response.bodyText()
+                    Text("Request body", fontWeight = FontWeight.Medium)
+                    Text(if (requestBody.isEmpty()) "No body preview" else requestBody, fontFamily = FontFamily.Monospace, fontSize = 12.sp)
+                    Spacer(Modifier.height(8.dp))
+                    Text("Response body", fontWeight = FontWeight.Medium)
+                    Text(if (responseBody.isEmpty()) "No body preview" else responseBody, fontFamily = FontFamily.Monospace, fontSize = 12.sp)
+                }
+            }
+        }
+    )
+}
+
+@Composable
+private fun ConditionerPage(vm: MainViewModel) {
+    val state by vm.conditioner.collectAsState()
+    LaunchedEffect(Unit) { if (state.payload == null) vm.loadConditioner() }
+
+    val payload = state.payload
+    var enabled by remember(payload) { mutableStateOf(payload?.enabled ?: false) }
+    var download by remember(payload) { mutableStateOf(payload?.downloadKbps?.takeIf { it > 0 }?.toString() ?: "") }
+    var upload by remember(payload) { mutableStateOf(payload?.uploadKbps?.takeIf { it > 0 }?.toString() ?: "") }
+    var latency by remember(payload) { mutableStateOf(payload?.latency ?: "") }
+    var jitter by remember(payload) { mutableStateOf(payload?.jitter ?: "") }
+    var loss by remember(payload) { mutableStateOf(payload?.lossPercent?.takeIf { it > 0.0 }?.toString() ?: "") }
+
+    Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Network Conditioner", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+            IconButton(onClick = { vm.loadConditioner() }) { Icon(Icons.Default.Refresh, "Reload") }
+        }
+        Text(
+            "Shape bandwidth, latency, jitter and loss for the active profile.",
+            fontSize = 12.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(Modifier.height(12.dp))
+        when {
+            state.loading && payload == null -> {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    CircularProgressIndicator(modifier = Modifier.height(20.dp).width(20.dp), strokeWidth = 2.dp)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Loading conditioner…")
+                }
+            }
+            state.error.isNotEmpty() && payload == null -> {
+                Text(state.error, color = MaterialTheme.colorScheme.error)
+                Button(onClick = { vm.loadConditioner() }, modifier = Modifier.padding(top = 8.dp)) { Text("Retry") }
+            }
+            payload == null -> {
+                Text("No conditioner data yet.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Button(onClick = { vm.loadConditioner() }, modifier = Modifier.padding(top = 8.dp)) { Text("Load") }
+            }
+            else -> {
+                if (payload.profile.isNotEmpty()) {
+                    Text("Profile: ${payload.profile}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 4.dp)) {
+                    Text("Enabled", modifier = Modifier.weight(1f))
+                    Switch(checked = enabled, onCheckedChange = { enabled = it })
+                }
+                OutlinedTextField(value = download, onValueChange = { download = it.filter(Char::isDigit) }, label = { Text("Download (kbps)") }, singleLine = true, modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp))
+                OutlinedTextField(value = upload, onValueChange = { upload = it.filter(Char::isDigit) }, label = { Text("Upload (kbps)") }, singleLine = true, modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp))
+                OutlinedTextField(value = latency, onValueChange = { latency = it }, label = { Text("Latency (e.g. 40ms)") }, singleLine = true, modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp))
+                OutlinedTextField(value = jitter, onValueChange = { jitter = it }, label = { Text("Jitter (e.g. 5ms)") }, singleLine = true, modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp))
+                OutlinedTextField(value = loss, onValueChange = { v -> loss = v.filter { it.isDigit() || it == '.' } }, label = { Text("Loss (%)") }, singleLine = true, modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp))
+                if (state.error.isNotEmpty()) {
+                    Text(state.error, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 4.dp))
+                }
+                Button(
+                    onClick = {
+                        vm.updateConditioner(
+                            ConditionerUpdateRequest(
+                                profile = payload.profile.ifEmpty { null },
+                                enabled = enabled,
+                                downloadKbps = download.toIntOrNull(),
+                                uploadKbps = upload.toIntOrNull(),
+                                latency = latency.ifEmpty { null },
+                                jitter = jitter.ifEmpty { null },
+                                lossPercent = loss.toDoubleOrNull()
+                            )
+                        )
+                    },
+                    enabled = !state.loading,
+                    modifier = Modifier.padding(top = 8.dp)
+                ) { Text("Save conditioner") }
             }
         }
     }

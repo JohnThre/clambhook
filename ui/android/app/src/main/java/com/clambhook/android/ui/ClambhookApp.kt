@@ -270,7 +270,13 @@ fun ClambhookApp(
                             onSave = onSaveSettings,
                             onValidateConfig = onValidateConfig,
                             onShowMessage = showMessage,
-                            modifier = Modifier.weight(1f)
+                            modifier = Modifier.weight(1f),
+                            conditioner = state.conditioner,
+                            conditionerEditable = state.conditionerEditable,
+                            conditionerLoading = state.conditionerLoading,
+                            conditionerError = state.conditionerError,
+                            onLoadConditioner = viewModel::loadConditioner,
+                            onUpdateConditioner = viewModel::updateConditioner
                         )
 
                         AppTab.License -> LicenseScreen(

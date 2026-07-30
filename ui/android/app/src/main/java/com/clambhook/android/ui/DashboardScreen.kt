@@ -513,18 +513,27 @@ private fun CaptureDetailDialog(entry: DeveloperEntryPayload, onDismiss: () -> U
                     FilterChip(selected = side == "request", onClick = { side = "request" }, label = { Text("Request") })
                     FilterChip(selected = side == "response", onClick = { side = "response" }, label = { Text("Response") })
                 }
+                val decoded = entry.decoded
+                val hasDecoded = decoded != null && decoded.frames.isNotEmpty()
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     FilterChip(selected = tab == "headers", onClick = { tab = "headers" }, label = { Text("Headers") })
                     FilterChip(selected = tab == "body", onClick = { tab = "body" }, label = { Text("Body") })
                     FilterChip(selected = tab == "json", onClick = { tab = "json" }, label = { Text("JSON") })
                     FilterChip(selected = tab == "cookies", onClick = { tab = "cookies" }, label = { Text("Cookies") })
+                    if (hasDecoded) {
+                        FilterChip(selected = tab == "decoded", onClick = { tab = "decoded" }, label = { Text("Decoded") })
+                    }
                 }
-                DetailRow("Body size", formatBytes(message.body.size))
-                when (tab) {
-                    "body" -> CaptureBodyView(message.body)
-                    "json" -> CaptureJsonView(message.body)
-                    "cookies" -> CaptureCookiesView(message.cookies)
-                    else -> CaptureHeadersView(message.headers)
+                if (tab == "decoded") {
+                    CaptureDecodedView(decoded)
+                } else {
+                    DetailRow("Body size", formatBytes(message.body.size))
+                    when (tab) {
+                        "body" -> CaptureBodyView(message.body)
+                        "json" -> CaptureJsonView(message.body)
+                        "cookies" -> CaptureCookiesView(message.cookies)
+                        else -> CaptureHeadersView(message.headers)
+                    }
                 }
             }
         },
@@ -555,6 +564,38 @@ private fun CaptureHeadersView(headers: List<DeveloperHeaderPayload>) {
                     color = if (header.redacted) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.weight(0.58f)
                 )
+            }
+        }
+    }
+}
+
+@Composable
+private fun CaptureDecodedView(decoded: DeveloperDecodedPayload?) {
+    if (decoded == null || decoded.frames.isEmpty()) {
+        Text(
+            "No decoded protocol data; see the Body tab for the raw preview.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        return
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(
+            "Decoded ${decoded.kind}",
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.primary
+        )
+        decoded.frames.forEach { frame ->
+            val label = listOf(frame.direction, frame.opcode)
+                .filter { it.isNotBlank() }
+                .joinToString(" · ") + if (frame.truncated) " · truncated" else ""
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    label,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                CaptureMonospaceBlock(frame.preview)
             }
         }
     }

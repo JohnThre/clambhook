@@ -323,6 +323,20 @@ data class CapturedMessagePayload(
 }
 
 @Serializable
+data class DecodedFramePayload(
+    val direction: String = "",
+    val opcode: String = "",
+    val preview: String = "",
+    val truncated: Boolean = false
+)
+
+@Serializable
+data class DecodedPayload(
+    val kind: String = "",
+    val frames: List<DecodedFramePayload> = emptyList()
+)
+
+@Serializable
 data class DeveloperEntryPayload(
     val id: String = "",
     val method: String = "",
@@ -333,7 +347,8 @@ data class DeveloperEntryPayload(
     @SerialName("response_bytes") val responseBytes: Long = 0,
     val error: String = "",
     val request: CapturedMessagePayload = CapturedMessagePayload(),
-    val response: CapturedMessagePayload = CapturedMessagePayload()
+    val response: CapturedMessagePayload = CapturedMessagePayload(),
+    val decoded: DecodedPayload? = null
 ) {
     val statusCode: Int get() = if (status != 0) status else statusCodeAlt
 }
@@ -341,4 +356,27 @@ data class DeveloperEntryPayload(
 @Serializable
 data class DeveloperEntriesPayload(
     val entries: List<DeveloperEntryPayload> = emptyList()
+)
+
+@Serializable
+data class ConditionerPayload(
+    val profile: String = "",
+    val enabled: Boolean = false,
+    @SerialName("download_kbps") val downloadKbps: Int = 0,
+    @SerialName("upload_kbps") val uploadKbps: Int = 0,
+    val latency: String = "",
+    val jitter: String = "",
+    @SerialName("loss_percent") val lossPercent: Double = 0.0,
+    @SerialName("backup_path") val backupPath: String = ""
+)
+
+@Serializable
+data class ConditionerUpdateRequest(
+    val profile: String? = null,
+    val enabled: Boolean? = null,
+    @SerialName("download_kbps") val downloadKbps: Int? = null,
+    @SerialName("upload_kbps") val uploadKbps: Int? = null,
+    val latency: String? = null,
+    val jitter: String? = null,
+    @SerialName("loss_percent") val lossPercent: Double? = null
 )

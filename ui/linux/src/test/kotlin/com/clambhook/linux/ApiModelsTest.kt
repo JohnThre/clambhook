@@ -41,6 +41,50 @@ class ApiModelsTest {
     }
 
     @Test
+    fun developerEntryDecodesDecodedFrames() {
+        val entry = ApiJson.decodeFromString(DeveloperEntryPayload.serializer(), """
+            {"id":"dev-1","method":"GET","host":"socket.example.test","status":101,"decoded":{"kind":"websocket","frames":[{"direction":"server","opcode":"text","preview":"hello","truncated":false}]}}
+        """)
+        assertEquals("websocket", entry.decoded?.kind)
+        assertEquals(1, entry.decoded?.frames?.size)
+        assertEquals("server", entry.decoded?.frames?.get(0)?.direction)
+        assertEquals("hello", entry.decoded?.frames?.get(0)?.preview)
+    }
+
+    @Test
+    fun developerEntryWithoutDecodedIsNull() {
+        val entry = ApiJson.decodeFromString(DeveloperEntryPayload.serializer(), """
+            {"id":"dev-2","method":"POST","host":"api.example.test","status":200}
+        """)
+        assertEquals(null, entry.decoded)
+    }
+
+    @Test
+    fun conditionerDecodesSnakeCaseFields() {
+        val conditioner = ApiJson.decodeFromString(ConditionerPayload.serializer(), """
+            {"profile":"work","enabled":true,"download_kbps":4000,"upload_kbps":1000,"latency":"40ms","jitter":"5ms","loss_percent":1.5,"backup_path":"/tmp/backup.toml"}
+        """)
+        assertEquals("work", conditioner.profile)
+        assertTrue(conditioner.enabled)
+        assertEquals(4000, conditioner.downloadKbps)
+        assertEquals(1000, conditioner.uploadKbps)
+        assertEquals("40ms", conditioner.latency)
+        assertEquals(1.5, conditioner.lossPercent)
+        assertEquals("/tmp/backup.toml", conditioner.backupPath)
+    }
+
+    @Test
+    fun conditionerUpdateRequestSerializesOnlySetFields() {
+        val json = ApiJson.encodeToString(
+            ConditionerUpdateRequest.serializer(),
+            ConditionerUpdateRequest(enabled = true, downloadKbps = 2000, latency = "20ms")
+        )
+        assertTrue(json.contains("\"enabled\":true"))
+        assertTrue(json.contains("\"download_kbps\":2000"))
+        assertTrue(json.contains("\"latency\":\"20ms\""))
+    }
+
+    @Test
     fun trafficDecodesRuleSuggestions() {
         val traffic = ApiJson.decodeFromString(TrafficSnapshotPayload.serializer(), """
             {"updated_ts_ns":99,"summary":{"active_connections":1},"cleanup_suggestions":[{"kind":"unused_in_history","profile":"Work","rule_name":"old","target_rule_name":"old","operation":"delete_rule","message":"No recent traffic-history entries matched this rule."}],"rule_suggestions":[{"id":"domain_suffix:block:example.com","kind":"domain_suffix","profile":"Work","action":"block","draft_rule":{"name":"block-example-com","action":"block","domain_suffixes":["example.com"],"ports":[443],"networks":["tcp"]},"count":3,"reason":"Observed 3 connections across 2 subdomains."}],"connections":[{"conn_id":"c1","profile":"Work","state":"closed","target_host":"api.example.com"}]}

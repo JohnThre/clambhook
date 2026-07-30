@@ -9,6 +9,8 @@ import com.clambhook.linux.settings.TokenVault
 import com.clambhook.linux.settings.normalized
 import com.clambhook.linux.store.DashboardStore
 import com.clambhook.linux.event.EventStreamClient
+import com.clambhook.linux.model.ConditionerPayload
+import com.clambhook.linux.model.ConditionerUpdateRequest
 import com.clambhook.linux.model.DaemonEvent
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -40,6 +42,9 @@ class MainViewModel(
     val settings: StateFlow<AppSettings> = _settings.asStateFlow()
     var apiToken: String = ""
         private set
+
+    private val _conditioner = MutableStateFlow(ConditionerUiState())
+    val conditioner: StateFlow<ConditionerUiState> = _conditioner.asStateFlow()
 
     init {
         eventStream.onEvent = { event -> store.applyEvent(event); scope.launch { store.refreshStatus() } }
@@ -93,6 +98,30 @@ class MainViewModel(
             scheduleRefresh()
             startEventStream()
             store.refreshDashboard()
+        }
+    }
+
+    fun loadConditioner() {
+        scope.launch {
+            _conditioner.value = _conditioner.value.copy(loading = true, error = "")
+            try {
+                val payload = client.conditioner()
+                _conditioner.value = ConditionerUiState(payload = payload, loading = false)
+            } catch (e: Exception) {
+                _conditioner.value = _conditioner.value.copy(loading = false, error = e.message ?: "error")
+            }
+        }
+    }
+
+    fun updateConditioner(request: ConditionerUpdateRequest) {
+        scope.launch {
+            _conditioner.value = _conditioner.value.copy(loading = true, error = "")
+            try {
+                val payload = client.updateConditioner(request)
+                _conditioner.value = ConditionerUiState(payload = payload, loading = false)
+            } catch (e: Exception) {
+                _conditioner.value = _conditioner.value.copy(loading = false, error = e.message ?: "error")
+            }
         }
     }
 
@@ -155,3 +184,9 @@ class MainViewModel(
 
     fun openUrl(url: String) { try { Desktop.getDesktop().browse(URI(url)) } catch (e: Exception) {} }
 }
+
+data class ConditionerUiState(
+    val payload: ConditionerPayload? = null,
+    val loading: Boolean = false,
+    val error: String = ""
+)

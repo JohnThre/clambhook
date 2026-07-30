@@ -31,6 +31,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/JohnThre/clambhook/internal/config"
+	"github.com/JohnThre/clambhook/internal/developer/decode"
 	"github.com/JohnThre/clambhook/internal/listener"
 )
 
@@ -400,7 +401,100 @@ func (t *transaction) Finish(resp *http.Response, txErr error) {
 	if txErr != nil {
 		t.entry.Error = txErr.Error()
 	}
+	t.entry.Decoded = t.decode()
 	t.store.Add(t.entry)
+}
+
+// decode inspects the finished transaction and, when it recognizes a supported
+// application protocol, returns a structured decoded view. It is best-effort:
+// any unrecognized or malformed payload yields nil so the client falls back to
+// the raw body preview.
+func (t *transaction) decode() *Decoded {
+	reqBytes := t.reqBody.bytes()
+	respBytes := t.respBody.bytes()
+
+	switch {
+	case t.isWebSocketUpgrade():
+		return decodedFrom(decode.KindWebSocket,
+			decode.WebSocket(reqBytes, decode.DirClient),
+			decode.WebSocket(respBytes, decode.DirServer))
+	case t.isGRPC():
+		return decodedFrom(decode.KindGRPC,
+			decode.GRPC(reqBytes, decode.DirClient),
+			decode.GRPC(respBytes, decode.DirServer))
+	case t.isGraphQL():
+		return decodedFrom(decode.KindGraphQL,
+			decode.GraphQL(reqBytes, decode.DirClient),
+			decode.GraphQL(respBytes, decode.DirServer))
+	}
+	return nil
+}
+
+// isWebSocketUpgrade reports whether the transaction negotiated a WebSocket
+// upgrade (101 Switching Protocols with an Upgrade: websocket header).
+func (t *transaction) isWebSocketUpgrade() bool {
+	if t.entry.Status != http.StatusSwitchingProtocols {
+		return false
+	}
+	return headerContains(t.entry.Response.Headers, "Upgrade", "websocket") ||
+		headerContains(t.entry.Request.Headers, "Upgrade", "websocket")
+}
+
+// isGRPC reports whether either side is a gRPC message stream, detected by the
+// application/grpc content type family.
+func (t *transaction) isGRPC() bool {
+	return headerContains(t.entry.Request.Headers, "Content-Type", "application/grpc") ||
+		headerContains(t.entry.Response.Headers, "Content-Type", "application/grpc")
+}
+
+// isGraphQL reports whether the transaction is a GraphQL request, detected by
+// the GraphQL content type or a /graphql request path.
+func (t *transaction) isGraphQL() bool {
+	if headerContains(t.entry.Request.Headers, "Content-Type", "application/graphql") ||
+		headerContains(t.entry.Response.Headers, "Content-Type", "application/graphql") {
+		return true
+	}
+	if !strings.Contains(strings.ToLower(t.entry.URL), "graphql") {
+		return false
+	}
+	// A JSON body on a graphql endpoint is the common case.
+	return headerContains(t.entry.Request.Headers, "Content-Type", "application/json") ||
+		headerContains(t.entry.Response.Headers, "Content-Type", "application/json")
+}
+
+// decodedFrom assembles a Decoded value from client/server frame slices,
+// returning nil when neither side produced any frames.
+func decodedFrom(kind string, sides ...[]decode.Frame) *Decoded {
+	var frames []DecodedFrame
+	for _, side := range sides {
+		for _, f := range side {
+			frames = append(frames, DecodedFrame{
+				Direction: f.Direction,
+				Opcode:    f.Opcode,
+				Preview:   f.Preview,
+				Truncated: f.Truncated,
+			})
+		}
+	}
+	if len(frames) == 0 {
+		return nil
+	}
+	return &Decoded{Kind: kind, Frames: frames}
+}
+
+// headerContains reports whether a captured header named name has a value that
+// contains substr (case-insensitive), skipping redacted headers.
+func headerContains(headers []Header, name, substr string) bool {
+	substr = strings.ToLower(substr)
+	for _, h := range headers {
+		if h.Redacted || !strings.EqualFold(h.Name, name) {
+			continue
+		}
+		if strings.Contains(strings.ToLower(h.Value), substr) {
+			return true
+		}
+	}
+	return false
 }
 
 type captureReadCloser struct {
@@ -445,6 +539,15 @@ func (b *bodyCapture) write(p []byte) {
 		return
 	}
 	b.buf.Write(p)
+}
+
+// bytes returns a copy of the bounded captured body for decoding. A nil
+// receiver or empty buffer yields nil.
+func (b *bodyCapture) bytes() []byte {
+	if b == nil || b.buf.Len() == 0 {
+		return nil
+	}
+	return append([]byte(nil), b.buf.Bytes()...)
 }
 
 func (b *bodyCapture) snapshot(headers []Header) Body {

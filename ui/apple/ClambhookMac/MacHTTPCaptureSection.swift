@@ -188,6 +188,10 @@ struct MacHTTPCaptureSection: View {
                         message: selectedMessageSide == "request" ? entry.request : entry.response,
                         tab: selectedMessageTab
                     )
+                    if entry.hasDecoded, let decoded = entry.decoded {
+                        Divider()
+                        decodedSection(decoded)
+                    }
                 }
                 .padding(18)
             } else {
@@ -404,6 +408,59 @@ struct MacHTTPCaptureSection: View {
                 Image(systemName: "trash")
             }
             .buttonStyle(.borderless)
+        }
+    }
+
+    private func decodedSection(_ decoded: DeveloperDecodedPayload) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Decoded (\(decoded.kind))")
+                .font(.subheadline.weight(.semibold))
+            ForEach(decoded.frames) { frame in
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Label(decodedDirectionLabel(frame.direction), systemImage: decodedDirectionIcon(frame.direction))
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(frame.direction == "client" ? Color.blue : Color.green)
+                        Text(frame.opcode)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        if frame.truncated {
+                            Text("truncated")
+                                .font(.caption2)
+                                .foregroundStyle(.orange)
+                        }
+                    }
+                    Text(frame.preview)
+                        .font(.system(.caption, design: .monospaced))
+                        .textSelection(.enabled)
+                        .padding(8)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Color.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 6))
+                }
+            }
+        }
+    }
+
+    private func decodedDirectionLabel(_ direction: String) -> String {
+        switch direction {
+        case "client":
+            return "Client"
+        case "server":
+            return "Server"
+        default:
+            return direction.isEmpty ? "Frame" : direction.capitalized
+        }
+    }
+
+    private func decodedDirectionIcon(_ direction: String) -> String {
+        switch direction {
+        case "client":
+            return "arrow.up.circle"
+        case "server":
+            return "arrow.down.circle"
+        default:
+            return "circle"
         }
     }
 

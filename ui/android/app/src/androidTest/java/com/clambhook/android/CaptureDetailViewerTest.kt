@@ -51,13 +51,39 @@ class CaptureDetailViewerTest {
         )
     )
 
-    private fun renderActivity() {
+    private val decodedEntry = DeveloperEntryPayload(
+        id = "dev-2",
+        method = "GET",
+        url = "wss://api.example.test/socket",
+        scheme = "wss",
+        host = "socket.example.test",
+        status = 101,
+        request = DeveloperMessagePayload(
+            body = DeveloperBodyPayload(size = 0, preview = "", previewBytes = 0)
+        ),
+        response = DeveloperMessagePayload(
+            body = DeveloperBodyPayload(size = 5, preview = "hello", previewBytes = 5)
+        ),
+        decoded = DeveloperDecodedPayload(
+            kind = "websocket",
+            frames = listOf(
+                DeveloperDecodedFramePayload(
+                    direction = "server",
+                    opcode = "text",
+                    preview = "hello",
+                    truncated = false
+                )
+            )
+        )
+    )
+
+    private fun renderActivity(entries: List<DeveloperEntryPayload> = listOf(entry)) {
         composeRule.setContent {
             DashboardScreen(
                 destination = DashboardDestination.Activity,
                 state = DashboardState(
-                    developerStatus = DeveloperStatusPayload(enabled = true, captureCount = 1),
-                    developerEntries = listOf(entry)
+                    developerStatus = DeveloperStatusPayload(enabled = true, captureCount = entries.size),
+                    developerEntries = entries
                 ),
                 onRefresh = {},
                 onConnect = {},
@@ -107,5 +133,36 @@ class CaptureDetailViewerTest {
         // Close returns to the card.
         composeRule.onNodeWithText("Close").performClick()
         composeRule.onNodeWithText("HTTP Capture").assertIsDisplayed()
+    }
+
+    @Test
+    fun opensDecodedEntryAndInspectsDecodedFrames() {
+        renderActivity(entries = listOf(decodedEntry))
+
+        composeRule.onNodeWithText("HTTP Capture").assertIsDisplayed()
+
+        // Open the detail dialog for the decoded (websocket) transaction.
+        composeRule.onNodeWithText("GET socket.example.test", substring = true).performClick()
+
+        // The Decoded tab is present because the entry carries decoded frames.
+        composeRule.onNodeWithText("Decoded").performClick()
+
+        // The decoded kind and the frame label + preview are rendered.
+        composeRule.onNodeWithText("Decoded websocket", substring = true).assertIsDisplayed()
+        composeRule.onNodeWithText("server", substring = true).assertIsDisplayed()
+        composeRule.onNodeWithText("hello", substring = true).assertIsDisplayed()
+
+        composeRule.onNodeWithText("Close").performClick()
+        composeRule.onNodeWithText("HTTP Capture").assertIsDisplayed()
+    }
+
+    @Test
+    fun entryWithoutDecodedHasNoDecodedTab() {
+        renderActivity()
+
+        composeRule.onNodeWithText("POST api.example.test", substring = true).performClick()
+
+        // No Decoded tab is offered for a plain HTTP entry.
+        composeRule.onNodeWithText("Decoded").assertDoesNotExist()
     }
 }

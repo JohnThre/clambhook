@@ -82,6 +82,7 @@ type model struct {
 	traffic       trafficSnapshotPayload
 	dev           developerStatusPayload
 	devRows       []developerEntryPayload
+	conditioner   conditionerPayload
 
 	selectedProfile      int
 	viewMode             viewMode
@@ -166,6 +167,7 @@ type dashboardLoadedMsg struct {
 	Traffic       trafficSnapshotPayload
 	Developer     developerStatusPayload
 	DevRows       []developerEntryPayload
+	Conditioner   conditionerPayload
 	Err           error
 }
 
@@ -715,6 +717,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "r":
 			return m, m.loadDashboardCmd()
 		case "n":
+			if m.viewMode == viewModeSettings {
+				m.configActionMsg = "applying conditioner..."
+				return m, m.toggleConditionerCmd(!m.conditioner.Enabled)
+			}
 			m.viewMode = viewModeNetwork
 			return m, nil
 		}
@@ -734,6 +740,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.traffic = msg.Traffic
 		m.dev = msg.Developer
 		m.devRows = msg.DevRows
+		m.conditioner = msg.Conditioner
 		m.syncSelectedProfile()
 		m.clampPolicySelection()
 		m.clampTrafficSelection()
@@ -776,6 +783,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.errText = "exported HAR to " + msg.Path
+		return m, nil
+	case conditionerToggledMsg:
+		if msg.Err != nil {
+			m.configActionMsg = "conditioner update failed: " + msg.Err.Error()
+			return m, nil
+		}
+		m.conditioner = msg.Conditioner
+		m.configActionMsg = "conditioner " + mapBool(msg.Conditioner.Enabled, "enabled", "disabled")
 		return m, nil
 	case actionDoneMsg:
 		if msg.Err != nil {
@@ -964,13 +979,47 @@ func (m model) settingsView() string {
 	configLines := m.configImportExportLines(width)
 	sections = append(sections,
 		renderSection("Settings", lines),
+		renderSection("Network Conditioner", m.conditionerLines(width)),
 		renderSection("Config Import / Export", configLines),
 		m.renderFooter(
-			"Keys: e export config  i import config  r refresh  1 now  2 activity  3 library  5 developer  q quit",
-			"Keys: e export  i import  r  1 now  2 activity  3 library  5 dev  q",
+			"Keys: n toggle conditioner  e export config  i import config  r refresh  1 now  2 activity  3 library  5 developer  q quit",
+			"Keys: n conditioner  e export  i import  r  1 now  2 activity  q",
 		),
 	)
 	return joinSections(sections)
+}
+
+// conditionerLines renders the current network conditioner snapshot for the
+// active profile. All states are covered: disabled (off), enabled (on) with
+// its shaping parameters, and an action message after a toggle.
+func (m model) conditionerLines(width int) []string {
+	c := m.conditioner
+	state := "off"
+	if c.Enabled {
+		state = "on"
+	}
+	lines := []string{
+		truncate(fmt.Sprintf("  State %s  Profile %s", state, emptyDash(c.Profile)), width),
+	}
+	if c.Enabled {
+		lines = append(lines, truncate(fmt.Sprintf("  Down %s  Up %s  Latency %s  Jitter %s  Loss %.1f%%",
+			kbpsLabel(c.DownloadKbps), kbpsLabel(c.UploadKbps), emptyDash(c.Latency), emptyDash(c.Jitter), c.LossPercent), width))
+	} else {
+		lines = append(lines, subtleStyle.Render(truncate("  Press n to enable; edit shaping parameters in your TOML [profile.conditioner] block.", width)))
+	}
+	if m.configActionMsg != "" {
+		lines = append(lines, subtleStyle.Render(truncate("  "+m.configActionMsg, width)))
+	}
+	return lines
+}
+
+// kbpsLabel renders a bandwidth cap, treating a non-positive value as
+// unlimited.
+func kbpsLabel(kbps int) string {
+	if kbps <= 0 {
+		return "unlimited"
+	}
+	return fmt.Sprintf("%d kbps", kbps)
 }
 
 func (m model) developerView() string {
@@ -1061,7 +1110,7 @@ func (m model) developerEntryLines(width int) []string {
 	return lines
 }
 
-var developerDetailTabs = []string{"Headers", "Body", "JSON", "Cookies"}
+var developerDetailTabs = []string{"Headers", "Body", "JSON", "Decoded", "Cookies"}
 
 func developerTabsLine(active int) string {
 	parts := make([]string, 0, len(developerDetailTabs))
@@ -1083,6 +1132,8 @@ func developerDetailTabLines(entry developerEntryPayload, active, width int) []s
 		return developerBodyLines(entry, width)
 	case "JSON":
 		return developerJSONLines(entry, width)
+	case "Decoded":
+		return developerDecodedLines(entry, width)
 	case "Cookies":
 		return developerCookieLines(entry, width)
 	default:
@@ -1160,6 +1211,34 @@ func developerOneJSONLines(title string, body developerBodyPayload, width int) [
 	lines := []string{subtleStyle.Render(truncate("  "+title+" JSON", width))}
 	for _, line := range previewLines(buf.String(), 6) {
 		lines = append(lines, truncate("    "+line, width))
+	}
+	return lines
+}
+
+// developerDecodedLines renders the daemon's structured WebSocket/gRPC/GraphQL
+// decode for the selected capture. When no decoded view is present it falls
+// back to a hint that the raw body preview is available under the Body tab.
+func developerDecodedLines(entry developerEntryPayload, width int) []string {
+	if entry.Decoded == nil || len(entry.Decoded.Frames) == 0 {
+		return []string{subtleStyle.Render(truncate("  No decoded protocol data; see Body tab for raw preview", width))}
+	}
+	lines := []string{subtleStyle.Render(truncate("  Decoded "+entry.Decoded.Kind, width))}
+	for i, frame := range entry.Decoded.Frames {
+		if i >= 12 {
+			lines = append(lines, subtleStyle.Render(truncate(fmt.Sprintf("    +%d more frames", len(entry.Decoded.Frames)-12), width)))
+			break
+		}
+		label := frame.Direction
+		if frame.Opcode != "" {
+			label += " " + frame.Opcode
+		}
+		if frame.Truncated {
+			label += " truncated"
+		}
+		lines = append(lines, subtleStyle.Render(truncate("  "+label, width)))
+		for _, line := range previewLines(frame.Preview, 4) {
+			lines = append(lines, truncate("    "+line, width))
+		}
 	}
 	return lines
 }
@@ -2674,7 +2753,26 @@ func (m model) loadDashboardCmd() tea.Cmd {
 		if err != nil {
 			return dashboardLoadedMsg{Err: err}
 		}
-		return dashboardLoadedMsg{Status: status, Profiles: profiles, Servers: servers, Policies: policies, Subscriptions: subs, Traffic: traffic, Developer: dev, DevRows: devRows}
+		// The conditioner endpoint is additive; a daemon without it (or a
+		// profile with none configured) simply yields a disabled snapshot.
+		cond, _ := client.conditioner()
+		return dashboardLoadedMsg{Status: status, Profiles: profiles, Servers: servers, Policies: policies, Subscriptions: subs, Traffic: traffic, Developer: dev, DevRows: devRows, Conditioner: cond}
+	}
+}
+
+// conditionerToggledMsg reports the result of a live conditioner toggle.
+type conditionerToggledMsg struct {
+	Conditioner conditionerPayload
+	Err         error
+}
+
+// toggleConditionerCmd flips the conditioner's enabled state via the live PUT
+// endpoint and reports the updated snapshot back into the model.
+func (m model) toggleConditionerCmd(enabled bool) tea.Cmd {
+	client := m.client
+	return func() tea.Msg {
+		out, err := client.updateConditioner(conditionerUpdateRequest{Enabled: &enabled})
+		return conditionerToggledMsg{Conditioner: out, Err: err}
 	}
 }
 

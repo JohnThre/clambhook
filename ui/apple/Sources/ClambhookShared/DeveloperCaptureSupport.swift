@@ -221,6 +221,64 @@ public struct DeveloperEntriesPayload: Codable, Equatable, Sendable {
     }
 }
 
+public struct DeveloperDecodedFramePayload: Codable, Equatable, Identifiable, Sendable {
+    public let id = UUID()
+    public var direction: String
+    public var opcode: String
+    public var preview: String
+    public var truncated: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case direction
+        case opcode
+        case preview
+        case truncated
+    }
+
+    public init(direction: String = "", opcode: String = "", preview: String = "", truncated: Bool = false) {
+        self.direction = direction
+        self.opcode = opcode
+        self.preview = preview
+        self.truncated = truncated
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.direction = try container.decodeIfPresent(String.self, forKey: .direction) ?? ""
+        self.opcode = try container.decodeIfPresent(String.self, forKey: .opcode) ?? ""
+        self.preview = try container.decodeIfPresent(String.self, forKey: .preview) ?? ""
+        self.truncated = try container.decodeIfPresent(Bool.self, forKey: .truncated) ?? false
+    }
+
+    public static func == (lhs: DeveloperDecodedFramePayload, rhs: DeveloperDecodedFramePayload) -> Bool {
+        lhs.direction == rhs.direction
+            && lhs.opcode == rhs.opcode
+            && lhs.preview == rhs.preview
+            && lhs.truncated == rhs.truncated
+    }
+}
+
+public struct DeveloperDecodedPayload: Codable, Equatable, Sendable {
+    public var kind: String
+    public var frames: [DeveloperDecodedFramePayload]
+
+    enum CodingKeys: String, CodingKey {
+        case kind
+        case frames
+    }
+
+    public init(kind: String = "", frames: [DeveloperDecodedFramePayload] = []) {
+        self.kind = kind
+        self.frames = frames
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.kind = try container.decodeIfPresent(String.self, forKey: .kind) ?? ""
+        self.frames = try container.decodeIfPresent([DeveloperDecodedFramePayload].self, forKey: .frames) ?? []
+    }
+}
+
 public struct DeveloperEntryPayload: Codable, Equatable, Identifiable, Sendable {
     public var id: String
     public var connID: String
@@ -237,6 +295,7 @@ public struct DeveloperEntryPayload: Codable, Equatable, Identifiable, Sendable 
     public var request: DeveloperMessagePayload
     public var response: DeveloperMessagePayload
     public var error: String
+    public var decoded: DeveloperDecodedPayload?
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -254,6 +313,7 @@ public struct DeveloperEntryPayload: Codable, Equatable, Identifiable, Sendable 
         case request
         case response
         case error
+        case decoded
     }
 
     public init(
@@ -271,7 +331,8 @@ public struct DeveloperEntryPayload: Codable, Equatable, Identifiable, Sendable 
         status: Int = 0,
         request: DeveloperMessagePayload = DeveloperMessagePayload(),
         response: DeveloperMessagePayload = DeveloperMessagePayload(),
-        error: String = ""
+        error: String = "",
+        decoded: DeveloperDecodedPayload? = nil
     ) {
         self.id = id
         self.connID = connID
@@ -288,7 +349,30 @@ public struct DeveloperEntryPayload: Codable, Equatable, Identifiable, Sendable 
         self.request = request
         self.response = response
         self.error = error
+        self.decoded = decoded
     }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try container.decodeIfPresent(String.self, forKey: .id) ?? ""
+        self.connID = try container.decodeIfPresent(String.self, forKey: .connID) ?? ""
+        self.profile = try container.decodeIfPresent(String.self, forKey: .profile) ?? ""
+        self.clientAddr = try container.decodeIfPresent(String.self, forKey: .clientAddr) ?? ""
+        self.chainName = try container.decodeIfPresent(String.self, forKey: .chainName) ?? ""
+        self.startedAt = try container.decodeIfPresent(String.self, forKey: .startedAt) ?? ""
+        self.finishedAt = try container.decodeIfPresent(String.self, forKey: .finishedAt) ?? ""
+        self.method = try container.decodeIfPresent(String.self, forKey: .method) ?? ""
+        self.url = try container.decodeIfPresent(String.self, forKey: .url) ?? ""
+        self.scheme = try container.decodeIfPresent(String.self, forKey: .scheme) ?? ""
+        self.host = try container.decodeIfPresent(String.self, forKey: .host) ?? ""
+        self.status = try container.decodeIfPresent(Int.self, forKey: .status) ?? 0
+        self.request = try container.decodeIfPresent(DeveloperMessagePayload.self, forKey: .request) ?? DeveloperMessagePayload()
+        self.response = try container.decodeIfPresent(DeveloperMessagePayload.self, forKey: .response) ?? DeveloperMessagePayload()
+        self.error = try container.decodeIfPresent(String.self, forKey: .error) ?? ""
+        self.decoded = try container.decodeIfPresent(DeveloperDecodedPayload.self, forKey: .decoded)
+    }
+
+    public var hasDecoded: Bool { (decoded?.frames.isEmpty == false) }
 }
 
 public struct DeveloperMessagePayload: Codable, Equatable, Sendable {

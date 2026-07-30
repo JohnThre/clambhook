@@ -623,7 +623,22 @@ data class DeveloperEntryPayload(
     val status: Int = 0,
     val request: DeveloperMessagePayload = DeveloperMessagePayload(),
     val response: DeveloperMessagePayload = DeveloperMessagePayload(),
+    val decoded: DeveloperDecodedPayload? = null,
     val error: String = ""
+)
+
+@Serializable
+data class DeveloperDecodedPayload(
+    val kind: String = "",
+    val frames: List<DeveloperDecodedFramePayload> = emptyList()
+)
+
+@Serializable
+data class DeveloperDecodedFramePayload(
+    val direction: String = "",
+    val opcode: String = "",
+    val preview: String = "",
+    val truncated: Boolean = false
 )
 
 @Serializable
@@ -677,6 +692,36 @@ data class DeveloperBodyPayload(
 data class BandwidthSample(
     val rxBps: Double = 0.0,
     val txBps: Double = 0.0
+)
+
+@Serializable
+data class ConditionerPayload(
+    val profile: String = "",
+    val enabled: Boolean = false,
+    @SerialName("download_kbps")
+    val downloadKbps: Int = 0,
+    @SerialName("upload_kbps")
+    val uploadKbps: Int = 0,
+    val latency: String = "",
+    val jitter: String = "",
+    @SerialName("loss_percent")
+    val lossPercent: Double = 0.0,
+    @SerialName("backup_path")
+    val backupPath: String = ""
+)
+
+@Serializable
+data class ConditionerUpdateRequest(
+    val profile: String? = null,
+    val enabled: Boolean? = null,
+    @SerialName("download_kbps")
+    val downloadKbps: Int? = null,
+    @SerialName("upload_kbps")
+    val uploadKbps: Int? = null,
+    val latency: String? = null,
+    val jitter: String? = null,
+    @SerialName("loss_percent")
+    val lossPercent: Double? = null
 )
 
 fun JsonElement.stringValueOrNull(): String? {

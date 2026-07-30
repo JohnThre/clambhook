@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/JohnThre/clambhook/internal/chain"
+	"github.com/JohnThre/clambhook/internal/conditioner"
 	"github.com/JohnThre/clambhook/internal/config"
 	"github.com/JohnThre/clambhook/internal/dnsproxy"
 	"github.com/JohnThre/clambhook/internal/events"
@@ -70,6 +71,10 @@ type Engine struct {
 	tempRules *temprules.Manager
 	promptMgr *prompt.Manager
 	watcher   *netwatch.Watcher
+	// conditioner is the engine-owned network shaper. It is a persistent,
+	// swappable choke point shared by every route planner, so a live update
+	// (ApplyConditioner) takes effect on subsequent dials without a restart.
+	conditioner *conditioner.Shaper
 	// currentNetwork tracks the last observed network for status reporting.
 	currentNetwork netwatch.NetworkInfo
 }
@@ -83,7 +88,7 @@ type Engine struct {
 // and geo stays disabled — a bad geo path must never prevent the daemon
 // from starting.
 func New(cfg *config.Config, bus *events.Bus) *Engine {
-	e := &Engine{cfg: cfg, bus: bus, tempRules: temprules.New(), promptMgr: prompt.New(), watcher: netwatch.New()}
+	e := &Engine{cfg: cfg, bus: bus, tempRules: temprules.New(), promptMgr: prompt.New(), watcher: netwatch.New(), conditioner: conditioner.New(conditioner.Config{})}
 	if bus != nil {
 		e.promptMgr.SetEventHook(func(kind string, p prompt.Pending, allow bool) {
 			switch kind {
@@ -144,6 +149,21 @@ func (e *Engine) SetHTTPInspector(inspector listener.HTTPInspector) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.inspector = inspector
+}
+
+// ApplyConditioner swaps the network conditioner's live settings without a
+// restart. The engine holds a single persistent shaper shared by every route
+// planner, so subsequent dials observe the new shaping immediately. Callers
+// that also want the change persisted must update the profile config
+// separately (see the conditioner API handler).
+func (e *Engine) ApplyConditioner(cfg config.ConditionerConfig) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.conditioner == nil {
+		e.conditioner = conditioner.New(shaperConfig(cfg))
+		return
+	}
+	e.conditioner.Update(shaperConfig(cfg))
 }
 
 // Start begins accepting connections with the active profile.
@@ -283,7 +303,16 @@ func (e *Engine) startLocked(parent context.Context) error {
 		Timeout:      time.Duration(e.cfg.Prompt.TimeoutSeconds) * time.Second,
 		DefaultAllow: e.cfg.Prompt.DefaultAllow,
 	})
-	listeners, chains, policies, err := buildListenersWithInspectorAndPath(&effectiveProfile, e.cfg.Path, e.bus, e.inspector, e.tempRules, e.promptMgr)
+	// Sync the engine-owned shaper to the active profile so live updates
+	// applied while idle (or a config reload) take effect on the rebuilt
+	// listeners. The same shaper is shared with every planner, so a later
+	// ApplyConditioner reaches in-flight listeners without a restart.
+	if e.conditioner == nil {
+		e.conditioner = conditioner.New(shaperConfig(profile.Conditioner))
+	} else {
+		e.conditioner.Update(shaperConfig(profile.Conditioner))
+	}
+	listeners, chains, policies, err := buildListenersWithInspectorAndPath(&effectiveProfile, e.cfg.Path, e.bus, e.inspector, e.tempRules, e.promptMgr, e.conditioner)
 	if err != nil {
 		cancel()
 		return fmt.Errorf("start engine: %w", err)
@@ -676,12 +705,12 @@ func buildListeners(profile *config.Profile, bus *events.Bus) (listeners []liste
 }
 
 func buildListenersWithInspector(profile *config.Profile, bus *events.Bus, inspector listener.HTTPInspector) (listeners []listener.Listener, chains []*chain.Chain, policies *policy.Manager, err error) {
-	return buildListenersWithInspectorAndPath(profile, "", bus, inspector, nil, nil)
+	return buildListenersWithInspectorAndPath(profile, "", bus, inspector, nil, nil, nil)
 }
 
-func buildListenersWithInspectorAndPath(profile *config.Profile, configPath string, bus *events.Bus, inspector listener.HTTPInspector, tempRules *temprules.Manager, prompts *prompt.Manager) (listeners []listener.Listener, chains []*chain.Chain, policies *policy.Manager, err error) {
+func buildListenersWithInspectorAndPath(profile *config.Profile, configPath string, bus *events.Bus, inspector listener.HTTPInspector, tempRules *temprules.Manager, prompts *prompt.Manager, shaper *conditioner.Shaper) (listeners []listener.Listener, chains []*chain.Chain, policies *policy.Manager, err error) {
 	var out []listener.Listener
-	resolver := newChainResolver(profile, configPath, tempRules, prompts)
+	resolver := newChainResolverWithShaper(profile, configPath, tempRules, prompts, shaper)
 	defer func() {
 		if err != nil {
 			if policies != nil {
@@ -930,12 +959,37 @@ type chainResolver struct {
 	configPath string
 	tempRules  *temprules.Manager
 	prompts    *prompt.Manager
+	shaper     *conditioner.Shaper
 	chains     []*chain.Chain
 	byName     map[string]*chain.Chain
 }
 
 func newChainResolver(profile *config.Profile, configPath string, tempRules *temprules.Manager, prompts *prompt.Manager) *chainResolver {
-	return &chainResolver{profile: profile, configPath: configPath, tempRules: tempRules, prompts: prompts}
+	return newChainResolverWithShaper(profile, configPath, tempRules, prompts, nil)
+}
+
+// newChainResolverWithShaper builds a resolver that shapes chain-dialed
+// connections through shaper. A nil shaper makes the resolver create its own
+// from the profile config — used by standalone builders that have no engine to
+// share a live shaper with.
+func newChainResolverWithShaper(profile *config.Profile, configPath string, tempRules *temprules.Manager, prompts *prompt.Manager, shaper *conditioner.Shaper) *chainResolver {
+	if shaper == nil {
+		shaper = conditioner.New(shaperConfig(profile.Conditioner))
+	}
+	return &chainResolver{profile: profile, configPath: configPath, tempRules: tempRules, prompts: prompts, shaper: shaper}
+}
+
+// shaperConfig converts a persisted profile conditioner block into the
+// conditioner package's standard-library-typed config.
+func shaperConfig(c config.ConditionerConfig) conditioner.Config {
+	return conditioner.Config{
+		Enabled:      c.Enabled,
+		DownloadKbps: c.DownloadKbps,
+		UploadKbps:   c.UploadKbps,
+		Latency:      c.Latency.Std(),
+		Jitter:       c.Jitter.Std(),
+		LossPercent:  c.LossPercent,
+	}
 }
 
 // resolve picks the chain a listener should route through. An empty name
@@ -1009,7 +1063,7 @@ func (r *chainResolver) routePlanner(defaultChainName string, policies *policy.M
 	if err != nil {
 		return nil, err
 	}
-	return &routePlanner{profileName: r.profile.Name, rules: engine, chains: r.byName, policies: policies, defaultChainName: defaultChainName, tempRules: r.tempRules, prompts: r.prompts, procLookup: procattr.Lookup}, nil
+	return &routePlanner{profileName: r.profile.Name, rules: engine, chains: r.byName, policies: policies, defaultChainName: defaultChainName, tempRules: r.tempRules, prompts: r.prompts, procLookup: procattr.Lookup, shaper: r.shaper}, nil
 }
 
 type routePlanner struct {
@@ -1022,6 +1076,26 @@ type routePlanner struct {
 	prompts          *prompt.Manager
 	procLookup       func(network, source string) (procattr.Process, bool)
 	dialer           net.Dialer
+	shaper           *conditioner.Shaper
+}
+
+// shapeConn applies the conditioner to a freshly dialed connection. It
+// preserves any dial error and, when shaping is disabled, returns the
+// connection untouched.
+func (p *routePlanner) shapeConn(c net.Conn, err error) (net.Conn, error) {
+	if err != nil {
+		return nil, err
+	}
+	return p.shaper.WrapConn(c), nil
+}
+
+// shapePacketConn is the packet-connection counterpart of shapeConn. Packet
+// loss is only applied here — never to stream connections.
+func (p *routePlanner) shapePacketConn(c net.PacketConn, err error) (net.PacketConn, error) {
+	if err != nil {
+		return nil, err
+	}
+	return p.shaper.WrapPacketConn(c), nil
 }
 
 func (p *routePlanner) DefaultChainName() string {
@@ -1109,10 +1183,12 @@ func (p *routePlanner) PlanWithSource(ctx context.Context, network, target, sour
 		plan.Hops = ch.HopInfo()
 		plan.Explanation.FinalChain = decision.ChainName
 		plan.Dial = func(ctx context.Context, network, address string) (net.Conn, error) {
-			return ch.Dial(ctx, network, address)
+			c, err := ch.Dial(ctx, network, address)
+			return p.shapeConn(c, err)
 		}
 		plan.DialPacket = func(ctx context.Context, address string) (net.PacketConn, error) {
-			return ch.DialPacket(ctx, address)
+			c, err := ch.DialPacket(ctx, address)
+			return p.shapePacketConn(c, err)
 		}
 	case rules.ActionGroup:
 		if p.policies == nil {
@@ -1132,17 +1208,21 @@ func (p *routePlanner) PlanWithSource(ctx context.Context, network, target, sour
 		plan.RouteControl = routeControlForDecision(decision, selected, reason)
 		plan.Hops = ch.HopInfo()
 		plan.Dial = func(ctx context.Context, network, address string) (net.Conn, error) {
-			return ch.Dial(ctx, network, address)
+			c, err := ch.Dial(ctx, network, address)
+			return p.shapeConn(c, err)
 		}
 		plan.DialPacket = func(ctx context.Context, address string) (net.PacketConn, error) {
-			return ch.DialPacket(ctx, address)
+			c, err := ch.DialPacket(ctx, address)
+			return p.shapePacketConn(c, err)
 		}
 	case rules.ActionDirect:
 		plan.Dial = func(ctx context.Context, network, address string) (net.Conn, error) {
-			return p.dialer.DialContext(ctx, network, address)
+			c, err := p.dialer.DialContext(ctx, network, address)
+			return p.shapeConn(c, err)
 		}
 		plan.DialPacket = func(ctx context.Context, address string) (net.PacketConn, error) {
-			return newDirectPacketConn(ctx, address)
+			c, err := newDirectPacketConn(ctx, address)
+			return p.shapePacketConn(c, err)
 		}
 	case rules.ActionBlock:
 	case rules.ActionReject:
