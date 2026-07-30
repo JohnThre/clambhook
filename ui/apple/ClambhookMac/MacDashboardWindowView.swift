@@ -13,6 +13,7 @@ enum SidebarItem: Hashable {
     case activity
     case map
     case httpCapture
+    case conditioner
     case logs
     case settings
     case license
@@ -95,6 +96,8 @@ struct MacDashboardWindowView: View {
                     .tag(SidebarItem.map)
                 Label("HTTP Capture", systemImage: "list.bullet.rectangle")
                     .tag(SidebarItem.httpCapture)
+                Label("Conditioner", systemImage: "speedometer")
+                    .tag(SidebarItem.conditioner)
             }
 
             Section("SYSTEM") {
@@ -173,6 +176,8 @@ struct MacDashboardWindowView: View {
             MacConnectionMapSection(model: model)
         case .httpCapture:
             MacHTTPCaptureSection(model: model)
+        case .conditioner:
+            MacConditionerSection(model: model)
         case .logs:
             MacLogsSection(model: model)
         case .settings:

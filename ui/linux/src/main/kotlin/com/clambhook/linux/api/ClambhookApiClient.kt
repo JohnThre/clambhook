@@ -42,6 +42,8 @@ interface ClambhookApi {
     suspend fun developerEntries(): List<DeveloperEntryPayload>
     suspend fun developerEntry(id: String): DeveloperEntryPayload
     suspend fun repeatDeveloperEntry(id: String): DeveloperEntryPayload
+    suspend fun conditioner(profile: String = ""): ConditionerPayload
+    suspend fun updateConditioner(request: ConditionerUpdateRequest): ConditionerPayload
 
     fun eventsUri(): String
     fun authorizationHeader(): String
@@ -139,6 +141,27 @@ class ClambhookApiClient(
         DeveloperEntryPayload.serializer() sendGet "/api/v1/developer/entries/${java.net.URLEncoder.encode(id, "UTF-8")}"
     override suspend fun repeatDeveloperEntry(id: String): DeveloperEntryPayload =
         DeveloperEntryPayload.serializer() sendPost ("/api/v1/developer/repeat" to buildJsonObject { put("entry_id", id) })
+    override suspend fun conditioner(profile: String): ConditionerPayload {
+        val path = if (profile.isBlank()) {
+            "/api/v1/conditioner"
+        } else {
+            "/api/v1/conditioner?profile=${java.net.URLEncoder.encode(profile, "UTF-8")}"
+        }
+        return ConditionerPayload.serializer() sendGet path
+    }
+    override suspend fun updateConditioner(request: ConditionerUpdateRequest): ConditionerPayload =
+        withContext(Dispatchers.IO) {
+            val body = buildJsonObject {
+                request.profile?.let { put("profile", it) }
+                request.enabled?.let { put("enabled", it) }
+                request.downloadKbps?.let { put("download_kbps", it) }
+                request.uploadKbps?.let { put("upload_kbps", it) }
+                request.latency?.let { put("latency", it) }
+                request.jitter?.let { put("jitter", it) }
+                request.lossPercent?.let { put("loss_percent", it) }
+            }
+            ApiJson.decodeFromString(ConditionerPayload.serializer(), send("PUT", "/api/v1/conditioner", body))
+        }
 
     private fun normalizeBaseUrl(value: String): String {
         var normalized = value.trim()

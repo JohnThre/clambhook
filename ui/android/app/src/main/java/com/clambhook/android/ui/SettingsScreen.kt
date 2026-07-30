@@ -53,7 +53,13 @@ fun SettingsScreen(
     onSave: suspend (AppSettings, String) -> Unit,
     onValidateConfig: suspend (String) -> Unit,
     onShowMessage: (String) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    conditioner: ConditionerPayload? = null,
+    conditionerEditable: Boolean = true,
+    conditionerLoading: Boolean = false,
+    conditionerError: String = "",
+    onLoadConditioner: () -> Unit = {},
+    onUpdateConditioner: (ConditionerUpdateRequest) -> Unit = {}
 ) {
     val scope = rememberCoroutineScope()
     var refreshSeconds by remember { mutableStateOf(settings.refreshIntervalSeconds.toString()) }
@@ -62,6 +68,7 @@ fun SettingsScreen(
     var confirmRestore by remember { mutableStateOf(false) }
     var showDashboardSettings by remember { mutableStateOf(true) }
     var showConfigEditor by remember { mutableStateOf(false) }
+    var showConditioner by remember { mutableStateOf(false) }
     var showAppRouting by remember { mutableStateOf(false) }
     var splitMode by remember { mutableStateOf(settings.normalizedSplitTunnelMode) }
     var selectedPackages by remember { mutableStateOf(settings.normalizedSplitTunnelPackages) }
@@ -83,6 +90,12 @@ fun SettingsScreen(
             appsLoading = true
             installedApps = runCatching { InstalledAppInventory.load(context) }.getOrDefault(emptyList())
             appsLoading = false
+        }
+    }
+
+    LaunchedEffect(showConditioner) {
+        if (showConditioner && conditioner == null) {
+            onLoadConditioner()
         }
     }
 
@@ -283,6 +296,25 @@ fun SettingsScreen(
             }
         }
 
+        SettingsDisclosureHeader(
+            title = "Network Conditioner",
+            expanded = showConditioner,
+            onToggle = { showConditioner = !showConditioner }
+        )
+        if (showConditioner) {
+            Card {
+                ConditionerSection(
+                    conditioner = conditioner,
+                    editable = conditionerEditable,
+                    loading = conditionerLoading,
+                    error = conditionerError,
+                    onReload = onLoadConditioner,
+                    onUpdate = onUpdateConditioner,
+                    onShowMessage = onShowMessage
+                )
+            }
+        }
+
         Button(
             onClick = {
                 if (!validation.isValid) {
@@ -353,5 +385,176 @@ private fun SettingSwitchRow(
     ) {
         Text(label)
         Switch(checked = checked, onCheckedChange = onCheckedChange)
+    }
+}
+
+@Composable
+private fun ConditionerSection(
+    conditioner: ConditionerPayload?,
+    editable: Boolean,
+    loading: Boolean,
+    error: String,
+    onReload: () -> Unit,
+    onUpdate: (ConditionerUpdateRequest) -> Unit,
+    onShowMessage: (String) -> Unit
+) {
+    // Editable form fields, seeded from the latest snapshot.
+    var enabled by remember(conditioner) { mutableStateOf(conditioner?.enabled ?: false) }
+    var downloadKbps by remember(conditioner) {
+        mutableStateOf(conditioner?.downloadKbps?.takeIf { it > 0 }?.toString() ?: "")
+    }
+    var uploadKbps by remember(conditioner) {
+        mutableStateOf(conditioner?.uploadKbps?.takeIf { it > 0 }?.toString() ?: "")
+    }
+    var latency by remember(conditioner) { mutableStateOf(conditioner?.latency ?: "") }
+    var jitter by remember(conditioner) { mutableStateOf(conditioner?.jitter ?: "") }
+    var lossPercent by remember(conditioner) {
+        mutableStateOf(conditioner?.lossPercent?.takeIf { it > 0.0 }?.toString() ?: "")
+    }
+
+    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text("Network Conditioner", style = MaterialTheme.typography.titleMedium)
+        Text(
+            "Shape bandwidth, latency, jitter and loss for the active profile.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+
+        when {
+            // Loading state.
+            loading && conditioner == null -> {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.height(20.dp).width(20.dp),
+                        strokeWidth = 2.dp
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text("Loading conditioner…", style = MaterialTheme.typography.bodySmall)
+                }
+            }
+            // Error state.
+            error.isNotBlank() && conditioner == null -> {
+                Text(
+                    error,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error
+                )
+                OutlinedButton(onClick = onReload) { Text("Retry") }
+            }
+            // Empty state (never loaded).
+            conditioner == null -> {
+                Text(
+                    "No conditioner data yet.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                OutlinedButton(onClick = onReload) { Text("Load") }
+            }
+            // Content state.
+            else -> {
+                if (!editable) {
+                    Text(
+                        "Editing requires the daemon HTTP API and is unavailable on-device; showing the current snapshot read-only.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.tertiary
+                    )
+                }
+                if (conditioner.profile.isNotBlank()) {
+                    Text(
+                        "Profile: ${conditioner.profile}",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                SettingSwitchRow(
+                    label = "Enabled",
+                    checked = enabled,
+                    onCheckedChange = { if (editable) enabled = it }
+                )
+                OutlinedTextField(
+                    value = downloadKbps,
+                    onValueChange = { downloadKbps = it.filter(Char::isDigit) },
+                    label = { Text("Download (kbps)") },
+                    singleLine = true,
+                    enabled = editable,
+                    modifier = Modifier.fillMaxWidth(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                )
+                OutlinedTextField(
+                    value = uploadKbps,
+                    onValueChange = { uploadKbps = it.filter(Char::isDigit) },
+                    label = { Text("Upload (kbps)") },
+                    singleLine = true,
+                    enabled = editable,
+                    modifier = Modifier.fillMaxWidth(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                )
+                OutlinedTextField(
+                    value = latency,
+                    onValueChange = { latency = it },
+                    label = { Text("Latency (e.g. 40ms)") },
+                    singleLine = true,
+                    enabled = editable,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = jitter,
+                    onValueChange = { jitter = it },
+                    label = { Text("Jitter (e.g. 5ms)") },
+                    singleLine = true,
+                    enabled = editable,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = lossPercent,
+                    onValueChange = { value ->
+                        lossPercent = value.filter { it.isDigit() || it == '.' }
+                    },
+                    label = { Text("Loss (%)") },
+                    singleLine = true,
+                    enabled = editable,
+                    modifier = Modifier.fillMaxWidth(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal)
+                )
+                if (error.isNotBlank()) {
+                    Text(
+                        error,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+                Button(
+                    onClick = {
+                        onUpdate(
+                            ConditionerUpdateRequest(
+                                profile = conditioner.profile.ifBlank { null },
+                                enabled = enabled,
+                                downloadKbps = downloadKbps.toIntOrNull(),
+                                uploadKbps = uploadKbps.toIntOrNull(),
+                                latency = latency.ifBlank { null },
+                                jitter = jitter.ifBlank { null },
+                                lossPercent = lossPercent.toDoubleOrNull()
+                            )
+                        )
+                        onShowMessage("Saving conditioner")
+                    },
+                    enabled = editable && !loading,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    if (loading) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.height(18.dp).width(18.dp),
+                            strokeWidth = 2.dp
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text("Saving")
+                    } else {
+                        Icon(Icons.Rounded.Save, contentDescription = null)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Save conditioner")
+                    }
+                }
+            }
+        }
     }
 }

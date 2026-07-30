@@ -125,4 +125,97 @@ final class CaptureSupportTests: XCTestCase {
         XCTAssertEqual(snapshot.groups.first?.key, "beta.example")
         XCTAssertEqual(snapshot.entries.first?.id, "a")
     }
+
+    func testDeveloperEntryPayloadDecodesDecodedProtocolBlock() throws {
+        let data = Data("""
+        {
+          "id": "e1",
+          "method": "GET",
+          "url": "wss://chat.example/socket",
+          "host": "chat.example",
+          "status": 101,
+          "decoded": {
+            "kind": "websocket",
+            "frames": [
+              {"direction": "client", "opcode": "text", "preview": "hello", "truncated": false},
+              {"direction": "server", "opcode": "text", "preview": "world", "truncated": true}
+            ]
+          }
+        }
+        """.utf8)
+
+        let entry = try JSONDecoder().decode(DeveloperEntryPayload.self, from: data)
+
+        XCTAssertTrue(entry.hasDecoded)
+        XCTAssertEqual(entry.decoded?.kind, "websocket")
+        XCTAssertEqual(entry.decoded?.frames.count, 2)
+        XCTAssertEqual(entry.decoded?.frames.first?.direction, "client")
+        XCTAssertEqual(entry.decoded?.frames.first?.opcode, "text")
+        XCTAssertEqual(entry.decoded?.frames.first?.preview, "hello")
+        XCTAssertEqual(entry.decoded?.frames.first?.truncated, false)
+        XCTAssertEqual(entry.decoded?.frames.last?.truncated, true)
+    }
+
+    func testDeveloperEntryPayloadDecodesWithoutDecodedBlockIsBackwardCompatible() throws {
+        let data = Data("""
+        {"id": "e2", "method": "GET", "url": "http://example.com", "host": "example.com", "status": 200}
+        """.utf8)
+
+        let entry = try JSONDecoder().decode(DeveloperEntryPayload.self, from: data)
+
+        XCTAssertNil(entry.decoded)
+        XCTAssertFalse(entry.hasDecoded)
+    }
+
+    func testConditionerPayloadDecodesFields() throws {
+        let data = Data("""
+        {
+          "profile": "Work",
+          "enabled": true,
+          "download_kbps": 4000,
+          "upload_kbps": 1000,
+          "latency": "40ms",
+          "jitter": "10ms",
+          "loss_percent": 2.5,
+          "backup_path": "/tmp/clambhook.toml.bak"
+        }
+        """.utf8)
+
+        let payload = try JSONDecoder().decode(ConditionerPayload.self, from: data)
+
+        XCTAssertEqual(payload.profile, "Work")
+        XCTAssertTrue(payload.enabled)
+        XCTAssertEqual(payload.downloadKbps, 4000)
+        XCTAssertEqual(payload.uploadKbps, 1000)
+        XCTAssertEqual(payload.latency, "40ms")
+        XCTAssertEqual(payload.jitter, "10ms")
+        XCTAssertEqual(payload.lossPercent, 2.5)
+        XCTAssertEqual(payload.backupPath, "/tmp/clambhook.toml.bak")
+    }
+
+    func testConditionerPayloadDecodesMissingOptionalFields() throws {
+        let data = Data("""
+        {"profile": "Home", "enabled": false, "download_kbps": 0, "upload_kbps": 0, "loss_percent": 0}
+        """.utf8)
+
+        let payload = try JSONDecoder().decode(ConditionerPayload.self, from: data)
+
+        XCTAssertEqual(payload.latency, "")
+        XCTAssertEqual(payload.jitter, "")
+        XCTAssertEqual(payload.backupPath, "")
+    }
+
+    func testConditionerUpdateRequestEncodesOnlySetFields() throws {
+        let request = ConditionerUpdateRequest(enabled: true, downloadKbps: 2000)
+        let data = try JSONEncoder().encode(request)
+        let object = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+
+        XCTAssertEqual(object?["enabled"] as? Bool, true)
+        XCTAssertEqual(object?["download_kbps"] as? Int, 2000)
+        XCTAssertNil(object?["profile"])
+        XCTAssertNil(object?["upload_kbps"])
+        XCTAssertNil(object?["latency"])
+        XCTAssertNil(object?["jitter"])
+        XCTAssertNil(object?["loss_percent"])
+    }
 }

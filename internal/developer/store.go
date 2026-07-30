@@ -47,6 +47,24 @@ type Message struct {
 	Body    Body     `json:"body"`
 }
 
+// DecodedFrame is one decoded application-protocol message (a WebSocket frame,
+// a gRPC message, or a GraphQL request/response section). It mirrors
+// decode.Frame so the store has no dependency on the decode package.
+type DecodedFrame struct {
+	Direction string `json:"direction"`
+	Opcode    string `json:"opcode,omitempty"`
+	Preview   string `json:"preview"`
+	Truncated bool   `json:"truncated,omitempty"`
+}
+
+// Decoded is an optional structured view of a captured transaction whose
+// payload is a recognized application protocol. Clients render it in place of
+// the raw body preview; when absent, clients fall back to the body preview.
+type Decoded struct {
+	Kind   string         `json:"kind"`
+	Frames []DecodedFrame `json:"frames,omitempty"`
+}
+
 // Entry is one captured HTTP transaction.
 type Entry struct {
 	ID         string    `json:"id"`
@@ -63,6 +81,7 @@ type Entry struct {
 	Status     int       `json:"status,omitempty"`
 	Request    Message   `json:"request"`
 	Response   Message   `json:"response"`
+	Decoded    *Decoded  `json:"decoded,omitempty"`
 	Error      string    `json:"error,omitempty"`
 }
 
@@ -152,7 +171,20 @@ func cloneEntry(entry Entry) Entry {
 	entry.Request.Cookies = cloneCookieSlice(entry.Request.Cookies)
 	entry.Response.Headers = cloneHeaderSlice(entry.Response.Headers)
 	entry.Response.Cookies = cloneCookieSlice(entry.Response.Cookies)
+	entry.Decoded = cloneDecoded(entry.Decoded)
 	return entry
+}
+
+func cloneDecoded(decoded *Decoded) *Decoded {
+	if decoded == nil {
+		return nil
+	}
+	out := &Decoded{Kind: decoded.Kind}
+	if len(decoded.Frames) > 0 {
+		out.Frames = make([]DecodedFrame, len(decoded.Frames))
+		copy(out.Frames, decoded.Frames)
+	}
+	return out
 }
 
 func cloneHeaderSlice(headers []Header) []Header {

@@ -21,6 +21,7 @@ final class AppleAppModel: ObservableObject {
     @Published private(set) var pendingPrompts: [PendingPromptPayload] = []
     @Published private(set) var developerSettings = DeveloperSettingsPayload()
     @Published private(set) var configSettings = ConfigSettingsPayload()
+    @Published private(set) var conditioner = ConditionerPayload()
     @Published private(set) var developerCAPEMText = ""
     @Published var apiToken = ""
     @Published var daemonMessage = ""
@@ -756,6 +757,39 @@ final class AppleAppModel: ObservableObject {
                 daemonMessage = configSettings.backupPath.isEmpty ? "settings saved" : "settings saved with backup"
             } catch {
                 daemonMessage = error.localizedDescription
+            }
+        }
+    }
+
+    func refreshConditioner() {
+        Task {
+            await refreshConditionerNow()
+        }
+    }
+
+    func refreshConditionerNow() async {
+        do {
+            guard let provider = dashboardAPI as? ConditionerProviding else {
+                throw APIClientError.invalidURL("conditioner unavailable")
+            }
+            conditioner = try await provider.conditioner(profile: "")
+        } catch {
+            conditioner = ConditionerPayload()
+            daemonMessage = error.localizedDescription
+        }
+    }
+
+    func saveConditioner(_ request: ConditionerUpdateRequest) {
+        Task {
+            do {
+                guard let provider = dashboardAPI as? ConditionerProviding else {
+                    throw APIClientError.invalidURL("conditioner unavailable")
+                }
+                conditioner = try await provider.updateConditioner(request)
+                daemonMessage = conditioner.backupPath.isEmpty ? "conditioner saved" : "conditioner saved with backup"
+            } catch {
+                daemonMessage = error.localizedDescription
+                await refreshConditionerNow()
             }
         }
     }

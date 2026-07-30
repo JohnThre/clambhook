@@ -217,9 +217,72 @@ class DashboardRepositoryTest {
         assertEquals(maxLogLines, state.logs.size)
         assertEquals("line-5", state.logs.first())
     }
+
+    @Test
+    fun loadConditionerMapsSnapshotIntoState() = runBlocking {
+        val api = FakeApi(
+            conditioner = ConditionerPayload(
+                profile = "A",
+                enabled = true,
+                downloadKbps = 4000,
+                uploadKbps = 1000,
+                latency = "40ms",
+                jitter = "5ms",
+                lossPercent = 1.5
+            )
+        )
+        val repository = DashboardRepository(api)
+
+        repository.loadConditioner()
+
+        val state = repository.state.value
+        assertEquals(true, state.conditioner?.enabled)
+        assertEquals(4000, state.conditioner?.downloadKbps)
+        assertEquals("40ms", state.conditioner?.latency)
+        assertTrue(state.conditionerEditable)
+        assertFalse(state.conditionerLoading)
+        assertEquals("", state.conditionerError)
+    }
+
+    @Test
+    fun updateConditionerSendsRequestAndStoresResult() = runBlocking {
+        val api = FakeApi()
+        val repository = DashboardRepository(api)
+
+        repository.updateConditioner(
+            ConditionerUpdateRequest(
+                profile = "A",
+                enabled = true,
+                downloadKbps = 2000,
+                latency = "20ms"
+            )
+        )
+
+        val state = repository.state.value
+        assertTrue(api.actions.contains("conditioner:update"))
+        assertEquals(true, state.conditioner?.enabled)
+        assertEquals(2000, state.conditioner?.downloadKbps)
+        assertEquals("20ms", state.conditioner?.latency)
+    }
+
+    @Test
+    fun updateConditionerSurfacesUnsupportedGracefully() = runBlocking {
+        val api = object : FakeApi() {
+            override val supportsConditionerEditing: Boolean get() = false
+            override suspend fun updateConditioner(request: ConditionerUpdateRequest): ConditionerPayload =
+                throw UnsupportedOperationException("conditioner editing requires the daemon HTTP API")
+        }
+        val repository = DashboardRepository(api)
+
+        repository.updateConditioner(ConditionerUpdateRequest(enabled = true))
+
+        val state = repository.state.value
+        assertFalse(state.conditionerLoading)
+        assertTrue(state.conditionerError.contains("daemon HTTP API"))
+    }
 }
 
-private class FakeApi(
+private open class FakeApi(
     private val status: StatusPayload = StatusPayload(),
     private val profiles: ProfilesPayload = ProfilesPayload(profiles = listOf("A", "B"), active = "A"),
     private val servers: ServersPayload = ServersPayload(profile = "A"),
@@ -227,6 +290,7 @@ private class FakeApi(
     private var rules: RulesPayload = RulesPayload(profile = "A"),
     private var ruleSets: RuleSetsPayload = RuleSetsPayload(profile = "A"),
     private val traffic: TrafficSnapshotPayload = TrafficSnapshotPayload(),
+    private val conditioner: ConditionerPayload = ConditionerPayload(),
     private val error: Throwable? = null,
     private val actionError: Throwable? = null
 ) : ClambhookApi {
@@ -355,5 +419,20 @@ private class FakeApi(
 
     override suspend fun clearDeveloperEntries() {
         actions += "developer:clear"
+    }
+
+    override suspend fun conditioner(profile: String): ConditionerPayload = conditioner
+
+    override suspend fun updateConditioner(request: ConditionerUpdateRequest): ConditionerPayload {
+        actions += "conditioner:update"
+        return ConditionerPayload(
+            profile = request.profile ?: "",
+            enabled = request.enabled ?: false,
+            downloadKbps = request.downloadKbps ?: 0,
+            uploadKbps = request.uploadKbps ?: 0,
+            latency = request.latency ?: "",
+            jitter = request.jitter ?: "",
+            lossPercent = request.lossPercent ?: 0.0
+        )
     }
 }

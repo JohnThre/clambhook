@@ -319,19 +319,34 @@ type developerEntriesPayload struct {
 }
 
 type developerEntryPayload struct {
-	ID         string                  `json:"id"`
-	ConnID     string                  `json:"conn_id,omitempty"`
-	Profile    string                  `json:"profile,omitempty"`
-	ClientAddr string                  `json:"client_addr,omitempty"`
-	ChainName  string                  `json:"chain_name,omitempty"`
-	Method     string                  `json:"method"`
-	URL        string                  `json:"url"`
-	Scheme     string                  `json:"scheme"`
-	Host       string                  `json:"host"`
-	Status     int                     `json:"status,omitempty"`
-	Request    developerMessagePayload `json:"request"`
-	Response   developerMessagePayload `json:"response"`
-	Error      string                  `json:"error,omitempty"`
+	ID         string                   `json:"id"`
+	ConnID     string                   `json:"conn_id,omitempty"`
+	Profile    string                   `json:"profile,omitempty"`
+	ClientAddr string                   `json:"client_addr,omitempty"`
+	ChainName  string                   `json:"chain_name,omitempty"`
+	Method     string                   `json:"method"`
+	URL        string                   `json:"url"`
+	Scheme     string                   `json:"scheme"`
+	Host       string                   `json:"host"`
+	Status     int                      `json:"status,omitempty"`
+	Request    developerMessagePayload  `json:"request"`
+	Response   developerMessagePayload  `json:"response"`
+	Decoded    *developerDecodedPayload `json:"decoded,omitempty"`
+	Error      string                   `json:"error,omitempty"`
+}
+
+// developerDecodedPayload mirrors the daemon's optional structured protocol
+// decode (WebSocket/gRPC/GraphQL) attached to a captured transaction.
+type developerDecodedPayload struct {
+	Kind   string                         `json:"kind"`
+	Frames []developerDecodedFramePayload `json:"frames,omitempty"`
+}
+
+type developerDecodedFramePayload struct {
+	Direction string `json:"direction"`
+	Opcode    string `json:"opcode,omitempty"`
+	Preview   string `json:"preview"`
+	Truncated bool   `json:"truncated,omitempty"`
 }
 
 type developerMessagePayload struct {
@@ -569,6 +584,46 @@ func (c apiClient) developerEntries() ([]developerEntryPayload, error) {
 
 func (c apiClient) clearDeveloperEntries() error {
 	return c.doNoBody(http.MethodDelete, "/api/v1/developer/entries", nil)
+}
+
+// conditionerPayload mirrors the daemon's network conditioner snapshot.
+type conditionerPayload struct {
+	Profile      string  `json:"profile"`
+	Enabled      bool    `json:"enabled"`
+	DownloadKbps int     `json:"download_kbps"`
+	UploadKbps   int     `json:"upload_kbps"`
+	Latency      string  `json:"latency,omitempty"`
+	Jitter       string  `json:"jitter,omitempty"`
+	LossPercent  float64 `json:"loss_percent"`
+	BackupPath   string  `json:"backup_path,omitempty"`
+}
+
+// conditionerUpdateRequest is a partial update; pointer fields left nil are
+// preserved by the daemon.
+type conditionerUpdateRequest struct {
+	Profile      string   `json:"profile,omitempty"`
+	Enabled      *bool    `json:"enabled,omitempty"`
+	DownloadKbps *int     `json:"download_kbps,omitempty"`
+	UploadKbps   *int     `json:"upload_kbps,omitempty"`
+	Latency      *string  `json:"latency,omitempty"`
+	Jitter       *string  `json:"jitter,omitempty"`
+	LossPercent  *float64 `json:"loss_percent,omitempty"`
+}
+
+func (c apiClient) conditioner() (conditionerPayload, error) {
+	var out conditionerPayload
+	err := c.getJSON("/api/v1/conditioner", &out)
+	return out, err
+}
+
+func (c apiClient) updateConditioner(req conditionerUpdateRequest) (conditionerPayload, error) {
+	body, err := json.Marshal(req)
+	if err != nil {
+		return conditionerPayload{}, err
+	}
+	var out conditionerPayload
+	err = c.doJSON(http.MethodPut, "/api/v1/conditioner", bytes.NewReader(body), &out)
+	return out, err
 }
 
 func (c apiClient) exportDeveloperHAR(path string) error {

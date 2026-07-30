@@ -27,6 +27,13 @@ interface ClambhookApi {
     suspend fun developerEntries(): DeveloperEntriesPayload
     suspend fun developerHar(): String
     suspend fun clearDeveloperEntries()
+    suspend fun conditioner(profile: String = ""): ConditionerPayload
+    suspend fun updateConditioner(request: ConditionerUpdateRequest): ConditionerPayload
+
+    // Whether [updateConditioner] can mutate the conditioner. On-device impls
+    // that only proxy the packet runtime cannot edit it (no config primitive),
+    // so the UI renders the snapshot read-only. HTTP-backed impls override this.
+    val supportsConditionerEditing: Boolean get() = true
 }
 
 interface ClambhookEventStream {

@@ -37,6 +37,8 @@ private class FakeApi : ClambhookApi {
     override suspend fun developerEntries(): List<DeveloperEntryPayload> = emptyList()
     override suspend fun developerEntry(id: String): DeveloperEntryPayload = DeveloperEntryPayload()
     override suspend fun repeatDeveloperEntry(id: String): DeveloperEntryPayload = DeveloperEntryPayload()
+    override suspend fun conditioner(profile: String): ConditionerPayload = ConditionerPayload()
+    override suspend fun updateConditioner(request: ConditionerUpdateRequest): ConditionerPayload { actions.add("conditioner:${request.enabled}"); return ConditionerPayload(enabled = request.enabled ?: false) }
     override fun eventsUri(): String = "ws://localhost:9090/api/v1/events"
     override fun authorizationHeader(): String = ""
     override fun configureBaseUrl(baseUrl: String) {}

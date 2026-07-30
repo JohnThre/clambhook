@@ -49,8 +49,10 @@ capability approvals while preserving a practical direct-download macOS path.
 - have: HTTP(S) capture list, request/response detail, breakpoints, map local,
   map remote, repeat, HAR export, and CA install/trust.
 - have: compose / edit-and-send request through the daemon Repeat endpoint.
-- planned (v1.1): network throttling / conditioner and protocol-specific viewers
-  (WebSocket / gRPC / GraphQL). See docs/roadmap.md.
+- have (v1.1): network throttling / conditioner (per-profile bandwidth caps,
+  latency/jitter, packet-loss, live-toggled via `GET`/`PUT /api/v1/conditioner`)
+  and daemon-side protocol-specific viewers (WebSocket / gRPC / GraphQL) rendered
+  across all four clients. See docs/roadmap.md.
 
 ## Release-Gating Decision
 

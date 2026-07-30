@@ -66,6 +66,97 @@ name = "default"
 	}
 }
 
+func TestLoadConditionerConfig(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+	data := []byte(`
+active = "default"
+
+[[profile]]
+name = "default"
+
+  [profile.conditioner]
+  enabled = true
+  download_kbps = 1024
+  upload_kbps = 512
+  latency = "40ms"
+  jitter = "10ms"
+  loss_percent = 2.5
+
+  [[profile.chain]]
+  name = "main"
+
+    [[profile.chain.server]]
+    name = "exit"
+    address = "203.0.113.10:443"
+    protocol = "trojan"
+
+      [profile.chain.server.settings]
+      password = "secret"
+`)
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	profile, err := cfg.ActiveProfile()
+	if err != nil {
+		t.Fatalf("ActiveProfile: %v", err)
+	}
+	c := profile.Conditioner
+	if !c.Enabled {
+		t.Error("Conditioner.Enabled = false, want true")
+	}
+	if c.DownloadKbps != 1024 || c.UploadKbps != 512 {
+		t.Errorf("bandwidth = %d/%d, want 1024/512", c.DownloadKbps, c.UploadKbps)
+	}
+	if c.Latency.Std().String() != "40ms" || c.Jitter.Std().String() != "10ms" {
+		t.Errorf("latency/jitter = %s/%s, want 40ms/10ms", c.Latency.Std(), c.Jitter.Std())
+	}
+	if c.LossPercent != 2.5 {
+		t.Errorf("LossPercent = %v, want 2.5", c.LossPercent)
+	}
+}
+
+func TestConditionerDefaultsDisabled(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+	data := []byte(`
+active = "default"
+
+[[profile]]
+name = "default"
+
+  [[profile.chain]]
+  name = "main"
+
+    [[profile.chain.server]]
+    name = "exit"
+    address = "203.0.113.10:443"
+    protocol = "trojan"
+
+      [profile.chain.server.settings]
+      password = "secret"
+`)
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	profile, err := cfg.ActiveProfile()
+	if err != nil {
+		t.Fatalf("ActiveProfile: %v", err)
+	}
+	if profile.Conditioner.Enabled {
+		t.Error("expected conditioner disabled when no block is present")
+	}
+}
+
 func TestValidateRejectsActiveProfileTypo(t *testing.T) {
 	cfg := validConfig()
 	cfg.Active = "missing"

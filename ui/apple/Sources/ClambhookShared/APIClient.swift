@@ -73,6 +73,11 @@ public protocol ClambhookPromptProviding: AnyObject {
     func resolvePrompt(id: String, request: ResolvePromptRequest) async throws
 }
 
+public protocol ConditionerProviding: AnyObject {
+    func conditioner(profile: String) async throws -> ConditionerPayload
+    func updateConditioner(_ request: ConditionerUpdateRequest) async throws -> ConditionerPayload
+}
+
 public protocol ClambhookDashboardProviding: ClambhookAPIProviding {
     func dashboard() async throws -> TunnelDashboardPayload
 }
@@ -97,7 +102,7 @@ public enum APIClientError: Error, LocalizedError, Equatable {
     }
 }
 
-public final class ClambhookAPIClient: ClambhookAPIProviding, ClambhookRuleEditing, ClambhookRouteExplaining, ClambhookPolicyGroupEditing, ClambhookRuleSetEditing, ClambhookRuleSubscriptionEditing, ClambhookConfigSettingsProviding, DeveloperCaptureProviding, ClambhookPromptProviding {
+public final class ClambhookAPIClient: ClambhookAPIProviding, ClambhookRuleEditing, ClambhookRouteExplaining, ClambhookPolicyGroupEditing, ClambhookRuleSetEditing, ClambhookRuleSubscriptionEditing, ClambhookConfigSettingsProviding, DeveloperCaptureProviding, ClambhookPromptProviding, ConditionerProviding {
     private let baseURL: URL
     private let tokenProvider: () -> String?
     private let session: URLSession
@@ -153,6 +158,22 @@ public final class ClambhookAPIClient: ClambhookAPIProviding, ClambhookRuleEditi
         let body = try encoder.encode(request)
         let data = try await send(method: "PUT", path: "/api/v1/config/settings", body: body)
         return try decoder.decode(ConfigSettingsPayload.self, from: data)
+    }
+
+    public func conditioner(profile: String = "") async throws -> ConditionerPayload {
+        if profile.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return try await getJSON("/api/v1/conditioner")
+        }
+        var components = URLComponents()
+        components.path = "/api/v1/conditioner"
+        components.queryItems = [URLQueryItem(name: "profile", value: profile)]
+        return try await getJSON(components.string ?? "/api/v1/conditioner")
+    }
+
+    public func updateConditioner(_ request: ConditionerUpdateRequest) async throws -> ConditionerPayload {
+        let body = try encoder.encode(request)
+        let data = try await send(method: "PUT", path: "/api/v1/conditioner", body: body)
+        return try decoder.decode(ConditionerPayload.self, from: data)
     }
 
     public func ruleSets() async throws -> RuleSetsPayload {

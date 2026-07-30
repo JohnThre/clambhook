@@ -179,6 +179,21 @@ type Profile struct {
 	Rules             []RuleConfig             `toml:"rule"`
 	RuleSubscriptions []RuleSubscriptionConfig `toml:"rule_subscription"`
 	NetworkTriggers   []NetworkTriggerConfig   `toml:"network_trigger" json:"network_triggers,omitempty"`
+	Conditioner       ConditionerConfig        `toml:"conditioner" json:"conditioner,omitempty"`
+}
+
+// ConditionerConfig simulates a constrained network on the profile's chain
+// path. When enabled, the engine wraps every chain-dialed connection with
+// bandwidth caps, added latency/jitter, and — for packet connections —
+// probabilistic packet loss. It is opt-in and, like DNSConfig, persists per
+// profile; a zero or disabled block is a passthrough no-op.
+type ConditionerConfig struct {
+	Enabled      bool     `toml:"enabled" json:"enabled"`
+	DownloadKbps int      `toml:"download_kbps" json:"download_kbps,omitempty"`
+	UploadKbps   int      `toml:"upload_kbps" json:"upload_kbps,omitempty"`
+	Latency      Duration `toml:"latency" json:"latency,omitempty"`
+	Jitter       Duration `toml:"jitter" json:"jitter,omitempty"`
+	LossPercent  float64  `toml:"loss_percent" json:"loss_percent,omitempty"`
 }
 
 // DNSConfig controls the profile-local encrypted DNS proxy used by TUN mode.

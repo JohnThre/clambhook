@@ -70,6 +70,14 @@ class DashboardViewModel(
 
     suspend fun developerHar(): String = repository.developerHar()
 
+    fun loadConditioner() {
+        viewModelScope.launch { repository.loadConditioner() }
+    }
+
+    fun updateConditioner(request: ConditionerUpdateRequest) {
+        viewModelScope.launch { repository.updateConditioner(request) }
+    }
+
     fun startPolling(intervalSeconds: Int) {
         pollingJob?.cancel()
         pollingJob = viewModelScope.launch {
