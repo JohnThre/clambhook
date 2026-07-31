@@ -360,6 +360,156 @@ func testDNSResponse(query []byte) []byte {
 	return resp
 }
 
+func TestValidateResponse(t *testing.T) {
+	query := testDNSQuery(0x1234)
+	reqID := dnsID(query)
+	reqQuestion := requestQuestion(query)
+
+	// given a well-formed matching response, when validated, then it passes.
+	if err := validateResponse(reqID, reqQuestion, testDNSResponse(query)); err != nil {
+		t.Fatalf("matching response rejected: %v", err)
+	}
+
+	// given a response whose transaction ID differs, then it is rejected.
+	mismatchID := testDNSResponse(query)
+	mismatchID[0], mismatchID[1] = 0xff, 0xff
+	if err := validateResponse(reqID, reqQuestion, mismatchID); err == nil {
+		t.Fatal("response with mismatched ID accepted, want rejection")
+	}
+
+	// given a response whose question section differs, then it is rejected.
+	otherQuery := testDNSQuery(0x1234)
+	otherQuery[13] = 'X' // mutate the first label byte
+	if err := validateResponse(reqID, reqQuestion, testDNSResponse(otherQuery)); err == nil {
+		t.Fatal("response with mismatched question accepted, want rejection")
+	}
+
+	// given a truncated response (shorter than the DNS header), then it is
+	// rejected rather than panicking.
+	if err := validateResponse(reqID, reqQuestion, []byte{0x12, 0x34, 0x00}); err == nil {
+		t.Fatal("truncated response accepted, want rejection")
+	}
+
+	// given a response with a malformed question section, then it is rejected.
+	malformed := testDNSResponse(query)
+	malformed[4], malformed[5] = 0x00, 0x01 // qdcount=1 but truncate the name
+	malformed = malformed[:14]
+	if err := validateResponse(reqID, reqQuestion, malformed); err == nil {
+		t.Fatal("response with malformed question accepted, want rejection")
+	}
+}
+
+func TestDoHExchangeRejectsSpoofedResponse(t *testing.T) {
+	withInsecureTLS(t)
+	query := testDNSQuery(0x1234)
+	// Server returns a response with a different transaction ID (spoofed).
+	spoofed := testDNSResponse(query)
+	spoofed[0], spoofed[1] = 0xaa, 0xbb
+
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/dns-message")
+		_, _ = w.Write(spoofed)
+	}))
+	defer server.Close()
+
+	proxy, err := New(config.DNSConfig{
+		Enabled: true,
+		Timeout: config.Duration(2 * time.Second),
+		Upstreams: []config.DNSUpstreamConfig{{
+			Protocol: "doh",
+			URL:      server.URL,
+		}},
+	}, directPlanner{})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer proxy.Close()
+
+	// The proxy converts the upstream failure into a SERVFAIL that carries the
+	// original client ID.
+	resp, err := proxy.Exchange(context.Background(), query)
+	if err == nil {
+		t.Fatal("Exchange accepted spoofed response, want upstream error")
+	}
+	if rcode := resp[3] & 0x0f; rcode != 2 {
+		t.Fatalf("rcode = %d, want SERVFAIL after rejecting spoofed response", rcode)
+	}
+}
+
+func TestDoQExchangeRejectsNonZeroOnWireID(t *testing.T) {
+	withInsecureTLS(t)
+	query := testDNSQuery(0xbeef)
+	serverErr := startDoQTestServerWithID(t, 0x0042)
+
+	proxy, err := New(config.DNSConfig{
+		Enabled: true,
+		Timeout: config.Duration(2 * time.Second),
+		Upstreams: []config.DNSUpstreamConfig{{
+			Protocol: "doq",
+			Address:  serverErr.addr,
+		}},
+	}, directPlanner{})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer proxy.Close()
+
+	resp, err := proxy.Exchange(context.Background(), query)
+	if err == nil {
+		t.Fatal("Exchange accepted DoQ response with non-zero on-wire ID, want error")
+	}
+	if rcode := resp[3] & 0x0f; rcode != 2 {
+		t.Fatalf("rcode = %d, want SERVFAIL after rejecting non-zero on-wire ID", rcode)
+	}
+}
+
+// startDoQTestServerWithID behaves like startDoQTestServer but stamps forceID
+// into the on-wire response transaction ID, simulating a non-compliant or
+// spoofed server (RFC 9250 mandates the on-wire ID be 0).
+func startDoQTestServerWithID(t *testing.T, forceID uint16) doqTestServer {
+	t.Helper()
+	udp, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tr := &quic.Transport{Conn: udp}
+	ln, err := tr.Listen(testServerTLSConfig(t, []string{"doq"}), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = ln.Close()
+		_ = tr.Close()
+		_ = udp.Close()
+	})
+	out := doqTestServer{addr: udp.LocalAddr().String(), errs: make(chan error, 1)}
+	go func() {
+		conn, err := ln.Accept(context.Background())
+		if err != nil {
+			return
+		}
+		stream, err := conn.AcceptStream(context.Background())
+		if err != nil {
+			out.errs <- err
+			return
+		}
+		query, err := readDNSFrame(stream)
+		if err != nil {
+			out.errs <- err
+			return
+		}
+		resp := testDNSResponse(query)
+		binary.BigEndian.PutUint16(resp[:2], forceID)
+		if err := writeDNSFrame(stream, resp); err != nil {
+			out.errs <- err
+			return
+		}
+		_ = stream.Close()
+		out.errs <- nil
+	}()
+	return out
+}
+
 func TestReadDNSFrameRejectsShortResponse(t *testing.T) {
 	var frame bytes.Buffer
 	if err := writeDNSFrame(&frame, []byte{0x00}); err != nil {

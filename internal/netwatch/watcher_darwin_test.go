@@ -2,7 +2,39 @@
 
 package netwatch
 
-import "testing"
+import (
+	"path/filepath"
+	"testing"
+)
+
+func TestValidIfaceName(t *testing.T) {
+	cases := []struct {
+		in   string
+		want bool
+	}{
+		{"en0", true},
+		{"utun3", true},
+		{"en0.100", true},
+		{"", false},
+		{"-foo", false},
+		{"en0; rm -rf /", false},
+		{"en 0", false},
+		{"en0/x", false},
+	}
+	for _, tc := range cases {
+		if got := validIfaceName(tc.in); got != tc.want {
+			t.Fatalf("validIfaceName(%q) = %v, want %v", tc.in, got, tc.want)
+		}
+	}
+}
+
+func TestPrivilegedCommandsUseAbsolutePaths(t *testing.T) {
+	for _, cmd := range []string{scutilCommand, networksetupCommand, ipconfigCommand} {
+		if !filepath.IsAbs(cmd) {
+			t.Fatalf("command %q is not an absolute path", cmd)
+		}
+	}
+}
 
 func TestParseAirportSSID(t *testing.T) {
 	t.Parallel()

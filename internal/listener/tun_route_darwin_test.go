@@ -290,6 +290,31 @@ func TestDarwinCleanupAggregatesUndoErrors(t *testing.T) {
 	}
 }
 
+// TestDarwinAddDirectRouteRejectsOptionLikeInterface verifies that an
+// interface name parsed from `route -n get` output that looks like an option
+// (or contains metacharacters) is rejected before reaching exec.
+func TestDarwinAddDirectRouteRejectsOptionLikeInterface(t *testing.T) {
+	mgr := newDarwinRouteManager("utunTest", 1400, TUNOptions{}, newTestChain())
+	mgr.runner = &fakeDarwinRunner{responses: baseDarwinResponses()}
+
+	err := mgr.addDirectRoute(context.Background(), "203.0.113.10/32", routeInfo{ifName: "-foo"})
+	if err == nil || !strings.Contains(err.Error(), "invalid interface") {
+		t.Fatalf("addDirectRoute with option-like interface = %v, want rejection", err)
+	}
+}
+
+// TestDarwinAddTUNRouteRejectsInvalidInterfaceName verifies the TUN interface
+// name is validated before being passed to `route`.
+func TestDarwinAddTUNRouteRejectsInvalidInterfaceName(t *testing.T) {
+	mgr := newDarwinRouteManager("bad name", 1400, TUNOptions{}, newTestChain())
+	mgr.runner = &fakeDarwinRunner{responses: baseDarwinResponses()}
+
+	err := mgr.addTUNRoute(context.Background(), "0.0.0.0/1")
+	if err == nil || !strings.Contains(err.Error(), "invalid interface name") {
+		t.Fatalf("addTUNRoute with invalid ifName = %v, want rejection", err)
+	}
+}
+
 func containsCommand(commands []string, want string) bool {
 	return indexOfCommand(commands, want) >= 0
 }

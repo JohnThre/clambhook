@@ -9,6 +9,8 @@ import (
 	"net/netip"
 	"net/url"
 	"strings"
+	"syscall"
+	"time"
 )
 
 // ipResolver matches the net.Resolver method used for public-host checks.
@@ -30,6 +32,17 @@ func ClientWithSafeRedirects(client *http.Client) *http.Client {
 		client = &http.Client{Timeout: defaultHTTPTimeout}
 	}
 	redirectClient := *client
+	// Pin the connection to the actually-dialed IP so DNS rebinding cannot
+	// swap a validated public A record for a loopback/private address after
+	// ValidatePublicHTTPURL ran. The Control hook fires after resolution on
+	// every dial (initial request and each redirect) with the concrete
+	// destination address. Only install it when the caller has not supplied a
+	// custom transport, so explicit transports (e.g. tests) keep their dialer.
+	if redirectClient.Transport == nil {
+		transport := http.DefaultTransport.(*http.Transport).Clone()
+		transport.DialContext = safeDialer().DialContext
+		redirectClient.Transport = transport
+	}
 	configuredPolicy := client.CheckRedirect
 	redirectClient.CheckRedirect = func(req *http.Request, via []*http.Request) error {
 		if len(via) == 0 {
@@ -68,6 +81,37 @@ func ValidatePublicHTTPURL(ctx context.Context, u *url.URL) error {
 	}
 	if err := validatePublicRedirectHost(ctx, u.Hostname()); err != nil {
 		return err
+	}
+	return nil
+}
+
+// safeDialer returns a dialer whose Control hook rejects connections to
+// non-public addresses, closing the DNS-rebinding TOCTOU: the check runs after
+// resolution with the concrete dialed IP, on the initial dial and on every
+// redirect, using the same predicate as the pre-flight validation.
+func safeDialer() *net.Dialer {
+	return &net.Dialer{
+		Timeout:   30 * time.Second,
+		KeepAlive: 30 * time.Second,
+		Control: func(_, address string, _ syscall.RawConn) error {
+			return checkDialAddr(address)
+		},
+	}
+}
+
+// checkDialAddr parses the concrete dialed address and rejects it when it maps
+// to a non-public destination per unsafeRedirectAddr.
+func checkDialAddr(address string) error {
+	host, _, err := net.SplitHostPort(address)
+	if err != nil {
+		host = address
+	}
+	addr, err := netip.ParseAddr(host)
+	if err != nil {
+		return fmt.Errorf("refusing to dial address %q: not an IP", address)
+	}
+	if unsafeRedirectAddr(addr) {
+		return fmt.Errorf("refusing to dial non-public address %q", addr)
 	}
 	return nil
 }

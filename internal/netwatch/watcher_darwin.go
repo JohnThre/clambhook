@@ -5,9 +5,30 @@ package netwatch
 import (
 	"log"
 	"os/exec"
+	"regexp"
 	"strings"
 	"sync"
 )
+
+// Absolute paths for privileged/system commands so an attacker-influenced
+// $PATH cannot redirect them to a planted binary.
+const (
+	scutilCommand       = "/usr/sbin/scutil"
+	networksetupCommand = "/usr/sbin/networksetup"
+	ipconfigCommand     = "/usr/sbin/ipconfig"
+)
+
+// ifaceNamePattern accepts only conservative interface-name characters. The
+// interface name is parsed from `scutil --nwi` output and passed to exec, so it
+// is validated before use.
+var ifaceNamePattern = regexp.MustCompile(`^[A-Za-z0-9._][A-Za-z0-9._-]*$`)
+
+func validIfaceName(name string) bool {
+	if name == "" || len(name) > 64 {
+		return false
+	}
+	return ifaceNamePattern.MatchString(name)
+}
 
 func current() (NetworkInfo, error) {
 	iface, err := primaryInterface()
@@ -24,7 +45,7 @@ func current() (NetworkInfo, error) {
 
 // primaryInterface returns the primary network interface from scutil --nwi.
 func primaryInterface() (string, error) {
-	out, err := exec.Command("scutil", "--nwi").Output()
+	out, err := exec.Command(scutilCommand, "--nwi").Output()
 	if err != nil {
 		return "", nil
 	}
@@ -34,7 +55,13 @@ func primaryInterface() (string, error) {
 		if strings.HasPrefix(line, "interface") {
 			parts := strings.SplitN(line, ":", 2)
 			if len(parts) == 2 {
-				return strings.TrimSpace(parts[1]), nil
+				iface := strings.TrimSpace(parts[1])
+				// The name is parsed from OS output and later passed to exec;
+				// reject anything that is not a plausible interface name.
+				if !validIfaceName(iface) {
+					return "", nil
+				}
+				return iface, nil
 			}
 		}
 	}
@@ -72,12 +99,18 @@ func resolveSSID(iface string) (string, bool) {
 }
 
 func runAirport(iface string) (string, error) {
-	out, err := exec.Command("networksetup", "-getairportnetwork", iface).CombinedOutput()
+	if !validIfaceName(iface) {
+		return "", nil
+	}
+	out, err := exec.Command(networksetupCommand, "-getairportnetwork", iface).CombinedOutput()
 	return string(out), err
 }
 
 func runIPConfigSummary(iface string) string {
-	out, err := exec.Command("ipconfig", "getsummary", iface).CombinedOutput()
+	if !validIfaceName(iface) {
+		return ""
+	}
+	out, err := exec.Command(ipconfigCommand, "getsummary", iface).CombinedOutput()
 	if err != nil {
 		return ""
 	}

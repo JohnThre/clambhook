@@ -371,6 +371,40 @@ func servfail(query []byte) []byte {
 	return resp
 }
 
+// validateResponse rejects an upstream DNS response whose transaction ID or
+// question section does not match the request. This defends against a
+// compromised path slipping a spoofed answer through: even though DoH/DoT/DoQ
+// carry 1:1 request/response correlation over TLS/QUIC, echoing the request ID
+// and question is cheap and blocks cross-injection. reqID/reqQuestion are taken
+// from the original request; resp is the raw upstream message.
+func validateResponse(reqID [2]byte, reqQuestion, resp []byte) error {
+	if len(resp) < minDNSMessage {
+		return errors.New("dns: upstream response too short")
+	}
+	if dnsID(resp) != reqID {
+		return errors.New("dns: upstream response transaction ID mismatch")
+	}
+	respEnd := questionEnd(resp)
+	if respEnd == 0 {
+		return errors.New("dns: upstream response has malformed question")
+	}
+	if !bytes.Equal(resp[12:respEnd], reqQuestion) {
+		return errors.New("dns: upstream response question mismatch")
+	}
+	return nil
+}
+
+// requestQuestion returns the question-section bytes (after the 12-byte header)
+// of a validated query. The caller must have already confirmed the query parses
+// via validQuery/questionEnd.
+func requestQuestion(query []byte) []byte {
+	end := questionEnd(query)
+	if end == 0 {
+		return nil
+	}
+	return query[12:end]
+}
+
 type dohUpstream struct {
 	name   string
 	url    string
@@ -439,6 +473,9 @@ func (u *dohUpstream) Exchange(ctx context.Context, query []byte) ([]byte, error
 	if len(body) > maxDNSMessage {
 		return nil, errors.New("DoH response too large")
 	}
+	if err := validateResponse(dnsID(query), requestQuestion(query), body); err != nil {
+		return nil, err
+	}
 	return body, nil
 }
 
@@ -493,7 +530,14 @@ func (u *dotUpstream) Exchange(ctx context.Context, query []byte) ([]byte, error
 	if err := writeDNSFrame(conn, query); err != nil {
 		return nil, err
 	}
-	return readDNSFrame(conn)
+	resp, err := readDNSFrame(conn)
+	if err != nil {
+		return nil, err
+	}
+	if err := validateResponse(dnsID(query), requestQuestion(query), resp); err != nil {
+		return nil, err
+	}
+	return resp, nil
 }
 
 func (u *dotUpstream) Close() error { return nil }
@@ -546,6 +590,12 @@ func (u *doqUpstream) Exchange(ctx context.Context, query []byte) ([]byte, error
 		if err != nil {
 			return nil, err
 		}
+	}
+	// DoQ mandates the on-wire transaction ID be 0 (RFC 9250 §4.2.1); validate
+	// the response's on-wire ID was 0 and its question matches before we
+	// re-stamp the original client ID.
+	if err := validateResponse([2]byte{}, requestQuestion(wire), resp); err != nil {
+		return nil, err
 	}
 	setDNSID(resp, id)
 	return resp, nil
