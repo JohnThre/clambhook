@@ -1140,6 +1140,201 @@ func TestResolvePromptBuildsRequest(t *testing.T) {
 	}
 }
 
+func TestActivityFilterEditingKeepsGlobalKeysAsInput(t *testing.T) {
+	for _, key := range []string{"q", "t", "l", "s", "v", "1", "6"} {
+		t.Run(key, func(t *testing.T) {
+			m := newModel("127.0.0.1:9090")
+			m.viewMode = viewModeActivity
+			m.filterEditing = true
+
+			updated, cmd := m.Update(keyMsg(key))
+			m = updated.(model)
+			if cmd != nil {
+				t.Fatalf("Update(%q) returned non-nil command (possible quit)", key)
+			}
+			if m.viewMode != viewModeActivity {
+				t.Fatalf("viewMode changed to %d while editing filter", m.viewMode)
+			}
+			if m.filterInput != key {
+				t.Fatalf("filterInput = %q, want %q", m.filterInput, key)
+			}
+		})
+	}
+}
+
+func TestActivitySearchEditingKeepsGlobalKeysAsInput(t *testing.T) {
+	m := newModel("127.0.0.1:9090")
+	m.viewMode = viewModeActivity
+	m.searchEditing = true
+
+	updated, cmd := m.Update(keyMsg("q"))
+	m = updated.(model)
+	if cmd != nil {
+		t.Fatal("typing q while searching returned a command (possible quit)")
+	}
+	if m.searchText != "q" {
+		t.Fatalf("searchText = %q, want q", m.searchText)
+	}
+}
+
+func TestCtrlCQuitsWhileEditing(t *testing.T) {
+	m := newModel("127.0.0.1:9090")
+	m.viewMode = viewModeActivity
+	m.filterEditing = true
+
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	if cmd == nil {
+		t.Fatal("ctrl+c returned nil command, want tea.Quit")
+	}
+	if msg := cmd(); msg != tea.Quit() {
+		t.Fatalf("ctrl+c command = %v, want tea.Quit", msg)
+	}
+}
+
+func TestNetworkFilterEditingKeepsGlobalKeysAsInput(t *testing.T) {
+	m := newModel("127.0.0.1:9090")
+	m.viewMode = viewModeNetwork
+	m.filterEditing = true
+
+	updated, cmd := m.Update(keyMsg("q"))
+	m = updated.(model)
+	if cmd != nil {
+		t.Fatal("typing q while editing network filter returned a command (possible quit)")
+	}
+	if m.viewMode != viewModeNetwork {
+		t.Fatalf("viewMode changed to %d while editing network filter", m.viewMode)
+	}
+	if m.filterInput != "q" {
+		t.Fatalf("filterInput = %q, want q", m.filterInput)
+	}
+}
+
+func TestGlobalKeysSwitchViewsWhenNotEditing(t *testing.T) {
+	m := newModel("127.0.0.1:9090")
+	m.viewMode = viewModeNow
+
+	updated, _ := m.Update(keyMsg("t"))
+	m = updated.(model)
+	if m.viewMode != viewModeActivity {
+		t.Fatalf("t did not switch to activity view, got %d", m.viewMode)
+	}
+}
+
+func TestActivitySearchKeyEnablesSearchAndFilters(t *testing.T) {
+	m := newModel("127.0.0.1:9090")
+	m.viewMode = viewModeActivity
+	m.traffic.Connections = []trafficConnectionPayload{
+		{TargetHost: "ads.example.com", RuleName: "block-ads"},
+		{TargetHost: "example.org", RuleName: "default"},
+	}
+
+	updated, _ := m.Update(keyMsg("f"))
+	m = updated.(model)
+	if !m.searchEditing {
+		t.Fatal("f did not enable searchEditing")
+	}
+
+	for _, r := range "ads" {
+		updated, _ = m.Update(keyMsg(string(r)))
+		m = updated.(model)
+	}
+	if m.searchText != "ads" {
+		t.Fatalf("searchText = %q, want ads", m.searchText)
+	}
+
+	rows := m.filteredTrafficConnections()
+	if len(rows) != 1 || rows[0].TargetHost != "ads.example.com" {
+		t.Fatalf("filtered rows = %+v", rows)
+	}
+
+	updated, _ = m.Update(keyMsg("enter"))
+	m = updated.(model)
+	if m.searchEditing {
+		t.Fatal("enter did not exit searchEditing")
+	}
+}
+
+func TestNetworkDetailConnCursorMovesAndClamps(t *testing.T) {
+	m := newModel("127.0.0.1:9090")
+	m.viewMode = viewModeNetwork
+	m.traffic.NetworkHierarchy = []appNodePayload{{Application: "curl", ConnCount: 3}}
+	m.traffic.Connections = []trafficConnectionPayload{
+		{Application: "curl", Target: "a:443"},
+		{Application: "curl", Target: "b:443"},
+		{Application: "curl", Target: "c:443"},
+	}
+
+	// Down twice moves cursor to index 2.
+	for i := 0; i < 2; i++ {
+		updated, _ := m.Update(keyMsg("J"))
+		m = updated.(model)
+	}
+	if m.netDetailConnIdx != 2 {
+		t.Fatalf("netDetailConnIdx = %d, want 2", m.netDetailConnIdx)
+	}
+
+	// Pressing down past the end clamps.
+	updated, _ := m.Update(keyMsg("J"))
+	m = updated.(model)
+	if m.netDetailConnIdx != 2 {
+		t.Fatalf("netDetailConnIdx after clamp = %d, want 2", m.netDetailConnIdx)
+	}
+
+	// Up moves back and never goes negative.
+	for i := 0; i < 5; i++ {
+		updated, _ = m.Update(keyMsg("K"))
+		m = updated.(model)
+	}
+	if m.netDetailConnIdx != 0 {
+		t.Fatalf("netDetailConnIdx after up clamp = %d, want 0", m.netDetailConnIdx)
+	}
+}
+
+func TestNetworkDetailConnCursorResetsOnNodeChange(t *testing.T) {
+	m := newModel("127.0.0.1:9090")
+	m.viewMode = viewModeNetwork
+	m.traffic.NetworkHierarchy = []appNodePayload{
+		{Application: "curl"},
+		{Application: "wget"},
+	}
+	m.traffic.Connections = []trafficConnectionPayload{
+		{Application: "curl", Target: "a:443"},
+		{Application: "curl", Target: "b:443"},
+	}
+	m.netDetailConnIdx = 1
+
+	updated, _ := m.Update(keyMsg("down"))
+	m = updated.(model)
+	if m.netTreeAppIdx != 1 {
+		t.Fatalf("netTreeAppIdx = %d, want 1", m.netTreeAppIdx)
+	}
+	if m.netDetailConnIdx != 0 {
+		t.Fatalf("netDetailConnIdx not reset on node change, got %d", m.netDetailConnIdx)
+	}
+}
+
+func TestClampNetDetailConnOnReload(t *testing.T) {
+	m := newModel("127.0.0.1:9090")
+	m.traffic.NetworkHierarchy = []appNodePayload{{Application: "curl"}}
+	m.traffic.Connections = []trafficConnectionPayload{{Application: "curl", Target: "a:443"}}
+	m.netDetailConnIdx = 5
+
+	m.clampNetDetailConn()
+	if m.netDetailConnIdx != 0 {
+		t.Fatalf("netDetailConnIdx = %d, want 0 after clamp", m.netDetailConnIdx)
+	}
+}
+
+func TestNetworkTwoColumnPadsByDisplayWidth(t *testing.T) {
+	// A multibyte string whose display width is 3 but byte length is larger.
+	left := "日本語" // 3 wide runes, 9 bytes
+	const target = 20
+	got := padRight(left, target)
+	if lipgloss.Width(got) != target {
+		t.Fatalf("padRight display width = %d, want %d", lipgloss.Width(got), target)
+	}
+}
+
 func keyMsg(key string) tea.KeyMsg {
 	switch key {
 	case "enter":
