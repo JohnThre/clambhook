@@ -48,6 +48,42 @@ final class RuleTesterTests: XCTestCase {
         XCTAssertEqual(response.decision.action, "block")
     }
 
+    func testRuleTesterMatchesNonByteAlignedCIDR() throws {
+        let response = try RuleTester.test(
+            network: "tcp",
+            target: "10.0.0.5:443",
+            profile: "A",
+            rules: [
+                RulePayload(name: "lan", action: "direct", cidrs: ["10.0.0.0/25"], networks: ["tcp"])
+            ],
+            chains: [
+                ChainPayload(name: "proxy", hopCount: 1, servers: [ServerPayload(name: "exit", address: "203.0.113.10:443", protocol: "trojan")])
+            ]
+        )
+
+        XCTAssertEqual(response.decision.ruleName, "lan")
+        XCTAssertEqual(response.decision.ruleNumber, 1)
+        XCTAssertEqual(response.decision.action, "direct")
+    }
+
+    func testRuleTesterExcludesTargetOutsideNonByteAlignedCIDR() throws {
+        let response = try RuleTester.test(
+            network: "tcp",
+            target: "10.0.0.200:443",
+            profile: "A",
+            rules: [
+                RulePayload(name: "lan", action: "direct", cidrs: ["10.0.0.0/25"], networks: ["tcp"])
+            ],
+            chains: [
+                ChainPayload(name: "proxy", hopCount: 1, servers: [ServerPayload(name: "exit", address: "203.0.113.10:443", protocol: "trojan")])
+            ]
+        )
+
+        XCTAssertTrue(response.decision.isDefault)
+        XCTAssertEqual(response.decision.action, "chain")
+        XCTAssertEqual(response.decision.chainName, "proxy")
+    }
+
     func testRuleTesterUsesDefaultChain() throws {
         let response = try RuleTester.test(
             network: "udp",

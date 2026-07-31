@@ -40,6 +40,12 @@ struct MacConnectionMapSection: View {
             }
         }
         .onChange(of: selectedID) { _, _ in focusSelection() }
+        .onChange(of: points) { _, newPoints in
+            let reconciled = newPoints.reconciledSelection(selectedID)
+            if reconciled != selectedID {
+                selectedID = reconciled
+            }
+        }
     }
 
     // MARK: Legend / stats bar

@@ -162,3 +162,16 @@ public extension TrafficSnapshotPayload {
             }
     }
 }
+
+public extension Array where Element == ConnectionMapPoint {
+    /// Keeps `selectedID` only while it still identifies a visible point.
+    /// When the map reloads and the previously selected location is gone,
+    /// returns `nil` so the view drops the stale selection instead of
+    /// focusing/highlighting a place that no longer exists.
+    func reconciledSelection(_ selectedID: String?) -> String? {
+        guard let selectedID, contains(where: { $0.id == selectedID }) else {
+            return nil
+        }
+        return selectedID
+    }
+}
