@@ -42,7 +42,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.clambhook.android.AppSettings
 import com.clambhook.android.DashboardViewModel
 import kotlinx.coroutines.launch
@@ -85,7 +85,7 @@ fun ClambhookApp(
         if (isSystemInDarkTheme()) androidx.compose.material3.darkColorScheme() else androidx.compose.material3.lightColorScheme()
     }
     var selectedTab by rememberSaveable { mutableStateOf(AppTab.Status) }
-    val state by viewModel.state.collectAsState()
+    val state by viewModel.uiState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     val snackbarScope = rememberCoroutineScope()
     val showMessage: (String) -> Unit = { message ->

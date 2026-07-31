@@ -69,11 +69,11 @@ import kotlin.math.max
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
 import kotlinx.coroutines.launch
@@ -150,7 +150,7 @@ private fun ProfileImportsCard(
     val clipboard = LocalClipboardManager.current
     val scope = rememberCoroutineScope()
     val manager = remember { ProfileImportManager(context) }
-    val importState by manager.state.collectAsState()
+    val importState by manager.state.collectAsStateWithLifecycle()
     var showUrlDialog by remember { mutableStateOf(false) }
     var urlText by remember { mutableStateOf("") }
 
@@ -214,7 +214,7 @@ private fun ProfileImportsCard(
                 )
             }
             OutlinedButton(onClick = onOpenSettings) {
-                Icon(Icons.Rounded.Settings, contentDescription = null)
+                Icon(Icons.Rounded.Settings, contentDescription = "Open Settings")
                 Spacer(Modifier.width(8.dp))
                 Text("Open Settings")
             }
@@ -780,13 +780,17 @@ private fun StatusCard(
                     onClick = if (state.status.running) onDisconnect else onConnect,
                     enabled = !state.isBusy && state.apiOnline
                 ) {
+                    val actionDescription = when {
+                        state.status.running -> "Disconnect"
+                        else -> "Connect"
+                    }
                     ButtonProgressOrIcon(
                         showProgress = state.actionInProgress == DashboardAction.Connect ||
                             state.actionInProgress == DashboardAction.Disconnect,
                         icon = {
                             Icon(
                                 if (state.status.running) Icons.Rounded.Stop else Icons.Rounded.PlayArrow,
-                                contentDescription = null
+                                contentDescription = actionDescription
                             )
                         }
                     )
@@ -933,6 +937,12 @@ private fun PolicyGroupSelectorRow(
                     onClick = { if (manual) onPolicyGroupSelected(group.name, chain) },
                     enabled = manual,
                     leadingIcon = {
+                        val chainStateDescription = when {
+                            isSelected -> "Selected"
+                            result?.healthy == true -> "Healthy"
+                            result == null -> "Pending"
+                            else -> "Unhealthy"
+                        }
                         Icon(
                             when {
                                 isSelected -> Icons.Rounded.CheckCircle
@@ -940,7 +950,7 @@ private fun PolicyGroupSelectorRow(
                                 result == null -> Icons.Rounded.Refresh
                                 else -> Icons.Rounded.Stop
                             },
-                            contentDescription = null,
+                            contentDescription = chainStateDescription,
                             modifier = Modifier.size(16.dp)
                         )
                     },
@@ -968,7 +978,7 @@ private fun PolicyCountPill(title: String, count: Int, imageVector: ImageVector,
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(imageVector, contentDescription = null, modifier = Modifier.size(16.dp))
+            Icon(imageVector, contentDescription = title, modifier = Modifier.size(16.dp))
             Spacer(Modifier.width(6.dp))
             Text(
                 "$title $count",
@@ -990,7 +1000,7 @@ private fun PolicyRouteRow(route: PolicySelectorRouteSummary) {
         Row(modifier = Modifier.weight(1f), verticalAlignment = Alignment.Top) {
             Icon(
                 Icons.Rounded.Dns,
-                contentDescription = null,
+                contentDescription = "Route",
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.size(20.dp)
             )
@@ -1030,6 +1040,12 @@ private fun PolicyHealthPill(route: PolicySelectorRouteSummary) {
         PolicySelectorHealthState.Pending -> Icons.Rounded.Refresh
         PolicySelectorHealthState.Fallback -> Icons.Rounded.Stop
     }
+    val healthDescription = when (route.healthState) {
+        PolicySelectorHealthState.Healthy -> "Healthy"
+        PolicySelectorHealthState.StaticRoute,
+        PolicySelectorHealthState.Pending -> "Pending"
+        PolicySelectorHealthState.Fallback -> "Fallback"
+    }
     Surface(
         modifier = Modifier.widthIn(max = 180.dp),
         shape = RoundedCornerShape(999.dp),
@@ -1040,7 +1056,7 @@ private fun PolicyHealthPill(route: PolicySelectorRouteSummary) {
             modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(icon, contentDescription = null, modifier = Modifier.size(15.dp))
+            Icon(icon, contentDescription = healthDescription, modifier = Modifier.size(15.dp))
             Spacer(Modifier.width(6.dp))
             Text(
                 route.healthText,
@@ -1065,6 +1081,11 @@ private fun PolicyGroupHealthPill(group: PolicyGroupPayload) {
         fallback -> Icons.Rounded.Stop
         else -> Icons.Rounded.CheckCircle
     }
+    val groupHealthDescription = when {
+        group.results.isEmpty() -> "Pending"
+        fallback -> "Fallback"
+        else -> "Healthy"
+    }
     Surface(
         modifier = Modifier.widthIn(max = 180.dp),
         shape = RoundedCornerShape(999.dp),
@@ -1075,7 +1096,7 @@ private fun PolicyGroupHealthPill(group: PolicyGroupPayload) {
             modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(icon, contentDescription = null, modifier = Modifier.size(15.dp))
+            Icon(icon, contentDescription = groupHealthDescription, modifier = Modifier.size(15.dp))
             Spacer(Modifier.width(6.dp))
             Text(
                 policyGroupHealthText(group),
@@ -1780,7 +1801,7 @@ private fun ListenersCard(listeners: List<ListenerStatusPayload>) {
                         AssistChip(
                             onClick = {},
                             label = { Text("${listener.protocol} ${listener.addr} (${listener.activeConns})") },
-                            leadingIcon = { Icon(Icons.Rounded.Dns, contentDescription = null) }
+                            leadingIcon = { Icon(Icons.Rounded.Dns, contentDescription = "Listener") }
                         )
                     }
                 }
@@ -1796,7 +1817,7 @@ private fun ServersCard(servers: ServersPayload, onOpenSettings: () -> Unit) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Text("Servers", style = MaterialTheme.typography.titleMedium)
                 OutlinedButton(onClick = onOpenSettings) {
-                    Icon(Icons.Rounded.Settings, contentDescription = null)
+                    Icon(Icons.Rounded.Settings, contentDescription = "Settings")
                     Spacer(Modifier.width(8.dp))
                     Text("Settings")
                 }

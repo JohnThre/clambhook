@@ -6,6 +6,7 @@ import android.net.Uri
 import android.os.Build
 import android.provider.Settings
 import androidx.core.content.FileProvider
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -18,6 +19,7 @@ import okhttp3.Request
 import java.io.File
 import java.security.MessageDigest
 import java.time.Instant
+import java.util.concurrent.TimeUnit
 
 /**
  * In-app sideload updater. Polls the store.clambercloud.com Android update
@@ -35,14 +37,18 @@ class UpdateManager(
 ) {
     private val appContext = context.applicationContext
     private val json = Json { ignoreUnknownKeys = true }
-    private val client = OkHttpClient()
+    private val client = OkHttpClient.Builder()
+        .connectTimeout(10, TimeUnit.SECONDS)
+        .readTimeout(30, TimeUnit.SECONDS)
+        .writeTimeout(30, TimeUnit.SECONDS)
+        .build()
 
     private val _state = MutableStateFlow(UpdateUiState())
     val state: StateFlow<UpdateUiState> = _state.asStateFlow()
 
     suspend fun check() = withContext(Dispatchers.IO) {
         _state.update { it.copy(checking = true, message = "", upToDate = false) }
-        try {
+        runCatching {
             val body = client.newCall(Request.Builder().url(MANIFEST_URL).build()).execute().use { resp ->
                 if (!resp.isSuccessful) {
                     // 503 means no APK/manifest is published yet.
@@ -77,9 +83,10 @@ class UpdateManager(
                     }
                 }
             }
-        } catch (error: Throwable) {
+        }.onFailure { error ->
+            if (error is CancellationException) throw error
             _state.update { it.copy(message = error.message ?: "Update check failed.") }
-        } finally {
+        }.also {
             _state.update { it.copy(checking = false) }
         }
     }
@@ -96,13 +103,14 @@ class UpdateManager(
             return@withContext
         }
         _state.update { it.copy(downloading = true, message = "") }
-        try {
+        runCatching {
             val apk = downloadVerified(update.manifest)
             launchInstall(apk)
-            _state.update { it.copy(message = "Opening installer for ${update.manifest.versionName}." ) }
-        } catch (error: Throwable) {
+            _state.update { it.copy(message = "Opening installer for ${update.manifest.versionName}.") }
+        }.onFailure { error ->
+            if (error is CancellationException) throw error
             _state.update { it.copy(message = error.message ?: "Update download failed.") }
-        } finally {
+        }.also {
             _state.update { it.copy(downloading = false) }
         }
     }

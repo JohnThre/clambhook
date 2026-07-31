@@ -282,17 +282,17 @@ class DashboardRepositoryTest {
     }
 }
 
-private open class FakeApi(
-    private val status: StatusPayload = StatusPayload(),
-    private val profiles: ProfilesPayload = ProfilesPayload(profiles = listOf("A", "B"), active = "A"),
-    private val servers: ServersPayload = ServersPayload(profile = "A"),
-    private val policyGroups: PolicyGroupsPayload = PolicyGroupsPayload(profile = "A"),
-    private var rules: RulesPayload = RulesPayload(profile = "A"),
-    private var ruleSets: RuleSetsPayload = RuleSetsPayload(profile = "A"),
-    private val traffic: TrafficSnapshotPayload = TrafficSnapshotPayload(),
-    private val conditioner: ConditionerPayload = ConditionerPayload(),
-    private val error: Throwable? = null,
-    private val actionError: Throwable? = null
+open class FakeApi(
+    val status: StatusPayload = StatusPayload(),
+    var profiles: ProfilesPayload = ProfilesPayload(profiles = listOf("A", "B"), active = "A"),
+    val servers: ServersPayload = ServersPayload(profile = "A"),
+    val policyGroups: PolicyGroupsPayload = PolicyGroupsPayload(profile = "A"),
+    var rules: RulesPayload = RulesPayload(profile = "A"),
+    var ruleSets: RuleSetsPayload = RuleSetsPayload(profile = "A"),
+    val traffic: TrafficSnapshotPayload = TrafficSnapshotPayload(),
+    val conditioner: ConditionerPayload = ConditionerPayload(),
+    val error: Throwable? = null,
+    val actionError: Throwable? = null
 ) : ClambhookApi {
     val actions = mutableListOf<String>()
     var statusCalls = 0

@@ -5,9 +5,9 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import java.io.Closeable
 
@@ -15,11 +15,14 @@ class DashboardViewModel(
     private val repository: DashboardRepository,
     private val eventStream: ClambhookEventStream?
 ) : ViewModel() {
-    val state: StateFlow<DashboardState> = repository.state.stateIn(
-        scope = viewModelScope,
-        started = SharingStarted.WhileSubscribed(5_000),
-        initialValue = repository.state.value
-    )
+    private val _uiState = MutableStateFlow(repository.state.value)
+    val uiState: StateFlow<DashboardState> = _uiState.asStateFlow()
+
+    init {
+        viewModelScope.launch {
+            repository.state.collect { _uiState.value = it }
+        }
+    }
 
     private var pollingJob: Job? = null
     private var eventStreamHandle: Closeable? = null
@@ -41,7 +44,7 @@ class DashboardViewModel(
     }
 
     fun selectPolicyGroup(group: String, chain: String) {
-        viewModelScope.launch { repository.selectPolicyGroup(state.value.activeProfile, group, chain) }
+        viewModelScope.launch { repository.selectPolicyGroup(uiState.value.activeProfile, group, chain) }
     }
 
     fun createRule(rule: RulePayload) {
