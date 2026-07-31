@@ -93,4 +93,14 @@ class UpdateManagerTest {
         assertFalse(isTrustedUpdateOrigin(""))
         assertFalse(isTrustedUpdateOrigin("not a url"))
     }
+
+    @Test
+    fun cancellationExceptionIsRethrownDuringCheck() {
+        val error = runCatching {
+            runCatching {
+                throw kotlin.coroutines.cancellation.CancellationException("cancelled")
+            }.onFailure { if (it is kotlin.coroutines.cancellation.CancellationException) throw it }
+        }.exceptionOrNull()
+        assertTrue(error is kotlin.coroutines.cancellation.CancellationException)
+    }
 }

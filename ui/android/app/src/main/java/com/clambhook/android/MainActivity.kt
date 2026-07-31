@@ -1,21 +1,21 @@
 package com.clambhook.android
 
-import android.os.Bundle
 import android.app.Activity
+import android.content.Intent
+import android.net.Uri
+import android.os.Bundle
 import androidx.activity.ComponentActivity
-import androidx.activity.compose.setContent
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
-import androidx.lifecycle.viewmodel.compose.viewModel
-import android.content.Intent
-import android.net.Uri
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
@@ -25,17 +25,18 @@ class MainActivity : ComponentActivity() {
         val settingsStore = DataStoreSettingsStore(this)
         val configStore = AndroidConfigStore(this)
         val configValidator = AndroidConfigValidator(this)
+        val licenseManager = LicenseManager(applicationContext)
+        val updateManager = UpdateManager(applicationContext) { millis ->
+            licenseManager.canInstallUpdate(millis)
+        }
 
         setContent {
-            val settings by settingsStore.settings.collectAsState(initial = AppSettings())
+            val settings by settingsStore.settings.collectAsStateWithLifecycle(initialValue = AppSettings())
             var configToml by remember { mutableStateOf(defaultAndroidConfigToml) }
-            val licenseManager = remember { LicenseManager(this@MainActivity) }
-            val licenseState by licenseManager.state.collectAsState()
+            val licenseState by licenseManager.state.collectAsStateWithLifecycle()
             val licenseScope = rememberCoroutineScope()
-            val updateManager = remember {
-                UpdateManager(this@MainActivity) { millis -> licenseManager.canInstallUpdate(millis) }
-            }
-            val updateState by updateManager.state.collectAsState()
+            val updateState by updateManager.state.collectAsStateWithLifecycle()
+            val appContext = applicationContext
             val openUrl: (String) -> Unit = { url ->
                 runCatching {
                     startActivity(
@@ -48,16 +49,16 @@ class MainActivity : ComponentActivity() {
                 ActivityResultContracts.StartActivityForResult()
             ) { result ->
                 if (result.resultCode == Activity.RESULT_OK) {
-                    ClambhookTunnelController.start(this@MainActivity)
+                    ClambhookTunnelController.start(appContext)
                 }
             }
             val startTunnel: () -> Unit = {
                 if (licenseState.decision.canUseApp) {
-                    val consent = ClambhookTunnelController.consentIntent(this@MainActivity)
+                    val consent = ClambhookTunnelController.consentIntent(appContext)
                     if (consent != null) {
                         vpnConsentLauncher.launch(consent)
                     } else {
-                        ClambhookTunnelController.start(this@MainActivity)
+                        ClambhookTunnelController.start(appContext)
                     }
                 }
             }
@@ -71,11 +72,11 @@ class MainActivity : ComponentActivity() {
                 if (licenseState.decision.canUseApp) {
                     startTunnel()
                 } else {
-                    ClambhookTunnelController.stop(this@MainActivity)
+                    ClambhookTunnelController.stop(appContext)
                 }
             }
 
-            val dashboardApi = remember { LocalTunnelApi(applicationContext) }
+            val dashboardApi = remember { LocalTunnelApi(appContext) }
             val viewModel: DashboardViewModel = viewModel(
                 key = "local-tunnel",
                 factory = DashboardViewModelFactory(dashboardApi, null)
@@ -112,7 +113,7 @@ class MainActivity : ComponentActivity() {
                     licenseScope.launch {
                         configToml = configStore.readConfig()
                         if (licenseState.decision.canUseApp) {
-                            ClambhookTunnelController.stop(this@MainActivity)
+                            ClambhookTunnelController.stop(appContext)
                             startTunnel()
                         }
                         viewModel.refresh()
