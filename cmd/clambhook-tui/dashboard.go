@@ -30,6 +30,9 @@ const (
 	defaultLogViewHeight = 24
 	refreshInterval      = 2 * time.Second
 	reconnectInterval    = 2 * time.Second
+	// netDetailConnLimit caps how many connections the Network detail pane renders
+	// and bounds the navigable detail connection cursor.
+	netDetailConnLimit = 6
 )
 
 var (
@@ -351,30 +354,43 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		}
-		switch msg.String() {
-		case "q", "ctrl+c":
+		// ctrl+c is always a hard quit, even while editing a text field.
+		if msg.String() == "ctrl+c" {
 			if m.cancelEvents != nil {
 				m.cancelEvents()
 			}
 			return m, tea.Quit
-		case "1":
-			m.viewMode = viewModeNow
-			return m, nil
-		case "2", "t":
-			m.viewMode = viewModeActivity
-			return m, nil
-		case "3", "l":
-			m.viewMode = viewModeLibrary
-			return m, nil
-		case "4", "s":
-			m.viewMode = viewModeSettings
-			return m, nil
-		case "5", "v":
-			m.viewMode = viewModeDeveloper
-			return m, m.loadDeveloperCmd()
-		case "6":
-			m.viewMode = viewModeNetwork
-			return m, nil
+		}
+		// While a text-input mode is active, skip the global view-switch/quit
+		// keys so typing q/1-6/t/l/v/s edits the field instead of navigating away.
+		inputActive := (m.viewMode == viewModeActivity && (m.filterEditing || m.searchEditing || m.ruleTestEditing)) ||
+			(m.viewMode == viewModeNetwork && (m.filterEditing || m.pendingRule != nil))
+		if !inputActive {
+			switch msg.String() {
+			case "q":
+				if m.cancelEvents != nil {
+					m.cancelEvents()
+				}
+				return m, tea.Quit
+			case "1":
+				m.viewMode = viewModeNow
+				return m, nil
+			case "2", "t":
+				m.viewMode = viewModeActivity
+				return m, nil
+			case "3", "l":
+				m.viewMode = viewModeLibrary
+				return m, nil
+			case "4", "s":
+				m.viewMode = viewModeSettings
+				return m, nil
+			case "5", "v":
+				m.viewMode = viewModeDeveloper
+				return m, m.loadDeveloperCmd()
+			case "6":
+				m.viewMode = viewModeNetwork
+				return m, nil
+			}
 		}
 		if m.viewMode == viewModeNetwork {
 			return m.updateNetworkView(msg)
@@ -630,6 +646,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.ruleTestEditing = true
 				m.ruleTestErr = ""
 				return m, nil
+			case "f":
+				m.searchEditing = true
+				m.suggestionFocus = false
+				m.cleanupFocus = false
+				return m, nil
 			}
 			return m, nil
 		}
@@ -747,6 +768,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.clampCleanupSelection()
 		m.clampSuggestionSelection()
 		m.clampDeveloperSelection()
+		m.clampNetDetailConn()
 		return m, nil
 	case statusLoadedMsg:
 		if msg.Err != nil {
@@ -764,6 +786,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.clampTrafficSelection()
 		m.clampCleanupSelection()
 		m.clampSuggestionSelection()
+		m.clampNetDetailConn()
 		return m, nil
 	case developerLoadedMsg:
 		if msg.Err != nil {
@@ -918,8 +941,8 @@ func (m model) activityView() string {
 		m.renderTrafficDetailSection(width),
 		m.renderLogsSection(width),
 		m.renderFooter(
-			"Keys: a all  b block  d direct  p proxy  / filter  x test route  tab focus  up/down select  enter/n rule  c cleanup  r refresh  1 now  3 library  6 network  q quit",
-			"Keys: a/b/d/p  / filter  x test  tab  up/down  enter/n rule  c clean  r  1 now  3 lib  6 net  q",
+			"Keys: a all  b block  d direct  p proxy  / filter  f search  x test route  tab focus  up/down select  enter/n rule  c cleanup  r refresh  1 now  3 library  6 network  q quit",
+			"Keys: a/b/d/p  / filter  f search  x test  tab  up/down  enter/n rule  c clean  r  1 now  3 lib  6 net  q",
 		),
 	)
 	return joinSections(sections)
@@ -3894,8 +3917,8 @@ func (m model) networkView() string {
 	sections = append(sections,
 		m.renderNetworkTreeSection(width),
 		m.renderFooter(
-			"Keys: up/down move  right/left expand/collapse  enter select  a/b/d action  / filter  r refresh  1 now  2 activity  3 library  q quit",
-			"Keys: up/down  right/left  enter  a/b/d  / filter  r  1 now  2 act  3 lib  q",
+			"Keys: up/down move  right/left expand/collapse  enter select  J/K conn cursor  a/b/d action  / filter  r refresh  1 now  2 activity  3 library  q quit",
+			"Keys: up/down  right/left  enter  J/K conn  a/b/d  / filter  r  1 now  2 act  3 lib  q",
 		),
 	)
 	return joinSections(sections)
@@ -3938,7 +3961,9 @@ func (m model) renderNetworkTreeSection(width int) string {
 		if i < len(detailLines) {
 			right = detailLines[i]
 		}
-		lines = append(lines, fmt.Sprintf("%-*s  %s", halfWidth, left, right))
+		// Pad by display width (not byte length) so multibyte tree lines keep
+		// the detail column aligned.
+		lines = append(lines, padRight(left, halfWidth)+"  "+right)
 	}
 
 	return renderSection("Network", lines)
@@ -4082,7 +4107,7 @@ func (m model) renderNetworkDetail(width int) []string {
 	conns := m.connectionsForNetworkNode()
 	if len(conns) > 0 {
 		lines = append(lines, "", tableHeaderStyle.Render("Connections"))
-		limit := minInt(6, len(conns))
+		limit := minInt(netDetailConnLimit, len(conns))
 		for i, conn := range conns[:limit] {
 			cursor := " "
 			if i == m.netDetailConnIdx {
@@ -4130,6 +4155,46 @@ func (m model) connectionsForNetworkNode() []trafficConnectionPayload {
 		result = append(result, conn)
 	}
 	return result
+}
+
+// netDetailConnCount returns the number of connections the detail pane can
+// navigate for the selected tree node, capped at the render limit.
+func (m model) netDetailConnCount() int {
+	return minInt(netDetailConnLimit, len(m.connectionsForNetworkNode()))
+}
+
+// clampNetDetailConn keeps netDetailConnIdx within the navigable range so that
+// data reloads with fewer connections never leave the cursor out of bounds.
+func (m *model) clampNetDetailConn() {
+	count := m.netDetailConnCount()
+	if count <= 0 {
+		m.netDetailConnIdx = 0
+		return
+	}
+	if m.netDetailConnIdx < 0 {
+		m.netDetailConnIdx = 0
+	}
+	if m.netDetailConnIdx >= count {
+		m.netDetailConnIdx = count - 1
+	}
+}
+
+// moveNetDetailConn moves the detail connection cursor by delta, clamped to the
+// navigable range.
+func (m *model) moveNetDetailConn(delta int) {
+	count := m.netDetailConnCount()
+	if count <= 0 {
+		m.netDetailConnIdx = 0
+		return
+	}
+	idx := m.netDetailConnIdx + delta
+	if idx < 0 {
+		idx = 0
+	}
+	if idx >= count {
+		idx = count - 1
+	}
+	m.netDetailConnIdx = idx
 }
 
 // updateNetworkView handles key events for the network view.
@@ -4204,6 +4269,12 @@ func (m model) updateNetworkView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.filterEditing = false
 		m.filterInput = ""
 		return m, nil
+	case "J":
+		m.moveNetDetailConn(1)
+		return m, nil
+	case "K":
+		m.moveNetDetailConn(-1)
+		return m, nil
 	case "up", "k":
 		if m.netTreeDepth == 0 {
 			if m.netTreeAppIdx > 0 {
@@ -4222,6 +4293,7 @@ func (m model) updateNetworkView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.netTreeDepth = 1
 			}
 		}
+		m.netDetailConnIdx = 0
 		return m, nil
 	case "down", "j":
 		if m.netTreeDepth == 0 {
@@ -4240,6 +4312,7 @@ func (m model) updateNetworkView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				}
 			}
 		}
+		m.netDetailConnIdx = 0
 		return m, nil
 	case "right", "enter":
 		if m.netTreeDepth == 0 && m.netTreeAppIdx < len(hierarchy) {
@@ -4262,6 +4335,7 @@ func (m model) updateNetworkView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		} else if msg.String() == "enter" {
 			return m.ruleDraftFromNetworkNode()
 		}
+		m.netDetailConnIdx = 0
 		return m, nil
 	case "left":
 		if m.netTreeDepth == 2 {
@@ -4275,6 +4349,7 @@ func (m model) updateNetworkView(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			m.netTreeDepth = 0
 		}
+		m.netDetailConnIdx = 0
 		return m, nil
 	case "b":
 		return m.ruleDraftFromNetworkNode("block")
