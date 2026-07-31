@@ -21,8 +21,13 @@ type ipRunner interface {
 
 type execIPRunner struct{}
 
+// ipCommand is the absolute path to the iproute2 `ip` binary, resolved once so
+// an attacker-influenced $PATH cannot redirect the privileged invocation to a
+// planted binary. Distros place it at /sbin/ip or /usr/sbin/ip.
+var ipCommand = resolveCommandPath("/sbin/ip", "/usr/sbin/ip", "/bin/ip", "/usr/bin/ip")
+
 func (execIPRunner) RunIP(ctx context.Context, args ...string) (string, error) {
-	cmd := exec.CommandContext(ctx, "ip", args...)
+	cmd := exec.CommandContext(ctx, ipCommand, args...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return string(out), fmt.Errorf("ip %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(string(out)))
@@ -218,6 +223,16 @@ func (m *linuxRouteManager) routeInfoForIP(ctx context.Context, ip netip.Addr) (
 	}
 	if info.dev == "" {
 		return routeInfo{}, fmt.Errorf("could not parse route dev from %q", strings.TrimSpace(out))
+	}
+	// Values come from `ip route get` output; validate them before they reach
+	// exec so a malformed token can never be interpreted as an option.
+	if !validIfaceName(info.dev) {
+		return routeInfo{}, fmt.Errorf("tun route: invalid dev %q parsed from route output", info.dev)
+	}
+	if info.via != "" {
+		if _, err := netip.ParseAddr(info.via); err != nil {
+			return routeInfo{}, fmt.Errorf("tun route: invalid via %q parsed from route output: %w", info.via, err)
+		}
 	}
 	return info, nil
 }

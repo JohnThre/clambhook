@@ -127,7 +127,7 @@ it comes only from the `-api-token` flag / `CLAMBHOOK_API_TOKEN` env
 
 ### DNS proxy & SSRF/remote-fetch (`internal/dnsproxy/`, `internal/subscription/`, `internal/ruleset/`)
 
-#### M-2 — DNS-rebinding TOCTOU in the remote-fetch SSRF guard · **Medium · Report-only**
+#### M-2 — DNS-rebinding TOCTOU in the remote-fetch SSRF guard · **Medium · Fixed**
 
 - **Locations:** `internal/subscription/redirect.go:65,129`
   (`ValidatePublicHTTPURL` resolves the host, checks the IP is public, then
@@ -147,7 +147,7 @@ it comes only from the `-api-token` flag / `CLAMBHOOK_API_TOKEN` env
   IP against the unsafe-address predicate on every dial (initial + redirects);
   share one hardened transport across all three callers.
 
-#### L-1 — DNS responses accepted without transaction-ID / question validation · **Low · Report-only**
+#### L-1 — DNS responses accepted without transaction-ID / question validation · **Low · Fixed**
 
 - **Locations:** DoH `internal/dnsproxy/proxy.go:418,442`, DoT `:479,496`,
   DoQ `:537,550`.
@@ -177,7 +177,7 @@ network value (addresses, routes, exclude CIDRs, DNS, OpenVPN PUSH_REPLY fields)
 is `netip`-parsed and re-serialized to a canonical form before reaching `exec`,
 structurally preventing command and leading-`-` argument injection.
 
-#### M-3 — Privileged network commands invoked via PATH-resolved binary · **Medium · Report-only**
+#### M-3 — Privileged network commands invoked via PATH-resolved binary · **Medium · Fixed**
 
 - **Locations:** `internal/listener/tun_route_linux.go:25` (`ip`),
   `internal/netwatch/watcher_darwin.go:27` (`scutil`), `:75` (`networksetup`),
@@ -192,7 +192,7 @@ structurally preventing command and leading-`-` argument injection.
   `/usr/sbin/scutil`, `/usr/sbin/networksetup`, `/usr/sbin/ipconfig`) or pin a
   trusted `PATH`/`exec.LookPath` search list.
 
-#### L-2 — A few privileged exec arguments lack `netip` validation / `--` guard · **Low · Report-only**
+#### L-2 — A few privileged exec arguments lack `netip` validation / `--` guard · **Low · Fixed**
 
 - **Locations:** `internal/listener/tun_route_linux.go:273,276`
   (`via`/`dev` from `ip route get` output), `tun_route_darwin.go:332`

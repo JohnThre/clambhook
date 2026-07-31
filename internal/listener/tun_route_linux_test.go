@@ -4,6 +4,8 @@ package listener
 
 import (
 	"context"
+	"net/netip"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -74,5 +76,55 @@ func TestLinuxRouteManagerSetupAndCleanupCommands(t *testing.T) {
 	}
 	if !reflect.DeepEqual(runner.commands, want) {
 		t.Fatalf("commands mismatch\n got: %#v\nwant: %#v", runner.commands, want)
+	}
+}
+
+func TestIPCommandIsAbsolute(t *testing.T) {
+	// The privileged `ip` binary must be invoked by absolute path so an
+	// attacker-influenced $PATH cannot redirect it to a planted binary.
+	if !filepath.IsAbs(ipCommand) {
+		t.Fatalf("ipCommand = %q, want an absolute path", ipCommand)
+	}
+}
+
+type staticIPRunner struct{ out string }
+
+func (s staticIPRunner) RunIP(context.Context, ...string) (string, error) {
+	return s.out, nil
+}
+
+func TestRouteInfoForIPValidatesParsedFields(t *testing.T) {
+	cases := []struct {
+		name    string
+		out     string
+		wantErr bool
+	}{
+		{
+			name: "valid via and dev",
+			out:  "203.0.113.10 via 192.0.2.1 dev eth0 src 192.0.2.55\n",
+		},
+		{
+			name:    "option-like dev rejected",
+			out:     "203.0.113.10 via 192.0.2.1 dev -foo\n",
+			wantErr: true,
+		},
+		{
+			name:    "non-ip via rejected",
+			out:     "203.0.113.10 via not-an-ip dev eth0\n",
+			wantErr: true,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			mgr := newLinuxRouteManager("clambhook0", 1400, TUNOptions{}, nil)
+			mgr.runner = staticIPRunner{out: tc.out}
+			_, err := mgr.routeInfoForIP(context.Background(), netip.MustParseAddr("203.0.113.10"))
+			if tc.wantErr && err == nil {
+				t.Fatalf("routeInfoForIP(%q) = nil error, want rejection", tc.out)
+			}
+			if !tc.wantErr && err != nil {
+				t.Fatalf("routeInfoForIP(%q) = %v, want nil", tc.out, err)
+			}
+		})
 	}
 }

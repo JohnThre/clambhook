@@ -303,6 +303,9 @@ func (m *darwinRouteManager) hasIPv6DefaultRoute(ctx context.Context) bool {
 }
 
 func (m *darwinRouteManager) addTUNRoute(ctx context.Context, prefix string) error {
+	if !validIfaceName(m.ifName) {
+		return fmt.Errorf("tun route: invalid interface name %q", m.ifName)
+	}
 	args, err := routePrefixArgs("add", prefix)
 	if err != nil {
 		return err
@@ -329,6 +332,10 @@ func (m *darwinRouteManager) addDirectRoute(ctx context.Context, prefix string, 
 		args = append(args, info.gateway)
 		undo = append(undo, info.gateway)
 	} else if info.ifName != "" {
+		// info.ifName comes from `route -n get` output; validate before exec.
+		if !validIfaceName(info.ifName) {
+			return fmt.Errorf("tun route: invalid interface %q parsed from route output", info.ifName)
+		}
 		args = append(args, "-interface", info.ifName)
 		undo = append(undo, "-interface", info.ifName)
 	} else {
