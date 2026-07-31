@@ -151,7 +151,7 @@ public enum RuleTester {
         if remainingBits == 0 {
             return true
         }
-        let mask = UInt8(0xff << UInt8(8 - remainingBits))
+        let mask = UInt8(0xff) << UInt8(8 - remainingBits)
         return (value[fullBytes] & mask) == (prefix[fullBytes] & mask)
     }
 

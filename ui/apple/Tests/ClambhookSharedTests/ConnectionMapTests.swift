@@ -92,4 +92,16 @@ final class ConnectionMapTests: XCTestCase {
         XCTAssertFalse(LocationPayload(latitude: 0, longitude: 0).hasPlottableCoordinate)
         XCTAssertTrue(LocationPayload(latitude: 48.85, longitude: 2.35).hasPlottableCoordinate)
     }
+
+    func testReconciledSelectionDropsVanishedLocation() {
+        let points = [
+            ConnectionMapPoint(id: "JP/tokyo", latitude: 35.6, longitude: 139.7),
+            ConnectionMapPoint(id: "DE/berlin", latitude: 52, longitude: 13),
+        ]
+
+        XCTAssertEqual(points.reconciledSelection("JP/tokyo"), "JP/tokyo")
+        XCTAssertNil(points.reconciledSelection("US/newyork"))
+        XCTAssertNil(points.reconciledSelection(nil))
+        XCTAssertNil([ConnectionMapPoint]().reconciledSelection("JP/tokyo"))
+    }
 }

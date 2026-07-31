@@ -648,12 +648,12 @@ final class LicensingTests: XCTestCase {
         let fullState = MobileLicenseDeviceState(
             currentInstallID: "install-1",
             currentDeviceID: "device-1",
-            devices: [deactivatedCurrent] + (2...11).map { licenseDevice(id: "device-\($0)", installID: "install-\($0)") }
+            devices: [deactivatedCurrent] + (2...4).map { licenseDevice(id: "device-\($0)", installID: "install-\($0)") }
         )
         let availableState = MobileLicenseDeviceState(
             currentInstallID: "install-1",
             currentDeviceID: "device-1",
-            devices: [deactivatedCurrent] + (2...10).map { licenseDevice(id: "device-\($0)", installID: "install-\($0)") }
+            devices: [deactivatedCurrent] + (2...3).map { licenseDevice(id: "device-\($0)", installID: "install-\($0)") }
         )
 
         XCTAssertFalse(fullState.canReactivateCurrentDevice)
