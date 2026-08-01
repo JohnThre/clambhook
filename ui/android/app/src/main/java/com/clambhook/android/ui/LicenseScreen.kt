@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -26,6 +27,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.res.stringResource
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -67,6 +69,23 @@ fun LicenseScreen(
         UpdatesCard(updateState, onCheckUpdates, onInstallUpdate, onOpenUrl, buyUrl)
         ActivationCard(state, onActivate)
         DeviceSeatsCard(state, onDeactivate, onReactivate, onTransfer, onOpenUrl, portalUrl)
+        LegalFooter()
+    }
+}
+
+/** Non-intrusive legal footer shown at the bottom of the license screen. */
+@Composable
+private fun LegalFooter() {
+    val copyright = stringResource(R.string.legal_copyright)
+    val confidential = stringResource(R.string.legal_confidential)
+    val supportEmail = stringResource(R.string.legal_support_email)
+    SelectionContainer {
+        Text(
+            text = "$copyright\n$confidential $supportEmail",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 8.dp),
+        )
     }
 }
 

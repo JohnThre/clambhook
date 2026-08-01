@@ -23,6 +23,8 @@ struct MacLicenseSectionInline: View {
                 ProductStatePanel(decision: model.licenseManager.decision)
                 Divider()
                 MacLicenseControls(manager: model.licenseManager)
+                Divider()
+                LegalFooter()
             }
             .padding(20)
         }
