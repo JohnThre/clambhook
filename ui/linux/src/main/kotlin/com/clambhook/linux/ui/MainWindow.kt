@@ -600,6 +600,18 @@ private fun LicensePage(vm: MainViewModel, licenseState: LicenseManagerState) {
 }
 
 @Composable
+private fun LegalFooter() {
+    SelectionContainer {
+        Text(
+            text = "© 2025 Pengfan Chang. All rights reserved. Confidential and proprietary. support@swiphtgroup.com",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 12.dp),
+        )
+    }
+}
+
+@Composable
 private fun SettingsDialog(vm: MainViewModel, settings: AppSettings, token: String, onDismiss: () -> Unit) {
     var apiEndpoint by remember { mutableStateOf(settings.apiEndpoint) }
     var tokenText by remember { mutableStateOf(token) }
@@ -626,6 +638,7 @@ private fun SettingsDialog(vm: MainViewModel, settings: AppSettings, token: Stri
                 Row(verticalAlignment = Alignment.CenterVertically) { Checkbox(checked = launchOnStart, onCheckedChange = { launchOnStart = it }); Text("Launch daemon on start") }
                 Row(verticalAlignment = Alignment.CenterVertically) { Checkbox(checked = stopOnExit, onCheckedChange = { stopOnExit = it }); Text("Stop daemon on quit") }
                 Row(verticalAlignment = Alignment.CenterVertically) { Checkbox(checked = eventsEnabled, onCheckedChange = { eventsEnabled = it }); Text("Enable event stream") }
+                LegalFooter()
             }
         },
         confirmButton = {
