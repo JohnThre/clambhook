@@ -6,20 +6,31 @@ import kotlinx.coroutines.*
 import okhttp3.*
 import java.util.concurrent.atomic.AtomicInteger
 
-class EventStreamClient {
+interface EventStream {
+    var onEvent: ((DaemonEvent) -> Unit)?
+    var onFailed: ((String) -> Unit)?
+    var onClosed: (() -> Unit)?
+    fun start(uri: String, authorization: String)
+    fun stop()
+}
+
+class EventStreamClient : EventStream {
     private val generation = AtomicInteger(0)
     private var client: OkHttpClient? = null
     private var webSocket: WebSocket? = null
 
-    var onEvent: ((DaemonEvent) -> Unit)? = null
-    var onFailed: ((String) -> Unit)? = null
-    var onClosed: (() -> Unit)? = null
+    override var onEvent: ((DaemonEvent) -> Unit)? = null
+    override var onFailed: ((String) -> Unit)? = null
+    override var onClosed: (() -> Unit)? = null
 
-    fun start(uri: String, authorization: String) {
+    override fun start(uri: String, authorization: String) {
         stop()
         generation.incrementAndGet()
         val gen = generation.get()
-        val httpClient = OkHttpClient()
+        val httpClient = OkHttpClient.Builder()
+            .readTimeout(45, java.util.concurrent.TimeUnit.SECONDS)
+            .pingInterval(30, java.util.concurrent.TimeUnit.SECONDS)
+            .build()
         client = httpClient
         val request = Request.Builder().url(uri)
         if (authorization.isNotEmpty()) request.header("Authorization", authorization)
@@ -30,7 +41,7 @@ class EventStreamClient {
                     val event = ApiJson.decodeFromString(DaemonEvent.serializer(), text)
                     if (event.type.isNotEmpty()) onEvent?.invoke(event)
                 } catch (e: Exception) {
-                    // ignore malformed frames
+                    onFailed?.invoke("malformed event frame: ${e.message ?: e.javaClass.simpleName}")
                 }
             }
 
@@ -46,11 +57,11 @@ class EventStreamClient {
         })
     }
 
-    fun stop() {
+    override fun stop() {
         generation.incrementAndGet()
-        webSocket?.close(1000, null)
+        webSocket?.cancel()
         webSocket = null
-        client?.dispatcher?.executorService?.shutdown()
+        client?.dispatcher?.executorService?.shutdownNow()
         client = null
     }
 }

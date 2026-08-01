@@ -1,5 +1,7 @@
 package com.clambhook.linux.license
 
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.*
@@ -168,22 +170,35 @@ class SecretLicenseKeyVault : LicenseKeyVault {
     }
 }
 
-class LicenseHelperClient(private val helperPath: String) {
-    suspend fun call(command: String, request: JsonObject): String {
+open class LicenseHelperClient(private val helperPath: String) {
+    open suspend fun call(command: String, request: JsonObject): String {
         if (helperPath.trim().isEmpty()) throw IllegalStateException("clambhook-license helper was not found")
         val process = ProcessBuilder(helperPath).start()
-        val requestStr = request.toString()
-        process.outputStream.use { it.write(requestStr.toByteArray()); it.flush() }
-        val stdout = process.inputStream.bufferedReader().readText()
-        val stderr = process.errorStream.bufferedReader().readText()
-        process.waitFor()
-        if (process.exitValue() != 0) throw IllegalStateException(stderr.ifEmpty { "clambhook-license failed" })
-        val response = ApiJson.parseToJsonElement(stdout).jsonObject
-        if (!response["ok"]?.jsonPrimitive?.booleanOrNull!!) {
-            val message = response["error"]?.jsonPrimitive?.content ?: ""
-            throw IllegalStateException(message.ifEmpty { "$command failed" })
+        try {
+            val requestStr = request.toString()
+            withContext(kotlinx.coroutines.Dispatchers.IO) {
+                process.outputStream.use { it.write(requestStr.toByteArray()); it.flush() }
+            }
+            val timeoutMs = 5_000L
+            if (!process.waitFor(timeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS)) {
+                process.destroy()
+                process.waitFor(2, java.util.concurrent.TimeUnit.SECONDS)
+                process.destroyForcibly()
+                throw IllegalStateException("clambhook-license helper timed out")
+            }
+            val stdout = withContext(kotlinx.coroutines.Dispatchers.IO) { process.inputStream.bufferedReader().readText() }
+            val stderr = withContext(kotlinx.coroutines.Dispatchers.IO) { process.errorStream.bufferedReader().readText() }
+            if (process.exitValue() != 0) throw IllegalStateException(stderr.ifEmpty { "clambhook-license failed" })
+            val response = ApiJson.parseToJsonElement(stdout).jsonObject
+            if (response["ok"]?.jsonPrimitive?.booleanOrNull != true) {
+                val message = response["error"]?.jsonPrimitive?.content ?: ""
+                throw IllegalStateException(message.ifEmpty { "$command failed" })
+            }
+            return response["result"]?.jsonPrimitive?.content ?: ""
+        } catch (e: Exception) {
+            process.destroyForcibly()
+            throw e
         }
-        return response["result"]?.jsonPrimitive?.content ?: ""
     }
 
     companion object {

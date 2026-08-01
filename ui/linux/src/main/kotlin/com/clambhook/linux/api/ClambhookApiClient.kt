@@ -44,26 +44,33 @@ interface ClambhookApi {
     suspend fun repeatDeveloperEntry(id: String): DeveloperEntryPayload
     suspend fun conditioner(profile: String = ""): ConditionerPayload
     suspend fun updateConditioner(request: ConditionerUpdateRequest): ConditionerPayload
-
     fun eventsUri(): String
     fun authorizationHeader(): String
     fun configureBaseUrl(baseUrl: String)
 }
 
 class ClambhookApiClient(
-    private var baseUrl: String,
+    baseUrl: String,
     private val tokenProvider: () -> String
 ) : ClambhookApi {
     private val client = OkHttpClient()
+    private val baseUrlRef = java.util.concurrent.atomic.AtomicReference(normalizeBaseUrl(baseUrl))
+    private val baseUrl: String get() = baseUrlRef.get()
 
-    init { baseUrl = normalizeBaseUrl(baseUrl) }
+    init { baseUrlRef.set(normalizeBaseUrl(baseUrl)) }
 
-    override fun configureBaseUrl(baseUrl: String) { this.baseUrl = normalizeBaseUrl(baseUrl) }
+    override fun configureBaseUrl(baseUrl: String) { baseUrlRef.set(normalizeBaseUrl(baseUrl)) }
 
     override fun eventsUri(): String {
-        val scheme = if (baseUrl.startsWith("https://")) "wss://" else "ws://"
-        val hostAndPath = baseUrl.replace("https://", "").replace("http://", "")
-        return "$scheme$hostAndPath/api/v1/events?types=connection.*,rule.*,hop.*,log.*"
+        val current = baseUrlRef.get()
+        val scheme = if (current.startsWith("https://")) "wss://" else "ws://"
+        val authorityAndPath = current.replace("https://", "").replace("http://", "")
+        val uri = URI.create("http://$authorityAndPath")
+        val host = if (uri.host == null) authorityAndPath else uri.host
+        val port = uri.port
+        val portPart = if (port == -1) "" else ":$port"
+        val path = uri.path?.trim('/')?.let { if (it.isEmpty()) "" else "/$it" } ?: ""
+        return "$scheme$host$portPart$path/api/v1/events?types=connection.*,rule.*,hop.*,log.*"
     }
 
     override fun authorizationHeader(): String {

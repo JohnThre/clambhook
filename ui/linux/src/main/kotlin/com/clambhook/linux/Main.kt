@@ -22,9 +22,9 @@ fun main() {
     val helper = LicenseHelperClient(helperPath)
     val license = LicenseManager(licenseStateStore, licenseKeyVault, helper)
 
-    var apiToken = ""
+    val apiTokenRef = java.util.concurrent.atomic.AtomicReference("")
     val settings = settingsStore.load().normalized()
-    val client = ClambhookApiClient(settings.apiEndpoint) { apiToken }
+    val client = ClambhookApiClient(settings.apiEndpoint) { apiTokenRef.get() }
     val store = DashboardStore(client, settings.logRetention)
 
     val viewModel = MainViewModel(
@@ -35,7 +35,7 @@ fun main() {
         daemon = daemon,
         license = license,
         initialSettings = settings,
-        onTokenLoaded = { apiToken = it }
+        apiTokenRef = apiTokenRef
     )
 
     application {

@@ -39,7 +39,18 @@ fun AppSettings.normalized(): AppSettings = copy(
 fun isSupportedApiEndpoint(value: String): Boolean {
     val normalized = normalizeEndpoint(value)
     val isHttp = normalized.startsWith("http://") || normalized.startsWith("https://")
-    return isHttp && apiListenAddress(normalized) != normalized
+    if (!isHttp) return false
+    return try {
+        val noScheme = normalized.substringAfter("://")
+        noScheme.isNotBlank() && noScheme.none { it == '/' || it == '?' || it == '#' }
+    } catch (e: Exception) {
+        false
+    }
+}
+
+fun hasApiEndpointPath(value: String): Boolean {
+    val normalized = normalizeEndpoint(value)
+    return normalized.substringAfter("://", "").let { it.isNotBlank() && it.any { ch -> ch == '/' || ch == '?' || ch == '#' } }
 }
 
 private fun normalizeEndpoint(value: String): String {
@@ -50,37 +61,34 @@ private fun normalizeEndpoint(value: String): String {
     return result
 }
 
-private fun apiListenAddress(endpoint: String): String {
-    // Parse scheme://host:port -> host:port for the daemon listen address.
-    return try {
-        val noScheme = endpoint.substringAfter("://")
-        noScheme
-    } catch (e: Exception) {
-        endpoint
-    }
-}
-
 interface SettingsStore {
     fun load(): AppSettings
     fun save(settings: AppSettings)
+    fun current(): AppSettings
 }
 
-class FileSettingsStore(private val path: Path = defaultSettingsPath()) : SettingsStore {
+open class FileSettingsStore(private val path: Path = defaultSettingsPath()) : SettingsStore {
+    private var cached: AppSettings = AppSettings()
     override fun load(): AppSettings = try {
-        if (Files.exists(path)) {
+        val loaded = if (Files.exists(path)) {
             settingsJson.decodeFromString(AppSettings.serializer(), Files.readString(path)).normalized()
         } else {
             AppSettings()
         }
+        cached = loaded
+        loaded
     } catch (e: Exception) {
         AppSettings()
     }
 
     override fun save(settings: AppSettings) {
         val normalized = settings.normalized()
+        cached = normalized
         Files.createDirectories(path.parent)
         Files.writeString(path, settingsJson.encodeToString(AppSettings.serializer(), normalized))
     }
+
+    override fun current(): AppSettings = cached
 
     companion object {
         fun defaultSettingsPath(): Path =
