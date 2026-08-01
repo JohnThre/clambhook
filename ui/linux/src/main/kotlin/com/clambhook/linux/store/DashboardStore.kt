@@ -146,14 +146,18 @@ class DashboardStore(
         val txDelta = event.doubleData("tx_delta")
         val rxBps = rxDelta / seconds
         val txBps = txDelta / seconds
+        val previous = _state.value.traffic.connections.firstOrNull { it.connId == connId }
+        if (previous == null) return
         val connections = _state.value.traffic.connections.map { c ->
             if (c.connId != connId) c else c.copy(rxBps = rxBps, txBps = txBps,
                 rxTotal = c.rxTotal + rxDelta.toULong(), txTotal = c.txTotal + txDelta.toULong())
         }
         val summary = _state.value.traffic.summary
+        val totalRxBps = connections.sumOf { it.rxBps }
+        val totalTxBps = connections.sumOf { it.txBps }
         val updatedSummary = summary.copy(
-            rxBps = summary.rxBps + rxBps,
-            txBps = summary.txBps + txBps,
+            rxBps = totalRxBps,
+            txBps = totalTxBps,
             rxTotal = summary.rxTotal + rxDelta.toULong(),
             txTotal = summary.txTotal + txDelta.toULong()
         )

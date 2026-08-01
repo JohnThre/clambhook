@@ -251,14 +251,14 @@ private fun LibraryPage(state: DashboardState) {
 private fun PoliciesPage(vm: MainViewModel) {
     var payload by remember { mutableStateOf<PolicyGroupsPayload?>(null) }
     var status by remember { mutableStateOf("Manual select and url-test policy groups from the active profile.") }
-    LaunchedEffect(Unit) { try { payload = vm.client.policyGroups() } catch (e: Exception) { status = "Policy groups unavailable: ${e.message}" } }
     val scope = rememberCoroutineScope()
+    LaunchedEffect(Unit) { try { payload = vm.loadPolicyGroups() } catch (e: Exception) { status = "Policy groups unavailable: ${e.message}" } }
     Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("Policy groups", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
             OutlinedButton(onClick = {
                 status = "Running latency test..."
-                vm.scope.launch { try { payload = vm.client.testPolicyGroups(""); status = "Latency test complete." } catch (e: Exception) { status = "Latency test failed: ${e.message}" } }
+                scope.launch { try { payload = vm.testPolicyGroups(""); status = "Latency test complete." } catch (e: Exception) { status = "Latency test failed: ${e.message}" } }
             }) { Text("Latency test") }
         }
         Text(status, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -287,7 +287,7 @@ private fun PolicyGroupRow(group: PolicyGroupPayload, vm: MainViewModel, onStatu
                                 selected = chain; expanded = false
                                 if (chain != group.activeChain()) {
                                     onStatus("Selecting ${group.name} → $chain...")
-                                    vm.scope.launch { try { vm.client.selectPolicyGroup(group.name, chain); onStatus("$group.name now uses $chain.") } catch (e: Exception) { onStatus("Selection failed: ${e.message}") } }
+                                    scope.launch { try { vm.selectPolicyGroup(group.name, chain); onStatus("${group.name} now uses $chain.") } catch (e: Exception) { onStatus("Selection failed: ${e.message}") } }
                                 }
                             }, text = { Text(chain) })
                         }
@@ -314,7 +314,7 @@ private fun FirewallPage(vm: MainViewModel) {
     var payload by remember { mutableStateOf<PromptsPayload?>(null) }
     var status by remember { mutableStateOf("Allow or block connections that no rule already decides.") }
     var matchHost by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) { try { payload = vm.client.pendingPrompts() } catch (e: Exception) { status = "Prompts unavailable: ${e.message}" } }
+    LaunchedEffect(Unit) { try { payload = vm.loadPendingPrompts() } catch (e: Exception) { status = "Prompts unavailable: ${e.message}" } }
     Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
         Text("Connection prompts", style = MaterialTheme.typography.titleMedium)
         Text(status, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -350,7 +350,7 @@ private fun FirewallPage(vm: MainViewModel) {
 private fun DnsPage(vm: MainViewModel) {
     var payload by remember { mutableStateOf<DnsPayload?>(null) }
     var status by remember { mutableStateOf("DNS strategy for the active profile.") }
-    LaunchedEffect(Unit) { try { payload = vm.client.dns() } catch (e: Exception) { status = "DNS status unavailable: ${e.message}" } }
+    LaunchedEffect(Unit) { try { payload = vm.loadDns() } catch (e: Exception) { status = "DNS status unavailable: ${e.message}" } }
     Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
         Text("Encrypted DNS", style = MaterialTheme.typography.titleMedium)
         Text(status, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -391,16 +391,16 @@ private fun CapturePage(vm: MainViewModel) {
     var entries by remember { mutableStateOf<List<DeveloperEntryPayload>>(emptyList()) }
     var selectedEntry by remember { mutableStateOf<DeveloperEntryPayload?>(null) }
     var message by remember { mutableStateOf("Opt-in local capture of traffic routed through the daemon HTTP proxy.") }
-    LaunchedEffect(Unit) { try { status = vm.client.developerStatus() } catch (e: Exception) { message = "Capture status unavailable: ${e.message}" } }
+    LaunchedEffect(Unit) { try { status = vm.loadCaptureStatus() } catch (e: Exception) { message = "Capture status unavailable: ${e.message}" } }
     LaunchedEffect(status?.enabled) {
-        if (status?.enabled == true) { try { entries = vm.client.developerEntries() } catch (e: Exception) { message = "Could not load captures: ${e.message}" } }
+        if (status?.enabled == true) { try { entries = vm.loadCaptureEntries() } catch (e: Exception) { message = "Could not load captures: ${e.message}" } }
     }
     Column(modifier = Modifier.fillMaxSize()) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("HTTP(S) capture", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
             Button(onClick = {
-                vm.scope.launch {
-                    try { status = vm.client.setDeveloperCapture(!(status?.enabled ?: false)) } catch (e: Exception) { message = "Could not update capture: ${e.message}" }
+                scope.launch {
+                    try { status = vm.setCaptureEnabled(!(status?.enabled ?: false)) } catch (e: Exception) { message = "Could not update capture: ${e.message}" }
                 }
             }) { Text(if (status?.enabled == true) "Disable capture" else "Enable capture") }
         }
@@ -552,7 +552,7 @@ private fun ConditionerPage(vm: MainViewModel) {
 @Composable
 private fun LicensePage(vm: MainViewModel, licenseState: LicenseManagerState) {
     var key by remember { mutableStateOf("") }
-    var email by remember { mutableStateOf(licenseState.email) }
+    var email by remember(licenseState.email) { mutableStateOf(licenseState.email) }
     Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
         Text("License", style = MaterialTheme.typography.titleMedium)
         Card(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {

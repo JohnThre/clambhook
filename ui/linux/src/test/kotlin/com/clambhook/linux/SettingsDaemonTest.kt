@@ -26,8 +26,12 @@ class SettingsDaemonTest {
         assertEquals(2, normalized.refreshIntervalSeconds)
         assertEquals(MIN_LOG_RETENTION, normalized.logRetention)
         assertEquals("/usr/local/bin/clambhook", normalized.daemonPath)
-        assertTrue(isSupportedApiEndpoint("https://proxy.example.test:9443/"))
+        assertTrue(isSupportedApiEndpoint("https://proxy.example.test:9443"))
         assertFalse(isSupportedApiEndpoint("ftp://proxy.example.test"))
+        assertFalse(isSupportedApiEndpoint("https://proxy.example.test:9443/api"))
+        assertTrue(isSupportedApiEndpoint("https://proxy.example.test:9443/"))
+        assertTrue(hasApiEndpointPath("https://proxy.example.test:9443/api"))
+        assertFalse(hasApiEndpointPath("https://proxy.example.test:9443"))
     }
 
     @Test

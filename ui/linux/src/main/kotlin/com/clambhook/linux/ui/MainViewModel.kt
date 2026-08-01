@@ -1,5 +1,6 @@
 package com.clambhook.linux.ui
 
+import com.clambhook.linux.api.ClambhookApi
 import com.clambhook.linux.api.ClambhookApiClient
 import com.clambhook.linux.daemon.DaemonSupervisor
 import com.clambhook.linux.license.LicenseManager
@@ -8,10 +9,16 @@ import com.clambhook.linux.settings.FileSettingsStore
 import com.clambhook.linux.settings.TokenVault
 import com.clambhook.linux.settings.normalized
 import com.clambhook.linux.store.DashboardStore
+import com.clambhook.linux.event.EventStream
 import com.clambhook.linux.event.EventStreamClient
 import com.clambhook.linux.model.ConditionerPayload
 import com.clambhook.linux.model.ConditionerUpdateRequest
 import com.clambhook.linux.model.DaemonEvent
+import com.clambhook.linux.model.PolicyGroupsPayload
+import com.clambhook.linux.model.PromptsPayload
+import com.clambhook.linux.model.DnsPayload
+import com.clambhook.linux.model.DeveloperStatusPayload
+import com.clambhook.linux.model.DeveloperEntryPayload
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -22,39 +29,52 @@ import java.net.URI
 
 class MainViewModel(
     val store: DashboardStore,
-    val client: ClambhookApiClient,
+    val client: ClambhookApi,
     val settingsStore: FileSettingsStore,
     val tokenVault: TokenVault,
     val daemon: DaemonSupervisor,
     val license: LicenseManager,
     initialSettings: AppSettings,
-    private val onTokenLoaded: (String) -> Unit
+    private val apiTokenRef: java.util.concurrent.atomic.AtomicReference<String>,
+    eventStream: EventStream = EventStreamClient(),
+    dispatcher: CoroutineDispatcher = Dispatchers.Default
 ) {
-    val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-    private val eventStream = EventStreamClient()
+    internal val scope = CoroutineScope(SupervisorJob() + dispatcher)
+    private val eventStream: EventStream = eventStream
+
     private var refreshJob: Job? = null
     private var eventReconnectAttempts = 0
     private var eventReconnectJob: Job? = null
     private var closing = false
     private var eventStreamActive = false
+    private var inFlightSettingsJob: Job? = null
 
     private val _settings = MutableStateFlow(initialSettings)
     val settings: StateFlow<AppSettings> = _settings.asStateFlow()
-    var apiToken: String = ""
-        private set
+    val apiToken: String get() = apiTokenRef.get()
 
     private val _conditioner = MutableStateFlow(ConditionerUiState())
     val conditioner: StateFlow<ConditionerUiState> = _conditioner.asStateFlow()
 
+    private var eventReconnectScheduled = false
+
     init {
-        eventStream.onEvent = { event -> store.applyEvent(event); scope.launch { store.refreshStatus() } }
-        eventStream.onFailed = { msg -> store.setError("events: $msg"); scheduleEventReconnect() }
-        eventStream.onClosed = { if (eventStreamActive && !closing) scheduleEventReconnect() }
+        eventStream.onEvent = { event -> scope.launch { store.applyEvent(event); store.refreshStatus() } }
+        eventStream.onFailed = { msg ->
+            eventReconnectScheduled = true
+            store.setError("events: $msg")
+            scheduleEventReconnect()
+        }
+        eventStream.onClosed = {
+            if (eventStreamActive && !closing && !eventReconnectScheduled) scheduleEventReconnect()
+            eventReconnectScheduled = false
+        }
         scope.launch {
             try {
-                apiToken = tokenVault.readToken()
-                onTokenLoaded(apiToken)
-            } catch (e: Exception) { apiToken = "" }
+                apiTokenRef.set(tokenVault.readToken())
+            } catch (e: Exception) {
+                apiTokenRef.set("")
+            }
             maybeLaunchDaemon()
             store.refreshDashboard()
             scheduleRefresh()
@@ -84,17 +104,29 @@ class MainViewModel(
         }
     }
 
+    suspend fun loadPolicyGroups(): PolicyGroupsPayload = client.policyGroups()
+    suspend fun testPolicyGroups(group: String): PolicyGroupsPayload = client.testPolicyGroups(group)
+    suspend fun selectPolicyGroup(group: String, chain: String): PolicyGroupsPayload = client.selectPolicyGroup(group, chain)
+    suspend fun loadPendingPrompts(): PromptsPayload = client.pendingPrompts()
+    suspend fun loadDns(): DnsPayload = client.dns()
+    suspend fun loadCaptureStatus(): DeveloperStatusPayload = client.developerStatus()
+    suspend fun setCaptureEnabled(enabled: Boolean): DeveloperStatusPayload = client.setDeveloperCapture(enabled)
+    suspend fun loadCaptureEntries(): List<DeveloperEntryPayload> = client.developerEntries()
+    suspend fun loadCaptureEntry(id: String): DeveloperEntryPayload = client.developerEntry(id)
+    suspend fun repeatCaptureEntry(id: String): DeveloperEntryPayload = client.repeatDeveloperEntry(id)
+
     private fun maybeLaunchDaemon() { if (_settings.value.launchDaemonOnStart) startDaemon() }
 
     fun saveSettings(newSettings: AppSettings, newToken: String) {
-        settingsStore.save(newSettings)
-        _settings.value = newSettings.normalized()
-        store.setLogRetention(_settings.value.logRetention)
-        scope.launch {
+        val normalized = newSettings.normalized()
+        val trimmed = newToken.trim()
+        _settings.value = normalized
+        store.setLogRetention(normalized.logRetention)
+        apiTokenRef.set(trimmed)
+        client.configureBaseUrl(normalized.apiEndpoint)
+        inFlightSettingsJob = scope.launch {
+            settingsStore.save(normalized)
             tokenVault.saveToken(newToken)
-            apiToken = newToken.trim()
-            onTokenLoaded(apiToken)
-            client.configureBaseUrl(_settings.value.apiEndpoint)
             scheduleRefresh()
             startEventStream()
             store.refreshDashboard()
@@ -127,8 +159,8 @@ class MainViewModel(
 
     fun activateLicense(key: String, email: String) { scope.launch { license.activate(key, email) } }
     fun deactivateDevice() { scope.launch { license.deactivateCurrentDevice() } }
-    fun resolvePrompt(id: String, action: String, scope: String, matchHost: Boolean) {
-        this.scope.launch { client.resolvePrompt(id, action, scope, matchHost); refreshActivePage() }
+    fun resolvePrompt(id: String, action: String, resolutionScope: String, matchHost: Boolean) {
+        this.scope.launch { client.resolvePrompt(id, action, resolutionScope, matchHost); refreshActivePage() }
     }
 
     private var activePage = "now"
@@ -158,12 +190,14 @@ class MainViewModel(
         stopEventStream()
         if (!_settings.value.eventStreamEnabled) return
         eventStreamActive = true
+        eventReconnectAttempts = 0
         eventStream.start(client.eventsUri(), client.authorizationHeader())
     }
 
     private fun stopEventStream() {
         eventStreamActive = false
         eventReconnectJob?.cancel(); eventReconnectJob = null
+        eventReconnectScheduled = false
         eventStream.stop()
     }
 
@@ -175,9 +209,11 @@ class MainViewModel(
     }
 
     fun close() {
+        if (closing) return
         closing = true
         stopEventStream()
         refreshJob?.cancel()
+        inFlightSettingsJob?.cancel()
         if (_settings.value.stopDaemonOnExit) daemon.stop()
         scope.cancel()
     }

@@ -78,7 +78,6 @@ class DashboardStoreTest {
         assertEquals(65 * 1024.0, store.currentBandwidth().rxBps)
 
         store.seedTrafficConnections(listOf(TrafficConnectionPayload(connId = "c1")))
-        val connection = TrafficConnectionPayload(connId = "c1")
         store.applyEvent(DaemonEvent(type = "connection.bytes", data = mapOf(
             "conn_id" to kotlinx.serialization.json.JsonPrimitive("c1"),
             "rx_delta" to kotlinx.serialization.json.JsonPrimitive(2048),
@@ -87,6 +86,15 @@ class DashboardStoreTest {
         )))
         val updatedConn = store.state.value.traffic.connections.firstOrNull { it.connId == "c1" }
         assertEquals(2048.0, updatedConn?.rxBps)
+        assertEquals(2048.0, store.state.value.traffic.summary.rxBps)
+
+        store.applyEvent(DaemonEvent(type = "connection.bytes", data = mapOf(
+            "conn_id" to kotlinx.serialization.json.JsonPrimitive("c1"),
+            "rx_delta" to kotlinx.serialization.json.JsonPrimitive(1024),
+            "tx_delta" to kotlinx.serialization.json.JsonPrimitive(512),
+            "interval_ns" to kotlinx.serialization.json.JsonPrimitive(1_000_000_000)
+        )))
+        assertEquals(1024.0, store.state.value.traffic.summary.rxBps)
 
         for (i in 0 until 205) {
             store.applyEvent(DaemonEvent(type = "log.line", data = mapOf("line" to kotlinx.serialization.json.JsonPrimitive("line-$i"))))
