@@ -19,8 +19,8 @@ settings:
     "EXCLUDED_ARCHS[sdk=macosx*]": "x86_64 i386"
     ONLY_ACTIVE_ARCH: NO
     ENABLE_HARDENED_RUNTIME: YES
-    MARKETING_VERSION: "1.0.1"
-    CURRENT_PROJECT_VERSION: "1"
+    MARKETING_VERSION: "1.0.2"
+    CURRENT_PROJECT_VERSION: "2"
 targets:
   ClambhookMac:
     type: application
