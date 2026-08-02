@@ -87,7 +87,7 @@ PUBLISHED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 SHA256="$(awk '{print $1}' "$APK.sha256")"
 
 # versionCode and minSdk must match build.gradle.kts defaultConfig.
-VERSION_CODE=2
+VERSION_CODE=3
 MIN_SDK=30
 
 {
