@@ -11,6 +11,7 @@ VERSION := $(shell head -1 debian/changelog | cut -d' ' -f2 | tr -d '()' | cut -
 	dh $@
 
 override_dh_auto_build:
+	@echo "DEBUG: VERSION=$(VERSION)"
 	$(MAKE) build VERSION=$(VERSION)
 	$(MAKE) build-linux VERSION=$(VERSION)
 
