@@ -63,7 +63,7 @@ apt_setup='export DEBIAN_FRONTEND=noninteractive; apt-get update -qq && apt-get 
   default-jdk-headless \
   debhelper dh-golang dpkg-dev fakeroot rsync git curl wget ca-certificates tar file >/dev/null'
 
-dnf_setup='dnf install -y -q gcc make rpm-build pkgconf-pkg-config \
+dnf_setup='dnf install -y -q --allowerasing gcc make rpm-build pkgconf-pkg-config \
   java-17-openjdk-devel libsodium-devel systemd-rpm-macros polkit-devel \
   git curl tar gzip file which >/dev/null'
 
@@ -110,7 +110,7 @@ run_one() {
       setup="$dnf_setup"
       recipe='./scripts/ci-linux-package-recipes.sh rpm'
       ;;
-    rocky)
+    rocky|almalinux)
       setup='dnf install -y -q epel-release >/dev/null; '
       setup+="$dnf_setup"
       recipe='./scripts/ci-linux-package-recipes.sh rpm'
