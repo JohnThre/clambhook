@@ -27,6 +27,14 @@ check-linux-ui-deps:
 	$(call require-command,java,Linux UI targets,Install JDK 17 or later.)
 	@command -v gradle >/dev/null 2>&1 || test -x ui/linux/gradlew || { echo "Gradle is required: install Gradle 8+ or use the bundled ./gradlew in ui/linux." >&2; exit 1; }
 
+# Use the system gradle if available (e.g. in Flatpak builds where the wrapper
+# cannot download its distribution in a network-less sandbox); otherwise fall
+# back to the bundled Gradle wrapper.
+GRADLE := $(shell command -v gradle 2>/dev/null)
+ifeq ($(GRADLE),)
+GRADLE := ./gradlew
+endif
+
 build-clib:
 	$(MAKE) -C clib
 
@@ -51,7 +59,7 @@ install: build
 	install -m 0755 bin/clambhook-license "$(DESTDIR)$(PREFIX)/bin/clambhook-license"
 
 install-linux: check-linux-ui-deps build-daemon build-tui build-license
-	cd ui/linux && ./gradlew --no-daemon installDist -PclambhookDaemon="$(abspath bin/clambhook)" -PclambhookTui="$(abspath bin/clambhook-tui)" -PclambhookLicense="$(abspath bin/clambhook-license)"
+	cd ui/linux && $(GRADLE) --no-daemon installDist -PclambhookDaemon="$(abspath bin/clambhook)" -PclambhookTui="$(abspath bin/clambhook-tui)" -PclambhookLicense="$(abspath bin/clambhook-license)"
 	install -d "$(DESTDIR)$(PREFIX)/bin"
 	install -m 0755 ui/linux/build/install/clambhook-linux/bin/clambhook-linux "$(DESTDIR)$(PREFIX)/bin/clambhook-linux"
 	install -d "$(DESTDIR)$(PREFIX)/lib/clambhook-linux" && cp -R ui/linux/build/install/clambhook-linux/lib/. "$(DESTDIR)$(PREFIX)/lib/clambhook-linux"
@@ -138,10 +146,10 @@ upload-release-android:
 	./scripts/upload-release-android.sh
 
 test-linux: check-linux-ui-deps
-	cd ui/linux && ./gradlew --no-daemon test
+	cd ui/linux && $(GRADLE) --no-daemon test
 
 build-linux: check-linux-ui-deps build-daemon build-tui build-license
-	cd ui/linux && ./gradlew --no-daemon installDist -PclambhookDaemon="$(abspath bin/clambhook)" -PclambhookTui="$(abspath bin/clambhook-tui)" -PclambhookLicense="$(abspath bin/clambhook-license)"
+	cd ui/linux && $(GRADLE) --no-daemon installDist -PclambhookDaemon="$(abspath bin/clambhook)" -PclambhookTui="$(abspath bin/clambhook-tui)" -PclambhookLicense="$(abspath bin/clambhook-license)"
 
 test: build-clib
 	go test ./...

@@ -307,7 +307,7 @@ smoke_debian() {
     # The Debian package is built with VERSION from the changelog, so the
     # version assertion must match that, not the generic smoke version.
     local deb_version
-    deb_version="$(dpkg-parsechangelog -SVersion 2>/dev/null -l "$ROOT/debian/changelog" | sed 's/-.*//')"
+    deb_version="$(sed -n '1s/^clambhook (\([0-9.][0-9.]*\)-.*/\1/p' "$ROOT/debian/changelog")"
     [ -n "$deb_version" ] && SMOKE_VERSION="$deb_version"
 
     # CI installs the exact go.mod toolchain from go.dev rather than an older

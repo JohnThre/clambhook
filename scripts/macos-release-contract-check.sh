@@ -87,12 +87,12 @@ done
 
 require_text "$readme" "distributed only from \`https://store.clambercloud.com/clambhook/\`" "README distribution policy"
 require_text "$readme" "free public DMG download for Apple Silicon Macs running macOS 14 or later" "README macOS availability policy"
-product_promise="USD 99.99"
+product_promise="USD 49.99"
 versions_promise="on or before the update cutoff remain usable"
-device_promise="maximum of 10 concurrently active"
+device_promise="maximum of 3 concurrently active"
 transfer_promise="deactivated"
 
-require_text "$readme" "USD 99.99 one-time ClambHook license" "README license policy"
+require_text "$readme" "USD 49.99 one-time ClambHook license" "README license policy"
 require_text "$readme" "$versions_promise" "README version-usability policy"
 require_text "$readme" "$device_promise" "README device policy"
 require_text "$readme" "$transfer_promise" "README transfer policy"
@@ -100,7 +100,7 @@ require_text "$readme" "one year of all updates" "README included-update policy"
 require_text "$readme" "critical, bug, and security updates" "README strict update-cutoff policy"
 require_text "$readme" "Creem or NOWPayments, not PayPal" "README payment-provider policy"
 
-require_text "$distribution" "A USD 99.99 one-time ClambHook license is required after the trial and includes one year of all updates" "distribution policy"
+require_text "$distribution" "A USD 49.99 one-time ClambHook license is required after the trial and includes one year of all updates" "distribution policy"
 require_text "$distribution" "$versions_promise" "distribution policy"
 require_text "$distribution" "A USD 9.99 renewal buys one additional update year" "distribution policy"
 require_text "$distribution" "free and supports Apple Silicon Macs running macOS 14.0 or later" "distribution macOS availability policy"
@@ -202,9 +202,9 @@ expected = [
     {
         "productID": "org.jpfchang.clambhook.unlock.lifetime",
         "kind": "license",
-        "displayPrice": "99.99",
+        "displayPrice": "49.99",
         "displayName": "ClambHook License",
-        "description": "USD 99.99 one-time ClambHook license after a one-calendar-month trial; includes one year of all updates; versions released on or before the cutoff remain usable; maximum 10 concurrently active devices; deactivatable and transferable.",
+        "description": "USD 49.99 one-time ClambHook license after a one-calendar-month trial; includes one year of all updates; versions released on or before the cutoff remain usable; maximum 3 concurrently active devices; deactivatable and transferable.",
     },
     {
         "productID": "org.jpfchang.clambhook.feature_update",
