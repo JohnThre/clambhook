@@ -36,14 +36,13 @@
 		9D1375A09591B29F98B76C9F /* ClambhookMenuBarIcon.swift in Sources */ = {isa = PBXBuildFile; fileRef = 161BB19C1F5E8ECCC7ABF371 /* ClambhookMenuBarIcon.swift */; };
 		A01CAAC55DD104949B937A2D /* MacPrivilegedHelperProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 140F17EF442ACC422CCBAC04 /* MacPrivilegedHelperProtocol.swift */; };
 		A01F8214191B53CB474A015A /* MacDNSSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 96BE88C3165238ABB9B76232 /* MacDNSSection.swift */; };
+		A12F8AF841EF13EFCE8A9234 /* MacConditionerSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34FFA1624ECB24249318620F /* MacConditionerSection.swift */; };
 		A16CDA20F6B7C6F85EE71F1B /* MacSystemProxyManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C4BAA859EE07F11DBF405BF /* MacSystemProxyManager.swift */; };
 		AAAB15470DCAE499AC915821 /* MacLogsSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCFAEA45C0B462E990EB4D44 /* MacLogsSection.swift */; };
 		B2DD41CF485027A1F574DE6B /* MacHTTPCaptureSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3D0AEE6DFC679ECAEE8FA8B /* MacHTTPCaptureSection.swift */; };
 		B6415B0956578D75A1C9E598 /* ClambhookWidgetBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E7E93A4404814358F6C95DB /* ClambhookWidgetBundle.swift */; };
 		BB2003D3FEC8CD231B820D47 /* MacComposeSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3FCF98A1709AD64E24112420 /* MacComposeSheet.swift */; };
 		BB8C3384CE0BE926F18BDCEC /* clambhook-tui in CopyFiles */ = {isa = PBXBuildFile; fileRef = E681AB16A57ACC705B85B4FD /* clambhook-tui */; };
-		E14B2C8A7D3F4A1B9C6D5E01 /* MacConditionerSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = E14B2C8A7D3F4A1B9C6D5E02 /* MacConditionerSection.swift */; };
-		450A4626C1F040DBBFAABEE660417C83 /* MacLegalFooter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E0D4573C77044E599AE6D402AFB12B8 /* MacLegalFooter.swift */; };
 		C0EBF877C598C2FC74316665 /* MacPrivilegedHelperProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 140F17EF442ACC422CCBAC04 /* MacPrivilegedHelperProtocol.swift */; };
 		C13AE435A7672166B20DD25D /* MacPrivilegedHelperManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A047F5F6C10292C5DE346662 /* MacPrivilegedHelperManager.swift */; };
 		CC0CF0A287AC0E53A37374A7 /* SupportPurchasesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8D0525C10EE904F2F5523DA /* SupportPurchasesView.swift */; };
@@ -51,6 +50,7 @@
 		DBEF42AC175249F0DA14DC84 /* MacProfilesSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5CB05BE815F501AECFCB7B59 /* MacProfilesSection.swift */; };
 		E20BEBC7404594F87E09BDF7 /* SettingsViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11D3A8B6CD3A6119053C8908 /* SettingsViews.swift */; };
 		E3F73D48799F21A8CC8D6621 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = E08010E4073C842577454D47 /* Sparkle */; };
+		ED018791026D587CB0897950 /* MacLegalFooter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C71090AE1DFEF65994C3836 /* MacLegalFooter.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -75,10 +75,9 @@
 			isa = PBXCopyFilesBuildPhase;
 			buildActionMask = 2147483647;
 			dstPath = "";
-			dstSubfolderSpec = 6;
+			dstSubfolderSpec = 10;
 			files = (
-				3792B993B246938C4220AC8D /* clambhook in CopyFiles */,
-				BB8C3384CE0BE926F18BDCEC /* clambhook-tui in CopyFiles */,
+				069007F5D0A7675880D40F9B /* libsodium.26.dylib in CopyFiles */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -86,9 +85,10 @@
 			isa = PBXCopyFilesBuildPhase;
 			buildActionMask = 2147483647;
 			dstPath = "";
-			dstSubfolderSpec = 10;
+			dstSubfolderSpec = 6;
 			files = (
-				069007F5D0A7675880D40F9B /* libsodium.26.dylib in CopyFiles */,
+				3792B993B246938C4220AC8D /* clambhook in CopyFiles */,
+				BB8C3384CE0BE926F18BDCEC /* clambhook-tui in CopyFiles */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -119,6 +119,7 @@
 		2154CDDB7FC6878704BCF197 /* MacSparkleUpdater.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacSparkleUpdater.swift; sourceTree = "<group>"; };
 		243DC274A14C7F31C205BAF8 /* MacCommandRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacCommandRunner.swift; sourceTree = "<group>"; };
 		24D15BDA328B4ED0B2A65291 /* ClambhookMac.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ClambhookMac.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		34FFA1624ECB24249318620F /* MacConditionerSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacConditionerSection.swift; sourceTree = "<group>"; };
 		3FCF98A1709AD64E24112420 /* MacComposeSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacComposeSheet.swift; sourceTree = "<group>"; };
 		46AF45F7A3B6FE88BDADB04C /* ServiceManagement.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = ServiceManagement.framework; path = System/Library/Frameworks/ServiceManagement.framework; sourceTree = SDKROOT; };
 		5CB05BE815F501AECFCB7B59 /* MacProfilesSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacProfilesSection.swift; sourceTree = "<group>"; };
@@ -131,6 +132,7 @@
 		861C6B6F1238EBFD62EBA315 /* MacLicenseManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacLicenseManager.swift; sourceTree = "<group>"; };
 		87BE5F05476FDA10DB11547C /* MacConnectionMapSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacConnectionMapSection.swift; sourceTree = "<group>"; };
 		8B7ECD0E4E9DE7440023C997 /* MacMenuBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacMenuBarView.swift; sourceTree = "<group>"; };
+		8C71090AE1DFEF65994C3836 /* MacLegalFooter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacLegalFooter.swift; sourceTree = "<group>"; };
 		8E7E93A4404814358F6C95DB /* ClambhookWidgetBundle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClambhookWidgetBundle.swift; sourceTree = "<group>"; };
 		903292C941E24F9681AB680C /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		96BE88C3165238ABB9B76232 /* MacDNSSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacDNSSection.swift; sourceTree = "<group>"; };
@@ -147,8 +149,6 @@
 		D92091F3B5B6E2E4A8F4665B /* MacCertificateManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacCertificateManager.swift; sourceTree = "<group>"; };
 		DCFAEA45C0B462E990EB4D44 /* MacLogsSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacLogsSection.swift; sourceTree = "<group>"; };
 		E3D0AEE6DFC679ECAEE8FA8B /* MacHTTPCaptureSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacHTTPCaptureSection.swift; sourceTree = "<group>"; };
-		E14B2C8A7D3F4A1B9C6D5E02 /* MacConditionerSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacConditionerSection.swift; sourceTree = "<group>"; };
-		5E0D4573C77044E599AE6D402AFB12B8 /* MacLegalFooter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacLegalFooter.swift; sourceTree = "<group>"; };
 		E5D820AE96C5A0080AA5CF1F /* DashboardViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashboardViews.swift; sourceTree = "<group>"; };
 		E681AB16A57ACC705B85B4FD /* clambhook-tui */ = {isa = PBXFileReference; path = "clambhook-tui"; sourceTree = "<group>"; };
 		F4C173248F9A18690134D8EC /* MacPolicyGroupsSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacPolicyGroupsSection.swift; sourceTree = "<group>"; };
@@ -189,13 +189,13 @@
 				D92091F3B5B6E2E4A8F4665B /* MacCertificateManager.swift */,
 				243DC274A14C7F31C205BAF8 /* MacCommandRunner.swift */,
 				3FCF98A1709AD64E24112420 /* MacComposeSheet.swift */,
-				E14B2C8A7D3F4A1B9C6D5E02 /* MacConditionerSection.swift */,
-				5E0D4573C77044E599AE6D402AFB12B8 /* MacLegalFooter.swift */,
+				34FFA1624ECB24249318620F /* MacConditionerSection.swift */,
 				87BE5F05476FDA10DB11547C /* MacConnectionMapSection.swift */,
 				B59961659F5827B0B4D41C5C /* MacDashboardSection.swift */,
 				73930EE75CE83BC0639DF8FB /* MacDashboardWindowView.swift */,
 				96BE88C3165238ABB9B76232 /* MacDNSSection.swift */,
 				E3D0AEE6DFC679ECAEE8FA8B /* MacHTTPCaptureSection.swift */,
+				8C71090AE1DFEF65994C3836 /* MacLegalFooter.swift */,
 				DCFAEA45C0B462E990EB4D44 /* MacLogsSection.swift */,
 				8B7ECD0E4E9DE7440023C997 /* MacMenuBarView.swift */,
 				F4C173248F9A18690134D8EC /* MacPolicyGroupsSection.swift */,
@@ -475,13 +475,13 @@
 				7B24668699ADCA36A9BB4B45 /* MacCertificateManager.swift in Sources */,
 				79218D4F75C5C8C52215171C /* MacCommandRunner.swift in Sources */,
 				BB2003D3FEC8CD231B820D47 /* MacComposeSheet.swift in Sources */,
-				E14B2C8A7D3F4A1B9C6D5E01 /* MacConditionerSection.swift in Sources */,
-				450A4626C1F040DBBFAABEE660417C83 /* MacLegalFooter.swift in Sources */,
+				A12F8AF841EF13EFCE8A9234 /* MacConditionerSection.swift in Sources */,
 				782D314FD9BDA76F562B3EB1 /* MacConnectionMapSection.swift in Sources */,
 				A01F8214191B53CB474A015A /* MacDNSSection.swift in Sources */,
 				5CD5BA1A929ED556F8DBFB29 /* MacDashboardSection.swift in Sources */,
 				02515828BBDD5E2F458BBC82 /* MacDashboardWindowView.swift in Sources */,
 				B2DD41CF485027A1F574DE6B /* MacHTTPCaptureSection.swift in Sources */,
+				ED018791026D587CB0897950 /* MacLegalFooter.swift in Sources */,
 				4AA3902FB355119E38FC8385 /* MacLicenseManager.swift in Sources */,
 				AAAB15470DCAE499AC915821 /* MacLogsSection.swift in Sources */,
 				591061674835E9B22E696123 /* MacMenuBarView.swift in Sources */,
@@ -608,7 +608,7 @@
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				DEVELOPMENT_TEAM = V6GG4HYABJ;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -624,7 +624,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 1.0.1;
+				MARKETING_VERSION = 1.0.2;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = NO;
@@ -692,7 +692,7 @@
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				DEVELOPMENT_TEAM = V6GG4HYABJ;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -714,7 +714,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 1.0.1;
+				MARKETING_VERSION = 1.0.2;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = NO;

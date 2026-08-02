@@ -40,7 +40,7 @@ build_flatpak() {
             org.freedesktop.Sdk//24.08 \
             org.freedesktop.Sdk.Extension.openjdk17//24.08 \
             org.freedesktop.Sdk.Extension.golang//24.08
-        flatpak-builder --user --force-clean \
+        flatpak-builder --user --force-clean --share=network \
             "$workdir/build" \
             "$ROOT_DIR/packaging/flatpak/com.clambhook.Clambhook.yaml"
     )

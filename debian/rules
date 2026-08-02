@@ -5,7 +5,7 @@ export GO111MODULE=on
 export GOFLAGS=-mod=vendor -buildvcs=false
 export PATH := /usr/local/go/bin:$(PATH)
 
-VERSION := $(shell sed -n '1s/^clambhook (\([0-9.][0-9.]*\)-.*/\1/p' debian/changelog)
+VERSION := $(shell head -1 debian/changelog | cut -d' ' -f2 | tr -d '()' | cut -d- -f1)
 
 %:
 	dh $@

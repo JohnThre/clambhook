@@ -39,7 +39,7 @@ finish-args:
   - --talk-name=org.freedesktop.portal.OpenURI
 
 build-options:
-  append-path: /usr/lib/sdk/golang/bin:/usr/lib/sdk/openjdk17/bin:/app/gradle/gradle-9.3.1/bin
+  append-path: /usr/lib/sdk/golang/bin:/usr/lib/sdk/openjdk17/bin
   env:
     GOFLAGS: '-mod=vendor'
     GOTOOLCHAIN: 'local'
@@ -58,19 +58,6 @@ modules:
       - /lib/pkgconfig
       - '*.a'
       - '*.la'
-
-  - name: gradle
-    buildsystem: simple
-    build-commands:
-      - install -d /app/gradle
-      - unzip -q -o gradle-9.3.1-bin.zip -d /app/gradle
-    sources:
-      - type: file
-        url: https://services.gradle.org/distributions/gradle-9.3.1-bin.zip
-        sha256: b266d5ff6b90eada6dc3b20cb090e3731302e553a27c5d3e4df1f0d76beaff06
-    cleanup:
-      - /gradle/*/bin
-      - /gradle/*/lib
 
   - name: clambhook
     buildsystem: simple
