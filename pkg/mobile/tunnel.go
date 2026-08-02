@@ -374,12 +374,6 @@ func (r *TunnelRuntime) restartWithConfig(cfg *config.Config) error {
 	return r.startConfigLocked(cfg)
 }
 
-func (r *TunnelRuntime) startConfig(cfg *config.Config) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return r.startConfigLocked(cfg)
-}
-
 // startConfigLocked builds and starts the packet stack. Caller holds r.mu.
 func (r *TunnelRuntime) startConfigLocked(cfg *config.Config) error {
 	if r.stack != nil {

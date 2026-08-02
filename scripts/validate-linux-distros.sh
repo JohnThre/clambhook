@@ -83,7 +83,7 @@ go version'
 smoke='set -e; cd /src
 export PATH=/usr/local/go/bin:$PATH
 make build >/build.log 2>&1 || { tail -40 /build.log; exit 1; }
-make build-linux >/dev/null 2>&1 || { echo "Compose controller build failed"; exit 1; }
+make build-linux >/build-linux.log 2>&1 || { echo "Compose controller build failed"; tail -60 /build-linux.log; exit 1; }
 SNAP=$(echo "{\"command\":\"ensure-trial\",\"snapshot\":\"\"}" | ./bin/clambhook-license)
 echo "license: $SNAP"
 echo "$SNAP" | grep -q "\"ok\":true" || { echo "license helper failed"; exit 1; }

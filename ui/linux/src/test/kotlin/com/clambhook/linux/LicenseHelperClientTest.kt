@@ -19,7 +19,7 @@ class LicenseHelperClientTest {
         val helper = LicenseHelperClient(script)
         val ex = runCatching { helper.call("ping", emptyJson()) }.exceptionOrNull()
         assertTrue(ex is IllegalStateException)
-        assertTrue(ex?.message?.contains("ping failed", ignoreCase = true) == true)
+        assertTrue(ex.message.contains("ping failed", ignoreCase = true))
     }
 
     @Test
@@ -28,7 +28,7 @@ class LicenseHelperClientTest {
         val helper = LicenseHelperClient(script)
         val ex = runCatching { helper.call("activate", emptyJson()) }.exceptionOrNull()
         assertTrue(ex is IllegalStateException)
-        assertEquals("bad key", ex?.message)
+        assertEquals("bad key", ex.message)
     }
 
     @Test
@@ -45,7 +45,7 @@ class LicenseHelperClientTest {
         val helper = LicenseHelperClient(script)
         val ex = runCatching { helper.call("ping", emptyJson()) }.exceptionOrNull()
         assertTrue(ex is IllegalStateException)
-        assertTrue(ex?.message?.contains("timed out", ignoreCase = true) == true)
+        assertTrue(ex.message.contains("timed out", ignoreCase = true))
     }
 
     private suspend fun createScript(command: String): String = withContext(Dispatchers.IO) {

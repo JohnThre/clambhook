@@ -338,17 +338,6 @@ func hashSet(set map[string]struct{}) uint64 {
 	return h
 }
 
-func fnv64(s string) uint64 {
-	const offset = 14695981039346656037
-	const prime = 1099511628211
-	h := uint64(offset)
-	for i := range len(s) {
-		h ^= uint64(s[i])
-		h *= prime
-	}
-	return h
-}
-
 func cloneRule(rule Rule) Rule {
 	rule.Rule.RuleSets = append([]string(nil), rule.Rule.RuleSets...)
 	rule.Rule.Domains = append([]string(nil), rule.Rule.Domains...)
