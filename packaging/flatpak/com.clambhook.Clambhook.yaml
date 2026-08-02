@@ -87,6 +87,15 @@ modules:
       - make build VERSION=${FLATPAK_BUILD_VERSION:-flatpak}
       - make install PREFIX=/app
       - make install-linux PREFIX=/app
+      # appstreamcli compose requires a standard icon size (256x256 or 512x512);
+      # the Makefile installs 1024x1024 which is non-standard. Install a 512x512
+      # copy so appstreamcli compose validation passes.
+      - install -d /app/share/icons/hicolor/512x512/apps
+      - cp /app/share/icons/hicolor/1024x1024/apps/com.clambhook.Clambhook.png /app/share/icons/hicolor/512x512/apps/com.clambhook.Clambhook.png
+      - install -d /app/share/icons/hicolor/256x256/apps
+      - cp /app/share/icons/hicolor/1024x1024/apps/com.clambhook.Clambhook.png /app/share/icons/hicolor/256x256/apps/com.clambhook.Clambhook.png
+      - install -d /app/share/icons/hicolor/128x128/apps
+      - cp /app/share/icons/hicolor/1024x1024/apps/com.clambhook.Clambhook.png /app/share/icons/hicolor/128x128/apps/com.clambhook.Clambhook.png
     sources:
       - type: dir
         path: ../..
