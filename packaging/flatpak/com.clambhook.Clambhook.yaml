@@ -42,6 +42,7 @@ build-options:
   append-path: /usr/lib/sdk/golang/bin:/usr/lib/sdk/openjdk17/bin
   env:
     GOFLAGS: '-mod=vendor'
+    GOTOOLCHAIN: 'local'
     CGO_ENABLED: '1'
     JAVA_HOME: /usr/lib/sdk/openjdk17
 

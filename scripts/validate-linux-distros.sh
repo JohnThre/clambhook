@@ -60,7 +60,7 @@ declare -A IMAGE=(
 
 apt_setup='export DEBIAN_FRONTEND=noninteractive; apt-get update -qq && apt-get install -y -qq \
   gcc make pkg-config libsodium-dev \
-  default-jdk-headless \
+  openjdk-17-jdk-headless \
   debhelper dh-golang dpkg-dev fakeroot rsync git curl wget ca-certificates tar file >/dev/null'
 
 dnf_setup='dnf install -y -q --allowerasing gcc make rpm-build pkgconf-pkg-config \
