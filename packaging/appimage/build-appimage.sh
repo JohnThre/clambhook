@@ -51,6 +51,9 @@ if command -v convert >/dev/null 2>&1; then
 elif command -v sips >/dev/null 2>&1; then
   sips -z 512 512 "$icon_src" --out "$icon_512" >/dev/null 2>&1
 else
+  # No image tools available: copy as-is but warn that the icon resolution
+  # won't match the directory name, which appstreamcli compose will reject.
+  echo "WARNING: no image resizing tool (convert/sips) found; copying 1024x1024 icon as-is" >&2
   cp "$icon_src" "$icon_512"
 fi
 
@@ -124,3 +127,8 @@ export OUTPUT="$out"
   --output appimage
 
 echo "Built $out"
+
+# Clean up the AppDir so it doesn't pollute the source tree (e.g. the Flatpak
+# build's appstreamcli compose scans the source tree and rejects icons with
+# mismatched resolutions).
+rm -rf "$appdir"

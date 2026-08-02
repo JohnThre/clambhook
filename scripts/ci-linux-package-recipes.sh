@@ -47,7 +47,7 @@ build_rpm() {
 }
 
 is_container_limit() {
-    grep -Eiq 'fuse|fusermount|operation not permitted|permission denied.*namespace|user namespace|bwrap.*permission|cannot mount|failed to mount' "$1"
+    grep -Eiq 'fuse|fusermount|operation not permitted|permission denied.*namespace|user namespace|bwrap.*permission|cannot mount|failed to mount|not on the same filesystem' "$1"
 }
 
 best_effort_recipe() {
