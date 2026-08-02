@@ -75,7 +75,12 @@ modules:
   - name: clambhook
     buildsystem: simple
     build-options:
-      append-path: /app/gradle/gradle-9.3.1/bin
+      append-path: /usr/lib/sdk/golang/bin:/usr/lib/sdk/openjdk17/bin:/app/gradle/gradle-9.3.1/bin
+      env:
+        GOFLAGS: '-mod=vendor'
+        GOTOOLCHAIN: 'local'
+        CGO_ENABLED: '1'
+        JAVA_HOME: /usr/lib/sdk/openjdk17
       network: true
     build-commands:
       - make build VERSION=${FLATPAK_BUILD_VERSION:-flatpak}
