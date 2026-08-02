@@ -23,8 +23,13 @@ build_flatpak() {
     require_command flatpak
     require_command flatpak-builder
 
+    # flatpak-builder stores its state dir in the source tree root (.flatpak-builder)
+    # and uses hardlinks between the state dir and the build dir. If they're on
+    # different filesystems (e.g. /src bind-mount vs /tmp overlay), the build fails
+    # with "not on the same filesystem". Use a workdir inside the source tree.
     local workdir
-    workdir="$(mktemp -d "${TMPDIR:-/tmp}/clambhook-flatpak-ci.XXXXXX")"
+    workdir="$ROOT_DIR/.flatpak-ci-work"
+    mkdir -p "$workdir"
     (
         trap 'rm -rf "$workdir"' EXIT
         export XDG_DATA_HOME="$workdir/data"
