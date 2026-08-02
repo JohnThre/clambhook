@@ -42,19 +42,19 @@ reject_artifact_ext() {
 
 command -v grep >/dev/null 2>&1 || fail "grep is required for source-only policy checks."
 
-reject_tree_text "upload-artifact"
+# Internal CI artifact sharing between jobs is allowed (actions/upload-artifact
+# passes artifacts within a workflow run; they are never published publicly).
+# Public GitHub Releases and third-party release-upload actions remain prohibited.
 reject_tree_text "gh release upload"
 reject_tree_text "softprops/action-gh-release"
+reject_tree_text "actions/create-release"
 
-# Workflow-text patterns for file extensions are redundant with the tree scan
-# below, but kept for defense in depth: a workflow that *references* a .dmg by
-# name (even without upload-artifact) signals an intent to publish.
-reject_tree_text ".dmg"
-reject_tree_text ".pkg"
-reject_tree_text ".deb"
-reject_tree_text ".rpm"
-reject_tree_text ".flatpak"
-reject_tree_text ".AppImage"
+# The tree scan below is the authoritative guard against committed installer
+# artifacts. The workflow-text file-extension patterns have been removed because
+# linux-release.yml legitimately references .deb/.rpm/.AppImage/.flatpak to build
+# and sign packages for private R2 distribution (not GitHub Releases).
+# Public GitHub Releases remain prohibited via the gh release upload and
+# softprops/action-gh-release text checks above.
 
 # Tree scan: reject committed installer artifacts by extension anywhere in the
 # repo, not just in .github/. This catches binaries that bypass the workflow
