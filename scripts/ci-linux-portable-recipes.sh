@@ -36,8 +36,9 @@ build_flatpak() {
         flatpak remote-add --user --if-not-exists flathub \
             https://flathub.org/repo/flathub.flatpakrepo
         flatpak install --user --noninteractive -y flathub \
-            org.gnome.Platform//47 \
-            org.gnome.Sdk//47 \
+            org.freedesktop.Platform//24.08 \
+            org.freedesktop.Sdk//24.08 \
+            org.freedesktop.Sdk.Extension.openjdk17//24.08 \
             org.freedesktop.Sdk.Extension.golang//24.08
         flatpak-builder --user --force-clean \
             "$workdir/build" \

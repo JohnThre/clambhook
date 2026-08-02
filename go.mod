@@ -1,6 +1,6 @@
 module github.com/JohnThre/clambhook
 
-go 1.25.0
+go 1.26.0
 
 // ShadowTLS v3 injects an HMAC into the TLS ClientHello session id via a
 // deterministic two-pass handshake (internal/protocol/shadowtls). That relies

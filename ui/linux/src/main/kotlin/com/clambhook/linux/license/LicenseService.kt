@@ -177,7 +177,12 @@ open class LicenseHelperClient(private val helperPath: String) {
         try {
             val requestStr = request.toString()
             withContext(kotlinx.coroutines.Dispatchers.IO) {
-                process.outputStream.use { it.write(requestStr.toByteArray()); it.flush() }
+                try {
+                    process.outputStream.use { it.write(requestStr.toByteArray()); it.flush() }
+                } catch (e: java.io.IOException) {
+                    // The helper may exit before reading all of stdin (e.g. a
+                    // one-shot echo script); a broken pipe here is not fatal.
+                }
             }
             val timeoutMs = 5_000L
             if (!process.waitFor(timeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS)) {

@@ -232,8 +232,8 @@ jobs:
           find artifacts -type f -name "*.sha256" -exec cp {} dist/linux/ \;
           # Rename files missing arch suffix and generate missing checksums
           cd dist/linux
-          for f in clambhook-*-.deb; do [ -f "$f" ] && mv "$f" "clambhook-1.0.1-${ARCH}.deb"; done
-          for f in clambhook-*-.rpm; do [ -f "$f" ] && mv "$f" "clambhook-1.0.1-${ARCH}.rpm"; done
+          for f in clambhook-*-.deb; do [ -f "$f" ] && mv "$f" "clambhook-${VERSION}-${ARCH}.deb"; done
+          for f in clambhook-*-.rpm; do [ -f "$f" ] && mv "$f" "clambhook-${VERSION}-${ARCH}.rpm"; done
           for f in *.deb *.rpm *.AppImage; do [ -f "$f" ] && [ ! -f "$f.sha256" ] && sha256sum "$f" > "$f.sha256"; done
           ls -la
 
