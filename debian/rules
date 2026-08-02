@@ -5,19 +5,18 @@ export GO111MODULE=on
 export GOFLAGS=-mod=vendor -buildvcs=false
 export PATH := /usr/local/go/bin:$(PATH)
 
-VERSION := $(shell head -1 debian/changelog | cut -d' ' -f2 | tr -d '()' | cut -d- -f1)
+VERSION := $(shell head -1 $(CURDIR)/debian/changelog | cut -d' ' -f2 | tr -d '()' | cut -d- -f1)
 
 %:
 	dh $@
 
 override_dh_auto_build:
-	@echo "DEBUG: VERSION=$(VERSION)"
 	$(MAKE) build VERSION=$(VERSION)
 	$(MAKE) build-linux VERSION=$(VERSION)
 
 override_dh_auto_install:
-	$(MAKE) install DESTDIR=$(CURDIR)/debian/clambhook PREFIX=/usr
-	$(MAKE) install-linux DESTDIR=$(CURDIR)/debian/clambhook PREFIX=/usr
+	$(MAKE) install VERSION=$(VERSION) DESTDIR=$(CURDIR)/debian/clambhook PREFIX=/usr
+	$(MAKE) install-linux VERSION=$(VERSION) DESTDIR=$(CURDIR)/debian/clambhook PREFIX=/usr
 
 override_dh_dwz:
 	# Skip dwz: Go binaries have compressed debug sections that break dwz.
