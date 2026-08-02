@@ -8,7 +8,7 @@ plugins {
 }
 
 group = "com.clambhook"
-version = "1.0.1"
+version = "1.0.2"
 
 kotlin {
     jvmToolchain(17)

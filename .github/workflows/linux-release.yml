@@ -80,7 +80,7 @@ jobs:
             curl -fsSL "https://go.dev/dl/go${GO_VER}.linux-${GOARCH}.tar.gz" | tar -C /usr/local -xz
             export PATH=/usr/local/go/bin:$PATH'
 
-          docker run --rm -e "VERSION=$VERSION" -v "$PWD":/src -w /src "${{ matrix.image }}" bash -lc "
+          docker run --rm -e "VERSION=$VERSION" -e "ARCH=$ARCH" -v "$PWD":/src -w /src "${{ matrix.image }}" bash -lc "
             set -e
             $SETUP
             $GO_SETUP
@@ -226,14 +226,15 @@ jobs:
 
       - name: Stage all artifacts
         run: |
+          VERSION="${{ steps.ver.outputs.version }}"
           mkdir -p dist/linux
           ARCH="$(uname -m)"
           find artifacts -type f \( -name "*.deb" -o -name "*.rpm" -o -name "*.AppImage" \) -exec cp {} dist/linux/ \;
           find artifacts -type f -name "*.sha256" -exec cp {} dist/linux/ \;
           # Rename files missing arch suffix and generate missing checksums
           cd dist/linux
-          for f in clambhook-*-.deb; do [ -f "$f" ] && mv "$f" "clambhook-${VERSION}-${ARCH}.deb"; done
-          for f in clambhook-*-.rpm; do [ -f "$f" ] && mv "$f" "clambhook-${VERSION}-${ARCH}.rpm"; done
+          for f in clambhook-*.deb; do [ -f "$f" ] && [[ "$f" != "clambhook-${VERSION}-${ARCH}.deb" ]] && mv "$f" "clambhook-${VERSION}-${ARCH}.deb"; done
+          for f in clambhook-*.rpm; do [ -f "$f" ] && [[ "$f" != "clambhook-${VERSION}-${ARCH}.rpm" ]] && mv "$f" "clambhook-${VERSION}-${ARCH}.rpm"; done
           for f in *.deb *.rpm *.AppImage; do [ -f "$f" ] && [ ! -f "$f.sha256" ] && sha256sum "$f" > "$f.sha256"; done
           ls -la
 
