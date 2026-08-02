@@ -81,7 +81,8 @@ modules:
         GOTOOLCHAIN: 'local'
         CGO_ENABLED: '1'
         JAVA_HOME: /usr/lib/sdk/openjdk17
-      network: true
+      build-args:
+        - --share=network
     build-commands:
       - make build VERSION=${FLATPAK_BUILD_VERSION:-flatpak}
       - make install PREFIX=/app
