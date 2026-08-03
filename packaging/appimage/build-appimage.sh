@@ -42,18 +42,25 @@ mkdir -p "$appdir" "$tools" "$repo_root/dist"
 make build VERSION="$version"
 make install-linux DESTDIR="$appdir" PREFIX=/usr
 
-# Generate a 512x512 icon (linuxdeploy rejects 1024x1024).
+# Stage a 512x512 icon (linuxdeploy rejects 1024x1024). Prefer the committed
+# pre-generated 512px icon (the same one the Flatpak recipe installs) so the
+# build needs no image tooling in minimal CI containers; fall back to resizing
+# the 1024px source when the tools exist.
 icon_src="$repo_root/clambhook-icon-1024.png"
+icon_512_src="$repo_root/packaging/icons/512x512/apps/com.clambhook.Clambhook.png"
 icon_512="$appdir/usr/share/icons/hicolor/512x512/apps/com.clambhook.Clambhook.png"
 mkdir -p "$(dirname "$icon_512")"
-if command -v convert >/dev/null 2>&1; then
+if [ -f "$icon_512_src" ]; then
+  cp "$icon_512_src" "$icon_512"
+elif command -v convert >/dev/null 2>&1; then
   convert "$icon_src" -resize 512x512 "$icon_512"
 elif command -v sips >/dev/null 2>&1; then
   sips -z 512 512 "$icon_src" --out "$icon_512" >/dev/null 2>&1
 else
-  # No image tools available: copy as-is but warn that the icon resolution
-  # won't match the directory name, which appstreamcli compose will reject.
-  echo "WARNING: no image resizing tool (convert/sips) found; copying 1024x1024 icon as-is" >&2
+  # No pre-resized icon and no image tools available: copy as-is but warn that
+  # the icon resolution won't match the directory name, which linuxdeploy and
+  # appstreamcli compose will reject.
+  echo "WARNING: no pre-resized icon and no resizing tool (convert/sips) found; copying 1024x1024 icon as-is" >&2
   cp "$icon_src" "$icon_512"
 fi
 
