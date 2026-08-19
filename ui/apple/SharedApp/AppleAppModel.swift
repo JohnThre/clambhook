@@ -25,6 +25,7 @@ final class AppleAppModel: ObservableObject {
     @Published private(set) var developerSettings = DeveloperSettingsPayload()
     @Published private(set) var configSettings = ConfigSettingsPayload()
     @Published private(set) var conditioner = ConditionerPayload()
+    @Published private(set) var modules = ModulesPayload(modules: [])
     @Published private(set) var developerCAPEMText = ""
     @Published var apiToken = ""
     @Published var daemonMessage = ""
@@ -793,6 +794,39 @@ final class AppleAppModel: ObservableObject {
             } catch {
                 daemonMessage = error.localizedDescription
                 await refreshConditionerNow()
+            }
+        }
+    }
+
+    func refreshModules() {
+        Task {
+            await refreshModulesNow()
+        }
+    }
+
+    func refreshModulesNow() async {
+        do {
+            guard let provider = dashboardAPI as? ClambhookScriptingProviding else {
+                throw APIClientError.invalidURL("modules unavailable")
+            }
+            modules = try await provider.modules()
+        } catch {
+            modules = ModulesPayload(modules: [])
+            daemonMessage = error.localizedDescription
+        }
+    }
+
+    func saveModules(_ modules: [ModulePayload]) {
+        Task {
+            do {
+                guard let provider = dashboardAPI as? ClambhookScriptingProviding else {
+                    throw APIClientError.invalidURL("modules unavailable")
+                }
+                self.modules = try await provider.replaceModules(modules)
+                daemonMessage = "modules saved"
+            } catch {
+                daemonMessage = error.localizedDescription
+                await refreshModulesNow()
             }
         }
     }

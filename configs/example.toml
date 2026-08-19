@@ -195,3 +195,22 @@ name = "local"
   disabled = true
   # Refreshed subscription caches materialize as generated rules after manual
   # profile rules, so hand-written rules can override broad subscription lists.
+
+# Modules are global Surge-style scripting units. Each module has one inline
+# or file-backed script and optional cron entries. Only enabled modules run.
+# The request hook (function onRequest(req) { ... $done(req); }) runs before
+# developer map rules and can mutate headers, URL, method, and body.
+#
+# Outbound network access from scripts is denied by default; declare allowed
+# hosts under [module.allow_network]. Persistent store and logging APIs are
+# available via clambhook.*.
+
+[[module]]
+name = "example-strip-tracking"
+enabled = false
+script = """
+function onRequest(req) {
+  delete req.headers["X-Tracking-Id"];
+  $done(req);
+}
+"""

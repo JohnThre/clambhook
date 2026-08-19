@@ -630,3 +630,22 @@ public final class ClambhookAPIClient: ClambhookAPIProviding, ClambhookRuleEditi
         return data
     }
 }
+
+extension ClambhookAPIClient: ClambhookScriptingProviding {
+    public func modules() async throws -> ModulesPayload {
+        try await getJSON("/api/v1/modules")
+    }
+
+    public func replaceModules(_ modules: [ModulePayload]) async throws -> ModulesPayload {
+        struct ReplaceModulesRequest: Encodable, Sendable {
+            let modules: [ModulePayload]
+        }
+        let body = try encoder.encode(ReplaceModulesRequest(modules: modules))
+        let data = try await send(method: "PUT", path: "/api/v1/modules", body: body)
+        return try decoder.decode(ModulesPayload.self, from: data)
+    }
+
+    public func moduleLogs(id: String) async throws -> ModuleLogsPayload {
+        try await getJSON("/api/v1/modules/\(id)/logs")
+    }
+}
