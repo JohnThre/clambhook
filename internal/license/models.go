@@ -27,6 +27,15 @@ const (
 	PortalURL               = "https://store.swiphtgroup.com/clambhook/portal"
 )
 
+// Support contact surfaced to a banned user for manual dispute. Mirrors the
+// backend constants (CLAMBHOOK_SUPPORT_EMAIL / CLAMBHOOK_DISPUTE_URL in the
+// swiphtgroup.com repo).
+const (
+	SupportEmail = "support@swiphtgroup.com"
+	DisputeURL   = "https://swiphtgroup.com/clambhook/support/"
+	SupportForum = "https://swiphtgroup.com/forum/"
+)
+
 // AccessReason is the resolved access state for a license snapshot.
 type AccessReason string
 
@@ -35,6 +44,7 @@ const (
 	ReasonLifetime     AccessReason = "lifetime"
 	ReasonOfflineGrace AccessReason = "offlineGrace"
 	ReasonLocked       AccessReason = "locked"
+	ReasonBanned       AccessReason = "banned"
 )
 
 // ProductKind classifies a purchased transaction.
@@ -127,10 +137,21 @@ type Decision struct {
 	UpdateCutoffDate   *time.Time   `json:"updateCutoffDate"`
 	OfflineGraceEndsAt *time.Time   `json:"offlineGraceEndsAt"`
 	UnlockedFeatureIDs []FeatureID  `json:"unlockedFeatureIDs"`
+
+	// Ban fields, populated only when Reason == ReasonBanned. The dispute
+	// surface (forum + email) is carried so UIs can render a manual-review
+	// path without a second round-trip.
+	IsBanned         bool    `json:"isBanned"`
+	BanReason        string  `json:"banReason,omitempty"`
+	SupportEmail     string  `json:"supportEmail,omitempty"`
+	DisputeURL       string  `json:"disputeUrl,omitempty"`
+	DisputeThreadURL *string `json:"disputeThreadUrl,omitempty"`
 }
 
-// CanUseApp reports whether the app is usable (any reason other than locked).
-func (d Decision) CanUseApp() bool { return d.Reason != ReasonLocked }
+// CanUseApp reports whether the app is usable (any reason other than locked or banned).
+func (d Decision) CanUseApp() bool {
+	return d.Reason != ReasonLocked && d.Reason != ReasonBanned
+}
 
 // IsTrialActive reports whether access is granted by an active trial.
 func (d Decision) IsTrialActive() bool { return d.Reason == ReasonTrial }
@@ -345,6 +366,7 @@ type ServerGrant struct {
 	HasLifetimeUnlock bool          `json:"has_lifetime_unlock"`
 	UpdateCutoffDate  *time.Time    `json:"update_cutoff_date,omitempty"`
 	Transactions      []Transaction `json:"transactions"`
+	KeyID             string        `json:"key_id,omitempty"`
 	Signature         string        `json:"signature"`
 }
 
@@ -389,4 +411,62 @@ type DeviceActionRequest struct {
 	InstallID  string             `json:"install_id"`
 	DeviceID   string             `json:"device_id,omitempty"`
 	Device     DeviceRegistration `json:"device"`
+}
+
+// BanMarker is a server-signed anti-piracy ban verdict persisted locally so a
+// banned state survives going offline and restarts. The signature is
+// verified (VerifyBanMarker) on every access decision, so a locally tampered
+// marker is ignored and cannot lock an unrelated device: the signed
+// install_id must match this device's install_id to be honored.
+//
+// The signed fields (ban_id, reason, source, banned_at, expires_at,
+// install_id, license_key_hash, device_id) and the key_id/signature mirror the
+// backend's buildClambHookBannedResponse `ban` object (swiphtgroup.com repo).
+// dispute_thread_url/support_email/dispute_url are carried unsigned for UI use.
+type BanMarker struct {
+	BanID            string     `json:"ban_id"`
+	Reason           string     `json:"reason"`
+	Source           string     `json:"source"`
+	BannedAt         time.Time  `json:"banned_at"`
+	ExpiresAt        *time.Time `json:"expires_at,omitempty"`
+	InstallID        string     `json:"install_id"`
+	LicenseKeyHash   *string    `json:"license_key_hash,omitempty"`
+	DeviceID         *string    `json:"device_id,omitempty"`
+	KeyID            string     `json:"key_id"`
+	Signature        string     `json:"signature"`
+	DisputeThreadURL *string    `json:"dispute_thread_url,omitempty"`
+	SupportEmail     string     `json:"support_email,omitempty"`
+	DisputeURL       string     `json:"dispute_url,omitempty"`
+}
+
+// IsActive reports whether the ban is still in effect at now (not resolved and
+// not past expires_at). A nil marker is not active.
+func (m *BanMarker) IsActive(now time.Time) bool {
+	if m == nil {
+		return false
+	}
+	if m.ExpiresAt != nil && !now.Before(*m.ExpiresAt) {
+		return false
+	}
+	return true
+}
+
+// LicenseState is the durable envelope the daemon reads/writes at its -license
+// path. It wraps the cached Snapshot with the install/device identifiers the
+// verifier needs to attest, the last signed grant (the trust root for
+// lifetime/offline-grace — a forged snapshot without a valid signed grant
+// cannot unlock lifetime), and the ban marker.
+//
+// LegacyUnsignedOK is a one-time migration affordance: when the daemon first
+// reads a bare Snapshot file (pre-genuine-verification upgrade) it wraps it with
+// LegacyUnsignedOK=true so an already-licensed offline user keeps working
+// until the next successful online attest, which persists a signed grant and
+// clears the flag. Thereafter lifetime requires a validly signed grant.
+type LicenseState struct {
+	Snapshot         Snapshot     `json:"snapshot"`
+	Grant            *ServerGrant `json:"grant,omitempty"`
+	InstallID        string       `json:"install_id,omitempty"`
+	DeviceID         string       `json:"device_id,omitempty"`
+	BanMarker        *BanMarker   `json:"ban_marker,omitempty"`
+	LegacyUnsignedOK bool         `json:"legacy_unsigned_ok,omitempty"`
 }

@@ -77,6 +77,9 @@ type Engine struct {
 	conditioner *conditioner.Shaper
 	// currentNetwork tracks the last observed network for status reporting.
 	currentNetwork netwatch.NetworkInfo
+	// networkCh fans a non-blocking signal out to subscribers (the license
+	// verifier) on every network change so it can re-attest on reconnect.
+	networkCh chan struct{}
 }
 
 // New creates a new engine with the given configuration and (optional)
@@ -88,7 +91,7 @@ type Engine struct {
 // and geo stays disabled — a bad geo path must never prevent the daemon
 // from starting.
 func New(cfg *config.Config, bus *events.Bus) *Engine {
-	e := &Engine{cfg: cfg, bus: bus, tempRules: temprules.New(), promptMgr: prompt.New(), watcher: netwatch.New(), conditioner: conditioner.New(conditioner.Config{})}
+	e := &Engine{cfg: cfg, bus: bus, tempRules: temprules.New(), promptMgr: prompt.New(), watcher: netwatch.New(), conditioner: conditioner.New(conditioner.Config{}), networkCh: make(chan struct{}, 1)}
 	if bus != nil {
 		e.promptMgr.SetEventHook(func(kind string, p prompt.Pending, allow bool) {
 			switch kind {
@@ -199,6 +202,17 @@ func (e *Engine) Stop() error {
 	err := e.stopLocked()
 	log.Printf("engine stopped")
 	return err
+}
+
+// Halt force-stops routing immediately: it tears down listeners (which drop
+// in-flight connections after their stop-grace period) and stops accepting new
+// ones, while leaving the HTTP API up so the ban screen and diagnostics keep
+// serving. It is the genuine-system verification enforcement hook for a banned
+// device. Idempotent; safe to call from the verifier goroutine.
+func (e *Engine) Halt() {
+	if err := e.Stop(); err != nil {
+		log.Printf("engine: halt: %v", err)
+	}
 }
 
 // Reload applies a new configuration. If the engine is currently running,
@@ -589,6 +603,14 @@ func (e *Engine) NetworkInfo() netwatch.NetworkInfo {
 	return e.currentNetwork
 }
 
+// NetworkChanges returns a channel that receives a non-blocking signal whenever
+// the active network changes. It feeds the license verifier so genuine-system
+// verification activates immediately on reconnect. The channel is buffered
+// (size 1) and never blocks the engine; extra changes coalesce.
+func (e *Engine) NetworkChanges() <-chan struct{} {
+	return e.networkCh
+}
+
 // runNetworkWatch monitors for network changes and auto-switches profiles
 // when a matching NetworkTrigger is found in the config. It runs as a
 // goroutine launched by startLocked and exits when ctx is cancelled.
@@ -611,6 +633,15 @@ func (e *Engine) handleNetworkObservation(info netwatch.NetworkInfo) {
 	cfg := e.cfg
 	oldActive := cfg.Active
 	e.mu.Unlock()
+
+	// Fan out a non-blocking reconnect signal to subscribers (the license
+	// verifier) so it re-attests on reconnect.
+	if e.networkCh != nil {
+		select {
+		case e.networkCh <- struct{}{}:
+		default:
+		}
+	}
 
 	winner, trigger, found := firstMatchingProfile(cfg.Profiles, info)
 	if !found {

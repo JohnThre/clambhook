@@ -163,6 +163,14 @@ func applyServerResponse(raw []byte, installID string, now time.Time) (string, e
 	if err := json.Unmarshal(raw, &resp); err != nil {
 		return "", fmt.Errorf("license: decode server response: %w", err)
 	}
+	// Verify the grant signature when the server signs (key_id present). A
+	// legacy/unsigned grant (key_id empty) is accepted unchanged. A bad
+	// signature is a verification failure: callers record it via
+	// MarkLicenseVerificationFailureJSON so the device falls into offline grace
+	// rather than trusting a forged grant.
+	if err := license.VerifyGrant(resp.Grant); err != nil {
+		return "", fmt.Errorf("license: %w", err)
+	}
 	grantJSON, err := json.Marshal(resp.Grant)
 	if err != nil {
 		return "", err
@@ -289,4 +297,163 @@ func MarkLicenseVerificationFailureJSON(snapshotJSON string, nowUnixMillis int64
 		Snapshot: snap,
 		Decision: license.Evaluate(snap, nil, now),
 	})
+}
+
+// BuildSecret is the build-embedded secret HMAC'd into the attestation token to
+// prove the binary carries it. It is injected at build time (e.g. via -ldflags
+// -X) and is NOT committed; an empty secret yields an empty token, which the
+// server rejects, so dev/CI attests fail closed into offline grace.
+var BuildSecret string
+
+// attestResult is the unified outcome of an attestation call, returned as JSON
+// by AttestLicenseJSON. The daemon persists a LicenseState from it: on genuine
+// it stores the signed Grant + Snapshot + device identifiers; on banned it
+// stores the BanMarker and halts.
+type attestResult struct {
+	Genuine     bool                 `json:"genuine"`
+	Banned      bool                 `json:"banned"`
+	Grant       *license.ServerGrant `json:"grant,omitempty"`
+	Snapshot    license.Snapshot     `json:"snapshot,omitempty"`
+	DeviceState license.DeviceState  `json:"device_state,omitempty"`
+	Decision    license.Decision     `json:"decision"`
+	BanMarker   *license.BanMarker   `json:"ban_marker,omitempty"`
+}
+
+type attestRequestBody struct {
+	InstallID   string                     `json:"install_id"`
+	Device      license.DeviceRegistration `json:"device,omitempty"`
+	Attestation map[string]any             `json:"attestation"`
+}
+
+type attestBannedBody struct {
+	Banned           bool            `json:"banned"`
+	BanReason        string          `json:"ban_reason"`
+	SupportEmail     string          `json:"support_email"`
+	DisputeURL       string          `json:"dispute_url"`
+	DisputeThreadURL *string         `json:"dispute_thread_url"`
+	Ban              json.RawMessage `json:"ban"`
+}
+
+// postAttest POSTs the attestation and returns the raw body + status (it does
+// not error on non-2xx; the caller distinguishes genuine 200 from banned 403).
+func postAttest(baseURL, path string, body any) ([]byte, int, error) {
+	base := strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	if base == "" {
+		base = license.ValidationBaseURL
+	}
+	url := fmt.Sprintf("%s/v1/devices/%s", base, path)
+	payload, err := json.Marshal(body)
+	if err != nil {
+		return nil, 0, err
+	}
+	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(payload))
+	if err != nil {
+		return nil, 0, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := licenseHTTPClient.Do(req)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer resp.Body.Close()
+	data, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return nil, resp.StatusCode, err
+	}
+	return data, resp.StatusCode, nil
+}
+
+// BuildAttestationJSON builds the `attestation` object the client sends to the
+// /attest endpoint: a key_id, the HMAC build_token proving the build-embedded
+// secret, the binary hash / code-sign identity, a nonce, and a timestamp. The
+// daemon's SelfAttestation supplies the binary hash / code-sign identity.
+func BuildAttestationJSON(installID, binaryHash string, codeSignIdentity *string, nonce string, nowUnixMillis int64) (string, error) {
+	ts := nowOrDefault(nowUnixMillis).UnixMilli()
+	token := license.BuildAttestationToken(license.CLAMBHOOKGrantKeyID, installID, binaryHash, codeSignIdentity, nonce, ts, BuildSecret)
+	return marshalString(map[string]any{
+		"key_id":             license.CLAMBHOOKGrantKeyID,
+		"build_token":        token,
+		"binary_hash":        binaryHash,
+		"code_sign_identity": codeSignIdentity,
+		"nonce":              nonce,
+		"timestamp":          ts,
+	})
+}
+
+// AttestLicenseJSON performs a genuine-system attestation against the backend.
+// On a genuine 200 it verifies the returned grant signature and returns the
+// applied license payload (grant + snapshot + device state + decision). On a
+// banned 403 it verifies the signed ban verdict and returns a ban marker. On a
+// network/server error it returns an error so the caller records a
+// verification failure (offline grace) via MarkLicenseVerificationFailureJSON.
+func AttestLicenseJSON(baseURL, deviceRegJSON, binaryHash string, codeSignIdentity *string, nowUnixMillis int64) (string, error) {
+	reg, err := decodeRegistration(deviceRegJSON)
+	if err != nil {
+		return "", err
+	}
+	now := nowOrDefault(nowUnixMillis)
+	nonce := strings.ToLower(uuid.NewString())
+	attJSON, err := BuildAttestationJSON(reg.InstallID, binaryHash, codeSignIdentity, nonce, nowUnixMillis)
+	if err != nil {
+		return "", err
+	}
+	var att map[string]any
+	if err := json.Unmarshal([]byte(attJSON), &att); err != nil {
+		return "", err
+	}
+	body := attestRequestBody{
+		InstallID:   reg.InstallID,
+		Device:      reg,
+		Attestation: att,
+	}
+	raw, status, err := postAttest(baseURL, "attest", body)
+	if err != nil {
+		return "", err
+	}
+	if status == http.StatusOK {
+		applied, err := applyServerResponse(raw, reg.InstallID, now)
+		if err != nil {
+			return "", err
+		}
+		var appliedPayload appliedLicensePayload
+		if err := json.Unmarshal([]byte(applied), &appliedPayload); err != nil {
+			return "", err
+		}
+		var grant license.ServerGrant
+		if len(appliedPayload.Grant) > 0 {
+			if err := json.Unmarshal(appliedPayload.Grant, &grant); err != nil {
+				return "", fmt.Errorf("license: decode grant: %w", err)
+			}
+		}
+		return marshalString(attestResult{
+			Genuine:     true,
+			Grant:       &grant,
+			Snapshot:    appliedPayload.Snapshot,
+			DeviceState: appliedPayload.DeviceState,
+			Decision:    appliedPayload.Decision,
+		})
+	}
+	if status == http.StatusForbidden {
+		var banned attestBannedBody
+		if err := json.Unmarshal(raw, &banned); err != nil || !banned.Banned || len(banned.Ban) == 0 {
+			return "", fmt.Errorf("license: attest rejected (%d)", status)
+		}
+		var m license.BanMarker
+		if err := json.Unmarshal(banned.Ban, &m); err != nil {
+			return "", fmt.Errorf("license: decode ban verdict: %w", err)
+		}
+		m.SupportEmail = banned.SupportEmail
+		m.DisputeURL = banned.DisputeURL
+		m.DisputeThreadURL = banned.DisputeThreadURL
+		if err := license.VerifyBanMarker(m, reg.InstallID); err != nil {
+			return "", fmt.Errorf("license: %w", err)
+		}
+		decision := license.EvaluateState(license.LicenseState{InstallID: reg.InstallID, BanMarker: &m}, nil, now)
+		return marshalString(attestResult{
+			Banned:    true,
+			BanMarker: &m,
+			Decision:  decision,
+		})
+	}
+	return "", fmt.Errorf("license: attest failed (%d)", status)
 }

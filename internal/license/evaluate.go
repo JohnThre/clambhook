@@ -234,3 +234,66 @@ func PaidUpdatePolicyCopy(cutoff time.Time) string {
 func formatDate(t time.Time) string {
 	return t.In(utc).Format("Jan 2, 2006")
 }
+
+// EvaluateState is the daemon's access decision over the durable LicenseState
+// envelope. It adds two anti-piracy layers on top of the pure Snapshot math in
+// Evaluate:
+//
+//  1. Ban override: a valid (signature-verified, non-expired) BanMarker forces
+//     ReasonBanned, which denies all access and disables offline grace. A
+//     tampered or expired marker is ignored, so a local edit cannot lock the
+//     app and a resolved ban stops blocking.
+//  2. Signed-grant gating: lifetime and offline-grace access require a validly
+//     signed Grant (or the one-time LegacyUnsignedOK migration affordance),
+//     so a forged Snapshot without a server-signed grant cannot unlock
+//     lifetime. Trial is local and unaffected.
+func EvaluateState(state LicenseState, features []Feature, now time.Time) Decision {
+	if state.BanMarker != nil && state.BanMarker.IsActive(now) {
+		if err := VerifyBanMarker(*state.BanMarker, state.InstallID); err == nil {
+			return bannedDecision(*state.BanMarker)
+		}
+	}
+
+	base := Evaluate(state.Snapshot, features, now)
+	if base.Reason == ReasonLifetime || base.Reason == ReasonOfflineGrace {
+		if !lifetimeVouched(state) {
+			base.Reason = ReasonLocked
+			base.HasLifetimeUnlock = false
+			base.UpdateCutoffDate = nil
+			base.OfflineGraceEndsAt = nil
+			base.UnlockedFeatureIDs = nil
+		}
+	}
+	return base
+}
+
+// lifetimeVouched reports whether the lifetime entitlement is backed by a
+// validly signed grant, or by the one-time legacy affordance for users upgraded
+// from a bare Snapshot file before genuine verification shipped.
+func lifetimeVouched(state LicenseState) bool {
+	if state.LegacyUnsignedOK {
+		return true
+	}
+	if state.Grant == nil {
+		return false
+	}
+	return VerifyGrant(*state.Grant) == nil
+}
+
+func bannedDecision(m BanMarker) Decision {
+	d := Decision{
+		Reason:           ReasonBanned,
+		IsBanned:         true,
+		BanReason:        m.Reason,
+		SupportEmail:     m.SupportEmail,
+		DisputeURL:       m.DisputeURL,
+		DisputeThreadURL: m.DisputeThreadURL,
+	}
+	if d.SupportEmail == "" {
+		d.SupportEmail = SupportEmail
+	}
+	if d.DisputeURL == "" {
+		d.DisputeURL = DisputeURL
+	}
+	return d
+}

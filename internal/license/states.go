@@ -113,6 +113,7 @@ type RecoveryKind string
 const (
 	RecoveryExpiredTrial          RecoveryKind = "expired_trial"
 	RecoveryLicenseExpiredUpdates RecoveryKind = "license_expired_for_updates"
+	RecoveryBanned                RecoveryKind = "banned"
 )
 
 // RecoverySeverity classifies banner urgency.
@@ -204,4 +205,48 @@ func LicenseExpiredForUpdatesState(d Decision, manifestPublishedAt *time.Time, n
 		SecondaryActions: []RecoveryAction{ActionOpenLicensePortal, ActionActivateLicense, ActionSupport},
 		DiagnosticText:   PaidUpdatePolicyCopy(*d.UpdateCutoffDate),
 	}
+}
+
+// BannedState returns the anti-piracy ban banner when access is denied because
+// of a genuine-system ban, else nil. The banner routes the user to manual
+// dispute review via the forum and support email; it does NOT offer an
+// in-app self-serve unlock.
+func BannedState(d Decision) *RecoveryState {
+	if !d.IsBanned {
+		return nil
+	}
+	message := fmt.Sprintf(
+		"ClambHook is banned: pirated or cracked software was detected (reason: %s). "+
+			"Routing has been stopped and your license/device is banned. "+
+			"If you believe this is a mistake, contact support for manual review.",
+		d.BanReason,
+	)
+	if d.DisputeThreadURL != nil {
+		message = fmt.Sprintf(
+			"%s Open the dispute thread for this ban: %s", message, *d.DisputeThreadURL,
+		)
+	}
+	return &RecoveryState{
+		Kind:             RecoveryBanned,
+		Severity:         SeverityError,
+		Title:            "ClambHook banned",
+		Message:          message,
+		PrimaryAction:    ActionSupport,
+		SecondaryActions: []RecoveryAction{ActionOpenLicensePortal},
+		DiagnosticText:   fmt.Sprintf("Support: %s · Dispute: %s", supportOrDefault(d), disputeOrDefault(d)),
+	}
+}
+
+func supportOrDefault(d Decision) string {
+	if d.SupportEmail != "" {
+		return d.SupportEmail
+	}
+	return SupportEmail
+}
+
+func disputeOrDefault(d Decision) string {
+	if d.DisputeURL != "" {
+		return d.DisputeURL
+	}
+	return DisputeURL
 }

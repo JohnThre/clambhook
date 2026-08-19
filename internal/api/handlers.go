@@ -26,6 +26,7 @@ const maxJSONRequestBytes = 1 << 20
 
 func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/status", s.handleStatus)
+	mux.HandleFunc("GET /api/v1/license/ban", s.handleLicenseBan)
 	mux.HandleFunc("GET /api/v1/profiles", s.handleProfiles)
 	mux.HandleFunc("GET /api/v1/servers", s.handleServers)
 	mux.HandleFunc("GET /api/v1/policy-groups", s.handlePolicyGroups)
@@ -382,9 +383,9 @@ func (s *Server) handleRefreshRuleSets(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, map[string]any{
-		"profile":    payload.Profile,
-		"rule_sets":  append([]config.RuleSetConfig(nil), profile.RuleSets...),
-		"statuses":   payload.RuleSets,
+		"profile":     payload.Profile,
+		"rule_sets":   append([]config.RuleSetConfig(nil), profile.RuleSets...),
+		"statuses":    payload.RuleSets,
 		"backup_path": result.BackupPath,
 	})
 }
@@ -462,9 +463,9 @@ func (s *Server) handleRefreshRuleSubscriptions(w http.ResponseWriter, r *http.R
 		return
 	}
 	writeJSON(w, map[string]any{
-		"profile":     payload.Profile,
+		"profile":       payload.Profile,
 		"subscriptions": payload.Subscriptions,
-		"backup_path": result.BackupPath,
+		"backup_path":   result.BackupPath,
 	})
 }
 

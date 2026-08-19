@@ -10,6 +10,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"runtime"
 	"strings"
 	"syscall"
 	"time"
@@ -20,6 +21,8 @@ import (
 	"github.com/JohnThre/clambhook/internal/engine"
 	"github.com/JohnThre/clambhook/internal/events"
 	"github.com/JohnThre/clambhook/internal/geo"
+	"github.com/JohnThre/clambhook/internal/license"
+	"github.com/JohnThre/clambhook/internal/licenseverify"
 	"github.com/JohnThre/clambhook/internal/logstream"
 	"github.com/JohnThre/clambhook/internal/traffic"
 	"github.com/JohnThre/clambhook/internal/watcher"
@@ -162,6 +165,28 @@ func main() {
 
 	log.Printf("clambhook %s started", version)
 
+	// Genuine-system verification loop: attests against store.swiphtgroup.com on
+	// startup, on every network change (via the engine's netwatch fan-out), and
+	// every 6h while online. A banned verdict tears down routing via eng.Halt; a
+	// network error records a verification failure (offline grace). No-op without
+	// -license or for trial-only installs.
+	var stopVerifier func()
+	if *licensePath != "" {
+		verifier := licenseverify.New(licenseverify.Config{
+			StatePath: *licensePath,
+			Registration: license.DeviceRegistration{
+				DisplayName:  "Clambhook daemon",
+				Platform:     runtime.GOOS,
+				Architecture: runtime.GOARCH,
+				AppVersion:   version,
+			},
+			Halt:       eng.Halt,
+			NetwatchCh: eng.NetworkChanges(),
+		})
+		stopVerifier = verifier.Start(ctx)
+		log.Printf("license verification enabled (state: %s)", *licensePath)
+	}
+
 	<-ctx.Done()
 
 	log.Printf("shutting down...")
@@ -169,6 +194,9 @@ func main() {
 		if err := cfgWatcher.Stop(); err != nil {
 			log.Printf("stop watcher: %v", err)
 		}
+	}
+	if stopVerifier != nil {
+		stopVerifier()
 	}
 	eng.Stop()
 	trafficMgr.Stop()

@@ -100,23 +100,52 @@ func (s *Server) licenseDecision() (license.Decision, error) {
 	return dec, nil
 }
 
-// readLicenseDecision reads, decodes, and evaluates the license snapshot. It
-// is called under licenseMu.
+// readLicenseDecision reads, decodes, and evaluates the license state. It
+// accepts either the new LicenseState envelope (with the signed grant + ban
+// marker) or a bare Snapshot file written by an older UI (wrapped as a legacy
+// envelope). It is called under licenseMu.
 func (s *Server) readLicenseDecision(now time.Time) (license.Decision, error) {
 	data, err := os.ReadFile(s.licensePath)
 	if err != nil {
 		return license.Decision{}, err
 	}
+	var state license.LicenseState
+	if json.Unmarshal(data, &state) == nil && (state.Grant != nil || state.InstallID != "" || state.BanMarker != nil || state.LegacyUnsignedOK) {
+		return license.EvaluateState(state, nil, now), nil
+	}
+	// Bare Snapshot (pre-genuine-verification file written by an older UI):
+	// wrap as a legacy LicenseState so an already-licensed offline user keeps
+	// working until the verifier attests and persists a signed grant.
 	var snap license.Snapshot
 	if err := json.Unmarshal(data, &snap); err != nil {
 		return license.Decision{}, err
 	}
-	return license.Evaluate(snap, nil, now), nil
+	return license.EvaluateState(license.LicenseState{Snapshot: snap, LegacyUnsignedOK: true}, nil, now), nil
 }
 
 type licenseCacheEntry struct {
 	decision license.Decision
 	exp      time.Time
+}
+
+// LicenseBanState returns the active ban marker for GET /api/v1/license/ban,
+// so UIs can render the dispute surface (forum + email) without a second
+// round-trip. The boolean is false when no active ban is in effect.
+func (s *Server) LicenseBanState() (license.BanMarker, bool) {
+	s.licenseMu.Lock()
+	defer s.licenseMu.Unlock()
+	data, err := os.ReadFile(s.licensePath)
+	if err != nil {
+		return license.BanMarker{}, false
+	}
+	var state license.LicenseState
+	if json.Unmarshal(data, &state) != nil {
+		return license.BanMarker{}, false
+	}
+	if state.BanMarker == nil || !state.BanMarker.IsActive(time.Now()) {
+		return license.BanMarker{}, false
+	}
+	return *state.BanMarker, true
 }
 
 // SetLicensePathForTest swaps the license path and clears the cache. It is
@@ -126,4 +155,29 @@ func (s *Server) SetLicensePathForTest(path string) {
 	defer s.licenseMu.Unlock()
 	s.licensePath = path
 	s.licenseCache = licenseCacheEntry{}
+}
+
+// handleLicenseBan serves GET /api/v1/license/ban, returning the active ban
+// marker (with the dispute surface) so UIs can render a manual-review screen.
+// It is a read-only GET and is intentionally not license-gated, so a banned
+// user can still read their own ban state.
+func (s *Server) handleLicenseBan(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if s.licensePath == "" {
+		_ = json.NewEncoder(w).Encode(map[string]any{"banned": false})
+		return
+	}
+	marker, ok := s.LicenseBanState()
+	if !ok {
+		_ = json.NewEncoder(w).Encode(map[string]any{"banned": false})
+		return
+	}
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"banned":             true,
+		"ban":                marker,
+		"ban_reason":         marker.Reason,
+		"support_email":      marker.SupportEmail,
+		"dispute_url":        marker.DisputeURL,
+		"dispute_thread_url": marker.DisputeThreadURL,
+	})
 }
