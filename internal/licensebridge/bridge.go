@@ -84,7 +84,7 @@ func LicenseCommercialTermsJSON() (string, error) {
 		"paidUpdatePriceUSD":  license.PaidUpdatePriceUSD,
 		"includedUpdateYears": license.IncludedUpdateYears,
 		"maxActiveDevices":    license.MaxActiveDevices,
-		"trialMonths":         license.TrialMonths,
+		"trialDays":           license.TrialDays,
 	})
 }
 

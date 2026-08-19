@@ -1,7 +1,7 @@
 # ClambHook GNU/Linux packaging
 
 ClambHook for GNU/Linux is distributed only from clambercloud.com as free
-per-distro packages. Continued use after the one-month trial requires a license
+per-distro packages. Continued use after the 7-day trial requires a license
 purchased from store.swiphtgroup.com (Creem or NOWPayments; PayPal is not
 accepted). Do not publish these installers on GitHub Releases or package
 mirrors.

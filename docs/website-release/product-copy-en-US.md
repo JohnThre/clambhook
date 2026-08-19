@@ -3,7 +3,7 @@
 ## Hero
 
 - Title: ClambHook.
-- Description: Private VPN and proxy router for Apple Silicon Macs running macOS 14 or later. Download the DMG free from `store.clambercloud.com`, start a one-calendar-month trial, then buy a ClambHook license from `store.swiphtgroup.com`.
+- Description: Private VPN and proxy router for Apple Silicon Macs running macOS 14 or later. Download the DMG free from `store.clambercloud.com`, start a 7-day trial, then buy a ClambHook license from `store.swiphtgroup.com`.
 - Primary action: Free Download.
 - Secondary action: Licensing & Pricing.
 
@@ -19,7 +19,7 @@
 
 ## Pricing
 
-- One-calendar-month free trial from first launch.
+- 7-day free trial from first launch.
 - USD 49.99 one-time ClambHook license required after the trial.
 - Includes one year of all updates from the purchase date.
 - Versions released on or before the update cutoff remain usable after the cutoff.
@@ -45,7 +45,7 @@ the device unless the user explicitly exports or sends them.
 
 ## Copy Guardrails
 
-- Use "ClambHook license", "one-calendar-month trial", "USD 49.99 one-time license", "maximum of 3 concurrently active devices", and "USD 9.99 update-year renewal" for commercial copy.
+- Use "ClambHook license", "7-day trial", "USD 49.99 one-time license", "maximum of 3 concurrently active devices", and "USD 9.99 update-year renewal" for commercial copy.
 - Public download CTAs point to `store.clambercloud.com`.
 - Purchase, renewal, and license portal CTAs point to `store.swiphtgroup.com`.
 - Do not describe the current public release as a marketplace purchase, hosted account service, or subscription.

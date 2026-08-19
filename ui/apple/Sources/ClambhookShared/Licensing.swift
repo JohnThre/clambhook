@@ -1,6 +1,6 @@
 import Foundation
 
-public let mobileLicenseTrialMonths = 1
+public let mobileLicenseTrialDays = 7
 public let mobileLicenseOfflineGraceDays = 7
 public let mobileLicenseSnapshotDefaultsKey = "clambhook.apple.license.snapshot"
 
@@ -297,7 +297,9 @@ public enum MobileLicenseTrialStore {
 
 public enum MobileLicenseCopy {
     public static func paidUpdatePolicy(cutoffDate: Date) -> String {
-        "The ClambHook license includes all updates released through \(cutoffDate.formatted(date: .abbreviated, time: .omitted)). Versions released during that window remain usable. Updates released after that date, including critical, bug, and security updates, require a USD 9.99 update-year renewal."
+        "The ClambHook license includes all updates released through "
+            + "\(cutoffDate.formatted(date: .abbreviated, time: .omitted)). Versions released during that window remain usable. "
+            + "Updates released after that date, including critical, bug, and security updates, require a USD 9.99 update-year renewal."
     }
 }
 
@@ -357,7 +359,7 @@ public enum MobileLicenseProductStateBuilder {
         if let trialEndsAt = decision.trialEndsAt {
             states.append(MobileLicenseProductState(
                 kind: .trial,
-                title: "One-calendar-month trial",
+                title: "7-day trial",
                 detail: decision.isTrialActive
                     ? "Trial ends \(trialEndsAt.formatted(date: .abbreviated, time: .omitted))."
                     : "Trial ended \(trialEndsAt.formatted(date: .abbreviated, time: .omitted)).",
@@ -366,7 +368,7 @@ public enum MobileLicenseProductStateBuilder {
         } else {
             states.append(MobileLicenseProductState(
                 kind: .trial,
-                title: "One-calendar-month trial",
+                title: "7-day trial",
                 detail: "Trial starts the first time this app records an access date.",
                 isActive: false
             ))
@@ -510,7 +512,7 @@ public enum MobileLicenseRuntimeError: Error, LocalizedError {
     public var errorDescription: String? {
         switch self {
         case .locked:
-            return "The one-calendar-month trial has ended. Buy or activate a USD 49.99 one-time ClambHook license to keep using ClambHook."
+            return "The 7-day trial has ended. Buy or activate a USD 49.99 one-time ClambHook license to keep using ClambHook."
         }
     }
 }
@@ -554,7 +556,7 @@ public let mobileLicenseCalendar: Calendar = {
 }()
 
 public func mobileLicenseTrialEndDate(start: Date, calendar: Calendar = mobileLicenseCalendar) -> Date? {
-    calendar.date(byAdding: .month, value: mobileLicenseTrialMonths, to: start)
+    calendar.date(byAdding: .day, value: mobileLicenseTrialDays, to: start)
 }
 
 public func mobileLicenseUTCDate(year: Int, month: Int, day: Int) -> Date {

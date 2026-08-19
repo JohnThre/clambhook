@@ -38,14 +38,14 @@ func ProductStates(d Decision, features []Feature) []ProductState {
 		}
 		states = append(states, ProductState{
 			Kind:     ProductStateTrial,
-			Title:    "One-calendar-month trial",
+			Title:    "7-day trial",
 			Detail:   detail,
 			IsActive: d.IsTrialActive(),
 		})
 	} else {
 		states = append(states, ProductState{
 			Kind:     ProductStateTrial,
-			Title:    "One-calendar-month trial",
+			Title:    "7-day trial",
 			Detail:   "Trial starts the first time this app records an access date.",
 			IsActive: false,
 		})
@@ -156,7 +156,7 @@ func ExpiredTrialState(d Decision) *RecoveryState {
 	message := "Buy or activate a ClambHook license to continue."
 	if d.TrialEndsAt != nil {
 		message = fmt.Sprintf(
-			"The one-calendar-month trial ended %s. Buy or activate a USD 49.99 one-time ClambHook license to continue.",
+			"The 7-day trial ended %s. Buy or activate a USD 49.99 one-time ClambHook license to continue.",
 			formatDate(*d.TrialEndsAt),
 		)
 	}

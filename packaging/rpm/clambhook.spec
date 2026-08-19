@@ -52,7 +52,7 @@ daemon, the Kotlin/Compose Multiplatform desktop controller, the terminal
 dashboard, and the private license helper used for trial and license activation
 against the hosted store backend.
 
-Continued use after the one-month trial requires a license purchased from
+Continued use after the 7-day trial requires a license purchased from
 store.swiphtgroup.com (Creem or NOWPayments; PayPal is not accepted).
 
 %prep

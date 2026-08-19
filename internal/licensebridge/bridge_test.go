@@ -37,8 +37,8 @@ func TestEnsureAndEvaluateLicenseTrial(t *testing.T) {
 		t.Fatalf("reason = %s, want trial", dec.Reason)
 	}
 
-	// After the trial month, the app locks.
-	lockedJSON, err := EvaluateLicenseJSON(seeded, license.UTCDate(2026, 8, 16).UnixMilli())
+	// After the 7-day trial, the app locks.
+	lockedJSON, err := EvaluateLicenseJSON(seeded, license.UTCDate(2026, 7, 23).UnixMilli())
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -47,7 +47,7 @@ func addYearsClamped(t time.Time, years int) time.Time {
 
 // TrialEndDate returns the end of the trial that started at start.
 func TrialEndDate(start time.Time) time.Time {
-	return addMonthsClamped(start, TrialMonths)
+	return start.AddDate(0, 0, TrialDays)
 }
 
 // startOfDayUTC truncates to midnight UTC.

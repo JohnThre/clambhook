@@ -213,7 +213,7 @@ The end-user macOS app is distributed only from `https://store.clambercloud.com/
 as a free public DMG download for Apple Silicon Macs running macOS 14 or later. The GNU/Linux
 app is distributed only from the same host as free per-distro packages (`.deb`, `.rpm`, Flatpak,
 and AppImage) tested on Bazzite, Rocky Linux, PureOS, Ubuntu, Debian, and Fedora. First launch
-starts a one-calendar-month trial, after which a USD 49.99 one-time ClambHook license is
+starts a 7-day trial, after which a USD 49.99 one-time ClambHook license is
 purchased from `https://store.swiphtgroup.com/clambhook/buy`.
 
 The license includes one year of all updates from the purchase date; versions released
@@ -225,7 +225,7 @@ renewal payment date. Purchase payments are accepted only through Creem or NOWPa
 
 ```mermaid
 flowchart TD
-    download["Free DMG<br/>store.clambercloud.com"] --> trial["One-calendar-month trial"]
+    download["Free DMG<br/>store.clambercloud.com"] --> trial["7-day trial"]
     trial --> buy["USD 49.99 license<br/>Creem / NOWPayments"]
     buy --> year["One update year<br/>from purchase date"]
     year --> cutoff{Past update cutoff?}
@@ -271,7 +271,7 @@ flowchart LR
 ```
 
 - **Marketing / download (`clambercloud.com`):** product content, feature and
-  pricing pages, and free downloads with the one-calendar-month trial. No
+  pricing pages, and free downloads with the 7-day trial. No
   checkout runs here; the payment CTA redirect is the only commerce coupling.
 - **Checkout / licensing (`store.swiphtgroup.com`):** Creem and NOWPayments
   checkout, license-key delivery, update-year renewals, and the device-seat
@@ -312,7 +312,7 @@ permission from Pengfan Chang.
 
 ## Author
 
-Pengfan Chang — clambhook@jpfchang.org
+Pengfan Chang — <clambhook@jpfchang.org>
 
 ## Donate
 

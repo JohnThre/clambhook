@@ -6,7 +6,7 @@ and update-year renewals are handled by `store.swiphtgroup.com`.
 
 ```mermaid
 flowchart TD
-    dl["Free DMG download<br/>store.clambercloud.com"] --> trial["One-calendar-month trial"]
+    dl["Free DMG download<br/>store.clambercloud.com"] --> trial["7-day trial"]
     trial --> buy["USD 49.99 one-time license<br/>store.swiphtgroup.com · Creem / NOWPayments"]
     buy --> window["Update window:<br/>one year from purchase date"]
     window --> cutoff{Past update cutoff?}
@@ -24,7 +24,7 @@ flowchart TD
 - License portal: `https://store.swiphtgroup.com/clambhook/portal/`.
 - The public macOS DMG download is free and supports Apple Silicon Macs running macOS 14.0 or later.
 - The public GNU/Linux download is free and ships as `.deb`, `.rpm`, Flatpak, and AppImage packages tested on Bazzite, Rocky Linux, PureOS, Ubuntu, Debian, and Fedora.
-- The first launch starts a one-calendar-month trial.
+- The first launch starts a 7-day trial.
 - A USD 49.99 one-time ClambHook license is required after the trial and includes one year of all updates from the purchase date.
 - Versions released on or before the update cutoff remain usable after the cutoff.
 - Each license covers a maximum of 3 concurrently active devices across supported platforms.

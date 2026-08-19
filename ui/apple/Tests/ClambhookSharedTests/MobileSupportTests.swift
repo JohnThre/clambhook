@@ -24,7 +24,7 @@ final class MobileSupportTests: XCTestCase {
     func testPurchaseOffersShowMacLicenseBeforeActivation() {
         let decision = MobileLicenseEvaluator.evaluate(
             snapshot: MobileLicenseSnapshot(trialStartDate: mobileLicenseUTCDate(year: 2026, month: 6, day: 3)),
-            now: mobileLicenseUTCDate(year: 2026, month: 7, day: 1)
+            now: mobileLicenseUTCDate(year: 2026, month: 6, day: 9)
         )
 
         XCTAssertEqual(
@@ -99,7 +99,8 @@ final class MobileSupportTests: XCTestCase {
             productsByID[MobilePurchaseCatalog.macLicenseProductID],
             displayPrice: "49.99",
             displayName: "ClambHook License",
-            description: "USD 49.99 one-time ClambHook license after a one-calendar-month trial; includes one year of all updates; versions released on or before the cutoff remain usable; maximum 3 concurrently active devices; deactivatable and transferable."
+            description: "USD 49.99 one-time ClambHook license after a 7-day trial; includes one year of all updates; " +
+                "versions released on or before the cutoff remain usable; maximum 3 concurrently active devices; deactivatable and transferable."
         )
         try assertDirectSaleProduct(
             productsByID[MobilePurchaseCatalog.featureUpdateProductID],

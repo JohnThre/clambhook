@@ -2,35 +2,24 @@ import XCTest
 @testable import ClambhookShared
 
 final class LicensingTests: XCTestCase {
-    func testTrialUsesOneCalendarMonth() {
+    func testTrialUsesSevenDays() {
         let start = mobileLicenseUTCDate(year: 2026, month: 1, day: 31)
         let snapshot = MobileLicenseSnapshot(trialStartDate: start)
 
         let beforeExpiry = MobileLicenseEvaluator.evaluate(
             snapshot: snapshot,
-            now: mobileLicenseUTCDate(year: 2026, month: 2, day: 27)
+            now: mobileLicenseUTCDate(year: 2026, month: 2, day: 6)
         )
         XCTAssertEqual(beforeExpiry.reason, .trial)
-        XCTAssertEqual(beforeExpiry.trialEndsAt, mobileLicenseUTCDate(year: 2026, month: 2, day: 28))
+        XCTAssertEqual(beforeExpiry.trialEndsAt, mobileLicenseUTCDate(year: 2026, month: 2, day: 7))
         XCTAssertTrue(beforeExpiry.canUseFeature(.tunnelRouting))
 
         let atExpiry = MobileLicenseEvaluator.evaluate(
             snapshot: snapshot,
-            now: mobileLicenseUTCDate(year: 2026, month: 2, day: 28)
+            now: mobileLicenseUTCDate(year: 2026, month: 2, day: 7)
         )
         XCTAssertEqual(atExpiry.reason, .locked)
         XCTAssertFalse(atExpiry.canUseApp)
-    }
-
-    func testTrialEndDateClampsToTargetMonthLastDay() {
-        XCTAssertEqual(
-            mobileLicenseTrialEndDate(start: mobileLicenseUTCDate(year: 2025, month: 12, day: 31)),
-            mobileLicenseUTCDate(year: 2026, month: 1, day: 31)
-        )
-        XCTAssertEqual(
-            mobileLicenseTrialEndDate(start: mobileLicenseUTCDate(year: 2023, month: 12, day: 31)),
-            mobileLicenseUTCDate(year: 2024, month: 1, day: 31)
-        )
     }
 
     func testExpiredTrialLocksPremiumFeaturesWithoutPurchase() {
@@ -50,7 +39,7 @@ final class LicensingTests: XCTestCase {
     func testLockedWidgetActionsCannotStartOrSwitchRoutingButCanDisconnect() {
         let decision = MobileLicenseEvaluator.evaluate(
             snapshot: MobileLicenseSnapshot(trialStartDate: mobileLicenseUTCDate(year: 2026, month: 6, day: 3)),
-            now: mobileLicenseUTCDate(year: 2026, month: 8, day: 4)
+            now: mobileLicenseUTCDate(year: 2026, month: 6, day: 11)
         )
 
         XCTAssertFalse(WidgetLicenseActionPolicy.isAllowed(.connect, decision: decision))
@@ -360,13 +349,13 @@ final class LicensingTests: XCTestCase {
             snapshot: MobileLicenseSnapshot(
                 trialStartDate: mobileLicenseUTCDate(year: 2026, month: 6, day: 3)
             ),
-            now: mobileLicenseUTCDate(year: 2026, month: 7, day: 2)
+            now: mobileLicenseUTCDate(year: 2026, month: 6, day: 9)
         )
         let expiredTrial = MobileLicenseEvaluator.evaluate(
             snapshot: MobileLicenseSnapshot(
                 trialStartDate: mobileLicenseUTCDate(year: 2026, month: 6, day: 3)
             ),
-            now: mobileLicenseUTCDate(year: 2026, month: 7, day: 3)
+            now: mobileLicenseUTCDate(year: 2026, month: 6, day: 10)
         )
 
         XCTAssertTrue(MobileLicenseUpdatePolicy.canInstallUpdate(
@@ -396,7 +385,7 @@ final class LicensingTests: XCTestCase {
         let decision = MobileLicenseEvaluator.evaluate(snapshot: snapshot, now: reinstallDate)
 
         XCTAssertEqual(snapshot.trialStartDate, originalStart)
-        XCTAssertEqual(decision.trialEndsAt, mobileLicenseUTCDate(year: 2026, month: 7, day: 3))
+        XCTAssertEqual(decision.trialEndsAt, mobileLicenseUTCDate(year: 2026, month: 6, day: 10))
     }
 
     func testPaidUpdatePolicyCopyIncludesStrictCutoffLanguage() {
@@ -412,13 +401,13 @@ final class LicensingTests: XCTestCase {
         let snapshot = MobileLicenseSnapshot(trialStartDate: mobileLicenseUTCDate(year: 2026, month: 6, day: 3))
         let decision = MobileLicenseEvaluator.evaluate(
             snapshot: snapshot,
-            now: mobileLicenseUTCDate(year: 2026, month: 7, day: 1)
+            now: mobileLicenseUTCDate(year: 2026, month: 6, day: 9)
         )
 
         let states = MobileLicenseProductStateBuilder.states(for: decision)
         let trial = try XCTUnwrap(states.first { $0.kind == .trial })
 
-        XCTAssertEqual(trial.title, "One-calendar-month trial")
+        XCTAssertEqual(trial.title, "7-day trial")
         XCTAssertTrue(trial.isActive)
         XCTAssertTrue(trial.detail.contains("Trial ends"))
         XCTAssertTrue(trial.detail.contains("2026"))
@@ -436,7 +425,7 @@ final class LicensingTests: XCTestCase {
         )
         let decision = MobileLicenseEvaluator.evaluate(
             snapshot: snapshot,
-            now: mobileLicenseUTCDate(year: 2026, month: 7, day: 1)
+            now: mobileLicenseUTCDate(year: 2026, month: 6, day: 9)
         )
 
         let states = MobileLicenseProductStateBuilder.states(for: decision)
@@ -695,4 +684,5 @@ final class LicensingTests: XCTestCase {
             deactivatedAt: deactivatedAt
         )
     }
+// pi-lens-ignore: file_length
 }

@@ -42,7 +42,7 @@ final class AppRecoveryStateTests: XCTestCase {
         XCTAssertEqual(state.title, "Trial ended")
         XCTAssertEqual(state.primaryAction, .buyLicense)
         XCTAssertTrue(state.secondaryActions.contains(.activateLicense))
-        XCTAssertTrue(state.message.contains("The one-calendar-month trial ended"))
+        XCTAssertTrue(state.message.contains("The 7-day trial ended"))
         XCTAssertTrue(state.message.contains("USD 49.99 one-time ClambHook license"))
         XCTAssertTrue(state.message.contains("2026"))
     }

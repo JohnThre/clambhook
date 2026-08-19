@@ -19,7 +19,7 @@ const (
 	PaidUpdatePriceUSD      = "9.99"
 	IncludedUpdateYears     = 1
 	MaxActiveDevices        = 3
-	TrialMonths             = 1
+	TrialDays               = 7
 	OfflineGraceDays        = 7
 	LifetimeUnlockProductID = "org.jpfchang.clambhook.unlock.lifetime"
 	FeatureUpdateProductID  = "org.jpfchang.clambhook.feature_update"

@@ -34,7 +34,7 @@ Create and keep stable these product identifiers:
 A single provider-neutral renewal SKU applies to each additional update year;
 there is no per-year product identifier.
 
-The USD 49.99 one-time license is required after the one-calendar-month trial
+The USD 49.99 one-time license is required after the 7-day trial
 and includes one year of all updates from the purchase date. Versions released
 on or before the update cutoff remain usable after the cutoff. Each license
 covers a maximum of 3 concurrently active devices across supported platforms.

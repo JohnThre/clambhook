@@ -56,7 +56,7 @@ stateDiagram-v2
 
 ## Distribution Contract
 
-A USD 49.99 one-time ClambHook license is required after the one-calendar-month
+A USD 49.99 one-time ClambHook license is required after the 7-day
 trial and includes one year of all updates from the purchase date. Versions
 released on or before the update cutoff remain usable; each license covers a
 maximum of 3 concurrently active devices across supported platforms. Device

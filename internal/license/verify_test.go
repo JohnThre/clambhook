@@ -269,7 +269,7 @@ func TestEvaluateStateLifetimeRequiresSignedGrant(t *testing.T) {
 }
 
 func TestEvaluateStateTrialIsLocal(t *testing.T) {
-	now := UTCDate(2026, 6, 10)
+	now := UTCDate(2026, 6, 9)
 	snap := Snapshot{TrialStartDate: ptrTimeUTC(UTCDate(2026, 6, 3))}
 	// Trial does not require a signed grant.
 	d := EvaluateState(LicenseState{Snapshot: snap}, nil, now)

@@ -276,9 +276,11 @@ public enum AppRecoveryStateBuilder {
         let release = manifestPublishedAt.map { $0.formatted(date: .abbreviated, time: .omitted) }
         let message: String
         if let release {
-            message = "This update was published \(release), after your included update window ended \(cutoff). Your installed version keeps working; renew updates for USD 9.99 to install releases after the cutoff, including critical, bug, and security updates."
+            message = "This update was published \(release), after your included update window ended \(cutoff). "
+                + "Your installed version keeps working; renew updates for USD 9.99 to install releases after the cutoff, including critical, bug, and security updates."
         } else {
-            message = "Your included update window ended \(cutoff). Your installed version keeps working; renew updates for USD 9.99 to install releases after the cutoff, including critical, bug, and security updates."
+            message = "Your included update window ended \(cutoff). Your installed version keeps working; renew updates for USD 9.99 "
+                + "to install releases after the cutoff, including critical, bug, and security updates."
         }
         return AppRecoveryState(
             kind: .licenseExpiredForUpdates,
@@ -325,7 +327,7 @@ public enum AppRecoveryStateBuilder {
 
     private static func expiredTrialMessage(decision: MobileLicenseDecision) -> String {
         if let trialEndsAt = decision.trialEndsAt {
-            return "The one-calendar-month trial ended \(trialEndsAt.formatted(date: .abbreviated, time: .omitted)). Buy or activate a USD 49.99 one-time ClambHook license to continue."
+            return "The 7-day trial ended \(trialEndsAt.formatted(date: .abbreviated, time: .omitted)). Buy or activate a USD 49.99 one-time ClambHook license to continue."
         }
         return "Buy or activate a ClambHook license to continue."
     }

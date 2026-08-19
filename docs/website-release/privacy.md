@@ -21,7 +21,7 @@ seat management. License keys are hashed before storage. Profile contents are
 not uploaded for license activation.
 
 ClambHook uses a USD 49.99 one-time direct-sale license after a
-one-calendar-month trial. It includes one year of all updates from the purchase
+7-day trial. It includes one year of all updates from the purchase
 date, versions released on or before the update cutoff remain usable, it covers
 a maximum of 3 concurrently active devices across supported platforms, and
 license seats can be deactivated and moved to another device. A USD 9.99 renewal

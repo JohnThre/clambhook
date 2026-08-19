@@ -120,7 +120,7 @@ for public_copy_file in "$commercial_setup" "$product_copy_en_us" "$copy_notes" 
     require_text "$public_copy_file" "$versions_promise" "public version-usability promise"
     require_text "$public_copy_file" "$device_promise" "public device promise"
     require_text "$public_copy_file" "$transfer_promise" "public transfer promise"
-    require_text "$public_copy_file" "one-calendar-month" "public trial promise"
+    require_text "$public_copy_file" "7-day" "public trial promise"
     require_text "$public_copy_file" "one year of all updates" "public included-update promise"
     require_text "$public_copy_file" "critical, bug, and security updates" "public strict update-cutoff promise"
     require_text "$public_copy_file" "Creem" "public payment-provider promise"
@@ -166,14 +166,14 @@ for ui_copy_file in "$licensing" "$recovery" "$app_model" "$purchase_view" "$mob
     reject_text "$ui_copy_file" "Lifetime Unlock" "macOS website license UI copy"
 done
 
-require_text "$licensing" "One-calendar-month trial" "macOS website license UI copy"
+require_text "$licensing" "7-day trial" "macOS website license UI copy"
 require_text "$licensing" "including critical, bug, and security updates" "macOS strict update-cutoff UI copy"
 require_text "$license_devices" "case creem" "macOS Creem provider policy"
 require_text "$license_devices" "case nowPayments" "macOS NOWPayments provider policy"
 reject_text "$license_devices" "case manual" "macOS payment-provider policy"
 require_text "$recovery" "Trial ended" "macOS website license recovery copy"
 require_text "$recovery" "including critical, bug, and security updates" "macOS strict update-cutoff recovery copy"
-require_text "$app_model" "one-calendar-month trial has ended" "macOS website license app copy"
+require_text "$app_model" "7-day trial has ended" "macOS website license app copy"
 require_text "$app_model" "MobileLicenseUpdatePolicy.canInstallUpdate" "macOS update gating"
 reject_text "$sparkle_updater" "isCriticalUpdate ||" "Sparkle critical-update bypass"
 require_text "$sparkle_updater" "including critical, bug, and security updates" "Sparkle strict update-cutoff copy"
@@ -204,7 +204,7 @@ expected = [
         "kind": "license",
         "displayPrice": "49.99",
         "displayName": "ClambHook License",
-        "description": "USD 49.99 one-time ClambHook license after a one-calendar-month trial; includes one year of all updates; versions released on or before the cutoff remain usable; maximum 3 concurrently active devices; deactivatable and transferable.",
+        "description": "USD 49.99 one-time ClambHook license after a 7-day trial; includes one year of all updates; versions released on or before the cutoff remain usable; maximum 3 concurrently active devices; deactivatable and transferable.",
     },
     {
         "productID": "org.jpfchang.clambhook.feature_update",

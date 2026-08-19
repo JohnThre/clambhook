@@ -13,36 +13,24 @@ func lifetimeTx(purchase time.Time) Transaction {
 	return Transaction{ProductID: LifetimeUnlockProductID, PurchaseDate: purchase}
 }
 
-func TestTrialUsesOneCalendarMonth(t *testing.T) {
+func TestTrialUsesSevenDays(t *testing.T) {
 	start := UTCDate(2026, 1, 31)
 	snap := Snapshot{TrialStartDate: ptr(start)}
 
-	before := Evaluate(snap, nil, UTCDate(2026, 2, 27))
+	before := Evaluate(snap, nil, UTCDate(2026, 2, 6))
 	if before.Reason != ReasonTrial {
 		t.Fatalf("reason = %s, want trial", before.Reason)
 	}
-	if before.TrialEndsAt == nil || !before.TrialEndsAt.Equal(UTCDate(2026, 2, 28)) {
-		t.Fatalf("trialEndsAt = %v, want 2026-02-28", before.TrialEndsAt)
+	if before.TrialEndsAt == nil || !before.TrialEndsAt.Equal(UTCDate(2026, 2, 7)) {
+		t.Fatalf("trialEndsAt = %v, want 2026-02-07", before.TrialEndsAt)
 	}
 	if !before.CanUseFeature(FeatureTunnelRouting) {
 		t.Fatal("expected tunnelRouting unlocked during trial")
 	}
 
-	at := Evaluate(snap, nil, UTCDate(2026, 2, 28))
+	at := Evaluate(snap, nil, UTCDate(2026, 2, 7))
 	if at.Reason != ReasonLocked || at.CanUseApp() {
 		t.Fatalf("at expiry reason = %s canUse = %v, want locked", at.Reason, at.CanUseApp())
-	}
-}
-
-func TestTrialEndDateClampsToTargetMonthLastDay(t *testing.T) {
-	if got := TrialEndDate(UTCDate(2025, 12, 31)); !got.Equal(UTCDate(2026, 1, 31)) {
-		t.Fatalf("Dec 31 2025 +1mo = %v, want 2026-01-31", got)
-	}
-	if got := TrialEndDate(UTCDate(2023, 12, 31)); !got.Equal(UTCDate(2024, 1, 31)) {
-		t.Fatalf("Dec 31 2023 +1mo = %v, want 2024-01-31", got)
-	}
-	if got := TrialEndDate(UTCDate(2026, 1, 31)); !got.Equal(UTCDate(2026, 2, 28)) {
-		t.Fatalf("Jan 31 2026 +1mo = %v, want 2026-02-28", got)
 	}
 }
 
@@ -228,8 +216,8 @@ func TestUpdatePolicyFailsClosedForUndatedRelease(t *testing.T) {
 }
 
 func TestUpdatePolicyTrialAndLocked(t *testing.T) {
-	active := Evaluate(Snapshot{TrialStartDate: ptr(UTCDate(2026, 6, 3))}, nil, UTCDate(2026, 7, 2))
-	expired := Evaluate(Snapshot{TrialStartDate: ptr(UTCDate(2026, 6, 3))}, nil, UTCDate(2026, 7, 3))
+	active := Evaluate(Snapshot{TrialStartDate: ptr(UTCDate(2026, 6, 3))}, nil, UTCDate(2026, 6, 9))
+	expired := Evaluate(Snapshot{TrialStartDate: ptr(UTCDate(2026, 6, 3))}, nil, UTCDate(2026, 6, 10))
 	if !CanInstallUpdate(active, nil, time.Time{}) {
 		t.Fatal("active trial should install")
 	}
@@ -253,9 +241,9 @@ func TestPaidUpdatePolicyCopyLanguage(t *testing.T) {
 }
 
 func TestProductStatesActiveTrial(t *testing.T) {
-	d := Evaluate(Snapshot{TrialStartDate: ptr(UTCDate(2026, 6, 3))}, nil, UTCDate(2026, 7, 1))
+	d := Evaluate(Snapshot{TrialStartDate: ptr(UTCDate(2026, 6, 3))}, nil, UTCDate(2026, 6, 9))
 	trial := findState(t, ProductStates(d, nil), ProductStateTrial)
-	if trial.Title != "One-calendar-month trial" || !trial.IsActive {
+	if trial.Title != "7-day trial" || !trial.IsActive {
 		t.Fatalf("trial state wrong: %+v", trial)
 	}
 	if !strings.Contains(trial.Detail, "Trial ends") || !strings.Contains(trial.Detail, "2026") {
@@ -292,12 +280,12 @@ func TestProductStatesMarkFutureFeaturesLocked(t *testing.T) {
 }
 
 func TestExpiredTrialRecoveryState(t *testing.T) {
-	d := Evaluate(Snapshot{TrialStartDate: ptr(UTCDate(2026, 6, 3))}, nil, UTCDate(2026, 8, 4))
+	d := Evaluate(Snapshot{TrialStartDate: ptr(UTCDate(2026, 6, 3))}, nil, UTCDate(2026, 6, 11))
 	state := ExpiredTrialState(d)
 	if state == nil || state.Kind != RecoveryExpiredTrial || state.PrimaryAction != ActionBuyLicense {
 		t.Fatalf("expired trial state wrong: %+v", state)
 	}
-	if ExpiredTrialState(Evaluate(Snapshot{TrialStartDate: ptr(UTCDate(2026, 6, 3))}, nil, UTCDate(2026, 6, 10))) != nil {
+	if ExpiredTrialState(Evaluate(Snapshot{TrialStartDate: ptr(UTCDate(2026, 6, 3))}, nil, UTCDate(2026, 6, 9))) != nil {
 		t.Fatal("active trial should have no expired banner")
 	}
 }
@@ -342,7 +330,7 @@ func TestDeviceStateCannotRaiseLimitAboveMax(t *testing.T) {
 }
 
 func TestCommercialTerms(t *testing.T) {
-	if LicensePriceUSD != "49.99" || PaidUpdatePriceUSD != "9.99" || IncludedUpdateYears != 1 || MaxActiveDevices != 3 {
+	if LicensePriceUSD != "49.99" || PaidUpdatePriceUSD != "9.99" || IncludedUpdateYears != 1 || MaxActiveDevices != 3 || TrialDays != 7 {
 		t.Fatal("commercial terms drifted from contract")
 	}
 }
