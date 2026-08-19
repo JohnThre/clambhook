@@ -85,6 +85,7 @@ type model struct {
 	traffic       trafficSnapshotPayload
 	dev           developerStatusPayload
 	devRows       []developerEntryPayload
+	modules       modulesPayload
 	conditioner   conditionerPayload
 
 	selectedProfile      int
@@ -170,6 +171,7 @@ type dashboardLoadedMsg struct {
 	Traffic       trafficSnapshotPayload
 	Developer     developerStatusPayload
 	DevRows       []developerEntryPayload
+	Modules       modulesPayload
 	Conditioner   conditionerPayload
 	Err           error
 }
@@ -761,6 +763,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.traffic = msg.Traffic
 		m.dev = msg.Developer
 		m.devRows = msg.DevRows
+		m.modules = msg.Modules
 		m.conditioner = msg.Conditioner
 		m.syncSelectedProfile()
 		m.clampPolicySelection()
@@ -1054,6 +1057,7 @@ func (m model) developerView() string {
 	sections = append(sections,
 		renderSection("Developer Mode", m.developerStatusLines(width)),
 		renderSection("HTTP Inspector", m.developerEntryLines(width)),
+		renderSection("Modules", m.moduleLines(width)),
 		m.renderFooter(
 			"Keys: up/down select  e export HAR  c clear  r refresh  1 now  2 activity  3 library  4 settings  q quit",
 			"Keys: up/down  tab detail  e export  c clear  r  1 now  2 activity  q",
@@ -1090,6 +1094,38 @@ func (m model) developerStatusLines(width int) []string {
 	}
 	if !m.dev.Enabled {
 		lines = append(lines, subtleStyle.Render(truncate("  Enable [developer] in TOML to capture HTTP(S) transactions.", width)))
+	}
+	return lines
+}
+
+func (m model) moduleLines(width int) []string {
+	if len(m.modules.Modules) == 0 {
+		return emptyStateLines("No modules", "Add [[module]] stanzas to your TOML or use the API.", width)
+	}
+	lines := make([]string, 0, len(m.modules.Modules))
+	for _, mod := range m.modules.Modules {
+		state := "disabled"
+		if mod.Enabled {
+			state = "enabled"
+		}
+		hooks := ""
+		if mod.HasRequest {
+			hooks += " req"
+		}
+		if mod.HasResponse {
+			hooks += " resp"
+		}
+		if mod.HasCron {
+			hooks += " cron"
+		}
+		if hooks == "" {
+			hooks = " none"
+		}
+		line := truncate(fmt.Sprintf("  %s  %s  hooks:%s", mod.Name, state, hooks), width)
+		if len(mod.Errors) > 0 {
+			line = truncate(fmt.Sprintf("  %s  %s  hooks:%s  error: %s", mod.Name, state, hooks, mod.Errors[0]), width)
+		}
+		lines = append(lines, line)
 	}
 	return lines
 }
@@ -2779,7 +2815,8 @@ func (m model) loadDashboardCmd() tea.Cmd {
 		// The conditioner endpoint is additive; a daemon without it (or a
 		// profile with none configured) simply yields a disabled snapshot.
 		cond, _ := client.conditioner()
-		return dashboardLoadedMsg{Status: status, Profiles: profiles, Servers: servers, Policies: policies, Subscriptions: subs, Traffic: traffic, Developer: dev, DevRows: devRows, Conditioner: cond}
+		mods, _ := client.modules()
+		return dashboardLoadedMsg{Status: status, Profiles: profiles, Servers: servers, Policies: policies, Subscriptions: subs, Traffic: traffic, Developer: dev, DevRows: devRows, Modules: mods, Conditioner: cond}
 	}
 }
 

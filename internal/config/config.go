@@ -14,13 +14,41 @@ type Config struct {
 	Path      string          `toml:"-" json:"-"`
 	Active    string          `toml:"active"`
 	Profiles  []Profile       `toml:"profile"`
+	Modules   []ModuleConfig  `toml:"module"`
 	Geo       GeoConfig       `toml:"geo"`
 	Traffic   TrafficConfig   `toml:"traffic"`
 	Developer DeveloperConfig `toml:"developer"`
 	Prompt    PromptConfig    `toml:"prompt"`
 }
 
-// GeoConfig points at an MMDB file for IP → country/city lookups. Geo is a
+// ModuleConfig defines a user script module. Modules are global, not
+// per-profile, and are applied to HTTP traffic and scheduled cron jobs.
+// Inline scripts are stored in the config file; file-backed modules keep
+// their source outside versioned config.
+type ModuleConfig struct {
+	Name         string              `toml:"name" json:"name"`
+	Enabled      bool                `toml:"enabled" json:"enabled"`
+	Script       string              `toml:"script" json:"script,omitempty"`
+	ScriptPath   string              `toml:"script_path" json:"script_path,omitempty"`
+	AllowNetwork ModuleNetworkConfig `toml:"allow_network" json:"allow_network,omitempty"`
+	Cron         []ModuleCronConfig  `toml:"cron" json:"cron,omitempty"`
+}
+
+// ModuleNetworkConfig gates outbound network access granted to a module's
+// scripts. An empty host list means network access is denied.
+type ModuleNetworkConfig struct {
+	Hosts []string `toml:"hosts" json:"hosts,omitempty"`
+}
+
+// ModuleCronConfig schedules a script within a module. The script is invoked
+// from the module's runtime context and may use the same clambhook.* APIs.
+type ModuleCronConfig struct {
+	Name   string `toml:"name" json:"name"`
+	Cron   string `toml:"cron" json:"cron"`
+	Script string `toml:"script" json:"script"`
+}
+
+// GeoConfig points at an MMDB file for IP → country/city lookups. Geo is a a
 // display-side feature and applies across profiles, so it lives at the top
 // level rather than per-profile.
 type GeoConfig struct {

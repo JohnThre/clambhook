@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/JohnThre/clambhook/internal/developer"
+	"github.com/JohnThre/clambhook/internal/scripting"
 	"github.com/JohnThre/clambhook/internal/traffic"
 )
 
@@ -23,6 +24,9 @@ type Options struct {
 
 	// Developer enables opt-in developer-mode inspector endpoints.
 	Developer *developer.Manager
+
+	// Scripting enables the /api/v1/modules endpoints.
+	Scripting *scripting.Manager
 
 	// ConfigPath enables API routes that persist changes to the daemon config.
 	ConfigPath string

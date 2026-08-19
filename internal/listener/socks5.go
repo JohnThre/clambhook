@@ -8,6 +8,7 @@ import (
 	"io"
 	"log"
 	"net"
+	"net/http"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -23,6 +24,12 @@ import (
 type AuthCreds struct {
 	Username string
 	Password string
+}
+
+// ScriptingHook enables Surge-style user scripts to mutate HTTP traffic
+// before it reaches map rules, breakpoints, and routing. nil disables it.
+type ScriptingHook interface {
+	RunRequestHook(*http.Request) (*http.Request, error)
 }
 
 // Options tunes per-listener runtime behavior. Zero values mean "use the
@@ -51,6 +58,10 @@ type Options struct {
 	// HTTPInspector enables the opt-in developer-mode HTTP(S) inspector for
 	// the HTTP listener. nil keeps the listener metadata-only.
 	HTTPInspector HTTPInspector
+
+	// ScriptingHook enables user scripts to mutate HTTP traffic. nil disables
+	// scripting support.
+	ScriptingHook ScriptingHook
 }
 
 const (

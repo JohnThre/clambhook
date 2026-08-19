@@ -83,6 +83,9 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/developer/breakpoints/pending", s.handleDeveloperPendingBreakpoints)
 	mux.HandleFunc("POST /api/v1/developer/breakpoints/{id}/resolve", s.handleDeveloperResolveBreakpoint)
 	mux.HandleFunc("DELETE /api/v1/developer/entries", s.handleDeveloperClear)
+	mux.HandleFunc("GET /api/v1/modules", s.handleModules)
+	mux.HandleFunc("PUT /api/v1/modules", s.handleReplaceModules)
+	mux.HandleFunc("GET /api/v1/modules/{id}/logs", s.handleModuleLogs)
 }
 
 type createRuleRequest struct {

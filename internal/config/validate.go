@@ -47,6 +47,7 @@ func (c *Config) Validate() error {
 		}
 	}
 	errs = append(errs, validateDeveloperConfig(&c.Developer)...)
+	errs = append(errs, validateModules(c.Modules)...)
 	if c.Prompt.TimeoutSeconds < 0 {
 		errs = append(errs, fmt.Errorf("prompt timeout_seconds must not be negative"))
 	}
@@ -802,4 +803,68 @@ func validateListenAddr(profileName, field, addr string) error {
 		return fmt.Errorf("%s %s %q has port out of range", profileName, field, addr)
 	}
 	return nil
+}
+
+// validateModules checks the top-level module definitions for structural
+// errors. Cron expression parsing is validated at runtime by the scripting
+// scheduler; here we only ensure required fields are present and names are
+// unique.
+func validateModules(modules []ModuleConfig) []error {
+	var errs []error
+	seen := make(map[string]struct{}, len(modules))
+	for i, m := range modules {
+		label := fmt.Sprintf("module %d", i)
+		name := strings.TrimSpace(m.Name)
+		if name == "" {
+			errs = append(errs, fmt.Errorf("%s: name is required", label))
+		} else if name != m.Name {
+			errs = append(errs, fmt.Errorf("%s name %q must not have surrounding whitespace", label, m.Name))
+		} else if _, exists := seen[name]; exists {
+			errs = append(errs, fmt.Errorf("%s name %q: duplicate module name", label, name))
+		} else {
+			seen[name] = struct{}{}
+			label = fmt.Sprintf("module %q", name)
+		}
+		if strings.TrimSpace(m.Script) != m.Script {
+			errs = append(errs, fmt.Errorf("%s: script must not have surrounding whitespace", label))
+		}
+		if strings.TrimSpace(m.ScriptPath) != m.ScriptPath {
+			errs = append(errs, fmt.Errorf("%s: script_path must not have surrounding whitespace", label))
+		}
+		if m.Script != "" && m.ScriptPath != "" {
+			errs = append(errs, fmt.Errorf("%s: script and script_path are mutually exclusive", label))
+		}
+		if m.Script == "" && m.ScriptPath == "" && len(m.Cron) == 0 {
+			errs = append(errs, fmt.Errorf("%s: script, script_path, or at least one cron entry is required", label))
+		}
+		for j, h := range m.AllowNetwork.Hosts {
+			h = strings.TrimSpace(h)
+			if h == "" {
+				errs = append(errs, fmt.Errorf("%s allow_network.hosts[%d] must not be empty", label, j))
+			} else if h != m.AllowNetwork.Hosts[j] {
+				errs = append(errs, fmt.Errorf("%s allow_network.hosts[%d] %q must not have surrounding whitespace", label, j, m.AllowNetwork.Hosts[j]))
+			}
+		}
+		cronNames := make(map[string]struct{}, len(m.Cron))
+		for j, c := range m.Cron {
+			clabel := fmt.Sprintf("%s cron %d", label, j)
+			cname := strings.TrimSpace(c.Name)
+			if cname == "" {
+				errs = append(errs, fmt.Errorf("%s: name is required", clabel))
+			} else if cname != c.Name {
+				errs = append(errs, fmt.Errorf("%s name %q must not have surrounding whitespace", clabel, c.Name))
+			} else if _, exists := cronNames[cname]; exists {
+				errs = append(errs, fmt.Errorf("%s name %q: duplicate cron name", clabel, cname))
+			} else {
+				cronNames[cname] = struct{}{}
+			}
+			if strings.TrimSpace(c.Cron) == "" {
+				errs = append(errs, fmt.Errorf("%s: cron expression is required", clabel))
+			}
+			if strings.TrimSpace(c.Script) == "" {
+				errs = append(errs, fmt.Errorf("%s: script is required", clabel))
+			}
+		}
+	}
+	return errs
 }

@@ -586,6 +586,27 @@ func (c apiClient) clearDeveloperEntries() error {
 	return c.doNoBody(http.MethodDelete, "/api/v1/developer/entries", nil)
 }
 
+// modulePayload mirrors the daemon's module status snapshot.
+type modulePayload struct {
+	Name        string   `json:"name"`
+	Enabled     bool     `json:"enabled"`
+	ScriptPath  string   `json:"script_path,omitempty"`
+	HasRequest  bool     `json:"has_request_hook"`
+	HasResponse bool     `json:"has_response_hook"`
+	HasCron     bool     `json:"has_cron_hooks"`
+	Errors      []string `json:"errors,omitempty"`
+}
+
+type modulesPayload struct {
+	Modules []modulePayload `json:"modules"`
+}
+
+func (c apiClient) modules() (modulesPayload, error) {
+	var out modulesPayload
+	err := c.getJSON("/api/v1/modules", &out)
+	return out, err
+}
+
 // conditionerPayload mirrors the daemon's network conditioner snapshot.
 type conditionerPayload struct {
 	Profile      string  `json:"profile"`

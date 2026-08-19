@@ -68,6 +68,7 @@ type Engine struct {
 	geoReader *geo.Reader
 	bus       *events.Bus
 	inspector listener.HTTPInspector
+	scripting listener.ScriptingHook
 	tempRules *temprules.Manager
 	promptMgr *prompt.Manager
 	watcher   *netwatch.Watcher
@@ -144,6 +145,14 @@ func (e *Engine) SetTemporaryRules(manager *temprules.Manager) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.tempRules = manager
+}
+
+// SetScriptingHook wires the optional scripting hook. Callers should set it
+// before Start or before a Reload-triggered listener rebuild.
+func (e *Engine) SetScriptingHook(hook listener.ScriptingHook) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.scripting = hook
 }
 
 // SetHTTPInspector wires the optional developer-mode HTTP inspector. Callers
@@ -326,7 +335,7 @@ func (e *Engine) startLocked(parent context.Context) error {
 	} else {
 		e.conditioner.Update(shaperConfig(profile.Conditioner))
 	}
-	listeners, chains, policies, err := buildListenersWithInspectorAndPath(&effectiveProfile, e.cfg.Path, e.bus, e.inspector, e.tempRules, e.promptMgr, e.conditioner)
+	listeners, chains, policies, err := buildListenersWithInspectorAndPath(&effectiveProfile, e.cfg.Path, e.bus, e.inspector, e.scripting, e.tempRules, e.promptMgr, e.conditioner)
 	if err != nil {
 		cancel()
 		return fmt.Errorf("start engine: %w", err)
@@ -736,10 +745,10 @@ func buildListeners(profile *config.Profile, bus *events.Bus) (listeners []liste
 }
 
 func buildListenersWithInspector(profile *config.Profile, bus *events.Bus, inspector listener.HTTPInspector) (listeners []listener.Listener, chains []*chain.Chain, policies *policy.Manager, err error) {
-	return buildListenersWithInspectorAndPath(profile, "", bus, inspector, nil, nil, nil)
+	return buildListenersWithInspectorAndPath(profile, "", bus, inspector, nil, nil, nil, nil)
 }
 
-func buildListenersWithInspectorAndPath(profile *config.Profile, configPath string, bus *events.Bus, inspector listener.HTTPInspector, tempRules *temprules.Manager, prompts *prompt.Manager, shaper *conditioner.Shaper) (listeners []listener.Listener, chains []*chain.Chain, policies *policy.Manager, err error) {
+func buildListenersWithInspectorAndPath(profile *config.Profile, configPath string, bus *events.Bus, inspector listener.HTTPInspector, scripting listener.ScriptingHook, tempRules *temprules.Manager, prompts *prompt.Manager, shaper *conditioner.Shaper) (listeners []listener.Listener, chains []*chain.Chain, policies *policy.Manager, err error) {
 	var out []listener.Listener
 	resolver := newChainResolverWithShaper(profile, configPath, tempRules, prompts, shaper)
 	defer func() {
@@ -818,6 +827,7 @@ func buildListenersWithInspectorAndPath(profile *config.Profile, configPath stri
 			HandshakeTimeout: profile.Listen.HTTPHandshakeTimeout.Std(),
 			EventBus:         bus,
 			HTTPInspector:    inspector,
+			ScriptingHook:    scripting,
 		}
 		out = append(out, listener.NewHTTPWithPlanner(addr, auth, planner, opts))
 	}

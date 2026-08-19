@@ -558,6 +558,14 @@ func (s *HTTP) forwardMITMRequest(ctx context.Context, client io.Writer, req *ht
 	}
 
 	if s.opts.HTTPInspector != nil {
+		if s.opts.ScriptingHook != nil {
+			rewritten, err := s.opts.ScriptingHook.RunRequestHook(req)
+			if err == nil {
+				req = rewritten
+			} else {
+				log.Printf("http: scripting request hook error: %v", err)
+			}
+		}
 		mappedReq, mapResult, err := s.opts.HTTPInspector.MapRequest(req)
 		if err != nil {
 			return err
@@ -736,6 +744,14 @@ func (s *HTTP) handleForward(ctx context.Context, client net.Conn, req *http.Req
 	}
 
 	if s.opts.HTTPInspector != nil {
+		if s.opts.ScriptingHook != nil {
+			rewritten, err := s.opts.ScriptingHook.RunRequestHook(req)
+			if err == nil {
+				req = rewritten
+			} else {
+				log.Printf("http: scripting request hook error: %v", err)
+			}
+		}
 		mappedReq, mapResult, err := s.opts.HTTPInspector.MapRequest(req)
 		if err != nil {
 			log.Printf("http: developer map failed: %v", err)

@@ -10,6 +10,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"syscall"
@@ -24,6 +25,7 @@ import (
 	"github.com/JohnThre/clambhook/internal/license"
 	"github.com/JohnThre/clambhook/internal/licenseverify"
 	"github.com/JohnThre/clambhook/internal/logstream"
+	"github.com/JohnThre/clambhook/internal/scripting"
 	"github.com/JohnThre/clambhook/internal/traffic"
 	"github.com/JohnThre/clambhook/internal/watcher"
 
@@ -95,7 +97,17 @@ func main() {
 	if err != nil {
 		log.Fatalf("developer: %v", err)
 	}
+	scriptingDataDir := ""
+	if *configPath != "" {
+		scriptingDataDir = filepath.Join(filepath.Dir(*configPath), ".clambhook-scripting")
+	}
+	scriptingMgr, err := scripting.NewManager(cfg.Modules, scriptingDataDir)
+	if err != nil {
+		log.Fatalf("scripting: %v", err)
+	}
+	defer scriptingMgr.Close()
 	eng.SetHTTPInspector(developerMgr)
+	eng.SetScriptingHook(scriptingMgr)
 	trafficMgr, err := traffic.NewManager(cfg.Traffic, func(ctx context.Context, address string) (*geo.Location, error) {
 		return eng.GeoReader().LookupCtx(ctx, address)
 	})
@@ -118,6 +130,7 @@ func main() {
 		AuthToken:    *apiToken,
 		TrafficStore: trafficMgr.Store(),
 		Developer:    developerMgr,
+		Scripting:    scriptingMgr,
 		ConfigPath:   *configPath,
 		LicensePath:  *licensePath,
 	})
@@ -149,7 +162,11 @@ func main() {
 			if err := developerMgr.Reconfigure(next.Developer); err != nil {
 				log.Printf("developer reload: %v", err)
 			}
+			if err := scriptingMgr.Reconfigure(next.Modules); err != nil {
+				log.Printf("scripting reload: %v", err)
+			}
 			eng.SetHTTPInspector(developerMgr)
+			eng.SetScriptingHook(scriptingMgr)
 			srv.SetTrafficStore(trafficMgr.Store())
 			srv.SetDeveloper(developerMgr)
 			return nil

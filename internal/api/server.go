@@ -13,20 +13,22 @@ import (
 	"github.com/JohnThre/clambhook/internal/developer"
 	"github.com/JohnThre/clambhook/internal/engine"
 	"github.com/JohnThre/clambhook/internal/events"
+	"github.com/JohnThre/clambhook/internal/scripting"
 	"github.com/JohnThre/clambhook/internal/traffic"
 )
 
 // Server is the HTTP API server for frontend communication.
 type Server struct {
-	engine     *engine.Engine
-	bus        *events.Bus
-	traffic    *traffic.Store
+	engine      *engine.Engine
+	bus         *events.Bus
+	traffic     *traffic.Store
 	developer   *developer.Manager
+	scripting   *scripting.Manager
 	authToken   string
 	configPath  string
 	licensePath string
-	server     *http.Server
-	mu         sync.RWMutex
+	server      *http.Server
+	mu          sync.RWMutex
 	// configMu serializes every on-disk configuration
 	// read-modify-validate-write-reload transaction. It is deliberately
 	// separate from mu (which guards mutable server fields) and is only ever
@@ -37,7 +39,7 @@ type Server struct {
 	// reads never block config transactions or field mutations.
 	licenseMu    sync.Mutex
 	licenseCache licenseCacheEntry
-	addr     string
+	addr         string
 	// httpClient is used for outbound rule-set/subscription refreshes. It is
 	// normally nil so production uses the default safe-redirects client; tests
 	// may inject a transport that dials local listeners under a public-host URL.
@@ -75,10 +77,11 @@ func New(eng *engine.Engine, bus *events.Bus) *Server {
 // NewWithOptions creates a new API server with optional route protection.
 func NewWithOptions(eng *engine.Engine, bus *events.Bus, opts Options) *Server {
 	s := &Server{
-		engine:     eng,
-		bus:        bus,
-		traffic:    opts.TrafficStore,
-		developer:  opts.Developer,
+		engine:      eng,
+		bus:         bus,
+		traffic:     opts.TrafficStore,
+		developer:   opts.Developer,
+		scripting:   opts.Scripting,
 		authToken:   strings.TrimSpace(opts.AuthToken),
 		configPath:  strings.TrimSpace(opts.ConfigPath),
 		licensePath: strings.TrimSpace(opts.LicensePath),
