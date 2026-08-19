@@ -89,11 +89,3 @@ func darwinCodeSignAuthority() (string, bool) {
 	}
 	return "", false
 }
-
-// resetSelfAttestForTest clears the cached result so a test can re-run the
-// attestation (e.g. with a patched binary). For tests only.
-func resetSelfAttestForTest() {
-	selfOnce = sync.Once{}
-	selfHash = ""
-	selfCodeSign = nil
-}
