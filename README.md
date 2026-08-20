@@ -157,7 +157,7 @@ See [`docs/macos-v1-scope.md`](docs/macos-v1-scope.md) for the full scope.
 | Platform | UI framework | Status |
 | --- | --- | --- |
 | macOS 14+ (Apple Silicon) | SwiftUI | Public release |
-| GNU/Linux (Bazzite, Rocky Linux, PureOS, Ubuntu, Debian, Fedora) | Kotlin / Compose Multiplatform | Public release |
+| GNU/Linux (Ubuntu, Debian, Fedora) | Kotlin / Compose Multiplatform | Public release |
 | Android 11+ | Kotlin / Compose | Internal developer QA |
 
 Windows development is discontinued with no planned resumption date.
@@ -188,12 +188,40 @@ authorized parties, not a general contribution or redistribution grant.
 
 A configuration template lives at [`configs/example.toml`](configs/example.toml).
 See the [Repository layout](#repository-layout) section below and the
-[`docs/`](docs/) directory for repository structure and conventions. To validate the GNU/Linux packages across all six supported
-distributions from a Mac, use Apple's [`container`](https://github.com/apple/container)
-tool via `scripts/validate-linux-distros.sh` (podman/docker on Linux); see
-[`packaging/README.md`](packaging/README.md). Installers are validated in CI
-before release — Apple platforms on Xcode Cloud, non-Apple platforms on GitHub
-Actions; see [`docs/release-validation.md`](docs/release-validation.md).
+[`docs/`](docs/) directory for repository structure and conventions.
+
+## CI/CD and testing
+
+CI/CD and testing run on the local machine (macOS) plus Apple's
+[`container`](https://github.com/apple/container) tool for GNU/Linux containers —
+there are no GitHub Actions workflows and no Xcode Cloud integration in this
+repo. GNU/Linux packages are validated across the three supported distributions
+(Ubuntu, Debian, Fedora) from a Mac with:
+
+```sh
+container system start                       # one-time: start the Apple container service
+scripts/validate-linux-distros.sh            # build + headless smoke in ubuntu/debian/fedora containers
+```
+
+`scripts/ci-local.sh` runs the full local gate across all platforms in sections
+(`go`, `apple`, `android`, `linux`, `e2e`, `smoke`; default `all`), skipping any
+section whose tooling is absent. Apple builds validate locally with
+`make build-apple` and `make test-apple` (`swift test`); Android with
+`make test-android`, `make lint-android`, and `make build-android` (plus an on-device AVD smoke when `CI_LOCAL_ANDROID_AVD=<name>` is set — Apple `container` is Linux-only and cannot run Android); the Go core
+with `make test`, `make test-race`, and `make lint`. See
+[`docs/release-validation.md`](docs/release-validation.md) for the full policy
+and [`packaging/README.md`](packaging/README.md) for the container harness.
+
+## Android development
+
+Google's [`android`](https://developer.android.com/cli) CLI is the default tool
+for Android development: SDK/NDK provisioning, emulator management, and
+build-deploy-launch on a device or Android SDK Emulator (AVD) (`android run`, or `make run-android`).
+Gradle is still used for unit tests (`make test-android`), lint
+(`make lint-android`), and release assembly (`make build-android-release`)
+because the `android` CLI has no equivalent commands, and gomobile builds the
+embedded daemon AAR (`make build-android-mobile-aar`). See
+[`docs/android-development.md`](docs/android-development.md) for the full guide.
 
 ## Repository layout
 
@@ -211,8 +239,8 @@ Actions; see [`docs/release-validation.md`](docs/release-validation.md).
 
 The end-user macOS app is distributed only from `https://store.clambercloud.com/clambhook/`
 as a free public DMG download for Apple Silicon Macs running macOS 14 or later. The GNU/Linux
-app is distributed only from the same host as free per-distro packages (`.deb`, `.rpm`, Flatpak,
-and AppImage) tested on Bazzite, Rocky Linux, PureOS, Ubuntu, Debian, and Fedora. First launch
+app is distributed only from the same host as free per-distro packages (`.deb` and `.rpm`)
+tested on Ubuntu, Debian, and Fedora. First launch
 starts a one-calendar-month trial, after which a USD 49.99 one-time ClambHook license is
 purchased from `https://store.swiphtgroup.com/clambhook/buy`.
 
@@ -312,7 +340,7 @@ permission from Pengfan Chang.
 
 ## Author
 
-Pengfan Chang — clambhook@jpfchang.org
+Pengfan Chang — <clambhook@jpfchang.org>
 
 ## Donate
 

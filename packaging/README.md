@@ -10,10 +10,8 @@ mirrors.
 
 | Distro | Package | Recipe |
 | --- | --- | --- |
-| Ubuntu, Debian, PureOS | `.deb` | `debian/` (`dpkg-buildpackage -us -uc -b`) |
-| Fedora, Rocky Linux | `.rpm` | `packaging/rpm/clambhook.spec` |
-| Bazzite, any distro | Flatpak | `packaging/flatpak/com.clambhook.Clambhook.yaml` |
-| Any distro | AppImage | `packaging/appimage/build-appimage.sh` |
+| Ubuntu, Debian | `.deb` | `debian/` (`dpkg-buildpackage -us -uc -b`) |
+| Fedora | `.rpm` | `packaging/rpm/clambhook.spec` |
 
 Every package installs the daemon (`clambhook`), the Kotlin/Compose
 Multiplatform desktop controller (`clambhook-linux`), the terminal dashboard
@@ -24,7 +22,6 @@ trial and license activation.
 
 - **System Proxy mode** needs no elevated privileges. It exposes local SOCKS5
   and HTTP listeners; the desktop app launches the daemon as the current user.
-  This is the default in the sandboxed Flatpak and AppImage builds.
 - **Enhanced / device-wide TUN routing** creates a TUN interface, installs
   routes, and rewrites DNS, which requires `CAP_NET_ADMIN` (and `CAP_NET_RAW`).
   The native `.deb`/`.rpm` packages install:
@@ -34,13 +31,11 @@ trial and license activation.
     active local user can start/stop that service with interactive
     authorization instead of a raw root shell.
 
-Sandboxed Flatpak/AppImage builds cannot obtain `CAP_NET_ADMIN`, so they run in
-System Proxy mode only. Use a native package for Enhanced mode.
-
 ## Validation
 
 `scripts/validate-linux-distros.sh` does a headless build + smoke test of the
-GNU/Linux app on every supported distribution in throwaway Linux containers.
+GNU/Linux app on every supported distribution in throwaway Linux containers. It
+is the GNU/Linux section of `scripts/ci-local.sh` (the local CI/CD gate).
 
 It auto-selects a container engine:
 
@@ -54,7 +49,7 @@ It auto-selects a container engine:
 # macOS one-time setup: install container from its GitHub releases, then:
 container system start
 
-# Validate all six distros (or pass one, e.g. fedora):
+# Validate all three supported distros (or pass one, e.g. fedora):
 scripts/validate-linux-distros.sh
 scripts/validate-linux-distros.sh fedora
 ```
@@ -70,10 +65,9 @@ flowchart TD
     dev["Developer on macOS (Apple silicon)"] --> tool["Apple container CLI\ncontainer system start"]
     tool --> vm["Lightweight Linux VM per image\n(OCI runtime)"]
     subgraph distros["Distro images (validate-linux-distros.sh)"]
-        ubuntu["ubuntu:24.04\n→ .deb path (also PureOS)"]
+        ubuntu["ubuntu:24.04\n→ .deb path"]
         debian["debian:12\n→ .deb path"]
-        fedora["fedora:41\n→ .rpm path (also Bazzite/Flatpak)"]
-        rocky["rockylinux:9\n→ .rpm path"]
+        fedora["fedora:41\n→ .rpm path"]
     end
     vm --> distros
     distros --> build["make build + make build-linux"]
@@ -82,12 +76,5 @@ flowchart TD
     linux["Developer on GNU/Linux"] -->|"podman / docker fallback"| distros
 ```
 
-Distro-to-image mapping: PureOS validates through the Debian image (Debian-based)
-and Bazzite through the Fedora image plus the Flatpak manifest (its supported
-atomic channel).
-
-This harness is also the GNU/Linux job in GitHub Actions
-(`.github/workflows/installer-validation.yml`), which runs the non-Apple
-installer validation before release. Apple platforms validate on Xcode Cloud.
-See [`../docs/release-validation.md`](../docs/release-validation.md) for the full
-policy and diagrams.
+See [`../docs/release-validation.md`](../docs/release-validation.md) for the
+full release-validation policy and diagrams.

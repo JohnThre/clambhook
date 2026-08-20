@@ -9,7 +9,7 @@ Run the convenient local real-server suite (missing optional local tools skip):
 make e2e
 ```
 
-The scheduled/manual `.github/workflows/e2e.yml` workflow uses the enforcing
+The enforcing suite (run locally, and via `scripts/ci-local.sh e2e`) uses the
 command below. It provisions the pinned first-party ClambBack release, requires
 usable sing-box, Tor, and ClambBack backends, and fails rather than turning a
 missing backend into a green skip:
@@ -18,7 +18,7 @@ missing backend into a green skip:
 make e2e-required
 ```
 
-OpenVPN real-server coverage may skip in that scheduled suite while the external
+OpenVPN real-server coverage may skip in the enforcing suite while the external
 backend is absent, but it remains mandatory for the release gate:
 
 ```sh
@@ -52,11 +52,11 @@ Useful environment variables:
 - `CLAMBHOOK_E2E_TUN=1`: enable the privileged Linux TUN test. Prefer
   `make e2e-tun`, which compiles unprivileged and runs only the harness as root.
 
-For GitHub Actions OpenVPN coverage, configure repository variables
-`CLAMBHOOK_E2E_OPENVPN_REMOTE`, `CLAMBHOOK_E2E_OPENVPN_TCP_TARGET`, and
-`CLAMBHOOK_E2E_OPENVPN_UDP_TARGET`, plus secrets `CLAMBHOOK_E2E_OPENVPN_CA`,
+For local OpenVPN coverage, set these environment variables before running the
+suite: `CLAMBHOOK_E2E_OPENVPN_REMOTE`, `CLAMBHOOK_E2E_OPENVPN_TCP_TARGET`, and
+`CLAMBHOOK_E2E_OPENVPN_UDP_TARGET`, plus `CLAMBHOOK_E2E_OPENVPN_CA`,
 `CLAMBHOOK_E2E_OPENVPN_CLIENT_CERT`, and `CLAMBHOOK_E2E_OPENVPN_CLIENT_KEY`
-containing the PEM material. Release candidates must pass with
+pointing at the PEM material on disk. Release candidates must pass with
 `CLAMBHOOK_E2E_REQUIRE=1` so missing OpenVPN coverage fails instead of skipping.
 
 OpenVPN real-server coverage is environment-driven because a local OpenVPN

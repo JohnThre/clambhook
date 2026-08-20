@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # Headless build + smoke validation of the ClambHook GNU/Linux app across the
-# six supported distributions, using throwaway Linux containers. On macOS, this
-# prefers Apple's `container` tool (https://github.com/apple/container), which
-# runs OCI Linux containers inside lightweight VMs on Apple silicon. On Linux,
-# it falls back to podman or docker.
+# supported distributions (Ubuntu, Debian, Fedora), using throwaway Linux
+# containers. On macOS, this prefers Apple's `container` tool
+# (https://github.com/apple/container), which runs OCI Linux containers inside
+# lightweight VMs on Apple silicon. On Linux, it falls back to podman or docker.
 #
-#   scripts/validate-linux-distros.sh            # all distros
+#   scripts/validate-linux-distros.sh            # all distros (ubuntu debian fedora)
 #   scripts/validate-linux-distros.sh fedora     # one distro
 #
 # For each distro the harness installs the build toolchain, builds the daemon +
@@ -16,10 +16,6 @@
 #   3. clambhook-tui -version runs
 # GUI rendering is out of scope for headless containers; it is covered by the
 # Gradle test suite and manual QA on a desktop.
-#
-# PureOS is Debian-based and is validated through the Debian package path.
-# Bazzite is Fedora/atomic and is validated through the Fedora build plus the
-# Flatpak manifest (packaging/flatpak), which is the supported Bazzite channel.
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -51,11 +47,7 @@ fi
 declare -A IMAGE=(
   [ubuntu]="docker.io/library/ubuntu:24.04"
   [debian]="docker.io/library/debian:12"
-  [pureos]="docker.io/library/debian:12"   # PureOS is Debian-based
   [fedora]="docker.io/library/fedora:41"
-  [rocky]="docker.io/library/rockylinux:9"
-  [bazzite]="docker.io/library/fedora:41"  # Bazzite is Fedora-based; Flatpak channel
-  [almalinux]="docker.io/library/almalinux:9"
 )
 
 apt_setup='export DEBIAN_FRONTEND=noninteractive; apt-get update -qq && apt-get install -y -qq \
@@ -99,22 +91,13 @@ run_one() {
   fi
   local setup="$apt_setup" recipe=""
   case "$distro" in
-    ubuntu)
-      setup="$apt_setup; apt-get install -y -qq flatpak flatpak-builder >/dev/null"
-      recipe='./scripts/ci-linux-package-recipes.sh debian; ./scripts/ci-linux-package-recipes.sh portable'
-      ;;
-    debian|pureos)
-      recipe='./scripts/ci-linux-package-recipes.sh debian'
-      ;;
-    fedora|bazzite)
-      setup="$dnf_setup"
-      recipe='./scripts/ci-linux-package-recipes.sh rpm'
-      ;;
-    rocky|almalinux)
-      setup='dnf install -y -q epel-release >/dev/null; '
-      setup+="$dnf_setup"
-      recipe='./scripts/ci-linux-package-recipes.sh rpm'
-      ;;
+  ubuntu | debian)
+    recipe='./scripts/ci-linux-package-recipes.sh debian'
+    ;;
+  fedora)
+    setup="$dnf_setup"
+    recipe='./scripts/ci-linux-package-recipes.sh rpm'
+    ;;
   esac
   echo "==================== $distro ($image) ===================="
   local rc=0
@@ -130,7 +113,7 @@ run_one() {
 
 targets=("$@")
 if [[ ${#targets[@]} -eq 0 ]]; then
-  targets=(ubuntu debian pureos fedora rocky almalinux bazzite)
+  targets=(ubuntu debian fedora)
 fi
 
 failed=()

@@ -31,7 +31,10 @@ BUCKET="${CLAMBHOOK_R2_BUCKET:-clambhook-artifacts}"
 rm -rf "$DIST_DIR"
 mkdir -p "$DIST_DIR"
 
-require() { command -v "$1" >/dev/null 2>&1 || { echo "$1 is required for $2." >&2; exit 2; }; }
+require() { command -v "$1" >/dev/null 2>&1 || {
+  echo "$1 is required for $2." >&2
+  exit 2
+}; }
 
 gpg_sign() {
   local target="$1"
@@ -50,12 +53,12 @@ checksum_and_sign() {
   local artifact="$1"
   local name
   name="$(basename "$artifact")"
-  ( cd "$(dirname "$artifact")" && sha256sum "$name" > "$name.sha256" )
+  (cd "$(dirname "$artifact")" && sha256sum "$name" >"$name.sha256")
   gpg_sign "$artifact.sha256"
   echo "  sha256: $(awk '{print $1}' "$artifact.sha256")"
 }
 
-# 1. Debian / Ubuntu / PureOS (.deb)
+# 1. Debian / Ubuntu (.deb)
 build_deb() {
   require dpkg-buildpackage ".deb build"
   dpkg-buildpackage -us -uc -b
@@ -65,7 +68,7 @@ build_deb() {
   checksum_and_sign "$DIST_DIR/clambhook-${VERSION}-${ARCH}.deb"
 }
 
-# 2. Fedora / Rocky Linux (.rpm)
+# 2. Fedora (.rpm)
 build_rpm() {
   require rpmbuild ".rpm build"
   local topdir="$DIST_DIR/rpmbuild"
@@ -82,26 +85,7 @@ build_rpm() {
   checksum_and_sign "$DIST_DIR/clambhook-${VERSION}-${ARCH}.rpm"
 }
 
-# 3. Flatpak (single-file bundle)
-build_flatpak() {
-  require flatpak-builder "Flatpak build"
-  flatpak-builder --force-clean --repo="$DIST_DIR/flatpak-repo" \
-    "$DIST_DIR/flatpak-build" packaging/flatpak/com.clambhook.Clambhook.yaml
-  flatpak build-bundle "$DIST_DIR/flatpak-repo" \
-    "$DIST_DIR/clambhook-${VERSION}-${ARCH}.flatpak" com.clambhook.Clambhook
-  checksum_and_sign "$DIST_DIR/clambhook-${VERSION}-${ARCH}.flatpak"
-}
-
-# 4. AppImage (universal)
-build_appimage() {
-  VERSION="$VERSION" packaging/appimage/build-appimage.sh
-  local built
-  built="$(ls -t "$ROOT_DIR"/dist/Clambhook-*-"${ARCH}".AppImage | head -n1)"
-  cp "$built" "$DIST_DIR/clambhook-${VERSION}-${ARCH}.AppImage"
-  checksum_and_sign "$DIST_DIR/clambhook-${VERSION}-${ARCH}.AppImage"
-}
-
-TARGETS="${1:-deb rpm flatpak appimage}"
+TARGETS="${1:-deb rpm}"
 for target in $TARGETS; do
   echo "== Building $target =="
   "build_$target"
@@ -139,13 +123,9 @@ write_manifest_entry() {
   write_manifest_entry "deb" "deb" "CLAMBHOOK_${CHAN}_LINUX_DEB_URL"
   printf ',\n'
   write_manifest_entry "rpm" "rpm" "CLAMBHOOK_${CHAN}_LINUX_RPM_URL"
-  printf ',\n'
-  write_manifest_entry "flatpak" "flatpak" "CLAMBHOOK_${CHAN}_LINUX_FLATPAK_URL"
-  printf ',\n'
-  write_manifest_entry "appimage" "AppImage" "CLAMBHOOK_${CHAN}_LINUX_APPIMAGE_URL"
   printf '\n  }\n'
   printf '}\n'
-} > "$MANIFEST"
+} >"$MANIFEST"
 
 gpg_sign "$MANIFEST"
 
@@ -155,14 +135,10 @@ cat <<SUMMARY
 
 Linux release artifacts written to $DIST_DIR
 Upload each to r2://$BUCKET/clambhook/linux/ and set these Pages variables:
-  CLAMBHOOK_${CHAN}_LINUX_DEB_URL        → clambhook-${VERSION}-${ARCH}.deb
-  CLAMBHOOK_${CHAN}_LINUX_DEB_SHA256_URL → clambhook-${VERSION}-${ARCH}.deb.sha256
-  CLAMBHOOK_${CHAN}_LINUX_RPM_URL        → clambhook-${VERSION}-${ARCH}.rpm
-  CLAMBHOOK_${CHAN}_LINUX_RPM_SHA256_URL → clambhook-${VERSION}-${ARCH}.rpm.sha256
-  CLAMBHOOK_${CHAN}_LINUX_FLATPAK_URL        → clambhook-${VERSION}-${ARCH}.flatpak
-  CLAMBHOOK_${CHAN}_LINUX_FLATPAK_SHA256_URL → clambhook-${VERSION}-${ARCH}.flatpak.sha256
-  CLAMBHOOK_${CHAN}_LINUX_APPIMAGE_URL        → clambhook-${VERSION}-${ARCH}.AppImage
-  CLAMBHOOK_${CHAN}_LINUX_APPIMAGE_SHA256_URL → clambhook-${VERSION}-${ARCH}.AppImage.sha256
-  CLAMBHOOK_${CHAN}_LINUX_MANIFEST_URL   → clambhook-linux-manifest.json
+  CLAMBHOOK_${CHAN}_LINUX_DEB_URL          → clambhook-${VERSION}-${ARCH}.deb
+  CLAMBHOOK_${CHAN}_LINUX_DEB_SHA256_URL   → clambhook-${VERSION}-${ARCH}.deb.sha256
+  CLAMBHOOK_${CHAN}_LINUX_RPM_URL          → clambhook-${VERSION}-${ARCH}.rpm
+  CLAMBHOOK_${CHAN}_LINUX_RPM_SHA256_URL   → clambhook-${VERSION}-${ARCH}.rpm.sha256
+  CLAMBHOOK_${CHAN}_LINUX_MANIFEST_URL     → clambhook-linux-manifest.json
 Do not publish these on GitHub Releases or package mirrors.
 SUMMARY

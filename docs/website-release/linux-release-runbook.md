@@ -1,6 +1,6 @@
 # GNU/Linux Release Runbook (Owner)
 
-End-user GNU/Linux installers are distributed **only from store.clambercloud.com** as free `.deb`, `.rpm`, Flatpak, and AppImage packages. GitHub stays source-only and view-only. Every release artifact is SHA-256 checksummed and GPG-signed with the configured ClambHook release key.
+End-user GNU/Linux installers are distributed **only from store.clambercloud.com** as free `.deb` and `.rpm` packages. GitHub stays source-only and view-only. Every release artifact is SHA-256 checksummed and GPG-signed with the configured ClambHook release key.
 
 This runbook covers the owner-held steps. None of these publish anything to GitHub.
 
@@ -8,10 +8,8 @@ This runbook covers the owner-held steps. None of these publish anything to GitH
 
 | Distro | Package | Recipe |
 | --- | --- | --- |
-| Ubuntu, Debian, PureOS | `.deb` | `debian/` |
-| Fedora, Rocky Linux | `.rpm` | `packaging/rpm/clambhook.spec` |
-| Bazzite, any distro | Flatpak | `packaging/flatpak/com.clambhook.Clambhook.yaml` |
-| Any distro | AppImage | `packaging/appimage/build-appimage.sh` |
+| Ubuntu, Debian | `.deb` | `debian/` |
+| Fedora | `.rpm` | `packaging/rpm/clambhook.spec` |
 
 Validation is run with `scripts/validate-linux-distros.sh` before release. See `packaging/README.md` for the container harness details.
 
@@ -28,8 +26,6 @@ Use a dedicated GNU/Linux build host (x86_64 or aarch64) with:
 - libsecret (runtime; used via `secret-tool` CLI for token storage).
 - For `.deb`: `dpkg-buildpackage`, `dpkg-deb`.
 - For `.rpm`: `rpmbuild`.
-- For Flatpak: `flatpak-builder` plus `org.freedesktop.Platform//24.08`, `org.freedesktop.Sdk//24.08`, `org.freedesktop.Sdk.Extension.openjdk17//24.08`, `org.freedesktop.Sdk.Extension.golang//24.08`.
-- For AppImage: the script downloads `linuxdeploy` + `appimagetool` on first run.
 - GnuPG with the release key available.
 
 ### 0.2 GPG release key
@@ -70,7 +66,7 @@ Then run the cross-distro validation harness:
 scripts/validate-linux-distros.sh
 ```
 
-This builds and headless-smoke-tests Ubuntu, Debian, Fedora, Rocky, PureOS (via Debian), and Bazzite (via Fedora + Flatpak). Do not proceed if any distro fails.
+This builds and headless-smoke-tests Ubuntu, Debian, and Fedora. Do not proceed if any distro fails.
 
 ## 2. Build, checksum, sign, and upload
 
@@ -86,7 +82,7 @@ make upload-release-linux
 
 `make release-linux` (via `scripts/release-linux.sh`) will:
 
-1. Build `.deb`, `.rpm`, Flatpak, and AppImage packages.
+1. Build `.deb` and `.rpm` packages.
 2. Write a SHA-256 checksum for each package.
 3. GPG-sign each `.sha256` file (detached `.sha256.sig`).
 4. Generate `clambhook-linux-manifest.json` with version, `publishedAt`, architecture, and per-package URLs + SHA-256 hashes.
@@ -104,10 +100,6 @@ Outputs land under `dist/linux/`:
 - `clambhook-${VERSION}-${ARCH}.deb.sha256` + `.sig`
 - `clambhook-${VERSION}-${ARCH}.rpm`
 - `clambhook-${VERSION}-${ARCH}.rpm.sha256` + `.sig`
-- `clambhook-${VERSION}-${ARCH}.flatpak`
-- `clambhook-${VERSION}-${ARCH}.flatpak.sha256` + `.sig`
-- `clambhook-${VERSION}-${ARCH}.AppImage`
-- `clambhook-${VERSION}-${ARCH}.AppImage.sha256` + `.sig`
 - `clambhook-linux-manifest.json` + `.sig`
 
 For a beta build: `UPDATE_CHANNEL=beta make release-linux && UPDATE_CHANNEL=beta make upload-release-linux`.
@@ -121,10 +113,6 @@ CLAMBHOOK_STABLE_LINUX_DEB_URL
 CLAMBHOOK_STABLE_LINUX_DEB_SHA256_URL
 CLAMBHOOK_STABLE_LINUX_RPM_URL
 CLAMBHOOK_STABLE_LINUX_RPM_SHA256_URL
-CLAMBHOOK_STABLE_LINUX_FLATPAK_URL
-CLAMBHOOK_STABLE_LINUX_FLATPAK_SHA256_URL
-CLAMBHOOK_STABLE_LINUX_APPIMAGE_URL
-CLAMBHOOK_STABLE_LINUX_APPIMAGE_SHA256_URL
 CLAMBHOOK_STABLE_LINUX_MANIFEST_URL
 ```
 
@@ -135,8 +123,6 @@ Use the `clambhook/linux/stable/` keys uploaded in step 2. For beta, set the cor
 ```sh
 curl -sI "https://store.clambercloud.com/api/clambhook/download?platform=linux&pkg=deb"
 curl -sI "https://store.clambercloud.com/api/clambhook/download?platform=linux&pkg=rpm"
-curl -sI "https://store.clambercloud.com/api/clambhook/download?platform=linux&pkg=flatpak"
-curl -sI "https://store.clambercloud.com/api/clambhook/download?platform=linux&pkg=appimage"
 curl -s  "https://store.clambercloud.com/api/clambhook/linux-manifest" | head
 ```
 
@@ -168,13 +154,13 @@ gpg --verify clambhook-${VERSION}-${ARCH}.deb.sha256.sig clambhook-${VERSION}-${
 git push origin "v$VERSION"
 ```
 
-GitHub will show the tag as Verified. Do not attach the `.deb`, `.rpm`, Flatpak, AppImage, or any installer artifact to the GitHub release.
+GitHub will show the tag as Verified. Do not attach the `.deb`, `.rpm`, or any installer artifact to the GitHub release.
 
 ## 7. Release checklist
 
 - [ ] `make test`, `make lint`, `make build-linux`, `make test-linux` pass.
-- [ ] `scripts/validate-linux-distros.sh` passes for all six supported distros.
-- [ ] `make release-linux` completed; `dist/linux/` contains all four packages + checksums + signatures + manifest.
+- [ ] `scripts/validate-linux-distros.sh` passes for all three supported distros.
+- [ ] `make release-linux` completed; `dist/linux/` contains both packages + checksums + signatures + manifest.
 - [ ] `make upload-release-linux` completed; R2 keys `clambhook/linux/stable/` (or `beta/`) are updated.
 - [ ] Cloudflare Pages variables for the channel are set to the new R2 URLs.
 - [ ] `/api/clambhook/download?platform=linux&pkg=*` and `/api/clambhook/linux-manifest` return the new version.

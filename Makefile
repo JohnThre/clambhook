@@ -1,14 +1,14 @@
-.PHONY: all build build-clib build-daemon build-tui build-license install install-linux prepare-apple-runtime generate-apple build-apple check-macos-signing release-macos release-linux upload-release-r2 release-check macos-release-contract-check package-smoke test-apple test-android build-android-mobile-aar build-android build-android-release release-android upload-release-android check-linux-ui-deps test-linux build-linux test test-race provision-clambback-e2e e2e e2e-required e2e-release e2e-tun lint clean
+.PHONY: all build build-clib build-daemon build-tui build-license install install-linux prepare-apple-runtime generate-apple build-apple check-macos-signing release-macos release-linux upload-release-r2 release-check ci-local macos-release-contract-check package-smoke test-apple test-android build-android-mobile-aar build-android lint-android run-android build-android-release release-android upload-release-android check-linux-ui-deps test-linux build-linux test test-race provision-clambback-e2e e2e e2e-required e2e-release e2e-tun lint clean
 
 export CGO_ENABLED=1
 PREFIX ?= /usr/local
-LINUX_MESON_PREFIX = $(if $(PREFIX),$(PREFIX),/)
-LINUX_MESON_LIBEXECDIR = $(if $(PREFIX),$(PREFIX)/libexec,/libexec)
+LINUX_MESON_PREFIX = $(or $(PREFIX),/)
+LINUX_MESON_LIBEXECDIR = $(or $(PREFIX),)/libexec
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 GO_LDFLAGS ?= -X main.version=$(VERSION)
 ANDROID_HOME ?= $(HOME)/Library/Android/sdk
 CLAMBBACK_E2E_VERSION ?= 1.0.0-alpha.3
-CLAMBBACK_E2E_OS := $(if $(filter Darwin,$(shell uname -s)),Darwin,Linux)
+CLAMBBACK_E2E_OS := $(or $(filter Darwin,$(shell uname -s)),Linux)
 CLAMBBACK_E2E_SHA256_Linux := 8ec796c909c73d3ad686d53d5b3f6e104d15ce6a0c2514a01622d91e3b46758c
 CLAMBBACK_E2E_SHA256_Darwin := 0578e71380ce28f43b983f7f2388c8e13b8424bec8c375774101f4dce405ca27
 CLAMBBACK_E2E_SHA256 ?= $(CLAMBBACK_E2E_SHA256_$(CLAMBBACK_E2E_OS))
@@ -16,7 +16,7 @@ CLAMBBACK_E2E_BINPATH_Linux := usr/bin/clambback
 CLAMBBACK_E2E_BINPATH_Darwin := usr/local/bin/clambback
 CLAMBBACK_E2E_ROOT := $(abspath bin/e2e/clambback-$(CLAMBBACK_E2E_VERSION)-$(CLAMBBACK_E2E_OS))
 CLAMBBACK_E2E_BIN := $(CLAMBBACK_E2E_ROOT)/$(CLAMBBACK_E2E_BINPATH_$(CLAMBBACK_E2E_OS))
-E2E_CLAMBBACK_BIN = $(if $(CLAMBBACK_BIN),$(abspath $(CLAMBBACK_BIN)),$(CLAMBBACK_E2E_BIN))
+E2E_CLAMBBACK_BIN = $(or $(abspath $(CLAMBBACK_BIN)),$(CLAMBBACK_E2E_BIN))
 
 require-command = @command -v $(1) >/dev/null 2>&1 || { echo "$(1) is required for $(2)." >&2; echo "$(3)" >&2; exit 2; }
 internal-release-notice = @printf '%s\n' "internal-only: this target is for developer QA/build validation and must not publish end-user installers or packages on GitHub."
@@ -27,13 +27,9 @@ check-linux-ui-deps:
 	$(call require-command,java,Linux UI targets,Install JDK 17 or later.)
 	@command -v gradle >/dev/null 2>&1 || test -x ui/linux/gradlew || { echo "Gradle is required: install Gradle 8+ or use the bundled ./gradlew in ui/linux." >&2; exit 1; }
 
-# Use the system gradle if available (e.g. in Flatpak builds where the wrapper
-# cannot download its distribution in a network-less sandbox); otherwise fall
-# back to the bundled Gradle wrapper.
-GRADLE := $(shell command -v gradle 2>/dev/null)
-ifeq ($(GRADLE),)
-GRADLE := ./gradlew
-endif
+# Use the system gradle if available; otherwise fall back to the bundled
+# Gradle wrapper.
+GRADLE := $(or $(shell command -v gradle 2>/dev/null),./gradlew)
 
 build-clib:
 	$(MAKE) -C clib
@@ -113,6 +109,11 @@ release-check:
 	$(internal-release-notice)
 	$(MAKE) macos-release-contract-check test lint package-smoke e2e-release
 
+# Local CI/CD gate across all platforms (Go, Apple, Android, GNU/Linux
+# containers via Apple `container`, e2e, packaging smoke). See scripts/ci-local.sh.
+ci-local:
+	./scripts/ci-local.sh
+
 macos-release-contract-check:
 	$(internal-release-notice)
 	./scripts/macos-release-contract-check.sh
@@ -132,6 +133,15 @@ build-android-mobile-aar:
 
 build-android:
 	cd ui/android && ANDROID_HOME="$(ANDROID_HOME)" ./gradlew :app:assembleDebug
+
+lint-android:
+	cd ui/android && ANDROID_HOME="$(ANDROID_HOME)" ./gradlew :app:lintDebug
+
+# Build, deploy, and launch the debug app on a connected device/emulator via
+# Google's `android` CLI — the default Android development tool. Requires a
+# running emulator (`android emulator start <avd>`) or connected device.
+run-android:
+	cd ui/android && android run
 
 build-android-release:
 	$(internal-release-notice)

@@ -1,98 +1,100 @@
 # Release Validation Policy
 
-Every installer is validated in CI **before** any manual QA, signing, or upload
-to an approved store channel. The CI system is chosen by platform family:
+Every installer is validated **before** any manual QA, signing, or upload to an
+approved store channel. ClambHook runs all CI/CD and testing on the developer's
+local machine (macOS) plus Apple's [`container`](https://github.com/apple/container)
+tool for GNU/Linux containers — there are no GitHub Actions workflows and no
+Xcode Cloud integration in this repo. Nothing is uploaded to GitHub Releases.
 
-- **Apple platforms — Xcode Cloud first.** macOS, iOS, iPadOS, watchOS, and
-  visionOS installers are built and tested on Xcode Cloud before release.
-- **Non-Apple platforms — GitHub CI/CD first.** GNU/Linux and Android
-  installers are built and tested with GitHub Actions before release.
+`scripts/ci-local.sh` runs the full local gate across all platforms in sections
+(`go`, `apple`, `android`, `linux`, `e2e`, `smoke`; default `all`), skipping any
+section whose tooling is absent. CI validates builds and installers; it never
+publishes end-user installers. Distribution stays on the approved channels only
+(see [`distribution.md`](distribution.md)).
 
-CI validates builds and installers; it never publishes end-user installers.
-Distribution stays on the approved channels only (see
-[`distribution.md`](distribution.md)). Nothing is uploaded to GitHub Releases.
-
-## Ordering: CI gate before distribution
+## Ordering: local gate before distribution
 
 ```mermaid
 flowchart LR
-    commit["Commit / PR / release tag"] --> gate{Platform family}
-    gate -->|Apple| xcode["Xcode Cloud<br/>(validate first)"]
-    gate -->|"GNU/Linux · Android"| github["GitHub Actions<br/>(validate first)"]
-    xcode --> apple["macOS · iOS · iPadOS<br/>watchOS · visionOS"]
-    github --> other["GNU/Linux · Android"]
+    commit["Commit / release tag"] --> gate{Platform family}
+    gate -->|Apple| apple["Local macOS<br/>make build-apple · swift test · xcodebuild"]
+    gate -->|"GNU/Linux"| linux["Local + Apple container<br/>scripts/validate-linux-distros.sh<br/>ubuntu · debian · fedora"]
+    gate -->|Android| android["Local<br/>make test-android · lint-android · build-android<br/>+ android CLI"]
     apple --> qa["Manual QA + sign + notarize"]
-    other --> qa
+    linux --> qa
+    android --> qa
     qa --> dist["Distribute via approved store channels only<br/>(never GitHub Releases)"]
 ```
 
-## Platform → CI → validation matrix
+## Platform → validation matrix
 
-| Platform | CI system (first) | Build target | Validation | ClambHook status |
+| Platform | Where | Build target | Validation | ClambHook status |
 | --- | --- | --- | --- | --- |
-| macOS | Xcode Cloud | `ClambhookMac` (`ui/apple`) | Build + `swift test` + notarized DMG smoke | Shipping (public) |
-| iOS | Xcode Cloud | app + unit/UI tests | Build + tests on simulators | Not shipped for ClambHook |
-| iPadOS | Xcode Cloud | app + unit/UI tests | Build + tests on simulators | Not shipped for ClambHook |
-| watchOS | Xcode Cloud | watch app | Build + tests | Not shipped for ClambHook |
-| visionOS | Xcode Cloud | vision app | Build + tests on simulator | Not shipped for ClambHook |
-| GNU/Linux | GitHub Actions | `.deb` / `.rpm` / Flatpak / AppImage | Container build + headless smoke (`scripts/validate-linux-distros.sh`) | Shipping (public) |
-| Android | GitHub Actions | `.apk` | `gradlew` unit tests + `assembleDebug` + lint | Internal developer QA |
+| macOS | Local (macOS) | `ClambhookMac` (`ui/apple`) | `make build-apple` + `swift test` + notarized DMG smoke | Shipping (public) |
+| GNU/Linux | Local + Apple container | `.deb` / `.rpm` | `scripts/validate-linux-distros.sh` (ubuntu/debian/fedora containers) + `make test-linux` | Shipping (public) |
+| Android | Local | `.apk` | `make test-android` + `make lint-android` + `make build-android` (+ `android` CLI on-device) | Internal developer QA |
 
-ClambHook's Apple surface is currently macOS only; the iOS/iPadOS/watchOS/
-visionOS lanes are defined so the same policy applies automatically if those
-targets are added. Windows development is discontinued with no planned
-resumption date; the Windows CI lane has been removed.
+ClambHook's Apple surface is currently macOS only. Windows development is
+discontinued with no planned resumption date.
 
-## Apple lane — Xcode Cloud
+## Apple lane — local macOS
 
-Xcode Cloud runs the workflow attached to the app in App Store Connect. Because
-the Apple project is generated with XcodeGen, the committed integration point is
-[`ci_scripts/ci_post_clone.sh`](../ci_scripts/ci_post_clone.sh), which Xcode
-Cloud runs after cloning and before resolving dependencies. It prepares the Go
-daemon runtime and generates the Xcode project so the cloud build has a real
-project to compile.
+Apple builds validate on the developer's Mac. The Apple project is generated
+with XcodeGen and the Go daemon runtime is produced by the Makefile.
 
-```mermaid
-flowchart TD
-    trigger["App Store Connect trigger<br/>(branch / tag / PR)"] --> clone["Xcode Cloud clones repo"]
-    clone --> post["ci_scripts/ci_post_clone.sh<br/>make prepare-apple-runtime + generate-apple"]
-    post --> build["Xcode Cloud builds ClambhookMac"]
-    build --> test["Run unit / UI tests<br/>(macOS; simulators for iOS/iPadOS/watchOS/visionOS)"]
-    test --> archive["Archive + notarize (release workflows)"]
-    archive --> ready["Artifact ready for approved-channel upload"]
+```sh
+make prepare-apple-runtime   # darwin daemon + TUI runtime
+make generate-apple          # xcodegen generate
+make build-apple             # xcodebuild ... build
+make test-apple              # swift test --package-path ui/apple
 ```
 
-Configure the Xcode Cloud workflow in App Store Connect to:
+For a release, `make release-macos` archives, Developer ID-signs, notarizes, and
+staples the DMG. See
+[`docs/website-release/release-runbook.md`](website-release/release-runbook.md).
 
-1. Trigger on pull requests and on release tags.
-2. Use `ci_scripts/ci_post_clone.sh` (auto-detected) to generate the project.
-3. Build the `ClambhookMac` scheme and run the test action.
-4. For release workflows, archive and notarize; do not attach artifacts to
-   GitHub.
+## GNU/Linux lane — local + Apple container
 
-## Non-Apple lane — GitHub Actions
+GNU/Linux packages (`.deb` for Ubuntu/Debian, `.rpm` for Fedora) are built and
+headless-smoke-tested in throwaway Linux containers from a Mac using Apple's
+`container` tool (podman/docker fallback on Linux):
 
-[`.github/workflows/installer-validation.yml`](../.github/workflows/installer-validation.yml)
-validates the GNU/Linux and Android installers on every push, PR, and manual
-dispatch. It builds and smoke-tests only — it uploads no installer artifacts and
-creates no GitHub Release.
-
-```mermaid
-flowchart TD
-    push["Push / PR / workflow_dispatch"] --> jobs{Job matrix}
-    jobs --> linux["linux: container images<br/>ubuntu:24.04 · debian:12 · fedora:41 · rockylinux:9"]
-    jobs --> android["android: JDK 17 + Android SDK"]
-    linux --> lbuild["make build + make build-linux<br/>+ package build (deb/rpm)"]
-    lbuild --> lsmoke["Headless smoke:<br/>clambhook-license trial · daemon/tui -version"]
-    android --> abuild["gradlew testDebugUnitTest + assembleDebug + lint"]
-    lsmoke --> gate["All required jobs green"]
-    abuild --> gate
-    gate --> nopublish["No artifact upload · no GitHub Release"]
+```sh
+container system start                       # one-time: start the Apple container service
+scripts/validate-linux-distros.sh            # ubuntu · debian · fedora
+make test-linux                              # host-side Kotlin unit tests for the Compose controller
 ```
 
-Distro-to-image mapping mirrors `packaging/README.md`: PureOS validates through
-the Debian image (Debian-based) and Bazzite through the Fedora image plus the
-Flatpak manifest.
+Per distro the harness installs the build toolchain, runs `make build` +
+`make build-linux`, then smoke-tests headlessly: `clambhook-license` seeds and
+evaluates a trial (expects `"ok":true`), and `clambhook` / `clambhook-tui`
+report their versions. See [`packaging/README.md`](../packaging/README.md) for
+the container-harness details. For a release, `make release-linux` builds the
+`.deb` + `.rpm`, checksums, GPG-signs, and writes the update manifest; see
+[`docs/website-release/linux-release-runbook.md`](website-release/linux-release-runbook.md).
+
+## Android lane — local
+
+Android validates on the developer's machine. The embedded daemon AAR is built
+with gomobile; unit tests, lint, and the debug build run on Gradle; Google's
+`android` CLI is the default for the on-device dev loop, using an Android SDK
+Emulator (AVD) for local CI/CD (Apple `container` is Linux-only and cannot run
+Android).
+
+```sh
+make build-android-mobile-aar                # gomobile bind → ui/android/app/libs/
+make test-android                            # ./gradlew :app:testDebugUnitTest
+make lint-android                            # ./gradlew :app:lintDebug
+make build-android                           # ./gradlew :app:assembleDebug
+make run-android                             # android run (build + deploy + launch on a device or AVD)
+```
+
+For the on-device CI/CD gate, set `CI_LOCAL_ANDROID_AVD=<name>`; `scripts/ci-local.sh android` boots the AVD (`android emulator start`) and runs `make run-android` against it. Create an AVD with `android emulator create --name=clambhook --package="system-images;android-34;google_apis;arm64-v8a"`.
+
+For a release, `make release-android` builds the AAR, assembles the release APK,
+checksums, GPG-signs, and writes the update manifest. See
+[`docs/android-development.md`](android-development.md) for the `android` CLI
+guide and [`docs/website-release/release-runbook.md`](website-release/release-runbook.md).
 
 ## Local `release-check` scope
 
@@ -100,7 +102,8 @@ Flatpak manifest.
 e2e-release`) gates the Go core: it runs `go test ./...`, `go vet`, the Debian
 package smoke build, and the real-server protocol e2e suite. It intentionally
 does **not** run the UI test suites (`test-apple`, `test-android`,
-`test-linux`); those are validated by CI instead — the Apple client on Xcode
-Cloud and the Android and GNU/Linux UIs on GitHub Actions
-(`.github/workflows/installer-validation.yml`). Run the platform UI targets
+`test-linux`); those are validated by `scripts/ci-local.sh` instead — the Apple
+client via `make build-apple`/`test-apple`, the Android UI via `make
+test-android`/`lint-android`/`build-android`, and the GNU/Linux UI via `make
+test-linux` + `scripts/validate-linux-distros.sh`. Run the platform UI targets
 directly when iterating on a specific client.

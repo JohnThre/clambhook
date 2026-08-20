@@ -92,7 +92,7 @@ No high/critical defect. The controls verified clean:
 ### File & secret handling (`internal/config/write.go`)
 
 No high/critical defect. Config is written atomically (temp file + `Chmod 0o600`
-+ `os.Rename`) with `0o600` backups and a `0o700` dir
+- `os.Rename`) with `0o600` backups and a `0o700` dir
 (`internal/config/write.go:46-79`). The API auth token is **never persisted** —
 it comes only from the `-api-token` flag / `CLAMBHOOK_API_TOKEN` env
 (`cmd/clambhook/main.go:45`).
@@ -315,12 +315,11 @@ No high/critical defect. Verified clean:
   license key in `EncryptedSharedPreferences`. No plaintext/world-readable token
   files.
 
-### Build & packaging (`Makefile`, `ci_scripts/`, `scripts/`, `packaging/`, `debian/`)
+### Build & packaging (`Makefile`, `scripts/`, `packaging/`, `debian/`)
 
 #### M-4 — CI/build scripts run a downloaded Go toolchain without checksum · **Medium · Report-only**
 
-- **Locations:** `scripts/ci-linux-container-build.sh:52`,
-  `scripts/validate-linux-distros.sh:79` —
+- **Locations:** `scripts/validate-linux-distros.sh` —
   `curl -fsSL https://go.dev/dl/go${GO_VER}.linux-${GOARCH}.tar.gz | tar -C /usr/local -xz`.
 - **Description & impact:** the Go SDK tarball is streamed into `tar` and then
   used to build/run the project with no SHA-256/signature check, so a compromised
@@ -328,13 +327,12 @@ No high/critical defect. Verified clean:
   HTTPS provides transport integrity, not artifact pinning. Confined to CI/dev
   build hosts (hence Medium, not High), and inconsistent with the repo's own
   pinned-digest pattern used elsewhere
-  (`packaging/appimage/build-appimage.sh:65-108`, `Makefile:161-162`).
+  (`Makefile`).
 - **Remediation (report-only):** download to a file and `sha256sum -c` a pinned
   digest before extraction, matching the existing pinned-download pattern.
 
 Verified clean: no hardcoded credentials in scripts/packaging; no
-`curl … | sh`/`wget … | bash` remote-code execution and no `http://` downloads;
-AppImage tools and the Flatpak libsodium are SHA-256-pinned; install permissions
+`curl … | sh`/`wget … | bash` remote-code execution and no `http://` downloads; install permissions
 are safe (binaries `0755`, data `0644`, no world-writable paths, no setuid); the
 macOS privileged helper pins XPC callers by audit token and restricts its log to
 `0600`.

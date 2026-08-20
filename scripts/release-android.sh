@@ -32,7 +32,10 @@ ANDROID_HOME="${ANDROID_HOME:-$(uname -s | grep -qi darwin && echo "$HOME/Librar
 rm -rf "$DIST_DIR"
 mkdir -p "$DIST_DIR"
 
-require() { command -v "$1" >/dev/null 2>&1 || { echo "$1 is required for $2." >&2; exit 2; }; }
+require() { command -v "$1" >/dev/null 2>&1 || {
+  echo "$1 is required for $2." >&2
+  exit 2
+}; }
 
 gpg_sign() {
   local target="$1"
@@ -51,7 +54,7 @@ checksum_and_sign() {
   local artifact="$1"
   local name
   name="$(basename "$artifact")"
-  ( cd "$(dirname "$artifact")" && sha256sum "$name" > "$name.sha256" )
+  (cd "$(dirname "$artifact")" && sha256sum "$name" >"$name.sha256")
   gpg_sign "$artifact.sha256"
   echo "  sha256: $(awk '{print $1}' "$artifact.sha256")"
 }
@@ -60,16 +63,19 @@ checksum_and_sign() {
 echo "== Building AAR =="
 make build-android-mobile-aar
 
+# Day-to-day Android development uses Google's `android` CLI by default (see
+# docs/android-development.md). Release assembly stays on Gradle because the
+# `android` CLI has no release-build command.
 # 2. Build the release APK. The Gradle project produces a single universal APK
 #    (no ABI splits). If ui/android/keystore.properties exists the APK is
 #    signed at build time; otherwise it is unsigned (sideloadable with a
 #    security warning).
 echo "== Building release APK =="
-( cd "$ROOT_DIR/ui/android" && ANDROID_HOME="$ANDROID_HOME" ./gradlew :app:assembleRelease )
+(cd "$ROOT_DIR/ui/android" && ANDROID_HOME="$ANDROID_HOME" ./gradlew :app:assembleRelease)
 
 APK_SRC="$ROOT_DIR/ui/android/app/build/outputs/apk/release/app-release.apk"
 if [[ ! -f "$APK_SRC" ]]; then
-    APK_SRC="$ROOT_DIR/ui/android/app/build/outputs/apk/release/app-release-unsigned.apk"
+  APK_SRC="$ROOT_DIR/ui/android/app/build/outputs/apk/release/app-release-unsigned.apk"
 fi
 APK_NAME="ClambHook-${VERSION}.apk"
 APK="$DIST_DIR/$APK_NAME"
@@ -100,7 +106,7 @@ MIN_SDK=30
   printf '  "sha256": "%s",\n' "$SHA256"
   printf '  "notes": ""\n'
   printf '}\n'
-} > "$MANIFEST"
+} >"$MANIFEST"
 
 gpg_sign "$MANIFEST"
 

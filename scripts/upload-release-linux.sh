@@ -50,12 +50,8 @@ else
     LATEST_PREFIX="clambhook/linux/stable"
 fi
 
-for suffix in deb rpm flatpak AppImage; do
-    # Note: AppImage preserves its canonical extension; the others use lowercase.
-    case "$suffix" in
-        deb|rpm|flatpak) artifact="clambhook-${VERSION}-${ARCH}.${suffix}" ;;
-        AppImage) artifact="clambhook-${VERSION}-${ARCH}.AppImage" ;;
-    esac
+for suffix in deb rpm; do
+    artifact="clambhook-${VERSION}-${ARCH}.${suffix}"
     artifact_path="$DIST_DIR/$artifact"
     if [[ ! -f "$artifact_path" ]]; then
         continue
@@ -63,14 +59,11 @@ for suffix in deb rpm flatpak AppImage; do
 
     # Map package key used by the website variable naming.
     pkg="$suffix"
-    [[ "$pkg" == "AppImage" ]] && pkg="appimage"
 
     # Binary package.
     case "$suffix" in
-        deb) content_type="application/vnd.debian.binary-package" ;;
-        rpm) content_type="application/x-rpm" ;;
-        flatpak) content_type="application/vnd.flatpak" ;;
-        AppImage) content_type="application/x-appimage" ;;
+    deb) content_type="application/vnd.debian.binary-package" ;;
+    rpm) content_type="application/x-rpm" ;;
     esac
 
     upload "$artifact_path" "$VERSIONED_PREFIX/$artifact" "$content_type"

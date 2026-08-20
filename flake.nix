@@ -14,8 +14,8 @@
       forAllSystems = nixpkgs.lib.genAttrs systems;
     in {
       # The Nix package intentionally covers only the Go daemon and TUI. The
-      # GTK/libadwaita desktop UI remains distro-packaging/AppImage/Flatpak
-      # scope because it has a separate Meson build and desktop integration.
+      # GTK/libadwaita desktop UI remains distro-packaging scope (.deb/.rpm)
+      # because it has a separate Meson build and desktop integration.
       packages = forAllSystems (system:
         let
           pkgs = import nixpkgs { inherit system; };

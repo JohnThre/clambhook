@@ -1,4 +1,4 @@
-# ClambHook RPM package for Fedora and Rocky Linux (RHEL-compatible).
+# ClambHook RPM package for Fedora (RHEL-compatible).
 #
 # Build from the repository root, e.g.:
 #   VERSION=$(git describe --tags --always | sed 's/^v//;s/-/./g')
@@ -133,5 +133,5 @@ exit 0
   only CAP_NET_ADMIN/CAP_NET_RAW; create the user via shadow-utils/sysusers and
   own the config/state directories via tmpfiles and %%attr.
 * Wed Jul 15 2026 Pengfan Chang <developer@jpfchang.org> - 0.1.0-1
-- Initial ClambHook RPM for Fedora and Rocky Linux with daemon, Kotlin/Compose
+- Initial ClambHook RPM for Fedora with daemon, Kotlin/Compose
   Multiplatform desktop controller, terminal dashboard, and license helper.

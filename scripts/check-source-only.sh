@@ -31,7 +31,7 @@ reject_artifact_ext() {
     local label="$2"
     local matches=""
     if command -v git >/dev/null 2>&1 && git -C "$ROOT_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-        matches="$(git -C "$ROOT_DIR" ls-files -z --cached --others --exclude-standard | while IFS= read -r -d '' f; do case "$f" in *"$pattern") printf '%s\n' "$f";; esac; done)"
+        matches="$(git -C "$ROOT_DIR" ls-files -z --cached --others --exclude-standard | while IFS= read -r -d '' f; do case "$f" in *"$pattern") printf '%s\n' "$f" ;; esac done)"
     else
         matches="$(find "$ROOT_DIR" -type f -name "*$pattern" -not -path '*/.git/*' 2>/dev/null || true)"
     fi
@@ -42,19 +42,19 @@ reject_artifact_ext() {
 
 command -v grep >/dev/null 2>&1 || fail "grep is required for source-only policy checks."
 
-# Internal CI artifact sharing between jobs is allowed (actions/upload-artifact
-# passes artifacts within a workflow run; they are never published publicly).
-# Public GitHub Releases and third-party release-upload actions remain prohibited.
+# No GitHub Actions workflows live in this repo: CI/CD runs locally (local
+# machine + Apple container; see scripts/ci-local.sh). The text checks below
+# remain as a defensive guard against any future workflow that attempts a
+# public GitHub Release or a third-party release-upload action.
 reject_tree_text "gh release upload"
 reject_tree_text "softprops/action-gh-release"
 reject_tree_text "actions/create-release"
 
 # The tree scan below is the authoritative guard against committed installer
-# artifacts. The workflow-text file-extension patterns have been removed because
-# linux-release.yml legitimately references .deb/.rpm/.AppImage/.flatpak to build
-# and sign packages for private R2 distribution (not GitHub Releases).
-# Public GitHub Releases remain prohibited via the gh release upload and
-# softprops/action-gh-release text checks above.
+# artifacts. There is no in-tree workflow text that legitimately references
+# package extensions, so any committed .deb/.rpm/.dmg/.apk/etc. is a policy
+# violation. Public GitHub Releases remain prohibited via the text checks
+# above.
 
 # Tree scan: reject committed installer artifacts by extension anywhere in the
 # repo, not just in .github/. This catches binaries that bypass the workflow
