@@ -87,6 +87,18 @@ func (i *disabledMITMInspector) BreakpointResponse(context.Context, *http.Reques
 	return HTTPBreakpointResolution{}, false, nil
 }
 
+func (i *disabledMITMInspector) HasRequestRewrite(*http.Request) bool { return false }
+
+func (i *disabledMITMInspector) HasResponseRewrite(*http.Request) bool { return false }
+
+func (i *disabledMITMInspector) RewriteRequest(*http.Request, []byte) ([]byte, bool, error) {
+	return nil, false, nil
+}
+
+func (i *disabledMITMInspector) RewriteResponse(*http.Request, *http.Response, []byte) ([]byte, bool, error) {
+	return nil, false, nil
+}
+
 type noCacheInspector struct {
 	disabledMITMInspector
 }
@@ -868,5 +880,175 @@ func TestHTTPMaxConnectionsSemaphore(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 	if got := s.ActiveConns(); got > 1 {
 		t.Fatalf("ActiveConns got %d, want 1 (cap enforced)", got)
+	}
+}
+
+// rewriteInspector is a stub HTTPInspector that records and applies request and
+// response rewrites so the listener's wiring of Rewrite* can be exercised
+// end-to-end without depending on the developer package.
+type rewriteInspector struct {
+	disabledMITMInspector
+	reqHost string
+}
+
+func (i *rewriteInspector) HasRequestRewrite(req *http.Request) bool {
+	return req != nil && req.Host == i.reqHost
+}
+
+func (i *rewriteInspector) HasResponseRewrite(req *http.Request) bool {
+	return req != nil && req.Host == i.reqHost
+}
+
+func (i *rewriteInspector) RewriteRequest(req *http.Request, body []byte) ([]byte, bool, error) {
+	if req != nil {
+		req.Header.Set("X-Rewritten-Req", "yes")
+	}
+	return nil, false, nil
+}
+
+func (i *rewriteInspector) RewriteResponse(req *http.Request, resp *http.Response, body []byte) ([]byte, bool, error) {
+	if resp != nil {
+		resp.StatusCode = 204
+		resp.Status = "204 No Content"
+		resp.Header.Set("X-Rewritten-Resp", "yes")
+	}
+	return nil, false, nil
+}
+
+func TestHTTPForwardRewriteRequestAndResponse(t *testing.T) {
+	remoteCh := make(chan net.Conn, 1)
+	inspector := &rewriteInspector{reqHost: "example.com"}
+	_, addr := newTestHTTPListenerWithOpts(t, stubDial(remoteCh), Options{HTTPInspector: inspector})
+
+	client, err := net.Dial("tcp", addr)
+	if err != nil {
+		t.Fatalf("dial listener: %v", err)
+	}
+	defer client.Close()
+
+	errCh := make(chan error, 1)
+	go func() {
+		remote := <-remoteCh
+		defer remote.Close()
+		req, err := http.ReadRequest(bufio.NewReader(remote))
+		if err != nil {
+			errCh <- fmt.Errorf("origin read request: %w", err)
+			return
+		}
+		if got := req.Header.Get("X-Rewritten-Req"); got != "yes" {
+			errCh <- fmt.Errorf("origin X-Rewritten-Req got %q, want yes", got)
+			return
+		}
+		if _, err := io.WriteString(remote,
+			"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok"); err != nil {
+			errCh <- err
+			return
+		}
+		errCh <- nil
+	}()
+
+	payload := "GET http://example.com/ HTTP/1.1\r\n" +
+		"Host: example.com\r\n\r\n"
+	if _, err := io.WriteString(client, payload); err != nil {
+		t.Fatal(err)
+	}
+
+	resp, err := http.ReadResponse(bufio.NewReader(client), nil)
+	if err != nil {
+		t.Fatalf("read response: %v", err)
+	}
+	_, _ = io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != 204 {
+		t.Fatalf("status got %d, want 204 (response rewrite)", resp.StatusCode)
+	}
+	if got := resp.Header.Get("X-Rewritten-Resp"); got != "yes" {
+		t.Fatalf("X-Rewritten-Resp got %q, want yes", got)
+	}
+	if err := <-errCh; err != nil {
+		t.Fatal(err)
+	}
+}
+
+// rewriteBodyInspector verifies body rewrites flow through: the request body is
+// rewritten before it reaches the origin, and the response body is rewritten
+// before it reaches the client.
+type rewriteBodyInspector struct {
+	disabledMITMInspector
+	reqHost string
+}
+
+func (i *rewriteBodyInspector) HasRequestRewrite(req *http.Request) bool {
+	return req != nil && req.Host == i.reqHost
+}
+
+func (i *rewriteBodyInspector) HasResponseRewrite(req *http.Request) bool {
+	return req != nil && req.Host == i.reqHost
+}
+
+func (i *rewriteBodyInspector) RewriteRequest(req *http.Request, body []byte) ([]byte, bool, error) {
+	return []byte("replaced-request-body"), true, nil
+}
+
+func (i *rewriteBodyInspector) RewriteResponse(req *http.Request, resp *http.Response, body []byte) ([]byte, bool, error) {
+	return []byte("replaced-response-body"), true, nil
+}
+
+func TestHTTPForwardRewriteBodies(t *testing.T) {
+	remoteCh := make(chan net.Conn, 1)
+	inspector := &rewriteBodyInspector{reqHost: "example.com"}
+	_, addr := newTestHTTPListenerWithOpts(t, stubDial(remoteCh), Options{HTTPInspector: inspector})
+
+	client, err := net.Dial("tcp", addr)
+	if err != nil {
+		t.Fatalf("dial listener: %v", err)
+	}
+	defer client.Close()
+
+	errCh := make(chan error, 1)
+	go func() {
+		remote := <-remoteCh
+		defer remote.Close()
+		req, err := http.ReadRequest(bufio.NewReader(remote))
+		if err != nil {
+			errCh <- fmt.Errorf("origin read request: %w", err)
+			return
+		}
+		body, err := io.ReadAll(req.Body)
+		if err != nil {
+			errCh <- fmt.Errorf("origin read body: %w", err)
+			return
+		}
+		if string(body) != "replaced-request-body" {
+			errCh <- fmt.Errorf("origin got request body %q, want replaced-request-body", body)
+			return
+		}
+		if _, err := io.WriteString(remote,
+			"HTTP/1.1 200 OK\r\nContent-Length: 3\r\n\r\nraw"); err != nil {
+			errCh <- err
+			return
+		}
+		errCh <- nil
+	}()
+
+	payload := "POST http://example.com/ HTTP/1.1\r\n" +
+		"Host: example.com\r\n" +
+		"Content-Length: 11\r\n\r\n" +
+		"original-bdy"
+	if _, err := io.WriteString(client, payload); err != nil {
+		t.Fatal(err)
+	}
+
+	resp, err := http.ReadResponse(bufio.NewReader(client), nil)
+	if err != nil {
+		t.Fatalf("read response: %v", err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if string(body) != "replaced-response-body" {
+		t.Fatalf("client got response body %q, want replaced-response-body", body)
+	}
+	if err := <-errCh; err != nil {
+		t.Fatal(err)
 	}
 }

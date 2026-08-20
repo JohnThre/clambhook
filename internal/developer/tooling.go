@@ -1,6 +1,7 @@
 package developer
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -10,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -194,6 +196,138 @@ func (m *Manager) hasBreakpoint(stage string, req *http.Request) bool {
 		}
 	}
 	return false
+}
+
+// HasRequestRewrite reports whether req matches an enabled request-stage
+// rewrite rule. The listener uses it to decide whether to drain the request
+// body before applying rewrites.
+func (m *Manager) HasRequestRewrite(req *http.Request) bool {
+	return m.hasRewrite("request", req)
+}
+
+// HasResponseRewrite reports whether req matches an enabled response-stage
+// rewrite rule.
+func (m *Manager) HasResponseRewrite(req *http.Request) bool {
+	return m.hasRewrite("response", req)
+}
+
+func (m *Manager) hasRewrite(stage string, req *http.Request) bool {
+	if m == nil || req == nil {
+		return false
+	}
+	m.mu.RLock()
+	cfg := m.cfg
+	m.mu.RUnlock()
+	if !cfg.Enabled {
+		return false
+	}
+	for _, rule := range cfg.RewriteRules {
+		if rule.Enabled && breakpointStageMatches(rule.Stage, stage) && matchRequest(rule.Match, req) {
+			return true
+		}
+	}
+	return false
+}
+
+// RewriteRequest applies matching request-stage rewrite ops to req. Header ops
+// mutate req.Header in place; body ops return the new body and bodySet so the
+// caller can reset req.Body and Content-Length. stage "response" rules are
+// skipped here.
+func (m *Manager) RewriteRequest(req *http.Request, body []byte) (newBody []byte, bodySet bool, err error) {
+	if m == nil || req == nil {
+		return nil, false, nil
+	}
+	m.mu.RLock()
+	cfg := m.cfg
+	m.mu.RUnlock()
+	if !cfg.Enabled {
+		return nil, false, nil
+	}
+	for _, rule := range cfg.RewriteRules {
+		if !rule.Enabled || !breakpointStageMatches(rule.Stage, "request") || !matchRequest(rule.Match, req) {
+			continue
+		}
+		for _, op := range rule.Ops {
+			switch op.Target {
+			case "header":
+				applyHeaderRewrite(req.Header, op)
+			case "body":
+				if nb, set := applyBodyRewrite(body, op); set {
+					body = nb
+					bodySet = true
+				}
+			}
+		}
+	}
+	if bodySet {
+		return body, true, nil
+	}
+	return nil, false, nil
+}
+
+// RewriteResponse applies matching response-stage rewrite ops to resp. Status
+// and header ops mutate resp in place; body ops return the new body and bodySet.
+func (m *Manager) RewriteResponse(req *http.Request, resp *http.Response, body []byte) (newBody []byte, bodySet bool, err error) {
+	if m == nil || req == nil || resp == nil {
+		return nil, false, nil
+	}
+	m.mu.RLock()
+	cfg := m.cfg
+	m.mu.RUnlock()
+	if !cfg.Enabled {
+		return nil, false, nil
+	}
+	for _, rule := range cfg.RewriteRules {
+		if !rule.Enabled || !breakpointStageMatches(rule.Stage, "response") || !matchRequest(rule.Match, req) {
+			continue
+		}
+		for _, op := range rule.Ops {
+			switch op.Target {
+			case "status":
+				if code, parseErr := strconv.Atoi(strings.TrimSpace(op.Value)); parseErr == nil && code >= 100 && code <= 599 {
+					resp.StatusCode = code
+					resp.Status = fmt.Sprintf("%d %s", code, http.StatusText(code))
+				}
+			case "header":
+				applyHeaderRewrite(resp.Header, op)
+			case "body":
+				if nb, set := applyBodyRewrite(body, op); set {
+					body = nb
+					bodySet = true
+				}
+			}
+		}
+	}
+	if bodySet {
+		return body, true, nil
+	}
+	return nil, false, nil
+}
+
+// applyHeaderRewrite mutates hdr for one header op.
+func applyHeaderRewrite(hdr http.Header, op config.DeveloperRewriteOp) {
+	switch op.Action {
+	case "add":
+		hdr.Add(op.Field, op.Value)
+	case "set":
+		hdr.Set(op.Field, op.Value)
+	case "remove":
+		hdr.Del(op.Field)
+	}
+}
+
+// applyBodyRewrite returns the rewritten body and whether it changed.
+func applyBodyRewrite(body []byte, op config.DeveloperRewriteOp) ([]byte, bool) {
+	switch op.Action {
+	case "set":
+		return []byte(op.Value), true
+	case "replace":
+		if len(op.Value) == 0 {
+			return body, false
+		}
+		return bytes.ReplaceAll(body, []byte(op.Value), []byte(op.Replace)), true
+	}
+	return body, false
 }
 
 func (m *Manager) breakpoint(ctx context.Context, stage string, req *http.Request, resp *http.Response, body []byte) (listener.HTTPBreakpointResolution, bool, error) {

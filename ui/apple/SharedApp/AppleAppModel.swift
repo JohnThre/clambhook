@@ -17,6 +17,7 @@ final class AppleAppModel: ObservableObject {
     @Published private(set) var developerEntries: [DeveloperEntryPayload] = []
     @Published private(set) var developerMapRules: [DeveloperMapRulePayload] = []
     @Published private(set) var developerBreakpointRules: [DeveloperBreakpointRulePayload] = []
+    @Published private(set) var developerRewriteRules: [DeveloperRewriteRulePayload] = []
     @Published private(set) var developerPendingBreakpoints: [DeveloperPendingBreakpointPayload] = []
     @Published private(set) var pendingPrompts: [PendingPromptPayload] = []
     @Published private(set) var developerSettings = DeveloperSettingsPayload()
@@ -644,6 +645,7 @@ final class AppleAppModel: ObservableObject {
             developerEntries = try await provider.developerEntries().entries
             developerMapRules = try await provider.developerMapRules().rules
             developerBreakpointRules = try await provider.developerBreakpointRules().rules
+            developerRewriteRules = try await provider.developerRewriteRules().rules
             developerPendingBreakpoints = try await provider.developerPendingBreakpoints().breakpoints
         } catch {
             developerStatus = DeveloperStatusPayload()
@@ -651,6 +653,7 @@ final class AppleAppModel: ObservableObject {
             developerEntries = []
             developerMapRules = []
             developerBreakpointRules = []
+            developerRewriteRules = []
             developerPendingBreakpoints = []
             daemonMessage = error.localizedDescription
         }
@@ -910,6 +913,24 @@ final class AppleAppModel: ObservableObject {
             }
             do {
                 try await provider.replaceDeveloperBreakpointRules(rules)
+                await refreshDeveloperCaptureNow()
+            } catch {
+                daemonMessage = error.localizedDescription
+            }
+        }
+    }
+
+    func addDeveloperRewriteRule(_ rule: DeveloperRewriteRulePayload) {
+        replaceDeveloperRewriteRules(developerRewriteRules + [rule])
+    }
+
+    func replaceDeveloperRewriteRules(_ rules: [DeveloperRewriteRulePayload]) {
+        Task {
+            guard let provider = dashboardAPI as? DeveloperCaptureProviding else {
+                return
+            }
+            do {
+                try await provider.replaceDeveloperRewriteRules(rules)
                 await refreshDeveloperCaptureNow()
             } catch {
                 daemonMessage = error.localizedDescription

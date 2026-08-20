@@ -49,6 +49,7 @@
 		D5B5381193EE74D99FDEA0C8 /* MacSparkleUpdater.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2154CDDB7FC6878704BCF197 /* MacSparkleUpdater.swift */; };
 		DBEF42AC175249F0DA14DC84 /* MacProfilesSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5CB05BE815F501AECFCB7B59 /* MacProfilesSection.swift */; };
 		E20BEBC7404594F87E09BDF7 /* SettingsViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11D3A8B6CD3A6119053C8908 /* SettingsViews.swift */; };
+		E7C51F17F8874A125C391EAE /* MacRewriteRuleSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 517781CFAFBF7D0483CDC1BE /* MacRewriteRuleSheet.swift */; };
 		E3F73D48799F21A8CC8D6621 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = E08010E4073C842577454D47 /* Sparkle */; };
 		ED018791026D587CB0897950 /* MacLegalFooter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C71090AE1DFEF65994C3836 /* MacLegalFooter.swift */; };
 /* End PBXBuildFile section */
@@ -122,6 +123,7 @@
 		34FFA1624ECB24249318620F /* MacConditionerSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacConditionerSection.swift; sourceTree = "<group>"; };
 		3FCF98A1709AD64E24112420 /* MacComposeSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacComposeSheet.swift; sourceTree = "<group>"; };
 		46AF45F7A3B6FE88BDADB04C /* ServiceManagement.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = ServiceManagement.framework; path = System/Library/Frameworks/ServiceManagement.framework; sourceTree = SDKROOT; };
+		517781CFAFBF7D0483CDC1BE /* MacRewriteRuleSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacRewriteRuleSheet.swift; sourceTree = "<group>"; };
 		5CB05BE815F501AECFCB7B59 /* MacProfilesSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacProfilesSection.swift; sourceTree = "<group>"; };
 		71619AA1E2C9424F8D0CAE82 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		73930EE75CE83BC0639DF8FB /* MacDashboardWindowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacDashboardWindowView.swift; sourceTree = "<group>"; };
@@ -201,6 +203,7 @@
 				F4C173248F9A18690134D8EC /* MacPolicyGroupsSection.swift */,
 				A047F5F6C10292C5DE346662 /* MacPrivilegedHelperManager.swift */,
 				5CB05BE815F501AECFCB7B59 /* MacProfilesSection.swift */,
+				517781CFAFBF7D0483CDC1BE /* MacRewriteRuleSheet.swift */,
 				84AEA4D35ADED9DCF56F0F3F /* MacRulesSection.swift */,
 				7EE21C46B47D167624A932C6 /* MacSettingsSection.swift */,
 				2154CDDB7FC6878704BCF197 /* MacSparkleUpdater.swift */,
@@ -489,6 +492,7 @@
 				C13AE435A7672166B20DD25D /* MacPrivilegedHelperManager.swift in Sources */,
 				C0EBF877C598C2FC74316665 /* MacPrivilegedHelperProtocol.swift in Sources */,
 				DBEF42AC175249F0DA14DC84 /* MacProfilesSection.swift in Sources */,
+				E7C51F17F8874A125C391EAE /* MacRewriteRuleSheet.swift in Sources */,
 				17CF2D32282BEA2BAF84F35E /* MacRulesSection.swift in Sources */,
 				819E5F114B348B68B809FE51 /* MacSettingsSection.swift in Sources */,
 				D5B5381193EE74D99FDEA0C8 /* MacSparkleUpdater.swift in Sources */,

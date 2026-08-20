@@ -19,6 +19,7 @@ struct MacHTTPCaptureSection: View {
     @State private var selectedMessageSide = "request"
     @State private var selectedMessageTab = "headers"
     @State private var composeEntry: DeveloperEntryPayload?
+    @State private var editingRewrite: DeveloperRewriteRulePayload?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -52,6 +53,18 @@ struct MacHTTPCaptureSection: View {
                 model.sendComposedDeveloperRequest(request)
             }
             .frame(minWidth: 580, minHeight: 520)
+        }
+        .sheet(item: $editingRewrite) { rule in
+            MacRewriteRuleSheet(rule: rule) { saved in
+                if let index = model.developerRewriteRules.firstIndex(where: { $0.id == saved.id }) {
+                    var rules = model.developerRewriteRules
+                    rules[index] = saved
+                    model.replaceDeveloperRewriteRules(rules)
+                } else {
+                    model.addDeveloperRewriteRule(saved)
+                }
+            }
+            .frame(minWidth: 560, minHeight: 520)
         }
         .confirmationDialog(
             "Export HAR?",
@@ -339,12 +352,22 @@ struct MacHTTPCaptureSection: View {
                 } label: {
                     Label("Breakpoint", systemImage: "pause.circle")
                 }
-                Text("\(model.developerMapRules.count) map rules / \(model.developerBreakpointRules.count) breakpoint rules")
+                Button {
+                    editingRewrite = DeveloperRewriteRulePayload(
+                        name: "Rewrite \(entry.host)",
+                        match: matchPayload(entry),
+                        stage: "both",
+                        ops: [DeveloperRewriteOpPayload(target: "header", action: "add", field: "X-Rewrite", value: "yes")]
+                    )
+                } label: {
+                    Label("Rewrite", systemImage: "wand.and.stars")
+                }
+                Text("\(model.developerMapRules.count) map / \(model.developerBreakpointRules.count) breakpoint / \(model.developerRewriteRules.count) rewrite")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
             DisclosureGroup("Rules") {
-                if model.developerMapRules.isEmpty && model.developerBreakpointRules.isEmpty {
+                if model.developerMapRules.isEmpty && model.developerBreakpointRules.isEmpty && model.developerRewriteRules.isEmpty {
                     Text("No developer rules")
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -382,6 +405,40 @@ struct MacHTTPCaptureSection: View {
                                 model.replaceDeveloperBreakpointRules(model.developerBreakpointRules.filter { $0.id != rule.id })
                             }
                         )
+                    }
+                    ForEach(model.developerRewriteRules) { rule in
+                        HStack {
+                            Toggle("", isOn: Binding(get: { rule.enabled }, set: { enabled in
+                                var rules = model.developerRewriteRules
+                                if let index = rules.firstIndex(where: { $0.id == rule.id }) {
+                                    rules[index].enabled = enabled
+                                    model.replaceDeveloperRewriteRules(rules)
+                                }
+                            }))
+                            .labelsHidden()
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(rule.name.isEmpty ? "Rewrite" : rule.name)
+                                    .font(.caption.weight(.semibold))
+                                Text("\(rule.stage) · \(rule.ops.count) ops · \(rule.match.host)")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                            }
+                            Spacer()
+                            Button {
+                                editingRewrite = rule
+                            } label: {
+                                Image(systemName: "pencil")
+                            }
+                            .buttonStyle(.borderless)
+                            Button(role: .destructive) {
+                                model.replaceDeveloperRewriteRules(model.developerRewriteRules.filter { $0.id != rule.id })
+                            } label: {
+                                Image(systemName: "trash")
+                            }
+                            .buttonStyle(.borderless)
+                        }
                     }
                 }
             }

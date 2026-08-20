@@ -38,6 +38,10 @@ type HTTPInspector interface {
 	HasResponseBreakpoint(*http.Request) bool
 	BreakpointRequest(context.Context, *http.Request, []byte) (HTTPBreakpointResolution, bool, error)
 	BreakpointResponse(context.Context, *http.Request, *http.Response, []byte) (HTTPBreakpointResolution, bool, error)
+	HasRequestRewrite(*http.Request) bool
+	HasResponseRewrite(*http.Request) bool
+	RewriteRequest(*http.Request, []byte) ([]byte, bool, error)                  // newBody, bodySet, err
+	RewriteResponse(*http.Request, *http.Response, []byte) ([]byte, bool, error) // newBody, bodySet, err
 }
 
 // HTTPMapResult describes a developer map rule applied by the inspector.
@@ -536,6 +540,20 @@ func (s *HTTP) handleMITMConnect(ctx context.Context, client net.Conn, br *bufio
 }
 
 func (s *HTTP) forwardMITMRequest(ctx context.Context, client io.Writer, req *http.Request, connectTarget, clientAddr string, ce *connEvents) error {
+	if s.opts.HTTPInspector != nil && s.opts.HTTPInspector.HasRequestRewrite(req) {
+		body, err := readAndResetRequestBody(req)
+		if err != nil {
+			return err
+		}
+		newBody, bodySet, err := s.opts.HTTPInspector.RewriteRequest(req, body)
+		if err != nil {
+			return err
+		}
+		if bodySet {
+			resetRequestBody(req, newBody)
+		}
+	}
+
 	if s.opts.HTTPInspector != nil && s.opts.HTTPInspector.HasRequestBreakpoint(req) {
 		body, err := readAndResetRequestBody(req)
 		if err != nil {
@@ -624,6 +642,25 @@ func (s *HTTP) forwardMITMRequest(ctx context.Context, client io.Writer, req *ht
 		return err
 	}
 	defer resp.Body.Close()
+	if s.opts.HTTPInspector != nil && s.opts.HTTPInspector.HasResponseRewrite(req) {
+		body, err := readAndReplaceResponseBody(resp)
+		if err != nil {
+			if inspection != nil {
+				inspection.Finish(resp, err)
+			}
+			return err
+		}
+		newBody, bodySet, err := s.opts.HTTPInspector.RewriteResponse(req, resp, body)
+		if err != nil {
+			if inspection != nil {
+				inspection.Finish(resp, err)
+			}
+			return err
+		}
+		if bodySet {
+			resetResponseBody(resp, newBody)
+		}
+	}
 	if s.opts.HTTPInspector != nil && s.opts.HTTPInspector.HasResponseBreakpoint(req) {
 		body, err := readAndReplaceResponseBody(resp)
 		if err != nil {
@@ -711,6 +748,22 @@ func (s *HTTP) writeMITMLocalMap(ctx context.Context, client io.Writer, req *htt
 }
 
 func (s *HTTP) handleForward(ctx context.Context, client net.Conn, req *http.Request, ce *connEvents) error {
+	if s.opts.HTTPInspector != nil && s.opts.HTTPInspector.HasRequestRewrite(req) {
+		body, err := readAndResetRequestBody(req)
+		if err != nil {
+			writeSimpleStatus(client, req.Proto, http.StatusBadRequest, "Bad Request")
+			return err
+		}
+		newBody, bodySet, err := s.opts.HTTPInspector.RewriteRequest(req, body)
+		if err != nil {
+			writeSimpleStatus(client, req.Proto, http.StatusBadGateway, "Bad Gateway")
+			return err
+		}
+		if bodySet {
+			resetRequestBody(req, newBody)
+		}
+	}
+
 	if s.opts.HTTPInspector != nil && s.opts.HTTPInspector.HasRequestBreakpoint(req) {
 		body, err := readAndResetRequestBody(req)
 		if err != nil {
@@ -871,6 +924,25 @@ func (s *HTTP) handleForward(ctx context.Context, client net.Conn, req *http.Req
 	}
 	defer resp.Body.Close()
 
+	if s.opts.HTTPInspector != nil && s.opts.HTTPInspector.HasResponseRewrite(req) {
+		body, err := readAndReplaceResponseBody(resp)
+		if err != nil {
+			if inspection != nil {
+				inspection.Finish(resp, err)
+			}
+			return err
+		}
+		newBody, bodySet, err := s.opts.HTTPInspector.RewriteResponse(req, resp, body)
+		if err != nil {
+			if inspection != nil {
+				inspection.Finish(resp, err)
+			}
+			return err
+		}
+		if bodySet {
+			resetResponseBody(resp, newBody)
+		}
+	}
 	if s.opts.HTTPInspector != nil && s.opts.HTTPInspector.HasResponseBreakpoint(req) {
 		body, err := readAndReplaceResponseBody(resp)
 		if err != nil {
@@ -1096,13 +1168,40 @@ func applyResponseBreakpointEdit(resp *http.Response, edit *HTTPBreakpointMessag
 		}
 	}
 	if edit.BodySet || edit.Body != "" {
-		resp.Body = io.NopCloser(strings.NewReader(edit.Body))
-		resp.ContentLength = int64(len(edit.Body))
-		resp.Header.Set("Content-Length", fmt.Sprintf("%d", len(edit.Body)))
-		if edit.Body == "" {
-			resp.Body = http.NoBody
-		}
+		resetResponseBody(resp, []byte(edit.Body))
 	}
+}
+
+// resetRequestBody replaces req's body and updates Content-Length to match. An
+// empty new body is represented as http.NoBody so the transport does not
+// hang waiting for a body that will never arrive.
+func resetRequestBody(req *http.Request, newBody []byte) {
+	if req == nil {
+		return
+	}
+	if len(newBody) == 0 {
+		req.Body = http.NoBody
+		req.ContentLength = 0
+	} else {
+		req.Body = io.NopCloser(bytes.NewReader(newBody))
+		req.ContentLength = int64(len(newBody))
+	}
+	req.Header.Set("Content-Length", fmt.Sprintf("%d", len(newBody)))
+}
+
+// resetResponseBody replaces resp's body and updates Content-Length to match.
+func resetResponseBody(resp *http.Response, newBody []byte) {
+	if resp == nil {
+		return
+	}
+	if len(newBody) == 0 {
+		resp.Body = http.NoBody
+		resp.ContentLength = 0
+	} else {
+		resp.Body = io.NopCloser(bytes.NewReader(newBody))
+		resp.ContentLength = int64(len(newBody))
+	}
+	resp.Header.Set("Content-Length", fmt.Sprintf("%d", len(newBody)))
 }
 
 func requestSchemeFromURL(req *http.Request) string {
