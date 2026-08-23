@@ -258,9 +258,15 @@ fun ClambhookApp(
                             onCreateRuleFromConnection = viewModel::createRuleFromConnection,
                             onCreateTemporaryRuleFromConnection = viewModel::createTemporaryRuleFromConnection,
                             onCleanupRule = viewModel::cleanupRule,
+                            onResolvePrompt = { prompt, action, scope, matchHost, matchPort, matchProtocol -> viewModel.resolvePrompt(prompt.id, action, scope, matchHost, matchPort, matchProtocol) },
+                            onApplyQuickFilter = { viewModel.loadTraffic(it) },
                             onProfilesImported = onProfilesImported,
                             onClearDeveloperEntries = viewModel::clearDeveloperEntries,
                             developerHar = viewModel::developerHar,
+                            onApplyDeveloperFilter = viewModel::applyDeveloperEntriesFilter,
+                            onCopyEntryCurl = viewModel::copyEntryCurl,
+                            onImportCurl = viewModel::importCurl,
+                            onSendComposed = viewModel::sendComposed,
                             modifier = Modifier.weight(1f)
                         )
 

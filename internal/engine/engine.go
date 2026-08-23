@@ -94,16 +94,21 @@ func New(cfg *config.Config, bus *events.Bus) *Engine {
 			switch kind {
 			case prompt.EventPending:
 				bus.PublishListener(events.TypePromptPending, events.PromptPendingData{
-					PromptID:    p.ID,
-					ConnID:      p.ConnID,
-					Profile:     p.Profile,
-					Network:     p.Network,
-					Target:      p.Target,
-					TargetHost:  p.TargetHost,
-					TargetPort:  p.TargetPort,
-					ProcessName: p.ProcessName,
-					ProcessPath: p.ProcessPath,
-					ProcessPID:  p.PID,
+					PromptID:       p.ID,
+					ConnID:         p.ConnID,
+					Profile:        p.Profile,
+					Network:        p.Network,
+					Target:         p.Target,
+					TargetHost:     p.TargetHost,
+					TargetPort:     p.TargetPort,
+					ProcessName:    p.ProcessName,
+					ProcessPath:    p.ProcessPath,
+					ProcessPID:     p.PID,
+					ExpiresAt:      p.ExpiresAt,
+					WouldUseChain:  p.WouldUseChain,
+					WouldUseGroup:  p.WouldUseGroup,
+					CodeSignID:     p.CodeSignID,
+					CodeSignStatus: p.CodeSignStatus,
 				})
 			case prompt.EventResolved:
 				bus.PublishListener(events.TypePromptResolved, events.PromptResolvedData{
@@ -302,6 +307,7 @@ func (e *Engine) startLocked(parent context.Context) error {
 		Enabled:      e.cfg.Prompt.Enabled,
 		Timeout:      time.Duration(e.cfg.Prompt.TimeoutSeconds) * time.Second,
 		DefaultAllow: e.cfg.Prompt.DefaultAllow,
+		SilentMode:   e.cfg.Prompt.SilentMode,
 	})
 	// Sync the engine-owned shaper to the active profile so live updates
 	// applied while idle (or a config reload) take effect on the rebuilt
@@ -1132,13 +1138,15 @@ func (p *routePlanner) PlanWithSource(ctx context.Context, network, target, sour
 	// temporary rule is itself the remembered allow/block answer.
 	if decision.Default && p.prompts.Enabled() {
 		dec, gated := p.prompts.Await(ctx, prompt.Request{
-			ConnID:  events.ConnIDFrom(ctx),
-			Profile: p.profileName,
-			Network: decision.Network,
-			Target:  decision.Target,
-			Host:    decision.Host,
-			Port:    decision.Port,
-			Process: proc,
+			ConnID:        events.ConnIDFrom(ctx),
+			Profile:       p.profileName,
+			Network:       decision.Network,
+			Target:        decision.Target,
+			Host:          decision.Host,
+			Port:          decision.Port,
+			Process:       proc,
+			WouldUseChain: decision.ChainName,
+			WouldUseGroup: decision.GroupName,
 		})
 		if gated && !dec.Allow {
 			decision = promptBlockDecision(decision)

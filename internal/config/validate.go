@@ -50,6 +50,11 @@ func (c *Config) Validate() error {
 	if c.Prompt.TimeoutSeconds < 0 {
 		errs = append(errs, fmt.Errorf("prompt timeout_seconds must not be negative"))
 	}
+	switch strings.TrimSpace(c.Prompt.SilentMode) {
+	case "", "allow", "deny":
+	default:
+		errs = append(errs, fmt.Errorf("prompt silent_mode must be empty, allow, or deny"))
+	}
 	return errors.Join(errs...)
 }
 

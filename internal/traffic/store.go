@@ -181,6 +181,7 @@ type Snapshot struct {
 	UpdatedTsNs        int64               `json:"updated_ts_ns"`
 	Summary            Summary             `json:"summary"`
 	Connections        []Connection        `json:"connections"`
+	Total              int                 `json:"total,omitempty"`
 	TemporaryRules     []temprules.Rule    `json:"temporary_rules,omitempty"`
 	ProfileContext     ProfileContext      `json:"profile_context,omitempty"`
 	QuickFilters       []QuickFilter       `json:"quick_filters,omitempty"`
@@ -244,6 +245,7 @@ type BreakdownRow struct {
 type SnapshotOptions struct {
 	State          string
 	Limit          int
+	Offset         int
 	Action         string
 	Profile        string
 	Rule           string
@@ -252,6 +254,8 @@ type SnapshotOptions struct {
 	Query          string
 	App            string // filter by Application (port-inferred service name)
 	Domain         string // filter by TargetHost apex domain
+	Process        string // filter by owning process name or path
+	Network        string // filter by network/protocol (e.g. tcp, udp)
 	ActiveProfile  string
 	Profiles       []string
 	Rules          []config.RuleConfig
@@ -876,7 +880,13 @@ func (s *Store) SnapshotWithOptions(opts SnapshotOptions) Snapshot {
 		all = append(all, cloneConnections(s.closed)...)
 	}
 	filtered := filterConnections(all, opts)
+	total := len(filtered)
 	limited := filtered
+	if opts.Offset > 0 && opts.Offset < len(limited) {
+		limited = limited[opts.Offset:]
+	} else if opts.Offset > 0 {
+		limited = limited[:0]
+	}
 	if opts.Limit > 0 && len(limited) > opts.Limit {
 		limited = limited[:opts.Limit]
 	}
@@ -885,6 +895,7 @@ func (s *Store) SnapshotWithOptions(opts SnapshotOptions) Snapshot {
 		UpdatedTsNs:        time.Now().UnixNano(),
 		Summary:            summary,
 		Connections:        limited,
+		Total:              total,
 		TemporaryRules:     append([]temprules.Rule(nil), opts.TemporaryRules...),
 		ProfileContext:     ProfileContext{Active: opts.ActiveProfile, Profiles: append([]string(nil), opts.Profiles...)},
 		QuickFilters:       buildQuickFilters(all),
@@ -914,7 +925,9 @@ func filterConnections(conns []Connection, opts SnapshotOptions) []Connection {
 	query := strings.ToLower(strings.TrimSpace(opts.Query))
 	app := strings.ToLower(strings.TrimSpace(opts.App))
 	domain := strings.ToLower(strings.TrimSpace(opts.Domain))
-	if action == "" && profile == "" && rule == "" && country == "" && port == "" && query == "" && app == "" && domain == "" {
+	process := strings.ToLower(strings.TrimSpace(opts.Process))
+	network := strings.ToLower(strings.TrimSpace(opts.Network))
+	if action == "" && profile == "" && rule == "" && country == "" && port == "" && query == "" && app == "" && domain == "" && process == "" && network == "" {
 		return conns
 	}
 	out := make([]Connection, 0, len(conns))
@@ -946,12 +959,35 @@ func filterConnections(conns []Connection, opts SnapshotOptions) []Connection {
 		if domain != "" && !strings.HasSuffix(strings.ToLower(conn.TargetHost), domain) {
 			continue
 		}
+		if process != "" && !connectionProcessMatches(conn, process) {
+			continue
+		}
+		if network != "" && !strings.EqualFold(conn.Network, network) {
+			continue
+		}
 		if query != "" && !connectionMatchesQuery(conn, query) {
 			continue
 		}
 		out = append(out, conn)
 	}
 	return out
+}
+
+// connectionProcessMatches reports whether a connection's owning process
+// matches a lowercased process filter token. It matches against the process
+// name, path, and PID so a "process:curl" quickFilter chip or a typed process
+// filter resolves connections regardless of which field the client surfaced.
+func connectionProcessMatches(conn Connection, process string) bool {
+	if strings.EqualFold(conn.ProcessName, process) {
+		return true
+	}
+	if strings.Contains(strings.ToLower(conn.ProcessPath), process) {
+		return true
+	}
+	if pid := strconv.Itoa(conn.ProcessPID); pid == process {
+		return true
+	}
+	return false
 }
 
 func buildQuickFilters(conns []Connection) []QuickFilter {
@@ -964,6 +1000,8 @@ func buildQuickFilters(conns []Connection) []QuickFilter {
 	}
 	countries := map[string]int{}
 	ports := map[string]int{}
+	processes := map[string]int{}
+	networks := map[string]int{}
 	for _, conn := range conns {
 		if conn.State == StateActive || conn.State == StateDialing || conn.State == StateOpening {
 			counts["active"]++
@@ -974,6 +1012,12 @@ func buildQuickFilters(conns []Connection) []QuickFilter {
 		}
 		if conn.TargetPort != "" {
 			ports[conn.TargetPort]++
+		}
+		if key := processFilterKey(conn); key != "" {
+			processes[key]++
+		}
+		if net := strings.ToLower(strings.TrimSpace(conn.Network)); net != "" {
+			networks[net]++
 		}
 	}
 	filters := []QuickFilter{
@@ -989,7 +1033,31 @@ func buildQuickFilters(conns []Connection) []QuickFilter {
 	for _, row := range topCounts(ports, 3) {
 		filters = append(filters, QuickFilter{Key: "port:" + row.Key, Label: ":" + row.Key, Count: row.Count})
 	}
+	for _, row := range topCounts(processes, 3) {
+		filters = append(filters, QuickFilter{Key: "process:" + row.Key, Label: row.Key, Count: row.Count})
+	}
+	for _, row := range topCounts(networks, 2) {
+		filters = append(filters, QuickFilter{Key: "network:" + row.Key, Label: row.Key, Count: row.Count})
+	}
 	return filters
+}
+
+// processFilterKey derives the quickFilter chip key for a connection's owning
+// process. It prefers the executable name, falls back to the path basename, and
+// finally to "pid:<pid>" so unattributable flows still group deterministically.
+// The returned key is a stable, lowercased identifier suitable for both the
+// quickFilter chip key and the server-side process filter param.
+func processFilterKey(conn Connection) string {
+	if name := strings.TrimSpace(conn.ProcessName); name != "" {
+		return strings.ToLower(name)
+	}
+	if path := strings.TrimSpace(conn.ProcessPath); path != "" {
+		return strings.ToLower(filepath.Base(path))
+	}
+	if conn.ProcessPID > 0 {
+		return "pid:" + strconv.Itoa(conn.ProcessPID)
+	}
+	return ""
 }
 
 func buildBreakdowns(conns []Connection) TrafficBreakdowns {

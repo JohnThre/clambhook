@@ -1,7 +1,9 @@
-# ClambHook shared Skip UI (experimental)
+# ClambHook shared Skip UI (archived experiment)
 
-> **Status: experimental — not wired into any shipping client.** This package is
-> a proof-of-concept for a Swift-first shared UI. It is **not** built, tested, or
+> **Status: archived — not wired into any shipping client.** This package is
+> a proof-of-concept for a Swift-first shared UI. The selected Android
+> architecture is native Kotlin/Jetpack Compose over the C runtime's JNI
+> boundary, so this package is not an Android migration target. It is **not** built, tested, or
 > imported by the Apple, Android, TUI, or Linux clients in their release
 > pipelines, and it is excluded from `make test`. Its integration is blocked by a
 > Skip 1.9.4 standalone-library resolution defect (see "Known blocker" below), so
@@ -11,7 +13,9 @@
 > (`TunnelStatus`, `formatByteRate`) has behavioral tests in
 > `Tests/ClambhookUITests` that run in that workspace.
 
-`ui/skip` is the Swift-first shared UI package for the Android client. It uses Skip Lite (`skipstone`) to transpile SwiftUI models/views into Kotlin/Jetpack Compose while keeping the source of truth in Swift.
+`ui/skip` explored transpiling SwiftUI models/views into Kotlin/Jetpack Compose
+with Skip Lite (`skipstone`). The shipping Android source of truth remains the
+Kotlin code under `ui/android`.
 
 ## Current module
 
@@ -49,7 +53,11 @@ swift build
 
 The `swift build` runs Skip's `skipstone` plugin and emits generated Kotlin under `.build/plugins/outputs/.../skipstone/`.
 
-## Integration plan
+## Superseded integration sketch
+
+The following records the original experiment and is not the active product
+plan. See [`../../docs/c-migration.md`](../../docs/c-migration.md) for the
+selected C/GTK/JNI architecture.
 
 1. Keep business/runtime state in the existing Android `LocalTunnelApi` and Apple `AppleAppModel`/SharedApp layers.
 2. Map platform state into `TunnelStatus`:

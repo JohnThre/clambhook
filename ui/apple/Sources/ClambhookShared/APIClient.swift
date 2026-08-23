@@ -54,7 +54,10 @@ public protocol DeveloperCaptureProviding: AnyObject {
     func developerStatus() async throws -> DeveloperStatusPayload
     func developerSettings() async throws -> DeveloperSettingsPayload
     func updateDeveloperSettings(_ request: DeveloperSettingsUpdateRequest) async throws -> DeveloperSettingsPayload
-    func developerEntries() async throws -> DeveloperEntriesPayload
+    func developerEntries(filter: DeveloperEntriesFilter) async throws -> DeveloperEntriesPayload
+    func developerEntryCurl(id: String) async throws -> String
+    func importCurl(_ text: String) async throws -> ParsedCurlResponse
+    func sendComposedRequest(_ request: ComposedRequestPayload) async throws -> DeveloperRepeatResponsePayload
     func developerCAPEM() async throws -> String
     func regenerateDeveloperCA() async throws -> DeveloperStatusPayload
     func developerHAR() async throws -> String
@@ -70,9 +73,25 @@ public protocol DeveloperCaptureProviding: AnyObject {
     func clearDeveloperEntries() async throws
 }
 
+extension DeveloperCaptureProviding {
+    /// Convenience for an unfiltered fetch (back-compat with the no-arg call site).
+    func developerEntries() async throws -> DeveloperEntriesPayload {
+        try await developerEntries(filter: DeveloperEntriesFilter())
+    }
+}
+
 public protocol ClambhookPromptProviding: AnyObject {
     func pendingPrompts() async throws -> PendingPromptsPayload
     func resolvePrompt(id: String, request: ResolvePromptRequest) async throws
+}
+
+public protocol ClambhookTrafficFilterProviding: AnyObject {
+    func traffic(filter: TrafficMonitorFilter) async throws -> TrafficSnapshotPayload
+}
+
+public protocol ClambhookSilentDecisionProviding: AnyObject {
+    func silentDecisions() async throws -> SilentDecisionsPayload
+    func promoteSilentDecision(id: String, request: PromoteSilentDecisionRequest) async throws
 }
 
 public protocol ConditionerProviding: AnyObject {
@@ -104,7 +123,7 @@ public enum APIClientError: Error, LocalizedError, Equatable {
     }
 }
 
-public final class ClambhookAPIClient: ClambhookAPIProviding, ClambhookRuleEditing, ClambhookRouteExplaining, ClambhookPolicyGroupEditing, ClambhookRuleSetEditing, ClambhookRuleSubscriptionEditing, ClambhookConfigSettingsProviding, DeveloperCaptureProviding, ClambhookPromptProviding, ConditionerProviding {
+public final class ClambhookAPIClient: ClambhookAPIProviding, ClambhookRuleEditing, ClambhookRouteExplaining, ClambhookPolicyGroupEditing, ClambhookRuleSetEditing, ClambhookRuleSubscriptionEditing, ClambhookConfigSettingsProviding, DeveloperCaptureProviding, ClambhookPromptProviding, ClambhookTrafficFilterProviding, ClambhookSilentDecisionProviding, ConditionerProviding {
     private let baseURL: URL
     private let tokenProvider: () -> String?
     private let session: URLSession
@@ -184,6 +203,14 @@ public final class ClambhookAPIClient: ClambhookAPIProviding, ClambhookRuleEditi
 
     public func traffic() async throws -> TrafficSnapshotPayload {
         try await getJSON("/api/v1/traffic?limit=200")
+    }
+
+    public func traffic(filter: TrafficMonitorFilter) async throws -> TrafficSnapshotPayload {
+        var components = URLComponents()
+        components.path = "/api/v1/traffic"
+        components.queryItems = filter.queryItems
+        let path = components.url?.relativeString ?? "/api/v1/traffic?limit=\(filter.limit)"
+        return try await getJSON(path)
     }
 
     public func createRule(_ rule: RulePayload) async throws -> RulesPayload {
@@ -388,8 +415,25 @@ public final class ClambhookAPIClient: ClambhookAPIProviding, ClambhookRuleEditi
         return try decoder.decode(DeveloperSettingsPayload.self, from: data)
     }
 
-    public func developerEntries() async throws -> DeveloperEntriesPayload {
-        try await getJSON("/api/v1/developer/entries?limit=200")
+    public func developerEntries(filter: DeveloperEntriesFilter) async throws -> DeveloperEntriesPayload {
+        try await getJSON(filter.entriesPath())
+    }
+
+    public func developerEntryCurl(id: String) async throws -> String {
+        let data = try await send(method: "GET", path: "/api/v1/developer/entries/\(id)/curl")
+        return (try decoder.decode(CurlExportResponse.self, from: data)).curl
+    }
+
+    public func importCurl(_ text: String) async throws -> ParsedCurlResponse {
+        let body = try encoder.encode(CurlImportRequest(curl: text))
+        let data = try await send(method: "POST", path: "/api/v1/developer/curl/import", body: body)
+        return try decoder.decode(ParsedCurlResponse.self, from: data)
+    }
+
+    public func sendComposedRequest(_ request: ComposedRequestPayload) async throws -> DeveloperRepeatResponsePayload {
+        let body = try encoder.encode(request)
+        let data = try await send(method: "POST", path: "/api/v1/developer/send", body: body)
+        return try decoder.decode(DeveloperRepeatResponsePayload.self, from: data)
     }
 
     public func developerCAPEM() async throws -> String {
@@ -470,6 +514,16 @@ public final class ClambhookAPIClient: ClambhookAPIProviding, ClambhookRuleEditi
         let body = try encoder.encode(request)
         let encodedID = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
         _ = try await send(method: "POST", path: "/api/v1/prompts/\(encodedID)/resolve", body: body)
+    }
+
+    public func silentDecisions() async throws -> SilentDecisionsPayload {
+        try await getJSON("/api/v1/prompts/decisions")
+    }
+
+    public func promoteSilentDecision(id: String, request: PromoteSilentDecisionRequest) async throws {
+        let body = try encoder.encode(request)
+        let encodedID = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+        _ = try await send(method: "POST", path: "/api/v1/prompts/decisions/\(encodedID)/promote", body: body)
     }
 
     public func testRule(network: String, target: String, profile: String = "") async throws -> RuleTestResponse {

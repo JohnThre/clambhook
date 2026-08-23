@@ -15,7 +15,27 @@ type configSettingsPayload struct {
 	Listen          configSettingsListenPayload   `json:"listen"`
 	DNS             config.DNSConfig              `json:"dns"`
 	NetworkTriggers []config.NetworkTriggerConfig `json:"network_triggers"`
+	Prompt          configSettingsPromptPayload   `json:"prompt"`
 	BackupPath      string                        `json:"backup_path,omitempty"`
+}
+
+// configSettingsPromptPayload is the GET view of the top-level prompt settings
+// (interactive connection prompts + Silent Mode), exposed for live toggling.
+type configSettingsPromptPayload struct {
+	Enabled        bool   `json:"enabled"`
+	TimeoutSeconds int    `json:"timeout_seconds,omitempty"`
+	DefaultAllow   bool   `json:"default_allow,omitempty"`
+	SilentMode     string `json:"silent_mode,omitempty"`
+}
+
+// updateConfigPromptSettings partially updates the top-level prompt settings;
+// nil fields are preserved so a client can toggle one knob (e.g. silent_mode)
+// without clobbering the others.
+type updateConfigPromptSettings struct {
+	Enabled        *bool   `json:"enabled,omitempty"`
+	TimeoutSeconds *int    `json:"timeout_seconds,omitempty"`
+	DefaultAllow   *bool   `json:"default_allow,omitempty"`
+	SilentMode     *string `json:"silent_mode,omitempty"`
 }
 
 type configSettingsListenPayload struct {
@@ -41,6 +61,7 @@ type updateConfigSettingsRequest struct {
 	Listen          *updateConfigListenSettings    `json:"listen,omitempty"`
 	DNS             *config.DNSConfig              `json:"dns,omitempty"`
 	NetworkTriggers *[]config.NetworkTriggerConfig `json:"network_triggers,omitempty"`
+	Prompt          *updateConfigPromptSettings    `json:"prompt,omitempty"`
 }
 
 type updateConfigListenSettings struct {
@@ -58,7 +79,7 @@ func (s *Server) handleConfigSettings(w http.ResponseWriter, r *http.Request) {
 		writeProfileSelectionError(w, err)
 		return
 	}
-	writeJSON(w, configSettingsSnapshot(profile, ""))
+	writeJSON(w, configSettingsSnapshot(profile, cfg.Prompt, ""))
 }
 
 func (s *Server) handleUpdateConfigSettings(w http.ResponseWriter, r *http.Request) {
@@ -109,6 +130,9 @@ func (s *Server) persistConfigSettings(req updateConfigSettingsRequest) (configS
 	if req.NetworkTriggers != nil {
 		profile.NetworkTriggers = sanitizeNetworkTriggers(*req.NetworkTriggers)
 	}
+	if req.Prompt != nil {
+		applyConfigPromptSettings(&cfg.Prompt, req.Prompt)
+	}
 	if err := engine.ValidateConfig(cfg); err != nil {
 		return configSettingsPayload{}, rulePersistenceError{status: http.StatusBadRequest, err: err}
 	}
@@ -120,7 +144,7 @@ func (s *Server) persistConfigSettings(req updateConfigSettingsRequest) (configS
 		restoreConfigBackup(s.configPath, result.BackupPath)
 		return configSettingsPayload{}, rulePersistenceError{status: http.StatusInternalServerError, err: err}
 	}
-	return configSettingsSnapshot(profile, result.BackupPath), nil
+	return configSettingsSnapshot(profile, cfg.Prompt, result.BackupPath), nil
 }
 
 func applyConfigListenSettings(listen *config.ListenConfig, req *updateConfigListenSettings) {
@@ -153,7 +177,7 @@ func applyConfigListenSettings(listen *config.ListenConfig, req *updateConfigLis
 	}
 }
 
-func configSettingsSnapshot(profile *config.Profile, backupPath string) configSettingsPayload {
+func configSettingsSnapshot(profile *config.Profile, prompt config.PromptConfig, backupPath string) configSettingsPayload {
 	if profile == nil {
 		return configSettingsPayload{}
 	}
@@ -168,7 +192,31 @@ func configSettingsSnapshot(profile *config.Profile, backupPath string) configSe
 		},
 		DNS:             profile.DNS,
 		NetworkTriggers: append([]config.NetworkTriggerConfig(nil), profile.NetworkTriggers...),
-		BackupPath:      backupPath,
+		Prompt: configSettingsPromptPayload{
+			Enabled:        prompt.Enabled,
+			TimeoutSeconds: prompt.TimeoutSeconds,
+			DefaultAllow:   prompt.DefaultAllow,
+			SilentMode:     prompt.SilentMode,
+		},
+		BackupPath: backupPath,
+	}
+}
+
+// applyConfigPromptSettings applies a partial prompt-settings update, preserving
+// omitted fields so a single-knob toggle (e.g. silent_mode) does not reset the
+// others.
+func applyConfigPromptSettings(prompt *config.PromptConfig, req *updateConfigPromptSettings) {
+	if req.Enabled != nil {
+		prompt.Enabled = *req.Enabled
+	}
+	if req.TimeoutSeconds != nil {
+		prompt.TimeoutSeconds = *req.TimeoutSeconds
+	}
+	if req.DefaultAllow != nil {
+		prompt.DefaultAllow = *req.DefaultAllow
+	}
+	if req.SilentMode != nil {
+		prompt.SilentMode = strings.TrimSpace(*req.SilentMode)
 	}
 }
 

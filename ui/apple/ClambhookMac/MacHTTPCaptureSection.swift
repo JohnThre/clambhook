@@ -20,6 +20,12 @@ struct MacHTTPCaptureSection: View {
     @State private var selectedMessageTab = "headers"
     @State private var composeEntry: DeveloperEntryPayload?
     @State private var editingRewrite: DeveloperRewriteRulePayload?
+    @State private var filterMethod = "Any"
+    @State private var filterStatusGroup = "Any"
+    @State private var filterErrorOnly = false
+    @State private var showImportCurl = false
+    @State private var curlImportText = ""
+    @State private var curlImportError = ""
 
     var body: some View {
         VStack(spacing: 0) {
@@ -53,6 +59,34 @@ struct MacHTTPCaptureSection: View {
                 model.sendComposedDeveloperRequest(request)
             }
             .frame(minWidth: 580, minHeight: 520)
+        }
+        .sheet(isPresented: $showImportCurl) {
+            MacImportCurlSheet(
+                text: $curlImportText,
+                errorMessage: $curlImportError,
+                parse: { try await model.importCurl($0) },
+                onCompose: { parsed in
+                    let u = URL(string: parsed.url)
+                    let bodyBytes = UInt64(parsed.body.utf8.count)
+                    composeEntry = DeveloperEntryPayload(
+                        method: parsed.method,
+                        url: parsed.url,
+                        scheme: u?.scheme ?? "",
+                        host: u?.host ?? "",
+                        request: DeveloperMessagePayload(
+                            headers: parsed.headers,
+                            body: DeveloperBodyPayload(
+                                size: bodyBytes,
+                                preview: parsed.body,
+                                previewBytes: bodyBytes,
+                                encoding: parsed.body.isEmpty ? "" : "utf8"
+                            )
+                        )
+                    )
+                    showImportCurl = false
+                }
+            )
+            .frame(minWidth: 560, minHeight: 420)
         }
         .sheet(item: $editingRewrite) { rule in
             MacRewriteRuleSheet(rule: rule) { saved in
@@ -94,10 +128,29 @@ struct MacHTTPCaptureSection: View {
                 Label("No-cache", systemImage: "arrow.clockwise.circle")
                     .foregroundStyle(.purple)
             }
-            TextField("Search requests", text: $captureSearch)
+            TextField("Search", text: $captureSearch)
                 .textFieldStyle(.roundedBorder)
-                .frame(maxWidth: 260)
+                .frame(maxWidth: 170)
+                .onSubmit { applyFilter() }
+            Picker("", selection: $filterMethod) {
+                Text("Any method").tag("Any"); Text("GET").tag("GET"); Text("POST").tag("POST")
+                Text("PUT").tag("PUT"); Text("PATCH").tag("PATCH"); Text("DELETE").tag("DELETE")
+            }
+            .frame(width: 120).labelsHidden().onChange(of: filterMethod) { _, _ in applyFilter() }
+            Picker("", selection: $filterStatusGroup) {
+                Text("Any").tag("Any"); Text("2xx").tag("2xx"); Text("3xx").tag("3xx")
+                Text("4xx").tag("4xx"); Text("5xx").tag("5xx")
+            }
+            .frame(width: 90).labelsHidden().onChange(of: filterStatusGroup) { _, _ in applyFilter() }
+            Toggle("Errors", isOn: $filterErrorOnly)
+                .toggleStyle(.button).controlSize(.small)
+                .onChange(of: filterErrorOnly) { _, _ in applyFilter() }
             Spacer()
+            Button {
+                curlImportText = ""; curlImportError = ""; showImportCurl = true
+            } label: {
+                Label("Import cURL", systemImage: "doc.on.clipboard")
+            }
             Button {
                 model.refreshDeveloperCapture()
             } label: {
@@ -169,8 +222,18 @@ struct MacHTTPCaptureSection: View {
                             Text([entry.method, entry.scheme.uppercased(), entry.host, entry.error].filter { !$0.isEmpty }.joined(separator: " / "))
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
+                            if let t = entry.timings {
+                                Text(timingSummary(t))
+                                    .font(.caption2.monospacedDigit())
+                                    .foregroundStyle(.secondary)
+                            }
                         }
                         Spacer()
+                        Button {
+                            model.copyEntryAsCurl(entry)
+                        } label: {
+                            Label("Copy cURL", systemImage: "doc.on.doc")
+                        }
                         Button {
                             model.repeatDeveloperEntry(entry)
                         } label: {
@@ -192,7 +255,8 @@ struct MacHTTPCaptureSection: View {
                     Picker("Detail", selection: $selectedMessageTab) {
                         Text("Headers").tag("headers")
                         Text("Body").tag("body")
-                        Text("JSON").tag("json")
+                        Text("Pretty").tag("pretty")
+                        Text("Hex").tag("hex")
                         Text("Cookies").tag("cookies")
                     }
                     .pickerStyle(.segmented)
@@ -534,8 +598,10 @@ struct MacHTTPCaptureSection: View {
             switch tab {
             case "body":
                 bodyTab(message.body)
-            case "json":
-                jsonTab(message.body)
+            case "pretty":
+                prettyTab(message.body)
+            case "hex":
+                hexTab(message.body)
             case "cookies":
                 cookiesTab(message.cookies)
             default:
@@ -591,8 +657,21 @@ struct MacHTTPCaptureSection: View {
     }
 
     @ViewBuilder
-    private func jsonTab(_ body: DeveloperBodyPayload) -> some View {
-        if let pretty = prettyJSON(body.preview) {
+    private func prettyTab(_ body: DeveloperBodyPayload) -> some View {
+        if let viewer = body.viewer, !viewer.pretty.isEmpty {
+            Text(viewer.pretty)
+                .font(.system(.caption, design: .monospaced))
+                .textSelection(.enabled)
+                .padding(8)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 6))
+            if viewer.prettyTruncated {
+                Text("Pretty preview is truncated")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+            }
+        } else if let pretty = prettyJSON(body.preview) {
+            // No daemon viewer (older daemon) - fall back to a local JSON re-indent.
             Text(pretty)
                 .font(.system(.caption, design: .monospaced))
                 .textSelection(.enabled)
@@ -600,12 +679,28 @@ struct MacHTTPCaptureSection: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(Color.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 6))
             if body.truncated {
-                Text("JSON preview is truncated")
+                Text("Preview is truncated")
                     .font(.caption)
                     .foregroundStyle(.orange)
             }
         } else {
-            Text("No valid JSON preview")
+            Text("No pretty preview")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    @ViewBuilder
+    private func hexTab(_ body: DeveloperBodyPayload) -> some View {
+        if let viewer = body.viewer, !viewer.hex.isEmpty {
+            Text(viewer.hex)
+                .font(.system(.caption, design: .monospaced))
+                .textSelection(.enabled)
+                .padding(8)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 6))
+        } else {
+            Text("No hex preview")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -641,16 +736,32 @@ struct MacHTTPCaptureSection: View {
     }
 
     private var filteredEntries: [DeveloperEntryPayload] {
-        let query = captureSearch.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !query.isEmpty else {
-            return model.developerEntries
+        // Server-side filter is the source of truth; the model holds the filtered set.
+        model.developerEntries
+    }
+
+    private var currentFilter: DeveloperEntriesFilter {
+        var f = DeveloperEntriesFilter()
+        f.query = captureSearch.trimmingCharacters(in: .whitespacesAndNewlines)
+        if filterMethod != "Any" { f.method = filterMethod }
+        switch filterStatusGroup {
+        case "2xx": f.statusMin = 200; f.statusMax = 299
+        case "3xx": f.statusMin = 300; f.statusMax = 399
+        case "4xx": f.statusMin = 400; f.statusMax = 499
+        case "5xx": f.statusMin = 500; f.statusMax = 599
+        default: break
         }
-        return model.developerEntries.filter { entry in
-            [entry.method, entry.url, entry.host, entry.chainName, "\(entry.status)"]
-                .joined(separator: " ")
-                .lowercased()
-                .contains(query)
-        }
+        f.errorOnly = filterErrorOnly
+        return f
+    }
+
+    private func applyFilter() {
+        model.applyDeveloperEntriesFilter(currentFilter)
+    }
+
+    private func timingSummary(_ t: DeveloperTimingsPayload) -> String {
+        String(format: "connect %.0fms \u{00b7} ssl %.0fms \u{00b7} send %.0fms \u{00b7} wait %.0fms \u{00b7} receive %.0fms",
+               t.connect, t.ssl, t.send, t.wait, t.receive)
     }
 
     private var selectedEntry: DeveloperEntryPayload? {

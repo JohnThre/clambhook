@@ -223,3 +223,56 @@ func BenchmarkDecideReusesCompiled(b *testing.B) {
 		b.Fatalf("recompiled during benchmark: before=%d after=%d", before, got)
 	}
 }
+
+func TestCreateUntilQuitRuleAutoRemovedOnPIDExit(t *testing.T) {
+	m := New()
+	m.pidPollInterval = 5 * time.Millisecond
+	m.pidAlive = func(int) bool { return false } // PID already exited
+
+	created, err := m.Create(CreateRequest{
+		Profile:      "default",
+		Rule:         config.RuleConfig{Name: "until-quit curl", Action: "direct", Processes: []string{"/usr/bin/curl"}},
+		UntilQuitPID: 4242,
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if created.UntilQuitPID != 4242 {
+		t.Fatalf("UntilQuitPID = %d, want 4242", created.UntilQuitPID)
+	}
+	// The watcher polls and removes the rule once the PID is gone.
+	deadline := time.After(2 * time.Second)
+	for {
+		snap := m.Snapshot("")
+		if len(snap) == 0 {
+			return
+		}
+		select {
+		case <-deadline:
+			t.Fatalf("until-quit rule was not auto-removed: %+v", snap)
+		default:
+			time.Sleep(5 * time.Millisecond)
+		}
+	}
+}
+
+func TestCreateUntilQuitRulePersistsWhilePIDAlive(t *testing.T) {
+	m := New()
+	m.pidPollInterval = 5 * time.Millisecond
+	m.pidAlive = func(int) bool { return true } // PID still running
+
+	created, err := m.Create(CreateRequest{
+		Profile:      "default",
+		Rule:         config.RuleConfig{Name: "until-quit git", Action: "direct", Processes: []string{"/usr/bin/git"}},
+		UntilQuitPID: 7171,
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	// Give the watcher several poll cycles; the rule must remain while the PID lives.
+	time.Sleep(30 * time.Millisecond)
+	snap := m.Snapshot("")
+	if len(snap) != 1 || snap[0].ID != created.ID {
+		t.Fatalf("until-quit rule should persist while PID alive: %+v", snap)
+	}
+}

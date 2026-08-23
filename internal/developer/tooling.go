@@ -400,6 +400,37 @@ func (m *Manager) breakpoint(ctx context.Context, stage string, req *http.Reques
 }
 
 // Repeat resends a captured request directly from the daemon.
+// ComposedRequest is a standalone request to send through the daemon capture
+// pipeline, independent of any existing capture. It backs the
+// /developer/send endpoint used by the compose window and cURL import.
+type ComposedRequest struct {
+	Method  string   `json:"method,omitempty"`
+	URL     string   `json:"url,omitempty"`
+	Headers []Header `json:"headers,omitempty"`
+	Body    *string  `json:"body,omitempty"`
+}
+
+// Send executes a composed request directly (no source capture), captures the
+// result into the store, and returns it. It is the standalone counterpart to
+// Repeat, used by the compose window and cURL import.
+func (m *Manager) Send(ctx context.Context, composed ComposedRequest) (RepeatResponse, error) {
+	if m == nil {
+		return RepeatResponse{}, errors.New("developer mode disabled")
+	}
+	method := strings.TrimSpace(composed.Method)
+	if method == "" {
+		method = "GET"
+	}
+	rawURL := strings.TrimSpace(composed.URL)
+	bodyText := ""
+	if composed.Body != nil {
+		bodyText = *composed.Body
+	}
+	return m.sendAndCapture(ctx, method, rawURL, composed.Headers, bodyText)
+}
+
+// Repeat resends a captured request, applying any per-field overrides on top
+// of the stored capture. It requires an existing entry id.
 func (m *Manager) Repeat(ctx context.Context, repeat RepeatRequest) (RepeatResponse, error) {
 	if m == nil {
 		return RepeatResponse{}, errors.New("developer mode disabled")
@@ -422,26 +453,25 @@ func (m *Manager) Repeat(ctx context.Context, repeat RepeatRequest) (RepeatRespo
 	} else if entry.Request.Body.Truncated {
 		return RepeatResponse{}, errors.New("captured request body is truncated; provide an override body")
 	}
-	req, err := http.NewRequestWithContext(ctx, method, rawURL, strings.NewReader(bodyText))
-	if err != nil {
-		return RepeatResponse{}, err
-	}
-	if err := subscription.ValidatePublicHTTPURL(ctx, req.URL); err != nil {
-		return RepeatResponse{}, err
-	}
-	if len(repeat.Headers) > 0 {
-		for _, header := range repeat.Headers {
-			req.Header.Add(header.Name, header.Value)
-		}
-	} else {
-		for _, header := range entry.Request.Headers {
-			if header.Redacted {
+	headers := repeat.Headers
+	if len(headers) == 0 {
+		headers = make([]Header, 0, len(entry.Request.Headers))
+		for _, h := range entry.Request.Headers {
+			if h.Redacted {
 				continue
 			}
-			req.Header.Add(header.Name, header.Value)
+			headers = append(headers, h)
 		}
 	}
+	return m.sendAndCapture(ctx, method, rawURL, headers, bodyText)
+}
 
+// sendAndCapture builds and sends an HTTP request through the developer
+// capture pipeline, recording the transaction in the store. It is shared by
+// Repeat (resolved from a capture) and Send (standalone compose). The sent
+// request body gets a viewer so a composed JSON body renders pretty in the
+// capture; the response viewer is set by the body-capture snapshot.
+func (m *Manager) sendAndCapture(ctx context.Context, method, rawURL string, headers []Header, bodyText string) (RepeatResponse, error) {
 	m.mu.RLock()
 	cfg := m.cfg
 	store := m.store
@@ -449,6 +479,17 @@ func (m *Manager) Repeat(ctx context.Context, repeat RepeatRequest) (RepeatRespo
 	if !cfg.Enabled || store == nil {
 		return RepeatResponse{}, errors.New("developer capture disabled")
 	}
+	req, err := http.NewRequestWithContext(ctx, method, rawURL, strings.NewReader(bodyText))
+	if err != nil {
+		return RepeatResponse{}, err
+	}
+	if err := subscription.ValidatePublicHTTPURL(ctx, req.URL); err != nil {
+		return RepeatResponse{}, err
+	}
+	for _, header := range headers {
+		req.Header.Add(header.Name, header.Value)
+	}
+
 	started := time.Now()
 	out := Entry{
 		ID:        fmt.Sprintf("dev-%d", m.nextID.Add(1)),
@@ -472,6 +513,7 @@ func (m *Manager) Repeat(ctx context.Context, repeat RepeatRequest) (RepeatRespo
 			},
 		},
 	}
+	out.Request.Body.Viewer = computeViewer(out.Request.Body.MimeType, []byte(bodyText), true, false)
 	client := repeatHTTPClient
 	if client == nil {
 		client = &http.Client{Timeout: 30 * time.Second}

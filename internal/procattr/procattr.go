@@ -21,6 +21,14 @@ type Process struct {
 	PID  int    `json:"pid,omitempty"`
 	Name string `json:"name,omitempty"`
 	Path string `json:"path,omitempty"`
+	// CodeSignID is the owning executable's code-signing identity (the Authority
+	// from `codesign -dv --verbose=4 <path>`), resolved on darwin and cached per
+	// path. Empty on platforms that do not attribute a signature.
+	CodeSignID string `json:"code_sign_id,omitempty"`
+	// CodeSignStatus reports the verification outcome: "valid" when the signature
+	// verified, "unsigned" when the binary has no signature, or a short error
+	// string. Empty on non-darwin platforms.
+	CodeSignStatus string `json:"code_sign_status,omitempty"`
 }
 
 // Empty reports whether no process was attributed.

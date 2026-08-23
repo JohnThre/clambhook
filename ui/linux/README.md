@@ -1,4 +1,9 @@
-# clambhook GNU/Linux
+# clambhook GNU/Linux (legacy parity client)
+
+This Kotlin/Compose client remains the shipping rollback and behavior oracle
+during the C/GTK 4 migration. New GNU/Linux UI work belongs in
+[`../linux-gtk`](../linux-gtk); removal happens only after the gates in
+[`../../docs/c-migration.md`](../../docs/c-migration.md) pass.
 
 This is the native GNU/Linux desktop controller for clambhook. It is written in
 Kotlin and uses Compose Multiplatform (JVM Desktop) for the UI, OkHttp for HTTP

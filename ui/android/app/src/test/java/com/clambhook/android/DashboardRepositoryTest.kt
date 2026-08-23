@@ -364,6 +364,39 @@ open class FakeApi(
         return traffic
     }
 
+    override suspend fun traffic(filter: TrafficMonitorFilter): TrafficSnapshotPayload {
+        trafficCalls += 1
+        error?.let { throw it }
+        actions += "traffic:filter"
+        return traffic
+    }
+
+    override suspend fun pendingPrompts(): PromptsPayload = PromptsPayload()
+
+    override suspend fun resolvePrompt(
+        id: String,
+        action: String,
+        scope: String,
+        matchHost: Boolean,
+        matchPort: Boolean,
+        matchProtocol: Boolean,
+        ttlSeconds: Long,
+    ) {
+        actions += "prompt:$id:$action:$scope:$matchHost:$matchPort:$matchProtocol:$ttlSeconds"
+    }
+
+    override suspend fun silentDecisions(): SilentDecisionsPayload = SilentDecisionsPayload()
+
+    override suspend fun promoteSilentDecision(
+        id: String,
+        scope: String,
+        matchHost: Boolean,
+        matchPort: Boolean,
+        matchProtocol: Boolean,
+    ) {
+        actions += "silent:$id:$scope:$matchHost:$matchPort:$matchProtocol"
+    }
+
     override suspend fun connect() {
         actions += "connect"
     }
@@ -414,6 +447,11 @@ open class FakeApi(
     override suspend fun developerStatus(): DeveloperStatusPayload = DeveloperStatusPayload()
 
     override suspend fun developerEntries(): DeveloperEntriesPayload = DeveloperEntriesPayload()
+
+    override suspend fun developerEntries(filter: DeveloperEntriesFilter): List<DeveloperEntryPayload> = emptyList()
+    override suspend fun developerEntryCurl(id: String): String = "curl"
+    override suspend fun importCurl(text: String): ParsedCurlResponse = ParsedCurlResponse()
+    override suspend fun sendComposed(request: ComposedRequestPayload): DeveloperEntryPayload = DeveloperEntryPayload()
 
     override suspend fun developerHar(): String = "{}"
 

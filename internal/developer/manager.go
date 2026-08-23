@@ -304,6 +304,45 @@ func (m *Manager) List(limit int) []Entry {
 	return store.List(limit)
 }
 
+// FilterEntries returns captured entries matching f, newest first, capped at
+// limit (limit <= 0 returns every match). It is the server-side source of truth
+// for the capture flow list so all four clients share one filter semantics.
+func (m *Manager) FilterEntries(f EntryFilter, limit int) []Entry {
+	if m == nil {
+		return []Entry{}
+	}
+	m.mu.RLock()
+	store := m.store
+	m.mu.RUnlock()
+	if store == nil {
+		return []Entry{}
+	}
+	return store.Filter(f, limit)
+}
+
+// CurlExport serializes a captured transaction to a runnable cURL command.
+// ok is false when the entry does not exist (e.g. capture disabled or evicted).
+func (m *Manager) CurlExport(id string) (string, bool) {
+	if m == nil {
+		return "", false
+	}
+	entry, ok := m.Get(id)
+	if !ok {
+		return "", false
+	}
+	return entryToCurl(entry), true
+}
+
+// CurlImport parses a cURL command into the request fields a compose window
+// consumes. It is a pure transform and never touches the capture store, so it
+// works even when capture is disabled as long as the manager is wired.
+func (m *Manager) CurlImport(text string) (ParsedCurl, error) {
+	if m == nil {
+		return ParsedCurl{}, fmt.Errorf("developer mode disabled")
+	}
+	return curlToRepeat(text)
+}
+
 // Get returns a captured entry by id.
 func (m *Manager) Get(id string) (Entry, bool) {
 	if m == nil {
@@ -403,6 +442,24 @@ func (t *transaction) Finish(resp *http.Response, txErr error) {
 	}
 	t.entry.Decoded = t.decode()
 	t.store.Add(t.entry)
+}
+
+// SetTimings records the connect/SSL/send/wait/receive breakdown captured by
+// the HTTP listener. It implements listener.HTTPInspectionTimings so the
+// listener's optional-interface type assertion picks it up without touching
+// other HTTPInspection implementers (test stubs, the nil path). The listener
+// calls it after the response is written to the client, before Finish.
+func (t *transaction) SetTimings(timings listener.HTTPTimings) {
+	if t == nil {
+		return
+	}
+	t.entry.Timings = &Timings{
+		Connect: timings.Connect.Seconds() * 1000,
+		SSL:     timings.SSL.Seconds() * 1000,
+		Send:    timings.Send.Seconds() * 1000,
+		Wait:    timings.Wait.Seconds() * 1000,
+		Receive: timings.Receive.Seconds() * 1000,
+	}
 }
 
 // decode inspects the finished transaction and, when it recognizes a supported
@@ -568,6 +625,7 @@ func (b *bodyCapture) snapshot(headers []Header) Body {
 		body.PreviewBase64 = base64.StdEncoding.EncodeToString(b.buf.Bytes())
 		body.Encoding = "base64"
 	}
+	body.Viewer = computeViewer(body.MimeType, b.buf.Bytes(), body.Encoding == "utf8", body.Truncated)
 	return body
 }
 

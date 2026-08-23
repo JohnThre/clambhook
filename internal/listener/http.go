@@ -101,6 +101,65 @@ type HTTPInspection interface {
 	Finish(*http.Response, error)
 }
 
+// HTTPTimings is the connect/SSL/send/wait/receive breakdown for a captured
+// HTTP transaction. The developer package converts it to Entry.Timings (ms)
+// and the HAR timings block. Zero values mean the phase did not apply (e.g.
+// plain HTTP has no SSL; Map Local synthetic responses have no dial at all).
+// Wait is the server-processing / time-to-first-byte window; receive is the
+// response-body transfer window. Breakpoint and rewrite pauses are excluded
+// because the milestones are recorded around network I/O only.
+type HTTPTimings struct {
+	Connect time.Duration
+	SSL     time.Duration
+	Send    time.Duration
+	Wait    time.Duration
+	Receive time.Duration
+}
+
+// HTTPInspectionTimings is an optional capability of an HTTPInspection: the
+// listener type-asserts against it before calling SetTimings, so inspections
+// that do not implement it (the nil path, test stubs) are unaffected. This
+// keeps timing capture a purely additive, non-breaking change.
+type HTTPInspectionTimings interface {
+	SetTimings(HTTPTimings)
+}
+
+// httpTimings records the raw milestones for one forward path and computes the
+// final HTTPTimings. Zero timestamps yield zero durations so partial captures
+// (an error before a later milestone) degrade gracefully.
+type httpTimings struct {
+	dialStart, dialDone, sslDone, sentAt, firstByteAt, receiveStartAt, receiveDoneAt time.Time
+}
+
+func (t httpTimings) finish() HTTPTimings {
+	return HTTPTimings{
+		Connect: durSub(t.dialStart, t.dialDone),
+		SSL:     durSub(t.dialDone, t.sslDone),
+		Send:    durSub(t.sslDone, t.sentAt),
+		Wait:    durSub(t.sentAt, t.firstByteAt),
+		Receive: durSub(t.receiveStartAt, t.receiveDoneAt),
+	}
+}
+
+func durSub(a, b time.Time) time.Duration {
+	if a.IsZero() || b.IsZero() || b.Before(a) {
+		return 0
+	}
+	return b.Sub(a)
+}
+
+// setHTTPInspectionTimings records the timing breakdown on the inspection when
+// it supports it. Safe to call with a nil inspection or an inspection that does
+// not implement HTTPInspectionTimings.
+func setHTTPInspectionTimings(inspection HTTPInspection, t httpTimings) {
+	if inspection == nil {
+		return
+	}
+	if tw, ok := inspection.(HTTPInspectionTimings); ok {
+		tw.SetTimings(t.finish())
+	}
+}
+
 const (
 	// maxRequestBytes caps the initial request (request-line + headers) to
 	// prevent a malicious client from OOM-ing the daemon with unbounded
@@ -597,10 +656,12 @@ func (s *HTTP) forwardMITMRequest(ctx context.Context, client io.Writer, req *ht
 	}
 	dialCtx, cancel := context.WithTimeout(planCtx, dialTimeout)
 	defer cancel()
+	t := httpTimings{dialStart: time.Now()}
 	remote, err := plan.Dial(dialCtx, "tcp", target)
 	if err != nil {
 		return err
 	}
+	t.dialDone = time.Now()
 	defer remote.Close()
 	host, _, _ := net.SplitHostPort(target)
 	remoteTLS := tls.Client(remote, &tls.Config{
@@ -611,6 +672,7 @@ func (s *HTTP) forwardMITMRequest(ctx context.Context, client io.Writer, req *ht
 	if err := remoteTLS.HandshakeContext(ctx); err != nil {
 		return err
 	}
+	t.sslDone = time.Now()
 	defer remoteTLS.Close()
 	remoteConn := net.Conn(remoteTLS)
 	if ce != nil {
@@ -633,6 +695,7 @@ func (s *HTTP) forwardMITMRequest(ctx context.Context, client io.Writer, req *ht
 		}
 		return err
 	}
+	t.sentAt = time.Now()
 	resp, err := http.ReadResponse(remoteReader, req)
 	if err != nil {
 		log.Printf("http: MITM read response from %s: %v", target, err)
@@ -641,6 +704,7 @@ func (s *HTTP) forwardMITMRequest(ctx context.Context, client io.Writer, req *ht
 		}
 		return err
 	}
+	t.firstByteAt = time.Now()
 	defer resp.Body.Close()
 	if s.opts.HTTPInspector != nil && s.opts.HTTPInspector.HasResponseRewrite(req) {
 		body, err := readAndReplaceResponseBody(resp)
@@ -695,12 +759,16 @@ func (s *HTTP) forwardMITMRequest(ctx context.Context, client io.Writer, req *ht
 	if inspection != nil && resp.Body != nil {
 		resp.Body = inspection.ResponseBody(resp.Body)
 	}
-	if err := resp.Write(client); err != nil {
-		log.Printf("http: MITM write response to client: %v", err)
+	t.receiveStartAt = time.Now()
+	writeErr := resp.Write(client)
+	t.receiveDoneAt = time.Now()
+	setHTTPInspectionTimings(inspection, t)
+	if writeErr != nil {
+		log.Printf("http: MITM write response to client: %v", writeErr)
 		if inspection != nil {
-			inspection.Finish(resp, err)
+			inspection.Finish(resp, writeErr)
 		}
-		return err
+		return writeErr
 	}
 	if inspection != nil {
 		inspection.Finish(resp, nil)
@@ -840,6 +908,7 @@ func (s *HTTP) handleForward(ctx context.Context, client net.Conn, req *http.Req
 	}
 
 	dialCtx, dialCancel := context.WithTimeout(planCtx, dialTimeout)
+	t := httpTimings{dialStart: time.Now()}
 	remote, err := plan.Dial(dialCtx, "tcp", target)
 	dialCancel()
 	if err != nil {
@@ -848,6 +917,7 @@ func (s *HTTP) handleForward(ctx context.Context, client net.Conn, req *http.Req
 		writeSimpleStatus(client, req.Proto, code, reason)
 		return err
 	}
+	t.dialDone = time.Now()
 	defer remote.Close()
 	if strings.EqualFold(req.URL.Scheme, "https") {
 		serverName := req.URL.Hostname()
@@ -860,6 +930,7 @@ func (s *HTTP) handleForward(ctx context.Context, client net.Conn, req *http.Req
 			return err
 		}
 		remote = tlsRemote
+		t.sslDone = time.Now()
 	}
 	ce.emitEstablished()
 
@@ -912,6 +983,7 @@ func (s *HTTP) handleForward(ctx context.Context, client net.Conn, req *http.Req
 		// Nothing sensible to say to the client — close.
 		return err
 	}
+	t.sentAt = time.Now()
 
 	resp, err := http.ReadResponse(bufio.NewReader(remote), req)
 	if err != nil {
@@ -922,6 +994,7 @@ func (s *HTTP) handleForward(ctx context.Context, client net.Conn, req *http.Req
 		writeSimpleStatus(client, req.Proto, http.StatusBadGateway, "Bad Gateway")
 		return err
 	}
+	t.firstByteAt = time.Now()
 	defer resp.Body.Close()
 
 	if s.opts.HTTPInspector != nil && s.opts.HTTPInspector.HasResponseRewrite(req) {
@@ -980,13 +1053,17 @@ func (s *HTTP) handleForward(ctx context.Context, client net.Conn, req *http.Req
 		resp.Body = inspection.ResponseBody(resp.Body)
 	}
 
-	if err := resp.Write(client); err != nil {
+	t.receiveStartAt = time.Now()
+	writeErr := resp.Write(client)
+	t.receiveDoneAt = time.Now()
+	setHTTPInspectionTimings(inspection, t)
+	if writeErr != nil {
 		// Client likely hung up mid-response — log and move on.
-		log.Printf("http: forward write response to %s: %v", client.RemoteAddr(), err)
+		log.Printf("http: forward write response to %s: %v", client.RemoteAddr(), writeErr)
 		if inspection != nil {
-			inspection.Finish(resp, err)
+			inspection.Finish(resp, writeErr)
 		}
-		return err
+		return writeErr
 	}
 	if inspection != nil {
 		inspection.Finish(resp, nil)

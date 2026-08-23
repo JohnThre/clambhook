@@ -143,6 +143,51 @@ func TestRepeatOmitsRedactedHeaders(t *testing.T) {
 	}
 }
 
+func TestSendStandalone(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.Header.Get("X-Compose") != "yes" {
+			t.Errorf("unexpected request: %s %+v", r.Method, r.Header)
+		}
+		body, _ := io.ReadAll(r.Body)
+		if string(body) != `{"a":1}` {
+			t.Errorf("body = %q", body)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer server.Close()
+	defer withRepeatClient(server)()
+
+	mgr, err := NewManager(config.DeveloperConfig{Enabled: true, CaptureLimit: 10})
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+	body := `{"a":1}`
+	resp, err := mgr.Send(context.Background(), ComposedRequest{
+		Method:  http.MethodPost,
+		URL:     publicRepeatURL(server, "/api"),
+		Headers: []Header{{Name: "X-Compose", Value: "yes"}, {Name: "Content-Type", Value: "application/json"}},
+		Body:    &body,
+	})
+	if err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+	if resp.Entry.Status != http.StatusOK {
+		t.Fatalf("status = %d", resp.Entry.Status)
+	}
+	if resp.Entry.Method != "POST" || resp.Entry.Request.Body.Preview != `{"a":1}` {
+		t.Fatalf("captured request = %+v", resp.Entry.Request)
+	}
+	// The composed request body gets a viewer (pretty-print) daemon-side.
+	if resp.Entry.Request.Body.Viewer == nil || resp.Entry.Request.Body.Viewer.Kind != "json" {
+		t.Fatalf("request viewer = %+v", resp.Entry.Request.Body.Viewer)
+	}
+	// The response body gets a viewer via the capture snapshot.
+	if resp.Entry.Response.Body.Viewer == nil || resp.Entry.Response.Body.Viewer.Kind != "json" {
+		t.Fatalf("response viewer = %+v", resp.Entry.Response.Body.Viewer)
+	}
+}
+
 func TestRepeatRejectsInitialPrivateURL(t *testing.T) {
 	var hits atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

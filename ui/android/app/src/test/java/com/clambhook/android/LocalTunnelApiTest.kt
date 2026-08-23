@@ -128,6 +128,29 @@ private class FakeTunnelRuntime : ClambhookTunnelRuntime {
     override fun developerEntriesJson(): String = "{}"
     override fun developerHarJson(): String = "{}"
     override fun developerCaPem(): String = ""
+    override fun developerEntriesFilterJson(filterJson: String): String = "{\"entries\":[]}"
+    override fun developerEntryCurlJson(id: String): String = "{\"curl\":\"\"}"
+    override fun developerCurlImportJson(curl: String): String = "{\"method\":\"GET\",\"url\":\"\",\"headers\":[]}"
+    override fun developerSendJson(requestJson: String): String = "{\"entry\":{}}"
+    override fun trafficFilterJson(filterJson: String): String = trafficJson
+    override fun pendingPromptsJson(): String = "{\"prompts\":[]}"
+    override fun resolvePromptJson(
+        id: String,
+        action: String,
+        scope: String,
+        matchHost: Boolean,
+        matchPort: Boolean,
+        matchProtocol: Boolean,
+        ttlSeconds: Long,
+    ): String = "{}"
+    override fun silentDecisionsJson(): String = "{\"decisions\":[]}"
+    override fun promoteSilentDecisionJson(
+        id: String,
+        scope: String,
+        matchHost: Boolean,
+        matchPort: Boolean,
+        matchProtocol: Boolean,
+    ): String = "{}"
 
     override fun clearDeveloperEntries() = Unit
 

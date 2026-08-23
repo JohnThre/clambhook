@@ -1,5 +1,7 @@
 package com.clambhook.linux.ui
 
+import com.clambhook.linux.model.SilentDecisionsPayload
+import com.clambhook.linux.model.TrafficMonitorFilter
 import com.clambhook.linux.api.ClambhookApi
 import com.clambhook.linux.api.ClambhookApiClient
 import com.clambhook.linux.daemon.DaemonSupervisor
@@ -19,6 +21,9 @@ import com.clambhook.linux.model.PromptsPayload
 import com.clambhook.linux.model.DnsPayload
 import com.clambhook.linux.model.DeveloperStatusPayload
 import com.clambhook.linux.model.DeveloperEntryPayload
+import com.clambhook.linux.model.DeveloperEntriesFilter
+import com.clambhook.linux.model.ParsedCurlResponse
+import com.clambhook.linux.model.ComposedRequestPayload
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -114,6 +119,10 @@ class MainViewModel(
     suspend fun loadCaptureEntries(): List<DeveloperEntryPayload> = client.developerEntries()
     suspend fun loadCaptureEntry(id: String): DeveloperEntryPayload = client.developerEntry(id)
     suspend fun repeatCaptureEntry(id: String): DeveloperEntryPayload = client.repeatDeveloperEntry(id)
+    suspend fun loadCaptureEntries(filter: DeveloperEntriesFilter): List<DeveloperEntryPayload> = client.developerEntries(filter)
+    suspend fun copyEntryCurl(id: String): String = client.developerEntryCurl(id)
+    suspend fun importCurl(text: String): ParsedCurlResponse = client.importCurl(text)
+    suspend fun sendComposed(request: ComposedRequestPayload): DeveloperEntryPayload = client.sendComposed(request)
 
     private fun maybeLaunchDaemon() { if (_settings.value.launchDaemonOnStart) startDaemon() }
 
@@ -159,8 +168,15 @@ class MainViewModel(
 
     fun activateLicense(key: String, email: String) { scope.launch { license.activate(key, email) } }
     fun deactivateDevice() { scope.launch { license.deactivateCurrentDevice() } }
-    fun resolvePrompt(id: String, action: String, resolutionScope: String, matchHost: Boolean) {
-        this.scope.launch { client.resolvePrompt(id, action, resolutionScope, matchHost); refreshActivePage() }
+    fun resolvePrompt(id: String, action: String, resolutionScope: String, matchHost: Boolean, matchPort: Boolean = false, matchProtocol: Boolean = false) {
+        this.scope.launch { client.resolvePrompt(id, action, resolutionScope, matchHost, matchPort, matchProtocol); refreshActivePage() }
+    }
+
+    fun loadTraffic(filter: TrafficMonitorFilter) { scope.launch { store.loadTraffic(filter) } }
+
+    suspend fun loadSilentDecisions(): SilentDecisionsPayload = client.silentDecisions()
+    fun promoteSilentDecision(id: String, resolutionScope: String, matchHost: Boolean = false, matchPort: Boolean = false, matchProtocol: Boolean = false) {
+        this.scope.launch { client.promoteSilentDecision(id, resolutionScope, matchHost, matchPort, matchProtocol); refreshActivePage() }
     }
 
     private var activePage = "now"

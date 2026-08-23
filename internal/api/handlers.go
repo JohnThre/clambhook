@@ -52,6 +52,8 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /api/v1/rules/temporary/{id}", s.handleDeleteTemporaryRule)
 	mux.HandleFunc("GET /api/v1/prompts/pending", s.handlePendingPrompts)
 	mux.HandleFunc("POST /api/v1/prompts/{id}/resolve", s.handleResolvePrompt)
+	mux.HandleFunc("GET /api/v1/prompts/decisions", s.handleSilentDecisions)
+	mux.HandleFunc("POST /api/v1/prompts/decisions/{id}/promote", s.handlePromoteSilentDecision)
 	mux.HandleFunc("PUT /api/v1/rules", s.handleReplaceRules)
 	mux.HandleFunc("POST /api/v1/rules/test", s.handleTestRule)
 	mux.HandleFunc("POST /api/v1/routes/explain", s.handleExplainRoute)
@@ -71,8 +73,11 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/developer/ca/regenerate", s.handleDeveloperRegenerateCA)
 	mux.HandleFunc("GET /api/v1/developer/entries", s.handleDeveloperEntries)
 	mux.HandleFunc("GET /api/v1/developer/entries/{id}", s.handleDeveloperEntry)
+	mux.HandleFunc("GET /api/v1/developer/entries/{id}/curl", s.handleDeveloperEntryCurl)
+	mux.HandleFunc("POST /api/v1/developer/curl/import", s.handleDeveloperCurlImport)
 	mux.HandleFunc("GET /api/v1/developer/har", s.handleDeveloperHAR)
 	mux.HandleFunc("POST /api/v1/developer/repeat", s.handleDeveloperRepeat)
+	mux.HandleFunc("POST /api/v1/developer/send", s.handleDeveloperSend)
 	mux.HandleFunc("GET /api/v1/developer/map-rules", s.handleDeveloperMapRules)
 	mux.HandleFunc("PUT /api/v1/developer/map-rules", s.handleDeveloperReplaceMapRules)
 	mux.HandleFunc("DELETE /api/v1/developer/map-rules/{id}", s.handleDeveloperDeleteMapRule)
@@ -1151,6 +1156,15 @@ func (s *Server) handleTraffic(w http.ResponseWriter, r *http.Request) {
 		}
 		limit = n
 	}
+	offset := 0
+	if raw := query.Get("offset"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 0 {
+			http.Error(w, "invalid offset", http.StatusBadRequest)
+			return
+		}
+		offset = n
+	}
 	var profileNames []string
 	activeProfile := ""
 	activeRules := []config.RuleConfig(nil)
@@ -1168,6 +1182,7 @@ func (s *Server) handleTraffic(w http.ResponseWriter, r *http.Request) {
 	opts := traffic.SnapshotOptions{
 		State:          state,
 		Limit:          limit,
+		Offset:         offset,
 		Action:         query.Get("action"),
 		Profile:        query.Get("profile"),
 		Rule:           query.Get("rule"),
@@ -1176,6 +1191,8 @@ func (s *Server) handleTraffic(w http.ResponseWriter, r *http.Request) {
 		Query:          query.Get("query"),
 		App:            query.Get("app"),
 		Domain:         query.Get("domain"),
+		Process:        query.Get("process"),
+		Network:        query.Get("network"),
 		ActiveProfile:  activeProfile,
 		Profiles:       profileNames,
 		Rules:          activeRules,
@@ -1242,14 +1259,101 @@ func (s *Server) handleDeveloperEntries(w http.ResponseWriter, r *http.Request) 
 		}
 		limit = n
 	}
+	filter, err := parseDeveloperEntryFilter(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 	dev := s.developerManager()
 	if dev == nil {
 		writeJSON(w, map[string]any{"entries": []any{}})
 		return
 	}
 	writeJSON(w, map[string]any{
-		"entries": dev.List(limit),
+		"entries": dev.FilterEntries(filter, limit),
 	})
+}
+
+func (s *Server) handleDeveloperEntryCurl(w http.ResponseWriter, r *http.Request) {
+	dev := s.developerManager()
+	if dev == nil {
+		http.Error(w, "developer mode disabled", http.StatusNotImplemented)
+		return
+	}
+	out, ok := dev.CurlExport(r.PathValue("id"))
+	if !ok {
+		http.Error(w, "developer entry not found", http.StatusNotFound)
+		return
+	}
+	writeJSON(w, map[string]any{"curl": out})
+}
+
+func (s *Server) handleDeveloperCurlImport(w http.ResponseWriter, r *http.Request) {
+	dev := s.developerManager()
+	if dev == nil {
+		http.Error(w, "developer mode disabled", http.StatusNotImplemented)
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxJSONRequestBytes)
+	var req struct {
+		Curl string `json:"curl"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	parsed, err := dev.CurlImport(strings.TrimSpace(req.Curl))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	writeJSON(w, parsed)
+}
+
+// parseDeveloperEntryFilter builds an EntryFilter from the /developer/entries
+// query string. Every field is optional; an empty filter matches all entries.
+// method is a comma-separated allowlist; status_min/status_max are inclusive
+// bounds; error_only accepts 1/true/yes/on (and the falsey counterparts).
+func parseDeveloperEntryFilter(r *http.Request) (developer.EntryFilter, error) {
+	q := r.URL.Query()
+	f := developer.EntryFilter{
+		Host:        strings.TrimSpace(q.Get("host")),
+		Scheme:      strings.TrimSpace(q.Get("scheme")),
+		ContentType: strings.TrimSpace(q.Get("content_type")),
+		Query:       strings.TrimSpace(q.Get("q")),
+	}
+	if raw := strings.TrimSpace(q.Get("method")); raw != "" {
+		for _, m := range strings.Split(raw, ",") {
+			if m = strings.TrimSpace(m); m != "" {
+				f.Methods = append(f.Methods, m)
+			}
+		}
+	}
+	if raw := strings.TrimSpace(q.Get("status_min")); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 0 {
+			return developer.EntryFilter{}, fmt.Errorf("invalid status_min")
+		}
+		f.StatusMin = n
+	}
+	if raw := strings.TrimSpace(q.Get("status_max")); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 0 {
+			return developer.EntryFilter{}, fmt.Errorf("invalid status_max")
+		}
+		f.StatusMax = n
+	}
+	if raw := strings.TrimSpace(q.Get("error_only")); raw != "" {
+		switch strings.ToLower(raw) {
+		case "1", "true", "yes", "on":
+			f.ErrorOnly = true
+		case "0", "false", "no", "off":
+			f.ErrorOnly = false
+		default:
+			return developer.EntryFilter{}, fmt.Errorf("invalid error_only")
+		}
+	}
+	return f, nil
 }
 
 func (s *Server) handleDeveloperEntry(w http.ResponseWriter, r *http.Request) {
@@ -1289,6 +1393,26 @@ func (s *Server) handleDeveloperRepeat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	resp, err := dev.Repeat(r.Context(), req)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	writeJSON(w, resp)
+}
+
+func (s *Server) handleDeveloperSend(w http.ResponseWriter, r *http.Request) {
+	dev := s.developerManager()
+	if dev == nil {
+		http.Error(w, "developer mode disabled", http.StatusNotImplemented)
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxJSONRequestBytes)
+	var req developer.ComposedRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	resp, err := dev.Send(r.Context(), req)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return

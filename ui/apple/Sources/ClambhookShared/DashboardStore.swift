@@ -90,6 +90,14 @@ public final class DashboardStore: ObservableObject {
         networkSettings = dashboard.networkSettings
     }
 
+    /// applyTraffic replaces the traffic snapshot from a server-side filtered
+    /// fetch (GET /api/v1/traffic?...), used by the live monitor's quickFilter
+    /// chips and search box. It updates recovery state like a full refresh.
+    public func applyTraffic(_ snapshot: TrafficSnapshotPayload) {
+        traffic = snapshot
+        updateRecoveryIssueFromTraffic()
+    }
+
     public func refreshStatus() async {
         do {
             status = try await api.status()

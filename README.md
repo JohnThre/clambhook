@@ -12,7 +12,10 @@
 
 Clambhook is a powerful personalized network tool with local inspection for
 routing and connection review. It implements its own protocol core from scratch.
-The backend is written in Go and C; the macOS v1 client is a native SwiftUI app.
+A gated migration is replacing the Go runtime with C17, while the macOS client
+remains SwiftUI, Android remains Kotlin/Jetpack Compose, and GNU/Linux moves to
+C/GTK 4. See [`docs/c-migration.md`](docs/c-migration.md) for the live cutover
+status and compatibility gates.
 
 Activity inspection is metadata-only by default. Opt-in HTTP(S) capture adds a
 Proxyman-style debugging surface; HTTPS body capture requires a user-trusted
@@ -21,8 +24,9 @@ the user controls.
 
 ## Architecture
 
-Clambhook is layered as native UI clients over a single Go daemon, with a small
-C library for performance-critical paths.
+The currently shipping clients still use the legacy daemon while an additive C
+runtime is validated against it. Production names and packages switch only
+after the parity gates pass.
 
 ```mermaid
 graph TD
@@ -110,8 +114,12 @@ testing (`url-test`).
 - Rule-based routing with reusable rule sets, remote rule subscriptions, and
   per-process matchers.
 - Little Snitch-style interactive connection prompts for local-proxy traffic.
-- Opt-in HTTP(S) capture with body previews, HAR export, repeat/compose, map
-  rules, and breakpoints.
+- Opt-in HTTP(S) capture with body previews, daemon-side body viewers (pretty
+  JSON/XML/form/HTML plus a hex dump, shared across every client), server-side
+  flow filtering (method, status range, host, scheme, content type, errors, and
+  free-text search), HAR export with connect/SSL/send/wait/receive timings,
+  repeat and standalone compose/send, cURL import/export, map rules, and
+  breakpoints.
 - Encrypted DNS (DoH / DoT / DoQ) with local answering in TUN mode, including a
   first-class `controld` upstream so end users can plug in their own Control D
   resolver by id.
@@ -157,7 +165,7 @@ See [`docs/macos-v1-scope.md`](docs/macos-v1-scope.md) for the full scope.
 | Platform | UI framework | Status |
 | --- | --- | --- |
 | macOS 14+ (Apple Silicon) | SwiftUI | Public release |
-| GNU/Linux (Ubuntu, Debian, Fedora) | Kotlin / Compose Multiplatform | Public release |
+| GNU/Linux (Ubuntu, Debian, Fedora) | C / GTK 4 target; Compose remains during parity | Public release |
 | Android 11+ | Kotlin / Compose | Internal developer QA |
 
 Windows development is discontinued with no planned resumption date.
@@ -171,8 +179,9 @@ Terminal, PowerShell, GNOME Terminal, Xfce Terminal, and KDE Konsole.
 
 ## Building
 
-The build uses `CGO_ENABLED=1` and requires `libsodium` discoverable through
-`pkg-config`.
+The legacy build uses `CGO_ENABLED=1`. The replacement C17 build uses CMake,
+Ninja, and C dependencies discovered through `pkg-config`; see
+[`docs/c-migration.md`](docs/c-migration.md).
 Building, running, and testing require prior written permission from Pengfan
 Chang; see [`LICENSE`](LICENSE). The commands below are for the author and
 authorized parties, not a general contribution or redistribution grant.
@@ -183,6 +192,10 @@ authorized parties, not a general contribution or redistribution grant.
 | `make build-daemon` | Builds only `bin/clambhook`. |
 | `make build-tui` | Builds only `bin/clambhook-tui`. |
 | `make test` | Builds `clib/libcnet.a`, then runs `go test ./...`. |
+| `make build-native` | Builds the additive C17 runtime, daemon, helper, and native tests. |
+| `make test-native` | Runs sanitizer-backed C tests and license differential parity. |
+| `make build-linux-gtk` | Builds the additive C/GTK 4 GNU/Linux client. |
+| `make test-android-compatibility` | Runs Compose instrumentation on managed API 30/33/36 devices. |
 | `make lint` | Runs `go vet ./...` (and `staticcheck` when installed). |
 | `make clean` | Removes `bin/` and build artifacts. |
 
@@ -219,19 +232,21 @@ for Android development: SDK/NDK provisioning, emulator management, and
 build-deploy-launch on a device or Android SDK Emulator (AVD) (`android run`, or `make run-android`).
 Gradle is still used for unit tests (`make test-android`), lint
 (`make lint-android`), and release assembly (`make build-android-release`)
-because the `android` CLI has no equivalent commands, and gomobile builds the
-embedded daemon AAR (`make build-android-mobile-aar`). See
+because the `android` CLI has no equivalent commands. The current gomobile AAR
+remains the rollback runtime while the Kotlin `NativeClambhookBridge` JNI path
+advances through parity. See
 [`docs/android-development.md`](docs/android-development.md) for the full guide.
 
 ## Repository layout
 
 | Path | Contents |
 | --- | --- |
-| `cmd/clambhook`, `cmd/clambhook-tui` | Daemon and terminal-UI entry points. |
+| `cmd/clambhook`, `cmd/clambhook-tui` | Legacy daemon and terminal-UI parity oracles. |
 | `internal/` | Core: protocols, chain, config, listeners, API, engine, geo. |
 | `pkg/cnet`, `pkg/mobile` | cgo bridge and mobile embedding surface. |
 | `clib/` | C static library (`src/`, `include/`). |
-| `ui/apple`, `ui/linux`, `ui/android` | Native client apps. |
+| `native/` | C17 runtime ABI, daemon, JNI bridge, helper, and native tests. |
+| `ui/apple`, `ui/linux`, `ui/linux-gtk`, `ui/android` | Platform client apps and migration targets. |
 | `docs/` | Scope, roadmap, distribution, and release documentation. |
 | `configs/` | Example configuration. |
 

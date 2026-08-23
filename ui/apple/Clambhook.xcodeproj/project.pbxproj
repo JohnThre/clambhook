@@ -49,8 +49,8 @@
 		D5B5381193EE74D99FDEA0C8 /* MacSparkleUpdater.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2154CDDB7FC6878704BCF197 /* MacSparkleUpdater.swift */; };
 		DBEF42AC175249F0DA14DC84 /* MacProfilesSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5CB05BE815F501AECFCB7B59 /* MacProfilesSection.swift */; };
 		E20BEBC7404594F87E09BDF7 /* SettingsViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11D3A8B6CD3A6119053C8908 /* SettingsViews.swift */; };
-		E7C51F17F8874A125C391EAE /* MacRewriteRuleSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 517781CFAFBF7D0483CDC1BE /* MacRewriteRuleSheet.swift */; };
 		E3F73D48799F21A8CC8D6621 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = E08010E4073C842577454D47 /* Sparkle */; };
+		E7C51F17F8874A125C391EAE /* MacRewriteRuleSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 517781CFAFBF7D0483CDC1BE /* MacRewriteRuleSheet.swift */; };
 		ED018791026D587CB0897950 /* MacLegalFooter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C71090AE1DFEF65994C3836 /* MacLegalFooter.swift */; };
 /* End PBXBuildFile section */
 

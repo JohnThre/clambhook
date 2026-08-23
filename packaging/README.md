@@ -13,10 +13,13 @@ mirrors.
 | Ubuntu, Debian | `.deb` | `debian/` (`dpkg-buildpackage -us -uc -b`) |
 | Fedora | `.rpm` | `packaging/rpm/clambhook.spec` |
 
-Every package installs the daemon (`clambhook`), the Kotlin/Compose
+Current packages install the daemon (`clambhook`), the legacy Kotlin/Compose
 Multiplatform desktop controller (`clambhook-linux`), the terminal dashboard
 (`clambhook-tui`), and the private license helper (`clambhook-license`) used for
-trial and license activation.
+trial and license activation. The C daemon/helper and C/GTK 4 client are
+additive migration targets and must not enter release packages before the
+parity and no-Go packaging gates in
+[`../docs/c-migration.md`](../docs/c-migration.md) pass.
 
 ## Privilege model (TUN / Enhanced mode)
 

@@ -78,7 +78,10 @@ there are no GitHub Actions workflows and no Xcode Cloud integration. Apple
 builds validate locally (`make build-apple`, `swift test`); GNU/Linux packages
 validate in Ubuntu/Debian/Fedora containers
 (`scripts/validate-linux-distros.sh`); Android validates locally
-(`make test-android`/`lint-android`/`build-android`). `scripts/ci-local.sh`
+(`make test-android`/`lint-android`/`build-android` plus managed-device Compose
+tests on API 30/33/36). During the C migration, `make test-native` and
+`make build-linux-gtk` are additional non-release gates until the packaging
+cutover criteria in [`c-migration.md`](c-migration.md) pass. `scripts/ci-local.sh`
 runs the full local gate. See [`release-validation.md`](release-validation.md)
 for the full policy and diagrams.
 

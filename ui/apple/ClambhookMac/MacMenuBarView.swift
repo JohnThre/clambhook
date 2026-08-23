@@ -38,6 +38,9 @@ struct MacMenuBarView: View {
                     if !model.pendingPrompts.isEmpty {
                         pendingPromptsPanel
                     }
+                    if model.configSettings.prompt.enabled || !model.silentDecisions.isEmpty {
+                        silentDecisionsPanel
+                    }
                     profilePolicyPanel
                     trafficRatePanel
                     recentBlockedPanel
@@ -280,8 +283,34 @@ struct MacMenuBarView: View {
         MacSection(title: "Connection Requests") {
             VStack(alignment: .leading, spacing: 10) {
                 ForEach(model.pendingPrompts) { prompt in
-                    MacPendingPromptRow(prompt: prompt) { action, scope, matchHost in
-                        model.resolvePrompt(prompt, action: action, scope: scope, matchHost: matchHost)
+                    MacPendingPromptRow(prompt: prompt) { action, scope, matchHost, matchPort, matchProtocol in
+                        model.resolvePrompt(prompt, action: action, scope: scope, matchHost: matchHost, matchPort: matchPort, matchProtocol: matchProtocol)
+                    }
+                }
+            }
+        }
+    }
+
+    private var silentDecisionsPanel: some View {
+        MacSection(title: "Silent Mode Decisions") {
+            VStack(alignment: .leading, spacing: 10) {
+                Picker("Silent Mode", selection: Binding(
+                    get: { model.configSettings.prompt.silentMode },
+                    set: { model.setSilentMode($0) }
+                )) {
+                    Text("Off").tag("")
+                    Text("Allow all").tag("allow")
+                    Text("Deny all").tag("deny")
+                }
+                .labelsHidden()
+                .pickerStyle(.segmented)
+                if model.silentDecisions.isEmpty {
+                    MacEmptyRow(text: "No auto-decisions logged")
+                } else {
+                    ForEach(model.silentDecisions) { decision in
+                        MacSilentDecisionRow(decision: decision) { scope, matchHost, matchPort, matchProtocol in
+                            model.promoteSilentDecision(decision, scope: scope, matchHost: matchHost, matchPort: matchPort, matchProtocol: matchProtocol)
+                        }
                     }
                 }
             }
@@ -1059,7 +1088,11 @@ private struct MacBlockedDecisionRow: View {
 
 private struct MacPendingPromptRow: View {
     var prompt: PendingPromptPayload
-    var onResolve: (PromptDecisionAction, PromptDecisionScope, Bool) -> Void
+    var onResolve: (PromptDecisionAction, PromptDecisionScope, Bool, Bool, Bool) -> Void
+
+    @State private var matchHost = false
+    @State private var matchPort = false
+    @State private var matchProtocol = false
 
     private var hostLabel: String {
         if !prompt.targetHost.isEmpty {
@@ -1079,7 +1112,20 @@ private struct MacPendingPromptRow: View {
         if prompt.waiters > 1 {
             parts.append("\(prompt.waiters) waiting")
         }
+        if !prompt.wouldUseChain.isEmpty {
+            parts.append("via \(prompt.wouldUseChain)")
+        }
+        if !prompt.codeSignID.isEmpty {
+            parts.append("signed: \(prompt.codeSignID)")
+        }
         return parts.joined(separator: " / ")
+    }
+
+    private var countdownText: String {
+        guard prompt.expiresAt.timeIntervalSince1970 > 0 else { return "" }
+        let remaining = prompt.expiresAt.timeIntervalSinceNow
+        if remaining <= 0 { return "expired" }
+        return "expires in \(Int(remaining))s"
     }
 
     var body: some View {
@@ -1090,14 +1136,21 @@ private struct MacPendingPromptRow: View {
                     .lineLimit(1)
                     .truncationMode(.middle)
                 Spacer(minLength: 8)
-                Text("WAITING")
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(.orange)
+                if !countdownText.isEmpty {
+                    Text(countdownText)
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.orange)
+                } else {
+                    Text("WAITING")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.orange)
+                }
             }
             Text(subtitle)
                 .font(.caption2)
                 .foregroundStyle(.secondary)
-                .lineLimit(1)
+                .lineLimit(2)
+            matchToggles
             ViewThatFits(in: .horizontal) {
                 HStack(spacing: 8) { actionButtons }
                 VStack(alignment: .leading, spacing: 6) { actionButtons }
@@ -1107,31 +1160,82 @@ private struct MacPendingPromptRow: View {
         .padding(.vertical, 2)
     }
 
+    private var matchToggles: some View {
+        HStack(spacing: 10) {
+            Toggle("This host", isOn: $matchHost)
+            Toggle("This port", isOn: $matchPort)
+            Toggle("This protocol", isOn: $matchProtocol)
+        }
+        .toggleStyle(.checkbox)
+        .font(.caption2)
+    }
+
     private var actionButtons: some View {
         Group {
             Button {
-                onResolve(.allow, .once, false)
+                onResolve(.allow, .once, matchHost, matchPort, matchProtocol)
             } label: {
                 Label("Allow", systemImage: "checkmark.shield")
             }
             Button {
-                onResolve(.block, .once, false)
+                onResolve(.block, .once, matchHost, matchPort, matchProtocol)
             } label: {
                 Label("Block", systemImage: "hand.raised")
             }
             Menu {
-                Button("Allow this session") { onResolve(.allow, .session, false) }
-                Button("Allow forever") { onResolve(.allow, .forever, false) }
-                Button("Allow forever (this host)") { onResolve(.allow, .forever, true) }
+                Button("Allow this session") { onResolve(.allow, .session, matchHost, matchPort, matchProtocol) }
+                Button("Allow until quit") { onResolve(.allow, .untilQuit, matchHost, matchPort, matchProtocol) }
+                Button("Allow forever") { onResolve(.allow, .forever, matchHost, matchPort, matchProtocol) }
                 Divider()
-                Button("Block this session") { onResolve(.block, .session, false) }
-                Button("Block forever") { onResolve(.block, .forever, false) }
-                Button("Block forever (this host)") { onResolve(.block, .forever, true) }
+                Button("Block this session") { onResolve(.block, .session, matchHost, matchPort, matchProtocol) }
+                Button("Block until quit") { onResolve(.block, .untilQuit, matchHost, matchPort, matchProtocol) }
+                Button("Block forever") { onResolve(.block, .forever, matchHost, matchPort, matchProtocol) }
             } label: {
                 Label("More", systemImage: "ellipsis.circle")
             }
         }
         .buttonStyle(.borderless)
+    }
+}
+
+private struct MacSilentDecisionRow: View {
+    var decision: SilentDecisionPayload
+    var onPromote: (PromptDecisionScope, Bool, Bool, Bool) -> Void
+
+    private var hostLabel: String {
+        if !decision.targetHost.isEmpty {
+            if !decision.targetPort.isEmpty && decision.targetPort != "0" {
+                return "\(decision.targetHost):\(decision.targetPort)"
+            }
+            return decision.targetHost
+        }
+        return decision.target
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(hostLabel.isEmpty ? "—" : hostLabel)
+                    .font(.caption.weight(.semibold))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Spacer(minLength: 8)
+                Text(decision.action.uppercased())
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(decision.action == "allow" ? .green : .red)
+            }
+            Text(decision.processName.isEmpty ? "Unknown process" : decision.processName)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+            HStack(spacing: 8) {
+                Button("Promote session") { onPromote(.session, false, false, false) }
+                Button("Promote forever") { onPromote(.forever, false, false, false) }
+            }
+            .buttonStyle(.borderless)
+            .font(.caption)
+        }
+        .padding(.vertical, 2)
     }
 }
 

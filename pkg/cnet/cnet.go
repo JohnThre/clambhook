@@ -5,7 +5,7 @@ package cnet
 /*
 #cgo CFLAGS: -I${SRCDIR}/../../clib/include
 #cgo LDFLAGS: -L${SRCDIR}/../../clib -lcnet
-#cgo pkg-config: libsodium
+#cgo pkg-config: libsodium openssl
 #include "cnet.h"
 #include <stdlib.h>
 */

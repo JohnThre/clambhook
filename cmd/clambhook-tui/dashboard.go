@@ -10,6 +10,7 @@ import (
 	"math"
 	"net/netip"
 	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -103,6 +104,8 @@ type model struct {
 	cleanupFocus         bool
 	selectedDeveloper    int
 	selectedDeveloperTab int
+	devFilter            string
+	devFilterEditing     bool
 	selectedPolicyGroup  int
 	selectedPolicyMember int
 	policyFocus          bool
@@ -111,6 +114,7 @@ type model struct {
 	pendingRuleTTLIdx    int // index into tempRuleTTLOptions; 0 = 15m
 	pendingPrompts       []pendingPrompt
 	promptCursor         int
+	silentDecisions      []silentDecision
 	width                int
 	height               int
 
@@ -188,6 +192,11 @@ type developerLoadedMsg struct {
 }
 
 type developerExportedMsg struct {
+	Path string
+	Err  error
+}
+
+type developerCurlMsg struct {
 	Path string
 	Err  error
 }
@@ -337,13 +346,26 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				return m, nil
 			case "a":
-				return m, m.resolvePromptCmd(m.pendingPrompts[m.promptCursor].ID, "allow", "once")
+				return m, m.resolvePromptCmd(m.pendingPrompts[m.promptCursor].ID, "allow", "once", false, false)
 			case "A":
-				return m, m.resolvePromptCmd(m.pendingPrompts[m.promptCursor].ID, "allow", "forever")
+				return m, m.resolvePromptCmd(m.pendingPrompts[m.promptCursor].ID, "allow", "forever", false, false)
+			case "u":
+				return m, m.resolvePromptCmd(m.pendingPrompts[m.promptCursor].ID, "allow", "until_quit", false, false)
 			case "b":
-				return m, m.resolvePromptCmd(m.pendingPrompts[m.promptCursor].ID, "block", "once")
+				return m, m.resolvePromptCmd(m.pendingPrompts[m.promptCursor].ID, "block", "once", false, false)
 			case "B":
-				return m, m.resolvePromptCmd(m.pendingPrompts[m.promptCursor].ID, "block", "forever")
+				return m, m.resolvePromptCmd(m.pendingPrompts[m.promptCursor].ID, "block", "forever", false, false)
+			case "U":
+				return m, m.resolvePromptCmd(m.pendingPrompts[m.promptCursor].ID, "block", "until_quit", false, false)
+			}
+		}
+		// Silent Mode review: promote a logged auto-decision to a remembered rule.
+		if len(m.silentDecisions) > 0 {
+			switch msg.String() {
+			case "s":
+				return m, m.promoteSilentDecisionCmd(m.silentDecisions[0].ID, "session")
+			case "S":
+				return m, m.promoteSilentDecisionCmd(m.silentDecisions[0].ID, "forever")
 			}
 		}
 		// Intercept "t" for latency test when in Library+policyFocus mode.
@@ -396,9 +418,34 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateNetworkView(msg)
 		}
 		if m.viewMode == viewModeDeveloper {
+			if m.devFilterEditing {
+				switch msg.String() {
+				case "esc":
+					m.devFilterEditing = false
+					m.devFilter = ""
+					return m, m.loadDeveloperCmd()
+				case "enter":
+					m.devFilterEditing = false
+					return m, m.loadDeveloperCmd()
+				case "backspace", "ctrl+h":
+					if len(m.devFilter) > 0 {
+						m.devFilter = m.devFilter[:len(m.devFilter)-1]
+					}
+				default:
+					if len(msg.Runes) > 0 {
+						m.devFilter += string(msg.Runes)
+					}
+				}
+				return m, nil
+			}
 			switch msg.String() {
 			case "r":
 				return m, m.loadDeveloperCmd()
+			case "/":
+				m.devFilterEditing = true
+				return m, nil
+			case "y":
+				return m, m.copyDeveloperCurlCmd()
 			case "up", "k":
 				m.moveDeveloperSelection(-1)
 				return m, nil
@@ -807,6 +854,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.errText = "exported HAR to " + msg.Path
 		return m, nil
+	case developerCurlMsg:
+		if msg.Err != nil {
+			m.errText = "cURL export failed: " + msg.Err.Error()
+			return m, nil
+		}
+		m.errText = "cURL written to " + msg.Path
+		return m, nil
 	case conditionerToggledMsg:
 		if msg.Err != nil {
 			m.configActionMsg = "conditioner update failed: " + msg.Err.Error()
@@ -868,6 +922,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.pendingPrompts = msg.Prompts
 		m.clampPromptCursor()
 		return m, nil
+	case silentDecisionsLoadedMsg:
+		if msg.Err != nil {
+			return m, nil
+		}
+		m.silentDecisions = msg.Decisions
+		return m, nil
 	case eventMsg:
 		needsRefresh := m.applyEvent(msg.Event)
 		cmds := []tea.Cmd{waitEventCmd(m.eventsCh, m.eventErrCh)}
@@ -875,7 +935,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, m.loadStatusCmd())
 		}
 		if msg.Event.Type == events.TypePromptPending || msg.Event.Type == events.TypePromptResolved {
-			cmds = append(cmds, m.loadPromptsCmd())
+			cmds = append(cmds, m.loadPromptsCmd(), m.loadSilentDecisionsCmd())
 		}
 		return m, tea.Batch(cmds...)
 	case eventErrMsg:
@@ -917,6 +977,9 @@ func (m model) View() string {
 	}
 	if prompts := m.renderPromptsSection(width); prompts != "" {
 		sections = append(sections, prompts)
+	}
+	if silent := m.renderSilentDecisionsSection(width); silent != "" {
+		sections = append(sections, silent)
 	}
 	sections = append(sections,
 		m.renderConnectionSection(width),
@@ -1055,8 +1118,8 @@ func (m model) developerView() string {
 		renderSection("Developer Mode", m.developerStatusLines(width)),
 		renderSection("HTTP Inspector", m.developerEntryLines(width)),
 		m.renderFooter(
-			"Keys: up/down select  e export HAR  c clear  r refresh  1 now  2 activity  3 library  4 settings  q quit",
-			"Keys: up/down  tab detail  e export  c clear  r  1 now  2 activity  q",
+			"Keys: up/down select  / filter  y cURL  e export HAR  c clear  r refresh  1 now  2 activity  3 library  4 settings  q quit",
+			"Keys: up/down  tab detail  / filter  y cURL  e export  c clear  r  1 now  2 activity  q",
 		),
 	)
 	return joinSections(sections)
@@ -1095,10 +1158,12 @@ func (m model) developerStatusLines(width int) []string {
 }
 
 func (m model) developerEntryLines(width int) []string {
+	lines := []string{m.developerFilterLine(width)}
 	if len(m.devRows) == 0 {
-		return emptyStateLines("No captured requests", "HTTP proxy requests appear here when developer mode is enabled.", width)
+		lines = append(lines, emptyStateLines("No captured requests", "HTTP proxy requests appear here when developer mode is enabled.", width)...)
+		return lines
 	}
-	lines := make([]string, 0)
+	rows := make([]string, 0)
 	limit := m.developerVisibleRows()
 	for i, entry := range firstDeveloperRows(m.devRows, limit) {
 		prefix := " "
@@ -1109,7 +1174,7 @@ func (m model) developerEntryLines(width int) []string {
 		if entry.Status > 0 {
 			status = strconv.Itoa(entry.Status)
 		}
-		lines = append(lines, truncate(fmt.Sprintf("%s %-6s %-3s %-7s %s",
+		rows = append(rows, truncate(fmt.Sprintf("%s %-6s %-3s %-7s %s",
 			prefix,
 			entry.Method,
 			status,
@@ -1118,12 +1183,16 @@ func (m model) developerEntryLines(width int) []string {
 		), width))
 	}
 	if len(m.devRows) > limit {
-		lines = append(lines, subtleStyle.Render(fmt.Sprintf("  +%d more rows hidden by terminal height", len(m.devRows)-limit)))
+		rows = append(rows, subtleStyle.Render(fmt.Sprintf("  +%d more rows hidden by terminal height", len(m.devRows)-limit)))
 	}
+	lines = append(lines, rows...)
 	if entry, ok := m.selectedDeveloperEntry(); ok {
 		lines = append(lines, "")
 		lines = append(lines, tableHeaderStyle.Render(truncate("  Request Detail", width)))
 		lines = append(lines, truncate(fmt.Sprintf("  %s %s  Status %s  Profile %s  Chain %s", entry.Method, entry.URL, statusText(entry.Status), emptyDash(entry.Profile), emptyDash(entry.ChainName)), width))
+		if tl := developerTimingLine(entry.Timings); tl != "" {
+			lines = append(lines, subtleStyle.Render(truncate("  "+tl, width)))
+		}
 		lines = append(lines, subtleStyle.Render(truncate("  "+developerTabsLine(m.selectedDeveloperTab), width)))
 		lines = append(lines, developerDetailTabLines(entry, m.selectedDeveloperTab, width)...)
 		if entry.Error != "" {
@@ -1133,7 +1202,31 @@ func (m model) developerEntryLines(width int) []string {
 	return lines
 }
 
-var developerDetailTabs = []string{"Headers", "Body", "JSON", "Decoded", "Cookies"}
+// developerFilterLine renders the server-side flow-list filter input. While
+// editing (started with /) it shows the in-progress query with a cursor; enter
+// applies it (reload with q=), esc clears it. The filter is a free-text search
+// over method/url/host/chain/status/error/headers/body previews.
+func (m model) developerFilterLine(width int) string {
+	if m.devFilterEditing {
+		return truncate(fmt.Sprintf("  Filter: %s_", m.devFilter), width)
+	}
+	if m.devFilter == "" {
+		return subtleStyle.Render(truncate("  Filter: (press / to search method/url/host/status/body)", width))
+	}
+	return truncate(fmt.Sprintf("  Filter: %s  (press / to edit, enter to re-apply)", m.devFilter), width)
+}
+
+// developerTimingLine renders the connect/SSL/send/wait/receive breakdown for
+// the selected entry. Empty string when no timings were captured.
+func developerTimingLine(t *developerTimingsPayload) string {
+	if t == nil {
+		return ""
+	}
+	return fmt.Sprintf("Timing  connect %.0fms  ssl %.0fms  send %.0fms  wait %.0fms  receive %.0fms",
+		t.Connect, t.SSL, t.Send, t.Wait, t.Receive)
+}
+
+var developerDetailTabs = []string{"Headers", "Body", "Pretty", "Hex", "Decoded", "Cookies"}
 
 func developerTabsLine(active int) string {
 	parts := make([]string, 0, len(developerDetailTabs))
@@ -1153,8 +1246,10 @@ func developerDetailTabLines(entry developerEntryPayload, active, width int) []s
 		return developerHeaderLines(entry, width)
 	case "Body":
 		return developerBodyLines(entry, width)
-	case "JSON":
-		return developerJSONLines(entry, width)
+	case "Pretty":
+		return developerPrettyLines(entry, width)
+	case "Hex":
+		return developerHexLines(entry, width)
 	case "Decoded":
 		return developerDecodedLines(entry, width)
 	case "Cookies":
@@ -1216,23 +1311,54 @@ func developerOneBodyLines(title string, body developerBodyPayload, width int) [
 	return lines
 }
 
-func developerJSONLines(entry developerEntryPayload, width int) []string {
-	lines := developerOneJSONLines("Request", entry.Request.Body, width)
-	lines = append(lines, developerOneJSONLines("Response", entry.Response.Body, width)...)
+func developerPrettyLines(entry developerEntryPayload, width int) []string {
+	lines := developerOnePrettyLines("Request", entry.Request.Body, width)
+	lines = append(lines, developerOnePrettyLines("Response", entry.Response.Body, width)...)
 	return lines
 }
 
-func developerOneJSONLines(title string, body developerBodyPayload, width int) []string {
+// developerOnePrettyLines renders the daemon-side pretty viewer (JSON/XML/form/
+// HTML). When no viewer is present it falls back to a local JSON re-indent of
+// the raw preview, preserving the pre-viewer JSON tab behavior for older
+// daemons. Any non-JSON body without a viewer reports pretty unavailable.
+func developerOnePrettyLines(title string, body developerBodyPayload, width int) []string {
+	if body.Viewer != nil && body.Viewer.Pretty != "" {
+		lines := []string{subtleStyle.Render(truncate("  "+title+" pretty ("+body.Viewer.Kind+")", width))}
+		for _, line := range previewLines(body.Viewer.Pretty, 8) {
+			lines = append(lines, truncate("    "+line, width))
+		}
+		if body.Viewer.PrettyTruncated {
+			lines = append(lines, subtleStyle.Render(truncate("    (pretty preview truncated)", width)))
+		}
+		return lines
+	}
 	text := body.Preview
 	if strings.TrimSpace(text) == "" {
-		return []string{subtleStyle.Render(truncate("  "+title+" JSON none", width))}
+		return []string{subtleStyle.Render(truncate("  "+title+" pretty none", width))}
 	}
 	var buf bytes.Buffer
 	if err := json.Indent(&buf, []byte(text), "", "  "); err != nil {
-		return []string{subtleStyle.Render(truncate("  "+title+" JSON invalid or unavailable", width))}
+		return []string{subtleStyle.Render(truncate("  "+title+" pretty unavailable (no viewer; raw not JSON)", width))}
 	}
-	lines := []string{subtleStyle.Render(truncate("  "+title+" JSON", width))}
-	for _, line := range previewLines(buf.String(), 6) {
+	lines := []string{subtleStyle.Render(truncate("  "+title+" pretty (json)", width))}
+	for _, line := range previewLines(buf.String(), 8) {
+		lines = append(lines, truncate("    "+line, width))
+	}
+	return lines
+}
+
+func developerHexLines(entry developerEntryPayload, width int) []string {
+	lines := developerOneHexLines("Request", entry.Request.Body, width)
+	lines = append(lines, developerOneHexLines("Response", entry.Response.Body, width)...)
+	return lines
+}
+
+func developerOneHexLines(title string, body developerBodyPayload, width int) []string {
+	if body.Viewer == nil || body.Viewer.Hex == "" {
+		return []string{subtleStyle.Render(truncate("  "+title+" hex none", width))}
+	}
+	lines := []string{subtleStyle.Render(truncate("  "+title+" hex", width))}
+	for _, line := range previewLines(body.Viewer.Hex, 10) {
 		lines = append(lines, truncate("    "+line, width))
 	}
 	return lines
@@ -2829,10 +2955,10 @@ func (m model) loadPromptsCmd() tea.Cmd {
 	}
 }
 
-func (m model) resolvePromptCmd(id, action, scope string) tea.Cmd {
+func (m model) resolvePromptCmd(id, action, scope string, matchPort, matchProtocol bool) tea.Cmd {
 	client := m.client
 	return func() tea.Msg {
-		if err := client.resolvePrompt(id, action, scope, false, 0); err != nil {
+		if err := client.resolvePrompt(id, action, scope, false, matchPort, matchProtocol, 0); err != nil {
 			return promptsLoadedMsg{Err: err}
 		}
 		prompts, err := client.pendingPrompts()
@@ -2850,6 +2976,30 @@ func (m *model) clampPromptCursor() {
 	}
 	if m.promptCursor >= len(m.pendingPrompts) {
 		m.promptCursor = len(m.pendingPrompts) - 1
+	}
+}
+
+type silentDecisionsLoadedMsg struct {
+	Decisions []silentDecision
+	Err       error
+}
+
+func (m model) loadSilentDecisionsCmd() tea.Cmd {
+	client := m.client
+	return func() tea.Msg {
+		decisions, err := client.silentDecisions()
+		return silentDecisionsLoadedMsg{Decisions: decisions, Err: err}
+	}
+}
+
+func (m model) promoteSilentDecisionCmd(id, scope string) tea.Cmd {
+	client := m.client
+	return func() tea.Msg {
+		if err := client.promoteSilentDecision(id, scope, false, false, false); err != nil {
+			return silentDecisionsLoadedMsg{Err: err}
+		}
+		decisions, err := client.silentDecisions()
+		return silentDecisionsLoadedMsg{Decisions: decisions, Err: err}
 	}
 }
 
@@ -2872,11 +3022,36 @@ func (m model) renderPromptsSection(width int) string {
 			prefix = "›"
 			style = selectedLineStyle
 		}
-		lines = append(lines, style.Render(truncate(fmt.Sprintf("%s %s -> %s  net %s",
-			prefix, promptProcessLabel(p), emptyDash(promptDestination(p)), emptyDash(p.Network)), width)))
+		detail := fmt.Sprintf("%s %s -> %s  net %s", prefix, promptProcessLabel(p), emptyDash(promptDestination(p)), emptyDash(p.Network))
+		if p.WouldUseChain != "" {
+			detail += "  via " + p.WouldUseChain
+		}
+		if p.CodeSignID != "" {
+			detail += "  signed:" + p.CodeSignID
+		}
+		lines = append(lines, style.Render(truncate(detail, width)))
 	}
-	lines = append(lines, subtleStyle.Render(truncate("  a allow-once  A allow-forever  b block-once  B block-forever  up/down select", width)))
+	lines = append(lines, subtleStyle.Render(truncate("  a allow-once  A allow-forever  u allow-until-quit  b block-once  B block-forever  U block-until-quit  up/down select", width)))
 	return renderSection("Connection Requests", lines)
+}
+
+// renderSilentDecisionsSection renders the Silent Mode review log (auto-decided
+// connections awaiting promotion to a remembered rule). "s" promotes the first
+// entry as a session rule; "S" as a forever rule.
+func (m model) renderSilentDecisionsSection(width int) string {
+	if len(m.silentDecisions) == 0 {
+		return ""
+	}
+	lines := make([]string, 0, len(m.silentDecisions)+1)
+	for _, d := range m.silentDecisions {
+		label := d.ProcessName
+		if label == "" {
+			label = "Unknown process"
+		}
+		lines = append(lines, subtleStyle.Render(truncate(fmt.Sprintf("  %s %s -> %s  %s", d.Action, label, emptyDash(d.Target), emptyDash(d.Network)), width)))
+	}
+	lines = append(lines, subtleStyle.Render(truncate("  s promote-session  S promote-forever (first entry)", width)))
+	return renderSection("Silent Mode Decisions", lines)
 }
 
 // connAppLabel prefixes the application with the owning process name when
@@ -3039,8 +3214,9 @@ func (m model) applySelectedPolicyCmd() tea.Cmd {
 
 func (m model) loadDeveloperCmd() tea.Cmd {
 	client := m.client
+	filter := developerEntryFilter{Query: m.devFilter}
 	return func() tea.Msg {
-		status, entries, err := client.developer()
+		status, entries, err := client.developerWithFilter(filter)
 		return developerLoadedMsg{Status: status, Entries: entries, Err: err}
 	}
 }
@@ -3051,6 +3227,31 @@ func (m model) exportDeveloperHARCmd() tea.Cmd {
 	return func() tea.Msg {
 		err := client.exportDeveloperHAR(path)
 		return developerExportedMsg{Path: path, Err: err}
+	}
+}
+
+// copyDeveloperCurlCmd fetches the cURL rendering of the selected entry and
+// writes it to a temp file (OSC 52 clipboard copy is unreliable on Apple
+// Terminal, a tested TUI target, and writing to stdout would garble the
+// screen). The GUI clients perform a real clipboard copy; the TUI reports the
+// temp path so the operator can `cat`/`pbcopy < path`.
+func (m model) copyDeveloperCurlCmd() tea.Cmd {
+	entry, ok := m.selectedDeveloperEntry()
+	if !ok {
+		return nil
+	}
+	id := entry.ID
+	client := m.client
+	path := filepath.Join(os.TempDir(), fmt.Sprintf("clambhook-%s.curl", id))
+	return func() tea.Msg {
+		curl, err := client.developerEntryCurl(id)
+		if err != nil {
+			return developerCurlMsg{Err: err}
+		}
+		if err := os.WriteFile(path, []byte(curl), 0o600); err != nil {
+			return developerCurlMsg{Err: err}
+		}
+		return developerCurlMsg{Path: path}
 	}
 }
 
@@ -3900,7 +4101,10 @@ func (m model) filteredTraffic() (trafficSnapshotPayload, error) {
 		filterTokenByKey(m.filterTokens, "domain"),
 		filterTokenByKey(m.filterTokens, "country"),
 		filterTokenByKey(m.filterTokens, "port"),
+		filterTokenByKey(m.filterTokens, "process"),
+		filterTokenByKey(m.filterTokens, "network"),
 		filterTokenText(m.filterTokens),
+		0,
 	)
 }
 
@@ -3913,6 +4117,9 @@ func (m model) networkView() string {
 	}
 	if prompts := m.renderPromptsSection(width); prompts != "" {
 		sections = append(sections, prompts)
+	}
+	if silent := m.renderSilentDecisionsSection(width); silent != "" {
+		sections = append(sections, silent)
 	}
 	sections = append(sections,
 		m.renderNetworkTreeSection(width),

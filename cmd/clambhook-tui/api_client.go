@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -123,6 +124,7 @@ type trafficSnapshotPayload struct {
 	UpdatedTsNs        int64                      `json:"updated_ts_ns"`
 	Summary            trafficSummaryPayload      `json:"summary"`
 	Connections        []trafficConnectionPayload `json:"connections"`
+	Total              int                        `json:"total,omitempty"`
 	ProfileContext     profileContextPayload      `json:"profile_context,omitempty"`
 	QuickFilters       []quickFilterPayload       `json:"quick_filters,omitempty"`
 	RuleHits           []ruleHitPayload           `json:"rule_hits,omitempty"`
@@ -332,6 +334,7 @@ type developerEntryPayload struct {
 	Request    developerMessagePayload  `json:"request"`
 	Response   developerMessagePayload  `json:"response"`
 	Decoded    *developerDecodedPayload `json:"decoded,omitempty"`
+	Timings    *developerTimingsPayload `json:"timings,omitempty"`
 	Error      string                   `json:"error,omitempty"`
 }
 
@@ -349,6 +352,25 @@ type developerDecodedFramePayload struct {
 	Truncated bool   `json:"truncated,omitempty"`
 }
 
+// developerTimingsPayload mirrors the daemon's connect/SSL/send/wait/receive
+// breakdown (milliseconds). Nil when no upstream dial happened (e.g. Map Local).
+type developerTimingsPayload struct {
+	Connect float64 `json:"connect,omitempty"`
+	SSL     float64 `json:"ssl,omitempty"`
+	Send    float64 `json:"send,omitempty"`
+	Wait    float64 `json:"wait,omitempty"`
+	Receive float64 `json:"receive,omitempty"`
+}
+
+// developerBodyViewerPayload mirrors the daemon-side pretty/hex viewer so the
+// TUI renders one shared shape instead of reimplementing pretty-print.
+type developerBodyViewerPayload struct {
+	Kind            string `json:"kind,omitempty"`
+	Pretty          string `json:"pretty,omitempty"`
+	PrettyTruncated bool   `json:"pretty_truncated,omitempty"`
+	Hex             string `json:"hex,omitempty"`
+}
+
 type developerMessagePayload struct {
 	Headers []developerHeaderPayload `json:"headers,omitempty"`
 	Cookies []developerCookiePayload `json:"cookies,omitempty"`
@@ -363,14 +385,15 @@ type developerHeaderPayload struct {
 }
 
 type developerBodyPayload struct {
-	Size           int64  `json:"size"`
-	Preview        string `json:"preview,omitempty"`
-	PreviewBase64  string `json:"preview_base64,omitempty"`
-	PreviewBytes   int64  `json:"preview_bytes"`
-	Truncated      bool   `json:"truncated"`
-	TruncatedAfter int64  `json:"truncated_after"`
-	MimeType       string `json:"mime_type,omitempty"`
-	Encoding       string `json:"encoding,omitempty"`
+	Size           int64                       `json:"size"`
+	Preview        string                      `json:"preview,omitempty"`
+	PreviewBase64  string                      `json:"preview_base64,omitempty"`
+	PreviewBytes   int64                       `json:"preview_bytes"`
+	Truncated      bool                        `json:"truncated"`
+	TruncatedAfter int64                       `json:"truncated_after"`
+	MimeType       string                      `json:"mime_type,omitempty"`
+	Encoding       string                      `json:"encoding,omitempty"`
+	Viewer         *developerBodyViewerPayload `json:"viewer,omitempty"`
 }
 
 type developerCookiePayload struct {
@@ -536,7 +559,7 @@ func (c apiClient) policyGroups() (policyGroupsPayload, error) {
 }
 
 // trafficWithFilters fetches traffic with optional token-based filter params.
-func (c apiClient) trafficWithFilters(action, app, domain, country, port, query string) (trafficSnapshotPayload, error) {
+func (c apiClient) trafficWithFilters(action, app, domain, country, port, process, network, query string, offset int) (trafficSnapshotPayload, error) {
 	values := url.Values{"limit": {"200"}}
 	if action != "" {
 		values.Set("action", action)
@@ -553,6 +576,15 @@ func (c apiClient) trafficWithFilters(action, app, domain, country, port, query 
 	if port != "" {
 		values.Set("port", port)
 	}
+	if process != "" {
+		values.Set("process", process)
+	}
+	if network != "" {
+		values.Set("network", network)
+	}
+	if offset > 0 {
+		values.Set("offset", strconv.Itoa(offset))
+	}
 	if query != "" {
 		values.Set("query", query)
 	}
@@ -562,11 +594,15 @@ func (c apiClient) trafficWithFilters(action, app, domain, country, port, query 
 }
 
 func (c apiClient) developer() (developerStatusPayload, []developerEntryPayload, error) {
+	return c.developerWithFilter(developerEntryFilter{})
+}
+
+func (c apiClient) developerWithFilter(filter developerEntryFilter) (developerStatusPayload, []developerEntryPayload, error) {
 	status, err := c.developerStatus()
 	if err != nil {
 		return developerStatusPayload{}, nil, err
 	}
-	entries, err := c.developerEntries()
+	entries, err := c.developerEntries(filter)
 	return status, entries, err
 }
 
@@ -576,10 +612,61 @@ func (c apiClient) developerStatus() (developerStatusPayload, error) {
 	return out, err
 }
 
-func (c apiClient) developerEntries() ([]developerEntryPayload, error) {
+// developerEntryFilter carries the server-side flow-list filter query params.
+// Empty fields match all. Query is a free-text search over method/url/host/
+// chain/status/error/headers/body previews (case-insensitive).
+type developerEntryFilter struct {
+	Method      string
+	StatusMin   int
+	StatusMax   int
+	Host        string
+	Scheme      string
+	ContentType string
+	Query       string
+	ErrorOnly   bool
+}
+
+func (f developerEntryFilter) encode() string {
+	values := url.Values{"limit": {"200"}}
+	if f.Method != "" {
+		values.Set("method", f.Method)
+	}
+	if f.StatusMin > 0 {
+		values.Set("status_min", strconv.Itoa(f.StatusMin))
+	}
+	if f.StatusMax > 0 {
+		values.Set("status_max", strconv.Itoa(f.StatusMax))
+	}
+	if f.Host != "" {
+		values.Set("host", f.Host)
+	}
+	if f.Scheme != "" {
+		values.Set("scheme", f.Scheme)
+	}
+	if f.ContentType != "" {
+		values.Set("content_type", f.ContentType)
+	}
+	if f.Query != "" {
+		values.Set("q", f.Query)
+	}
+	if f.ErrorOnly {
+		values.Set("error_only", "1")
+	}
+	return values.Encode()
+}
+
+func (c apiClient) developerEntries(filter developerEntryFilter) ([]developerEntryPayload, error) {
 	var out developerEntriesPayload
-	err := c.getJSON("/api/v1/developer/entries?limit=200", &out)
+	err := c.getJSON("/api/v1/developer/entries?"+filter.encode(), &out)
 	return out.Entries, err
+}
+
+func (c apiClient) developerEntryCurl(id string) (string, error) {
+	var out struct {
+		Curl string `json:"curl"`
+	}
+	err := c.getJSON("/api/v1/developer/entries/"+url.PathEscape(id)+"/curl", &out)
+	return out.Curl, err
 }
 
 func (c apiClient) clearDeveloperEntries() error {
@@ -745,18 +832,23 @@ type pendingPromptsPayload struct {
 }
 
 type pendingPrompt struct {
-	ID          string `json:"id"`
-	ConnID      string `json:"conn_id,omitempty"`
-	Profile     string `json:"profile,omitempty"`
-	Network     string `json:"network,omitempty"`
-	Target      string `json:"target,omitempty"`
-	TargetHost  string `json:"target_host,omitempty"`
-	TargetPort  string `json:"target_port,omitempty"`
-	PID         int    `json:"pid,omitempty"`
-	ProcessName string `json:"process_name,omitempty"`
-	ProcessPath string `json:"process_path,omitempty"`
-	CreatedAt   string `json:"created_at,omitempty"`
-	Waiters     int    `json:"waiters,omitempty"`
+	ID             string `json:"id"`
+	ConnID         string `json:"conn_id,omitempty"`
+	Profile        string `json:"profile,omitempty"`
+	Network        string `json:"network,omitempty"`
+	Target         string `json:"target,omitempty"`
+	TargetHost     string `json:"target_host,omitempty"`
+	TargetPort     string `json:"target_port,omitempty"`
+	PID            int    `json:"pid,omitempty"`
+	ProcessName    string `json:"process_name,omitempty"`
+	ProcessPath    string `json:"process_path,omitempty"`
+	CreatedAt      string `json:"created_at,omitempty"`
+	ExpiresAt      string `json:"expires_at,omitempty"`
+	Waiters        int    `json:"waiters,omitempty"`
+	WouldUseChain  string `json:"would_use_chain,omitempty"`
+	WouldUseGroup  string `json:"would_use_group,omitempty"`
+	CodeSignID     string `json:"code_sign_id,omitempty"`
+	CodeSignStatus string `json:"code_sign_status,omitempty"`
 }
 
 func (c apiClient) pendingPrompts() ([]pendingPrompt, error) {
@@ -765,17 +857,56 @@ func (c apiClient) pendingPrompts() ([]pendingPrompt, error) {
 	return out.Prompts, err
 }
 
-func (c apiClient) resolvePrompt(id, action, scope string, matchHost bool, ttlSeconds int64) error {
+func (c apiClient) resolvePrompt(id, action, scope string, matchHost, matchPort, matchProtocol bool, ttlSeconds int64) error {
 	body, err := json.Marshal(map[string]any{
-		"action":      action,
-		"scope":       scope,
-		"match_host":  matchHost,
-		"ttl_seconds": ttlSeconds,
+		"action":         action,
+		"scope":          scope,
+		"match_host":     matchHost,
+		"match_port":     matchPort,
+		"match_protocol": matchProtocol,
+		"ttl_seconds":    ttlSeconds,
 	})
 	if err != nil {
 		return err
 	}
 	return c.doNoBody(http.MethodPost, "/api/v1/prompts/"+url.PathEscape(id)+"/resolve", bytes.NewReader(body))
+}
+
+type silentDecision struct {
+	ID          string `json:"id"`
+	Profile     string `json:"profile,omitempty"`
+	Network     string `json:"network,omitempty"`
+	Target      string `json:"target,omitempty"`
+	TargetHost  string `json:"target_host,omitempty"`
+	TargetPort  string `json:"target_port,omitempty"`
+	ProcessName string `json:"process_name,omitempty"`
+	ProcessPath string `json:"process_path,omitempty"`
+	PID         int    `json:"pid,omitempty"`
+	Action      string `json:"action"`
+	TsNs        int64  `json:"ts_ns,omitempty"`
+}
+
+type silentDecisionsPayload struct {
+	Decisions []silentDecision `json:"decisions"`
+}
+
+func (c apiClient) silentDecisions() ([]silentDecision, error) {
+	var out silentDecisionsPayload
+	err := c.getJSON("/api/v1/prompts/decisions", &out)
+	return out.Decisions, err
+}
+
+func (c apiClient) promoteSilentDecision(id, scope string, matchHost, matchPort, matchProtocol bool) error {
+	body, err := json.Marshal(map[string]any{
+		"scope":          scope,
+		"match_host":     matchHost,
+		"match_port":     matchPort,
+		"match_protocol": matchProtocol,
+	})
+	if err != nil {
+		return err
+	}
+	return c.doNoBody(http.MethodPost, "/api/v1/prompts/decisions/"+url.PathEscape(id)+"/promote", bytes.NewReader(body))
 }
 
 func (c apiClient) eventsURL() string {

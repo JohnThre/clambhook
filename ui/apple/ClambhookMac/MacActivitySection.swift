@@ -6,7 +6,6 @@ import SwiftUI
 
 struct MacActivitySection: View {
     @ObservedObject var model: AppleAppModel
-    @State private var filterKind: InspectionFilterKind = .all
     @State private var searchQuery = ""
     @State private var selectedID: String?
     @State private var draftRule: RulePayload?
@@ -14,7 +13,7 @@ struct MacActivitySection: View {
 
     private var filteredConnections: [TrafficConnectionPayload] {
         model.dashboard.traffic.inspectionConnections(
-            filter: filterKind,
+            filter: .all,
             query: searchQuery,
             pinnedIDs: model.pinnedConnectionIDs
         )
@@ -66,25 +65,66 @@ struct MacActivitySection: View {
 
     private var headerBar: some View {
         VStack(spacing: 8) {
-            HStack(spacing: 10) {
-                Picker("Filter", selection: $filterKind) {
-                    Text("All").tag(InspectionFilterKind.all)
-                    Text("Active").tag(InspectionFilterKind.active)
-                    Text("Proxy").tag(InspectionFilterKind.proxy)
-                    Text("Direct").tag(InspectionFilterKind.direct)
-                    Text("Block").tag(InspectionFilterKind.block)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    ForEach(model.dashboard.traffic.quickFilters) { chip in
+                        quickFilterChip(chip)
+                    }
                 }
-                .labelsHidden()
-                .pickerStyle(.segmented)
-                .frame(maxWidth: 360)
-                Spacer()
+            }
+            HStack(spacing: 8) {
+                TextField("Search app, host, rule, chain…", text: $searchQuery)
+                    .textFieldStyle(.roundedBorder)
                 statsLabel
             }
-            TextField("Search app, host, rule, chain…", text: $searchQuery)
-                .textFieldStyle(.roundedBorder)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
+    }
+
+    /// quickFilterChip renders one count-backed monitor filter token from the
+    /// daemon. Tapping it applies the server-side filter (action / country /
+    /// port / process / network) and refreshes the traffic snapshot across the
+    /// full history rather than just the in-memory window.
+    private func quickFilterChip(_ chip: TrafficQuickFilterPayload) -> some View {
+        let selected = isChipSelected(chip.key)
+        return Button {
+            let f = model.monitorFilter.applying(quickFilter: chip.key)
+            model.monitorFilter = f
+            Task { await model.refreshTraffic(filter: f) }
+        } label: {
+            HStack(spacing: 4) {
+                Text(chip.label.isEmpty ? chip.key : chip.label)
+                if chip.count > 0 {
+                    Text("\(chip.count)").monospacedDigit()
+                }
+            }
+            .font(.caption.weight(selected ? .semibold : .regular))
+            .foregroundStyle(selected ? Color.accentColor : Color.secondary)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(selected ? Color.accentColor.opacity(0.18) : Color.secondary.opacity(0.10), in: Capsule())
+        }
+        .buttonStyle(.borderless)
+    }
+
+    private func isChipSelected(_ key: String) -> Bool {
+        let f = model.monitorFilter
+        if key == "all" { return f.isEmpty }
+        if key == "active" { return f.state == "active" }
+        if ["proxy", "direct", "block"].contains(key) { return f.action == key }
+        if let colon = key.firstIndex(of: ":") {
+            let name = String(key[..<colon])
+            let value = String(key[key.index(after: colon)...])
+            switch name {
+            case "country": return f.country == value
+            case "port": return f.port == value
+            case "process": return f.process == value
+            case "network": return f.network == value
+            default: return false
+            }
+        }
+        return false
     }
 
     private var statsLabel: some View {

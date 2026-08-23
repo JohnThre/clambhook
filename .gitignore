@@ -3,6 +3,7 @@
 
 # Build artifacts
 .worktrees/
+build-native/
 bin/
 dist/
 ui/apple/.build/

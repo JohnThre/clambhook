@@ -19,6 +19,7 @@ data class DashboardState(
     val servers: ServersPayload = ServersPayload(),
     val rules: RulesPayload = RulesPayload(),
     val traffic: TrafficSnapshotPayload = TrafficSnapshotPayload(),
+    val monitorFilter: TrafficMonitorFilter = TrafficMonitorFilter(),
     val bandwidthSamples: List<BandwidthSample> = emptyList(),
     val logs: List<String> = emptyList(),
     val apiOnline: Boolean = false,
@@ -64,6 +65,17 @@ class DashboardStore(
             val status = api.status()
             val traffic = api.traffic()
             _state.value = _state.value.copy(status = status, traffic = traffic, apiOnline = true, errorText = "")
+        } catch (e: Exception) {
+            _state.value = _state.value.copy(apiOnline = false, errorText = e.message ?: "error")
+        }
+    }
+
+    /** loadTraffic applies a server-side monitor filter (quickFilter chips +
+     * search) and refreshes the traffic snapshot across the full history. */
+    suspend fun loadTraffic(filter: TrafficMonitorFilter) = mutex.withLock {
+        try {
+            val traffic = api.traffic(filter)
+            _state.value = _state.value.copy(traffic = traffic, monitorFilter = filter, apiOnline = true, errorText = "")
         } catch (e: Exception) {
             _state.value = _state.value.copy(apiOnline = false, errorText = e.message ?: "error")
         }

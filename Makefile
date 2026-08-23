@@ -1,4 +1,4 @@
-.PHONY: all build build-clib build-daemon build-tui build-license install install-linux prepare-apple-runtime generate-apple build-apple check-macos-signing release-macos release-linux upload-release-r2 release-check ci-local macos-release-contract-check package-smoke test-apple test-android build-android-mobile-aar build-android lint-android run-android build-android-release release-android upload-release-android check-linux-ui-deps test-linux build-linux test test-race provision-clambback-e2e e2e e2e-required e2e-release e2e-tun lint clean
+.PHONY: all build build-clib build-daemon build-tui build-license build-native test-native build-linux-gtk install install-linux prepare-apple-runtime generate-apple build-apple check-macos-signing release-macos release-linux upload-release-r2 release-check ci-local macos-release-contract-check package-smoke test-apple test-android test-android-compatibility build-android-mobile-aar build-android lint-android run-android build-android-release release-android upload-release-android check-linux-ui-deps test-linux build-linux test test-race provision-clambback-e2e e2e e2e-required e2e-release e2e-tun lint clean
 
 export CGO_ENABLED=1
 PREFIX ?= /usr/local
@@ -17,6 +17,7 @@ CLAMBBACK_E2E_BINPATH_Darwin := usr/local/bin/clambback
 CLAMBBACK_E2E_ROOT := $(abspath bin/e2e/clambback-$(CLAMBBACK_E2E_VERSION)-$(CLAMBBACK_E2E_OS))
 CLAMBBACK_E2E_BIN := $(CLAMBBACK_E2E_ROOT)/$(CLAMBBACK_E2E_BINPATH_$(CLAMBBACK_E2E_OS))
 E2E_CLAMBBACK_BIN = $(or $(abspath $(CLAMBBACK_BIN)),$(CLAMBBACK_E2E_BIN))
+NATIVE_BUILD_DIR ?= build-native
 
 require-command = @command -v $(1) >/dev/null 2>&1 || { echo "$(1) is required for $(2)." >&2; echo "$(3)" >&2; exit 2; }
 internal-release-notice = @printf '%s\n' "internal-only: this target is for developer QA/build validation and must not publish end-user installers or packages on GitHub."
@@ -47,6 +48,22 @@ build-license:
 	go build -ldflags "$(GO_LDFLAGS)" -o bin/clambhook-license ./cmd/clambhook-license
 
 build: build-daemon build-tui build-license
+
+# Additive C migration targets. The shipping daemon remains on the legacy
+# implementation until the documented parity gates pass.
+build-native:
+	cmake -S . -B "$(NATIVE_BUILD_DIR)" -G Ninja
+	cmake --build "$(NATIVE_BUILD_DIR)"
+
+test-native:
+	cmake -S . -B "$(NATIVE_BUILD_DIR)" -G Ninja -DCLAMBHOOK_ENABLE_SANITIZERS=ON
+	cmake --build "$(NATIVE_BUILD_DIR)"
+	ctest --test-dir "$(NATIVE_BUILD_DIR)" --output-on-failure
+	cmake --build "$(NATIVE_BUILD_DIR)" --target native-license-parity
+
+build-linux-gtk:
+	cmake -S . -B "$(NATIVE_BUILD_DIR)" -G Ninja -DCLAMBHOOK_BUILD_GTK=ON
+	cmake --build "$(NATIVE_BUILD_DIR)" --target clambhook-linux-c
 
 install: build
 	install -d "$(DESTDIR)$(PREFIX)/bin"
@@ -128,6 +145,11 @@ test-apple:
 test-android:
 	cd ui/android && ANDROID_HOME="$(ANDROID_HOME)" ./gradlew :app:testDebugUnitTest
 
+# Runs Compose instrumentation tests on Android 11, 13, and 16 (API
+# 30/33/36) using Gradle build-managed AOSP devices.
+test-android-compatibility:
+	cd ui/android && ANDROID_HOME="$(ANDROID_HOME)" ./gradlew :app:androidCompatibilityGroupDebugAndroidTest -Pclambhook.managedDeviceTestAbi=arm64-v8a -Pandroid.experimental.testOptions.managedDevices.maxConcurrentDevices=1 -Pandroid.testoptions.manageddevices.emulator.gpu=swiftshader_indirect
+
 build-android-mobile-aar:
 	./scripts/build-android-mobile-aar.sh
 
@@ -206,6 +228,7 @@ lint:
 
 clean:
 	rm -rf bin/
+	rm -rf "$(NATIVE_BUILD_DIR)/"
 	rm -rf ui/apple/Frameworks/*.xcframework
 	rm -rf ui/android/build/ ui/android/app/build/ ui/android/app/libs/
 	rm -rf ui/linux/builddir/

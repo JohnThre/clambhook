@@ -7,7 +7,13 @@ $(error libsodium not found via pkg-config. Install it with `apt install libsodi
 endif
 
 SODIUM_CFLAGS := $(shell pkg-config --cflags libsodium)
-CFLAGS = -Wall -Wextra -O2 -fPIC $(SODIUM_CFLAGS)
+OPENSSL_OK := $(shell pkg-config --exists openssl && echo ok)
+ifneq ($(OPENSSL_OK),ok)
+$(error OpenSSL not found via pkg-config. Install libssl-dev on Debian/Ubuntu, openssl-devel on Fedora, or openssl@3 with Homebrew.)
+endif
+
+OPENSSL_CFLAGS := $(shell pkg-config --cflags openssl)
+CFLAGS = -Wall -Wextra -O2 -fPIC $(SODIUM_CFLAGS) $(OPENSSL_CFLAGS)
 
 SRCS = src/crypto.c
 OBJS = $(SRCS:.c=.o)

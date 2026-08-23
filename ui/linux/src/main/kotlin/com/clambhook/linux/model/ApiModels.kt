@@ -186,10 +186,19 @@ data class TrafficRuleSuggestionPayload(
 )
 
 @Serializable
+data class TrafficQuickFilterPayload(
+    val key: String = "",
+    val label: String = "",
+    val count: Int = 0
+)
+
+@Serializable
 data class TrafficSnapshotPayload(
     @SerialName("updated_ts_ns") val updatedTsNs: Long = 0,
     val summary: TrafficSummaryPayload = TrafficSummaryPayload(),
     val connections: List<TrafficConnectionPayload> = emptyList(),
+    val total: Int = 0,
+    @SerialName("quick_filters") val quickFilters: List<TrafficQuickFilterPayload> = emptyList(),
     @SerialName("cleanup_suggestions") val cleanupSuggestions: List<TrafficCleanupSuggestionPayload> = emptyList(),
     @SerialName("rule_suggestions") val ruleSuggestions: List<TrafficRuleSuggestionPayload> = emptyList()
 )
@@ -234,15 +243,42 @@ data class PromptPayload(
     val network: String = "",
     val target: String = "",
     @SerialName("target_host") val targetHost: String = "",
+    @SerialName("target_port") val targetPort: String = "",
     @SerialName("process_name") val processName: String = "",
     @SerialName("process_path") val processPath: String = "",
     val pid: Int = 0,
-    val waiters: Int = 0
+    val waiters: Int = 0,
+    @SerialName("expires_at") val expiresAt: String = "",
+    @SerialName("would_use_chain") val wouldUseChain: String = "",
+    @SerialName("would_use_group") val wouldUseGroup: String = "",
+    @SerialName("code_sign_id") val codeSignID: String = "",
+    @SerialName("code_sign_status") val codeSignStatus: String = ""
 )
 
 @Serializable
 data class PromptsPayload(
     val prompts: List<PromptPayload> = emptyList()
+)
+
+@Serializable
+data class SilentDecisionPayload(
+    val id: String = "",
+    val profile: String = "",
+    val network: String = "",
+    val target: String = "",
+    @SerialName("target_host") val targetHost: String = "",
+    @SerialName("target_port") val targetPort: String = "",
+    @SerialName("process_name") val processName: String = "",
+    @SerialName("process_path") val processPath: String = "",
+    val pid: Int = 0,
+    @SerialName("code_sign_id") val codeSignID: String = "",
+    val action: String = "",
+    @SerialName("ts_ns") val tsNs: Long = 0
+)
+
+@Serializable
+data class SilentDecisionsPayload(
+    val decisions: List<SilentDecisionPayload> = emptyList()
 )
 
 @Serializable
@@ -302,6 +338,14 @@ data class CapturedHeaderPayload(
 )
 
 @Serializable
+data class CapturedBodyViewerPayload(
+    val kind: String = "",
+    val pretty: String = "",
+    @SerialName("pretty_truncated") val prettyTruncated: Boolean = false,
+    val hex: String = ""
+)
+
+@Serializable
 data class CapturedBodyPayload(
     val size: Long = 0,
     val preview: String = "",
@@ -310,7 +354,8 @@ data class CapturedBodyPayload(
     val truncated: Boolean = false,
     @SerialName("truncated_after") val truncatedAfter: Long = 0,
     @SerialName("mime_type") val mimeType: String = "",
-    val encoding: String = ""
+    val encoding: String = "",
+    val viewer: CapturedBodyViewerPayload? = null
 )
 
 @Serializable
@@ -337,6 +382,15 @@ data class DecodedPayload(
 )
 
 @Serializable
+data class DeveloperTimingsPayload(
+    val connect: Double = 0.0,
+    val ssl: Double = 0.0,
+    val send: Double = 0.0,
+    val wait: Double = 0.0,
+    val receive: Double = 0.0
+)
+
+@Serializable
 data class DeveloperEntryPayload(
     val id: String = "",
     val method: String = "",
@@ -348,7 +402,13 @@ data class DeveloperEntryPayload(
     val error: String = "",
     val request: CapturedMessagePayload = CapturedMessagePayload(),
     val response: CapturedMessagePayload = CapturedMessagePayload(),
-    val decoded: DecodedPayload? = null
+    val decoded: DecodedPayload? = null,
+    val timings: DeveloperTimingsPayload? = null,
+    @SerialName("started_at") val startedAt: String = "",
+    @SerialName("finished_at") val finishedAt: String = "",
+    val scheme: String = "",
+    @SerialName("chain_name") val chainName: String = "",
+    val profile: String = ""
 ) {
     val statusCode: Int get() = if (status != 0) status else statusCodeAlt
 }
@@ -357,6 +417,59 @@ data class DeveloperEntryPayload(
 data class DeveloperEntriesPayload(
     val entries: List<DeveloperEntryPayload> = emptyList()
 )
+
+@Serializable
+data class DeveloperRepeatResponsePayload(
+    val entry: DeveloperEntryPayload = DeveloperEntryPayload()
+)
+
+@Serializable
+data class CurlExportResponse(val curl: String = "")
+
+@Serializable
+data class CurlImportRequest(val curl: String = "")
+
+@Serializable
+data class ParsedCurlResponse(
+    val method: String = "GET",
+    val url: String = "",
+    val headers: List<CapturedHeaderPayload> = emptyList(),
+    val body: String = ""
+)
+
+@Serializable
+data class ComposedRequestPayload(
+    val method: String = "GET",
+    val url: String = "",
+    val headers: List<CapturedHeaderPayload> = emptyList(),
+    val body: String? = null
+)
+
+data class DeveloperEntriesFilter(
+    val method: String = "",
+    val statusMin: Int = 0,
+    val statusMax: Int = 0,
+    val host: String = "",
+    val scheme: String = "",
+    val contentType: String = "",
+    val query: String = "",
+    val errorOnly: Boolean = false
+) {
+    fun entriesPath(): String {
+        val items = mutableListOf("limit=200")
+        if (method.isNotEmpty()) items.add("method=" + enc(method))
+        if (statusMin > 0) items.add("status_min=$statusMin")
+        if (statusMax > 0) items.add("status_max=$statusMax")
+        if (host.isNotEmpty()) items.add("host=" + enc(host))
+        if (scheme.isNotEmpty()) items.add("scheme=" + enc(scheme))
+        if (contentType.isNotEmpty()) items.add("content_type=" + enc(contentType))
+        if (query.isNotEmpty()) items.add("q=" + enc(query))
+        if (errorOnly) items.add("error_only=1")
+        return "/api/v1/developer/entries?" + items.joinToString("&")
+    }
+    private fun enc(v: String) = java.net.URLEncoder.encode(v, "UTF-8")
+}
+
 
 @Serializable
 data class ConditionerPayload(
@@ -380,3 +493,59 @@ data class ConditionerUpdateRequest(
     val jitter: String? = null,
     @SerialName("loss_percent") val lossPercent: Double? = null
 )
+
+/**
+ * Server-side filter parameters for the live connection monitor
+ * (GET /api/v1/traffic). The daemon filters across the full history rather than
+ * the in-memory window a client-side filter would see, so a quickFilter chip or
+ * search box reaches connections beyond the returned page.
+ */
+data class TrafficMonitorFilter(
+    val state: String = "",
+    val action: String = "",
+    val profile: String = "",
+    val rule: String = "",
+    val country: String = "",
+    val port: String = "",
+    val process: String = "",
+    val network: String = "",
+    val app: String = "",
+    val domain: String = "",
+    val query: String = "",
+    val limit: Int = 200,
+    val offset: Int = 0,
+) {
+    fun queryPairs(): List<Pair<String, String>> {
+        val pairs = mutableListOf<Pair<String, String>>()
+        fun add(name: String, value: String) { if (value.isNotBlank()) pairs.add(name to value) }
+        add("state", state); add("action", action); add("profile", profile); add("rule", rule)
+        add("country", country); add("port", port); add("process", process); add("network", network)
+        add("app", app); add("domain", domain); add("query", query)
+        pairs.add("limit" to limit.toString())
+        if (offset > 0) pairs.add("offset" to offset.toString())
+        return pairs
+    }
+
+    fun isEmpty(): Boolean = state.isBlank() && action.isBlank() && profile.isBlank() && rule.isBlank() &&
+        country.isBlank() && port.isBlank() && process.isBlank() && network.isBlank() &&
+        app.isBlank() && domain.isBlank() && query.isBlank()
+
+    /** applyingQuickFilter returns a new filter with a quickFilter chip applied. */
+    fun applyingQuickFilter(key: String): TrafficMonitorFilter {
+        if (key == "all") return copy(action = "", state = "", country = "", port = "", process = "", network = "")
+        if (key == "active") return copy(state = "active")
+        if (key == "proxy" || key == "direct" || key == "block") return copy(action = key)
+        val colon = key.indexOf(':')
+        if (colon > 0) {
+            val name = key.substring(0, colon); val value = key.substring(colon + 1)
+            return when (name) {
+                "country" -> copy(country = value)
+                "port" -> copy(port = value)
+                "process" -> copy(process = value)
+                "network" -> copy(network = value)
+                else -> this
+            }
+        }
+        return this
+    }
+}

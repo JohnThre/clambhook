@@ -48,11 +48,30 @@ capability approvals while preserving a practical direct-download macOS path.
 
 - have: HTTP(S) capture list, request/response detail, breakpoints, map local,
   map remote, repeat, HAR export, and CA install/trust.
-- have: compose / edit-and-send request through the daemon Repeat endpoint.
+- have: compose / edit-and-send request through the daemon. Compose uses the
+  standalone `/api/v1/developer/send` endpoint; repeat re-sends a captured
+  transaction through `/api/v1/developer/repeat`.
+- have: cURL import and export. A captured transaction serializes to a runnable
+  cURL command (`GET /api/v1/developer/entries/{id}/curl`), and a pasted cURL
+  command parses back into the composer (`POST /api/v1/developer/curl/import`).
+  The importer is a bounded, stdlib-only shell tokenizer; it accepts the common
+  cURL flag subset and best-effort ignores unknown flags.
+- have: server-side flow-list filtering (method, status range, host, scheme,
+  content type, errors-only, and free-text search over method/URL/host/chain/
+  status/error/headers/body previews) via `GET /api/v1/developer/entries` query
+  params, so all clients share one filter semantics.
+- have: daemon-side body viewers (pretty JSON/XML/form/HTML plus a hex dump)
+  computed once and rendered by every client, with a local JSON re-indent
+  fallback for older daemons.
+- have: HAR 1.2 timings (connect/SSL/send/wait/receive) captured around network
+  I/O only, so breakpoint and rewrite pauses are excluded from the breakdown.
 - have (v1.1): network throttling / conditioner (per-profile bandwidth caps,
   latency/jitter, packet-loss, live-toggled via `GET`/`PUT /api/v1/conditioner`)
   and daemon-side protocol-specific viewers (WebSocket / gRPC / GraphQL) rendered
   across all four clients. See docs/roadmap.md.
+- out of scope: Proxyman-style save sessions / automatic request grouping rules
+  are not planned; rule-based routing plus the capture filter cover the targeted
+  workflows.
 
 ## Release-Gating Decision
 

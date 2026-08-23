@@ -4,6 +4,7 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.Rule
 import org.junit.Test
@@ -12,7 +13,7 @@ import org.junit.runner.RunWith
 /**
  * Drives the on-device HTTP capture detail viewer end to end: renders the
  * Activity dashboard with a fabricated capture entry, opens the detail dialog,
- * and switches through Headers / Body / JSON / Cookies tabs asserting the
+ * and switches through Headers / Body / Pretty / Cookies tabs asserting the
  * rendered content. Independent of the daemon capture pipeline.
  */
 @RunWith(AndroidJUnit4::class)
@@ -107,28 +108,28 @@ class CaptureDetailViewerTest {
         composeRule.onNodeWithText("HTTP Capture").assertIsDisplayed()
 
         // Open the detail dialog for the captured transaction.
-        composeRule.onNodeWithText("POST api.example.test", substring = true).performClick()
+        composeRule.onNodeWithText("POST api.example.test", substring = true).performScrollTo().performClick()
 
         // Request side is the default; header name renders in the Headers tab.
-        composeRule.onNodeWithText("content-type").assertIsDisplayed()
+        composeRule.onNodeWithText("content-type").performScrollTo().assertIsDisplayed()
 
         // Body tab shows the request body preview.
-        composeRule.onNodeWithText("Body").performClick()
-        composeRule.onNodeWithText("\"ok\":true", substring = true).assertIsDisplayed()
+        composeRule.onNodeWithText("Body").performScrollTo().performClick()
+        composeRule.onNodeWithText("\"ok\":true", substring = true).performScrollTo().assertIsDisplayed()
 
-        // JSON tab pretty-prints the request body preview.
-        composeRule.onNodeWithText("JSON").performClick()
-        composeRule.onNodeWithText("\"id\"", substring = true).assertIsDisplayed()
+        // Pretty tab formats the JSON request body preview.
+        composeRule.onNodeWithText("Pretty").performScrollTo().performClick()
+        composeRule.onNodeWithText("\"id\"", substring = true).performScrollTo().assertIsDisplayed()
 
         // Cookies tab renders the captured request cookie name and attributes.
-        composeRule.onNodeWithText("Cookies").performClick()
-        composeRule.onNodeWithText("session").assertIsDisplayed()
-        composeRule.onNodeWithText("httponly", substring = true).assertIsDisplayed()
+        composeRule.onNodeWithText("Cookies").performScrollTo().performClick()
+        composeRule.onNodeWithText("session").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("httponly", substring = true).performScrollTo().assertIsDisplayed()
 
         // Switching to the Response side shows the response body preview.
-        composeRule.onNodeWithText("Response").performClick()
-        composeRule.onNodeWithText("Body").performClick()
-        composeRule.onNodeWithText("done", substring = true).assertIsDisplayed()
+        composeRule.onNodeWithText("Response").performScrollTo().performClick()
+        composeRule.onNodeWithText("Body").performScrollTo().performClick()
+        composeRule.onNodeWithText("done", substring = true).performScrollTo().assertIsDisplayed()
 
         // Close returns to the card.
         composeRule.onNodeWithText("Close").performClick()
@@ -142,15 +143,15 @@ class CaptureDetailViewerTest {
         composeRule.onNodeWithText("HTTP Capture").assertIsDisplayed()
 
         // Open the detail dialog for the decoded (websocket) transaction.
-        composeRule.onNodeWithText("GET socket.example.test", substring = true).performClick()
+        composeRule.onNodeWithText("GET socket.example.test", substring = true).performScrollTo().performClick()
 
         // The Decoded tab is present because the entry carries decoded frames.
-        composeRule.onNodeWithText("Decoded").performClick()
+        composeRule.onNodeWithText("Decoded").performScrollTo().performClick()
 
         // The decoded kind and the frame label + preview are rendered.
-        composeRule.onNodeWithText("Decoded websocket", substring = true).assertIsDisplayed()
-        composeRule.onNodeWithText("server", substring = true).assertIsDisplayed()
-        composeRule.onNodeWithText("hello", substring = true).assertIsDisplayed()
+        composeRule.onNodeWithText("Decoded websocket", substring = true).performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("server", substring = true).performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("hello", substring = true).performScrollTo().assertIsDisplayed()
 
         composeRule.onNodeWithText("Close").performClick()
         composeRule.onNodeWithText("HTTP Capture").assertIsDisplayed()
@@ -160,7 +161,7 @@ class CaptureDetailViewerTest {
     fun entryWithoutDecodedHasNoDecodedTab() {
         renderActivity()
 
-        composeRule.onNodeWithText("POST api.example.test", substring = true).performClick()
+        composeRule.onNodeWithText("POST api.example.test", substring = true).performScrollTo().performClick()
 
         // No Decoded tab is offered for a plain HTTP entry.
         composeRule.onNodeWithText("Decoded").assertDoesNotExist()

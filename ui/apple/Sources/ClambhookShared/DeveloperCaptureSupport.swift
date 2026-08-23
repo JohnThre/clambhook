@@ -279,6 +279,39 @@ public struct DeveloperDecodedPayload: Codable, Equatable, Sendable {
     }
 }
 
+public struct DeveloperTimingsPayload: Codable, Equatable, Sendable {
+    public var connect: Double
+    public var ssl: Double
+    public var send: Double
+    public var wait: Double
+    public var receive: Double
+
+    enum CodingKeys: String, CodingKey {
+        case connect
+        case ssl
+        case send
+        case wait
+        case receive
+    }
+
+    public init(connect: Double = 0, ssl: Double = 0, send: Double = 0, wait: Double = 0, receive: Double = 0) {
+        self.connect = connect
+        self.ssl = ssl
+        self.send = send
+        self.wait = wait
+        self.receive = receive
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.connect = try container.decodeIfPresent(Double.self, forKey: .connect) ?? 0
+        self.ssl = try container.decodeIfPresent(Double.self, forKey: .ssl) ?? 0
+        self.send = try container.decodeIfPresent(Double.self, forKey: .send) ?? 0
+        self.wait = try container.decodeIfPresent(Double.self, forKey: .wait) ?? 0
+        self.receive = try container.decodeIfPresent(Double.self, forKey: .receive) ?? 0
+    }
+}
+
 public struct DeveloperEntryPayload: Codable, Equatable, Identifiable, Sendable {
     public var id: String
     public var connID: String
@@ -296,6 +329,7 @@ public struct DeveloperEntryPayload: Codable, Equatable, Identifiable, Sendable 
     public var response: DeveloperMessagePayload
     public var error: String
     public var decoded: DeveloperDecodedPayload?
+    public var timings: DeveloperTimingsPayload?
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -314,6 +348,7 @@ public struct DeveloperEntryPayload: Codable, Equatable, Identifiable, Sendable 
         case response
         case error
         case decoded
+        case timings
     }
 
     public init(
@@ -332,7 +367,8 @@ public struct DeveloperEntryPayload: Codable, Equatable, Identifiable, Sendable 
         request: DeveloperMessagePayload = DeveloperMessagePayload(),
         response: DeveloperMessagePayload = DeveloperMessagePayload(),
         error: String = "",
-        decoded: DeveloperDecodedPayload? = nil
+        decoded: DeveloperDecodedPayload? = nil,
+        timings: DeveloperTimingsPayload? = nil
     ) {
         self.id = id
         self.connID = connID
@@ -350,6 +386,7 @@ public struct DeveloperEntryPayload: Codable, Equatable, Identifiable, Sendable 
         self.response = response
         self.error = error
         self.decoded = decoded
+        self.timings = timings
     }
 
     public init(from decoder: Decoder) throws {
@@ -370,6 +407,7 @@ public struct DeveloperEntryPayload: Codable, Equatable, Identifiable, Sendable 
         self.response = try container.decodeIfPresent(DeveloperMessagePayload.self, forKey: .response) ?? DeveloperMessagePayload()
         self.error = try container.decodeIfPresent(String.self, forKey: .error) ?? ""
         self.decoded = try container.decodeIfPresent(DeveloperDecodedPayload.self, forKey: .decoded)
+        self.timings = try container.decodeIfPresent(DeveloperTimingsPayload.self, forKey: .timings)
     }
 
     public var hasDecoded: Bool { (decoded?.frames.isEmpty == false) }
@@ -407,11 +445,58 @@ public struct DeveloperHeaderPayload: Codable, Equatable, Identifiable, Sendable
     public var redacted: Bool
     public var truncated: Bool
 
+    enum CodingKeys: String, CodingKey {
+        case name
+        case value
+        case redacted
+        case truncated
+    }
+
     public init(name: String = "", value: String = "", redacted: Bool = false, truncated: Bool = false) {
         self.name = name
         self.value = value
         self.redacted = redacted
         self.truncated = truncated
+    }
+
+    // Tolerant decode: the daemon omits redacted/truncated (omitempty) for
+    // normal headers and for parsed-cURL headers, so decode them as false when
+    // absent rather than throwing.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.name = try c.decodeIfPresent(String.self, forKey: .name) ?? ""
+        self.value = try c.decodeIfPresent(String.self, forKey: .value) ?? ""
+        self.redacted = try c.decodeIfPresent(Bool.self, forKey: .redacted) ?? false
+        self.truncated = try c.decodeIfPresent(Bool.self, forKey: .truncated) ?? false
+    }
+}
+
+public struct DeveloperBodyViewerPayload: Codable, Equatable, Sendable {
+    public var kind: String
+    public var pretty: String
+    public var prettyTruncated: Bool
+    public var hex: String
+
+    enum CodingKeys: String, CodingKey {
+        case kind
+        case pretty
+        case prettyTruncated = "pretty_truncated"
+        case hex
+    }
+
+    public init(kind: String = "", pretty: String = "", prettyTruncated: Bool = false, hex: String = "") {
+        self.kind = kind
+        self.pretty = pretty
+        self.prettyTruncated = prettyTruncated
+        self.hex = hex
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.kind = try container.decodeIfPresent(String.self, forKey: .kind) ?? ""
+        self.pretty = try container.decodeIfPresent(String.self, forKey: .pretty) ?? ""
+        self.prettyTruncated = try container.decodeIfPresent(Bool.self, forKey: .prettyTruncated) ?? false
+        self.hex = try container.decodeIfPresent(String.self, forKey: .hex) ?? ""
     }
 }
 
@@ -424,6 +509,7 @@ public struct DeveloperBodyPayload: Codable, Equatable, Sendable {
     public var truncatedAfter: UInt64
     public var mimeType: String
     public var encoding: String
+    public var viewer: DeveloperBodyViewerPayload?
 
     enum CodingKeys: String, CodingKey {
         case size
@@ -434,9 +520,13 @@ public struct DeveloperBodyPayload: Codable, Equatable, Sendable {
         case truncatedAfter = "truncated_after"
         case mimeType = "mime_type"
         case encoding
+        case viewer
     }
 
-    public init(size: UInt64 = 0, preview: String = "", previewBase64: String = "", previewBytes: UInt64 = 0, truncated: Bool = false, truncatedAfter: UInt64 = 0, mimeType: String = "", encoding: String = "") {
+    // pi-lens-ignore: line_length
+    public init(size: UInt64 = 0, preview: String = "", previewBase64: String = "", previewBytes: UInt64 = 0, truncated: Bool = false, truncatedAfter: UInt64 = 0, mimeType: String = "", encoding: String = "",
+        viewer: DeveloperBodyViewerPayload? = nil
+    ) {
         self.size = size
         self.preview = preview
         self.previewBase64 = previewBase64
@@ -445,6 +535,7 @@ public struct DeveloperBodyPayload: Codable, Equatable, Sendable {
         self.truncatedAfter = truncatedAfter
         self.mimeType = mimeType
         self.encoding = encoding
+        self.viewer = viewer
     }
 
     public init(from decoder: Decoder) throws {
@@ -457,6 +548,7 @@ public struct DeveloperBodyPayload: Codable, Equatable, Sendable {
         self.truncatedAfter = try container.decodeIfPresent(UInt64.self, forKey: .truncatedAfter) ?? 0
         self.mimeType = try container.decodeIfPresent(String.self, forKey: .mimeType) ?? ""
         self.encoding = try container.decodeIfPresent(String.self, forKey: .encoding) ?? ""
+        self.viewer = try container.decodeIfPresent(DeveloperBodyViewerPayload.self, forKey: .viewer)
     }
 
     public var hasPreview: Bool {
@@ -490,6 +582,7 @@ public struct DeveloperCookiePayload: Codable, Equatable, Identifiable, Sendable
         case sameSite = "same_site"
     }
 
+    // pi-lens-ignore: line_length
     public init(name: String = "", value: String = "", redacted: Bool = false, domain: String = "", path: String = "", expires: String = "", maxAge: Int = 0, secure: Bool = false, httpOnly: Bool = false, sameSite: String = "") {
         self.name = name
         self.value = value
@@ -570,6 +663,7 @@ public struct DeveloperMapRulePayload: Codable, Equatable, Identifiable, Sendabl
         case headers
     }
 
+    // pi-lens-ignore: line_length
     public init(id: String = UUID().uuidString, name: String = "", enabled: Bool = true, match: DeveloperMatchPayload = DeveloperMatchPayload(), kind: String = "local", localPath: String = "", remoteURL: String = "", status: Int = 0, headers: [String: String] = [:]) {
         self.id = id
         self.name = name
@@ -770,17 +864,127 @@ public struct DeveloperBreakpointResolutionPayload: Codable, Equatable, Sendable
 }
 
 public let developerCaptureDisclosure = """
+// pi-lens-ignore: line_length
 HTTP Capture is opt-in and local. When enabled, ClambHook stores bounded HTTP request and response previews on this Mac for traffic routed through the daemon HTTP proxy. Sensitive headers and configured query parameters are redacted before captures are stored.
 """
 
 public let developerHTTPSCaptureDisclosure = """
+// pi-lens-ignore: line_length
 HTTPS capture is a separate opt-in. It creates a local certificate authority, requires you to trust that CA in your user keychain, and decrypts HTTPS traffic routed through the daemon HTTP proxy. Only enable it for devices and test traffic you control.
 """
 
 public let developerSSLDecryptHostsDisclosure = """
+// pi-lens-ignore: line_length
 Leave blank to decrypt every HTTPS host. Enter comma-separated hostnames or wildcard patterns (for example example.com, *.example.com) to restrict decryption to matching hosts only; other hosts pass through as an opaque tunnel.
 """
 
 public let developerHARExportDisclosure = """
 HAR exports can include URLs, headers, cookies, and request or response body previews. Review the file before sharing it outside this Mac.
 """
+
+
+// MARK: - Capture filter, cURL, and compose
+
+public struct DeveloperEntriesFilter: Equatable, Sendable {
+    public var method: String
+    public var statusMin: Int
+    public var statusMax: Int
+    public var host: String
+    public var scheme: String
+    public var contentType: String
+    public var query: String
+    public var errorOnly: Bool
+
+    public init(method: String = "", statusMin: Int = 0, statusMax: Int = 0, host: String = "", scheme: String = "", contentType: String = "", query: String = "", errorOnly: Bool = false) {
+        self.method = method
+        self.statusMin = statusMin
+        self.statusMax = statusMax
+        self.host = host
+        self.scheme = scheme
+        self.contentType = contentType
+        self.query = query
+        self.errorOnly = errorOnly
+    }
+
+    public var isEmpty: Bool {
+        method.isEmpty && statusMin == 0 && statusMax == 0 && host.isEmpty && scheme.isEmpty && contentType.isEmpty && query.isEmpty && !errorOnly
+    }
+
+    /// entriesPath returns the /developer/entries path with this filter's query items.
+    public func entriesPath() -> String {
+        var items: [String] = ["limit=200"]
+        if !method.isEmpty { items.append("method=" + percentEncode(method)) }
+        if statusMin > 0 { items.append("status_min=\(statusMin)") }
+        if statusMax > 0 { items.append("status_max=\(statusMax)") }
+        if !host.isEmpty { items.append("host=" + percentEncode(host)) }
+        if !scheme.isEmpty { items.append("scheme=" + percentEncode(scheme)) }
+        if !contentType.isEmpty { items.append("content_type=" + percentEncode(contentType)) }
+        if !query.isEmpty { items.append("q=" + percentEncode(query)) }
+        if errorOnly { items.append("error_only=1") }
+        return "/api/v1/developer/entries?" + items.joined(separator: "&")
+    }
+
+    private func percentEncode(_ value: String) -> String {
+        value.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? value
+    }
+}
+
+public struct CurlExportResponse: Codable, Equatable, Sendable {
+    public var curl: String
+    public init(curl: String = "") { self.curl = curl }
+}
+
+public struct CurlImportRequest: Codable, Equatable, Sendable {
+    public var curl: String
+    public init(curl: String = "") { self.curl = curl }
+}
+
+public struct ParsedCurlResponse: Codable, Equatable, Sendable {
+    public var method: String
+    public var url: String
+    public var headers: [DeveloperHeaderPayload]
+    public var body: String
+
+    enum CodingKeys: String, CodingKey {
+        case method
+        case url
+        case headers
+        case body
+    }
+
+    public init(method: String = "GET", url: String = "", headers: [DeveloperHeaderPayload] = [], body: String = "") {
+        self.method = method
+        self.url = url
+        self.headers = headers
+        self.body = body
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.method = try container.decodeIfPresent(String.self, forKey: .method) ?? "GET"
+        self.url = try container.decodeIfPresent(String.self, forKey: .url) ?? ""
+        self.headers = try container.decodeIfPresent([DeveloperHeaderPayload].self, forKey: .headers) ?? []
+        self.body = try container.decodeIfPresent(String.self, forKey: .body) ?? ""
+    }
+}
+
+public struct ComposedRequestPayload: Codable, Equatable, Sendable {
+    public var method: String
+    public var url: String
+    public var headers: [DeveloperHeaderPayload]
+    public var body: String?
+
+    enum CodingKeys: String, CodingKey {
+        case method
+        case url
+        case headers
+        case body
+    }
+
+    public init(method: String = "GET", url: String = "", headers: [DeveloperHeaderPayload] = [], body: String? = nil) {
+        self.method = method
+        self.url = url
+        self.headers = headers
+        self.body = body
+    }
+}

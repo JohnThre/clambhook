@@ -24,6 +24,7 @@ type Rule struct {
 	SourceConnID     string            `json:"source_conn_id,omitempty"`
 	SourceTarget     string            `json:"source_target,omitempty"`
 	SourceTargetHost string            `json:"source_target_host,omitempty"`
+	UntilQuitPID     int               `json:"until_quit_pid,omitempty"`
 }
 
 // CreateRequest describes a temporary rule to install.
@@ -34,6 +35,7 @@ type CreateRequest struct {
 	SourceConnID     string
 	SourceTarget     string
 	SourceTargetHost string
+	UntilQuitPID     int
 }
 
 // Manager stores temporary rules ordered by creation time. Newer temporary
@@ -47,12 +49,14 @@ type CreateRequest struct {
 // unchanged hot path under a shared read lock and escalate to an exclusive
 // lock only when a rule is due to expire.
 type Manager struct {
-	mu           sync.RWMutex
-	rules        []Rule
-	generation   uint64
-	nextExpiryNs int64
-	cache        map[string]*compiledProfile
-	compileCount uint64
+	mu              sync.RWMutex
+	rules           []Rule
+	generation      uint64
+	nextExpiryNs    int64
+	cache           map[string]*compiledProfile
+	compileCount    uint64
+	pidAlive        func(int) bool
+	pidPollInterval time.Duration
 }
 
 // compiledProfile is a cached, immutable compilation of a profile's temporary
@@ -68,7 +72,12 @@ type compiledProfile struct {
 }
 
 // New creates an empty temporary-rule manager.
-func New() *Manager { return &Manager{} }
+func New() *Manager {
+	return &Manager{
+		pidAlive:        defaultPIDAlive,
+		pidPollInterval: time.Second,
+	}
+}
 
 // Create installs a temporary rule and returns the stored rule with ID and
 // timestamps populated.
@@ -90,6 +99,12 @@ func (m *Manager) Create(req CreateRequest) (Rule, error) {
 	if ttl <= 0 {
 		ttl = 15 * time.Minute
 	}
+	if req.UntilQuitPID > 0 && req.TTL <= 0 {
+		// Until-quit rules persist while the owning PID is alive. The long TTL
+		// is a safety net for platforms that cannot detect PID exit; on darwin
+		// and linux the PID-exit watcher removes the rule promptly instead.
+		ttl = 24 * time.Hour
+	}
 	now := time.Now()
 	rule := Rule{
 		ID:               uuid.NewString(),
@@ -100,6 +115,7 @@ func (m *Manager) Create(req CreateRequest) (Rule, error) {
 		SourceConnID:     strings.TrimSpace(req.SourceConnID),
 		SourceTarget:     strings.TrimSpace(req.SourceTarget),
 		SourceTargetHost: strings.TrimSpace(req.SourceTargetHost),
+		UntilQuitPID:     req.UntilQuitPID,
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -107,7 +123,38 @@ func (m *Manager) Create(req CreateRequest) (Rule, error) {
 	m.rules = append([]Rule{rule}, m.rules...)
 	m.generation++
 	m.recomputeNextExpiryLocked()
+	if rule.UntilQuitPID > 0 {
+		go m.watchPIDExit(rule.ID, rule.UntilQuitPID, ttl+time.Hour)
+	}
 	return rule, nil
+}
+
+// watchPIDExit removes a temporary "until quit" rule once the owning PID exits.
+// It polls the PID with a portable liveness check (kill(pid,0) on darwin/linux)
+// and removes the rule on exit; maxLifetime bounds the goroutine so it never
+// outlives the rule's TTL safety net by more than an hour. Delete is a no-op if
+// the rule was already removed (TTL expiry or manual delete), so a late watcher
+// tick is harmless.
+func (m *Manager) watchPIDExit(id string, pid int, maxLifetime time.Duration) {
+	if m == nil || id == "" || pid <= 0 {
+		return
+	}
+	interval := m.pidPollInterval
+	if interval <= 0 {
+		interval = time.Second
+	}
+	alive := m.pidAlive
+	if alive == nil {
+		alive = defaultPIDAlive
+	}
+	deadline := time.Now().Add(maxLifetime)
+	for time.Now().Before(deadline) {
+		if !alive(pid) {
+			m.Delete(id)
+			return
+		}
+		time.Sleep(interval)
+	}
 }
 
 // Delete removes one temporary rule by ID.

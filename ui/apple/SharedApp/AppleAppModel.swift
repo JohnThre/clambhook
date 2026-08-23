@@ -20,6 +20,8 @@ final class AppleAppModel: ObservableObject {
     @Published private(set) var developerRewriteRules: [DeveloperRewriteRulePayload] = []
     @Published private(set) var developerPendingBreakpoints: [DeveloperPendingBreakpointPayload] = []
     @Published private(set) var pendingPrompts: [PendingPromptPayload] = []
+    @Published var monitorFilter: TrafficMonitorFilter = TrafficMonitorFilter()
+    @Published private(set) var silentDecisions: [SilentDecisionPayload] = []
     @Published private(set) var developerSettings = DeveloperSettingsPayload()
     @Published private(set) var configSettings = ConfigSettingsPayload()
     @Published private(set) var conditioner = ConditionerPayload()
@@ -132,6 +134,7 @@ final class AppleAppModel: ObservableObject {
             await refreshConfigSettingsNow()
             await refreshDeveloperCaptureNow()
             await refreshPendingPromptsNow()
+            await refreshSilentDecisions()
             await refreshDeveloperCANow()
             syncProfileRecoveryIssue()
             enforceLicenseState()
@@ -625,6 +628,13 @@ final class AppleAppModel: ObservableObject {
         )
     }
 
+    private var developerEntriesFilter = DeveloperEntriesFilter()
+
+    func applyDeveloperEntriesFilter(_ filter: DeveloperEntriesFilter) {
+        developerEntriesFilter = filter
+        refreshDeveloperCapture()
+    }
+
     func refreshDeveloperCapture() {
         Task {
             await refreshDeveloperCaptureNow()
@@ -642,7 +652,7 @@ final class AppleAppModel: ObservableObject {
         do {
             developerSettings = try await provider.developerSettings()
             developerStatus = try await provider.developerStatus()
-            developerEntries = try await provider.developerEntries().entries
+            developerEntries = try await provider.developerEntries(filter: developerEntriesFilter).entries
             developerMapRules = try await provider.developerMapRules().rules
             developerBreakpointRules = try await provider.developerBreakpointRules().rules
             developerRewriteRules = try await provider.developerRewriteRules().rules
@@ -671,11 +681,27 @@ final class AppleAppModel: ObservableObject {
         }
     }
 
+    func refreshTraffic(filter: TrafficMonitorFilter) async {
+        monitorFilter = filter
+        guard let provider = dashboardAPI as? ClambhookTrafficFilterProviding else {
+            await dashboard.refreshDashboard()
+            return
+        }
+        do {
+            let snapshot = try await provider.traffic(filter: filter)
+            dashboard.applyTraffic(snapshot)
+        } catch {
+            await dashboard.refreshDashboard()
+        }
+    }
+
     func resolvePrompt(
         _ prompt: PendingPromptPayload,
         action: PromptDecisionAction,
         scope: PromptDecisionScope = .once,
-        matchHost: Bool = false
+        matchHost: Bool = false,
+        matchPort: Bool = false,
+        matchProtocol: Bool = false
     ) {
         guard let provider = dashboardAPI as? ClambhookPromptProviding else {
             daemonMessage = "interactive prompts unavailable"
@@ -688,13 +714,58 @@ final class AppleAppModel: ObservableObject {
             do {
                 try await provider.resolvePrompt(
                     id: prompt.id,
-                    request: ResolvePromptRequest(action: action, scope: scope, matchHost: matchHost)
+                    request: ResolvePromptRequest(action: action, scope: scope, matchHost: matchHost, matchPort: matchPort, matchProtocol: matchProtocol)
                 )
                 await refreshPendingPromptsNow()
                 await dashboard.refreshDashboard()
             } catch {
                 daemonMessage = error.localizedDescription
                 await refreshPendingPromptsNow()
+            }
+        }
+    }
+
+    func refreshSilentDecisions() async {
+        guard let provider = dashboardAPI as? ClambhookSilentDecisionProviding else {
+            silentDecisions = []
+            return
+        }
+        do {
+            silentDecisions = try await provider.silentDecisions().decisions
+        } catch {
+            silentDecisions = []
+        }
+    }
+
+    /// setSilentMode toggles Silent Mode ("" off, "allow", or "deny") via the
+    /// config-settings prompt section, then refreshes the review log.
+    func setSilentMode(_ mode: String) {
+        saveConfigSettings(prompt: ConfigSettingsPromptUpdatePayload(silentMode: mode))
+        Task { await refreshSilentDecisions() }
+    }
+
+    func promoteSilentDecision(
+        _ decision: SilentDecisionPayload,
+        scope: PromptDecisionScope = .session,
+        matchHost: Bool = false,
+        matchPort: Bool = false,
+        matchProtocol: Bool = false
+    ) {
+        guard let provider = dashboardAPI as? ClambhookSilentDecisionProviding else {
+            daemonMessage = "silent decisions unavailable"
+            return
+        }
+        Task {
+            do {
+                try await provider.promoteSilentDecision(
+                    id: decision.id,
+                    request: PromoteSilentDecisionRequest(scope: scope, matchHost: matchHost, matchPort: matchPort, matchProtocol: matchProtocol)
+                )
+                await refreshSilentDecisions()
+                await dashboard.refreshDashboard()
+            } catch {
+                daemonMessage = error.localizedDescription
+                await refreshSilentDecisions()
             }
         }
     }
@@ -743,7 +814,8 @@ final class AppleAppModel: ObservableObject {
     func saveConfigSettings(
         listen: ConfigListenSettingsUpdatePayload? = nil,
         dns: ConfigDNSSettingsPayload? = nil,
-        networkTriggers: [ConfigNetworkTriggerPayload]? = nil
+        networkTriggers: [ConfigNetworkTriggerPayload]? = nil,
+        prompt: ConfigSettingsPromptUpdatePayload? = nil
     ) {
         Task {
             do {
@@ -754,7 +826,8 @@ final class AppleAppModel: ObservableObject {
                     profile: configSettings.profile,
                     listen: listen,
                     dns: dns,
-                    networkTriggers: networkTriggers
+                    networkTriggers: networkTriggers,
+                    prompt: prompt
                 ))
                 await dashboard.refreshDashboard()
                 daemonMessage = configSettings.backupPath.isEmpty ? "settings saved" : "settings saved with backup"
@@ -874,14 +947,43 @@ final class AppleAppModel: ObservableObject {
             guard let provider = dashboardAPI as? DeveloperCaptureProviding else {
                 return
             }
+            let composed = ComposedRequestPayload(
+                method: request.method,
+                url: request.url,
+                headers: request.headers,
+                body: request.body
+            )
             do {
-                _ = try await provider.repeatDeveloperEntry(request)
+                _ = try await provider.sendComposedRequest(composed)
                 await refreshDeveloperCaptureNow()
                 daemonMessage = "composed request sent"
             } catch {
                 daemonMessage = error.localizedDescription
             }
         }
+    }
+
+    func copyEntryAsCurl(_ entry: DeveloperEntryPayload) {
+        Task {
+            guard let provider = dashboardAPI as? DeveloperCaptureProviding else { return }
+            do {
+                let curl = try await provider.developerEntryCurl(id: entry.id)
+                #if os(macOS)
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(curl, forType: .string)
+                #endif
+                daemonMessage = "cURL copied to clipboard"
+            } catch {
+                daemonMessage = error.localizedDescription
+            }
+        }
+    }
+
+    func importCurl(_ text: String) async throws -> ParsedCurlResponse {
+        guard let provider = dashboardAPI as? DeveloperCaptureProviding else {
+            throw NSError(domain: "Clambhook", code: 1, userInfo: [NSLocalizedDescriptionKey: "developer capture unavailable"])
+        }
+        return try await provider.importCurl(text)
     }
 
     func addDeveloperMapRule(_ rule: DeveloperMapRulePayload) {
@@ -1225,6 +1327,7 @@ final class AppleAppModel: ObservableObject {
                 }
                 await self?.dashboard.refreshStatus()
                 await self?.refreshPendingPromptsNow()
+                await self?.refreshSilentDecisions()
                 await MainActor.run {
                     self?.enforceLicenseState()
                     #if os(macOS)

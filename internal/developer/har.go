@@ -32,6 +32,7 @@ func harEntry(entry Entry) map[string]any {
 	if !entry.FinishedAt.IsZero() && !entry.StartedAt.IsZero() {
 		durationMs = float64(entry.FinishedAt.Sub(entry.StartedAt).Microseconds()) / 1000
 	}
+	timings := harTimings(entry, durationMs)
 	return map[string]any{
 		"startedDateTime": started.UTC().Format(time.RFC3339Nano),
 		"time":            durationMs,
@@ -57,12 +58,8 @@ func harEntry(entry Entry) map[string]any {
 			"headersSize": -1,
 			"bodySize":    entry.Response.Body.Size,
 		},
-		"cache": map[string]any{},
-		"timings": map[string]any{
-			"send":    0,
-			"wait":    durationMs,
-			"receive": 0,
-		},
+		"cache":   map[string]any{},
+		"timings": timings,
 		"_clambhook": map[string]any{
 			"id":                       entry.ID,
 			"conn_id":                  entry.ConnID,
@@ -80,6 +77,34 @@ func harEntry(entry Entry) map[string]any {
 			"response_truncated_after": entry.Response.Body.TruncatedAfter,
 		},
 	}
+}
+
+// harTimings builds the HAR 1.2 timings block from a captured transaction's
+// measured connect/SSL/send/wait/receive breakdown. blocked and dns are -1
+// (not applicable — the daemon route planner already resolved the target and
+// no client-side queueing is measured). When no timings were captured (Map
+// Local synthetic responses, or captures from before timings existed) the
+// connect/ssl phases are -1 and the whole duration falls into wait, preserving
+// the pre-timings HAR shape.
+func harTimings(entry Entry, durationMs float64) map[string]any {
+	t := map[string]any{
+		"blocked": -1,
+		"dns":     -1,
+	}
+	if entry.Timings != nil {
+		t["connect"] = entry.Timings.Connect
+		t["ssl"] = entry.Timings.SSL
+		t["send"] = entry.Timings.Send
+		t["wait"] = entry.Timings.Wait
+		t["receive"] = entry.Timings.Receive
+	} else {
+		t["connect"] = -1
+		t["ssl"] = -1
+		t["send"] = 0
+		t["wait"] = durationMs
+		t["receive"] = 0
+	}
+	return t
 }
 
 func harHeaders(headers []Header) []map[string]any {

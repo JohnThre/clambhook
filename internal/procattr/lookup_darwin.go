@@ -112,5 +112,7 @@ func lookup(network, source string) (Process, bool) {
 		return Process{}, false
 	}
 	path := C.GoString((*C.char)(unsafe.Pointer(&buf[0])))
-	return Process{PID: int(pid), Path: path, Name: baseName(path)}, true
+	proc := Process{PID: int(pid), Path: path, Name: baseName(path)}
+	enrichCodeSign(&proc)
+	return proc, true
 }

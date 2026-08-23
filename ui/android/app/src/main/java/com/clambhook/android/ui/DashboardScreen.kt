@@ -1,14 +1,11 @@
 package com.clambhook.android
 
 import android.content.Intent
-import androidx.compose.material.icons.rounded.Delete
-import androidx.compose.material.icons.rounded.Share
-import androidx.compose.ui.text.font.FontFamily
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonElement
-
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,22 +15,27 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Dns
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.Stop
-import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -44,14 +46,17 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -60,33 +65,28 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import kotlin.math.max
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.runtime.mutableStateMapOf
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.ui.platform.LocalClipboardManager
-import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
 import kotlinx.coroutines.launch
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
+import kotlin.math.max
 
 enum class DashboardDestination {
     Imports,
     Status,
     Profiles,
-    Activity
+    Activity,
 }
 
 @Composable
@@ -103,16 +103,23 @@ fun DashboardScreen(
     onCreateRuleFromConnection: (TrafficConnectionPayload, RulePayload) -> Unit,
     onCreateTemporaryRuleFromConnection: (TrafficConnectionPayload, String) -> Unit,
     onCleanupRule: (TrafficCleanupSuggestionPayload) -> Unit,
+    onResolvePrompt: (PendingPromptPayload, String, String, Boolean, Boolean, Boolean) -> Unit = { _, _, _, _, _, _ -> },
+    onApplyQuickFilter: (TrafficMonitorFilter) -> Unit = {},
     onProfilesImported: () -> Unit,
     onClearDeveloperEntries: () -> Unit = {},
     developerHar: (suspend () -> String)? = null,
-    modifier: Modifier = Modifier
+    onApplyDeveloperFilter: (DeveloperEntriesFilter) -> Unit = {},
+    onCopyEntryCurl: suspend (String) -> String = { "" },
+    onImportCurl: suspend (String) -> ParsedCurlResponse = { ParsedCurlResponse() },
+    onSendComposed: suspend (ComposedRequestPayload) -> DeveloperEntryPayload = { DeveloperEntryPayload() },
+    modifier: Modifier = Modifier,
 ) {
     LazyColumn(
-        modifier = modifier
-            .fillMaxSize()
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+        modifier =
+            modifier
+                .fillMaxSize()
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         when (destination) {
             DashboardDestination.Imports -> {
@@ -132,8 +139,9 @@ fun DashboardScreen(
             }
 
             DashboardDestination.Activity -> {
-                item { TrafficCard(state, onCreateRule, onCreateRuleFromConnection, onCreateTemporaryRuleFromConnection, onCleanupRule) }
-                item { DeveloperCaptureCard(state, onClearDeveloperEntries, developerHar) }
+                item { PromptsCard(state, onResolvePrompt) }
+                item { TrafficCard(state, onCreateRule, onCreateRuleFromConnection, onCreateTemporaryRuleFromConnection, onCleanupRule, onApplyQuickFilter) }
+                item { DeveloperCaptureCard(state, onClearDeveloperEntries, developerHar, onApplyDeveloperFilter, onCopyEntryCurl, onImportCurl, onSendComposed) }
                 item { LogsCard(state) }
             }
         }
@@ -144,7 +152,7 @@ fun DashboardScreen(
 private fun ProfileImportsCard(
     state: DashboardState,
     onOpenSettings: () -> Unit,
-    onProfilesImported: () -> Unit
+    onProfilesImported: () -> Unit,
 ) {
     val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
@@ -154,12 +162,14 @@ private fun ProfileImportsCard(
     var showUrlDialog by remember { mutableStateOf(false) }
     var urlText by remember { mutableStateOf("") }
 
-    val fileLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-        if (uri != null) scope.launch { manager.stageFromUri(uri) }
-    }
-    val qrLauncher = rememberLauncherForActivityResult(ScanContract()) { result ->
-        result.contents?.let { contents -> scope.launch { manager.stageText(contents) } }
-    }
+    val fileLauncher =
+        rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+            if (uri != null) scope.launch { manager.stageFromUri(uri) }
+        }
+    val qrLauncher =
+        rememberLauncherForActivityResult(ScanContract()) { result ->
+            result.contents?.let { contents -> scope.launch { manager.stageText(contents) } }
+        }
 
     Card(shape = RoundedCornerShape(8.dp)) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -167,22 +177,25 @@ private fun ProfileImportsCard(
             Text(
                 "Import a ClambHook config from a file, the clipboard, a subscription URL, or a QR code. You review profiles before they are added.",
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             FlowRow(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+                verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 OutlinedButton(onClick = { fileLauncher.launch("*/*") }, enabled = !importState.busy) {
                     Text("Import file")
                 }
                 OutlinedButton(
                     onClick = { scope.launch { manager.stageText(clipboard.getText()?.text.orEmpty()) } },
-                    enabled = !importState.busy
+                    enabled = !importState.busy,
                 ) { Text("Paste") }
                 OutlinedButton(
-                    onClick = { urlText = ""; showUrlDialog = true },
-                    enabled = !importState.busy
+                    onClick = {
+                        urlText = ""
+                        showUrlDialog = true
+                    },
+                    enabled = !importState.busy,
                 ) { Text("Subscription URL") }
                 OutlinedButton(
                     onClick = {
@@ -190,10 +203,10 @@ private fun ProfileImportsCard(
                             ScanOptions()
                                 .setDesiredBarcodeFormats(ScanOptions.QR_CODE)
                                 .setBeepEnabled(false)
-                                .setPrompt("Scan a ClambHook config QR")
+                                .setPrompt("Scan a ClambHook config QR"),
                         )
                     },
-                    enabled = !importState.busy
+                    enabled = !importState.busy,
                 ) { Text("Scan QR") }
             }
             if (importState.busy) {
@@ -203,14 +216,14 @@ private fun ProfileImportsCard(
                 Text(
                     importState.message,
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
             if (!state.apiOnline || state.activeProfile.isBlank()) {
                 Text(
                     if (!state.apiOnline) "API offline" else "No active profile",
                     color = MaterialTheme.colorScheme.error,
-                    style = MaterialTheme.typography.bodyMedium
+                    style = MaterialTheme.typography.bodyMedium,
                 )
             }
             OutlinedButton(onClick = onOpenSettings) {
@@ -231,7 +244,7 @@ private fun ProfileImportsCard(
                     onValueChange = { urlText = it },
                     label = { Text("https://…") },
                     singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth(),
                 )
             },
             confirmButton = {
@@ -240,10 +253,10 @@ private fun ProfileImportsCard(
                         showUrlDialog = false
                         scope.launch { manager.stageFromUrl(urlText) }
                     },
-                    enabled = urlText.isNotBlank()
+                    enabled = urlText.isNotBlank(),
                 ) { Text("Fetch") }
             },
-            dismissButton = { TextButton(onClick = { showUrlDialog = false }) { Text("Cancel") } }
+            dismissButton = { TextButton(onClick = { showUrlDialog = false }) { Text("Cancel") } },
         )
     }
 
@@ -256,7 +269,7 @@ private fun ProfileImportsCard(
                 scope.launch {
                     if (manager.apply(targets, activateSource)) onProfilesImported()
                 }
-            }
+            },
         )
     }
 }
@@ -266,13 +279,21 @@ private fun ImportReviewDialog(
     review: TunnelImportReview,
     busy: Boolean,
     onCancel: () -> Unit,
-    onApply: (Map<String, String>, String?) -> Unit
+    onApply: (Map<String, String>, String?) -> Unit,
 ) {
-    val targetNames = remember(review) {
-        mutableStateMapOf<String, String>().apply { review.profiles.forEach { put(it.name, it.name) } }
-    }
+    val targetNames =
+        remember(review) {
+            mutableStateMapOf<String, String>().apply { review.profiles.forEach { put(it.name, it.name) } }
+        }
     var activateSource by remember(review) {
-        mutableStateOf(review.activeProfile.ifBlank { review.profiles.firstOrNull()?.name.orEmpty() })
+        mutableStateOf(
+            review.activeProfile.ifBlank {
+                review.profiles
+                    .firstOrNull()
+                    ?.name
+                    .orEmpty()
+            },
+        )
     }
     AlertDialog(
         onDismissRequest = onCancel,
@@ -284,13 +305,13 @@ private fun ImportReviewDialog(
                         Text(
                             "${profile.serverCount} server(s) · ${profile.chainCount} chain(s) · ${profile.ruleCount} rule(s)",
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                         if (profile.protocols.isNotEmpty()) {
                             Text(
                                 profile.protocols.joinToString(", "),
                                 style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
                         OutlinedTextField(
@@ -298,26 +319,26 @@ private fun ImportReviewDialog(
                             onValueChange = { targetNames[profile.name] = it },
                             label = { Text("Name") },
                             singleLine = true,
-                            modifier = Modifier.fillMaxWidth()
+                            modifier = Modifier.fillMaxWidth(),
                         )
                     }
                 }
                 Text("Activate after import", style = MaterialTheme.typography.labelMedium)
                 FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     FilterChip(
                         selected = activateSource.isBlank(),
                         onClick = { activateSource = "" },
-                        label = { Text("Keep current") }
+                        label = { Text("Keep current") },
                     )
                     review.profiles.forEach { profile ->
                         val label = targetNames[profile.name].orEmpty().ifBlank { profile.name }
                         FilterChip(
                             selected = activateSource == profile.name,
                             onClick = { activateSource = profile.name },
-                            label = { Text(label) }
+                            label = { Text(label) },
                         )
                     }
                 }
@@ -326,10 +347,10 @@ private fun ImportReviewDialog(
         confirmButton = {
             TextButton(
                 onClick = { onApply(targetNames.toMap(), activateSource.ifBlank { null }) },
-                enabled = !busy
+                enabled = !busy,
             ) { Text("Import") }
         },
-        dismissButton = { TextButton(onClick = onCancel) { Text("Cancel") } }
+        dismissButton = { TextButton(onClick = onCancel) { Text("Cancel") } },
     )
 }
 
@@ -337,18 +358,38 @@ private fun ImportReviewDialog(
 private fun DeveloperCaptureCard(
     state: DashboardState,
     onClearEntries: () -> Unit,
-    harProvider: (suspend () -> String)?
+    harProvider: (suspend () -> String)?,
+    onApplyDeveloperFilter: (DeveloperEntriesFilter) -> Unit,
+    onCopyEntryCurl: suspend (String) -> String,
+    onImportCurl: suspend (String) -> ParsedCurlResponse,
+    onSendComposed: suspend (ComposedRequestPayload) -> DeveloperEntryPayload,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var selectedEntry by remember { mutableStateOf<DeveloperEntryPayload?>(null) }
     var harBusy by remember { mutableStateOf(false) }
+    var filterQuery by remember { mutableStateOf("") }
+    var filterMethod by remember { mutableStateOf("Any") }
+    var filterErrorOnly by remember { mutableStateOf(false) }
+    var showImportCurl by remember { mutableStateOf(false) }
+    var showCompose by remember { mutableStateOf(false) }
+    var composeSeed by remember { mutableStateOf<ParsedCurlResponse?>(null) }
+    val methods = listOf("Any", "GET", "POST", "PUT", "PATCH", "DELETE")
+    fun pushFilter() {
+        onApplyDeveloperFilter(
+            DeveloperEntriesFilter(
+                query = filterQuery.trim(),
+                method = if (filterMethod == "Any") "" else filterMethod,
+                errorOnly = filterErrorOnly,
+            )
+        )
+    }
     Card(shape = RoundedCornerShape(8.dp)) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(
                 Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.Top
+                verticalAlignment = Alignment.Top,
             ) {
                 Column(Modifier.weight(1f)) {
                     Text("HTTP Capture", style = MaterialTheme.typography.titleMedium)
@@ -359,7 +400,7 @@ private fun DeveloperCaptureCard(
                             "Metadata by default; body capture disabled"
                         },
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -374,19 +415,20 @@ private fun DeveloperCaptureCard(
                                     harBusy = false
                                     if (!har.isNullOrBlank()) {
                                         context.startActivity(
-                                            Intent.createChooser(
-                                                Intent(Intent.ACTION_SEND).apply {
-                                                    type = "application/json"
-                                                    putExtra(Intent.EXTRA_SUBJECT, "ClambHook HAR export")
-                                                    putExtra(Intent.EXTRA_TEXT, har)
-                                                },
-                                                "Export HAR"
-                                            ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                            Intent
+                                                .createChooser(
+                                                    Intent(Intent.ACTION_SEND).apply {
+                                                        type = "application/json"
+                                                        putExtra(Intent.EXTRA_SUBJECT, "ClambHook HAR export")
+                                                        putExtra(Intent.EXTRA_TEXT, har)
+                                                    },
+                                                    "Export HAR",
+                                                ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
                                         )
                                     }
                                 }
                             },
-                            enabled = !harBusy && state.developerEntries.isNotEmpty()
+                            enabled = !harBusy && state.developerEntries.isNotEmpty(),
                         ) {
                             if (harBusy) {
                                 CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
@@ -397,7 +439,7 @@ private fun DeveloperCaptureCard(
                     }
                     IconButton(
                         onClick = onClearEntries,
-                        enabled = state.developerEntries.isNotEmpty()
+                        enabled = state.developerEntries.isNotEmpty(),
                     ) {
                         Icon(Icons.Rounded.Delete, contentDescription = "Clear captures")
                     }
@@ -406,13 +448,32 @@ private fun DeveloperCaptureCard(
             Text(
                 "HTTPS body capture requires explicit developer capture config and a trusted local CA. Without it, HTTPS entries remain CONNECT metadata only.",
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                TextButton(onClick = { showImportCurl = true }) { Text("Import cURL") }
+                TextButton(onClick = { composeSeed = null; showCompose = true }) { Text("Compose") }
+            }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                OutlinedTextField(
+                    value = filterQuery,
+                    onValueChange = { filterQuery = it; pushFilter() },
+                    label = { Text("Search") },
+                    singleLine = true,
+                    modifier = Modifier.weight(1f),
+                )
+                FilterChip(selected = filterErrorOnly, onClick = { filterErrorOnly = !filterErrorOnly; pushFilter() }, label = { Text("Errors") })
+            }
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                methods.forEach { m ->
+                    FilterChip(selected = filterMethod == m, onClick = { filterMethod = m; pushFilter() }, label = { Text(m) })
+                }
+            }
             if (state.developerEntries.isEmpty()) {
                 Text(
                     "No captured transactions yet.",
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             } else {
                 state.developerEntries.forEach { entry ->
@@ -422,19 +483,109 @@ private fun DeveloperCaptureCard(
         }
     }
     selectedEntry?.let { entry ->
-        CaptureDetailDialog(entry = entry, onDismiss = { selectedEntry = null })
+        CaptureDetailDialog(entry = entry, onCopyEntryCurl = onCopyEntryCurl, onDismiss = { selectedEntry = null })
+    }
+    if (showImportCurl) {
+        CurlImportDialog(
+            onParse = { text ->
+                scope.launch {
+                    val parsed = runCatching { onImportCurl(text) }.getOrNull()
+                    if (parsed != null) {
+                        composeSeed = parsed
+                        showImportCurl = false
+                        showCompose = true
+                    }
+                }
+            },
+            onCancel = { showImportCurl = false },
+        )
+    }
+    if (showCompose) {
+        ComposeRequestDialog(
+            seed = composeSeed,
+            onSend = { request ->
+                scope.launch {
+                    runCatching { onSendComposed(request) }
+                    showCompose = false
+                    composeSeed = null
+                }
+            },
+            onCancel = { showCompose = false; composeSeed = null },
+        )
     }
 }
 
 @Composable
-private fun CaptureEntryRow(entry: DeveloperEntryPayload, onClick: () -> Unit) {
+private fun CurlImportDialog(
+    onParse: (String) -> Unit,
+    onCancel: () -> Unit,
+) {
+    var text by remember { mutableStateOf("") }
+    AlertDialog(
+        onDismissRequest = onCancel,
+        title = { Text("Import cURL") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    "Paste a cURL command. ClambHook parses the method, URL, headers, and body into the composer.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                OutlinedTextField(
+                    value = text,
+                    onValueChange = { text = it },
+                    modifier = Modifier.fillMaxWidth().height(180.dp),
+                    textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                )
+            }
+        },
+        confirmButton = { TextButton(onClick = { onParse(text) }, enabled = text.isNotBlank()) { Text("Parse & Compose") } },
+        dismissButton = { TextButton(onClick = onCancel) { Text("Cancel") } },
+    )
+}
+
+@Composable
+private fun ComposeRequestDialog(
+    seed: ParsedCurlResponse?,
+    onSend: (ComposedRequestPayload) -> Unit,
+    onCancel: () -> Unit,
+) {
+    var method by remember { mutableStateOf(seed?.method ?: "GET") }
+    var url by remember { mutableStateOf(seed?.url ?: "") }
+    var body by remember { mutableStateOf(seed?.body ?: "") }
+    AlertDialog(
+        onDismissRequest = onCancel,
+        title = { Text("Compose request") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(value = method, onValueChange = { method = it }, label = { Text("Method") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(value = url, onValueChange = { url = it }, label = { Text("URL") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(value = body, onValueChange = { body = it }, label = { Text("Body") }, modifier = Modifier.fillMaxWidth().height(120.dp))
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { onSend(ComposedRequestPayload(method = method.ifBlank { "GET" }, url = url, body = body.ifBlank { null })) },
+                enabled = url.isNotBlank(),
+            ) { Text("Send") }
+        },
+        dismissButton = { TextButton(onClick = onCancel) { Text("Cancel") } },
+    )
+}
+
+@Composable
+private fun CaptureEntryRow(
+    entry: DeveloperEntryPayload,
+    onClick: () -> Unit,
+) {
     Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(6.dp))
-            .clickable(onClick = onClick)
-            .padding(vertical = 4.dp),
-        verticalArrangement = Arrangement.spacedBy(3.dp)
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(6.dp))
+                .clickable(onClick = onClick)
+                .padding(vertical = 4.dp),
+        verticalArrangement = Arrangement.spacedBy(3.dp),
     ) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text(
@@ -442,21 +593,23 @@ private fun CaptureEntryRow(entry: DeveloperEntryPayload, onClick: () -> Unit) {
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f)
+                modifier = Modifier.weight(1f),
             )
             Spacer(Modifier.width(8.dp))
             Text(
                 if (entry.status > 0) entry.status.toString() else "open",
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
         Text(
-            "${formatBytes(entry.request.body.previewBytes)} request preview · ${formatBytes(entry.response.body.previewBytes)} response preview",
+            "${formatBytes(
+                entry.request.body.previewBytes,
+            )} request preview · ${formatBytes(entry.response.body.previewBytes)} response preview",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1,
-            overflow = TextOverflow.Ellipsis
+            overflow = TextOverflow.Ellipsis,
         )
     }
 }
@@ -464,7 +617,13 @@ private fun CaptureEntryRow(entry: DeveloperEntryPayload, onClick: () -> Unit) {
 private val captureJson = Json { prettyPrint = true }
 
 @Composable
-private fun CaptureDetailDialog(entry: DeveloperEntryPayload, onDismiss: () -> Unit) {
+private fun CaptureDetailDialog(
+    entry: DeveloperEntryPayload,
+    onCopyEntryCurl: suspend (String) -> String,
+    onDismiss: () -> Unit,
+) {
+    val scope = rememberCoroutineScope()
+    val clipboard = LocalClipboardManager.current
     var side by remember(entry.id) { mutableStateOf("request") }
     var tab by remember(entry.id) { mutableStateOf("headers") }
     val message = if (side == "request") entry.request else entry.response
@@ -475,38 +634,47 @@ private fun CaptureDetailDialog(entry: DeveloperEntryPayload, onDismiss: () -> U
                 Text(
                     "${entry.method.ifBlank { "--" }} ${entry.host.ifBlank { entry.url }}",
                     maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
+                    overflow = TextOverflow.Ellipsis,
                 )
                 Text(
                     listOf(
                         entry.scheme.uppercase().ifBlank { "" },
                         if (entry.status > 0) "HTTP ${entry.status}" else "open",
-                        entry.chainName
+                        entry.chainName,
                     ).filter { it.isNotBlank() }.joinToString(" · "),
                     style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                entry.timings?.let { t ->
+                    Text(
+                        "connect ${t.connect.toInt()}ms · ssl ${t.ssl.toInt()}ms · send ${t.send.toInt()}ms · wait ${t.wait.toInt()}ms · receive ${t.receive.toInt()}ms",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontFamily = FontFamily.Monospace,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
         },
         text = {
             Column(
-                modifier = Modifier
-                    .heightIn(max = 460.dp)
-                    .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                modifier =
+                    Modifier
+                        .heightIn(max = 460.dp)
+                        .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 if (entry.url.isNotBlank()) {
                     Text(
                         entry.url,
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
                 if (entry.error.isNotBlank()) {
                     Text(
                         entry.error,
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.error
+                        color = MaterialTheme.colorScheme.error,
                     )
                 }
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -518,7 +686,8 @@ private fun CaptureDetailDialog(entry: DeveloperEntryPayload, onDismiss: () -> U
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     FilterChip(selected = tab == "headers", onClick = { tab = "headers" }, label = { Text("Headers") })
                     FilterChip(selected = tab == "body", onClick = { tab = "body" }, label = { Text("Body") })
-                    FilterChip(selected = tab == "json", onClick = { tab = "json" }, label = { Text("JSON") })
+                    FilterChip(selected = tab == "pretty", onClick = { tab = "pretty" }, label = { Text("Pretty") })
+                    FilterChip(selected = tab == "hex", onClick = { tab = "hex" }, label = { Text("Hex") })
                     FilterChip(selected = tab == "cookies", onClick = { tab = "cookies" }, label = { Text("Cookies") })
                     if (hasDecoded) {
                         FilterChip(selected = tab == "decoded", onClick = { tab = "decoded" }, label = { Text("Decoded") })
@@ -530,14 +699,25 @@ private fun CaptureDetailDialog(entry: DeveloperEntryPayload, onDismiss: () -> U
                     DetailRow("Body size", formatBytes(message.body.size))
                     when (tab) {
                         "body" -> CaptureBodyView(message.body)
-                        "json" -> CaptureJsonView(message.body)
+                        "pretty" -> CapturePrettyView(message.body)
+                        "hex" -> CaptureHexView(message.body)
                         "cookies" -> CaptureCookiesView(message.cookies)
                         else -> CaptureHeadersView(message.headers)
                     }
                 }
             }
         },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } }
+        confirmButton = {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton(onClick = {
+                    scope.launch {
+                        val curl = runCatching { onCopyEntryCurl(entry.id) }.getOrNull()
+                        if (!curl.isNullOrEmpty()) clipboard.setText(AnnotatedString(curl))
+                    }
+                }) { Text("Copy cURL") }
+                TextButton(onClick = onDismiss) { Text("Close") }
+            }
+        },
     )
 }
 
@@ -555,14 +735,14 @@ private fun CaptureHeadersView(headers: List<DeveloperHeaderPayload>) {
                     style = MaterialTheme.typography.bodySmall,
                     fontWeight = FontWeight.SemiBold,
                     fontFamily = FontFamily.Monospace,
-                    modifier = Modifier.weight(0.42f)
+                    modifier = Modifier.weight(0.42f),
                 )
                 Text(
                     header.value,
                     style = MaterialTheme.typography.bodySmall,
                     fontFamily = FontFamily.Monospace,
                     color = if (header.redacted) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.weight(0.58f)
+                    modifier = Modifier.weight(0.58f),
                 )
             }
         }
@@ -575,7 +755,7 @@ private fun CaptureDecodedView(decoded: DeveloperDecodedPayload?) {
         Text(
             "No decoded protocol data; see the Body tab for the raw preview.",
             style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         return
     }
@@ -583,17 +763,18 @@ private fun CaptureDecodedView(decoded: DeveloperDecodedPayload?) {
         Text(
             "Decoded ${decoded.kind}",
             style = MaterialTheme.typography.labelLarge,
-            color = MaterialTheme.colorScheme.primary
+            color = MaterialTheme.colorScheme.primary,
         )
         decoded.frames.forEach { frame ->
-            val label = listOf(frame.direction, frame.opcode)
-                .filter { it.isNotBlank() }
-                .joinToString(" · ") + if (frame.truncated) " · truncated" else ""
+            val label =
+                listOf(frame.direction, frame.opcode)
+                    .filter { it.isNotBlank() }
+                    .joinToString(" · ") + if (frame.truncated) " · truncated" else ""
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(
                     label,
                     style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 CaptureMonospaceBlock(frame.preview)
             }
@@ -617,9 +798,48 @@ private fun CaptureBodyView(body: DeveloperBodyPayload) {
         Text(
             "Truncated after ${formatBytes(body.truncatedAfter)}",
             style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.tertiary
+            color = MaterialTheme.colorScheme.tertiary,
         )
     }
+}
+
+@Composable
+private fun CapturePrettyView(body: DeveloperBodyPayload) {
+    val viewer = body.viewer
+    if (viewer != null && viewer.pretty.isNotEmpty()) {
+        CaptureMonospaceBlock(viewer.pretty)
+        if (viewer.kind.isNotBlank()) {
+            Text(
+                "pretty · ${viewer.kind}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        if (viewer.prettyTruncated) {
+            Text("Pretty preview is truncated", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.tertiary)
+        }
+        return
+    }
+    // No daemon viewer (older daemon) — fall back to a local JSON re-indent.
+    val pretty = prettyJson(body.preview)
+    if (pretty == null) {
+        Text("No pretty preview", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        return
+    }
+    CaptureMonospaceBlock(pretty)
+    if (body.truncated) {
+        Text("Preview is truncated", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.tertiary)
+    }
+}
+
+@Composable
+private fun CaptureHexView(body: DeveloperBodyPayload) {
+    val hex = body.viewer?.hex
+    if (hex.isNullOrEmpty()) {
+        Text("No hex preview", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        return
+    }
+    CaptureMonospaceBlock(hex)
 }
 
 @Composable
@@ -648,13 +868,13 @@ private fun CaptureCookiesView(cookies: List<DeveloperCookiePayload>) {
                     cookie.name,
                     style = MaterialTheme.typography.bodySmall,
                     fontWeight = FontWeight.SemiBold,
-                    fontFamily = FontFamily.Monospace
+                    fontFamily = FontFamily.Monospace,
                 )
                 Text(
                     cookie.value,
                     style = MaterialTheme.typography.bodySmall,
                     fontFamily = FontFamily.Monospace,
-                    color = if (cookie.redacted) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
+                    color = if (cookie.redacted) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
                 )
                 val attrs = captureCookieAttributes(cookie)
                 if (attrs.isNotBlank()) {
@@ -670,22 +890,23 @@ private fun CaptureMonospaceBlock(text: String) {
     Surface(
         shape = RoundedCornerShape(6.dp),
         color = MaterialTheme.colorScheme.surfaceVariant,
-        modifier = Modifier.fillMaxWidth()
+        modifier = Modifier.fillMaxWidth(),
     ) {
         Text(
             text,
             style = MaterialTheme.typography.bodySmall,
             fontFamily = FontFamily.Monospace,
-            modifier = Modifier.padding(8.dp)
+            modifier = Modifier.padding(8.dp),
         )
     }
 }
 
-private fun captureBodyText(body: DeveloperBodyPayload): String = when {
-    body.preview.isNotEmpty() -> body.preview
-    body.previewBase64.isNotEmpty() -> "[base64] ${body.previewBase64}"
-    else -> ""
-}
+private fun captureBodyText(body: DeveloperBodyPayload): String =
+    when {
+        body.preview.isNotEmpty() -> body.preview
+        body.previewBase64.isNotEmpty() -> "[base64] ${body.previewBase64}"
+        else -> ""
+    }
 
 private fun prettyJson(text: String): String? {
     val trimmed = text.trim()
@@ -713,46 +934,48 @@ private fun StatusCard(
     state: DashboardState,
     onRefresh: () -> Unit,
     onConnect: () -> Unit,
-    onDisconnect: () -> Unit
+    onDisconnect: () -> Unit,
 ) {
     Card(
         shape = RoundedCornerShape(8.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
     ) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             Row(
                 Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.Top
+                verticalAlignment = Alignment.Top,
             ) {
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Box(
-                            modifier = Modifier
-                                .size(10.dp)
-                                .background(
-                                    if (state.status.running) {
-                                        MaterialTheme.colorScheme.primary
-                                    } else {
-                                        MaterialTheme.colorScheme.outline
-                                    },
-                                    CircleShape
-                                )
+                            modifier =
+                                Modifier
+                                    .size(10.dp)
+                                    .background(
+                                        if (state.status.running) {
+                                            MaterialTheme.colorScheme.primary
+                                        } else {
+                                            MaterialTheme.colorScheme.outline
+                                        },
+                                        CircleShape,
+                                    ),
                         )
                         Spacer(Modifier.width(8.dp))
                         Text(
                             if (state.status.running) "Running" else "Stopped",
-                            style = MaterialTheme.typography.headlineSmall
+                            style = MaterialTheme.typography.headlineSmall,
                         )
                     }
                     Text(
                         if (state.apiOnline) "API online" else "API offline",
-                        color = if (state.apiOnline) {
-                            MaterialTheme.colorScheme.primary
-                        } else {
-                            MaterialTheme.colorScheme.error
-                        },
-                        style = MaterialTheme.typography.bodyMedium
+                        color =
+                            if (state.apiOnline) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.error
+                            },
+                        style = MaterialTheme.typography.bodyMedium,
                     )
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -771,28 +994,30 @@ private fun StatusCard(
                 Text(
                     state.errorText,
                     color = MaterialTheme.colorScheme.error,
-                    style = MaterialTheme.typography.bodyMedium
+                    style = MaterialTheme.typography.bodyMedium,
                 )
             }
 
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 Button(
                     onClick = if (state.status.running) onDisconnect else onConnect,
-                    enabled = !state.isBusy && state.apiOnline
+                    enabled = !state.isBusy && state.apiOnline,
                 ) {
-                    val actionDescription = when {
-                        state.status.running -> "Disconnect"
-                        else -> "Connect"
-                    }
+                    val actionDescription =
+                        when {
+                            state.status.running -> "Disconnect"
+                            else -> "Connect"
+                        }
                     ButtonProgressOrIcon(
-                        showProgress = state.actionInProgress == DashboardAction.Connect ||
-                            state.actionInProgress == DashboardAction.Disconnect,
+                        showProgress =
+                            state.actionInProgress == DashboardAction.Connect ||
+                                state.actionInProgress == DashboardAction.Disconnect,
                         icon = {
                             Icon(
                                 if (state.status.running) Icons.Rounded.Stop else Icons.Rounded.PlayArrow,
-                                contentDescription = actionDescription
+                                contentDescription = actionDescription,
                             )
-                        }
+                        },
                     )
                     Text(
                         when {
@@ -800,7 +1025,7 @@ private fun StatusCard(
                             state.actionInProgress == DashboardAction.Disconnect -> "Disconnecting"
                             state.status.running -> "Disconnect"
                             else -> "Connect"
-                        }
+                        },
                     )
                 }
             }
@@ -818,7 +1043,7 @@ private fun StatusCard(
 @Composable
 private fun PolicySelectorCard(
     state: DashboardState,
-    onPolicyGroupSelected: (String, String) -> Unit
+    onPolicyGroupSelected: (String, String) -> Unit,
 ) {
     val summary = policySelectorSummary(state.policyGroups, state.servers, state.traffic)
     Card(shape = RoundedCornerShape(8.dp)) {
@@ -826,14 +1051,14 @@ private fun PolicySelectorCard(
             Row(
                 Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.Top
+                verticalAlignment = Alignment.Top,
             ) {
                 Column {
                     Text("Policy", style = MaterialTheme.typography.titleMedium)
                     Text(
                         state.activeProfile.ifBlank { "No active profile" },
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
                 StatusPill("${state.rules.rules.size} rules")
@@ -862,31 +1087,31 @@ private fun PolicySelectorCard(
                     Text(
                         "Rule hits",
                         style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     summary.topRuleHits.forEach { hit ->
                         Row(
                             Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
+                            verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Row(
                                 modifier = Modifier.weight(1f),
-                                verticalAlignment = Alignment.CenterVertically
+                                verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 PolicyActionDot(hit.action)
                                 Spacer(Modifier.width(8.dp))
                                 Text(
                                     hit.ruleName.ifBlank { "Default route" },
                                     maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
+                                    overflow = TextOverflow.Ellipsis,
                                 )
                             }
                             Spacer(Modifier.width(8.dp))
                             Text(
                                 hit.count.toString(),
                                 style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.SemiBold
+                                fontWeight = FontWeight.SemiBold,
                             )
                         }
                     }
@@ -899,7 +1124,7 @@ private fun PolicySelectorCard(
 @Composable
 private fun PolicyGroupSelectorRow(
     group: PolicyGroupPayload,
-    onPolicyGroupSelected: (String, String) -> Unit
+    onPolicyGroupSelected: (String, String) -> Unit,
 ) {
     val selected = group.selectedChain.ifBlank { group.selected.ifBlank { group.chains.firstOrNull().orEmpty() } }
     val manual = group.type.equals("select", ignoreCase = true) || group.selectionMode.equals("manual", ignoreCase = true)
@@ -907,14 +1132,14 @@ private fun PolicyGroupSelectorRow(
         Row(
             Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.Top
+            verticalAlignment = Alignment.Top,
         ) {
             Column(Modifier.weight(1f)) {
                 Text(
                     group.name.ifBlank { "Policy group" },
                     fontWeight = FontWeight.SemiBold,
                     maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    overflow = TextOverflow.Ellipsis,
                 )
                 Text(
                     listOf(policyModeText(group), "selected ${selected.ifBlank { "--" }}")
@@ -923,7 +1148,7 @@ private fun PolicyGroupSelectorRow(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
             Spacer(Modifier.width(10.dp))
@@ -937,12 +1162,13 @@ private fun PolicyGroupSelectorRow(
                     onClick = { if (manual) onPolicyGroupSelected(group.name, chain) },
                     enabled = manual,
                     leadingIcon = {
-                        val chainStateDescription = when {
-                            isSelected -> "Selected"
-                            result?.healthy == true -> "Healthy"
-                            result == null -> "Pending"
-                            else -> "Unhealthy"
-                        }
+                        val chainStateDescription =
+                            when {
+                                isSelected -> "Selected"
+                                result?.healthy == true -> "Healthy"
+                                result == null -> "Pending"
+                                else -> "Unhealthy"
+                            }
                         Icon(
                             when {
                                 isSelected -> Icons.Rounded.CheckCircle
@@ -951,16 +1177,16 @@ private fun PolicyGroupSelectorRow(
                                 else -> Icons.Rounded.Stop
                             },
                             contentDescription = chainStateDescription,
-                            modifier = Modifier.size(16.dp)
+                            modifier = Modifier.size(16.dp),
                         )
                     },
                     label = {
                         Text(
                             "$chain · ${policyResultText(result)}",
                             maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
+                            overflow = TextOverflow.Ellipsis,
                         )
-                    }
+                    },
                 )
             }
         }
@@ -968,15 +1194,20 @@ private fun PolicyGroupSelectorRow(
 }
 
 @Composable
-private fun PolicyCountPill(title: String, count: Int, imageVector: ImageVector, tint: Color) {
+private fun PolicyCountPill(
+    title: String,
+    count: Int,
+    imageVector: ImageVector,
+    tint: Color,
+) {
     Surface(
         shape = RoundedCornerShape(999.dp),
         color = tint.copy(alpha = 0.12f),
-        contentColor = tint
+        contentColor = tint,
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically
+            verticalAlignment = Alignment.CenterVertically,
         ) {
             Icon(imageVector, contentDescription = title, modifier = Modifier.size(16.dp))
             Spacer(Modifier.width(6.dp))
@@ -984,7 +1215,7 @@ private fun PolicyCountPill(title: String, count: Int, imageVector: ImageVector,
                 "$title $count",
                 style = MaterialTheme.typography.labelMedium,
                 fontWeight = FontWeight.SemiBold,
-                maxLines = 1
+                maxLines = 1,
             )
         }
     }
@@ -995,14 +1226,14 @@ private fun PolicyRouteRow(route: PolicySelectorRouteSummary) {
     Row(
         Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.Top
+        verticalAlignment = Alignment.Top,
     ) {
         Row(modifier = Modifier.weight(1f), verticalAlignment = Alignment.Top) {
             Icon(
                 Icons.Rounded.Dns,
                 contentDescription = "Route",
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(20.dp)
+                modifier = Modifier.size(20.dp),
             )
             Spacer(Modifier.width(10.dp))
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -1010,14 +1241,14 @@ private fun PolicyRouteRow(route: PolicySelectorRouteSummary) {
                     route.groupName.ifBlank { "Route" },
                     fontWeight = FontWeight.SemiBold,
                     maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    overflow = TextOverflow.Ellipsis,
                 )
                 Text(
                     route.selectedChain.ifBlank { "No chain selected" },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
         }
@@ -1028,33 +1259,45 @@ private fun PolicyRouteRow(route: PolicySelectorRouteSummary) {
 
 @Composable
 private fun PolicyHealthPill(route: PolicySelectorRouteSummary) {
-    val tint = when (route.healthState) {
-        PolicySelectorHealthState.StaticRoute,
-        PolicySelectorHealthState.Pending -> MaterialTheme.colorScheme.onSurfaceVariant
-        PolicySelectorHealthState.Healthy -> MaterialTheme.colorScheme.primary
-        PolicySelectorHealthState.Fallback -> MaterialTheme.colorScheme.error
-    }
-    val icon = when (route.healthState) {
-        PolicySelectorHealthState.Healthy -> Icons.Rounded.CheckCircle
-        PolicySelectorHealthState.StaticRoute,
-        PolicySelectorHealthState.Pending -> Icons.Rounded.Refresh
-        PolicySelectorHealthState.Fallback -> Icons.Rounded.Stop
-    }
-    val healthDescription = when (route.healthState) {
-        PolicySelectorHealthState.Healthy -> "Healthy"
-        PolicySelectorHealthState.StaticRoute,
-        PolicySelectorHealthState.Pending -> "Pending"
-        PolicySelectorHealthState.Fallback -> "Fallback"
-    }
+    val tint =
+        when (route.healthState) {
+            PolicySelectorHealthState.StaticRoute,
+            PolicySelectorHealthState.Pending,
+            -> MaterialTheme.colorScheme.onSurfaceVariant
+
+            PolicySelectorHealthState.Healthy -> MaterialTheme.colorScheme.primary
+
+            PolicySelectorHealthState.Fallback -> MaterialTheme.colorScheme.error
+        }
+    val icon =
+        when (route.healthState) {
+            PolicySelectorHealthState.Healthy -> Icons.Rounded.CheckCircle
+
+            PolicySelectorHealthState.StaticRoute,
+            PolicySelectorHealthState.Pending,
+            -> Icons.Rounded.Refresh
+
+            PolicySelectorHealthState.Fallback -> Icons.Rounded.Stop
+        }
+    val healthDescription =
+        when (route.healthState) {
+            PolicySelectorHealthState.Healthy -> "Healthy"
+
+            PolicySelectorHealthState.StaticRoute,
+            PolicySelectorHealthState.Pending,
+            -> "Pending"
+
+            PolicySelectorHealthState.Fallback -> "Fallback"
+        }
     Surface(
         modifier = Modifier.widthIn(max = 180.dp),
         shape = RoundedCornerShape(999.dp),
         color = tint.copy(alpha = 0.12f),
-        contentColor = tint
+        contentColor = tint,
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
-            verticalAlignment = Alignment.CenterVertically
+            verticalAlignment = Alignment.CenterVertically,
         ) {
             Icon(icon, contentDescription = healthDescription, modifier = Modifier.size(15.dp))
             Spacer(Modifier.width(6.dp))
@@ -1062,7 +1305,7 @@ private fun PolicyHealthPill(route: PolicySelectorRouteSummary) {
                 route.healthText,
                 style = MaterialTheme.typography.labelMedium,
                 maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+                overflow = TextOverflow.Ellipsis,
             )
         }
     }
@@ -1071,30 +1314,33 @@ private fun PolicyHealthPill(route: PolicySelectorRouteSummary) {
 @Composable
 private fun PolicyGroupHealthPill(group: PolicyGroupPayload) {
     val fallback = policyGroupFallback(group)
-    val tint = when {
-        group.results.isEmpty() -> MaterialTheme.colorScheme.onSurfaceVariant
-        fallback -> MaterialTheme.colorScheme.error
-        else -> MaterialTheme.colorScheme.primary
-    }
-    val icon = when {
-        group.results.isEmpty() -> Icons.Rounded.Refresh
-        fallback -> Icons.Rounded.Stop
-        else -> Icons.Rounded.CheckCircle
-    }
-    val groupHealthDescription = when {
-        group.results.isEmpty() -> "Pending"
-        fallback -> "Fallback"
-        else -> "Healthy"
-    }
+    val tint =
+        when {
+            group.results.isEmpty() -> MaterialTheme.colorScheme.onSurfaceVariant
+            fallback -> MaterialTheme.colorScheme.error
+            else -> MaterialTheme.colorScheme.primary
+        }
+    val icon =
+        when {
+            group.results.isEmpty() -> Icons.Rounded.Refresh
+            fallback -> Icons.Rounded.Stop
+            else -> Icons.Rounded.CheckCircle
+        }
+    val groupHealthDescription =
+        when {
+            group.results.isEmpty() -> "Pending"
+            fallback -> "Fallback"
+            else -> "Healthy"
+        }
     Surface(
         modifier = Modifier.widthIn(max = 180.dp),
         shape = RoundedCornerShape(999.dp),
         color = tint.copy(alpha = 0.12f),
-        contentColor = tint
+        contentColor = tint,
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
-            verticalAlignment = Alignment.CenterVertically
+            verticalAlignment = Alignment.CenterVertically,
         ) {
             Icon(icon, contentDescription = groupHealthDescription, modifier = Modifier.size(15.dp))
             Spacer(Modifier.width(6.dp))
@@ -1102,14 +1348,15 @@ private fun PolicyGroupHealthPill(group: PolicyGroupPayload) {
                 policyGroupHealthText(group),
                 style = MaterialTheme.typography.labelMedium,
                 maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+                overflow = TextOverflow.Ellipsis,
             )
         }
     }
 }
 
 private fun policyModeText(group: PolicyGroupPayload): String =
-    group.selectionMode.ifBlank { group.type }
+    group.selectionMode
+        .ifBlank { group.type }
         .replace("-", " ")
         .ifBlank { "policy" }
 
@@ -1141,15 +1388,17 @@ private fun policyGroupFallback(group: PolicyGroupPayload): Boolean {
 
 @Composable
 private fun PolicyActionDot(action: String) {
-    val tint = when (action.lowercase()) {
-        "direct" -> MaterialTheme.colorScheme.tertiary
-        "block", "reject" -> MaterialTheme.colorScheme.error
-        else -> MaterialTheme.colorScheme.primary
-    }
+    val tint =
+        when (action.lowercase()) {
+            "direct" -> MaterialTheme.colorScheme.tertiary
+            "block", "reject" -> MaterialTheme.colorScheme.error
+            else -> MaterialTheme.colorScheme.primary
+        }
     Box(
-        modifier = Modifier
-            .size(8.dp)
-            .background(tint, CircleShape)
+        modifier =
+            Modifier
+                .size(8.dp)
+                .background(tint, CircleShape),
     )
 }
 
@@ -1160,14 +1409,14 @@ private fun NowActivityCard(state: DashboardState) {
             Row(
                 Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.Top
+                verticalAlignment = Alignment.Top,
             ) {
                 Column {
                     Text("Activity", style = MaterialTheme.typography.titleMedium)
                     Text(
                         "${state.traffic.summary.activeConnections} active connections",
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
                 Column(horizontalAlignment = Alignment.End) {
@@ -1177,9 +1426,10 @@ private fun NowActivityCard(state: DashboardState) {
             }
             BandwidthSparkline(
                 samples = state.bandwidthSamples,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(56.dp)
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .height(56.dp),
             )
             val latest = state.traffic.connections.firstOrNull()
             if (latest == null) {
@@ -1200,7 +1450,7 @@ private fun LatestConnectionRow(connection: TrafficConnectionPayload) {
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f)
+                modifier = Modifier.weight(1f),
             )
             Spacer(Modifier.width(12.dp))
             StatusPill(connection.actionFamily().uppercase())
@@ -1213,7 +1463,7 @@ private fun LatestConnectionRow(connection: TrafficConnectionPayload) {
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1,
-            overflow = TextOverflow.Ellipsis
+            overflow = TextOverflow.Ellipsis,
         )
     }
 }
@@ -1224,47 +1474,47 @@ private fun TrafficCard(
     onCreateRule: (RulePayload) -> Unit,
     onCreateRuleFromConnection: (TrafficConnectionPayload, RulePayload) -> Unit,
     onCreateTemporaryRuleFromConnection: (TrafficConnectionPayload, String) -> Unit,
-    onCleanupRule: (TrafficCleanupSuggestionPayload) -> Unit
+    onCleanupRule: (TrafficCleanupSuggestionPayload) -> Unit,
+    onApplyQuickFilter: (TrafficMonitorFilter) -> Unit = {},
 ) {
     val traffic = state.traffic
-    var filter by remember { mutableStateOf("all") }
     var search by remember { mutableStateOf("") }
     var draftRule by remember { mutableStateOf<RulePayload?>(null) }
     var draftConnection by remember { mutableStateOf<TrafficConnectionPayload?>(null) }
     var pendingCleanup by remember { mutableStateOf<TrafficCleanupSuggestionPayload?>(null) }
     var detailConnection by remember { mutableStateOf<TrafficConnectionPayload?>(null) }
-    val counts = traffic.actionCounts()
     val fallbackChain = dashboardFallbackProxyChain(state)
-    val visibleConnections = traffic.connections.filter { connection ->
-        (filter == "all" || connection.actionFamily() == filter) &&
-            (search.isBlank() || listOf(
-                connection.target,
-                connection.monitorHost(),
-                connection.profile,
-                connection.ruleName,
-                connection.ruleAction,
-                connection.chainName,
-                connection.application,
-                connection.network,
-                connection.geo.country,
-                connection.geo.countryCode,
-                connection.geo.city,
-                connection.targetPort
-            ).any { it.contains(search, ignoreCase = true) })
-    }
+    val visibleConnections =
+        traffic.connections.filter { connection ->
+            search.isBlank() ||
+                listOf(
+                    connection.target,
+                    connection.monitorHost(),
+                    connection.profile,
+                    connection.ruleName,
+                    connection.ruleAction,
+                    connection.chainName,
+                    connection.application,
+                    connection.network,
+                    connection.geo.country,
+                    connection.geo.countryCode,
+                    connection.geo.city,
+                    connection.targetPort,
+                ).any { it.contains(search, ignoreCase = true) }
+        }
     Card(shape = RoundedCornerShape(8.dp)) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(
                 Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.Top
+                verticalAlignment = Alignment.Top,
             ) {
                 Column {
                     Text("Traffic", style = MaterialTheme.typography.titleMedium)
                     Text(
                         "${traffic.summary.activeConnections} tracked connections",
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
                 Column(horizontalAlignment = Alignment.End) {
@@ -1275,9 +1525,10 @@ private fun TrafficCard(
 
             BandwidthSparkline(
                 samples = state.bandwidthSamples,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(56.dp)
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .height(56.dp),
             )
 
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -1285,8 +1536,12 @@ private fun TrafficCard(
                 Text("Total up ${formatBytes(traffic.summary.txTotal)}", style = MaterialTheme.typography.bodySmall)
             }
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf("all" to "All ${traffic.connections.size}", "proxy" to "Proxy ${counts["proxy"] ?: 0}", "direct" to "Direct ${counts["direct"] ?: 0}", "block" to "Block ${counts["block"] ?: 0}").forEach { (value, label) ->
-                    FilterChip(selected = filter == value, onClick = { filter = value }, label = { Text(label) })
+                traffic.quickFilters.forEach { chip ->
+                    FilterChip(
+                        selected = isChipSelected(state.monitorFilter, chip.key),
+                        onClick = { onApplyQuickFilter(state.monitorFilter.applyingQuickFilter(chip.key)) },
+                        label = { Text("${chip.label} ${chip.count}") },
+                    )
                 }
             }
             TextField(
@@ -1294,23 +1549,24 @@ private fun TrafficCard(
                 onValueChange = { search = it },
                 label = { Text("Search hosts, rules, chains") },
                 singleLine = true,
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(),
             )
             val hits = traffic.ruleHitSummaries()
             if (hits.isNotEmpty()) {
                 Text(
                     "Rule hits " + hits.take(3).joinToString("  ") { "${it.ruleName}: ${it.count}" },
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
             if (traffic.blockDecisions.isNotEmpty()) {
                 Text(
-                    "Recent blocks " + traffic.blockDecisions.take(3).joinToString("  ") {
-                        "${it.targetHost.ifBlank { it.target }} / ${it.ruleName.ifBlank { "default" }}"
-                    },
+                    "Recent blocks " +
+                        traffic.blockDecisions.take(3).joinToString("  ") {
+                            "${it.targetHost.ifBlank { it.target }} / ${it.ruleName.ifBlank { "default" }}"
+                        },
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
             traffic.cleanupSuggestions.take(4).forEach { suggestion ->
@@ -1339,7 +1595,7 @@ private fun TrafficCard(
                         onCreatePermanentRule = {
                             draftConnection = connection
                             draftRule = connection.ruleDraft()
-                        }
+                        },
                     )
                 }
             }
@@ -1362,7 +1618,7 @@ private fun TrafficCard(
                 }
                 draftRule = null
                 draftConnection = null
-            }
+            },
         )
     }
     pendingCleanup?.let { suggestion ->
@@ -1382,7 +1638,7 @@ private fun TrafficCard(
                 TextButton(onClick = { pendingCleanup = null }) {
                     Text("Cancel")
                 }
-            }
+            },
         )
     }
 
@@ -1396,37 +1652,47 @@ private fun TrafficCard(
                 draftConnection = connection
                 draftRule = connection.ruleDraft()
                 detailConnection = null
-            }
+            },
         )
     }
 }
 
 private fun dashboardFallbackProxyChain(state: DashboardState): String {
-    state.policyGroups.groups.firstOrNull { it.selectedChain.isNotBlank() }?.let { return it.selectedChain }
-    state.policyGroups.groups.firstOrNull { it.selected.isNotBlank() }?.let { return it.selected }
-    return state.servers.chains.firstOrNull()?.name.orEmpty()
+    state.policyGroups.groups
+        .firstOrNull { it.selectedChain.isNotBlank() }
+        ?.let { return it.selectedChain }
+    state.policyGroups.groups
+        .firstOrNull { it.selected.isNotBlank() }
+        ?.let { return it.selected }
+    return state.servers.chains
+        .firstOrNull()
+        ?.name
+        .orEmpty()
 }
 
 @Composable
-private fun CleanupSuggestionRow(suggestion: TrafficCleanupSuggestionPayload, onApply: () -> Unit) {
+private fun CleanupSuggestionRow(
+    suggestion: TrafficCleanupSuggestionPayload,
+    onApply: () -> Unit,
+) {
     Row(
         Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(
                 cleanupTargetName(suggestion).ifBlank { suggestion.ruleName.ifBlank { "Rule cleanup" } },
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+                overflow = TextOverflow.Ellipsis,
             )
             Text(
                 suggestion.message,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 2,
-                overflow = TextOverflow.Ellipsis
+                overflow = TextOverflow.Ellipsis,
             )
         }
         Spacer(Modifier.width(12.dp))
@@ -1437,18 +1703,21 @@ private fun CleanupSuggestionRow(suggestion: TrafficCleanupSuggestionPayload, on
 }
 
 @Composable
-private fun RuleSuggestionRow(suggestion: TrafficRuleSuggestionPayload, onCreateRule: () -> Unit) {
+private fun RuleSuggestionRow(
+    suggestion: TrafficRuleSuggestionPayload,
+    onCreateRule: () -> Unit,
+) {
     Row(
         Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(
                 suggestion.draftRule.name.ifBlank { suggestion.kind.ifBlank { "Suggested rule" } },
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+                overflow = TextOverflow.Ellipsis,
             )
             Text(
                 listOf(suggestion.draftRule.action, suggestionMatchText(suggestion.draftRule), "${suggestion.count} hits")
@@ -1457,7 +1726,7 @@ private fun RuleSuggestionRow(suggestion: TrafficRuleSuggestionPayload, onCreate
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+                overflow = TextOverflow.Ellipsis,
             )
             if (suggestion.reason.isNotBlank()) {
                 Text(
@@ -1465,7 +1734,7 @@ private fun RuleSuggestionRow(suggestion: TrafficRuleSuggestionPayload, onCreate
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
         }
@@ -1482,7 +1751,7 @@ private fun ConnectionRow(
     fallbackChain: String,
     onClick: () -> Unit,
     onTemporaryAction: (String) -> Unit,
-    onCreatePermanentRule: () -> Unit
+    onCreatePermanentRule: () -> Unit,
 ) {
     val canCreateTemporary = connection.canCreateTemporaryRule()
     val proxyAction = connection.temporaryProxyAction(fallbackChain)
@@ -1490,7 +1759,7 @@ private fun ConnectionRow(
         Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick),
-        verticalArrangement = Arrangement.spacedBy(3.dp)
+        verticalArrangement = Arrangement.spacedBy(3.dp),
     ) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text(
@@ -1498,7 +1767,7 @@ private fun ConnectionRow(
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f)
+                modifier = Modifier.weight(1f),
             )
             Spacer(Modifier.width(12.dp))
             StatusPill(connection.actionFamily().uppercase())
@@ -1511,12 +1780,12 @@ private fun ConnectionRow(
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1,
-            overflow = TextOverflow.Ellipsis
+            overflow = TextOverflow.Ellipsis,
         )
         Text(
             "${formatBytes(connection.rxTotal)} down · ${formatBytes(connection.txTotal)} up · ${formatDurationNs(connection.durationNs)}",
             style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             OutlinedButton(onClick = { onTemporaryAction("allow") }, enabled = canCreateTemporary) {
@@ -1541,7 +1810,7 @@ private fun ConnectionDetailDialog(
     fallbackChain: String,
     onDismiss: () -> Unit,
     onTemporaryAction: (String) -> Unit,
-    onCreatePermanentRule: () -> Unit
+    onCreatePermanentRule: () -> Unit,
 ) {
     val canCreateTemporary = connection.canCreateTemporaryRule()
     val proxyAction = connection.temporaryProxyAction(fallbackChain)
@@ -1552,21 +1821,22 @@ private fun ConnectionDetailDialog(
                 Text(
                     connection.target.ifBlank { connection.targetHost.ifBlank { "Connection" } },
                     maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
+                    overflow = TextOverflow.Ellipsis,
                 )
                 Text(
                     connection.actionFamily().uppercase(),
                     style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         },
         text = {
             Column(
-                modifier = Modifier
-                    .heightIn(max = 420.dp)
-                    .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
+                modifier =
+                    Modifier
+                        .heightIn(max = 420.dp)
+                        .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
                 DetailSection("Routing") {
                     DetailRow("Decision", connection.ruleName.ifBlank { if (connection.isDefault) "Default route" else "--" })
@@ -1587,7 +1857,8 @@ private fun ConnectionDetailDialog(
                         DetailRow(
                             "Listener",
                             listOf(connection.listener.protocol, connection.listener.addr)
-                                .filter { it.isNotBlank() }.joinToString(" ")
+                                .filter { it.isNotBlank() }
+                                .joinToString(" "),
                         )
                     }
                     if (connection.closeReason.isNotBlank()) DetailRow("Close reason", connection.closeReason)
@@ -1624,19 +1895,22 @@ private fun ConnectionDetailDialog(
                 if (connection.hops.isNotEmpty()) {
                     DetailSection("Chain hops") {
                         connection.hops.forEach { hop ->
-                            val meta = listOf(hop.protocol, hop.address, hop.state)
-                                .filter { it.isNotBlank() }.joinToString(" · ")
-                            val value = buildString {
-                                append(meta)
-                                if (hop.elapsedNs > 0) {
-                                    if (isNotEmpty()) append(" · ")
-                                    append(formatDurationNs(hop.elapsedNs))
+                            val meta =
+                                listOf(hop.protocol, hop.address, hop.state)
+                                    .filter { it.isNotBlank() }
+                                    .joinToString(" · ")
+                            val value =
+                                buildString {
+                                    append(meta)
+                                    if (hop.elapsedNs > 0) {
+                                        if (isNotEmpty()) append(" · ")
+                                        append(formatDurationNs(hop.elapsedNs))
+                                    }
+                                    if (hop.error.isNotBlank()) {
+                                        if (isNotEmpty()) append(" · ")
+                                        append(hop.error)
+                                    }
                                 }
-                                if (hop.error.isNotBlank()) {
-                                    if (isNotEmpty()) append(" · ")
-                                    append(hop.error)
-                                }
-                            }
                             DetailRow("${hop.index + 1}. ${hop.name.ifBlank { "hop" }}", value.ifBlank { "--" })
                         }
                     }
@@ -1644,11 +1918,12 @@ private fun ConnectionDetailDialog(
                 if (connection.timeline.isNotEmpty()) {
                     DetailSection("Timeline") {
                         connection.timeline.forEach { event ->
-                            val offset = if (connection.startTsNs > 0 && event.tsNs >= connection.startTsNs) {
-                                formatDurationNs(event.tsNs - connection.startTsNs)
-                            } else {
-                                ""
-                            }
+                            val offset =
+                                if (connection.startTsNs > 0 && event.tsNs >= connection.startTsNs) {
+                                    formatDurationNs(event.tsNs - connection.startTsNs)
+                                } else {
+                                    ""
+                                }
                             val label = listOf(offset, event.type).filter { it.isNotBlank() }.joinToString(" ")
                             val value = listOf(event.title, event.detail).filter { it.isNotBlank() }.joinToString(" — ")
                             DetailRow(label.ifBlank { "event" }, value.ifBlank { "--" })
@@ -1657,13 +1932,13 @@ private fun ConnectionDetailDialog(
                 }
                 FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
                     OutlinedButton(onClick = { onTemporaryAction("allow") }, enabled = canCreateTemporary) { Text("Allow") }
                     OutlinedButton(onClick = { onTemporaryAction("block") }, enabled = canCreateTemporary) { Text("Block") }
                     OutlinedButton(
                         onClick = { onTemporaryAction(proxyAction) },
-                        enabled = canCreateTemporary && proxyAction.isNotBlank()
+                        enabled = canCreateTemporary && proxyAction.isNotBlank(),
                     ) { Text("Proxy") }
                     OutlinedButton(onClick = onCreatePermanentRule, enabled = connection.ruleDraft() != null) {
                         Text("Permanent rule")
@@ -1671,31 +1946,37 @@ private fun ConnectionDetailDialog(
                 }
             }
         },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } }
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } },
     )
 }
 
 @Composable
-private fun DetailSection(title: String, content: @Composable () -> Unit) {
+private fun DetailSection(
+    title: String,
+    content: @Composable () -> Unit,
+) {
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text(
             title,
             style = MaterialTheme.typography.labelMedium,
             fontWeight = FontWeight.SemiBold,
-            color = MaterialTheme.colorScheme.primary
+            color = MaterialTheme.colorScheme.primary,
         )
         content()
     }
 }
 
 @Composable
-private fun DetailRow(label: String, value: String) {
+private fun DetailRow(
+    label: String,
+    value: String,
+) {
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(
             label,
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.weight(0.42f)
+            modifier = Modifier.weight(0.42f),
         )
         Text(value, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(0.58f))
     }
@@ -1706,7 +1987,7 @@ private fun RuleCreateDialog(
     initialRule: RulePayload,
     chains: List<String>,
     onDismiss: () -> Unit,
-    onSave: (RulePayload) -> Unit
+    onSave: (RulePayload) -> Unit,
 ) {
     var name by remember(initialRule) { mutableStateOf(initialRule.name) }
     var action by remember(initialRule) { mutableStateOf(initialRule.action) }
@@ -1721,7 +2002,11 @@ private fun RuleCreateDialog(
                     FilterChip(selected = action == "block", onClick = { action = "block" }, label = { Text("Block") })
                     FilterChip(selected = action == "direct", onClick = { action = "direct" }, label = { Text("Direct") })
                     chains.forEach { chain ->
-                        FilterChip(selected = action == "chain:$chain", onClick = { action = "chain:$chain" }, label = { Text("Proxy: $chain") })
+                        FilterChip(
+                            selected = action == "chain:$chain",
+                            onClick = { action = "chain:$chain" },
+                            label = { Text("Proxy: $chain") },
+                        )
                     }
                 }
                 Text("Match $match", style = MaterialTheme.typography.bodySmall)
@@ -1730,10 +2015,10 @@ private fun RuleCreateDialog(
         confirmButton = {
             TextButton(
                 onClick = { onSave(initialRule.copy(name = name.trim(), action = action)) },
-                enabled = name.isNotBlank()
+                enabled = name.isNotBlank(),
             ) { Text("Save") }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
 }
 
@@ -1753,7 +2038,10 @@ private fun cleanupActionTitle(suggestion: TrafficCleanupSuggestionPayload): Str
     if (suggestion.operation == "move_rule_to_end") "Move to end" else "Delete"
 
 @Composable
-private fun ProfilesCard(state: DashboardState, onProfileSelected: (String) -> Unit) {
+private fun ProfilesCard(
+    state: DashboardState,
+    onProfileSelected: (String) -> Unit,
+) {
     Card(shape = RoundedCornerShape(8.dp)) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text("Profiles", style = MaterialTheme.typography.titleMedium)
@@ -1771,7 +2059,7 @@ private fun ProfilesCard(state: DashboardState, onProfileSelected: (String) -> U
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         CircularProgressIndicator(
                                             modifier = Modifier.size(14.dp),
-                                            strokeWidth = 2.dp
+                                            strokeWidth = 2.dp,
                                         )
                                         Spacer(Modifier.width(8.dp))
                                         Text(profile)
@@ -1779,7 +2067,7 @@ private fun ProfilesCard(state: DashboardState, onProfileSelected: (String) -> U
                                 } else {
                                     Text(profile)
                                 }
-                            }
+                            },
                         )
                     }
                 }
@@ -1801,7 +2089,7 @@ private fun ListenersCard(listeners: List<ListenerStatusPayload>) {
                         AssistChip(
                             onClick = {},
                             label = { Text("${listener.protocol} ${listener.addr} (${listener.activeConns})") },
-                            leadingIcon = { Icon(Icons.Rounded.Dns, contentDescription = "Listener") }
+                            leadingIcon = { Icon(Icons.Rounded.Dns, contentDescription = "Listener") },
                         )
                     }
                 }
@@ -1811,7 +2099,10 @@ private fun ListenersCard(listeners: List<ListenerStatusPayload>) {
 }
 
 @Composable
-private fun ServersCard(servers: ServersPayload, onOpenSettings: () -> Unit) {
+private fun ServersCard(
+    servers: ServersPayload,
+    onOpenSettings: () -> Unit,
+) {
     Card(shape = RoundedCornerShape(8.dp)) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
@@ -1832,14 +2123,14 @@ private fun ServersCard(servers: ServersPayload, onOpenSettings: () -> Unit) {
                             Text(
                                 "${server.name} · ${server.protocol}",
                                 maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
+                                overflow = TextOverflow.Ellipsis,
                             )
                             Text(
                                 serverLocation(server),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
+                                overflow = TextOverflow.Ellipsis,
                             )
                         }
                     }
@@ -1856,7 +2147,7 @@ private fun LogsCard(state: DashboardState) {
             Row(
                 Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text("Recent logs", style = MaterialTheme.typography.titleMedium)
                 StatusPill(state.eventStreamStatus)
@@ -1867,7 +2158,7 @@ private fun LogsCard(state: DashboardState) {
                     color = MaterialTheme.colorScheme.error,
                     style = MaterialTheme.typography.bodySmall,
                     maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
             if (state.logs.isEmpty()) {
@@ -1879,7 +2170,7 @@ private fun LogsCard(state: DashboardState) {
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 2,
-                        overflow = TextOverflow.Ellipsis
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
             }
@@ -1888,24 +2179,28 @@ private fun LogsCard(state: DashboardState) {
 }
 
 @Composable
-private fun BandwidthSparkline(samples: List<BandwidthSample>, modifier: Modifier = Modifier) {
+private fun BandwidthSparkline(
+    samples: List<BandwidthSample>,
+    modifier: Modifier = Modifier,
+) {
     val lineColor = MaterialTheme.colorScheme.primary
     val baselineColor = MaterialTheme.colorScheme.outlineVariant
     val backgroundColor = MaterialTheme.colorScheme.surfaceContainerHighest
     val values = samples.map { max(it.rxBps, it.txBps) }
 
     Canvas(
-        modifier = modifier
-            .clip(RoundedCornerShape(8.dp))
-            .background(backgroundColor)
-            .semantics { contentDescription = "Recent bandwidth graph" }
+        modifier =
+            modifier
+                .clip(RoundedCornerShape(8.dp))
+                .background(backgroundColor)
+                .semantics { contentDescription = "Recent bandwidth graph" },
     ) {
         val midY = size.height / 2f
         drawLine(
             color = baselineColor,
             start = Offset(0f, midY),
             end = Offset(size.width, midY),
-            strokeWidth = 1.dp.toPx()
+            strokeWidth = 1.dp.toPx(),
         )
         if (values.size < 2) {
             return@Canvas
@@ -1923,7 +2218,7 @@ private fun BandwidthSparkline(samples: List<BandwidthSample>, modifier: Modifie
                     start = last,
                     end = current,
                     strokeWidth = 3.dp.toPx(),
-                    cap = StrokeCap.Round
+                    cap = StrokeCap.Round,
                 )
             }
             previous = current
@@ -1932,7 +2227,10 @@ private fun BandwidthSparkline(samples: List<BandwidthSample>, modifier: Modifie
 }
 
 @Composable
-private fun ButtonProgressOrIcon(showProgress: Boolean, icon: @Composable () -> Unit) {
+private fun ButtonProgressOrIcon(
+    showProgress: Boolean,
+    icon: @Composable () -> Unit,
+) {
     if (showProgress) {
         CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
     } else {
@@ -1942,7 +2240,10 @@ private fun ButtonProgressOrIcon(showProgress: Boolean, icon: @Composable () -> 
 }
 
 @Composable
-private fun MetricPill(label: String, value: String) {
+private fun MetricPill(
+    label: String,
+    value: String,
+) {
     ElevatedAssistChip(
         onClick = {},
         label = {
@@ -1950,36 +2251,88 @@ private fun MetricPill(label: String, value: String) {
                 Text(label, style = MaterialTheme.typography.labelSmall)
                 Text(value, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
             }
-        }
+        },
     )
 }
 
 @Composable
-private fun StatusPill(text: String, modifier: Modifier = Modifier) {
+private fun StatusPill(
+    text: String,
+    modifier: Modifier = Modifier,
+) {
     Surface(
         modifier = modifier.widthIn(max = 180.dp),
         shape = RoundedCornerShape(999.dp),
         color = MaterialTheme.colorScheme.secondaryContainer,
-        contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
     ) {
         Text(
             text,
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
             style = MaterialTheme.typography.labelMedium,
             maxLines = 1,
-            overflow = TextOverflow.Ellipsis
+            overflow = TextOverflow.Ellipsis,
         )
     }
 }
 
 @Composable
-private fun EmptyState(title: String, detail: String) {
+private fun EmptyState(
+    title: String,
+    detail: String,
+) {
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text(title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
         Text(
             detail,
             style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
+}
+
+@Composable
+private fun PromptsCard(state: DashboardState, onResolvePrompt: (PendingPromptPayload, String, String, Boolean, Boolean, Boolean) -> Unit) {
+    if (state.pendingPrompts.isEmpty()) return
+    Card(shape = RoundedCornerShape(8.dp)) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text("Connection Requests", style = MaterialTheme.typography.titleMedium)
+            state.pendingPrompts.forEach { prompt ->
+                Column(Modifier.padding(bottom = 8.dp)) {
+                    Text("${if (prompt.processName.isEmpty()) "Unknown process" else prompt.processName} → ${prompt.target}", fontWeight = FontWeight.Medium)
+                    val detail = buildString {
+                        append(if (prompt.network.isEmpty()) "tcp" else prompt.network)
+                        if (prompt.wouldUseChain.isNotEmpty()) append(" · via ").append(prompt.wouldUseChain)
+                        if (prompt.codeSignID.isNotEmpty()) append(" · signed:").append(prompt.codeSignID)
+                        if (prompt.expiresAt.isNotEmpty()) append(" · expires ").append(prompt.expiresAt)
+                    }
+                    Text(detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 4.dp)) {
+                        Button(onClick = { onResolvePrompt(prompt, "allow", "once", false, false, false) }) { Text("Allow") }
+                        Button(onClick = { onResolvePrompt(prompt, "allow", "until_quit", false, false, false) }) { Text("Allow until quit") }
+                        Button(onClick = { onResolvePrompt(prompt, "allow", "forever", false, false, false) }) { Text("Allow forever") }
+                        OutlinedButton(onClick = { onResolvePrompt(prompt, "block", "forever", false, false, false) }) { Text("Block forever") }
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun isChipSelected(filter: TrafficMonitorFilter, key: String): Boolean {
+    if (key == "all") return filter.isEmpty()
+    if (key == "active") return filter.state == "active"
+    if (key == "proxy" || key == "direct" || key == "block") return filter.action == key
+    val colon = key.indexOf(':')
+    if (colon > 0) {
+        val name = key.substring(0, colon); val value = key.substring(colon + 1)
+        return when (name) {
+            "country" -> filter.country == value
+            "port" -> filter.port == value
+            "process" -> filter.process == value
+            "network" -> filter.network == value
+            else -> false
+        }
+    }
+    return false
 }

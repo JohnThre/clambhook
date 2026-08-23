@@ -32,7 +32,7 @@ flowchart LR
 | --- | --- | --- | --- | --- |
 | macOS | Local (macOS) | `ClambhookMac` (`ui/apple`) | `make build-apple` + `swift test` + notarized DMG smoke | Shipping (public) |
 | GNU/Linux | Local + Apple container | `.deb` / `.rpm` | `scripts/validate-linux-distros.sh` (ubuntu/debian/fedora containers) + `make test-linux` | Shipping (public) |
-| Android | Local | `.apk` | `make test-android` + `make lint-android` + `make build-android` (+ `android` CLI on-device) | Internal developer QA |
+| Android 11+ | Local | `.apk` | unit/lint/build + Compose instrumentation on API 30/33/36 + `android` CLI on-device | Internal developer QA |
 
 ClambHook's Apple surface is currently macOS only. Windows development is
 discontinued with no planned resumption date.
@@ -40,7 +40,8 @@ discontinued with no planned resumption date.
 ## Apple lane — local macOS
 
 Apple builds validate on the developer's Mac. The Apple project is generated
-with XcodeGen and the Go daemon runtime is produced by the Makefile.
+with XcodeGen; the current release still embeds the legacy daemon while the C
+runtime follows the cross-platform parity gates.
 
 ```sh
 make prepare-apple-runtime   # darwin daemon + TUI runtime
@@ -65,18 +66,20 @@ scripts/validate-linux-distros.sh            # ubuntu · debian · fedora
 make test-linux                              # host-side Kotlin unit tests for the Compose controller
 ```
 
-Per distro the harness installs the build toolchain, runs `make build` +
-`make build-linux`, then smoke-tests headlessly: `clambhook-license` seeds and
-evaluates a trial (expects `"ok":true`), and `clambhook` / `clambhook-tui`
-report their versions. See [`packaging/README.md`](../packaging/README.md) for
-the container-harness details. For a release, `make release-linux` builds the
+During the phased C/GTK migration, run `make test-native` and
+`make build-linux-gtk` alongside the existing distro harness. Production
+packages stay on their current binaries until the native packaging gate in
+[`c-migration.md`](c-migration.md) passes. See
+[`packaging/README.md`](../packaging/README.md) for the container-harness
+details. For a release, `make release-linux` builds the
 `.deb` + `.rpm`, checksums, GPG-signs, and writes the update manifest; see
 [`docs/website-release/linux-release-runbook.md`](website-release/linux-release-runbook.md).
 
 ## Android lane — local
 
-Android validates on the developer's machine. The embedded daemon AAR is built
-with gomobile; unit tests, lint, and the debug build run on Gradle; Google's
+Android validates on the developer's machine. The GUI is Kotlin/Jetpack Compose
+with an Android 11 (API 30) floor. During runtime migration the embedded daemon
+AAR is still built with gomobile; unit tests, lint, and the debug build run on Gradle; Google's
 `android` CLI is the default for the on-device dev loop, using an Android SDK
 Emulator (AVD) for local CI/CD (Apple `container` is Linux-only and cannot run
 Android).
@@ -86,6 +89,7 @@ make build-android-mobile-aar                # gomobile bind → ui/android/app/
 make test-android                            # ./gradlew :app:testDebugUnitTest
 make lint-android                            # ./gradlew :app:lintDebug
 make build-android                           # ./gradlew :app:assembleDebug
+make test-android-compatibility              # managed AOSP devices: API 30/33/36
 make run-android                             # android run (build + deploy + launch on a device or AVD)
 ```
 
@@ -99,7 +103,7 @@ guide and [`docs/website-release/release-runbook.md`](website-release/release-ru
 ## Local `release-check` scope
 
 `make release-check` (`macos-release-contract-check test lint package-smoke
-e2e-release`) gates the Go core: it runs `go test ./...`, `go vet`, the Debian
+e2e-release`) currently gates the legacy core: it runs `go test ./...`, `go vet`, the Debian
 package smoke build, and the real-server protocol e2e suite. It intentionally
 does **not** run the UI test suites (`test-apple`, `test-android`,
 `test-linux`); those are validated by `scripts/ci-local.sh` instead — the Apple
@@ -107,3 +111,7 @@ client via `make build-apple`/`test-apple`, the Android UI via `make
 test-android`/`lint-android`/`build-android`, and the GNU/Linux UI via `make
 test-linux` + `scripts/validate-linux-distros.sh`. Run the platform UI targets
 directly when iterating on a specific client.
+
+During migration, `make test-native` is an additional mandatory local gate.
+After final cutover it replaces the legacy Go-specific checks rather than
+running alongside them.

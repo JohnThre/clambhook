@@ -16,6 +16,11 @@ public struct PendingPromptPayload: Codable, Equatable, Identifiable, Sendable {
     public var processPath: String
     public var createdAt: Date
     public var waiters: Int
+    public var expiresAt: Date
+    public var wouldUseChain: String
+    public var wouldUseGroup: String
+    public var codeSignID: String
+    public var codeSignStatus: String
 
     public init(
         id: String = "",
@@ -29,7 +34,12 @@ public struct PendingPromptPayload: Codable, Equatable, Identifiable, Sendable {
         processName: String = "",
         processPath: String = "",
         createdAt: Date = Date(),
-        waiters: Int = 0
+        waiters: Int = 0,
+        expiresAt: Date = Date(timeIntervalSince1970: 0),
+        wouldUseChain: String = "",
+        wouldUseGroup: String = "",
+        codeSignID: String = "",
+        codeSignStatus: String = ""
     ) {
         self.id = id
         self.connID = connID
@@ -43,6 +53,11 @@ public struct PendingPromptPayload: Codable, Equatable, Identifiable, Sendable {
         self.processPath = processPath
         self.createdAt = createdAt
         self.waiters = waiters
+        self.expiresAt = expiresAt
+        self.wouldUseChain = wouldUseChain
+        self.wouldUseGroup = wouldUseGroup
+        self.codeSignID = codeSignID
+        self.codeSignStatus = codeSignStatus
     }
 
     enum CodingKeys: String, CodingKey {
@@ -58,6 +73,11 @@ public struct PendingPromptPayload: Codable, Equatable, Identifiable, Sendable {
         case processPath = "process_path"
         case createdAt = "created_at"
         case waiters
+        case expiresAt = "expires_at"
+        case wouldUseChain = "would_use_chain"
+        case wouldUseGroup = "would_use_group"
+        case codeSignID = "code_sign_id"
+        case codeSignStatus = "code_sign_status"
     }
 
     public init(from decoder: Decoder) throws {
@@ -82,6 +102,15 @@ public struct PendingPromptPayload: Codable, Equatable, Identifiable, Sendable {
             createdAt = Date()
         }
         waiters = try container.decodeIfPresent(Int.self, forKey: .waiters) ?? 0
+        if let raw = try container.decodeIfPresent(String.self, forKey: .expiresAt) {
+            expiresAt = PendingPromptPayload.parseTimestamp(raw) ?? Date(timeIntervalSince1970: 0)
+        } else {
+            expiresAt = Date(timeIntervalSince1970: 0)
+        }
+        wouldUseChain = try container.decodeIfPresent(String.self, forKey: .wouldUseChain) ?? ""
+        wouldUseGroup = try container.decodeIfPresent(String.self, forKey: .wouldUseGroup) ?? ""
+        codeSignID = try container.decodeIfPresent(String.self, forKey: .codeSignID) ?? ""
+        codeSignStatus = try container.decodeIfPresent(String.self, forKey: .codeSignStatus) ?? ""
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -101,6 +130,11 @@ public struct PendingPromptPayload: Codable, Equatable, Identifiable, Sendable {
             forKey: .createdAt
         )
         try container.encode(waiters, forKey: .waiters)
+        try container.encode(PendingPromptPayload.fractionalFormatter.string(from: expiresAt), forKey: .expiresAt)
+        try container.encode(wouldUseChain, forKey: .wouldUseChain)
+        try container.encode(wouldUseGroup, forKey: .wouldUseGroup)
+        try container.encode(codeSignID, forKey: .codeSignID)
+        try container.encode(codeSignStatus, forKey: .codeSignStatus)
     }
 
     /// A human-facing label for the requesting process, falling back to the PID
@@ -160,6 +194,8 @@ public enum PromptDecisionScope: String, Codable, Sendable, CaseIterable {
     case session
     /// Persists a rule to the active profile.
     case forever
+    /// Creates a temporary rule that expires when the owning process exits.
+    case untilQuit = "until_quit"
 }
 
 /// Request body for `POST /api/v1/prompts/{id}/resolve`.
@@ -167,17 +203,23 @@ public struct ResolvePromptRequest: Codable, Equatable, Sendable {
     public var action: String
     public var scope: String
     public var matchHost: Bool
+    public var matchPort: Bool
+    public var matchProtocol: Bool
     public var ttlSeconds: Int64
 
     public init(
         action: PromptDecisionAction,
         scope: PromptDecisionScope = .once,
         matchHost: Bool = false,
+        matchPort: Bool = false,
+        matchProtocol: Bool = false,
         ttlSeconds: Int64 = 0
     ) {
         self.action = action.rawValue
         self.scope = scope.rawValue
         self.matchHost = matchHost
+        self.matchPort = matchPort
+        self.matchProtocol = matchProtocol
         self.ttlSeconds = ttlSeconds
     }
 
@@ -185,6 +227,93 @@ public struct ResolvePromptRequest: Codable, Equatable, Sendable {
         case action
         case scope
         case matchHost = "match_host"
+        case matchPort = "match_port"
+        case matchProtocol = "match_protocol"
+        case ttlSeconds = "ttl_seconds"
+    }
+}
+
+/// One auto-decided connection recorded under Silent Mode, for the review list
+/// returned by GET /api/v1/prompts/decisions. Mirrors the daemon
+/// `prompt.SilentDecision` JSON.
+public struct SilentDecisionPayload: Codable, Equatable, Identifiable, Sendable {
+    public var id: String
+    public var profile: String
+    public var network: String
+    public var target: String
+    public var targetHost: String
+    public var targetPort: String
+    public var pid: Int
+    public var processName: String
+    public var processPath: String
+    public var codeSignID: String
+    public var action: String
+    public var tsNs: Int64
+
+    enum CodingKeys: String, CodingKey {
+        case id, profile, network, target
+        case targetHost = "target_host"
+        case targetPort = "target_port"
+        case pid
+        case processName = "process_name"
+        case processPath = "process_path"
+        case codeSignID = "code_sign_id"
+        case action
+        case tsNs = "ts_ns"
+    }
+
+    public init(id: String = "", profile: String = "", network: String = "", target: String = "", targetHost: String = "", targetPort: String = "", pid: Int = 0, processName: String = "", processPath: String = "", codeSignID: String = "", action: String = "", tsNs: Int64 = 0) {
+        self.id = id; self.profile = profile; self.network = network; self.target = target
+        self.targetHost = targetHost; self.targetPort = targetPort; self.pid = pid
+        self.processName = processName; self.processPath = processPath; self.codeSignID = codeSignID
+        self.action = action; self.tsNs = tsNs
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decodeIfPresent(String.self, forKey: .id) ?? ""
+        profile = try c.decodeIfPresent(String.self, forKey: .profile) ?? ""
+        network = try c.decodeIfPresent(String.self, forKey: .network) ?? ""
+        target = try c.decodeIfPresent(String.self, forKey: .target) ?? ""
+        targetHost = try c.decodeIfPresent(String.self, forKey: .targetHost) ?? ""
+        targetPort = try c.decodeIfPresent(String.self, forKey: .targetPort) ?? ""
+        pid = try c.decodeIfPresent(Int.self, forKey: .pid) ?? 0
+        processName = try c.decodeIfPresent(String.self, forKey: .processName) ?? ""
+        processPath = try c.decodeIfPresent(String.self, forKey: .processPath) ?? ""
+        codeSignID = try c.decodeIfPresent(String.self, forKey: .codeSignID) ?? ""
+        action = try c.decodeIfPresent(String.self, forKey: .action) ?? ""
+        tsNs = try c.decodeIfPresent(Int64.self, forKey: .tsNs) ?? 0
+    }
+}
+
+/// Response envelope for GET /api/v1/prompts/decisions.
+public struct SilentDecisionsPayload: Codable, Equatable, Sendable {
+    public var decisions: [SilentDecisionPayload]
+    public init(decisions: [SilentDecisionPayload] = []) { self.decisions = decisions }
+    enum CodingKeys: String, CodingKey { case decisions }
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        decisions = try c.decodeIfPresent([SilentDecisionPayload].self, forKey: .decisions) ?? []
+    }
+}
+
+/// Request body for POST /api/v1/prompts/decisions/{id}/promote. The action is
+/// fixed by the logged decision; only the scope and match granularity are set.
+public struct PromoteSilentDecisionRequest: Codable, Equatable, Sendable {
+    public var scope: String
+    public var matchHost: Bool
+    public var matchPort: Bool
+    public var matchProtocol: Bool
+    public var ttlSeconds: Int64
+    public init(scope: PromptDecisionScope = .session, matchHost: Bool = false, matchPort: Bool = false, matchProtocol: Bool = false, ttlSeconds: Int64 = 0) {
+        self.scope = scope.rawValue; self.matchHost = matchHost; self.matchPort = matchPort
+        self.matchProtocol = matchProtocol; self.ttlSeconds = ttlSeconds
+    }
+    enum CodingKeys: String, CodingKey {
+        case scope
+        case matchHost = "match_host"
+        case matchPort = "match_port"
+        case matchProtocol = "match_protocol"
         case ttlSeconds = "ttl_seconds"
     }
 }

@@ -30,14 +30,15 @@ type Cookie struct {
 
 // Body is a bounded body preview.
 type Body struct {
-	Size           int64  `json:"size"`
-	Preview        string `json:"preview,omitempty"`
-	PreviewBase64  string `json:"preview_base64,omitempty"`
-	PreviewBytes   int64  `json:"preview_bytes"`
-	Truncated      bool   `json:"truncated"`
-	TruncatedAfter int64  `json:"truncated_after"`
-	MimeType       string `json:"mime_type,omitempty"`
-	Encoding       string `json:"encoding,omitempty"`
+	Size           int64       `json:"size"`
+	Preview        string      `json:"preview,omitempty"`
+	PreviewBase64  string      `json:"preview_base64,omitempty"`
+	PreviewBytes   int64       `json:"preview_bytes"`
+	Truncated      bool        `json:"truncated"`
+	TruncatedAfter int64       `json:"truncated_after"`
+	MimeType       string      `json:"mime_type,omitempty"`
+	Encoding       string      `json:"encoding,omitempty"`
+	Viewer         *BodyViewer `json:"viewer,omitempty"`
 }
 
 // Message contains captured request or response data.
@@ -65,6 +66,36 @@ type Decoded struct {
 	Frames []DecodedFrame `json:"frames,omitempty"`
 }
 
+// Timings is the connect/SSL/send/wait/receive breakdown of a captured
+// transaction in milliseconds. It mirrors the HAR 1.2 timings block. Zero or
+// nil values indicate the phase did not apply (e.g. Map Local synthetic
+// responses have no upstream dial, plain HTTP has no SSL). Wait is the
+// server-processing / time-to-first-byte window; receive is the response body
+// transfer window. Breakpoint and rewrite pauses are excluded (milestones are
+// recorded around network I/O only).
+type Timings struct {
+	Connect float64 `json:"connect,omitempty"`
+	SSL     float64 `json:"ssl,omitempty"`
+	Send    float64 `json:"send,omitempty"`
+	Wait    float64 `json:"wait,omitempty"`
+	Receive float64 `json:"receive,omitempty"`
+}
+
+// BodyViewer is a daemon-side-computed rendering of a captured body so all four
+// clients render one shared shape instead of each reimplementing pretty-print
+// and hex. Pretty is the re-indented text (JSON/XML/form/HTML); Hex is an
+// offset/hex/ascii dump. Both are derived from the bounded preview bytes only,
+// so they reflect the same truncation as Preview. Kind is json|xml|form|html|text.
+// When a body cannot be pretty-printed (binary, invalid, base64-only), Pretty is
+// empty and clients fall back to the raw preview; Hex is still populated for
+// binary bodies. A nil Viewer (e.g. for empty bodies) means no viewer applies.
+type BodyViewer struct {
+	Kind            string `json:"kind,omitempty"`
+	Pretty          string `json:"pretty,omitempty"`
+	PrettyTruncated bool   `json:"pretty_truncated,omitempty"`
+	Hex             string `json:"hex,omitempty"`
+}
+
 // Entry is one captured HTTP transaction.
 type Entry struct {
 	ID         string    `json:"id"`
@@ -82,6 +113,7 @@ type Entry struct {
 	Request    Message   `json:"request"`
 	Response   Message   `json:"response"`
 	Decoded    *Decoded  `json:"decoded,omitempty"`
+	Timings    *Timings  `json:"timings,omitempty"`
 	Error      string    `json:"error,omitempty"`
 }
 
@@ -171,8 +203,27 @@ func cloneEntry(entry Entry) Entry {
 	entry.Request.Cookies = cloneCookieSlice(entry.Request.Cookies)
 	entry.Response.Headers = cloneHeaderSlice(entry.Response.Headers)
 	entry.Response.Cookies = cloneCookieSlice(entry.Response.Cookies)
+	entry.Request.Body.Viewer = cloneBodyViewer(entry.Request.Body.Viewer)
+	entry.Response.Body.Viewer = cloneBodyViewer(entry.Response.Body.Viewer)
 	entry.Decoded = cloneDecoded(entry.Decoded)
+	entry.Timings = cloneTimings(entry.Timings)
 	return entry
+}
+
+func cloneTimings(t *Timings) *Timings {
+	if t == nil {
+		return nil
+	}
+	copy := *t
+	return &copy
+}
+
+func cloneBodyViewer(v *BodyViewer) *BodyViewer {
+	if v == nil {
+		return nil
+	}
+	copy := *v
+	return &copy
 }
 
 func cloneDecoded(decoded *Decoded) *Decoded {

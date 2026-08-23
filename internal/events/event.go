@@ -10,6 +10,7 @@ package events
 
 import (
 	"context"
+	"time"
 )
 
 // Event is the wire-level envelope delivered to every subscriber.
@@ -263,16 +264,21 @@ type ProfileNetworkSwitchData struct {
 // PromptPendingData is emitted when an interactive connection prompt is
 // created and awaiting a user decision.
 type PromptPendingData struct {
-	PromptID    string `json:"prompt_id"`
-	ConnID      string `json:"conn_id,omitempty"`
-	Profile     string `json:"profile,omitempty"`
-	Network     string `json:"network,omitempty"`
-	Target      string `json:"target"`
-	TargetHost  string `json:"target_host,omitempty"`
-	TargetPort  string `json:"target_port,omitempty"`
-	ProcessName string `json:"process_name,omitempty"`
-	ProcessPath string `json:"process_path,omitempty"`
-	ProcessPID  int    `json:"process_pid,omitempty"`
+	PromptID       string    `json:"prompt_id"`
+	ConnID         string    `json:"conn_id,omitempty"`
+	Profile        string    `json:"profile,omitempty"`
+	Network        string    `json:"network,omitempty"`
+	Target         string    `json:"target"`
+	TargetHost     string    `json:"target_host,omitempty"`
+	TargetPort     string    `json:"target_port,omitempty"`
+	ProcessName    string    `json:"process_name,omitempty"`
+	ProcessPath    string    `json:"process_path,omitempty"`
+	ProcessPID     int       `json:"process_pid,omitempty"`
+	ExpiresAt      time.Time `json:"expires_at,omitempty"`
+	WouldUseChain  string    `json:"would_use_chain,omitempty"`
+	WouldUseGroup  string    `json:"would_use_group,omitempty"`
+	CodeSignID     string    `json:"code_sign_id,omitempty"`
+	CodeSignStatus string    `json:"code_sign_status,omitempty"`
 }
 
 // PromptResolvedData is emitted when a pending prompt is answered (by the user

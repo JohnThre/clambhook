@@ -64,6 +64,11 @@ type PromptConfig struct {
 	// decision. Defaults to false (block) — deny-by-default is the safe stance
 	// for an interactive firewall.
 	DefaultAllow bool `toml:"default_allow" json:"default_allow,omitempty"`
+	// SilentMode auto-decides every undecided connection without surfacing a
+	// prompt and logs each decision for later review. "" (default) keeps
+	// interactive prompting; "allow" admits undecided connections through the
+	// default chain; "deny" blocks them. Ignored when Enabled is false.
+	SilentMode string `toml:"silent_mode" json:"silent_mode,omitempty"`
 }
 
 // DeveloperConfig controls the opt-in HTTP(S) debugging inspector. It is

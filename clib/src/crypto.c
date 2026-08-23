@@ -1,4 +1,6 @@
 #include "cnet.h"
+#include <limits.h>
+#include <openssl/evp.h>
 #include <sodium.h>
 #include <stdlib.h>
 #include <string.h>
@@ -25,6 +27,81 @@ static void cnet_crypto_init(void) {
 
 int cnet_aes256gcm_available(void) {
     return crypto_aead_aes256gcm_is_available();
+}
+
+int cnet_aes128gcm_available(void) {
+    return 1;
+}
+
+int cnet_aes128gcm_encrypt(const uint8_t *key, const uint8_t *nonce,
+                           const uint8_t *plaintext, size_t pt_len,
+                           const uint8_t *aad, size_t aad_len,
+                           uint8_t *ciphertext, uint8_t *tag) {
+    if (key == NULL || nonce == NULL || tag == NULL ||
+        (pt_len > 0 && (plaintext == NULL || ciphertext == NULL)) ||
+        (aad_len > 0 && aad == NULL) || pt_len > INT_MAX || aad_len > INT_MAX) {
+        return CNET_ERR_INIT;
+    }
+    EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
+    if (ctx == NULL) {
+        return CNET_ERR_INIT;
+    }
+    int written = 0;
+    int final_written = 0;
+    int ok = EVP_EncryptInit_ex(ctx, EVP_aes_128_gcm(), NULL, NULL, NULL) == 1 &&
+             EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_IVLEN, 12, NULL) == 1 &&
+             EVP_EncryptInit_ex(ctx, NULL, NULL, key, nonce) == 1;
+    if (ok && aad_len > 0) {
+        ok = EVP_EncryptUpdate(ctx, NULL, &written, aad, (int)aad_len) == 1;
+    }
+    if (ok && pt_len > 0) {
+        ok = EVP_EncryptUpdate(ctx, ciphertext, &written, plaintext, (int)pt_len) == 1;
+    }
+    if (ok) {
+        uint8_t scratch[16];
+        uint8_t *final_output = pt_len > 0 ? ciphertext + written : scratch;
+        ok = EVP_EncryptFinal_ex(ctx, final_output, &final_written) == 1 &&
+             EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_GET_TAG, 16, tag) == 1;
+    }
+    EVP_CIPHER_CTX_free(ctx);
+    return ok ? CNET_OK : CNET_ERR_INIT;
+}
+
+int cnet_aes128gcm_decrypt(const uint8_t *key, const uint8_t *nonce,
+                           const uint8_t *ciphertext, size_t ct_len,
+                           const uint8_t *aad, size_t aad_len,
+                           const uint8_t *tag,
+                           uint8_t *plaintext) {
+    if (key == NULL || nonce == NULL || tag == NULL ||
+        (ct_len > 0 && (ciphertext == NULL || plaintext == NULL)) ||
+        (aad_len > 0 && aad == NULL) || ct_len > INT_MAX || aad_len > INT_MAX) {
+        return CNET_ERR_INIT;
+    }
+    EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
+    if (ctx == NULL) {
+        return CNET_ERR_INIT;
+    }
+    int written = 0;
+    int final_written = 0;
+    int ok = EVP_DecryptInit_ex(ctx, EVP_aes_128_gcm(), NULL, NULL, NULL) == 1 &&
+             EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_IVLEN, 12, NULL) == 1 &&
+             EVP_DecryptInit_ex(ctx, NULL, NULL, key, nonce) == 1;
+    if (ok && aad_len > 0) {
+        ok = EVP_DecryptUpdate(ctx, NULL, &written, aad, (int)aad_len) == 1;
+    }
+    if (ok && ct_len > 0) {
+        ok = EVP_DecryptUpdate(ctx, plaintext, &written, ciphertext, (int)ct_len) == 1;
+    }
+    if (ok) {
+        ok = EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_TAG, 16, (void *)tag) == 1;
+    }
+    if (ok) {
+        uint8_t scratch[16];
+        uint8_t *final_output = ct_len > 0 ? plaintext + written : scratch;
+        ok = EVP_DecryptFinal_ex(ctx, final_output, &final_written) == 1;
+    }
+    EVP_CIPHER_CTX_free(ctx);
+    return ok ? CNET_OK : CNET_ERR_AUTH;
 }
 
 int cnet_aes256gcm_encrypt(const uint8_t *key, const uint8_t *nonce,

@@ -856,6 +856,96 @@ func TestDeveloperDecodedTabFallsBackWhenAbsent(t *testing.T) {
 	}
 }
 
+func TestDeveloperPrettyTabRendersDaemonViewer(t *testing.T) {
+	entry := developerEntryPayload{
+		Method: "POST",
+		URL:    "https://api.example.com/v1",
+		Response: developerMessagePayload{Body: developerBodyPayload{
+			Preview: `{"a":1,"b":2}`,
+			Viewer:  &developerBodyViewerPayload{Kind: "json", Pretty: "{\n  \"a\": 1,\n  \"b\": 2\n}"},
+		}},
+	}
+	prettyTab := indexOf(developerDetailTabs, "Pretty")
+	lines := developerDetailTabLines(entry, prettyTab, 120)
+	joined := strings.Join(lines, "\n")
+	if !strings.Contains(joined, "pretty (json)") || !strings.Contains(joined, `"a": 1`) {
+		t.Fatalf("pretty tab missing viewer output:\n%s", joined)
+	}
+}
+
+func TestDeveloperPrettyTabFallsBackToLocalJSON(t *testing.T) {
+	// No viewer (older daemon) but a JSON preview -> local json.Indent fallback.
+	entry := developerEntryPayload{
+		Method: "GET",
+		URL:    "https://api.example.com/v1",
+		Response: developerMessagePayload{Body: developerBodyPayload{
+			Preview: `{"a":1}`,
+		}},
+	}
+	prettyTab := indexOf(developerDetailTabs, "Pretty")
+	lines := developerDetailTabLines(entry, prettyTab, 120)
+	joined := strings.Join(lines, "\n")
+	if !strings.Contains(joined, "pretty (json)") || !strings.Contains(joined, `"a": 1`) {
+		t.Fatalf("pretty tab local fallback missing:\n%s", joined)
+	}
+}
+
+func TestDeveloperHexTabRendersViewer(t *testing.T) {
+	entry := developerEntryPayload{
+		Method: "GET",
+		URL:    "https://api.example.com/v1",
+		Response: developerMessagePayload{Body: developerBodyPayload{
+			Viewer: &developerBodyViewerPayload{Hex: "00000000  48 65 6c 6c 6f                                |Hello|\n"},
+		}},
+	}
+	hexTab := indexOf(developerDetailTabs, "Hex")
+	lines := developerDetailTabLines(entry, hexTab, 120)
+	joined := strings.Join(lines, "\n")
+	if !strings.Contains(joined, "hex") || !strings.Contains(joined, "|Hello|") {
+		t.Fatalf("hex tab missing viewer output:\n%s", joined)
+	}
+}
+
+func TestDeveloperDetailShowsTimingLine(t *testing.T) {
+	m := newModel("127.0.0.1:9090")
+	m.viewMode = viewModeDeveloper
+	m.width = 120
+	m.dev = developerStatusPayload{Enabled: true, CaptureLimit: 200, BodyLimitBytes: 65536}
+	m.devRows = []developerEntryPayload{{
+		Method:  "GET",
+		URL:     "https://example.com/api",
+		Scheme:  "https",
+		Status:  200,
+		Timings: &developerTimingsPayload{Connect: 5, SSL: 10, Send: 1, Wait: 40, Receive: 12},
+	}}
+	view := m.View()
+	for _, want := range []string{"Timing  connect 5ms", "ssl 10ms", "wait 40ms", "receive 12ms"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("view missing %q:\n%s", want, view)
+		}
+	}
+}
+
+func TestDeveloperViewShowsFilterPrompt(t *testing.T) {
+	m := newModel("127.0.0.1:9090")
+	m.viewMode = viewModeDeveloper
+	m.width = 120
+	m.dev = developerStatusPayload{Enabled: true, CaptureLimit: 200, BodyLimitBytes: 65536}
+	m.devRows = []developerEntryPayload{{Method: "GET", URL: "https://example.com/api", Scheme: "https", Status: 200}}
+	view := m.View()
+	if !strings.Contains(view, "Filter:") || !strings.Contains(view, "press /") {
+		t.Fatalf("view missing filter prompt:\n%s", view)
+	}
+
+	// While editing, the in-progress query shows with a cursor.
+	m.devFilterEditing = true
+	m.devFilter = "example"
+	view = m.View()
+	if !strings.Contains(view, "Filter: example_") {
+		t.Fatalf("view missing editing filter:\n%s", view)
+	}
+}
+
 func TestSettingsViewRendersConditioner(t *testing.T) {
 	m := newModel("127.0.0.1:9090")
 	m.viewMode = viewModeSettings

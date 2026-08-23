@@ -23,6 +23,9 @@ data class DashboardState(
     val rules: RulesPayload = RulesPayload(),
     val ruleSets: RuleSetsPayload = RuleSetsPayload(),
     val traffic: TrafficSnapshotPayload = TrafficSnapshotPayload(),
+    val pendingPrompts: List<PendingPromptPayload> = emptyList(),
+    val silentDecisions: List<SilentDecisionPayload> = emptyList(),
+    val monitorFilter: TrafficMonitorFilter = TrafficMonitorFilter(),
     val developerStatus: DeveloperStatusPayload = DeveloperStatusPayload(),
     val developerEntries: List<DeveloperEntryPayload> = emptyList(),
     val conditioner: ConditionerPayload? = null,
@@ -59,6 +62,38 @@ class DashboardRepository(
     private val _state = MutableStateFlow(DashboardState())
     val state: StateFlow<DashboardState> = _state.asStateFlow()
 
+    // Server-side capture flow-list filter shared by both refresh paths. Empty
+    // matches every entry (back-compatible with the pre-filter list-all).
+    private var developerEntriesFilter: DeveloperEntriesFilter = DeveloperEntriesFilter.empty
+
+    fun setDeveloperEntriesFilter(filter: DeveloperEntriesFilter) {
+        developerEntriesFilter = filter
+    }
+
+    suspend fun developerEntryCurl(id: String): String = api.developerEntryCurl(id)
+    suspend fun importCurl(text: String): ParsedCurlResponse = api.importCurl(text)
+    suspend fun sendComposed(request: ComposedRequestPayload): DeveloperEntryPayload = api.sendComposed(request)
+
+    suspend fun loadPendingPrompts() {
+        _state.update { it.copy(pendingPrompts = runCatching { api.pendingPrompts().prompts }.getOrDefault(emptyList())) }
+    }
+    suspend fun resolvePrompt(id: String, action: String, scope: String, matchHost: Boolean, matchPort: Boolean, matchProtocol: Boolean) {
+        runCatching { api.resolvePrompt(id, action, scope, matchHost, matchPort, matchProtocol) }
+        loadPendingPrompts()
+        refreshStatus()
+    }
+    suspend fun loadSilentDecisions() {
+        _state.update { it.copy(silentDecisions = runCatching { api.silentDecisions().decisions }.getOrDefault(emptyList())) }
+    }
+    suspend fun promoteSilentDecision(id: String, scope: String, matchHost: Boolean, matchPort: Boolean, matchProtocol: Boolean) {
+        runCatching { api.promoteSilentDecision(id, scope, matchHost, matchPort, matchProtocol) }
+        loadSilentDecisions()
+        refreshStatus()
+    }
+    suspend fun loadTraffic(filter: TrafficMonitorFilter) {
+        _state.update { it.copy(traffic = runCatching { api.traffic(filter) }.getOrDefault(_state.value.traffic), monitorFilter = filter) }
+    }
+
     suspend fun refreshDashboard(showProgress: Boolean = false) {
         if (showProgress) {
             _state.update {
@@ -78,7 +113,7 @@ class DashboardRepository(
             val ruleSets = runCatching { api.ruleSets() }.getOrDefault(RuleSetsPayload(profile = rules.profile, statuses = rules.ruleSets))
             val traffic = api.traffic()
             val developerStatus = runCatching { api.developerStatus() }.getOrDefault(DeveloperStatusPayload())
-            val developerEntries = runCatching { api.developerEntries().entries }.getOrDefault(emptyList())
+            val developerEntries = runCatching { api.developerEntries(developerEntriesFilter) }.getOrDefault(emptyList())
             _state.update {
                 it.copy(
                     status = status,
@@ -95,6 +130,7 @@ class DashboardRepository(
                     lastUpdatedEpochMillis = System.currentTimeMillis()
                 )
             }
+            loadPendingPrompts()
         } catch (error: Throwable) {
             markOffline(error)
         } finally {
@@ -111,7 +147,7 @@ class DashboardRepository(
             val traffic = api.traffic()
             val ruleSets = runCatching { api.ruleSets() }.getOrDefault(_state.value.ruleSets)
             val developerStatus = runCatching { api.developerStatus() }.getOrDefault(_state.value.developerStatus)
-            val developerEntries = runCatching { api.developerEntries().entries }.getOrDefault(_state.value.developerEntries)
+            val developerEntries = runCatching { api.developerEntries(developerEntriesFilter) }.getOrDefault(_state.value.developerEntries)
             _state.update {
                 it.copy(
                     status = status,
@@ -243,7 +279,7 @@ class DashboardRepository(
                 applyLogLine(event)
                 return false
             }
-            else -> return event.type.startsWith("connection.") || event.type.startsWith("rule.") || event.type.startsWith("hop.")
+            else -> return event.type.startsWith("connection.") || event.type.startsWith("rule.") || event.type.startsWith("hop.") || event.type.startsWith("prompt.")
         }
         return false
     }

@@ -3,9 +3,11 @@
 Google's [`android`](https://developer.android.com/cli) CLI is the default tool
 for ClambHook Android development. It manages the SDK and emulators and builds,
 deploys, and launches the app on a device or emulator. Gradle is still used for
-unit tests, lint, and release assembly — the `android` CLI has no equivalent
-commands for those — and [gomobile](https://pkg.go.dev/golang.org/x/mobile)
-generates the embedded daemon AAR.
+unit tests, lint, release assembly, and the API compatibility matrix — the
+`android` CLI has no equivalent commands for those. During the C-runtime
+migration, gomobile continues to generate the shipping rollback AAR while the
+Kotlin `NativeClambhookBridge` JNI path is validated. See
+[`c-migration.md`](c-migration.md).
 
 Building, running, and testing require prior written permission from Pengfan
 Chang; see [`LICENSE`](../LICENSE). These instructions are for the author and
@@ -40,8 +42,8 @@ the same default). Override with `android --sdk=/path/to/sdk …` or the
 Provision the platform, build tools, and NDK the project needs:
 
 ```sh
-android sdk install "platforms;android-34" "build-tools;34.0.0" "platform-tools"
-android sdk install "ndk;27.0.12077973"      # gomobile AAR build needs an NDK
+android sdk install "platforms;android-30" "platforms;android-33" "platforms;android-36" "platform-tools"
+android sdk install "ndk;27.0.12077973"      # mobile native builds need an NDK
 android sdk list --all                        # browse available packages
 ```
 
@@ -52,7 +54,7 @@ android sdk list --all                        # browse available packages
 
 ```sh
 android emulator list                         # available AVDs
-android emulator create --name=clambhook --package="system-images;android-34;google_apis;arm64-v8a"
+android emulator create --name=clambhook --package="system-images;android-30;google_apis;arm64-v8a"
 android emulator start clambhook              # blocks until the AVD is booted
 android emulator stop clambhook
 android emulator remove clambhook
@@ -60,9 +62,11 @@ android emulator remove clambhook
 
 ## Build and run (default dev loop)
 
-The Android app embeds the Go daemon through a gomobile-built AAR. Build the AAR
-once (and again whenever the daemon or `pkg/mobile` changes), then use the
-`android` CLI to build, deploy, and launch on a connected device or emulator:
+The Android GUI is Kotlin with Jetpack Compose and supports Android 11 and
+newer (`minSdk = 30`). Until native parity is complete, it embeds the proven
+runtime through a gomobile-built AAR. Build the AAR once (and again whenever
+the legacy runtime or bridge changes), then use the `android` CLI to build,
+deploy, and launch on a connected device or emulator:
 
 ```sh
 make build-android-mobile-aar                 # gomobile bind → ui/android/app/libs/
@@ -97,7 +101,17 @@ make test-android        # ./gradlew :app:testDebugUnitTest
 make lint-android        # ./gradlew :app:lintDebug
 make build-android       # ./gradlew :app:assembleDebug   (headless build, no device)
 make build-android-release   # ./gradlew :app:assembleRelease  (signed release APK)
+make test-android-compatibility # Compose instrumentation on API 30, 33, and 36
 ```
+
+The managed-device target packages only `arm64-v8a` for the arm64 AOSP
+emulators. This keeps the transitional multi-ABI gomobile APK below emulator
+installation timeouts; normal debug and release builds retain their full ABI
+set.
+
+The compatibility target uses Gradle build-managed AOSP Pixel 2 devices named
+`pixel2Api30`, `pixel2Api33`, and `pixel2Api36`. It is the required Android
+cutover gate, not a substitute for unit tests or lint.
 
 The release pipeline (`scripts/release-android.sh`) builds the AAR with
 `make build-android-mobile-aar`, assembles the release APK with Gradle, then
@@ -113,7 +127,7 @@ build headlessly. The on-device smoke uses an Android SDK Emulator (AVD) — App
 to boot that AVD and run `make run-android` against it:
 
 ```sh
-android emulator create --name=clambhook --package="system-images;android-34;google_apis;arm64-v8a"
+android emulator create --name=clambhook --package="system-images;android-30;google_apis;arm64-v8a"
 CI_LOCAL_ANDROID_AVD=clambhook scripts/ci-local.sh android
 ```
 

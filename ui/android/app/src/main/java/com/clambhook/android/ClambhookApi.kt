@@ -15,6 +15,11 @@ interface ClambhookApi {
     suspend fun refreshRuleSets(profile: String = "", names: List<String> = emptyList()): RuleSetsPayload
     suspend fun explainRoute(profile: String = "", network: String, target: String, source: String = ""): RuleTestResponse
     suspend fun traffic(): TrafficSnapshotPayload
+    suspend fun traffic(filter: TrafficMonitorFilter): TrafficSnapshotPayload
+    suspend fun pendingPrompts(): PromptsPayload
+    suspend fun resolvePrompt(id: String, action: String, scope: String, matchHost: Boolean, matchPort: Boolean, matchProtocol: Boolean, ttlSeconds: Long = 0)
+    suspend fun silentDecisions(): SilentDecisionsPayload
+    suspend fun promoteSilentDecision(id: String, scope: String, matchHost: Boolean, matchPort: Boolean, matchProtocol: Boolean)
     suspend fun connect()
     suspend fun disconnect()
     suspend fun setActiveProfile(name: String)
@@ -25,6 +30,10 @@ interface ClambhookApi {
     suspend fun replaceRules(profile: String, rules: List<RulePayload>): RulesPayload
     suspend fun developerStatus(): DeveloperStatusPayload
     suspend fun developerEntries(): DeveloperEntriesPayload
+    suspend fun developerEntries(filter: DeveloperEntriesFilter): List<DeveloperEntryPayload>
+    suspend fun developerEntryCurl(id: String): String
+    suspend fun importCurl(text: String): ParsedCurlResponse
+    suspend fun sendComposed(request: ComposedRequestPayload): DeveloperEntryPayload
     suspend fun developerHar(): String
     suspend fun clearDeveloperEntries()
     suspend fun conditioner(profile: String = ""): ConditionerPayload

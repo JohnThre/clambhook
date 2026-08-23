@@ -81,15 +81,17 @@ func TestAwaitCoalescesWaiters(t *testing.T) {
 	m := New()
 	m.Configure(Config{Enabled: true, Timeout: 2 * time.Second})
 
+	// Each waiter reports its decision on its own channel slot; no shared slice
+	// is written from multiple goroutines.
 	var wg sync.WaitGroup
-	allowed := make([]bool, 2)
-	for i := range 2 {
+	results := make(chan bool, 2)
+	for range 2 {
 		wg.Add(1)
-		go func(idx int) {
+		go func() {
 			defer wg.Done()
 			dec, _ := m.Await(context.Background(), testRequest())
-			allowed[idx] = dec.Allow
-		}(i)
+			results <- dec.Allow
+		}()
 	}
 
 	// Wait for both waiters to coalesce onto one pending prompt.
@@ -116,8 +118,11 @@ func TestAwaitCoalescesWaiters(t *testing.T) {
 		t.Fatalf("Resolve(%q) not ok", id)
 	}
 	wg.Wait()
-	if !allowed[0] || !allowed[1] {
-		t.Fatalf("both coalesced waiters should be allowed, got %+v", allowed)
+	close(results)
+	for allow := range results {
+		if !allow {
+			t.Fatalf("coalesced waiter should be allowed")
+		}
 	}
 }
 
@@ -162,5 +167,107 @@ func waitForPending(t *testing.T, m *Manager) string {
 		default:
 			time.Sleep(2 * time.Millisecond)
 		}
+	}
+}
+
+func TestAwaitSilentModeAllowAutoDecidesAndLogs(t *testing.T) {
+	m := New()
+	m.Configure(Config{Enabled: true, SilentMode: "allow", Timeout: time.Second})
+
+	dec, gated := m.Await(context.Background(), testRequest())
+	if !gated || !dec.Allow {
+		t.Fatalf("silent allow: want gated allow, got gated=%v dec=%+v", gated, dec)
+	}
+	if len(m.Pending()) != 0 {
+		t.Fatalf("silent mode must not create a pending prompt: %+v", m.Pending())
+	}
+	decisions := m.SilentDecisions()
+	if len(decisions) != 1 || decisions[0].Action != "allow" {
+		t.Fatalf("silent decisions = %+v, want one allow", decisions)
+	}
+	if decisions[0].TargetHost != "example.com" || decisions[0].ProcessName != "curl" {
+		t.Fatalf("silent decision fields = %+v", decisions[0])
+	}
+}
+
+func TestAwaitSilentModeDenyAutoDecidesAndLogs(t *testing.T) {
+	m := New()
+	m.Configure(Config{Enabled: true, SilentMode: "deny", Timeout: time.Second})
+
+	dec, gated := m.Await(context.Background(), testRequest())
+	if !gated || dec.Allow {
+		t.Fatalf("silent deny: want gated block, got gated=%v dec=%+v", gated, dec)
+	}
+	decisions := m.SilentDecisions()
+	if len(decisions) != 1 || decisions[0].Action != "deny" {
+		t.Fatalf("silent decisions = %+v, want one deny", decisions)
+	}
+}
+
+func TestAwaitExpiresAtPopulated(t *testing.T) {
+	m := New()
+	m.Configure(Config{Enabled: true, Timeout: 5 * time.Second})
+
+	go m.Await(context.Background(), testRequest())
+	id := waitForPending(t, m)
+	pending := m.Pending()
+	if len(pending) != 1 {
+		t.Fatalf("pending = %+v", pending)
+	}
+	p := pending[0]
+	if p.ExpiresAt.IsZero() {
+		t.Fatalf("ExpiresAt must be populated, got zero")
+	}
+	if got := p.ExpiresAt.Sub(p.CreatedAt); got < 4*time.Second || got > 6*time.Second {
+		t.Fatalf("ExpiresAt-CreatedAt = %s, want ~5s", got)
+	}
+	if _, ok := m.Resolve(id, Resolution{Allow: true}); !ok {
+		t.Fatalf("Resolve(%q) not ok", id)
+	}
+}
+
+func TestAwaitWouldUseChainGroupPassedThrough(t *testing.T) {
+	m := New()
+	m.Configure(Config{Enabled: true, Timeout: 2 * time.Second})
+
+	req := testRequest()
+	req.WouldUseChain = "proxy"
+	req.WouldUseGroup = "auto"
+	go m.Await(context.Background(), req)
+	id := waitForPending(t, m)
+	pending := m.Pending()
+	if len(pending) != 1 {
+		t.Fatalf("pending = %+v", pending)
+	}
+	if pending[0].WouldUseChain != "proxy" || pending[0].WouldUseGroup != "auto" {
+		t.Fatalf("would-use fields = %+v", pending[0])
+	}
+	if _, ok := m.Resolve(id, Resolution{Allow: true}); !ok {
+		t.Fatalf("Resolve(%q) not ok", id)
+	}
+}
+
+func TestSilentDecisionsNewestFirstAndByID(t *testing.T) {
+	m := New()
+	m.Configure(Config{Enabled: true, SilentMode: "allow", Timeout: time.Second})
+	req := testRequest()
+	req.ConnID = "conn-a"
+	m.Await(context.Background(), req)
+	req2 := testRequest()
+	req2.ConnID = "conn-b"
+	m.Await(context.Background(), req2)
+
+	decisions := m.SilentDecisions()
+	if len(decisions) != 2 {
+		t.Fatalf("decisions = %d, want 2", len(decisions))
+	}
+	if decisions[0].ID == decisions[1].ID {
+		t.Fatalf("decisions must have distinct ids: %+v", decisions)
+	}
+	if _, ok := m.SilentDecision(decisions[0].ID); !ok {
+		t.Fatalf("SilentDecision(%q) not found", decisions[0].ID)
+	}
+	if _, ok := m.SilentDecision("nope"); ok {
+		t.Fatalf("SilentDecision(nope) should not be found")
 	}
 }

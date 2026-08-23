@@ -1081,3 +1081,86 @@ private extension Data {
         self.init(base64Encoded: raw)
     }
 }
+
+/// Server-side filter parameters for the live connection monitor
+/// (GET /api/v1/traffic). The daemon filters across the full history rather
+/// than the in-memory window a client-side filter would see, so a quickFilter
+/// chip or search box reaches connections beyond the returned page.
+public struct TrafficMonitorFilter: Equatable, Sendable {
+    public var state: String = ""
+    public var action: String = ""
+    public var profile: String = ""
+    public var rule: String = ""
+    public var country: String = ""
+    public var port: String = ""
+    public var process: String = ""
+    public var network: String = ""
+    public var app: String = ""
+    public var domain: String = ""
+    public var query: String = ""
+    public var limit: Int = 200
+    public var offset: Int = 0
+
+    public init() {}
+
+    public var isEmpty: Bool {
+        state.isEmpty && action.isEmpty && profile.isEmpty && rule.isEmpty &&
+            country.isEmpty && port.isEmpty && process.isEmpty && network.isEmpty &&
+            app.isEmpty && domain.isEmpty && query.isEmpty
+    }
+
+    /// queryItems builds the URL query items for GET /api/v1/traffic.
+    public var queryItems: [URLQueryItem] {
+        var items: [URLQueryItem] = []
+        func add(_ name: String, _ value: String) {
+            let v = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !v.isEmpty { items.append(URLQueryItem(name: name, value: v)) }
+        }
+        add("state", state)
+        add("action", action)
+        add("profile", profile)
+        add("rule", rule)
+        add("country", country)
+        add("port", port)
+        add("process", process)
+        add("network", network)
+        add("app", app)
+        add("domain", domain)
+        add("query", query)
+        items.append(URLQueryItem(name: "limit", value: String(limit)))
+        if offset > 0 { items.append(URLQueryItem(name: "offset", value: String(offset))) }
+        return items
+    }
+
+    /// applying returns a new filter with a quickFilter chip applied. A
+    /// prefixed chip (country:US, port:443, process:curl, network:tcp) sets the
+    /// matching param; an action chip (proxy/direct/block) sets action=; "active"
+    /// sets state=active; "all" clears the dimensional filters.
+    public func applying(quickFilter key: String) -> TrafficMonitorFilter {
+        var f = self
+        if key == "all" {
+            f.action = ""; f.state = ""; f.country = ""; f.port = ""; f.process = ""; f.network = ""
+            return f
+        }
+        if key == "active" { f.state = "active"; return f }
+        switch key {
+        case "proxy", "direct", "block":
+            f.action = key
+            return f
+        default:
+            break
+        }
+        if let colon = key.firstIndex(of: ":") {
+            let name = String(key[..<colon])
+            let value = String(key[key.index(after: colon)...])
+            switch name {
+            case "country": f.country = value
+            case "port": f.port = value
+            case "process": f.process = value
+            case "network": f.network = value
+            default: break
+            }
+        }
+        return f
+    }
+}

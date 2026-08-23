@@ -11,7 +11,7 @@
 #define CNET_ERR_INIT         -3  /* libsodium init failure. */
 
 /*
- * AEAD ciphers (AES-256-GCM and ChaCha20-Poly1305-IETF).
+ * AEAD ciphers (AES-128-GCM, AES-256-GCM and ChaCha20-Poly1305-IETF).
  *
  * Fixed sizes for both families:
  *   key    = 32 bytes
@@ -27,9 +27,22 @@
  * fails; CNET_ERR_AES_UNAVAIL if AES-256-GCM is called on a host without
  * hardware AES.
  *
- * AES-128-GCM is provided in Go (pkg/cnet) using crypto/aes; libsodium
- * intentionally omits 128-bit AES-GCM.
+ * AES-128-GCM uses OpenSSL because libsodium intentionally omits it.
  */
+
+int cnet_aes128gcm_encrypt(const uint8_t *key, const uint8_t *nonce,
+                           const uint8_t *plaintext, size_t pt_len,
+                           const uint8_t *aad, size_t aad_len,
+                           uint8_t *ciphertext, uint8_t *tag);
+
+int cnet_aes128gcm_decrypt(const uint8_t *key, const uint8_t *nonce,
+                           const uint8_t *ciphertext, size_t ct_len,
+                           const uint8_t *aad, size_t aad_len,
+                           const uint8_t *tag,
+                           uint8_t *plaintext);
+
+/* OpenSSL provides a constant-time software fallback when hardware AES is absent. */
+int cnet_aes128gcm_available(void);
 
 int cnet_aes256gcm_encrypt(const uint8_t *key, const uint8_t *nonce,
                            const uint8_t *plaintext, size_t pt_len,

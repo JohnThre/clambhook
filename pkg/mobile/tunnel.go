@@ -684,6 +684,105 @@ func (r *TunnelRuntime) DeveloperEntriesJSON() (string, error) {
 	return marshalString(map[string]any{"entries": dev.List(200)})
 }
 
+// developerFilterJSON is the JSON shape the mobile clients send to
+// DeveloperEntriesFilterJSON. method is a single method (comma-separated list
+// not used on mobile); the bridge maps it to EntryFilter.Methods.
+type developerFilterJSON struct {
+	Method      string `json:"method"`
+	StatusMin   int    `json:"status_min"`
+	StatusMax   int    `json:"status_max"`
+	Host        string `json:"host"`
+	Scheme      string `json:"scheme"`
+	ContentType string `json:"content_type"`
+	Query       string `json:"query"`
+	ErrorOnly   bool   `json:"error_only"`
+}
+
+// DeveloperEntriesFilterJSON returns captured entries matching a JSON filter,
+// newest first, capped at 200. It is the mobile bridge counterpart to the
+// /developer/entries?... query filter, so all four clients share one filter
+// semantics. An empty filter matches every entry.
+func (r *TunnelRuntime) DeveloperEntriesFilterJSON(filterJSON string) (string, error) {
+	r.mu.Lock()
+	dev := r.dev
+	r.mu.Unlock()
+	if dev == nil {
+		return marshalString(map[string]any{"entries": []any{}})
+	}
+	var raw developerFilterJSON
+	filter := developer.EntryFilter{}
+	if strings.TrimSpace(filterJSON) != "" {
+		if err := json.Unmarshal([]byte(filterJSON), &raw); err != nil {
+			return "", fmt.Errorf("invalid developer filter: %w", err)
+		}
+		if m := strings.TrimSpace(raw.Method); m != "" {
+			filter.Methods = []string{m}
+		}
+		filter.StatusMin = raw.StatusMin
+		filter.StatusMax = raw.StatusMax
+		filter.Host = strings.TrimSpace(raw.Host)
+		filter.Scheme = strings.TrimSpace(raw.Scheme)
+		filter.ContentType = strings.TrimSpace(raw.ContentType)
+		filter.Query = strings.TrimSpace(raw.Query)
+		filter.ErrorOnly = raw.ErrorOnly
+	}
+	return marshalString(map[string]any{"entries": dev.FilterEntries(filter, 200)})
+}
+
+// DeveloperEntryCurlJSON serializes a captured transaction to a runnable cURL
+// command. It returns {"curl": "..."} or an error when the entry is absent.
+func (r *TunnelRuntime) DeveloperEntryCurlJSON(id string) (string, error) {
+	r.mu.Lock()
+	dev := r.dev
+	r.mu.Unlock()
+	if dev == nil {
+		return "", errors.New("developer mode disabled")
+	}
+	curl, ok := dev.CurlExport(strings.TrimSpace(id))
+	if !ok {
+		return "", errors.New("developer entry not found")
+	}
+	return marshalString(map[string]any{"curl": curl})
+}
+
+// DeveloperCurlImportJSON parses a cURL command into the request fields a
+// compose window consumes. It is a pure transform and never touches the store.
+func (r *TunnelRuntime) DeveloperCurlImportJSON(curl string) (string, error) {
+	r.mu.Lock()
+	dev := r.dev
+	r.mu.Unlock()
+	if dev == nil {
+		return "", errors.New("developer mode disabled")
+	}
+	parsed, err := dev.CurlImport(strings.TrimSpace(curl))
+	if err != nil {
+		return "", err
+	}
+	return marshalString(parsed)
+}
+
+// DeveloperSendJSON executes a composed request (JSON: method/url/headers/body)
+// through the developer capture pipeline, captures the result, and returns the
+// RepeatResponse JSON. It is the mobile bridge counterpart to
+// POST /developer/send used by the compose window and cURL import.
+func (r *TunnelRuntime) DeveloperSendJSON(requestJSON string) (string, error) {
+	r.mu.Lock()
+	dev := r.dev
+	r.mu.Unlock()
+	if dev == nil {
+		return "", errors.New("developer mode disabled")
+	}
+	var composed developer.ComposedRequest
+	if err := json.Unmarshal([]byte(requestJSON), &composed); err != nil {
+		return "", fmt.Errorf("invalid composed request: %w", err)
+	}
+	resp, err := dev.Send(context.Background(), composed)
+	if err != nil {
+		return "", err
+	}
+	return marshalString(resp)
+}
+
 func (r *TunnelRuntime) DeveloperHARJSON() (string, error) {
 	r.mu.Lock()
 	dev := r.dev

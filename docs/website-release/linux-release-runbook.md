@@ -19,10 +19,11 @@ Validation is run with `scripts/validate-linux-distros.sh` before release. See `
 
 Use a dedicated GNU/Linux build host (x86_64 or aarch64) with:
 
-- Go toolchain matching `go.mod`.
+- Go toolchain matching `go.mod` (legacy packages only; removed at C cutover).
 - `gcc`, `pkg-config`.
-- JDK 17+ (Kotlin/Compose desktop controller build; provides `javac`/`gradle`).
-- libsodium-dev (Go daemon build).
+- JDK 17+ (legacy Kotlin/Compose desktop controller only).
+- CMake, Ninja, GTK 4, libsoup 3, json-glib, libuv, libsodium, OpenSSL,
+  libcurl, and llhttp for the C/GTK migration gate.
 - libsecret (runtime; used via `secret-tool` CLI for token storage).
 - For `.deb`: `dpkg-buildpackage`, `dpkg-deb`.
 - For `.rpm`: `rpmbuild`.

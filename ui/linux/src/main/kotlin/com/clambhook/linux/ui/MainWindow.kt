@@ -146,22 +146,25 @@ private fun NowPage(state: DashboardState, daemonStatus: DaemonStatus, licenseSt
 
 @Composable
 private fun ActivityPage(state: DashboardState, vm: MainViewModel, onShowRuleDialog: (RuleDraft) -> Unit, onShowCleanupDialog: (TrafficCleanupSuggestionPayload) -> Unit) {
-    var filter by remember { mutableStateOf("all") }
     var query by remember { mutableStateOf("") }
     Column(modifier = Modifier.fillMaxSize()) {
         Row(modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             Text("Traffic Monitor", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(end = 16.dp))
-            FilterChip(selected = filter == "all", onClick = { filter = "all" }, label = { Text("All") })
-            FilterChip(selected = filter == "proxy", onClick = { filter = "proxy" }, label = { Text("Proxy") }, modifier = Modifier.padding(start = 4.dp))
-            FilterChip(selected = filter == "direct", onClick = { filter = "direct" }, label = { Text("Direct") }, modifier = Modifier.padding(start = 4.dp))
-            FilterChip(selected = filter == "block", onClick = { filter = "block" }, label = { Text("Block") }, modifier = Modifier.padding(start = 4.dp))
+            state.traffic.quickFilters.forEach { chip ->
+                FilterChip(
+                    selected = isChipSelected(state.monitorFilter, chip.key),
+                    onClick = { vm.loadTraffic(state.monitorFilter.applyingQuickFilter(chip.key)) },
+                    label = { Text("${chip.label} ${chip.count}") },
+                    modifier = Modifier.padding(start = 4.dp)
+                )
+            }
             Spacer(Modifier.width(8.dp))
             OutlinedTextField(value = query, onValueChange = { query = it }, placeholder = { Text("Search hosts, rules, chains") }, singleLine = true, modifier = Modifier.weight(1f))
         }
         LazyColumn(modifier = Modifier.weight(1f)) {
             items(state.traffic.cleanupSuggestions.take(4)) { suggestion -> CleanupSuggestionRow(suggestion, onShowCleanupDialog) }
             items(state.traffic.ruleSuggestions.take(4)) { suggestion -> RuleSuggestionRow(suggestion, onShowRuleDialog) }
-            items(state.traffic.connections.filter { trafficMatches(it, filter, query) }.take(12)) { conn ->
+            items(state.traffic.connections.filter { trafficMatches(it, "all", query) }) { conn ->
                 TrafficRow(conn, onShowRuleDialog)
             }
         }
@@ -312,15 +315,27 @@ private fun PolicyGroupRow(group: PolicyGroupPayload, vm: MainViewModel, onStatu
 @Composable
 private fun FirewallPage(vm: MainViewModel) {
     var payload by remember { mutableStateOf<PromptsPayload?>(null) }
+    var silentPayload by remember { mutableStateOf<SilentDecisionsPayload?>(null) }
     var status by remember { mutableStateOf("Allow or block connections that no rule already decides.") }
     var matchHost by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) { try { payload = vm.loadPendingPrompts() } catch (e: Exception) { status = "Prompts unavailable: ${e.message}" } }
+    var matchPort by remember { mutableStateOf(false) }
+    var matchProtocol by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        try { payload = vm.loadPendingPrompts() } catch (e: Exception) { status = "Prompts unavailable: ${e.message}" }
+        try { silentPayload = vm.loadSilentDecisions() } catch (e: Exception) {}
+    }
     Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
         Text("Connection prompts", style = MaterialTheme.typography.titleMedium)
         Text(status, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Row(verticalAlignment = Alignment.CenterVertically) {
             Checkbox(checked = matchHost, onCheckedChange = { matchHost = it })
-            Text("Remember rules for this host only")
+            Text("This host")
+            Spacer(Modifier.width(8.dp))
+            Checkbox(checked = matchPort, onCheckedChange = { matchPort = it })
+            Text("This port")
+            Spacer(Modifier.width(8.dp))
+            Checkbox(checked = matchProtocol, onCheckedChange = { matchProtocol = it })
+            Text("This protocol")
         }
         Spacer(Modifier.height(8.dp))
         payload?.let { p ->
@@ -329,15 +344,44 @@ private fun FirewallPage(vm: MainViewModel) {
                 Card(modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
                     Column(modifier = Modifier.padding(12.dp)) {
                         Text("${if (prompt.processName.isEmpty()) "Unknown process" else prompt.processName} → ${prompt.target}", fontWeight = FontWeight.Medium)
-                        Text("${if (prompt.network.isEmpty()) "tcp" else prompt.network} · ${prompt.processPath}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        val detail = buildString {
+                            append(if (prompt.network.isEmpty()) "tcp" else prompt.network)
+                            append(" · ").append(prompt.processPath)
+                            if (prompt.wouldUseChain.isNotEmpty()) append(" · via ").append(prompt.wouldUseChain)
+                            if (prompt.codeSignID.isNotEmpty()) append(" · signed:").append(prompt.codeSignID)
+                            if (prompt.expiresAt.isNotEmpty()) append(" · expires ").append(prompt.expiresAt)
+                        }
+                        Text(detail, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Row(modifier = Modifier.padding(top = 8.dp)) {
-                            OutlinedButton(onClick = { vm.resolvePrompt(prompt.id, "allow", "once", matchHost); status = "Allowed once." }) { Text("Allow once") }
+                            OutlinedButton(onClick = { vm.resolvePrompt(prompt.id, "allow", "once", matchHost, matchPort, matchProtocol); status = "Allowed once." }) { Text("Allow once") }
                             Spacer(Modifier.width(4.dp))
-                            OutlinedButton(onClick = { vm.resolvePrompt(prompt.id, "allow", "session", matchHost); status = "Allowed session." }) { Text("Allow session") }
+                            OutlinedButton(onClick = { vm.resolvePrompt(prompt.id, "allow", "session", matchHost, matchPort, matchProtocol); status = "Allowed session." }) { Text("Allow session") }
                             Spacer(Modifier.width(4.dp))
-                            OutlinedButton(onClick = { vm.resolvePrompt(prompt.id, "allow", "forever", matchHost); status = "Allowed forever." }) { Text("Allow forever") }
+                            OutlinedButton(onClick = { vm.resolvePrompt(prompt.id, "allow", "until_quit", matchHost, matchPort, matchProtocol); status = "Allowed until quit." }) { Text("Allow until quit") }
                             Spacer(Modifier.width(4.dp))
-                            Button(onClick = { vm.resolvePrompt(prompt.id, "block", "forever", matchHost); status = "Blocked forever." }, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)) { Text("Block forever") }
+                            OutlinedButton(onClick = { vm.resolvePrompt(prompt.id, "allow", "forever", matchHost, matchPort, matchProtocol); status = "Allowed forever." }) { Text("Allow forever") }
+                            Spacer(Modifier.width(4.dp))
+                            Button(onClick = { vm.resolvePrompt(prompt.id, "block", "forever", matchHost, matchPort, matchProtocol); status = "Blocked forever." }, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)) { Text("Block forever") }
+                        }
+                    }
+                }
+            }
+        }
+        Spacer(Modifier.height(12.dp))
+        Text("Silent Mode Decisions", style = MaterialTheme.typography.titleMedium)
+        silentPayload?.let { sp ->
+            if (sp.decisions.isEmpty()) {
+                Text("No auto-decisions logged", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            } else {
+                sp.decisions.forEach { decision ->
+                    Card(modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Text("${decision.action.uppercase()} · ${if (decision.processName.isEmpty()) "Unknown process" else decision.processName} → ${decision.target}", fontWeight = FontWeight.Medium)
+                            Row(modifier = Modifier.padding(top = 8.dp)) {
+                                OutlinedButton(onClick = { vm.promoteSilentDecision(decision.id, "session"); status = "Promoted (session)." }) { Text("Promote session") }
+                                Spacer(Modifier.width(4.dp))
+                                OutlinedButton(onClick = { vm.promoteSilentDecision(decision.id, "forever"); status = "Promoted (forever)." }) { Text("Promote forever") }
+                            }
                         }
                     }
                 }
@@ -391,24 +435,48 @@ private fun CapturePage(vm: MainViewModel) {
     var entries by remember { mutableStateOf<List<DeveloperEntryPayload>>(emptyList()) }
     var selectedEntry by remember { mutableStateOf<DeveloperEntryPayload?>(null) }
     var message by remember { mutableStateOf("Opt-in local capture of traffic routed through the daemon HTTP proxy.") }
-    LaunchedEffect(Unit) { try { status = vm.loadCaptureStatus() } catch (e: Exception) { message = "Capture status unavailable: ${e.message}" } }
-    LaunchedEffect(status?.enabled) {
-        if (status?.enabled == true) { try { entries = vm.loadCaptureEntries() } catch (e: Exception) { message = "Could not load captures: ${e.message}" } }
+    var query by remember { mutableStateOf("") }
+    var methodFilter by remember { mutableStateOf("") }
+    var errorOnly by remember { mutableStateOf(false) }
+    var showImportCurl by remember { mutableStateOf(false) }
+    var composeSeed by remember { mutableStateOf<DeveloperEntryPayload?>(null) }
+    fun reload() {
+        scope.launch {
+            try { entries = vm.loadCaptureEntries(DeveloperEntriesFilter(query = query, method = methodFilter, errorOnly = errorOnly)) }
+            catch (e: Exception) { message = "Could not load captures: ${e.message}" }
+        }
     }
+    LaunchedEffect(Unit) { try { status = vm.loadCaptureStatus() } catch (e: Exception) { message = "Capture status unavailable: ${e.message}" } }
+    LaunchedEffect(status?.enabled) { if (status?.enabled == true) reload() else entries = emptyList() }
     Column(modifier = Modifier.fillMaxSize()) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("HTTP(S) capture", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
             Button(onClick = {
                 scope.launch {
-                    try { status = vm.setCaptureEnabled(!(status?.enabled ?: false)) } catch (e: Exception) { message = "Could not update capture: ${e.message}" }
+                    try { status = vm.setCaptureEnabled(!(status?.enabled ?: false)); if (status?.enabled == true) reload() }
+                    catch (e: Exception) { message = "Could not update capture: ${e.message}" }
                 }
             }) { Text(if (status?.enabled == true) "Disable capture" else "Enable capture") }
         }
         Text(message, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (status?.enabled == true) {
+            Spacer(Modifier.height(8.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                OutlinedTextField(query, { query = it }, label = { Text("Search") }, singleLine = true, modifier = Modifier.weight(1f))
+                Spacer(Modifier.width(8.dp))
+                OutlinedTextField(methodFilter, { methodFilter = it }, label = { Text("Method") }, singleLine = true, modifier = Modifier.width(90.dp))
+                Spacer(Modifier.width(8.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) { Checkbox(errorOnly, { errorOnly = it; reload() }); Text("Errors") }
+                Spacer(Modifier.width(8.dp))
+                Button(onClick = { reload() }) { Text("Filter") }
+                Spacer(Modifier.width(8.dp))
+                Button(onClick = { showImportCurl = true }) { Text("Import cURL") }
+            }
+        }
         Spacer(Modifier.height(12.dp))
         LazyColumn(modifier = Modifier.weight(1f)) {
             if (status?.enabled != true) item { Text("Capture disabled. Turn on capture to record request/response metadata.") }
-            else if (entries.isEmpty()) item { Text("No transactions yet") }
+            else if (entries.isEmpty()) item { Text("No transactions match the filter.") }
             else items(entries) { entry ->
                 val method = if (entry.method.isEmpty()) "GET" else entry.method
                 val code = if (entry.statusCode == 0) "pending" else entry.statusCode.toString()
@@ -423,49 +491,142 @@ private fun CapturePage(vm: MainViewModel) {
             }
         }
     }
-    selectedEntry?.let { entry ->
-        CaptureDetailDialog(entry, onDismiss = { selectedEntry = null })
+    selectedEntry?.let { entry -> CaptureDetailDialog(entry, vm, onDismiss = { selectedEntry = null }) }
+    composeSeed?.let { seed -> ComposeRequestDialog(seed, vm, onDismiss = { composeSeed = null }) }
+    if (showImportCurl) {
+        ImportCurlDialog(vm, onDismiss = { showImportCurl = false }, onParsed = { parsed ->
+            val bodyBytes = parsed.body.encodeToByteArray().size.toLong()
+            composeSeed = DeveloperEntryPayload(
+                method = parsed.method,
+                url = parsed.url,
+                host = parsed.url.substringAfter("://").substringBefore("/"),
+                request = CapturedMessagePayload(
+                    headers = parsed.headers,
+                    body = CapturedBodyPayload(size = bodyBytes, preview = parsed.body, previewBytes = bodyBytes, encoding = if (parsed.body.isEmpty()) "" else "utf8")
+                )
+            )
+            showImportCurl = false
+        })
     }
 }
 
 @Composable
-private fun CaptureDetailDialog(entry: DeveloperEntryPayload, onDismiss: () -> Unit) {
+private fun CaptureDetailDialog(entry: DeveloperEntryPayload, vm: MainViewModel, onDismiss: () -> Unit) {
+    val scope = rememberCoroutineScope()
     val decoded = entry.decoded
     val hasDecoded = decoded != null && decoded.frames.isNotEmpty()
     val method = if (entry.method.isEmpty()) "GET" else entry.method
     AlertDialog(
         onDismissRequest = onDismiss,
-        confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } },
+        confirmButton = {
+            Row {
+                TextButton(onClick = {
+                    scope.launch {
+                        try {
+                            val curl = vm.copyEntryCurl(entry.id)
+                            java.awt.Toolkit.getDefaultToolkit().systemClipboard.setContents(java.awt.datatransfer.StringSelection(curl), null)
+                        } catch (_: Exception) {}
+                    }
+                }) { Text("Copy cURL") }
+                TextButton(onClick = { scope.launch { try { vm.repeatCaptureEntry(entry.id) } catch (_: Exception) {} } }) { Text("Repeat") }
+                TextButton(onClick = onDismiss) { Text("Close") }
+            }
+        },
         title = { Text("$method ${if (entry.host.isEmpty()) entry.url else entry.host}") },
         text = {
             Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
                 val code = if (entry.statusCode == 0) "pending" else entry.statusCode.toString()
                 Text("Status $code · ${entry.responseBytes} B", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                if (entry.error.isNotEmpty()) {
-                    Text(entry.error, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 4.dp))
+                entry.timings?.let { t ->
+                    Text("connect ${t.connect.toInt()}ms · ssl ${t.ssl.toInt()}ms · send ${t.send.toInt()}ms · wait ${t.wait.toInt()}ms · receive ${t.receive.toInt()}ms", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
+                if (entry.error.isNotEmpty()) Text(entry.error, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 4.dp))
                 Spacer(Modifier.height(8.dp))
+                Text("Request body", fontWeight = FontWeight.Medium)
+                val reqBody = entry.request.bodyText()
+                Text(if (reqBody.isEmpty()) "No body preview" else reqBody, fontFamily = FontFamily.Monospace, fontSize = 12.sp)
+                Spacer(Modifier.height(8.dp))
+                Text("Response pretty", fontWeight = FontWeight.Medium)
+                val pretty = entry.response.body.viewer?.pretty
+                Text(if (pretty.isNullOrEmpty()) entry.response.bodyText().ifEmpty { "No body preview" } else pretty, fontFamily = FontFamily.Monospace, fontSize = 12.sp)
+                Spacer(Modifier.height(8.dp))
+                Text("Response hex", fontWeight = FontWeight.Medium)
+                val hex = entry.response.body.viewer?.hex
+                Text(if (hex.isNullOrEmpty()) "No hex preview" else hex, fontFamily = FontFamily.Monospace, fontSize = 12.sp)
                 if (hasDecoded) {
-                    // Decoded protocol view (websocket / grpc / graphql).
+                    Spacer(Modifier.height(8.dp))
                     Text("Decoded ${decoded!!.kind}", fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.primary)
                     decoded.frames.forEach { frame ->
-                        val label = listOf(frame.direction, frame.opcode)
-                            .filter { it.isNotEmpty() }
-                            .joinToString(" · ") + if (frame.truncated) " · truncated" else ""
+                        val label = listOf(frame.direction, frame.opcode).filter { it.isNotEmpty() }.joinToString(" · ") + if (frame.truncated) " · truncated" else ""
                         Spacer(Modifier.height(6.dp))
                         Text(label, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Text(frame.preview, fontFamily = FontFamily.Monospace, fontSize = 12.sp)
                     }
-                } else {
-                    // Fall back to the raw request/response body preview.
-                    val requestBody = entry.request.bodyText()
-                    val responseBody = entry.response.bodyText()
-                    Text("Request body", fontWeight = FontWeight.Medium)
-                    Text(if (requestBody.isEmpty()) "No body preview" else requestBody, fontFamily = FontFamily.Monospace, fontSize = 12.sp)
-                    Spacer(Modifier.height(8.dp))
-                    Text("Response body", fontWeight = FontWeight.Medium)
-                    Text(if (responseBody.isEmpty()) "No body preview" else responseBody, fontFamily = FontFamily.Monospace, fontSize = 12.sp)
                 }
+            }
+        }
+    )
+}
+
+@Composable
+private fun ComposeRequestDialog(seed: DeveloperEntryPayload, vm: MainViewModel, onDismiss: () -> Unit) {
+    val scope = rememberCoroutineScope()
+    var method by remember { mutableStateOf(seed.method.ifEmpty { "GET" }) }
+    var url by remember { mutableStateOf(seed.url) }
+    var body by remember { mutableStateOf(seed.request.bodyText()) }
+    var msg by remember { mutableStateOf("") }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            Row {
+                TextButton(onClick = onDismiss) { Text("Cancel") }
+                Button(onClick = {
+                    scope.launch {
+                        try { vm.sendComposed(ComposedRequestPayload(method = method, url = url, body = body.ifBlank { null })); onDismiss() }
+                        catch (e: Exception) { msg = e.message ?: "send failed" }
+                    }
+                }, enabled = url.isNotBlank()) { Text("Send") }
+            }
+        },
+        title = { Text("Compose & send") },
+        text = {
+            Column {
+                OutlinedTextField(method, { method = it }, label = { Text("Method") }, singleLine = true)
+                Spacer(Modifier.height(8.dp))
+                OutlinedTextField(url, { url = it }, label = { Text("URL") }, singleLine = true)
+                Spacer(Modifier.height(8.dp))
+                OutlinedTextField(body, { body = it }, label = { Text("Body") }, minLines = 3, maxLines = 6)
+                if (msg.isNotEmpty()) Text(msg, fontSize = 12.sp, color = MaterialTheme.colorScheme.error)
+            }
+        }
+    )
+}
+
+@Composable
+private fun ImportCurlDialog(vm: MainViewModel, onDismiss: () -> Unit, onParsed: (ParsedCurlResponse) -> Unit) {
+    val scope = rememberCoroutineScope()
+    var text by remember { mutableStateOf("") }
+    var err by remember { mutableStateOf("") }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            Row {
+                TextButton(onClick = onDismiss) { Text("Cancel") }
+                Button(onClick = {
+                    scope.launch {
+                        try { onParsed(vm.importCurl(text)) }
+                        catch (e: Exception) { err = e.message ?: "parse failed" }
+                    }
+                }, enabled = text.isNotBlank()) { Text("Parse & Compose") }
+            }
+        },
+        title = { Text("Import cURL") },
+        text = {
+            Column {
+                Text("Paste a cURL command to parse method, URL, headers, and body.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.height(8.dp))
+                OutlinedTextField(text, { text = it }, label = { Text("cURL") }, minLines = 3, maxLines = 8)
+                if (err.isNotEmpty()) Text(err, fontSize = 12.sp, color = MaterialTheme.colorScheme.error)
             }
         }
     )
@@ -787,3 +948,21 @@ private fun cleanupActionTitle(suggestion: TrafficCleanupSuggestionPayload): Str
     if (suggestion.operation == "move_rule_to_end") "Move to end" else "Delete"
 
 private fun emptyDash(value: String): String = if (value.trim().isEmpty()) "--" else value
+
+private fun isChipSelected(filter: TrafficMonitorFilter, key: String): Boolean {
+    if (key == "all") return filter.isEmpty()
+    if (key == "active") return filter.state == "active"
+    if (key == "proxy" || key == "direct" || key == "block") return filter.action == key
+    val colon = key.indexOf(':')
+    if (colon > 0) {
+        val name = key.substring(0, colon); val value = key.substring(colon + 1)
+        return when (name) {
+            "country" -> filter.country == value
+            "port" -> filter.port == value
+            "process" -> filter.process == value
+            "network" -> filter.network == value
+            else -> false
+        }
+    }
+    return false
+}

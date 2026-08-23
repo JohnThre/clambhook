@@ -46,13 +46,35 @@ class LocalTunnelApi(
 
     override suspend fun traffic(): TrafficSnapshotPayload =
         io { ApiJson.decodeFromString(runtime().trafficJson()) }
+    override suspend fun traffic(filter: TrafficMonitorFilter): TrafficSnapshotPayload =
+        io { ApiJson.decodeFromString(TrafficSnapshotPayload.serializer(), runtime().trafficFilterJson(ApiJson.encodeToString(TrafficMonitorFilter.serializer(), filter))) }
+    override suspend fun pendingPrompts(): PromptsPayload =
+        io { ApiJson.decodeFromString(PromptsPayload.serializer(), runtime().pendingPromptsJson()) }
+    override suspend fun resolvePrompt(id: String, action: String, scope: String, matchHost: Boolean, matchPort: Boolean, matchProtocol: Boolean, ttlSeconds: Long) {
+        io { runtime().resolvePromptJson(id, action, scope, matchHost, matchPort, matchProtocol, ttlSeconds) }
+    }
+    override suspend fun silentDecisions(): SilentDecisionsPayload =
+        io { ApiJson.decodeFromString(SilentDecisionsPayload.serializer(), runtime().silentDecisionsJson()) }
+    override suspend fun promoteSilentDecision(id: String, scope: String, matchHost: Boolean, matchPort: Boolean, matchProtocol: Boolean) {
+        io { runtime().promoteSilentDecisionJson(id, scope, matchHost, matchPort, matchProtocol) }
+    }
 
     override suspend fun developerStatus(): DeveloperStatusPayload =
         io { ApiJson.decodeFromString(runtime().developerStatusJson()) }
 
     override suspend fun developerEntries(): DeveloperEntriesPayload =
         io { ApiJson.decodeFromString(runtime().developerEntriesJson()) }
-
+    override suspend fun developerEntries(filter: DeveloperEntriesFilter): List<DeveloperEntryPayload> =
+        io { ApiJson.decodeFromString(DeveloperEntriesPayload.serializer(), runtime().developerEntriesFilterJson(filter.toJson())).entries }
+    override suspend fun developerEntryCurl(id: String): String =
+        io { ApiJson.decodeFromString(CurlExportResponse.serializer(), runtime().developerEntryCurlJson(id)).curl }
+    override suspend fun importCurl(text: String): ParsedCurlResponse =
+        io { ApiJson.decodeFromString(ParsedCurlResponse.serializer(), runtime().developerCurlImportJson(text)) }
+    override suspend fun sendComposed(request: ComposedRequestPayload): DeveloperEntryPayload =
+        io {
+            val body = ApiJson.encodeToString(ComposedRequestPayload.serializer(), request)
+            ApiJson.decodeFromString(DeveloperRepeatResponsePayload.serializer(), runtime().developerSendJson(body)).entry
+        }
     override suspend fun developerHar(): String = io { runtime().developerHarJson() }
 
     override suspend fun policyGroups(): PolicyGroupsPayload = io { dashboard().policyGroups }

@@ -26,6 +26,10 @@ interface ClambhookTunnelRuntime {
     fun developerEntriesJson(): String
     fun developerHarJson(): String
     fun developerCaPem(): String
+    fun developerEntriesFilterJson(filterJson: String): String
+    fun developerEntryCurlJson(id: String): String
+    fun developerCurlImportJson(curl: String): String
+    fun developerSendJson(requestJson: String): String
 
     fun clearDeveloperEntries()
     fun setActiveProfile(name: String)
@@ -57,6 +61,28 @@ interface ClambhookTunnelRuntime {
     ): String
 
     fun testRuleJson(profile: String, network: String, target: String, source: String): String
+
+    fun pendingPromptsJson(): String
+    fun resolvePromptJson(
+        id: String,
+        action: String,
+        scope: String,
+        matchHost: Boolean,
+        matchPort: Boolean,
+        matchProtocol: Boolean,
+        ttlSeconds: Long,
+    ): String
+
+    fun silentDecisionsJson(): String
+    fun promoteSilentDecisionJson(
+        id: String,
+        scope: String,
+        matchHost: Boolean,
+        matchPort: Boolean,
+        matchProtocol: Boolean,
+    ): String
+
+    fun trafficFilterJson(filterJson: String): String
 }
 
 class GomobileClambhookTunnelRuntime(
@@ -78,6 +104,10 @@ class GomobileClambhookTunnelRuntime(
     override fun developerEntriesJson(): String = delegate.developerEntriesJSON()
     override fun developerHarJson(): String = delegate.developerHARJSON()
     override fun developerCaPem(): String = delegate.developerCAPEM()
+    override fun developerEntriesFilterJson(filterJson: String): String = delegate.developerEntriesFilterJSON(filterJson)
+    override fun developerEntryCurlJson(id: String): String = delegate.developerEntryCurlJSON(id)
+    override fun developerCurlImportJson(curl: String): String = delegate.developerCurlImportJSON(curl)
+    override fun developerSendJson(requestJson: String): String = delegate.developerSendJSON(requestJson)
 
     override fun clearDeveloperEntries() = delegate.clearDeveloperEntries()
     override fun setActiveProfile(name: String) = delegate.setActiveProfile(name)
@@ -113,6 +143,30 @@ class GomobileClambhookTunnelRuntime(
 
     override fun testRuleJson(profile: String, network: String, target: String, source: String): String =
         delegate.testRuleJSON(profile, network, target, source)
+
+    override fun pendingPromptsJson(): String = delegate.pendingPromptsJSON()
+
+    override fun resolvePromptJson(
+        id: String,
+        action: String,
+        scope: String,
+        matchHost: Boolean,
+        matchPort: Boolean,
+        matchProtocol: Boolean,
+        ttlSeconds: Long,
+    ): String = delegate.resolvePromptJSON(id, action, scope, matchHost, matchPort, matchProtocol, ttlSeconds)
+
+    override fun silentDecisionsJson(): String = delegate.silentDecisionsJSON()
+
+    override fun promoteSilentDecisionJson(
+        id: String,
+        scope: String,
+        matchHost: Boolean,
+        matchPort: Boolean,
+        matchProtocol: Boolean,
+    ): String = delegate.promoteSilentDecisionJSON(id, scope, matchHost, matchPort, matchProtocol)
+
+    override fun trafficFilterJson(filterJson: String): String = delegate.trafficFilterJSON(filterJson)
 }
 
 object GomobileClambhookTunnelRuntimeFactory {

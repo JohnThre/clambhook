@@ -7,6 +7,12 @@
 // lists pending prompts and posts a resolution. Multiple connections sharing
 // the same (profile, process, network, destination) key coalesce onto one
 // pending prompt so a burst of connections produces a single question.
+//
+// Silent Mode (config PromptConfig.SilentMode) auto-decides every undecided
+// connection without surfacing a prompt, logging each decision to a bounded
+// in-memory review list so the user can later promote a logged decision to a
+// remembered rule. It is the Little Snitch "decide quietly and review later"
+// stance.
 package prompt
 
 import (
@@ -23,6 +29,10 @@ import (
 // defaultTimeout bounds how long a connection is held awaiting a decision.
 const defaultTimeout = 30 * time.Second
 
+// maxSilentDecisions bounds the in-memory Silent Mode review log. The log is
+// newest-first and drops the oldest entry once the cap is reached.
+const maxSilentDecisions = 256
+
 // Event kinds passed to the event hook.
 const (
 	EventPending  = "pending"
@@ -34,6 +44,12 @@ type Config struct {
 	Enabled      bool
 	Timeout      time.Duration
 	DefaultAllow bool
+	// SilentMode auto-decides every undecided connection without surfacing a
+	// prompt. "" disables Silent Mode (interactive prompts run as normal).
+	// "allow" admits undecided connections through the default chain; "deny"
+	// blocks them. Every auto-decision is appended to the review log returned
+	// by SilentDecisions.
+	SilentMode string
 }
 
 // Request describes a connection awaiting a decision.
@@ -45,6 +61,12 @@ type Request struct {
 	Host    string
 	Port    string
 	Process procattr.Process
+	// WouldUseChain and WouldUseGroup describe the route that an "allow"
+	// decision would take (the default chain / policy group the connection
+	// fell through to). They are surfaced in the alert so the user can see the
+	// consequence of allowing before deciding.
+	WouldUseChain string
+	WouldUseGroup string
 }
 
 // Decision is the outcome applied to a connection.
@@ -70,7 +92,35 @@ type Pending struct {
 	ProcessName string    `json:"process_name,omitempty"`
 	ProcessPath string    `json:"process_path,omitempty"`
 	CreatedAt   time.Time `json:"created_at"`
+	ExpiresAt   time.Time `json:"expires_at,omitempty"`
 	Waiters     int       `json:"waiters"`
+	// WouldUseChain/WouldUseGroup describe the route an "allow" would take, for
+	// the alert detail disclosure.
+	WouldUseChain string `json:"would_use_chain,omitempty"`
+	WouldUseGroup string `json:"would_use_group,omitempty"`
+	// CodeSignID/CodeSignStatus carry the owning process's code-signing identity
+	// on darwin (empty on platforms that do not attribute a signature).
+	CodeSignID     string `json:"code_sign_id,omitempty"`
+	CodeSignStatus string `json:"code_sign_status,omitempty"`
+}
+
+// SilentDecision is one auto-decided connection recorded under Silent Mode, for
+// the review list returned by GET /api/v1/prompts/decisions. It carries the
+// same process/destination fields as Pending so the API layer can reuse the
+// remembered-rule builder when promoting a decision.
+type SilentDecision struct {
+	ID          string `json:"id"`
+	Profile     string `json:"profile,omitempty"`
+	Network     string `json:"network,omitempty"`
+	Target      string `json:"target"`
+	TargetHost  string `json:"target_host,omitempty"`
+	TargetPort  string `json:"target_port,omitempty"`
+	PID         int    `json:"pid,omitempty"`
+	ProcessName string `json:"process_name,omitempty"`
+	ProcessPath string `json:"process_path,omitempty"`
+	CodeSignID  string `json:"code_sign_id,omitempty"`
+	Action      string `json:"action"`
+	TsNs        int64  `json:"ts_ns"`
 }
 
 // EventHook is notified when a prompt is created or resolved. allow is
@@ -92,6 +142,7 @@ type Manager struct {
 	cfg     Config
 	pending map[string]*pending
 	byKey   map[string]*pending
+	silent  []SilentDecision
 	hook    EventHook
 	nextID  atomic.Uint64
 }
@@ -135,6 +186,10 @@ func (m *Manager) SetEventHook(hook EventHook) {
 // Await pauses a connection until a decision is made, the prompt times out, or
 // ctx is cancelled. gated is false when prompting is disabled — the caller then
 // proceeds with its normal routing decision.
+//
+// In Silent Mode the connection is never paused: the configured allow/deny
+// decision is returned immediately and the decision is appended to the review
+// log. gated is still true so the caller applies the decision (a deny blocks).
 func (m *Manager) Await(ctx context.Context, req Request) (decision Decision, gated bool) {
 	if m == nil {
 		return Decision{}, false
@@ -144,30 +199,43 @@ func (m *Manager) Await(ctx context.Context, req Request) (decision Decision, ga
 		m.mu.Unlock()
 		return Decision{}, false
 	}
+	// Silent Mode: auto-decide without prompting and log for later review.
+	if mode := m.cfg.SilentMode; mode != "" {
+		allow := mode == "allow"
+		m.recordSilentDecisionLocked(req, allow)
+		m.mu.Unlock()
+		return Decision{Allow: allow}, true
+	}
 	key := promptKey(req)
 	p := m.byKey[key]
 	newPrompt := p == nil
 	if newPrompt {
+		now := time.Now()
+		timeout := m.cfg.Timeout
 		p = &pending{
 			Pending: Pending{
-				ID:          fmt.Sprintf("prompt-%d", m.nextID.Add(1)),
-				ConnID:      req.ConnID,
-				Profile:     req.Profile,
-				Network:     req.Network,
-				Target:      req.Target,
-				TargetHost:  req.Host,
-				TargetPort:  req.Port,
-				PID:         req.Process.PID,
-				ProcessName: req.Process.Name,
-				ProcessPath: req.Process.Path,
-				CreatedAt:   time.Now(),
+				ID:             fmt.Sprintf("prompt-%d", m.nextID.Add(1)),
+				ConnID:         req.ConnID,
+				Profile:        req.Profile,
+				Network:        req.Network,
+				Target:         req.Target,
+				TargetHost:     req.Host,
+				TargetPort:     req.Port,
+				PID:            req.Process.PID,
+				ProcessName:    req.Process.Name,
+				ProcessPath:    req.Process.Path,
+				CreatedAt:      now,
+				ExpiresAt:      now.Add(timeout),
+				WouldUseChain:  req.WouldUseChain,
+				WouldUseGroup:  req.WouldUseGroup,
+				CodeSignID:     req.Process.CodeSignID,
+				CodeSignStatus: req.Process.CodeSignStatus,
 			},
 			key:  key,
 			done: make(chan struct{}),
 		}
 		m.pending[p.ID] = p
 		m.byKey[key] = p
-		timeout := m.cfg.Timeout
 		defaultAllow := m.cfg.DefaultAllow
 		id := p.ID
 		p.timer = time.AfterFunc(timeout, func() {
@@ -209,6 +277,33 @@ func (m *Manager) Pending() []Pending {
 	return out
 }
 
+// SilentDecisions returns the bounded Silent Mode review log, newest first.
+func (m *Manager) SilentDecisions() []SilentDecision {
+	if m == nil {
+		return nil
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	out := make([]SilentDecision, len(m.silent))
+	copy(out, m.silent)
+	return out
+}
+
+// SilentDecision returns one logged Silent Mode decision by ID.
+func (m *Manager) SilentDecision(id string) (SilentDecision, bool) {
+	if m == nil {
+		return SilentDecision{}, false
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	for _, d := range m.silent {
+		if d.ID == id {
+			return d, true
+		}
+	}
+	return SilentDecision{}, false
+}
+
 // Resolve applies a user decision to a pending prompt, waking every coalesced
 // waiter. It returns the resolved prompt's snapshot so callers can build a
 // remembered rule from the attributed process and destination.
@@ -244,6 +339,34 @@ func (m *Manager) resolve(id string, res Resolution) (Pending, bool) {
 		hook(EventResolved, snapshot, res.Allow)
 	}
 	return snapshot, true
+}
+
+// recordSilentDecisionLocked appends one auto-decided connection to the
+// newest-first review log, dropping the oldest entry past the cap. The caller
+// must hold m.mu.
+func (m *Manager) recordSilentDecisionLocked(req Request, allow bool) {
+	action := "deny"
+	if allow {
+		action = "allow"
+	}
+	d := SilentDecision{
+		ID:          fmt.Sprintf("silent-%d", m.nextID.Add(1)),
+		Profile:     req.Profile,
+		Network:     req.Network,
+		Target:      req.Target,
+		TargetHost:  req.Host,
+		TargetPort:  req.Port,
+		PID:         req.Process.PID,
+		ProcessName: req.Process.Name,
+		ProcessPath: req.Process.Path,
+		CodeSignID:  req.Process.CodeSignID,
+		Action:      action,
+		TsNs:        time.Now().UnixNano(),
+	}
+	m.silent = append([]SilentDecision{d}, m.silent...)
+	if len(m.silent) > maxSilentDecisions {
+		m.silent = m.silent[:maxSilentDecisions]
+	}
 }
 
 // promptKey coalesces connections from the same process to the same target so

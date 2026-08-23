@@ -1076,6 +1076,7 @@ public struct TrafficSnapshotPayload: Codable, Equatable, Sendable {
     public var updatedTsNs: Int64
     public var summary: TrafficSummaryPayload
     public var connections: [TrafficConnectionPayload]
+    public var total: Int
     public var temporaryRules: [TemporaryRulePayload]
     public var profileContext: TrafficProfileContextPayload
     public var quickFilters: [TrafficQuickFilterPayload]
@@ -1090,6 +1091,7 @@ public struct TrafficSnapshotPayload: Codable, Equatable, Sendable {
         case updatedTsNs = "updated_ts_ns"
         case summary
         case connections
+        case total
         case temporaryRules = "temporary_rules"
         case profileContext = "profile_context"
         case quickFilters = "quick_filters"
@@ -1101,10 +1103,11 @@ public struct TrafficSnapshotPayload: Codable, Equatable, Sendable {
         case breakdowns
     }
 
-    public init(updatedTsNs: Int64 = 0, summary: TrafficSummaryPayload = TrafficSummaryPayload(), connections: [TrafficConnectionPayload] = [], temporaryRules: [TemporaryRulePayload] = [], profileContext: TrafficProfileContextPayload = TrafficProfileContextPayload(), quickFilters: [TrafficQuickFilterPayload] = [], ruleHits: [TrafficRuleHitPayload] = [], blockDecisions: [TrafficBlockDecisionPayload] = [], destinationGroups: [TrafficDestinationGroupPayload] = [], cleanupSuggestions: [TrafficCleanupSuggestionPayload] = [], ruleSuggestions: [TrafficRuleSuggestionPayload] = [], breakdowns: TrafficBreakdownsPayload = TrafficBreakdownsPayload()) {
+    public init(updatedTsNs: Int64 = 0, summary: TrafficSummaryPayload = TrafficSummaryPayload(), connections: [TrafficConnectionPayload] = [], total: Int = 0, temporaryRules: [TemporaryRulePayload] = [], profileContext: TrafficProfileContextPayload = TrafficProfileContextPayload(), quickFilters: [TrafficQuickFilterPayload] = [], ruleHits: [TrafficRuleHitPayload] = [], blockDecisions: [TrafficBlockDecisionPayload] = [], destinationGroups: [TrafficDestinationGroupPayload] = [], cleanupSuggestions: [TrafficCleanupSuggestionPayload] = [], ruleSuggestions: [TrafficRuleSuggestionPayload] = [], breakdowns: TrafficBreakdownsPayload = TrafficBreakdownsPayload()) {
         self.updatedTsNs = updatedTsNs
         self.summary = summary
         self.connections = connections
+        self.total = total
         self.temporaryRules = temporaryRules
         self.profileContext = profileContext
         self.quickFilters = quickFilters
@@ -1121,6 +1124,7 @@ public struct TrafficSnapshotPayload: Codable, Equatable, Sendable {
         self.updatedTsNs = try container.decodeIfPresent(Int64.self, forKey: .updatedTsNs) ?? 0
         self.summary = try container.decodeIfPresent(TrafficSummaryPayload.self, forKey: .summary) ?? TrafficSummaryPayload()
         self.connections = try container.decodeIfPresent([TrafficConnectionPayload].self, forKey: .connections) ?? []
+        self.total = try container.decodeIfPresent(Int.self, forKey: .total) ?? 0
         self.temporaryRules = try container.decodeIfPresent([TemporaryRulePayload].self, forKey: .temporaryRules) ?? []
         self.profileContext = try container.decodeIfPresent(TrafficProfileContextPayload.self, forKey: .profileContext) ?? TrafficProfileContextPayload()
         self.quickFilters = try container.decodeIfPresent([TrafficQuickFilterPayload].self, forKey: .quickFilters) ?? []

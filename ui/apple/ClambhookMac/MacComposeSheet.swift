@@ -110,3 +110,62 @@ struct MacComposeRequestSheet: View {
         )
     }
 }
+
+
+// MARK: - Import cURL sheet
+
+struct MacImportCurlSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @Binding var text: String
+    @Binding var errorMessage: String
+    let parse: (String) async throws -> ParsedCurlResponse
+    let onCompose: (ParsedCurlResponse) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Text("Import cURL")
+                    .font(.headline)
+                Spacer()
+                Button("Cancel") { dismiss() }
+            }
+            .padding(16)
+            Divider()
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Paste a cURL command. ClambHook parses the method, URL, headers, and body into the composer.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                TextEditor(text: $text)
+                    .font(.system(.caption, design: .monospaced))
+                    .frame(minHeight: 180)
+                    .overlay(RoundedRectangle(cornerRadius: 6).stroke(.quaternary))
+                if !errorMessage.isEmpty {
+                    Text(errorMessage)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                }
+            }
+            .padding(16)
+            HStack {
+                Spacer()
+                Button {
+                    errorMessage = ""
+                    let curlText = text
+                    Task {
+                        do {
+                            let parsed = try await parse(curlText)
+                            onCompose(parsed)
+                        } catch {
+                            errorMessage = error.localizedDescription
+                        }
+                    }
+                } label: {
+                    Label("Parse & Compose", systemImage: "wand.and.stars")
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+            .padding(16)
+        }
+    }
+}

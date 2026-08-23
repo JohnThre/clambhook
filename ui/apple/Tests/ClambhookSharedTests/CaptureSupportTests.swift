@@ -219,3 +219,74 @@ final class CaptureSupportTests: XCTestCase {
         XCTAssertNil(object?["loss_percent"])
     }
 }
+
+
+// MARK: - Developer capture: timings, viewer, filter, cURL, compose
+
+final class DeveloperCaptureExtraTests: XCTestCase {
+    func testDeveloperEntryDecodesTimingsAndViewer() throws {
+        // Includes a normal request header (no redacted/truncated keys) to verify
+        // the tolerant DeveloperHeaderPayload decoder, plus timings and a viewer.
+        let json = #"{"id":"dev-1","method":"GET","url":"https://api.example.com","scheme":"https","host":"api.example.com","status":200,"request":{"headers":[{"name":"Accept","value":"application/json"}],"cookies":[],"body":{"size":0,"preview_bytes":0,"truncated":false,"truncated_after":0}},"response":{"headers":[],"cookies":[],"body":{"size":2,"preview":"ok","preview_bytes":2,"truncated":false,"truncated_after":65536,"mime_type":"application/json","encoding":"utf8","viewer":{"kind":"json","pretty":"indented","hex":"00000000  6f 6b |ok|"}}},"timings":{"connect":3,"ssl":7,"send":1,"wait":40,"receive":12}}"#.data(using: .utf8)!
+        let entry = try JSONDecoder().decode(DeveloperEntryPayload.self, from: json)
+        XCTAssertEqual(entry.request.headers.first?.name, "Accept")
+        XCTAssertEqual(entry.timings?.wait, 40)
+        XCTAssertEqual(entry.timings?.receive, 12)
+        XCTAssertEqual(entry.response.body.viewer?.kind, "json")
+        XCTAssertEqual(entry.response.body.viewer?.pretty, "indented")
+        XCTAssertFalse(entry.response.body.viewer?.hex.isEmpty ?? true)
+    }
+
+    func testDeveloperEntryDecodesWithoutTimingsAndViewer() throws {
+        let json = #"{"id":"dev-2","method":"GET","url":"http://x","scheme":"http","host":"x","status":204,"request":{"headers":[],"cookies":[],"body":{"size":0,"preview_bytes":0,"truncated":false,"truncated_after":0}},"response":{"headers":[],"cookies":[],"body":{"size":0,"preview_bytes":0,"truncated":false,"truncated_after":0}}}"#.data(using: .utf8)!
+        let entry = try JSONDecoder().decode(DeveloperEntryPayload.self, from: json)
+        XCTAssertNil(entry.timings)
+        XCTAssertNil(entry.response.body.viewer)
+    }
+
+    func testDeveloperEntriesFilterPath() {
+        var f = DeveloperEntriesFilter()
+        f.query = "api example"
+        f.method = "POST"
+        f.statusMin = 400
+        f.statusMax = 599
+        f.errorOnly = true
+        let path = f.entriesPath()
+        XCTAssertTrue(path.contains("limit=200"))
+        XCTAssertTrue(path.contains("method=POST"))
+        XCTAssertTrue(path.contains("status_min=400"))
+        XCTAssertTrue(path.contains("status_max=599"))
+        XCTAssertTrue(path.contains("error_only=1"))
+        XCTAssertTrue(path.contains("q=api%20example"))
+    }
+
+    func testDeveloperEntriesFilterEmptyPath() {
+        XCTAssertEqual(DeveloperEntriesFilter().entriesPath(), "/api/v1/developer/entries?limit=200")
+        XCTAssertTrue(DeveloperEntriesFilter().isEmpty)
+    }
+
+    func testParsedCurlResponseDecodes() throws {
+        let json = #"{"method":"POST","url":"https://api.example.com","headers":[{"name":"X","value":"y"}],"body":"hello"}"#.data(using: .utf8)!
+        let parsed = try JSONDecoder().decode(ParsedCurlResponse.self, from: json)
+        XCTAssertEqual(parsed.method, "POST")
+        XCTAssertEqual(parsed.url, "https://api.example.com")
+        XCTAssertEqual(parsed.headers.first?.name, "X")
+        XCTAssertEqual(parsed.body, "hello")
+    }
+
+    func testComposedRequestPayloadEncodes() throws {
+        let req = ComposedRequestPayload(method: "POST", url: "https://api.example.com", headers: [DeveloperHeaderPayload(name: "X", value: "y")], body: "hello")
+        let data = try JSONEncoder().encode(req)
+        let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        XCTAssertEqual(obj?["method"] as? String, "POST")
+        XCTAssertEqual(obj?["url"] as? String, "https://api.example.com")
+        XCTAssertEqual(obj?["body"] as? String, "hello")
+        XCTAssertEqual((obj?["headers"] as? [[String: Any]])?.first?["name"] as? String, "X")
+    }
+
+    func testCurlImportRequestEncodes() throws {
+        let data = try JSONEncoder().encode(CurlImportRequest(curl: "curl https://x"))
+        let obj = try JSONSerialization.jsonObject(with: data) as? [String: String]
+        XCTAssertEqual(obj?["curl"], "curl https://x")
+    }
+}

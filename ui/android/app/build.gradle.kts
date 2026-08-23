@@ -14,6 +14,7 @@ val keystoreProperties = Properties().apply {
         FileInputStream(keystorePropertiesFile).use { load(it) }
     }
 }
+val managedDeviceTestAbi = providers.gradleProperty("clambhook.managedDeviceTestAbi").orNull
 
 android {
     namespace = "com.clambhook.android"
@@ -26,6 +27,15 @@ android {
         versionCode = 3
         versionName = "1.0.2"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        if (!managedDeviceTestAbi.isNullOrBlank()) {
+            // Managed devices in this matrix are arm64. Filtering only when
+            // the explicit QA property is present keeps the large transitional
+            // gomobile APK below emulator install timeouts without changing
+            // release ABI coverage.
+            ndk {
+                abiFilters += managedDeviceTestAbi
+            }
+        }
     }
 
     buildFeatures {
@@ -52,6 +62,20 @@ android {
     }
 
     buildTypes {
+        debug {
+            if (!managedDeviceTestAbi.isNullOrBlank()) {
+                // Instrumented compatibility tests exercise application
+                // classes directly, so preserve those names while shrinking
+                // the otherwise enormous unreferenced icon/dependency graph.
+                isMinifyEnabled = true
+                proguardFiles(
+                    getDefaultProguardFile("proguard-android-optimize.txt"),
+                    "proguard-rules.pro",
+                    "managed-test-proguard-rules.pro",
+                )
+                testProguardFiles("managed-test-proguard-rules.pro")
+            }
+        }
         release {
             isMinifyEnabled = true
             isShrinkResources = true
@@ -71,6 +95,39 @@ android {
     dependenciesInfo {
         includeInApk = false
         includeInBundle = false
+    }
+
+    // Android 11 is the compatibility floor. Keep instrumented Compose tests
+    // running on the floor, a representative middle release, and the current
+    // target so platform behavior cannot drift unnoticed during JNI cutover.
+    testOptions {
+        animationsDisabled = true
+        managedDevices {
+            localDevices {
+                create("pixel2Api30") {
+                    device = "Pixel 2"
+                    apiLevel = 30
+                    systemImageSource = "aosp"
+                }
+                create("pixel6Api33") {
+                    device = "Pixel 6"
+                    apiLevel = 33
+                    systemImageSource = "aosp"
+                }
+                create("pixel6Api36") {
+                    device = "Pixel 6"
+                    apiLevel = 36
+                    systemImageSource = "aosp"
+                }
+            }
+            groups {
+                create("androidCompatibility") {
+                    targetDevices.add(allDevices["pixel2Api30"])
+                    targetDevices.add(allDevices["pixel6Api33"])
+                    targetDevices.add(allDevices["pixel6Api36"])
+                }
+            }
+        }
     }
 
 }

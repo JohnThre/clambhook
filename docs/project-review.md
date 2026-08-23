@@ -1,5 +1,10 @@
 # Project Review and Backlog
 
+> Historical architecture note: sections describing Go, gomobile, or the
+> Kotlin/Compose GNU/Linux client refer to the pre-cutover implementation kept
+> as the migration oracle. Current C/GTK/JNI status is tracked in
+> [`c-migration.md`](c-migration.md).
+
 A repository-wide review of ClambHook covering the Go/C daemon, protocols and
 API, the Apple client (app, privileged helper, widget), the Android and shared
 Skip surfaces, the Linux UI and packaging, release automation, CI, tests, docs,

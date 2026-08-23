@@ -823,3 +823,110 @@ func waitForConnections(t *testing.T, store *Store, want int) {
 	}
 	t.Fatalf("connections = %d, want %d", len(store.Snapshot("all", 0).Connections), want)
 }
+
+func TestSnapshotProcessNetworkFiltersOffsetTotalAndQuickFilterKeys(t *testing.T) {
+	store, err := NewStore(config.TrafficConfig{
+		Enabled:       true,
+		HistoryLimit:  50,
+		HistoryMaxAge: config.Duration(time.Hour),
+	}, nil)
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	defer store.Close()
+
+	base := time.Now().UnixNano()
+	// c1: curl over tcp, proxied.
+	store.ApplyEvent(events.Event{TsNs: base + 1, Type: events.TypeConnectionOpened, Data: events.ConnectionOpenedData{ConnID: "c1"}})
+	store.ApplyEvent(events.Event{TsNs: base + 2, Type: events.TypeConnectionDialing, Data: events.ConnectionDialingData{
+		ConnID: "c1", Target: "example.com:443", TargetHost: "example.com", TargetPort: "443",
+		Network: "tcp", ProcessName: "curl", ProcessPath: "/usr/bin/curl", ProcessPID: 1001,
+	}})
+	store.ApplyEvent(events.Event{TsNs: base + 3, Type: events.TypeRuleMatched, Data: events.RuleDecisionData{
+		ConnID: "c1", Action: "chain", ChainName: "proxy", Target: "example.com:443",
+		TargetHost: "example.com", TargetPort: "443", Network: "tcp",
+	}})
+	// c2: git over tcp, direct.
+	store.ApplyEvent(events.Event{TsNs: base + 4, Type: events.TypeConnectionOpened, Data: events.ConnectionOpenedData{ConnID: "c2"}})
+	store.ApplyEvent(events.Event{TsNs: base + 5, Type: events.TypeConnectionDialing, Data: events.ConnectionDialingData{
+		ConnID: "c2", Target: "github.com:443", TargetHost: "github.com", TargetPort: "443",
+		Network: "tcp", ProcessName: "git", ProcessPath: "/usr/bin/git", ProcessPID: 1002,
+	}})
+	store.ApplyEvent(events.Event{TsNs: base + 6, Type: events.TypeRuleDirect, Data: events.RuleDecisionData{
+		ConnID: "c2", Action: "direct", Target: "github.com:443", TargetHost: "github.com", TargetPort: "443", Network: "tcp",
+	}})
+	// c3: mDNSResponder over udp, proxied.
+	store.ApplyEvent(events.Event{TsNs: base + 7, Type: events.TypeConnectionOpened, Data: events.ConnectionOpenedData{ConnID: "c3"}})
+	store.ApplyEvent(events.Event{TsNs: base + 8, Type: events.TypeConnectionDialing, Data: events.ConnectionDialingData{
+		ConnID: "c3", Target: "8.8.8.8:53", TargetHost: "8.8.8.8", TargetPort: "53",
+		Network: "udp", ProcessName: "mDNSResponder", ProcessPath: "/usr/sbin/mDNSResponder", ProcessPID: 1003,
+	}})
+	store.ApplyEvent(events.Event{TsNs: base + 9, Type: events.TypeRuleMatched, Data: events.RuleDecisionData{
+		ConnID: "c3", Action: "chain", ChainName: "proxy", Target: "8.8.8.8:53", TargetHost: "8.8.8.8", TargetPort: "53", Network: "udp",
+	}})
+
+	// process filter narrows to the owning process.
+	byProcess := store.SnapshotWithOptions(SnapshotOptions{State: "all", Limit: 50, Process: "curl"})
+	if len(byProcess.Connections) != 1 || byProcess.Connections[0].ConnID != "c1" {
+		t.Fatalf("process=curl filter = %+v", connIDs(byProcess.Connections))
+	}
+	if byProcess.Total != 1 {
+		t.Fatalf("process=curl Total = %d, want 1", byProcess.Total)
+	}
+	// process filter also matches by path substring.
+	byPath := store.SnapshotWithOptions(SnapshotOptions{State: "all", Limit: 50, Process: "/usr/bin/git"})
+	if len(byPath.Connections) != 1 || byPath.Connections[0].ConnID != "c2" {
+		t.Fatalf("process=/usr/bin/git filter = %+v", connIDs(byPath.Connections))
+	}
+
+	// network filter narrows by protocol.
+	byNet := store.SnapshotWithOptions(SnapshotOptions{State: "all", Limit: 50, Network: "udp"})
+	if len(byNet.Connections) != 1 || byNet.Connections[0].ConnID != "c3" {
+		t.Fatalf("network=udp filter = %+v", connIDs(byNet.Connections))
+	}
+
+	// Total reflects the full filtered set even when limit/offset shrink the
+	// returned window.
+	paged := store.SnapshotWithOptions(SnapshotOptions{State: "all", Limit: 1, Offset: 1})
+	if paged.Total != 3 {
+		t.Fatalf("paged Total = %d, want 3", paged.Total)
+	}
+	if len(paged.Connections) != 1 {
+		t.Fatalf("paged connections = %d, want 1", len(paged.Connections))
+	}
+	// offset beyond the set returns an empty window but still reports Total.
+	over := store.SnapshotWithOptions(SnapshotOptions{State: "all", Limit: 50, Offset: 100})
+	if over.Total != 3 || len(over.Connections) != 0 {
+		t.Fatalf("over-offset Total=%d conns=%d, want 3/0", over.Total, len(over.Connections))
+	}
+
+	// quickFilters include process: and network: chip keys derived from the
+	// unfiltered set.
+	all := store.SnapshotWithOptions(SnapshotOptions{State: "all", Limit: 50})
+	if !hasQuickFilter(all.QuickFilters, "process:curl") {
+		t.Fatalf("missing process:curl in quickFilters = %+v", all.QuickFilters)
+	}
+	if !hasQuickFilter(all.QuickFilters, "network:tcp") {
+		t.Fatalf("missing network:tcp in quickFilters = %+v", all.QuickFilters)
+	}
+	if !hasQuickFilter(all.QuickFilters, "network:udp") {
+		t.Fatalf("missing network:udp in quickFilters = %+v", all.QuickFilters)
+	}
+}
+
+func connIDs(conns []Connection) []string {
+	out := make([]string, 0, len(conns))
+	for _, c := range conns {
+		out = append(out, c.ConnID)
+	}
+	return out
+}
+
+func hasQuickFilter(filters []QuickFilter, key string) bool {
+	for _, f := range filters {
+		if f.Key == key {
+			return true
+		}
+	}
+	return false
+}

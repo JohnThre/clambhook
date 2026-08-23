@@ -73,6 +73,19 @@ class DashboardViewModel(
 
     suspend fun developerHar(): String = repository.developerHar()
 
+    // Server-side capture flow-list filter (method/status/host/scheme/content-type/
+    // free-text/errors). Sets the filter and reloads the capture list with it.
+    fun applyDeveloperEntriesFilter(filter: DeveloperEntriesFilter) {
+        viewModelScope.launch {
+            repository.setDeveloperEntriesFilter(filter)
+            repository.refreshStatus()
+        }
+    }
+
+    suspend fun copyEntryCurl(id: String): String = repository.developerEntryCurl(id)
+    suspend fun importCurl(text: String): ParsedCurlResponse = repository.importCurl(text)
+    suspend fun sendComposed(request: ComposedRequestPayload): DeveloperEntryPayload = repository.sendComposed(request)
+
     fun loadConditioner() {
         viewModelScope.launch { repository.loadConditioner() }
     }
@@ -80,6 +93,16 @@ class DashboardViewModel(
     fun updateConditioner(request: ConditionerUpdateRequest) {
         viewModelScope.launch { repository.updateConditioner(request) }
     }
+
+    fun loadPendingPrompts() { viewModelScope.launch { repository.loadPendingPrompts() } }
+    fun resolvePrompt(id: String, action: String, scope: String, matchHost: Boolean, matchPort: Boolean, matchProtocol: Boolean) {
+        viewModelScope.launch { repository.resolvePrompt(id, action, scope, matchHost, matchPort, matchProtocol) }
+    }
+    fun loadSilentDecisions() { viewModelScope.launch { repository.loadSilentDecisions() } }
+    fun promoteSilentDecision(id: String, scope: String, matchHost: Boolean, matchPort: Boolean, matchProtocol: Boolean) {
+        viewModelScope.launch { repository.promoteSilentDecision(id, scope, matchHost, matchPort, matchProtocol) }
+    }
+    fun loadTraffic(filter: TrafficMonitorFilter) { viewModelScope.launch { repository.loadTraffic(filter) } }
 
     fun startPolling(intervalSeconds: Int) {
         pollingJob?.cancel()

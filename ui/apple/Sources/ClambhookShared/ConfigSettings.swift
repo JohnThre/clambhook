@@ -22,11 +22,57 @@ public struct ConfigNetworkTriggerPayload: Codable, Equatable, Sendable, Identif
     }
 }
 
+public struct ConfigSettingsPromptPayload: Codable, Equatable, Sendable {
+    public var enabled: Bool
+    public var timeoutSeconds: Int
+    public var defaultAllow: Bool
+    public var silentMode: String
+    enum CodingKeys: String, CodingKey {
+        case enabled
+        case timeoutSeconds = "timeout_seconds"
+        case defaultAllow = "default_allow"
+        case silentMode = "silent_mode"
+    }
+    public init(enabled: Bool = false, timeoutSeconds: Int = 0, defaultAllow: Bool = false, silentMode: String = "") {
+        self.enabled = enabled
+        self.timeoutSeconds = timeoutSeconds
+        self.defaultAllow = defaultAllow
+        self.silentMode = silentMode
+    }
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        enabled = try c.decodeIfPresent(Bool.self, forKey: .enabled) ?? false
+        timeoutSeconds = try c.decodeIfPresent(Int.self, forKey: .timeoutSeconds) ?? 0
+        defaultAllow = try c.decodeIfPresent(Bool.self, forKey: .defaultAllow) ?? false
+        silentMode = try c.decodeIfPresent(String.self, forKey: .silentMode) ?? ""
+    }
+}
+
+public struct ConfigSettingsPromptUpdatePayload: Codable, Equatable, Sendable {
+    public var enabled: Bool?
+    public var timeoutSeconds: Int?
+    public var defaultAllow: Bool?
+    public var silentMode: String?
+    enum CodingKeys: String, CodingKey {
+        case enabled
+        case timeoutSeconds = "timeout_seconds"
+        case defaultAllow = "default_allow"
+        case silentMode = "silent_mode"
+    }
+    public init(enabled: Bool? = nil, timeoutSeconds: Int? = nil, defaultAllow: Bool? = nil, silentMode: String? = nil) {
+        self.enabled = enabled
+        self.timeoutSeconds = timeoutSeconds
+        self.defaultAllow = defaultAllow
+        self.silentMode = silentMode
+    }
+}
+
 public struct ConfigSettingsPayload: Codable, Equatable, Sendable {
     public var profile: String
     public var listen: ConfigListenSettingsPayload
     public var dns: ConfigDNSSettingsPayload
     public var networkTriggers: [ConfigNetworkTriggerPayload]
+    public var prompt: ConfigSettingsPromptPayload
     public var backupPath: String
 
     enum CodingKeys: String, CodingKey {
@@ -34,6 +80,7 @@ public struct ConfigSettingsPayload: Codable, Equatable, Sendable {
         case listen
         case dns
         case networkTriggers = "network_triggers"
+        case prompt
         case backupPath = "backup_path"
     }
 
@@ -42,12 +89,14 @@ public struct ConfigSettingsPayload: Codable, Equatable, Sendable {
         listen: ConfigListenSettingsPayload = ConfigListenSettingsPayload(),
         dns: ConfigDNSSettingsPayload = ConfigDNSSettingsPayload(),
         networkTriggers: [ConfigNetworkTriggerPayload] = [],
+        prompt: ConfigSettingsPromptPayload = ConfigSettingsPromptPayload(),
         backupPath: String = ""
     ) {
         self.profile = profile
         self.listen = listen
         self.dns = dns
         self.networkTriggers = networkTriggers
+        self.prompt = prompt
         self.backupPath = backupPath
     }
 
@@ -57,6 +106,7 @@ public struct ConfigSettingsPayload: Codable, Equatable, Sendable {
         self.listen = try container.decodeIfPresent(ConfigListenSettingsPayload.self, forKey: .listen) ?? ConfigListenSettingsPayload()
         self.dns = try container.decodeIfPresent(ConfigDNSSettingsPayload.self, forKey: .dns) ?? ConfigDNSSettingsPayload()
         self.networkTriggers = try container.decodeIfPresent([ConfigNetworkTriggerPayload].self, forKey: .networkTriggers) ?? []
+        self.prompt = try container.decodeIfPresent(ConfigSettingsPromptPayload.self, forKey: .prompt) ?? ConfigSettingsPromptPayload()
         self.backupPath = try container.decodeIfPresent(String.self, forKey: .backupPath) ?? ""
     }
 }
@@ -209,24 +259,28 @@ public struct ConfigSettingsUpdateRequest: Codable, Equatable, Sendable {
     public var listen: ConfigListenSettingsUpdatePayload?
     public var dns: ConfigDNSSettingsPayload?
     public var networkTriggers: [ConfigNetworkTriggerPayload]?
+    public var prompt: ConfigSettingsPromptUpdatePayload?
 
     enum CodingKeys: String, CodingKey {
         case profile
         case listen
         case dns
         case networkTriggers = "network_triggers"
+        case prompt
     }
 
     public init(
         profile: String = "",
         listen: ConfigListenSettingsUpdatePayload? = nil,
         dns: ConfigDNSSettingsPayload? = nil,
-        networkTriggers: [ConfigNetworkTriggerPayload]? = nil
+        networkTriggers: [ConfigNetworkTriggerPayload]? = nil,
+        prompt: ConfigSettingsPromptUpdatePayload? = nil
     ) {
         self.profile = profile
         self.listen = listen
         self.dns = dns
         self.networkTriggers = networkTriggers
+        self.prompt = prompt
     }
 }
 
