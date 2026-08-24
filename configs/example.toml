@@ -178,6 +178,21 @@ name = "local"
   #       # Other supported AEAD-2018 methods: aes-256-gcm and
   #       # chacha20-ietf-poly1305. Legacy stream ciphers are rejected.
 
+  # Example Tor hop. Run Tor separately and point this server at its SOCKS5
+  # port. Optional credentials are circuit-isolation tokens, not account auth.
+  # Tor is TCP-only and keeps domain/.onion resolution inside Tor.
+  #   [[profile.chain]]
+  #   name = "tor-example"
+  #
+  #     [[profile.chain.server]]
+  #     name = "local-tor"
+  #     address = "127.0.0.1:9050"
+  #     protocol = "tor"
+  #
+  #       [profile.chain.server.settings]
+  #       isolation_user = "clambhook-profile"
+  #       isolation_pass = "replace-with-circuit-token"
+
   [[profile.policy_group]]
   name = "auto"
   type = "url-test"

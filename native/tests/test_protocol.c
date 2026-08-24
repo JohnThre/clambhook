@@ -54,6 +54,18 @@ typedef struct protocol_ss_relay {
     uint8_t nonce[12];
 } protocol_ss_relay;
 
+typedef struct protocol_tor_server {
+    int descriptor;
+    uint16_t port;
+    pthread_t thread;
+    int require_auth;
+    const char *expected_user;
+    const char *expected_password;
+    const char *expected_host;
+    uint16_t expected_port;
+    int success;
+} protocol_tor_server;
+
 static int protocol_test_send_all(int descriptor, const void *bytes,
                                   size_t length) {
     const uint8_t *cursor = bytes;
@@ -493,6 +505,264 @@ static void protocol_test_ss_server_stop(protocol_ss_server *server) {
     if (server->descriptor >= 0) (void)close(server->descriptor);
 }
 
+static void *protocol_test_tor_server_main(void *opaque) {
+    protocol_tor_server *server = opaque;
+    int client;
+    do {
+        client = accept(server->descriptor, NULL, NULL);
+    } while (client < 0 && errno == EINTR);
+    if (client < 0) return NULL;
+    uint8_t greeting[2];
+    int healthy = protocol_test_receive_exact(client, greeting,
+                                               sizeof(greeting)) &&
+                  greeting[0] == 0x05U && greeting[1] > 0U;
+    uint8_t methods[255];
+    if (healthy) {
+        healthy = protocol_test_receive_exact(client, methods, greeting[1]);
+    }
+    uint8_t selected = server->require_auth ? 0x02U : 0x00U;
+    int offered = 0;
+    for (size_t index = 0U; healthy && index < (size_t)greeting[1]; ++index) {
+        if (methods[index] == selected) offered = 1;
+    }
+    uint8_t method_reply[2] = {0x05U, offered ? selected : 0xffU};
+    healthy = healthy && protocol_test_send_all(client, method_reply,
+                                                 sizeof(method_reply)) &&
+              offered;
+    if (healthy && server->require_auth) {
+        uint8_t auth_header[2];
+        healthy = protocol_test_receive_exact(client, auth_header,
+                                               sizeof(auth_header)) &&
+                  auth_header[0] == 0x01U;
+        uint8_t user[255];
+        if (healthy) {
+            healthy = protocol_test_receive_exact(client, user,
+                                                   auth_header[1]);
+        }
+        uint8_t password_length = 0U;
+        uint8_t password[255];
+        if (healthy) {
+            healthy = protocol_test_receive_exact(client, &password_length,
+                                                   1U) &&
+                protocol_test_receive_exact(client, password,
+                                             password_length) &&
+                strlen(server->expected_user) == (size_t)auth_header[1] &&
+                memcmp(user, server->expected_user, auth_header[1]) == 0 &&
+                strlen(server->expected_password) ==
+                    (size_t)password_length &&
+                memcmp(password, server->expected_password,
+                       password_length) == 0;
+        }
+        uint8_t auth_reply[2] = {0x01U, healthy ? 0x00U : 0x01U};
+        healthy = protocol_test_send_all(client, auth_reply,
+                                         sizeof(auth_reply)) && healthy;
+    }
+    uint8_t request[4];
+    if (healthy) {
+        healthy = protocol_test_receive_exact(client, request,
+                                               sizeof(request)) &&
+                  request[0] == 0x05U && request[1] == 0x01U &&
+                  request[2] == 0x00U;
+    }
+    char host[256];
+    memset(host, 0, sizeof(host));
+    if (healthy && request[3] == CH_SOCKS_ATYP_IPV4) {
+        uint8_t address[4];
+        healthy = protocol_test_receive_exact(client, address,
+                                               sizeof(address));
+        if (healthy) {
+            (void)snprintf(host, sizeof(host), "%u.%u.%u.%u",
+                           (unsigned int)address[0],
+                           (unsigned int)address[1],
+                           (unsigned int)address[2],
+                           (unsigned int)address[3]);
+        }
+    } else if (healthy && request[3] == CH_SOCKS_ATYP_DOMAIN) {
+        uint8_t length = 0U;
+        healthy = protocol_test_receive_exact(client, &length, 1U) &&
+                  length > 0U &&
+                  protocol_test_receive_exact(client, host, length);
+        host[length] = '\0';
+    } else if (healthy) {
+        healthy = 0;
+    }
+    uint8_t port_bytes[2];
+    if (healthy) {
+        healthy = protocol_test_receive_exact(client, port_bytes,
+                                               sizeof(port_bytes));
+    }
+    uint16_t port = healthy ?
+        (uint16_t)(((uint16_t)port_bytes[0] << 8U) | port_bytes[1]) : 0U;
+    healthy = healthy && strcmp(host, server->expected_host) == 0 &&
+              port == server->expected_port;
+    uint8_t connect_reply[10] = {
+        0x05U, healthy ? 0x00U : 0x01U, 0x00U, CH_SOCKS_ATYP_IPV4,
+        0U, 0U, 0U, 0U, 0U, 0U
+    };
+    healthy = protocol_test_send_all(client, connect_reply,
+                                     sizeof(connect_reply)) && healthy;
+    if (healthy) {
+        uint8_t payload[128];
+        ssize_t received = recv(client, payload, sizeof(payload), 0);
+        healthy = received > 0 && protocol_test_send_all(
+            client, payload, (size_t)received);
+    }
+    server->success = healthy;
+    (void)shutdown(client, SHUT_RDWR);
+    (void)close(client);
+    return NULL;
+}
+
+static int protocol_test_tor_server_start(protocol_tor_server *server,
+                                          int require_auth,
+                                          const char *expected_host,
+                                          uint16_t expected_port) {
+    memset(server, 0, sizeof(*server));
+    server->descriptor = -1;
+    server->require_auth = require_auth;
+    server->expected_user = "circuit";
+    server->expected_password = "profile-1";
+    server->expected_host = expected_host;
+    server->expected_port = expected_port;
+    server->descriptor = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    if (server->descriptor < 0) return 0;
+    struct sockaddr_in address = {
+        .sin_family = AF_INET,
+        .sin_port = 0,
+        .sin_addr = {.s_addr = htonl(INADDR_LOOPBACK)}
+    };
+    if (bind(server->descriptor, (struct sockaddr *)&address,
+             (socklen_t)sizeof(address)) != 0 ||
+        listen(server->descriptor, 1) != 0) return 0;
+    socklen_t length = (socklen_t)sizeof(address);
+    if (getsockname(server->descriptor, (struct sockaddr *)&address,
+                    &length) != 0) return 0;
+    server->port = ntohs(address.sin_port);
+    return pthread_create(&server->thread, NULL,
+                          protocol_test_tor_server_main, server) == 0;
+}
+
+static void protocol_test_tor_server_stop(protocol_tor_server *server) {
+    (void)pthread_join(server->thread, NULL);
+    if (server->descriptor >= 0) (void)close(server->descriptor);
+}
+
+static void protocol_test_tor_streams(void) {
+    static const char onion[] =
+        "duckduckgogg42xjoc72x3sjasowoarfbgcmvfimaftt6twagswzczad.onion";
+    for (int authenticated = 0; authenticated <= 1; ++authenticated) {
+        const char *host = authenticated ? onion : "example.com";
+        uint16_t target_port = authenticated ? 80U : 443U;
+        protocol_tor_server server;
+        CH_TEST_ASSERT(protocol_test_tor_server_start(
+            &server, authenticated, host, target_port));
+        char document[1200];
+        (void)snprintf(
+            document, sizeof(document),
+            "active = \"local\"\n"
+            "[[profile]]\nname = \"local\"\n"
+            "[[profile.chain]]\nname = \"tor\"\n"
+            "[[profile.chain.server]]\n"
+            "address = \"127.0.0.1:%u\"\n"
+            "protocol = \"tor\"\n"
+            "%s",
+            (unsigned int)server.port,
+            authenticated ?
+                "[profile.chain.server.settings]\n"
+                "isolation_user = \"circuit\"\n"
+                "isolation_pass = \"profile-1\"\n" : "");
+        ch_error error;
+        ch_config *config = NULL;
+        CH_TEST_ASSERT(ch_config_parse(document, NULL, &config,
+                                       &error) == CH_OK);
+        const ch_config_table *profile = ch_config_active_profile(config);
+        const ch_config_array *chains = ch_config_table_get_array(profile,
+                                                                  "chain");
+        const ch_config_table *chain = ch_config_array_get_table(chains, 0U);
+        char target[320];
+        (void)snprintf(target, sizeof(target), "%s:%u", host,
+                       (unsigned int)target_port);
+        int stream = -1;
+        CH_TEST_ASSERT(ch_protocol_chain_dial(chain, "tcp", target, &stream,
+                                              &error) == CH_OK);
+        static const char payload[] = "native-tor-socks5-echo";
+        char echoed[sizeof(payload)];
+        CH_TEST_ASSERT(protocol_test_send_all(stream, payload,
+                                              sizeof(payload)));
+        CH_TEST_ASSERT(protocol_test_receive_exact(stream, echoed,
+                                                   sizeof(echoed)));
+        CH_TEST_ASSERT(memcmp(payload, echoed, sizeof(payload)) == 0);
+        (void)shutdown(stream, SHUT_RDWR);
+        (void)close(stream);
+        protocol_test_tor_server_stop(&server);
+        CH_TEST_ASSERT(server.success == 1);
+        ch_config_free(config);
+    }
+}
+
+static void protocol_test_tor_after_trojan(void) {
+    static const char onion[] =
+        "duckduckgogg42xjoc72x3sjasowoarfbgcmvfimaftt6twagswzczad.onion";
+    protocol_tor_server tor;
+    CH_TEST_ASSERT(protocol_test_tor_server_start(&tor, 1, onion, 80U));
+    char tor_address[64];
+    (void)snprintf(tor_address, sizeof(tor_address), "127.0.0.1:%u",
+                   (unsigned int)tor.port);
+    ch_error error;
+    uint8_t *outer_header = NULL;
+    size_t outer_header_length = 0U;
+    CH_TEST_ASSERT(ch_protocol_trojan_header(
+        "outer-secret", tor_address, &outer_header, &outer_header_length,
+        &error) == CH_OK);
+    protocol_tls_server outer;
+    CH_TEST_ASSERT(protocol_test_tls_server_start(
+        &outer, outer_header, outer_header_length, tor.port));
+    char document[1600];
+    (void)snprintf(
+        document, sizeof(document),
+        "active = \"local\"\n"
+        "[[profile]]\nname = \"local\"\n"
+        "[[profile.chain]]\nname = \"trojan-tor\"\n"
+        "[[profile.chain.server]]\n"
+        "address = \"127.0.0.1:%u\"\n"
+        "protocol = \"trojan\"\n"
+        "[profile.chain.server.settings]\n"
+        "password = \"outer-secret\"\n"
+        "sni = \"localhost\"\n"
+        "skip_cert_verify = true\n"
+        "[[profile.chain.server]]\n"
+        "address = \"127.0.0.1:%u\"\n"
+        "protocol = \"tor\"\n"
+        "[profile.chain.server.settings]\n"
+        "isolation_user = \"circuit\"\n"
+        "isolation_pass = \"profile-1\"\n",
+        (unsigned int)outer.port, (unsigned int)tor.port);
+    ch_config *config = NULL;
+    CH_TEST_ASSERT(ch_config_parse(document, NULL, &config, &error) == CH_OK);
+    const ch_config_table *profile = ch_config_active_profile(config);
+    const ch_config_array *chains = ch_config_table_get_array(profile, "chain");
+    const ch_config_table *chain = ch_config_array_get_table(chains, 0U);
+    char target[320];
+    (void)snprintf(target, sizeof(target), "%s:80", onion);
+    int stream = -1;
+    CH_TEST_ASSERT(ch_protocol_chain_dial(chain, "tcp", target, &stream,
+                                          &error) == CH_OK);
+    static const char payload[] = "trojan-to-tor-echo";
+    char echoed[sizeof(payload)];
+    CH_TEST_ASSERT(protocol_test_send_all(stream, payload, sizeof(payload)));
+    CH_TEST_ASSERT(protocol_test_receive_exact(stream, echoed,
+                                               sizeof(echoed)));
+    CH_TEST_ASSERT(memcmp(payload, echoed, sizeof(payload)) == 0);
+    (void)shutdown(stream, SHUT_RDWR);
+    (void)close(stream);
+    protocol_test_tor_server_stop(&tor);
+    protocol_test_tls_server_stop(&outer);
+    CH_TEST_ASSERT(tor.success == 1);
+    CH_TEST_ASSERT(outer.success == 1);
+    ch_config_free(config);
+    free(outer_header);
+}
+
 static void protocol_test_shadowsocks_kdf(void) {
     ch_error error;
     uint8_t master[16];
@@ -819,4 +1089,6 @@ void ch_test_protocol(void) {
     protocol_test_shadowsocks_frames();
     protocol_test_shadowsocks_streams();
     protocol_test_shadowsocks_chain();
+    protocol_test_tor_streams();
+    protocol_test_tor_after_trojan();
 }
