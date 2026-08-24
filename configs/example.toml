@@ -131,6 +131,23 @@ name = "local"
   #       tls = true
   #       sni = "vmess.example.invalid"
 
+  # Example Trojan server. The native migration runtime currently supports
+  # TCP Trojan and wire-compatible clambback hops, including nesting them in
+  # one chain. Certificate verification is enabled unless explicitly skipped.
+  #   [[profile.chain]]
+  #   name = "trojan-example"
+  #
+  #     [[profile.chain.server]]
+  #     name = "trojan-node"
+  #     address = "trojan.example.invalid:443"
+  #     protocol = "trojan" # or "clambback"
+  #
+  #       [profile.chain.server.settings]
+  #       password = "replace-with-shared-secret"
+  #       sni = "trojan.example.invalid"
+  #       # alpn = ["h2", "http/1.1"]
+  #       # skip_cert_verify = false
+
   # Example ShadowTLS (v3) chain. ShadowTLS is a transport-obfuscation layer,
   # not an addressed proxy: it performs a genuine TLS 1.3 handshake to a real
   # handshake server (given by sni) and carries an inner protocol on top. Use it

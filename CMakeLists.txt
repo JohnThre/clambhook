@@ -46,6 +46,7 @@ add_library(clambhook_core STATIC
   native/src/license_http.c
   native/src/license_json.c
   native/src/listener.c
+  native/src/protocol.c
   native/src/rules.c
   native/src/rules_config.c
   native/src/runtime.c
@@ -143,6 +144,7 @@ if(CLAMBHOOK_BUILD_TESTS)
     native/tests/test_json.c
     native/tests/test_license.c
     native/tests/test_listener.c
+    native/tests/test_protocol.c
     native/tests/test_rules.c
     native/tests/test_runtime.c
     native/tests/test_runtime_listener.c

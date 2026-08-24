@@ -1,24 +1,18 @@
 #include "internal.h"
 
-#include <errno.h>
-#include <fcntl.h>
 #include <limits.h>
-#include <netdb.h>
-#include <poll.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
-#include <sys/socket.h>
-#include <unistd.h>
 
 #include "clambhook/config.h"
 #include "clambhook/listener.h"
+#include "clambhook/protocol.h"
 #include "clambhook/rules.h"
 
 #define CH_RUNTIME_LISTENER_LIMIT 2U
 #define CH_RUNTIME_DEFAULT_MAX_CONNECTIONS 512U
-#define CH_RUNTIME_DIAL_TIMEOUT_MS 30000
 
 typedef struct ch_runtime_listener_entry {
     const ch_config *config;
@@ -57,122 +51,6 @@ static const ch_config_table *runtime_find_named(const ch_config_array *array,
         if (matches) return table;
     }
     return NULL;
-}
-
-static ch_status runtime_split_target(const char *target, char **out_host,
-                                      char **out_service, ch_error *error) {
-    *out_host = NULL;
-    *out_service = NULL;
-    if (target == NULL || target[0] == '\0') {
-        ch_error_set(error, CH_ERROR_INVALID_ARGUMENT, "dial target is required");
-        return CH_ERROR_INVALID_ARGUMENT;
-    }
-    const char *host_start = target;
-    const char *host_end;
-    const char *service_start;
-    if (target[0] == '[') {
-        host_start = target + 1;
-        host_end = strchr(host_start, ']');
-        if (host_end == NULL || host_end[1] != ':' || host_end[2] == '\0') {
-            ch_error_set(error, CH_ERROR_INVALID_ARGUMENT, "invalid bracketed dial target");
-            return CH_ERROR_INVALID_ARGUMENT;
-        }
-        service_start = host_end + 2;
-    } else {
-        const char *separator = strrchr(target, ':');
-        if (separator == NULL || separator == target || separator[1] == '\0' ||
-            strchr(target, ':') != separator) {
-            ch_error_set(error, CH_ERROR_INVALID_ARGUMENT, "dial target must be host:port");
-            return CH_ERROR_INVALID_ARGUMENT;
-        }
-        host_end = separator;
-        service_start = separator + 1;
-    }
-    size_t host_length = (size_t)(host_end - host_start);
-    *out_host = malloc(host_length + 1U);
-    *out_service = ch_strdup(service_start);
-    if (*out_host == NULL || *out_service == NULL) {
-        free(*out_host);
-        free(*out_service);
-        *out_host = NULL;
-        *out_service = NULL;
-        ch_error_set(error, CH_ERROR_OUT_OF_MEMORY, "copy dial target");
-        return CH_ERROR_OUT_OF_MEMORY;
-    }
-    memcpy(*out_host, host_start, host_length);
-    (*out_host)[host_length] = '\0';
-    return CH_OK;
-}
-
-static int runtime_connect_target(const char *target, ch_error *error) {
-    char *host = NULL;
-    char *service = NULL;
-    if (runtime_split_target(target, &host, &service, error) != CH_OK) return -1;
-    struct addrinfo hints;
-    memset(&hints, 0, sizeof(hints));
-    hints.ai_family = AF_UNSPEC;
-    hints.ai_socktype = SOCK_STREAM;
-    hints.ai_protocol = IPPROTO_TCP;
-    struct addrinfo *addresses = NULL;
-    int lookup = getaddrinfo(host, service, &hints, &addresses);
-    free(host);
-    free(service);
-    if (lookup != 0) {
-        ch_error_set(error, CH_ERROR_IO, "resolve dial target: %s", gai_strerror(lookup));
-        return -1;
-    }
-    int descriptor = -1;
-    int saved_error = EHOSTUNREACH;
-    for (const struct addrinfo *candidate = addresses; candidate != NULL;
-         candidate = candidate->ai_next) {
-        descriptor = socket(candidate->ai_family, candidate->ai_socktype,
-                            candidate->ai_protocol);
-        if (descriptor < 0) {
-            saved_error = errno;
-            continue;
-        }
-        int flags = fcntl(descriptor, F_GETFL, 0);
-        if (flags < 0 || fcntl(descriptor, F_SETFL, flags | O_NONBLOCK) != 0) {
-            saved_error = errno;
-            (void)close(descriptor);
-            descriptor = -1;
-            continue;
-        }
-        int connected = connect(descriptor, candidate->ai_addr,
-                                candidate->ai_addrlen) == 0;
-        if (!connected && errno == EINPROGRESS) {
-            struct pollfd wait = {.fd = descriptor, .events = POLLOUT};
-            int ready;
-            do {
-                ready = poll(&wait, 1U, CH_RUNTIME_DIAL_TIMEOUT_MS);
-            } while (ready < 0 && errno == EINTR);
-            if (ready > 0) {
-                int socket_error = 0;
-                socklen_t socket_error_length = (socklen_t)sizeof(socket_error);
-                if (getsockopt(descriptor, SOL_SOCKET, SO_ERROR, &socket_error,
-                               &socket_error_length) == 0 && socket_error == 0) {
-                    connected = 1;
-                } else {
-                    saved_error = socket_error == 0 ? errno : socket_error;
-                }
-            } else {
-                saved_error = ready == 0 ? ETIMEDOUT : errno;
-            }
-        } else if (!connected) {
-            saved_error = errno;
-        }
-        if (connected) {
-            (void)fcntl(descriptor, F_SETFL, flags);
-            break;
-        }
-        (void)close(descriptor);
-        descriptor = -1;
-    }
-    freeaddrinfo(addresses);
-    if (descriptor < 0) {
-        ch_error_set(error, CH_ERROR_IO, "dial %s: %s", target, strerror(saved_error));
-    }
-    return descriptor;
 }
 
 static char *runtime_select_group_chain(const ch_runtime_listener_entry *entry,
@@ -226,27 +104,7 @@ static ch_status runtime_dial_chain(const ch_runtime_listener_entry *entry,
         ch_error_set(error, CH_ERROR_NOT_FOUND, "chain %s not found", chain_name);
         return CH_ERROR_NOT_FOUND;
     }
-    const ch_config_array *servers = ch_config_table_get_array(chain, "server");
-    if (ch_config_array_count(servers) != 1U) {
-        ch_error_set(error, CH_ERROR_UNSUPPORTED,
-                     "native chain %s requires an unported multi-hop protocol", chain_name);
-        return CH_ERROR_UNSUPPORTED;
-    }
-    const ch_config_table *server = ch_config_array_get_table(servers, 0U);
-    char *protocol = runtime_optional_string(server, "protocol");
-    if (protocol == NULL) {
-        ch_error_set(error, CH_ERROR_OUT_OF_MEMORY, "copy chain protocol");
-        return CH_ERROR_OUT_OF_MEMORY;
-    }
-    int direct = strcasecmp(protocol, "direct") == 0;
-    free(protocol);
-    if (!direct) {
-        ch_error_set(error, CH_ERROR_UNSUPPORTED,
-                     "native chain %s protocol is not ported yet", chain_name);
-        return CH_ERROR_UNSUPPORTED;
-    }
-    *out_descriptor = runtime_connect_target(target, error);
-    return *out_descriptor < 0 ? error->code : CH_OK;
+    return ch_protocol_chain_dial(chain, "tcp", target, out_descriptor, error);
 }
 
 static ch_status runtime_listener_dial(const char *network, const char *target,
@@ -269,8 +127,7 @@ static ch_status runtime_listener_dial(const char *network, const char *target,
     } else if (strcmp(decision.action, CH_RULE_ACTION_REJECT) == 0) {
         route->action = CH_PROXY_ROUTE_REJECT;
     } else if (strcmp(decision.action, CH_RULE_ACTION_DIRECT) == 0) {
-        *out_descriptor = runtime_connect_target(target, error);
-        status = *out_descriptor < 0 ? error->code : CH_OK;
+        status = ch_protocol_connect_tcp(target, out_descriptor, error);
     } else {
         char *selected_group_chain = NULL;
         const char *chain_name = decision.is_default ? entry->default_chain :

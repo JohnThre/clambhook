@@ -10,6 +10,7 @@ int main(void) {
     ch_test_events();
     ch_test_license();
     ch_test_listener();
+    ch_test_protocol();
     ch_test_rules();
     ch_test_runtime();
     ch_test_runtime_listener();

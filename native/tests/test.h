@@ -32,6 +32,7 @@ void ch_test_crypto(void);
 void ch_test_events(void);
 void ch_test_license(void);
 void ch_test_listener(void);
+void ch_test_protocol(void);
 void ch_test_rules(void);
 void ch_test_runtime(void);
 void ch_test_runtime_listener(void);
