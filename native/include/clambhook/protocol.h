@@ -31,6 +31,7 @@ ch_status ch_protocol_chain_dial(const ch_config_table *chain,
  * allocated source string that must be released with free().
  */
 ch_status ch_protocol_chain_dial_packet(const ch_config_table *chain,
+                                        const char *initial_target,
                                         ch_packet_connection **out_connection,
                                         ch_error *error);
 ch_status ch_protocol_direct_packet_dial(

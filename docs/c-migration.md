@@ -45,8 +45,10 @@ The additive CMake build currently provides:
   deterministic relay shutdown. Its native chain dialer supports direct TCP,
   Trojan/clambback, Shadowsocks AEAD-2018, Tor SOCKS5, and VMESS-AEAD TCP
   streams, including nested encrypted hops. A protocol-neutral packet API now
-  supports direct UDP and single-hop Shadowsocks AEAD-2018 UDP, and the SOCKS5
-  listener implements `UDP ASSOCIATE` with asynchronous route-keyed sessions;
+  supports direct UDP, Shadowsocks AEAD-2018 UDP, Trojan/clambback UDP, and
+  VMESS-AEAD UDP. Stream-carrier chains may end in Trojan/clambback or VMESS
+  packet mode, and the SOCKS5 listener implements `UDP ASSOCIATE` with
+  asynchronous route-keyed sessions;
 - `clambhook_crypto`: the existing C crypto surface, now covering AES-128-GCM,
   AES-256-GCM, ChaCha20-Poly1305, SHA-224, and random bytes through C
   dependencies;
@@ -94,10 +96,18 @@ tested both directly and after a Trojan hop.
 The native VMESS row supports the modern AEAD header (`alter_id = 0`) over raw
 TCP or TLS, AES-128-GCM and ChaCha20-Poly1305 body streams, certificate/SNI/ALPN
 settings through the shared TLS transport, remote target encoding, authenticated
-responses, and fail-closed 16-bit nonce exhaustion. Fixed Go-derived KDF/address
-fixtures and local fake-server transcripts validate both cipher methods under
-ASan/UBSan. Legacy VMESS authentication and non-TCP transports remain out of
-scope, matching the existing documented compatibility boundary.
+responses, and fail-closed 16-bit nonce exhaustion. UDP command mode preserves
+datagram boundaries over a portable Unix datagram socketpair and fixes the
+remote target at session setup, matching the legacy VMESS packet contract.
+Fixed Go-derived KDF/address fixtures and local fake-server TCP, UDP, and nested
+carrier transcripts validate both cipher methods under ASan/UBSan. Legacy VMESS
+authentication and non-TCP outer transports remain out of scope.
+
+Trojan and wire-compatible clambback packet mode send the UDP-associate command
+inside the existing TLS handshake and parse their address + length + CRLF
+stream frames incrementally across partial reads. The same packet endpoint can
+be placed after native direct, encrypted, Tor, VMESS, or ShadowTLS carrier hops;
+local single-hop and nested Trojan-to-clambback transcripts are green.
 
 The native ShadowTLS row implements strict v3 as a non-final carrier hop. It
 uses a CSPRNG-seeded deterministic replay stream inside a private OpenSSL 3
@@ -114,9 +124,9 @@ The SOCKS5 UDP relay binds to the control connection's local interface, pins
 the first client endpoint (and any explicitly requested port), rejects
 fragmentation, re-evaluates routing for each datagram, reuses one asynchronous
 packet session per selected route, and ties teardown to the TCP control
-connection. WireGuard, OpenVPN, remaining protocol UDP modes (including VMESS
-UDP), TUN, DNS, prompts, traffic persistence, and developer inspection remain
-cutover blockers; multi-hop and unsupported packet chains fail closed.
+connection. WireGuard, OpenVPN, TUN, DNS, prompts, traffic persistence, and
+developer inspection remain cutover blockers; datagram protocols that cannot
+be represented by the native stream-carrier model fail closed.
 
 ## Build and test
 
@@ -168,9 +178,9 @@ Cutover is allowed only after all of the following are green:
 1. C unit tests pass under AddressSanitizer and UndefinedBehaviorSanitizer.
 2. Differential fixtures match the legacy implementation for config, rules,
    API JSON/status codes, events, license behavior, and each protocol wire
-   transcript. Trojan/clambback, Shadowsocks TCP/UDP, direct UDP, Tor
-   SOCKS5/nested-stream, VMESS-AEAD TCP, and ShadowTLS v3 fixtures are green;
-   the remaining protocol rows are still open.
+   transcript. Trojan/clambback TCP/UDP, Shadowsocks TCP/UDP, direct UDP, Tor
+   SOCKS5/nested-stream, VMESS-AEAD TCP/UDP, nested packet carriers, and
+   ShadowTLS v3 fixtures are green; WireGuard/OpenVPN rows are still open.
 3. Listener and protocol integration tests cover TCP, direct/Shadowsocks UDP,
    SOCKS5 UDP association reuse and cancellation, reload rollback, concurrency
    limits, remaining protocol UDP rows, and TUN lifecycle.

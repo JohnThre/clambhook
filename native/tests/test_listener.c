@@ -122,8 +122,8 @@ static ch_status listener_test_packet_dial(
     route->action = dial->action;
     *out_connection = NULL;
     if (dial->action != CH_PROXY_ROUTE_CONNECT) return CH_OK;
-    return ch_protocol_chain_dial_packet(dial->packet_chain, out_connection,
-                                         error);
+    return ch_protocol_chain_dial_packet(dial->packet_chain, target,
+                                         out_connection, error);
 }
 
 static void *listener_udp_echo_main(void *opaque) {

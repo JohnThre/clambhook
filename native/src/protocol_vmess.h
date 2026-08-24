@@ -54,5 +54,10 @@ ch_status ch_protocol_vmess_dial(const ch_config_table *server,
                                  const char *target,
                                  int *out_descriptor,
                                  ch_error *error);
+ch_status ch_protocol_vmess_packet_stream(const ch_config_table *server,
+                                          int underlying_descriptor,
+                                          const char *target,
+                                          int *out_descriptor,
+                                          ch_error *error);
 
 #endif

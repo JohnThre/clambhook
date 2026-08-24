@@ -17,4 +17,22 @@ ch_status ch_protocol_tls_wrap(const ch_config_table *settings,
                                int *out_descriptor,
                                ch_error *error);
 
+/* Opens a Trojan/clambback UDP-associate TLS stream. */
+ch_status ch_protocol_trojan_packet_stream(
+    const ch_config_table *server,
+    int underlying_descriptor,
+    int *out_descriptor,
+    ch_error *error);
+
+/* Dials every carrier hop, then opens Trojan/clambback UDP on the final hop. */
+ch_status ch_protocol_chain_trojan_packet_stream(
+    const ch_config_table *chain,
+    int *out_descriptor,
+    ch_error *error);
+ch_status ch_protocol_chain_vmess_packet_stream(
+    const ch_config_table *chain,
+    const char *target,
+    int *out_descriptor,
+    ch_error *error);
+
 #endif

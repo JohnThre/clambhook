@@ -654,6 +654,7 @@ static ch_status ch_vmess_new_session(ch_vmess_session *session,
 
 static ch_status ch_vmess_encode_header(const ch_vmess_config *config,
                                         ch_vmess_session *session,
+                                        uint8_t command,
                                         const char *target,
                                         uint8_t **out_header,
                                         size_t *out_header_length,
@@ -679,7 +680,7 @@ static ch_status ch_vmess_encode_header(const ch_vmess_config *config,
     body[offset++] = 0x01U;
     body[offset++] = (uint8_t)config->security;
     body[offset++] = 0x00U;
-    body[offset++] = 0x01U;
+    body[offset++] = command;
     memcpy(body + offset, address, address_length); offset += address_length;
     free(address);
     uint32_t checksum = ch_vmess_fnv1a(body, offset);
@@ -896,7 +897,7 @@ static ch_status ch_vmess_write_chunks(ch_vmess_pump *pump,
 
 static void *ch_vmess_outgoing_main(void *opaque) {
     ch_vmess_pump *pump = opaque;
-    uint8_t plaintext[32768];
+    uint8_t plaintext[65535];
     for (;;) {
         struct pollfd wait = {.fd = pump->local_descriptor, .events = POLLIN};
         int ready;
@@ -1038,11 +1039,14 @@ static ch_status ch_vmess_parse_config(const ch_config_table *server,
     return CH_OK;
 }
 
-ch_status ch_protocol_vmess_dial(const ch_config_table *server,
-                                 int underlying_descriptor,
-                                 const char *target,
-                                 int *out_descriptor,
-                                 ch_error *error) {
+static ch_status ch_protocol_vmess_dial_mode(
+    const ch_config_table *server,
+    int underlying_descriptor,
+    const char *target,
+    uint8_t command,
+    int local_socket_type,
+    int *out_descriptor,
+    ch_error *error) {
     ch_vmess_config config;
     ch_status status = ch_vmess_parse_config(server, &config, error);
     char *server_address = ch_vmess_optional_string(server, "address");
@@ -1087,7 +1091,7 @@ ch_status ch_protocol_vmess_dial(const ch_config_table *server,
     uint8_t *header = NULL;
     size_t header_length = 0U;
     if (status == CH_OK) status = ch_vmess_encode_header(
-        &config, &session, target, &header, &header_length, error);
+        &config, &session, command, target, &header, &header_length, error);
     if (status == CH_OK && !ch_vmess_send_all(
             underlying_descriptor, header, header_length)) {
         ch_error_set(error, CH_ERROR_IO,
@@ -1100,7 +1104,7 @@ ch_status ch_protocol_vmess_dial(const ch_config_table *server,
         return status;
     }
     int pair[2] = {-1, -1};
-    if (socketpair(AF_UNIX, SOCK_STREAM, 0, pair) != 0) {
+    if (socketpair(AF_UNIX, local_socket_type, 0, pair) != 0) {
         ch_vmess_close(&underlying_descriptor);
         ch_error_set(error, CH_ERROR_IO,
                      "create VMESS relay stream failed: %s", strerror(errno));
@@ -1137,4 +1141,24 @@ ch_status ch_protocol_vmess_dial(const ch_config_table *server,
     }
     *out_descriptor = pair[0];
     return CH_OK;
+}
+
+ch_status ch_protocol_vmess_dial(const ch_config_table *server,
+                                 int underlying_descriptor,
+                                 const char *target,
+                                 int *out_descriptor,
+                                 ch_error *error) {
+    return ch_protocol_vmess_dial_mode(
+        server, underlying_descriptor, target, 0x01U, SOCK_STREAM,
+        out_descriptor, error);
+}
+
+ch_status ch_protocol_vmess_packet_stream(const ch_config_table *server,
+                                          int underlying_descriptor,
+                                          const char *target,
+                                          int *out_descriptor,
+                                          ch_error *error) {
+    return ch_protocol_vmess_dial_mode(
+        server, underlying_descriptor, target, 0x02U, SOCK_DGRAM,
+        out_descriptor, error);
 }

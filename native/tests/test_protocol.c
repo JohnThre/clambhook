@@ -89,6 +89,7 @@ typedef struct protocol_vmess_server {
     uint16_t port;
     pthread_t thread;
     ch_vmess_security security;
+    uint8_t command;
     int success;
 } protocol_vmess_server;
 
@@ -1140,7 +1141,8 @@ static void *protocol_test_vmess_server_main(void *opaque) {
     uint8_t expected_security = (uint8_t)server->security;
     healthy = healthy && body[0] == 0x01U && body[34] == 0x01U &&
         body[35] == expected_security && body[36] == 0x00U &&
-        body[37] == 0x01U && body[38] == 0x01U && body[39] == 0xbbU &&
+        body[37] == server->command && body[38] == 0x01U &&
+        body[39] == 0xbbU &&
         body[40] == 0x02U && body[41] == 11U &&
         checksum_offset == 53U &&
         memcmp(body + 42U, "example.com", 11U) == 0 &&
@@ -1219,10 +1221,12 @@ static void *protocol_test_vmess_server_main(void *opaque) {
 }
 
 static int protocol_test_vmess_server_start(protocol_vmess_server *server,
-                                             ch_vmess_security security) {
+                                             ch_vmess_security security,
+                                             uint8_t command) {
     memset(server, 0, sizeof(*server));
     server->descriptor = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     server->security = security;
+    server->command = command;
     if (server->descriptor < 0) return 0;
     struct sockaddr_in address = {
         .sin_family = AF_INET,
@@ -1256,7 +1260,8 @@ static void protocol_test_vmess_streams(void) {
          ++index) {
         protocol_vmess_server server;
         CH_TEST_ASSERT(protocol_test_vmess_server_start(&server,
-                                                        methods[index]));
+                                                        methods[index],
+                                                        0x01U));
         char document[1400];
         (void)snprintf(
             document, sizeof(document),
@@ -1294,6 +1299,131 @@ static void protocol_test_vmess_streams(void) {
         CH_TEST_ASSERT(server.success == 1);
         ch_config_free(config);
     }
+}
+
+static void protocol_test_vmess_packets(void) {
+    static const ch_vmess_security methods[] = {
+        CH_VMESS_AES_128_GCM, CH_VMESS_CHACHA20_POLY1305
+    };
+    static const char *const names[] = {
+        "aes-128-gcm", "chacha20-poly1305"
+    };
+    static const uint8_t payload[] = "native-vmess-udp-datagram";
+    for (size_t index = 0U; index < sizeof(methods) / sizeof(methods[0]);
+         ++index) {
+        protocol_vmess_server server;
+        CH_TEST_ASSERT(protocol_test_vmess_server_start(
+            &server, methods[index], 0x02U));
+        char document[1400];
+        (void)snprintf(
+            document, sizeof(document),
+            "active = \"local\"\n"
+            "[[profile]]\nname = \"local\"\n"
+            "[[profile.chain]]\nname = \"vmess-udp\"\n"
+            "[[profile.chain.server]]\n"
+            "address = \"127.0.0.1:%u\"\nprotocol = \"vmess\"\n"
+            "[profile.chain.server.settings]\n"
+            "uuid = \"b831381d-6324-4d53-ad4f-8cda48b30811\"\n"
+            "alter_id = 0\nsecurity = \"%s\"\n",
+            (unsigned int)server.port, names[index]);
+        ch_error error;
+        ch_config *config = NULL;
+        CH_TEST_ASSERT(ch_config_parse(document, NULL, &config,
+                                       &error) == CH_OK);
+        const ch_config_table *profile = ch_config_active_profile(config);
+        const ch_config_array *chains = ch_config_table_get_array(profile,
+                                                                  "chain");
+        const ch_config_table *chain = ch_config_array_get_table(chains, 0U);
+        ch_packet_connection *packet = NULL;
+        ch_status packet_status = ch_protocol_chain_dial_packet(
+            chain, "example.com:443", &packet, &error);
+        if (packet_status != CH_OK) {
+            fprintf(stderr, "VMESS UDP dial: %s\n", error.message);
+        }
+        CH_TEST_ASSERT(packet_status == CH_OK);
+        CH_TEST_ASSERT(ch_packet_connection_send(
+            packet, "example.com:443", payload, sizeof(payload),
+            &error) == CH_OK);
+        CH_TEST_ASSERT(ch_packet_connection_send(
+            packet, "different.example:443", payload, sizeof(payload),
+            &error) == CH_ERROR_INVALID_ARGUMENT);
+        uint8_t response[128];
+        size_t response_length = 0U;
+        char *source = NULL;
+        CH_TEST_ASSERT(ch_packet_connection_receive_timeout(
+            packet, response, sizeof(response), &response_length, &source,
+            2000, &error) == CH_OK);
+        CH_TEST_ASSERT(strcmp(source, "example.com:443") == 0);
+        CH_TEST_ASSERT(response_length == sizeof(payload));
+        CH_TEST_ASSERT(memcmp(response, payload, sizeof(payload)) == 0);
+        free(source);
+        ch_packet_connection_close(packet);
+        protocol_test_vmess_server_stop(&server);
+        CH_TEST_ASSERT(server.success == 1);
+        ch_config_free(config);
+    }
+}
+
+static void protocol_test_vmess_packet_chain(void) {
+    protocol_vmess_server vmess;
+    CH_TEST_ASSERT(protocol_test_vmess_server_start(
+        &vmess, CH_VMESS_AES_128_GCM, 0x02U));
+    char vmess_address[64];
+    (void)snprintf(vmess_address, sizeof(vmess_address), "127.0.0.1:%u",
+                   (unsigned int)vmess.port);
+    ch_error error;
+    uint8_t *outer_header = NULL;
+    size_t outer_header_length = 0U;
+    CH_TEST_ASSERT(ch_protocol_trojan_header(
+        "vmess-carrier", vmess_address, &outer_header,
+        &outer_header_length, &error) == CH_OK);
+    protocol_tls_server outer;
+    CH_TEST_ASSERT(protocol_test_tls_server_start(
+        &outer, outer_header, outer_header_length, vmess.port));
+    char document[1600];
+    (void)snprintf(
+        document, sizeof(document),
+        "active = \"local\"\n"
+        "[[profile]]\nname = \"local\"\n"
+        "[[profile.chain]]\nname = \"nested-vmess-udp\"\n"
+        "[[profile.chain.server]]\n"
+        "address = \"127.0.0.1:%u\"\nprotocol = \"trojan\"\n"
+        "[profile.chain.server.settings]\n"
+        "password = \"vmess-carrier\"\nskip_cert_verify = true\n"
+        "[[profile.chain.server]]\n"
+        "address = \"127.0.0.1:%u\"\nprotocol = \"vmess\"\n"
+        "[profile.chain.server.settings]\n"
+        "uuid = \"b831381d-6324-4d53-ad4f-8cda48b30811\"\n"
+        "alter_id = 0\nsecurity = \"aes-128-gcm\"\n",
+        (unsigned int)outer.port, (unsigned int)vmess.port);
+    ch_config *config = NULL;
+    CH_TEST_ASSERT(ch_config_parse(document, NULL, &config, &error) == CH_OK);
+    const ch_config_table *profile = ch_config_active_profile(config);
+    const ch_config_array *chains = ch_config_table_get_array(profile, "chain");
+    const ch_config_table *chain = ch_config_array_get_table(chains, 0U);
+    ch_packet_connection *packet = NULL;
+    CH_TEST_ASSERT(ch_protocol_chain_dial_packet(
+        chain, "example.com:443", &packet, &error) == CH_OK);
+    static const uint8_t payload[] = "nested-vmess-udp";
+    CH_TEST_ASSERT(ch_packet_connection_send(
+        packet, "example.com:443", payload, sizeof(payload),
+        &error) == CH_OK);
+    uint8_t response[128];
+    size_t response_length = 0U;
+    char *source = NULL;
+    CH_TEST_ASSERT(ch_packet_connection_receive_timeout(
+        packet, response, sizeof(response), &response_length, &source, 2000,
+        &error) == CH_OK);
+    CH_TEST_ASSERT(strcmp(source, "example.com:443") == 0);
+    CH_TEST_ASSERT(response_length == sizeof(payload));
+    CH_TEST_ASSERT(memcmp(response, payload, sizeof(payload)) == 0);
+    free(source);
+    ch_packet_connection_close(packet);
+    protocol_test_vmess_server_stop(&vmess);
+    protocol_test_tls_server_stop(&outer);
+    CH_TEST_ASSERT(outer.success == 1 && vmess.success == 1);
+    ch_config_free(config);
+    free(outer_header);
 }
 
 static void *protocol_test_stls_tls_main(void *opaque) {
@@ -1920,7 +2050,7 @@ static void protocol_test_packet_connections(void) {
     const ch_config_table *chain = ch_config_array_get_table(chains, 0U);
     ch_packet_connection *packet = NULL;
     CH_TEST_ASSERT(ch_protocol_chain_dial_packet(
-        chain, &packet, &error) == CH_OK);
+        chain, "0.0.0.0:0", &packet, &error) == CH_OK);
     char target[64];
     (void)snprintf(target, sizeof(target), "127.0.0.1:%u",
                    (unsigned int)direct_server.port);
@@ -1973,7 +2103,7 @@ static void protocol_test_packet_connections(void) {
         chain = ch_config_array_get_table(chains, 0U);
         packet = NULL;
         CH_TEST_ASSERT(ch_protocol_chain_dial_packet(
-            chain, &packet, &error) == CH_OK);
+            chain, "example.com:53", &packet, &error) == CH_OK);
         CH_TEST_ASSERT(ch_packet_connection_send(
             packet, "example.com:53", payload, sizeof(payload),
             &error) == CH_OK);
@@ -1991,6 +2121,132 @@ static void protocol_test_packet_connections(void) {
         protocol_test_udp_server_stop(&server);
         CH_TEST_ASSERT(server.success == 1);
     }
+}
+
+static void protocol_test_trojan_packets(void) {
+    static const char *const protocols[] = {"trojan", "clambback"};
+    static const uint8_t payload[] = "native-trojan-udp-frame";
+    for (size_t index = 0U;
+         index < sizeof(protocols) / sizeof(protocols[0]); ++index) {
+        ch_error error;
+        uint8_t *header = NULL;
+        size_t header_length = 0U;
+        CH_TEST_ASSERT(ch_protocol_trojan_header(
+            "udp-secret", "0.0.0.0:0", &header, &header_length,
+            &error) == CH_OK);
+        CH_TEST_ASSERT(header_length > 58U);
+        header[58] = 0x03U;
+        protocol_tls_server server;
+        CH_TEST_ASSERT(protocol_test_tls_server_start(
+            &server, header, header_length, 0U));
+        char document[1024];
+        (void)snprintf(
+            document, sizeof(document),
+            "active = \"local\"\n"
+            "[[profile]]\nname = \"local\"\n"
+            "[[profile.chain]]\nname = \"trojan-udp\"\n"
+            "[[profile.chain.server]]\n"
+            "address = \"127.0.0.1:%u\"\nprotocol = \"%s\"\n"
+            "[profile.chain.server.settings]\n"
+            "password = \"udp-secret\"\nskip_cert_verify = true\n",
+            (unsigned int)server.port, protocols[index]);
+        ch_config *config = NULL;
+        CH_TEST_ASSERT(ch_config_parse(document, NULL, &config,
+                                       &error) == CH_OK);
+        const ch_config_table *profile = ch_config_active_profile(config);
+        const ch_config_array *chains = ch_config_table_get_array(profile,
+                                                                  "chain");
+        const ch_config_table *chain = ch_config_array_get_table(chains, 0U);
+        ch_packet_connection *packet = NULL;
+        CH_TEST_ASSERT(ch_protocol_chain_dial_packet(
+            chain, "example.com:53", &packet, &error) == CH_OK);
+        CH_TEST_ASSERT(ch_packet_connection_send(
+            packet, "example.com:53", payload, sizeof(payload),
+            &error) == CH_OK);
+        uint8_t response[128];
+        size_t response_length = 0U;
+        char *source = NULL;
+        CH_TEST_ASSERT(ch_packet_connection_receive_timeout(
+            packet, response, sizeof(response), &response_length, &source,
+            2000, &error) == CH_OK);
+        CH_TEST_ASSERT(strcmp(source, "example.com:53") == 0);
+        CH_TEST_ASSERT(response_length == sizeof(payload));
+        CH_TEST_ASSERT(memcmp(response, payload, sizeof(payload)) == 0);
+        free(source);
+        ch_packet_connection_close(packet);
+        protocol_test_tls_server_stop(&server);
+        CH_TEST_ASSERT(server.success == 1);
+        ch_config_free(config);
+        free(header);
+    }
+}
+
+static void protocol_test_trojan_packet_chain(void) {
+    ch_error error;
+    uint8_t *inner_header = NULL;
+    size_t inner_header_length = 0U;
+    CH_TEST_ASSERT(ch_protocol_trojan_header(
+        "inner-udp", "0.0.0.0:0", &inner_header, &inner_header_length,
+        &error) == CH_OK);
+    inner_header[58] = 0x03U;
+    protocol_tls_server inner;
+    CH_TEST_ASSERT(protocol_test_tls_server_start(
+        &inner, inner_header, inner_header_length, 0U));
+    char inner_target[64];
+    (void)snprintf(inner_target, sizeof(inner_target), "127.0.0.1:%u",
+                   (unsigned int)inner.port);
+    uint8_t *outer_header = NULL;
+    size_t outer_header_length = 0U;
+    CH_TEST_ASSERT(ch_protocol_trojan_header(
+        "outer-tcp", inner_target, &outer_header, &outer_header_length,
+        &error) == CH_OK);
+    protocol_tls_server outer;
+    CH_TEST_ASSERT(protocol_test_tls_server_start(
+        &outer, outer_header, outer_header_length, inner.port));
+    char document[1600];
+    (void)snprintf(
+        document, sizeof(document),
+        "active = \"local\"\n"
+        "[[profile]]\nname = \"local\"\n"
+        "[[profile.chain]]\nname = \"nested-udp\"\n"
+        "[[profile.chain.server]]\n"
+        "address = \"127.0.0.1:%u\"\nprotocol = \"trojan\"\n"
+        "[profile.chain.server.settings]\n"
+        "password = \"outer-tcp\"\nskip_cert_verify = true\n"
+        "[[profile.chain.server]]\n"
+        "address = \"127.0.0.1:%u\"\nprotocol = \"clambback\"\n"
+        "[profile.chain.server.settings]\n"
+        "password = \"inner-udp\"\nskip_cert_verify = true\n",
+        (unsigned int)outer.port, (unsigned int)inner.port);
+    ch_config *config = NULL;
+    CH_TEST_ASSERT(ch_config_parse(document, NULL, &config, &error) == CH_OK);
+    const ch_config_table *profile = ch_config_active_profile(config);
+    const ch_config_array *chains = ch_config_table_get_array(profile, "chain");
+    const ch_config_table *chain = ch_config_array_get_table(chains, 0U);
+    ch_packet_connection *packet = NULL;
+    CH_TEST_ASSERT(ch_protocol_chain_dial_packet(
+        chain, "198.51.100.9:5353", &packet, &error) == CH_OK);
+    static const uint8_t payload[] = "nested-trojan-udp";
+    CH_TEST_ASSERT(ch_packet_connection_send(
+        packet, "198.51.100.9:5353", payload, sizeof(payload),
+        &error) == CH_OK);
+    uint8_t response[128];
+    size_t response_length = 0U;
+    char *source = NULL;
+    CH_TEST_ASSERT(ch_packet_connection_receive_timeout(
+        packet, response, sizeof(response), &response_length, &source, 2000,
+        &error) == CH_OK);
+    CH_TEST_ASSERT(strcmp(source, "198.51.100.9:5353") == 0);
+    CH_TEST_ASSERT(response_length == sizeof(payload));
+    CH_TEST_ASSERT(memcmp(response, payload, sizeof(payload)) == 0);
+    free(source);
+    ch_packet_connection_close(packet);
+    protocol_test_tls_server_stop(&outer);
+    protocol_test_tls_server_stop(&inner);
+    CH_TEST_ASSERT(outer.success == 1 && inner.success == 1);
+    ch_config_free(config);
+    free(outer_header);
+    free(inner_header);
 }
 
 static void protocol_test_shadowsocks_streams(void) {
@@ -2239,6 +2495,8 @@ void ch_test_protocol(void) {
     protocol_test_shadowsocks_frames();
     protocol_test_shadowsocks_datagrams();
     protocol_test_packet_connections();
+    protocol_test_trojan_packets();
+    protocol_test_trojan_packet_chain();
     protocol_test_shadowsocks_streams();
     protocol_test_shadowsocks_chain();
     protocol_test_tor_streams();
@@ -2246,6 +2504,8 @@ void ch_test_protocol(void) {
     protocol_test_vmess_vectors();
     protocol_test_vmess_frames();
     protocol_test_vmess_streams();
+    protocol_test_vmess_packets();
+    protocol_test_vmess_packet_chain();
     protocol_test_shadowtls_vectors();
     protocol_test_shadowtls_stream();
 }

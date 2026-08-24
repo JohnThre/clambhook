@@ -21,7 +21,7 @@ typedef enum ch_proxy_route_action {
     CH_PROXY_ROUTE_REJECT = 3
 } ch_proxy_route_action;
 
-#define CH_PROXY_ROUTE_SESSION_KEY_SIZE 128U
+#define CH_PROXY_ROUTE_SESSION_KEY_SIZE 384U
 
 typedef struct ch_proxy_route {
     ch_proxy_route_action action;

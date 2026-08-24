@@ -198,10 +198,13 @@ ch_status ch_protocol_connect_tcp(const char *target, int *out_descriptor,
     return CH_OK;
 }
 
-ch_status ch_protocol_trojan_header(const char *password, const char *target,
-                                    uint8_t **out_header,
-                                    size_t *out_header_length,
-                                    ch_error *error) {
+static ch_status ch_protocol_trojan_header_command(
+    const char *password,
+    uint8_t command,
+    const char *target,
+    uint8_t **out_header,
+    size_t *out_header_length,
+    ch_error *error) {
     ch_error_clear(error);
     if (password == NULL || password[0] == '\0' || target == NULL ||
         out_header == NULL || out_header_length == NULL) {
@@ -238,7 +241,7 @@ ch_status ch_protocol_trojan_header(const char *password, const char *target,
     size_t offset = 56U;
     header[offset++] = '\r';
     header[offset++] = '\n';
-    header[offset++] = 0x01U;
+    header[offset++] = command;
     memcpy(header + offset, address, address_length);
     offset += address_length;
     header[offset++] = '\r';
@@ -247,6 +250,14 @@ ch_status ch_protocol_trojan_header(const char *password, const char *target,
     *out_header = header;
     *out_header_length = total;
     return CH_OK;
+}
+
+ch_status ch_protocol_trojan_header(const char *password, const char *target,
+                                    uint8_t **out_header,
+                                    size_t *out_header_length,
+                                    ch_error *error) {
+    return ch_protocol_trojan_header_command(
+        password, 0x01U, target, out_header, out_header_length, error);
 }
 
 static int ch_protocol_set_nonblocking(int descriptor) {
@@ -666,11 +677,13 @@ ch_status ch_protocol_tls_wrap(const ch_config_table *settings,
     return CH_OK;
 }
 
-static ch_status ch_protocol_trojan_dial(const ch_config_table *server,
-                                         int underlying_descriptor,
-                                         const char *target,
-                                         int *out_descriptor,
-                                         ch_error *error) {
+static ch_status ch_protocol_trojan_dial_command(
+    const ch_config_table *server,
+    int underlying_descriptor,
+    const char *target,
+    uint8_t command,
+    int *out_descriptor,
+    ch_error *error) {
     const ch_config_table *settings = ch_config_table_get_table(server, "settings");
     char *password = ch_protocol_optional_string(settings, "password");
     char *server_address = ch_protocol_optional_string(server, "address");
@@ -709,8 +722,8 @@ static ch_status ch_protocol_trojan_dial(const ch_config_table *server,
     }
     uint8_t *header = NULL;
     size_t header_length = 0U;
-    ch_status status = ch_protocol_trojan_header(
-        password, target, &header, &header_length, error);
+    ch_status status = ch_protocol_trojan_header_command(
+        password, command, target, &header, &header_length, error);
     free(password);
     if (status != CH_OK) {
         free(header);
@@ -725,6 +738,26 @@ static ch_status ch_protocol_trojan_dial(const ch_config_table *server,
     free(header);
     free(server_address);
     return status;
+}
+
+
+static ch_status ch_protocol_trojan_dial(const ch_config_table *server,
+                                         int underlying_descriptor,
+                                         const char *target,
+                                         int *out_descriptor,
+                                         ch_error *error) {
+    return ch_protocol_trojan_dial_command(
+        server, underlying_descriptor, target, 0x01U, out_descriptor, error);
+}
+
+ch_status ch_protocol_trojan_packet_stream(
+    const ch_config_table *server,
+    int underlying_descriptor,
+    int *out_descriptor,
+    ch_error *error) {
+    return ch_protocol_trojan_dial_command(
+        server, underlying_descriptor, "0.0.0.0:0", 0x03U,
+        out_descriptor, error);
 }
 
 ch_status ch_protocol_chain_dial(const ch_config_table *chain,
@@ -827,4 +860,151 @@ ch_status ch_protocol_chain_dial(const ch_config_table *chain,
     }
     *out_descriptor = descriptor;
     return CH_OK;
+}
+
+static ch_status ch_protocol_chain_packet_prefix(
+    const ch_config_array *servers,
+    size_t final_index,
+    int *out_descriptor,
+    ch_error *error) {
+    int descriptor = -1;
+    for (size_t index = 0U; index < final_index; ++index) {
+        const ch_config_table *server = ch_config_array_get_table(servers,
+                                                                  index);
+        const ch_config_table *next = ch_config_array_get_table(servers,
+                                                                 index + 1U);
+        char *protocol = ch_protocol_optional_string(server, "protocol");
+        char *next_address = ch_protocol_optional_string(next, "address");
+        if (protocol == NULL || next_address == NULL ||
+            next_address[0] == '\0') {
+            free(protocol); free(next_address);
+            ch_protocol_close(&descriptor);
+            ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
+                         "packet carrier and next address are required");
+            return CH_ERROR_INVALID_ARGUMENT;
+        }
+        ch_status status;
+        if (strcasecmp(protocol, "direct") == 0 && descriptor < 0) {
+            status = ch_protocol_connect_tcp(next_address, &descriptor,
+                                             error);
+        } else if (strcasecmp(protocol, "trojan") == 0 ||
+                   strcasecmp(protocol, "clambback") == 0) {
+            int tunneled = -1;
+            status = ch_protocol_trojan_dial(
+                server, descriptor, next_address, &tunneled, error);
+            descriptor = status == CH_OK ? tunneled : -1;
+        } else if (strcasecmp(protocol, "shadowsocks") == 0) {
+            int tunneled = -1;
+            status = ch_protocol_shadowsocks_dial(
+                server, descriptor, next_address, &tunneled, error);
+            descriptor = status == CH_OK ? tunneled : -1;
+        } else if (strcasecmp(protocol, "shadowtls") == 0) {
+            int tunneled = -1;
+            status = ch_protocol_shadowtls_dial(
+                server, descriptor, &tunneled, error);
+            descriptor = status == CH_OK ? tunneled : -1;
+        } else if (strcasecmp(protocol, "tor") == 0) {
+            int tunneled = -1;
+            status = ch_protocol_tor_dial(
+                server, descriptor, next_address, &tunneled, error);
+            descriptor = status == CH_OK ? tunneled : -1;
+        } else if (strcasecmp(protocol, "vmess") == 0) {
+            int tunneled = -1;
+            status = ch_protocol_vmess_dial(
+                server, descriptor, next_address, &tunneled, error);
+            descriptor = status == CH_OK ? tunneled : -1;
+        } else {
+            ch_error_set(error, CH_ERROR_UNSUPPORTED,
+                         "native packet carrier %s is not ported yet",
+                         protocol);
+            status = CH_ERROR_UNSUPPORTED;
+        }
+        free(protocol);
+        free(next_address);
+        if (status != CH_OK) {
+            ch_protocol_close(&descriptor);
+            return status;
+        }
+    }
+    *out_descriptor = descriptor;
+    return CH_OK;
+}
+
+ch_status ch_protocol_chain_trojan_packet_stream(
+    const ch_config_table *chain,
+    int *out_descriptor,
+    ch_error *error) {
+    ch_error_clear(error);
+    if (chain == NULL || out_descriptor == NULL) {
+        ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
+                     "packet chain and output are required");
+        return CH_ERROR_INVALID_ARGUMENT;
+    }
+    *out_descriptor = -1;
+    const ch_config_array *servers = ch_config_table_get_array(chain, "server");
+    size_t count = ch_config_array_count(servers);
+    if (count == 0U) {
+        ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
+                     "native packet chain requires a server");
+        return CH_ERROR_INVALID_ARGUMENT;
+    }
+    int descriptor = -1;
+    ch_status status = ch_protocol_chain_packet_prefix(
+        servers, count - 1U, &descriptor, error);
+    if (status != CH_OK) return status;
+    const ch_config_table *final_server = ch_config_array_get_table(
+        servers, count - 1U);
+    char *final_protocol = ch_protocol_optional_string(final_server,
+                                                       "protocol");
+    if (final_protocol == NULL ||
+        (strcasecmp(final_protocol, "trojan") != 0 &&
+         strcasecmp(final_protocol, "clambback") != 0)) {
+        free(final_protocol);
+        ch_protocol_close(&descriptor);
+        ch_error_set(error, CH_ERROR_UNSUPPORTED,
+                     "packet stream chain must end in Trojan or clambback");
+        return CH_ERROR_UNSUPPORTED;
+    }
+    free(final_protocol);
+    return ch_protocol_trojan_packet_stream(
+        final_server, descriptor, out_descriptor, error);
+}
+
+ch_status ch_protocol_chain_vmess_packet_stream(
+    const ch_config_table *chain,
+    const char *target,
+    int *out_descriptor,
+    ch_error *error) {
+    ch_error_clear(error);
+    if (chain == NULL || target == NULL || out_descriptor == NULL) {
+        ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
+                     "VMESS packet chain, target, and output are required");
+        return CH_ERROR_INVALID_ARGUMENT;
+    }
+    *out_descriptor = -1;
+    const ch_config_array *servers = ch_config_table_get_array(chain, "server");
+    size_t count = ch_config_array_count(servers);
+    if (count == 0U) {
+        ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
+                     "native packet chain requires a server");
+        return CH_ERROR_INVALID_ARGUMENT;
+    }
+    int descriptor = -1;
+    ch_status status = ch_protocol_chain_packet_prefix(
+        servers, count - 1U, &descriptor, error);
+    if (status != CH_OK) return status;
+    const ch_config_table *final_server = ch_config_array_get_table(
+        servers, count - 1U);
+    char *final_protocol = ch_protocol_optional_string(final_server,
+                                                       "protocol");
+    if (final_protocol == NULL || strcasecmp(final_protocol, "vmess") != 0) {
+        free(final_protocol);
+        ch_protocol_close(&descriptor);
+        ch_error_set(error, CH_ERROR_UNSUPPORTED,
+                     "VMESS packet stream chain must end in VMESS");
+        return CH_ERROR_UNSUPPORTED;
+    }
+    free(final_protocol);
+    return ch_protocol_vmess_packet_stream(
+        final_server, descriptor, target, out_descriptor, error);
 }

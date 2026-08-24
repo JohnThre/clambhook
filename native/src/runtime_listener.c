@@ -11,6 +11,7 @@
 #include "clambhook/listener.h"
 #include "clambhook/protocol.h"
 #include "clambhook/rules.h"
+#include "cnet.h"
 
 #define CH_RUNTIME_LISTENER_LIMIT 2U
 #define CH_RUNTIME_DEFAULT_MAX_CONNECTIONS 512U
@@ -111,6 +112,7 @@ static ch_status runtime_dial_chain(const ch_runtime_listener_entry *entry,
 static ch_status runtime_dial_packet_chain(
     const ch_runtime_listener_entry *entry,
     const char *chain_name,
+    const char *target,
     ch_packet_connection **out_connection,
     ch_error *error) {
     const ch_config_array *chains = ch_config_table_get_array(entry->profile,
@@ -121,7 +123,7 @@ static ch_status runtime_dial_packet_chain(
                      chain_name);
         return CH_ERROR_NOT_FOUND;
     }
-    return ch_protocol_chain_dial_packet(chain, out_connection, error);
+    return ch_protocol_chain_dial_packet(chain, target, out_connection, error);
 }
 
 static ch_status runtime_listener_dial(const char *network, const char *target,
@@ -211,10 +213,21 @@ static ch_status runtime_listener_packet_dial(
             }
         }
         if (status == CH_OK) {
+            uint8_t digest[28];
+            static const char hex[] = "0123456789abcdef";
+            char chain_hash[57];
+            cnet_sha224((const uint8_t *)chain_name, strlen(chain_name),
+                        digest);
+            for (size_t index = 0U; index < sizeof(digest); ++index) {
+                chain_hash[index * 2U] = hex[digest[index] >> 4U];
+                chain_hash[index * 2U + 1U] =
+                    hex[digest[index] & 0x0fU];
+            }
+            chain_hash[56] = '\0';
             (void)snprintf(route->session_key, sizeof(route->session_key),
-                           "chain:%s", chain_name);
+                           "chain:%s|target:%s", chain_hash, target);
             status = runtime_dial_packet_chain(entry, chain_name,
-                                               out_connection, error);
+                                               target, out_connection, error);
         }
         free(selected_group_chain);
     }
