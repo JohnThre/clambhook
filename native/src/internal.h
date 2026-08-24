@@ -27,7 +27,18 @@ struct ch_json_value;
 int ch_json_append_value(ch_json_buffer *buffer, const struct ch_json_value *value);
 char *ch_json_take(ch_json_buffer *buffer);
 
+struct ch_runtime_listener_set;
+typedef struct ch_runtime_listener_set ch_runtime_listener_set;
 struct ch_config;
+ch_runtime_listener_set *ch_runtime_listener_set_start(
+    const struct ch_config *config,
+    const char *profile_name,
+    ch_error *error
+);
+void ch_runtime_listener_set_stop(ch_runtime_listener_set *set);
+int ch_runtime_listener_set_append_status(ch_runtime_listener_set *set,
+                                          ch_json_buffer *json);
+
 char *ch_config_collection_payload_json(const struct ch_config *config,
                                         const char *fallback_profile,
                                         const char *config_key,

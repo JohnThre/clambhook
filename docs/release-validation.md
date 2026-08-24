@@ -66,7 +66,8 @@ scripts/validate-linux-distros.sh            # ubuntu · debian · fedora
 make test-linux                              # host-side Kotlin unit tests for the Compose controller
 ```
 
-During the phased C/GTK migration, run `make test-native` and
+During the phased C/GTK migration, run `make test-native` (including the
+loopback SOCKS5/HTTP relay and runtime-lifecycle cases) and
 `make build-linux-gtk` alongside the existing distro harness. Production
 packages stay on their current binaries until the native packaging gate in
 [`c-migration.md`](c-migration.md) passes. See

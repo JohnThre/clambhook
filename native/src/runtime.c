@@ -43,6 +43,7 @@ struct ch_runtime {
     ch_command *queue_head;
     ch_command *queue_tail;
     atomic_bool running;
+    ch_runtime_listener_set *listeners;
     ch_config *config;
     char *config_path;
     char *active_profile;
@@ -64,7 +65,9 @@ static char *ch_runtime_status_json(ch_runtime *runtime) {
             atomic_load_explicit(&runtime->running, memory_order_acquire) ? "true" : "false"
         ) ||
         !ch_json_append_string(&json, runtime->active_profile) ||
-        !ch_json_append(&json, ",\"network_info\":{}}")) {
+        !ch_json_append(&json, ",\"network_info\":{}") ||
+        !ch_runtime_listener_set_append_status(runtime->listeners, &json) ||
+        !ch_json_append(&json, "}")) {
         ch_json_dispose(&json);
         return NULL;
     }
@@ -113,8 +116,30 @@ static void ch_command_fail(ch_command *command, ch_status status, const char *m
     ch_error_set(&command->error, status, "%s", message);
 }
 
+static void ch_runtime_stop_listeners(ch_runtime *runtime) {
+    ch_runtime_listener_set_stop(runtime->listeners);
+    runtime->listeners = NULL;
+}
+
+static bool ch_runtime_start_listeners(ch_runtime *runtime,
+                                       const ch_config *config,
+                                       const char *profile_name,
+                                       ch_command *command) {
+    ch_error listener_error;
+    ch_runtime_listener_set *listeners = ch_runtime_listener_set_start(
+        config, profile_name, &listener_error
+    );
+    if (listeners == NULL) {
+        command->status = listener_error.code;
+        command->error = listener_error;
+        return false;
+    }
+    runtime->listeners = listeners;
+    return true;
+}
+
 static bool ch_runtime_apply_config(ch_runtime *runtime, ch_command *command,
-                                    const char *path) {
+                                    const char *path, bool start_listeners) {
     ch_config *next_config = NULL;
     char *next_path;
     char *next_profile;
@@ -154,12 +179,33 @@ static bool ch_runtime_apply_config(ch_runtime *runtime, ch_command *command,
             return false;
         }
     }
+    ch_runtime_listener_set *next_listeners = NULL;
+    if (start_listeners) {
+        ch_runtime_stop_listeners(runtime);
+        ch_error listener_error;
+        next_listeners = ch_runtime_listener_set_start(
+            next_config, next_profile, &listener_error
+        );
+        if (next_listeners == NULL) {
+            ch_error rollback_error;
+            runtime->listeners = ch_runtime_listener_set_start(
+                runtime->config, runtime->active_profile, &rollback_error
+            );
+            ch_config_free(next_config);
+            free(next_path);
+            free(next_profile);
+            command->status = listener_error.code;
+            command->error = listener_error;
+            return false;
+        }
+    }
     ch_config_free(runtime->config);
     free(runtime->config_path);
     free(runtime->active_profile);
     runtime->config = next_config;
     runtime->config_path = next_path;
     runtime->active_profile = next_profile;
+    runtime->listeners = next_listeners;
     return true;
 }
 
@@ -173,7 +219,7 @@ static void ch_command_process(ch_runtime *runtime, ch_command *command) {
                 ch_command_fail(command, CH_ERROR_INVALID_STATE, "engine already running");
                 break;
             }
-            if (!ch_runtime_apply_config(runtime, command, command->payload)) {
+            if (!ch_runtime_apply_config(runtime, command, command->payload, true)) {
                 break;
             }
             atomic_store_explicit(&runtime->running, true, memory_order_release);
@@ -181,12 +227,14 @@ static void ch_command_process(ch_runtime *runtime, ch_command *command) {
             break;
 
         case CH_COMMAND_STOP:
+            ch_runtime_stop_listeners(runtime);
             atomic_store_explicit(&runtime->running, false, memory_order_release);
             ch_runtime_log(runtime, 1, "native runtime stopped");
             break;
 
         case CH_COMMAND_RELOAD: {
-            (void)ch_runtime_apply_config(runtime, command, command->payload);
+            bool running = atomic_load_explicit(&runtime->running, memory_order_acquire);
+            (void)ch_runtime_apply_config(runtime, command, command->payload, running);
             break;
         }
 
@@ -254,9 +302,14 @@ static void ch_command_process(ch_runtime *runtime, ch_command *command) {
                     ch_command_fail(command, CH_ERROR_INVALID_STATE, "engine already running");
                     break;
                 }
+                if (!ch_runtime_start_listeners(runtime, runtime->config,
+                                                runtime->active_profile, command)) {
+                    break;
+                }
                 atomic_store_explicit(&runtime->running, true, memory_order_release);
                 command->response = ch_runtime_status_json(runtime);
             } else if (strcmp(command->operation, "disconnect") == 0) {
+                ch_runtime_stop_listeners(runtime);
                 atomic_store_explicit(&runtime->running, false, memory_order_release);
                 command->response = ch_runtime_status_json(runtime);
             } else if (strcmp(command->operation, "set_active_profile") == 0) {
@@ -272,19 +325,40 @@ static void ch_command_process(ch_runtime *runtime, ch_command *command) {
                     free(name);
                     break;
                 }
-                free(runtime->active_profile);
-                runtime->active_profile = name;
+                if (atomic_load_explicit(&runtime->running, memory_order_acquire)) {
+                    char *old_name = runtime->active_profile;
+                    ch_runtime_stop_listeners(runtime);
+                    if (!ch_runtime_start_listeners(runtime, runtime->config,
+                                                    name, command)) {
+                        ch_error profile_error = command->error;
+                        ch_status profile_status = command->status;
+                        ch_error rollback_error;
+                        runtime->listeners = ch_runtime_listener_set_start(
+                            runtime->config, old_name, &rollback_error
+                        );
+                        free(name);
+                        command->status = profile_status;
+                        command->error = profile_error;
+                        break;
+                    }
+                    runtime->active_profile = name;
+                    free(old_name);
+                } else {
+                    free(runtime->active_profile);
+                    runtime->active_profile = name;
+                }
                 command->response = ch_runtime_status_json(runtime);
             } else {
                 ch_command_fail(command, CH_ERROR_UNSUPPORTED, "unknown runtime mutation operation");
                 break;
             }
-            if (command->response == NULL) {
+            if (command->response == NULL && command->status == CH_OK) {
                 ch_command_fail(command, CH_ERROR_OUT_OF_MEMORY, "encode mutation response");
             }
             break;
 
         case CH_COMMAND_SHUTDOWN:
+            ch_runtime_stop_listeners(runtime);
             atomic_store_explicit(&runtime->running, false, memory_order_release);
             uv_close((uv_handle_t *)&runtime->command_async, NULL);
             break;

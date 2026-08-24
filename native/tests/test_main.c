@@ -9,8 +9,10 @@ int main(void) {
     ch_test_crypto();
     ch_test_events();
     ch_test_license();
+    ch_test_listener();
     ch_test_rules();
     ch_test_runtime();
+    ch_test_runtime_listener();
     ch_test_socks();
     ch_test_watcher();
     if (ch_test_failures != 0) {

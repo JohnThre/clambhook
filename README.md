@@ -182,6 +182,10 @@ Terminal, PowerShell, GNOME Terminal, Xfce Terminal, and KDE Konsole.
 The legacy build uses `CGO_ENABLED=1`. The replacement C17 build uses CMake,
 Ninja, and C dependencies discovered through `pkg-config`; see
 [`docs/c-migration.md`](docs/c-migration.md).
+The current native data-plane slice wires C SOCKS5 and HTTP proxy listeners to
+native TOML and compiled routing rules. Direct routes are operational;
+encrypted upstream protocols, UDP, and TUN remain guarded until their parity
+tests pass.
 Building, running, and testing require prior written permission from Pengfan
 Chang; see [`LICENSE`](LICENSE). The commands below are for the author and
 authorized parties, not a general contribution or redistribution grant.

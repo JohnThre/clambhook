@@ -18,6 +18,7 @@ option(CLAMBHOOK_BUILD_TESTS "Build the native unit tests" ${BUILD_TESTING})
 option(CLAMBHOOK_ENABLE_SANITIZERS "Enable AddressSanitizer and UndefinedBehaviorSanitizer" OFF)
 
 find_package(PkgConfig REQUIRED)
+find_package(Threads REQUIRED)
 pkg_check_modules(LIBUV REQUIRED IMPORTED_TARGET libuv)
 pkg_check_modules(LIBSODIUM REQUIRED IMPORTED_TARGET libsodium)
 pkg_check_modules(LLHTTP REQUIRED IMPORTED_TARGET libllhttp)
@@ -44,9 +45,11 @@ add_library(clambhook_core STATIC
   native/src/license.c
   native/src/license_http.c
   native/src/license_json.c
+  native/src/listener.c
   native/src/rules.c
   native/src/rules_config.c
   native/src/runtime.c
+  native/src/runtime_listener.c
   native/src/socks.c
   native/src/watcher.c
 )
@@ -70,7 +73,7 @@ target_include_directories(clambhook_core
   PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/native/src
 )
-target_link_libraries(clambhook_core PUBLIC PkgConfig::LIBUV PkgConfig::CURL Clambhook::Crypto tomlc99)
+target_link_libraries(clambhook_core PUBLIC PkgConfig::LIBUV PkgConfig::CURL Clambhook::Crypto tomlc99 Threads::Threads)
 target_compile_definitions(clambhook_core PRIVATE _POSIX_C_SOURCE=200809L)
 target_compile_options(clambhook_core PRIVATE
   $<$<C_COMPILER_ID:AppleClang,Clang,GNU>:-Wall;-Wextra;-Wpedantic;-Wconversion;-Wshadow>
@@ -139,8 +142,10 @@ if(CLAMBHOOK_BUILD_TESTS)
     native/tests/test_crypto.c
     native/tests/test_json.c
     native/tests/test_license.c
+    native/tests/test_listener.c
     native/tests/test_rules.c
     native/tests/test_runtime.c
+    native/tests/test_runtime_listener.c
     native/tests/test_socks.c
     native/tests/test_watcher.c
   )

@@ -58,6 +58,7 @@ void ch_test_runtime(void) {
             "[[profile.chain]]\nname = \"home-default\"\n"
             "[[profile.chain.server]]\nprotocol = \"direct\"\n"
             "[[profile]]\nname = \"work\"\n"
+            "[profile.listen]\nsocks5 = \"127.0.0.1:0\"\n"
             "[[profile.chain]]\nname = \"work-default\"\n"
             "[[profile.chain.server]]\nprotocol = \"direct\"\n"
             "[[profile.rule]]\nname = \"direct-web\"\naction = \"direct\"\n"
@@ -68,6 +69,10 @@ void ch_test_runtime(void) {
         runtime = ch_runtime_create(NULL, &error);
         CH_TEST_ASSERT(runtime != NULL);
         CH_TEST_ASSERT(ch_runtime_start(runtime, path, &error) == CH_OK);
+        CH_TEST_ASSERT(ch_runtime_query(runtime, "status", NULL, &json, &error) == CH_OK);
+        CH_TEST_ASSERT(strstr(json, "\"listeners\":[{\"protocol\":\"socks5\"") != NULL);
+        CH_TEST_ASSERT(strstr(json, "\"active_conns\":0") != NULL);
+        ch_string_free(json);
         CH_TEST_ASSERT(ch_runtime_query(runtime, "profiles", NULL, &json, &error) == CH_OK);
         CH_TEST_ASSERT_STRING("{\"profiles\":[\"home\",\"work\"],\"active\":\"work\"}", json);
         ch_string_free(json);

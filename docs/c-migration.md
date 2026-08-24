@@ -39,8 +39,10 @@ The additive CMake build currently provides:
 - `clambhook_core`: a C17 ABI with a serialized libuv runtime thread, a pinned
   TOML 1.0 parser, configuration validation and relative-path handling,
   atomic writes with bounded backups, debounced validated reloads, JSON
-  parsing/encoding, a bounded event replay ring, SOCKS address codec, and
-  compiled routing rule matcher;
+  parsing/encoding, a bounded event replay ring, SOCKS address codec, compiled
+  routing rule matcher, and native SOCKS5/HTTP proxy listeners with bounded
+  handshakes, authentication, rule blocking, connection ceilings, and
+  deterministic relay shutdown;
 - `clambhook_crypto`: the existing C crypto surface, now covering AES-128-GCM,
   AES-256-GCM, ChaCha20-Poly1305, SHA-224, and random bytes through C
   dependencies;
@@ -50,7 +52,8 @@ The additive CMake build currently provides:
   native TOML configuration, honors the active profile's API address, and
   serves status/profile/server/rule/policy-group/rule-set JSON plus native
   route explanations through a small libuv + llhttp API with hardened
-  bearer/Host/Origin checks;
+  bearer/Host/Origin checks. Configured proxy listeners participate in runtime
+  start, stop, reload, profile switching, and status reporting;
 - `clambhook-linux-c`: an additive `GtkApplication` dashboard using GTK 4,
   libsoup 3, and json-glib;
 - `clambhook_jni`: the thin JNI ownership/callback boundary used by the Kotlin
@@ -63,6 +66,11 @@ The additive CMake build currently provides:
 it out of production packages until configuration, listeners, every protocol,
 the full control API/WebSocket surface, persistence, and platform lifecycle
 tests pass their parity gates.
+
+The listener data plane currently completes direct-rule routes and single-hop
+test chains whose protocol is `direct`. Encrypted upstream chains, UDP
+ASSOCIATE, TUN, DNS, prompts, traffic persistence, and developer inspection
+remain cutover blockers; unsupported chain protocols fail closed.
 
 ## Build and test
 
