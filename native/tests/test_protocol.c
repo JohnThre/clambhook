@@ -2,7 +2,9 @@
 
 #include <arpa/inet.h>
 #include <errno.h>
+#include <openssl/core_names.h>
 #include <openssl/evp.h>
+#include <openssl/params.h>
 #include <openssl/rsa.h>
 #include <openssl/ssl.h>
 #include <openssl/x509.h>
@@ -18,6 +20,7 @@
 #include "clambhook/protocol.h"
 #include "clambhook/socks.h"
 #include "cnet.h"
+#include "protocol_shadowtls.h"
 #include "protocol_shadowsocks.h"
 #include "protocol_vmess.h"
 
@@ -76,6 +79,36 @@ typedef struct protocol_vmess_server {
     ch_vmess_security security;
     int success;
 } protocol_vmess_server;
+
+typedef struct protocol_test_hmac {
+    EVP_MAC *algorithm;
+    EVP_MAC_CTX *context;
+} protocol_test_hmac;
+
+typedef struct protocol_stls_server {
+    int descriptor;
+    uint16_t port;
+    pthread_t thread;
+    SSL_CTX *context;
+    const char *password;
+    int success;
+} protocol_stls_server;
+
+typedef struct protocol_stls_relay {
+    int client_descriptor;
+    int handshake_descriptor;
+    const char *password;
+    pthread_mutex_t mutex;
+    uint8_t server_random[32];
+    int random_ready;
+    int success;
+} protocol_stls_relay;
+
+typedef struct protocol_stls_tls_worker {
+    int descriptor;
+    SSL_CTX *context;
+    int success;
+} protocol_stls_tls_worker;
 
 static int protocol_test_send_all(int descriptor, const void *bytes,
                                   size_t length) {
@@ -189,6 +222,84 @@ static int protocol_test_aes128_ecb_decrypt(const uint8_t key[16],
         written + final_written == 16;
     EVP_CIPHER_CTX_free(context);
     return ok;
+}
+
+static void protocol_test_hmac_free(protocol_test_hmac *mac) {
+    EVP_MAC_CTX_free(mac->context);
+    EVP_MAC_free(mac->algorithm);
+    memset(mac, 0, sizeof(*mac));
+}
+
+static int protocol_test_hmac_init(protocol_test_hmac *mac,
+                                   const char *password,
+                                   const uint8_t random[32],
+                                   const char *suffix) {
+    memset(mac, 0, sizeof(*mac));
+    mac->algorithm = EVP_MAC_fetch(NULL, "HMAC", NULL);
+    mac->context = mac->algorithm == NULL ? NULL :
+                   EVP_MAC_CTX_new(mac->algorithm);
+    char digest[] = "SHA1";
+    OSSL_PARAM params[] = {
+        OSSL_PARAM_construct_utf8_string(OSSL_MAC_PARAM_DIGEST, digest, 0U),
+        OSSL_PARAM_construct_end()
+    };
+    int ok = mac->context != NULL && EVP_MAC_init(
+        mac->context, (const uint8_t *)password, strlen(password), params) == 1 &&
+        EVP_MAC_update(mac->context, random, 32U) == 1 &&
+        (suffix[0] == '\0' || EVP_MAC_update(
+            mac->context, (const uint8_t *)suffix, strlen(suffix)) == 1);
+    if (!ok) protocol_test_hmac_free(mac);
+    return ok;
+}
+
+static int protocol_test_hmac_add(protocol_test_hmac *mac,
+                                  const uint8_t *payload,
+                                  size_t payload_length,
+                                  uint8_t signature[4],
+                                  int chain_signature) {
+    if (EVP_MAC_update(mac->context, payload, payload_length) != 1) return 0;
+    EVP_MAC_CTX *copy = EVP_MAC_CTX_dup(mac->context);
+    uint8_t sum[20];
+    size_t sum_length = 0U;
+    int ok = copy != NULL && EVP_MAC_final(
+        copy, sum, &sum_length, sizeof(sum)) == 1 && sum_length == sizeof(sum);
+    EVP_MAC_CTX_free(copy);
+    if (!ok) return 0;
+    memcpy(signature, sum, 4U);
+    return !chain_signature || EVP_MAC_update(
+        mac->context, signature, 4U) == 1;
+}
+
+static int protocol_test_hmac_verify(protocol_test_hmac *mac,
+                                     const uint8_t *payload,
+                                     size_t payload_length,
+                                     const uint8_t signature[4],
+                                     int chain_signature) {
+    uint8_t expected[4];
+    return protocol_test_hmac_add(mac, payload, payload_length, expected,
+                                  chain_signature) &&
+           CRYPTO_memcmp(expected, signature, sizeof(expected)) == 0;
+}
+
+static int protocol_test_shadowtls_xor_key(const char *password,
+                                           const uint8_t random[32],
+                                           uint8_t output[32]) {
+    EVP_MD_CTX *context = EVP_MD_CTX_new();
+    unsigned int length = 0U;
+    int ok = context != NULL && EVP_DigestInit_ex(
+        context, EVP_sha256(), NULL) == 1 && EVP_DigestUpdate(
+        context, password, strlen(password)) == 1 && EVP_DigestUpdate(
+        context, random, 32U) == 1 && EVP_DigestFinal_ex(
+        context, output, &length) == 1 && length == 32U;
+    EVP_MD_CTX_free(context);
+    return ok;
+}
+
+static void protocol_test_shadowtls_xor(uint8_t *bytes, size_t length,
+                                        const uint8_t key[32]) {
+    for (size_t index = 0U; index < length; ++index) {
+        bytes[index] ^= key[index % 32U];
+    }
 }
 
 static int protocol_test_vmess_derive(
@@ -1072,6 +1183,302 @@ static void protocol_test_vmess_streams(void) {
     }
 }
 
+static void *protocol_test_stls_tls_main(void *opaque) {
+    protocol_stls_tls_worker *worker = opaque;
+    SSL *ssl = SSL_new(worker->context);
+    if (ssl != NULL && SSL_set_fd(ssl, worker->descriptor) == 1 &&
+        SSL_accept(ssl) == 1) {
+        worker->success = 1;
+        uint8_t discard[256];
+        while (SSL_read(ssl, discard, (int)sizeof(discard)) > 0) {
+        }
+    }
+    SSL_free(ssl);
+    (void)close(worker->descriptor);
+    return NULL;
+}
+
+static void *protocol_test_stls_relay_main(void *opaque) {
+    protocol_stls_relay *relay = opaque;
+    protocol_test_hmac handshake_mac;
+    memset(&handshake_mac, 0, sizeof(handshake_mac));
+    uint8_t xor_key[32];
+    int has_random = 0;
+    relay->success = 1;
+    for (;;) {
+        uint8_t header[5];
+        if (!protocol_test_receive_exact(relay->handshake_descriptor, header,
+                                         sizeof(header))) break;
+        size_t body_length = ((size_t)header[3] << 8U) | (size_t)header[4];
+        uint8_t *body = malloc(body_length == 0U ? 1U : body_length);
+        if (body == NULL || !protocol_test_receive_exact(
+                relay->handshake_descriptor, body, body_length)) {
+            free(body);
+            relay->success = 0;
+            break;
+        }
+        if (header[0] == 22U && body_length > 38U && body[0] == 2U) {
+            memcpy(relay->server_random, body + 6U, 32U);
+            has_random = ch_shadowtls_server_hello_tls13(body, body_length) &&
+                protocol_test_hmac_init(&handshake_mac, relay->password,
+                                        relay->server_random, "") &&
+                protocol_test_shadowtls_xor_key(
+                    relay->password, relay->server_random, xor_key);
+            (void)pthread_mutex_lock(&relay->mutex);
+            relay->random_ready = has_random;
+            (void)pthread_mutex_unlock(&relay->mutex);
+            if (!has_random) relay->success = 0;
+        }
+        uint8_t *wire = body;
+        size_t wire_length = body_length;
+        if (header[0] == 23U && has_random) {
+            wire = malloc(body_length + 4U);
+            if (wire == NULL) {
+                free(body);
+                relay->success = 0;
+                break;
+            }
+            memcpy(wire + 4U, body, body_length);
+            protocol_test_shadowtls_xor(wire + 4U, body_length, xor_key);
+            if (!protocol_test_hmac_add(&handshake_mac, wire + 4U,
+                                        body_length, wire, 0)) {
+                free(wire);
+                free(body);
+                relay->success = 0;
+                break;
+            }
+            wire_length += 4U;
+            header[3] = (uint8_t)(wire_length >> 8U);
+            header[4] = (uint8_t)wire_length;
+        }
+        int sent = protocol_test_send_all(relay->client_descriptor, header,
+                                          sizeof(header)) &&
+                   protocol_test_send_all(relay->client_descriptor, wire,
+                                          wire_length);
+        if (wire != body) free(wire);
+        free(body);
+        if (!sent) {
+            relay->success = 0;
+            break;
+        }
+    }
+    protocol_test_hmac_free(&handshake_mac);
+    return NULL;
+}
+
+static int protocol_test_stls_client_hello(const uint8_t *body,
+                                           size_t body_length,
+                                           const char *password) {
+    if (body_length < 71U || body[0] != 1U || body[38] != 32U) return 0;
+    uint8_t expected[4];
+    ch_error error;
+    return ch_shadowtls_signature(password, body, body_length, expected,
+                                  &error) == CH_OK &&
+           CRYPTO_memcmp(expected, body + 67U, sizeof(expected)) == 0;
+}
+
+static int protocol_test_stls_write_data(int descriptor,
+                                         protocol_test_hmac *mac,
+                                         const uint8_t *payload,
+                                         size_t payload_length) {
+    size_t body_length = 4U + payload_length;
+    if (body_length > 65535U) return 0;
+    uint8_t *frame = malloc(9U + payload_length);
+    if (frame == NULL) return 0;
+    frame[0] = 23U;
+    frame[1] = 3U;
+    frame[2] = 3U;
+    frame[3] = (uint8_t)(body_length >> 8U);
+    frame[4] = (uint8_t)body_length;
+    int ok = protocol_test_hmac_add(mac, payload, payload_length, frame + 5U,
+                                    1);
+    if (ok) memcpy(frame + 9U, payload, payload_length);
+    if (ok) ok = protocol_test_send_all(descriptor, frame,
+                                        9U + payload_length);
+    free(frame);
+    return ok;
+}
+
+static void *protocol_test_stls_server_main(void *opaque) {
+    protocol_stls_server *server = opaque;
+    int client;
+    do {
+        client = accept(server->descriptor, NULL, NULL);
+    } while (client < 0 && errno == EINTR);
+    if (client < 0) return NULL;
+    int handshake_pair[2] = {-1, -1};
+    int healthy = socketpair(AF_UNIX, SOCK_STREAM, 0, handshake_pair) == 0;
+    protocol_stls_tls_worker worker = {
+        .descriptor = healthy ? handshake_pair[1] : -1,
+        .context = server->context
+    };
+    pthread_t tls_thread;
+    int tls_started = healthy && pthread_create(
+        &tls_thread, NULL, protocol_test_stls_tls_main, &worker) == 0;
+    protocol_stls_relay relay = {
+        .client_descriptor = client,
+        .handshake_descriptor = healthy ? handshake_pair[0] : -1,
+        .password = server->password
+    };
+    healthy = tls_started && pthread_mutex_init(&relay.mutex, NULL) == 0;
+    pthread_t relay_thread;
+    int relay_started = healthy && pthread_create(
+        &relay_thread, NULL, protocol_test_stls_relay_main, &relay) == 0;
+    healthy = healthy && relay_started;
+    int client_hello_valid = 0;
+    uint8_t *first_payload = NULL;
+    size_t first_payload_length = 0U;
+    while (healthy) {
+        uint8_t header[5];
+        if (!protocol_test_receive_exact(client, header, sizeof(header))) {
+            healthy = 0;
+            break;
+        }
+        size_t body_length = ((size_t)header[3] << 8U) | (size_t)header[4];
+        uint8_t *body = malloc(body_length == 0U ? 1U : body_length);
+        if (body == NULL || !protocol_test_receive_exact(
+                client, body, body_length)) {
+            free(body);
+            healthy = 0;
+            break;
+        }
+        if (header[0] == 22U && body_length > 0U && body[0] == 1U) {
+            client_hello_valid = protocol_test_stls_client_hello(
+                body, body_length, server->password);
+            healthy = healthy && client_hello_valid;
+        }
+        int random_ready;
+        uint8_t random[32];
+        (void)pthread_mutex_lock(&relay.mutex);
+        random_ready = relay.random_ready;
+        memcpy(random, relay.server_random, sizeof(random));
+        (void)pthread_mutex_unlock(&relay.mutex);
+        int data_frame = 0;
+        if (header[0] == 23U && body_length >= 4U && random_ready) {
+            protocol_test_hmac trial;
+            if (protocol_test_hmac_init(&trial, server->password, random,
+                                        "C")) {
+                data_frame = protocol_test_hmac_verify(
+                    &trial, body + 4U, body_length - 4U, body, 1);
+                protocol_test_hmac_free(&trial);
+            }
+        }
+        if (data_frame) {
+            first_payload_length = body_length - 4U;
+            first_payload = malloc(first_payload_length == 0U ? 1U :
+                                   first_payload_length);
+            if (first_payload == NULL) {
+                healthy = 0;
+            } else {
+                memcpy(first_payload, body + 4U, first_payload_length);
+            }
+            free(body);
+            break;
+        }
+        healthy = protocol_test_send_all(handshake_pair[0], header,
+                                         sizeof(header)) &&
+                  protocol_test_send_all(handshake_pair[0], body,
+                                         body_length);
+        free(body);
+    }
+    (void)shutdown(handshake_pair[0], SHUT_RDWR);
+    if (relay_started) (void)pthread_join(relay_thread, NULL);
+    if (tls_started) (void)pthread_join(tls_thread, NULL);
+    if (handshake_pair[0] >= 0) (void)close(handshake_pair[0]);
+    if (relay_started) {
+        healthy = healthy && relay.success && worker.success;
+    }
+    uint8_t random[32];
+    (void)pthread_mutex_lock(&relay.mutex);
+    memcpy(random, relay.server_random, sizeof(random));
+    (void)pthread_mutex_unlock(&relay.mutex);
+    protocol_test_hmac response_mac;
+    memset(&response_mac, 0, sizeof(response_mac));
+    healthy = healthy && client_hello_valid && first_payload != NULL &&
+        protocol_test_hmac_init(&response_mac, server->password, random, "S") &&
+        protocol_test_stls_write_data(client, &response_mac, first_payload,
+                                      first_payload_length);
+    protocol_test_hmac_free(&response_mac);
+    free(first_payload);
+    if (relay_started || healthy) (void)pthread_mutex_destroy(&relay.mutex);
+    server->success = healthy;
+    (void)shutdown(client, SHUT_RDWR);
+    (void)close(client);
+    return NULL;
+}
+
+static int protocol_test_stls_server_start(protocol_stls_server *server) {
+    memset(server, 0, sizeof(*server));
+    server->descriptor = -1;
+    server->password = "shadowtls-native-secret";
+    server->context = protocol_test_tls_context();
+    if (server->context == NULL || SSL_CTX_set_min_proto_version(
+            server->context, TLS1_3_VERSION) != 1 ||
+        SSL_CTX_set_max_proto_version(server->context, TLS1_3_VERSION) != 1) {
+        return 0;
+    }
+    server->descriptor = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    if (server->descriptor < 0) return 0;
+    struct sockaddr_in address = {
+        .sin_family = AF_INET,
+        .sin_port = 0,
+        .sin_addr = {.s_addr = htonl(INADDR_LOOPBACK)}
+    };
+    if (bind(server->descriptor, (struct sockaddr *)&address,
+             (socklen_t)sizeof(address)) != 0 ||
+        listen(server->descriptor, 1) != 0) return 0;
+    socklen_t length = (socklen_t)sizeof(address);
+    if (getsockname(server->descriptor, (struct sockaddr *)&address,
+                    &length) != 0) return 0;
+    server->port = ntohs(address.sin_port);
+    return pthread_create(&server->thread, NULL,
+                          protocol_test_stls_server_main, server) == 0;
+}
+
+static void protocol_test_stls_server_stop(protocol_stls_server *server) {
+    (void)pthread_join(server->thread, NULL);
+    if (server->descriptor >= 0) (void)close(server->descriptor);
+    SSL_CTX_free(server->context);
+}
+
+static void protocol_test_shadowtls_stream(void) {
+    protocol_stls_server server;
+    CH_TEST_ASSERT(protocol_test_stls_server_start(&server));
+    char document[1200];
+    (void)snprintf(
+        document, sizeof(document),
+        "active = \"local\"\n"
+        "[[profile]]\nname = \"local\"\n"
+        "[[profile.chain]]\nname = \"shadowtls\"\n"
+        "[[profile.chain.server]]\n"
+        "address = \"127.0.0.1:%u\"\nprotocol = \"shadowtls\"\n"
+        "[profile.chain.server.settings]\n"
+        "password = \"shadowtls-native-secret\"\nversion = 3\n"
+        "sni = \"handshake.invalid\"\nskip_cert_verify = true\n",
+        (unsigned int)server.port);
+    ch_error error;
+    ch_config *config = NULL;
+    CH_TEST_ASSERT(ch_config_parse(document, NULL, &config, &error) == CH_OK);
+    const ch_config_table *profile = ch_config_active_profile(config);
+    const ch_config_array *chains = ch_config_table_get_array(profile, "chain");
+    const ch_config_table *chain = ch_config_array_get_table(chains, 0U);
+    const ch_config_array *servers = ch_config_table_get_array(chain, "server");
+    const ch_config_table *server_table = ch_config_array_get_table(servers, 0U);
+    int stream = -1;
+    CH_TEST_ASSERT(ch_protocol_shadowtls_dial(
+        server_table, -1, &stream, &error) == CH_OK);
+    static const char payload[] = "native-shadowtls-v3-echo";
+    char echoed[sizeof(payload)];
+    CH_TEST_ASSERT(protocol_test_send_all(stream, payload, sizeof(payload)));
+    CH_TEST_ASSERT(protocol_test_receive_exact(stream, echoed, sizeof(echoed)));
+    CH_TEST_ASSERT(memcmp(payload, echoed, sizeof(payload)) == 0);
+    (void)shutdown(stream, SHUT_RDWR);
+    (void)close(stream);
+    protocol_test_stls_server_stop(&server);
+    CH_TEST_ASSERT(server.success == 1);
+    ch_config_free(config);
+}
+
 static void protocol_test_shadowsocks_kdf(void) {
     ch_error error;
     uint8_t master[16];
@@ -1171,6 +1578,67 @@ static void protocol_test_vmess_vectors(void) {
                               address_length) == 0);
         free(address);
     }
+}
+
+static void protocol_test_shadowtls_vectors(void) {
+    uint8_t hello[74] = {0x01U,0U,0U,0U,0x03U,0x03U};
+    for (size_t index = 0U; index < 32U; ++index) {
+        hello[6U + index] = (uint8_t)index;
+    }
+    hello[38] = 32U;
+    hello[71] = 0xaaU;
+    hello[72] = 0xbbU;
+    hello[73] = 0xccU;
+    uint8_t signature[4];
+    ch_error error;
+    static const uint8_t expected[] = {0x41U,0x63U,0x94U,0x46U};
+    CH_TEST_ASSERT(ch_shadowtls_signature(
+        "hunter2", hello, sizeof(hello), signature, &error) == CH_OK);
+    CH_TEST_ASSERT(memcmp(signature, expected, sizeof(expected)) == 0);
+    memcpy(hello + 67U, signature, sizeof(signature));
+    CH_TEST_ASSERT(ch_shadowtls_signature(
+        "hunter2", hello, sizeof(hello), signature, &error) == CH_OK);
+    CH_TEST_ASSERT(memcmp(signature, expected, sizeof(expected)) == 0);
+
+    uint8_t server_hello[52] = {
+        0x02U,0U,0U,0U,0x03U,0x03U
+    };
+    server_hello[38] = 0U;
+    server_hello[39] = 0x13U;
+    server_hello[40] = 0x01U;
+    server_hello[41] = 0U;
+    server_hello[42] = 0U;
+    server_hello[43] = 6U;
+    server_hello[44] = 0U;
+    server_hello[45] = 43U;
+    server_hello[46] = 0U;
+    server_hello[47] = 2U;
+    server_hello[48] = 0x03U;
+    server_hello[49] = 0x04U;
+    CH_TEST_ASSERT(ch_shadowtls_server_hello_tls13(server_hello, 50U));
+    server_hello[49] = 0x03U;
+    CH_TEST_ASSERT(!ch_shadowtls_server_hello_tls13(server_hello, 50U));
+
+    static const char invalid_chain[] =
+        "active = \"local\"\n"
+        "[[profile]]\nname = \"local\"\n"
+        "[[profile.chain]]\nname = \"invalid\"\n"
+        "[[profile.chain.server]]\n"
+        "address = \"127.0.0.1:1\"\nprotocol = \"shadowtls\"\n"
+        "[profile.chain.server.settings]\n"
+        "password = \"secret\"\nsni = \"localhost\"\n"
+        "skip_cert_verify = true\n";
+    ch_config *config = NULL;
+    CH_TEST_ASSERT(ch_config_parse(invalid_chain, NULL, &config,
+                                   &error) == CH_OK);
+    const ch_config_table *profile = ch_config_active_profile(config);
+    const ch_config_array *chains = ch_config_table_get_array(profile, "chain");
+    const ch_config_table *chain = ch_config_array_get_table(chains, 0U);
+    int stream = -1;
+    CH_TEST_ASSERT(ch_protocol_chain_dial(
+        chain, "tcp", "example.com:443", &stream,
+        &error) == CH_ERROR_INVALID_ARGUMENT);
+    ch_config_free(config);
 }
 
 static void protocol_test_vmess_frames(void) {
@@ -1526,4 +1994,6 @@ void ch_test_protocol(void) {
     protocol_test_vmess_vectors();
     protocol_test_vmess_frames();
     protocol_test_vmess_streams();
+    protocol_test_shadowtls_vectors();
+    protocol_test_shadowtls_stream();
 }

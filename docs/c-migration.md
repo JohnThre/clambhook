@@ -71,7 +71,8 @@ tests pass their parity gates.
 
 The listener data plane currently completes direct-rule routes, single-hop test
 chains whose protocol is `direct`, and TCP chains containing `trojan`,
-wire-compatible `clambback`, `shadowsocks`, `tor`, and `vmess` hops. The C Trojan implementation
+wire-compatible `clambback`, `shadowsocks`, `shadowtls`, `tor`, and `vmess`
+hops. The C Trojan implementation
 matches the legacy SHA-224 password header and SOCKS address encoding, requires
 TLS 1.2 or newer, supports SNI and ALPN, verifies certificates by default, and
 honors the existing `skip_cert_verify` escape hatch. The C Shadowsocks
@@ -93,15 +94,26 @@ fixtures and local fake-server transcripts validate both cipher methods under
 ASan/UBSan. Legacy VMESS authentication and non-TCP transports remain out of
 scope, matching the existing documented compatibility boundary.
 
-ShadowTLS, WireGuard, OpenVPN, protocol UDP modes (including VMESS UDP), UDP
-ASSOCIATE, TUN, DNS, prompts, traffic persistence, and developer inspection
-remain cutover blockers; unsupported chain protocols fail closed.
+The native ShadowTLS row implements strict v3 as a non-final carrier hop. It
+uses a CSPRNG-seeded deterministic replay stream inside a private OpenSSL 3
+library context to place the required HMAC-SHA1 signature in the TLS 1.3
+ClientHello session id without modifying process-global randomness. It then
+authenticates and restores the server's rewritten handshake records before
+switching to chained four-byte-HMAC data frames. Certificate verification is
+enabled by default; SNI, ALPN, and the existing explicit verification escape
+hatch are preserved. A real TLS 1.3 relay test validates the complete handshake
+and echo path under ASan/UBSan, and final-hop ShadowTLS configurations fail
+closed because an addressed inner protocol is required.
+
+WireGuard, OpenVPN, protocol UDP modes (including VMESS UDP), UDP ASSOCIATE,
+TUN, DNS, prompts, traffic persistence, and developer inspection remain cutover
+blockers; unsupported chain protocols fail closed.
 
 ## Build and test
 
 The native host build requires CMake, Ninja, pkg-config, libuv, libsodium,
-OpenSSL, libcurl, and llhttp. The optional Linux client additionally requires
-GTK 4, libsoup 3, and json-glib.
+OpenSSL 3.0 or newer, libcurl, and llhttp. The optional Linux client
+additionally requires GTK 4, libsoup 3, and json-glib.
 
 ```sh
 make build-native
@@ -148,8 +160,8 @@ Cutover is allowed only after all of the following are green:
 2. Differential fixtures match the legacy implementation for config, rules,
    API JSON/status codes, events, license behavior, and each protocol wire
    transcript. Trojan/clambback, Shadowsocks TCP, Tor SOCKS5/nested-stream, and
-   VMESS-AEAD TCP fixtures are green; the remaining protocol rows are still
-   open.
+   VMESS-AEAD TCP, and ShadowTLS v3 fixtures are green; the remaining protocol
+   rows are still open.
 3. Listener and protocol integration tests cover TCP, UDP, cancellation,
    reload rollback, concurrency limits, and TUN lifecycle.
 4. GTK functional/accessibility QA matches the current Linux feature set.

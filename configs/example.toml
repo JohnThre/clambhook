@@ -149,11 +149,12 @@ name = "local"
   #       # alpn = ["h2", "http/1.1"]
   #       # skip_cert_verify = false
 
-  # Example ShadowTLS (v3) chain. ShadowTLS is a transport-obfuscation layer,
-  # not an addressed proxy: it performs a genuine TLS 1.3 handshake to a real
-  # handshake server (given by sni) and carries an inner protocol on top. Use it
-  # as an entry hop in front of a proxy hop (shadowsocks below) that carries the
-  # real destination. Only v3 (strict TLS 1.3) is supported.
+  # Example ShadowTLS (v3) chain, supported by both the legacy oracle and native
+  # C runtime. ShadowTLS is a transport-obfuscation layer, not an addressed
+  # proxy: it performs a genuine TLS 1.3 handshake to a real handshake server
+  # (given by sni) and carries an inner protocol on top. Use it as an entry hop
+  # in front of a proxy hop (shadowsocks below) that carries the real
+  # destination. Only v3 (strict TLS 1.3) is supported.
   #   [[profile.chain]]
   #   name = "shadowtls-example"
   #

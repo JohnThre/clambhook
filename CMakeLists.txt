@@ -22,7 +22,7 @@ find_package(Threads REQUIRED)
 pkg_check_modules(LIBUV REQUIRED IMPORTED_TARGET libuv)
 pkg_check_modules(LIBSODIUM REQUIRED IMPORTED_TARGET libsodium)
 pkg_check_modules(LLHTTP REQUIRED IMPORTED_TARGET libllhttp)
-pkg_check_modules(OPENSSL REQUIRED IMPORTED_TARGET openssl)
+pkg_check_modules(OPENSSL REQUIRED IMPORTED_TARGET openssl>=3.0)
 pkg_check_modules(CURL REQUIRED IMPORTED_TARGET libcurl)
 
 # Pinned, unmodified C99 TOML parser. Keep third-party warnings separate from
@@ -47,6 +47,7 @@ add_library(clambhook_core STATIC
   native/src/license_json.c
   native/src/listener.c
   native/src/protocol.c
+  native/src/protocol_shadowtls.c
   native/src/protocol_shadowsocks.c
   native/src/protocol_tor.c
   native/src/protocol_vmess.c

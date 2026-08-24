@@ -23,6 +23,7 @@
 #include "cnet.h"
 #include "internal.h"
 #include "protocol_internal.h"
+#include "protocol_shadowtls.h"
 #include "protocol_shadowsocks.h"
 #include "protocol_tor.h"
 #include "protocol_vmess.h"
@@ -789,6 +790,18 @@ ch_status ch_protocol_chain_dial(const ch_config_table *chain,
             status = ch_protocol_shadowsocks_dial(
                 server, descriptor, hop_target, &tunneled, error);
             descriptor = status == CH_OK ? tunneled : -1;
+        } else if (strcasecmp(protocol, "shadowtls") == 0) {
+            if (index + 1U == count) {
+                ch_protocol_close(&descriptor);
+                ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
+                             "shadowtls must be followed by an addressed protocol");
+                status = CH_ERROR_INVALID_ARGUMENT;
+            } else {
+                int tunneled = -1;
+                status = ch_protocol_shadowtls_dial(
+                    server, descriptor, &tunneled, error);
+                descriptor = status == CH_OK ? tunneled : -1;
+            }
         } else if (strcasecmp(protocol, "tor") == 0) {
             int tunneled = -1;
             status = ch_protocol_tor_dial(server, descriptor, hop_target,
