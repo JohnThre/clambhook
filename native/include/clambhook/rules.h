@@ -75,6 +75,7 @@ typedef struct ch_rule_decision {
 } ch_rule_decision;
 
 typedef struct ch_rule_engine ch_rule_engine;
+struct ch_config;
 
 ch_rule_engine *ch_rule_engine_compile(
     const ch_rule_spec *rules,
@@ -84,6 +85,22 @@ ch_rule_engine *ch_rule_engine_compile(
     ch_string_list known_groups,
     const ch_rule_set_spec *known_rule_sets,
     size_t known_rule_set_count,
+    ch_error *error
+);
+
+/* Compiles the selected validated TOML profile into the native rule engine. */
+ch_rule_engine *ch_rule_engine_compile_config(
+    const struct ch_config *config,
+    const char *profile_name,
+    ch_error *error
+);
+
+/* Returns the frozen route-explanation JSON contract for one match context. */
+ch_status ch_rule_explain_config_json(
+    const struct ch_config *config,
+    const char *profile_name,
+    const ch_rule_match_context *context,
+    char **out_json,
     ch_error *error
 );
 

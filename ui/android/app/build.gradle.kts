@@ -27,6 +27,11 @@ android {
         versionCode = 3
         versionName = "1.0.2"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        externalNativeBuild {
+            cmake {
+                arguments += "-DANDROID_STL=none"
+            }
+        }
         if (!managedDeviceTestAbi.isNullOrBlank()) {
             // Managed devices in this matrix are arm64. Filtering only when
             // the explicit QA property is present keeps the large transitional
@@ -35,6 +40,13 @@ android {
             ndk {
                 abiFilters += managedDeviceTestAbi
             }
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+            version = "3.22.1"
         }
     }
 

@@ -7,8 +7,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
-#include <uv.h>
+#include <time.h>
 
 #include "internal.h"
 
@@ -761,6 +760,12 @@ static int ch_decision_copy(char **destination, const char *source) {
     return *destination != NULL;
 }
 
+static uint64_t ch_monotonic_nanoseconds(void) {
+    struct timespec value;
+    if (clock_gettime(CLOCK_MONOTONIC, &value) != 0) return 0U;
+    return (uint64_t)value.tv_sec * UINT64_C(1000000000) + (uint64_t)value.tv_nsec;
+}
+
 void ch_rule_decision_clear(ch_rule_decision *decision) {
     if (decision == NULL) return;
     free(decision->rule_name); free(decision->action); free(decision->chain_name);
@@ -782,7 +787,7 @@ ch_status ch_rule_engine_decide(
         return CH_ERROR_INVALID_ARGUMENT;
     }
     memset(decision, 0, sizeof(*decision));
-    uint64_t started = uv_hrtime();
+    uint64_t started = ch_monotonic_nanoseconds();
     char *host = NULL, *port = NULL;
     char *network = ch_trimmed_lower(context->network, 0);
     ch_split_target(context->target, &host, &port);
@@ -827,7 +832,8 @@ ch_status ch_rule_engine_decide(
     }
     decision->rule_number = number;
     decision->is_default = selected == NULL;
-    uint64_t elapsed = uv_hrtime() - started;
+    uint64_t finished = ch_monotonic_nanoseconds();
+    uint64_t elapsed = finished >= started ? finished - started : 0U;
     decision->elapsed_ns = elapsed > (uint64_t)INT64_MAX ? INT64_MAX : (long long)elapsed;
     return CH_OK;
 }

@@ -1,5 +1,9 @@
 #include "test.h"
 
+#include <stdlib.h>
+#include <string.h>
+
+#include "clambhook/config.h"
 #include "clambhook/rules.h"
 
 static const char *known_chains[] = {"default", "corp"};
@@ -106,4 +110,49 @@ void ch_test_rules(void) {
         (ch_string_list){0}, NULL, 0U, &error
     ) == NULL);
     CH_TEST_ASSERT(error.code == CH_ERROR_NOT_FOUND);
+
+    {
+        static const char config_toml[] =
+            "active = \"work\"\n"
+            "[[profile]]\nname = \"work\"\n"
+            "[[profile.chain]]\nname = \"default\"\n"
+            "[[profile.chain.server]]\nname = \"direct\"\nprotocol = \"direct\"\n"
+            "[[profile.chain]]\nname = \"backup\"\n"
+            "[[profile.chain.server]]\nname = \"backup-direct\"\nprotocol = \"direct\"\n"
+            "[[profile.policy_group]]\nname = \"manual\"\ntype = \"select\"\n"
+            "chains = [\"default\", \"backup\"]\nselected = \"backup\"\n"
+            "[[profile.rule_set]]\nname = \"tracking\"\n"
+            "domain_suffixes = [\"track.example\"]\n"
+            "[[profile.rule]]\nname = \"block-trackers\"\naction = \"block\"\n"
+            "rule_sets = [\"tracking\"]\nnetworks = [\"tcp\"]\n"
+            "[[profile.rule]]\nname = \"manual-web\"\naction = \"group:manual\"\n"
+            "ports = [443]\n";
+        ch_config *config = NULL;
+        CH_TEST_ASSERT(ch_config_parse(config_toml, NULL, &config, &error) == CH_OK);
+        engine = ch_rule_engine_compile_config(config, "work", &error);
+        CH_TEST_ASSERT(engine != NULL);
+        context = (ch_rule_match_context){
+            .network = "tcp", .target = "cdn.track.example:443", .source = ""
+        };
+        CH_TEST_ASSERT(ch_rule_engine_decide(engine, &context, &decision, &error) == CH_OK);
+        CH_TEST_ASSERT_STRING("block-trackers", decision.rule_name);
+        CH_TEST_ASSERT_STRING("block", decision.action);
+        ch_rule_decision_clear(&decision);
+        ch_rule_engine_destroy(engine);
+
+        char *explanation = NULL;
+        context.target = "example.org:443";
+        CH_TEST_ASSERT(ch_rule_explain_config_json(
+            config, "work", &context, &explanation, &error
+        ) == CH_OK);
+        CH_TEST_ASSERT(strstr(explanation, "\"profile\":\"work\"") != NULL);
+        CH_TEST_ASSERT(strstr(explanation, "\"rule_name\":\"manual-web\"") != NULL);
+        CH_TEST_ASSERT(strstr(explanation, "\"group_name\":\"manual\"") != NULL);
+        CH_TEST_ASSERT(strstr(explanation, "\"chain_name\":\"backup\"") != NULL);
+        CH_TEST_ASSERT(strstr(explanation, "\"hop_count\":1") != NULL);
+        free(explanation);
+        CH_TEST_ASSERT(ch_rule_engine_compile_config(config, "missing", &error) == NULL);
+        CH_TEST_ASSERT(error.code == CH_ERROR_NOT_FOUND);
+        ch_config_free(config);
+    }
 }

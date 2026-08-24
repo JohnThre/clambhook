@@ -27,4 +27,27 @@ struct ch_json_value;
 int ch_json_append_value(ch_json_buffer *buffer, const struct ch_json_value *value);
 char *ch_json_take(ch_json_buffer *buffer);
 
+struct ch_config;
+char *ch_config_collection_payload_json(const struct ch_config *config,
+                                        const char *fallback_profile,
+                                        const char *config_key,
+                                        const char *payload_key,
+                                        int include_rule_fields,
+                                        int include_statuses,
+                                        ch_error *error);
+char *ch_config_servers_payload_json(const struct ch_config *config,
+                                     const char *fallback_profile,
+                                     ch_error *error);
+char *ch_config_profile_payload_json(const struct ch_config *config,
+                                     const char *profile_name,
+                                     ch_error *error);
+int ch_config_has_profile(const struct ch_config *config, const char *name);
+char *ch_json_request_string(const char *request_json, const char *key,
+                             ch_error *error);
+ch_status ch_rule_explain_request_json(const struct ch_config *config,
+                                       const char *fallback_profile,
+                                       const char *request_json,
+                                       char **out_json,
+                                       ch_error *error);
+
 #endif

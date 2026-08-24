@@ -195,6 +195,7 @@ authorized parties, not a general contribution or redistribution grant.
 | `make build-native` | Builds the additive C17 runtime, daemon, helper, and native tests. |
 | `make test-native` | Runs sanitizer-backed C tests and license differential parity. |
 | `make build-linux-gtk` | Builds the additive C/GTK 4 GNU/Linux client. |
+| `make build-android-native` | Builds the C/JNI runtime for the Android NDK ABIs. |
 | `make test-android-compatibility` | Runs Compose instrumentation on managed API 30/33/36 devices. |
 | `make lint` | Runs `go vet ./...` (and `staticcheck` when installed). |
 | `make clean` | Removes `bin/` and build artifacts. |
@@ -232,9 +233,9 @@ for Android development: SDK/NDK provisioning, emulator management, and
 build-deploy-launch on a device or Android SDK Emulator (AVD) (`android run`, or `make run-android`).
 Gradle is still used for unit tests (`make test-android`), lint
 (`make lint-android`), and release assembly (`make build-android-release`)
-because the `android` CLI has no equivalent commands. The current gomobile AAR
-remains the rollback runtime while the Kotlin `NativeClambhookBridge` JNI path
-advances through parity. See
+because the `android` CLI has no equivalent commands. Gradle now packages the
+NDK-built C/JNI library; the current gomobile AAR remains the selected rollback
+runtime while `NativeClambhookBridge` advances through parity. See
 [`docs/android-development.md`](docs/android-development.md) for the full guide.
 
 ## Repository layout

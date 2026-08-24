@@ -78,14 +78,17 @@ details. For a release, `make release-linux` builds the
 ## Android lane — local
 
 Android validates on the developer's machine. The GUI is Kotlin/Jetpack Compose
-with an Android 11 (API 30) floor. During runtime migration the embedded daemon
-AAR is still built with gomobile; unit tests, lint, and the debug build run on Gradle; Google's
+with an Android 11 (API 30) floor. During runtime migration Gradle packages the
+NDK-built C/JNI runtime alongside the gomobile rollback AAR. The focused native
+configuration/dashboard/route-explanation test must pass on API 30; unit tests,
+lint, and the debug build run on Gradle; Google's
 `android` CLI is the default for the on-device dev loop, using an Android SDK
 Emulator (AVD) for local CI/CD (Apple `container` is Linux-only and cannot run
 Android).
 
 ```sh
 make build-android-mobile-aar                # gomobile bind → ui/android/app/libs/
+make build-android-native                    # NDK JNI library, all packaged ABIs
 make test-android                            # ./gradlew :app:testDebugUnitTest
 make lint-android                            # ./gradlew :app:lintDebug
 make build-android                           # ./gradlew :app:assembleDebug

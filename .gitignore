@@ -14,6 +14,7 @@ ui/apple/Frameworks/*.xcframework/
 ui/android/.gradle/
 ui/android/build/
 ui/android/app/build/
+ui/android/app/.cxx/
 ui/android/local.properties
 ui/android/**/*.aar
 ui/android/**/*.apk

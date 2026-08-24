@@ -7,6 +7,7 @@
 
 #include <uv.h>
 
+#include "clambhook/config.h"
 #include "internal.h"
 
 typedef enum ch_command_kind {
@@ -42,6 +43,7 @@ struct ch_runtime {
     ch_command *queue_head;
     ch_command *queue_tail;
     atomic_bool running;
+    ch_config *config;
     char *config_path;
     char *active_profile;
     ch_runtime_options options;
@@ -72,9 +74,32 @@ static char *ch_runtime_status_json(ch_runtime *runtime) {
 static char *ch_runtime_profiles_json(ch_runtime *runtime) {
     ch_json_buffer json;
     ch_json_init(&json);
-    if (!ch_json_append(&json, "{\"profiles\":[") ||
-        !ch_json_append_string(&json, runtime->active_profile) ||
-        !ch_json_append(&json, "],\"active\":") ||
+    if (!ch_json_append(&json, "{\"profiles\":[")) {
+        ch_json_dispose(&json);
+        return NULL;
+    }
+    if (runtime->config == NULL) {
+        if (!ch_json_append_string(&json, runtime->active_profile)) {
+            ch_json_dispose(&json);
+            return NULL;
+        }
+    } else {
+        size_t count = ch_config_profile_count(runtime->config);
+        for (size_t index = 0U; index < count; ++index) {
+            const ch_config_table *profile = ch_config_profile_at(runtime->config, index);
+            char *name = NULL;
+            ch_error error;
+            if ((index > 0U && !ch_json_append(&json, ",")) ||
+                ch_config_table_get_string(profile, "name", &name, &error) != CH_OK ||
+                !ch_json_append_string(&json, name)) {
+                free(name);
+                ch_json_dispose(&json);
+                return NULL;
+            }
+            free(name);
+        }
+    }
+    if (!ch_json_append(&json, "],\"active\":") ||
         !ch_json_append_string(&json, runtime->active_profile) ||
         !ch_json_append(&json, "}")) {
         ch_json_dispose(&json);
@@ -88,6 +113,56 @@ static void ch_command_fail(ch_command *command, ch_status status, const char *m
     ch_error_set(&command->error, status, "%s", message);
 }
 
+static bool ch_runtime_apply_config(ch_runtime *runtime, ch_command *command,
+                                    const char *path) {
+    ch_config *next_config = NULL;
+    char *next_path;
+    char *next_profile;
+    if (path == NULL) {
+        path = "";
+    }
+    next_path = ch_strdup(path);
+    if (next_path == NULL) {
+        ch_command_fail(command, CH_ERROR_OUT_OF_MEMORY, "copy config path");
+        return false;
+    }
+    if (path[0] != '\0') {
+        ch_error config_error;
+        ch_status status = ch_config_load(path, &next_config, &config_error);
+        if (status != CH_OK) {
+            free(next_path);
+            command->status = status;
+            command->error = config_error;
+            return false;
+        }
+        {
+            const ch_config_table *profile = ch_config_active_profile(next_config);
+            ch_error name_error;
+            if (profile == NULL ||
+                ch_config_table_get_string(profile, "name", &next_profile, &name_error) != CH_OK) {
+                ch_config_free(next_config);
+                free(next_path);
+                ch_command_fail(command, CH_ERROR_PARSE, "active profile has no name");
+                return false;
+            }
+        }
+    } else {
+        next_profile = ch_strdup("default");
+        if (next_profile == NULL) {
+            free(next_path);
+            ch_command_fail(command, CH_ERROR_OUT_OF_MEMORY, "copy default profile");
+            return false;
+        }
+    }
+    ch_config_free(runtime->config);
+    free(runtime->config_path);
+    free(runtime->active_profile);
+    runtime->config = next_config;
+    runtime->config_path = next_path;
+    runtime->active_profile = next_profile;
+    return true;
+}
+
 static void ch_command_process(ch_runtime *runtime, ch_command *command) {
     command->status = CH_OK;
     ch_error_clear(&command->error);
@@ -98,10 +173,7 @@ static void ch_command_process(ch_runtime *runtime, ch_command *command) {
                 ch_command_fail(command, CH_ERROR_INVALID_STATE, "engine already running");
                 break;
             }
-            free(runtime->config_path);
-            runtime->config_path = ch_strdup(command->payload == NULL ? "" : command->payload);
-            if (runtime->config_path == NULL) {
-                ch_command_fail(command, CH_ERROR_OUT_OF_MEMORY, "copy config path");
+            if (!ch_runtime_apply_config(runtime, command, command->payload)) {
                 break;
             }
             atomic_store_explicit(&runtime->running, true, memory_order_release);
@@ -114,13 +186,7 @@ static void ch_command_process(ch_runtime *runtime, ch_command *command) {
             break;
 
         case CH_COMMAND_RELOAD: {
-            char *next = ch_strdup(command->payload == NULL ? "" : command->payload);
-            if (next == NULL) {
-                ch_command_fail(command, CH_ERROR_OUT_OF_MEMORY, "copy config path");
-                break;
-            }
-            free(runtime->config_path);
-            runtime->config_path = next;
+            (void)ch_runtime_apply_config(runtime, command, command->payload);
             break;
         }
 
@@ -141,12 +207,44 @@ static void ch_command_process(ch_runtime *runtime, ch_command *command) {
                 command->response = ch_runtime_status_json(runtime);
             } else if (strcmp(command->operation, "profiles") == 0) {
                 command->response = ch_runtime_profiles_json(runtime);
+            } else if (strcmp(command->operation, "servers") == 0) {
+                command->response = ch_config_servers_payload_json(
+                    runtime->config, runtime->active_profile, &command->error
+                );
+            } else if (strcmp(command->operation, "rules") == 0) {
+                command->response = ch_config_collection_payload_json(
+                    runtime->config, runtime->active_profile, "rule", "rules", 1, 0,
+                    &command->error
+                );
+            } else if (strcmp(command->operation, "policy_groups") == 0) {
+                command->response = ch_config_collection_payload_json(
+                    runtime->config, runtime->active_profile, "policy_group", "groups", 0, 0,
+                    &command->error
+                );
+            } else if (strcmp(command->operation, "rule_sets") == 0) {
+                command->response = ch_config_collection_payload_json(
+                    runtime->config, runtime->active_profile, "rule_set", "rule_sets", 0, 1,
+                    &command->error
+                );
+            } else if (strcmp(command->operation, "config") == 0) {
+                command->response = ch_config_profile_payload_json(
+                    runtime->config, runtime->active_profile, &command->error
+                );
+            } else if (strcmp(command->operation, "test_rule") == 0) {
+                command->status = ch_rule_explain_request_json(
+                    runtime->config, runtime->active_profile, command->payload,
+                    &command->response, &command->error
+                );
             } else {
                 ch_command_fail(command, CH_ERROR_UNSUPPORTED, "unknown runtime query operation");
                 break;
             }
-            if (command->response == NULL) {
-                ch_command_fail(command, CH_ERROR_OUT_OF_MEMORY, "encode query response");
+            if (command->response == NULL && command->status == CH_OK) {
+                if (command->error.code == CH_OK) {
+                    ch_command_fail(command, CH_ERROR_OUT_OF_MEMORY, "encode query response");
+                } else {
+                    command->status = command->error.code;
+                }
             }
             break;
 
@@ -160,6 +258,22 @@ static void ch_command_process(ch_runtime *runtime, ch_command *command) {
                 command->response = ch_runtime_status_json(runtime);
             } else if (strcmp(command->operation, "disconnect") == 0) {
                 atomic_store_explicit(&runtime->running, false, memory_order_release);
+                command->response = ch_runtime_status_json(runtime);
+            } else if (strcmp(command->operation, "set_active_profile") == 0) {
+                char *name = ch_json_request_string(command->payload, "name", &command->error);
+                if (name == NULL) {
+                    command->status = command->error.code;
+                    break;
+                }
+                if (runtime->config == NULL || !ch_config_has_profile(runtime->config, name)) {
+                    ch_error_set(&command->error, CH_ERROR_NOT_FOUND,
+                                 "profile %s not found", name);
+                    command->status = CH_ERROR_NOT_FOUND;
+                    free(name);
+                    break;
+                }
+                free(runtime->active_profile);
+                runtime->active_profile = name;
                 command->response = ch_runtime_status_json(runtime);
             } else {
                 ch_command_fail(command, CH_ERROR_UNSUPPORTED, "unknown runtime mutation operation");
@@ -361,6 +475,7 @@ void ch_runtime_destroy(ch_runtime *runtime) {
     uv_mutex_destroy(&runtime->queue_mutex);
     (void)uv_loop_close(&runtime->loop);
     free(runtime->config_path);
+    ch_config_free(runtime->config);
     free(runtime->active_profile);
     free(runtime);
 }

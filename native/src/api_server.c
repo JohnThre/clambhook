@@ -275,7 +275,8 @@ static void ch_api_runtime_error(ch_api_client *client, ch_status status, const 
         ch_api_respond(client, 500, NULL, "internal error\n");
         return;
     }
-    int http_status = status == CH_ERROR_INVALID_ARGUMENT || status == CH_ERROR_INVALID_STATE ? 400 : 500;
+    int http_status = status == CH_ERROR_NOT_FOUND ? 404 :
+        (status == CH_ERROR_INVALID_ARGUMENT || status == CH_ERROR_INVALID_STATE ? 400 : 500);
     ch_api_respond(client, http_status, "application/json", body);
     free(body);
 }
@@ -304,12 +305,27 @@ static void ch_api_route(ch_api_client *client) {
         status = ch_runtime_query(client->server->runtime, "status", "{}", &json, &error);
     } else if (strcmp(method, "GET") == 0 && strcmp(path, "/api/v1/profiles") == 0) {
         status = ch_runtime_query(client->server->runtime, "profiles", "{}", &json, &error);
+    } else if (strcmp(method, "GET") == 0 && strcmp(path, "/api/v1/servers") == 0) {
+        status = ch_runtime_query(client->server->runtime, "servers", "{}", &json, &error);
+    } else if (strcmp(method, "GET") == 0 && strcmp(path, "/api/v1/rules") == 0) {
+        status = ch_runtime_query(client->server->runtime, "rules", "{}", &json, &error);
+    } else if (strcmp(method, "GET") == 0 && strcmp(path, "/api/v1/policy-groups") == 0) {
+        status = ch_runtime_query(client->server->runtime, "policy_groups", "{}", &json, &error);
+    } else if (strcmp(method, "GET") == 0 && strcmp(path, "/api/v1/rule-sets") == 0) {
+        status = ch_runtime_query(client->server->runtime, "rule_sets", "{}", &json, &error);
+    } else if (strcmp(method, "POST") == 0 && strcmp(path, "/api/v1/rules/test") == 0) {
+        status = ch_runtime_query(client->server->runtime, "test_rule",
+                                  client->body.data == NULL ? "{}" : client->body.data,
+                                  &json, &error);
     } else if (strcmp(method, "POST") == 0 && strcmp(path, "/api/v1/connect") == 0) {
         status = ch_runtime_mutate(client->server->runtime, "connect", client->body.data, &json, &error);
     } else if (strcmp(method, "POST") == 0 && strcmp(path, "/api/v1/disconnect") == 0) {
         status = ch_runtime_mutate(client->server->runtime, "disconnect", client->body.data, &json, &error);
     } else {
         int known = strcmp(path, "/api/v1/status") == 0 || strcmp(path, "/api/v1/profiles") == 0 ||
+            strcmp(path, "/api/v1/servers") == 0 || strcmp(path, "/api/v1/rules") == 0 ||
+            strcmp(path, "/api/v1/policy-groups") == 0 || strcmp(path, "/api/v1/rule-sets") == 0 ||
+            strcmp(path, "/api/v1/rules/test") == 0 ||
             strcmp(path, "/api/v1/connect") == 0 || strcmp(path, "/api/v1/disconnect") == 0;
         ch_api_respond(client, known ? 405 : 404, NULL, known ? "method not allowed\n" : "not found\n");
         free(path);

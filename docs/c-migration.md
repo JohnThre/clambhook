@@ -36,20 +36,26 @@ implementation that is merely similar is not sufficient for cutover.
 
 The additive CMake build currently provides:
 
-- `clambhook_core`: a C17 ABI with a serialized libuv runtime thread, JSON
-  parser, bounded event replay ring, SOCKS address codec, and compiled routing
-  rule matcher;
+- `clambhook_core`: a C17 ABI with a serialized libuv runtime thread, a pinned
+  TOML 1.0 parser, configuration validation and relative-path handling,
+  atomic writes with bounded backups, debounced validated reloads, JSON
+  parsing/encoding, a bounded event replay ring, SOCKS address codec, and
+  compiled routing rule matcher;
 - `clambhook_crypto`: the existing C crypto surface, now covering AES-128-GCM,
   AES-256-GCM, ChaCha20-Poly1305, SHA-224, and random bytes through C
   dependencies;
 - `clambhook-license-c`: the complete helper command surface, including local
   evaluation/status/recovery and libcurl activation/device actions;
-- `clambhook-c`: an explicitly guarded migration daemon with a small libuv +
-  llhttp API slice and hardened bearer/Host/Origin checks;
+- `clambhook-c`: an explicitly guarded migration daemon that loads and watches
+  native TOML configuration, honors the active profile's API address, and
+  serves status/profile/server/rule/policy-group/rule-set JSON plus native
+  route explanations through a small libuv + llhttp API with hardened
+  bearer/Host/Origin checks;
 - `clambhook-linux-c`: an additive `GtkApplication` dashboard using GTK 4,
   libsoup 3, and json-glib;
 - `clambhook_jni`: the thin JNI ownership/callback boundary used by the Kotlin
-  bridge during Android cutover;
+  bridge during Android cutover. Gradle now builds and packages it with the NDK
+  for arm64-v8a, armeabi-v7a, x86, and x86_64;
 - sanitizer-backed native unit tests and a byte-for-byte license parity gate
   against the current helper.
 
@@ -68,6 +74,7 @@ GTK 4, libsoup 3, and json-glib.
 make build-native
 make test-native
 make build-linux-gtk
+make build-android-native
 ```
 
 For a direct all-options developer build:
@@ -92,11 +99,13 @@ exercise Compose instrumentation tests at API 30, 33, and 36:
 make test-android-compatibility
 ```
 
-The production runtime stays on the gomobile bridge until the C runtime can be
-built for every packaged ABI and the same runtime/API/VPN tests pass through
-`NativeClambhookBridge`. The JNI class is additive and never loads its library
-unless selected, so Android 11 users retain the proven runtime throughout the
-migration.
+Every Android build now compiles and packages `libclambhook_jni.so`; the
+production tunnel factory still selects the gomobile rollback runtime until
+the remaining runtime/API/VPN operations pass parity. A focused managed-device
+test loads TOML in C and exercises start, stop, status, profiles, server/rule
+payload decoding, profile switching, and compiled-rule route explanations over
+JNI; both focused cases pass on the API 30 floor. API 33/36 remain mandatory
+before cutover.
 
 ## Cutover gates
 

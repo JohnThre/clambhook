@@ -27,11 +27,13 @@ extern int ch_test_failures;
 
 void ch_test_json(void);
 void ch_test_api_server(void);
+void ch_test_config(void);
 void ch_test_crypto(void);
 void ch_test_events(void);
 void ch_test_license(void);
 void ch_test_rules(void);
 void ch_test_runtime(void);
 void ch_test_socks(void);
+void ch_test_watcher(void);
 
 #endif

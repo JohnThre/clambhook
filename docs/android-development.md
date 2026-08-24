@@ -5,8 +5,8 @@ for ClambHook Android development. It manages the SDK and emulators and builds,
 deploys, and launches the app on a device or emulator. Gradle is still used for
 unit tests, lint, release assembly, and the API compatibility matrix — the
 `android` CLI has no equivalent commands for those. During the C-runtime
-migration, gomobile continues to generate the shipping rollback AAR while the
-Kotlin `NativeClambhookBridge` JNI path is validated. See
+migration, Gradle builds and packages `libclambhook_jni.so` with the NDK while
+gomobile continues to generate the shipping rollback AAR. See
 [`c-migration.md`](c-migration.md).
 
 Building, running, and testing require prior written permission from Pengfan
@@ -47,8 +47,8 @@ android sdk install "ndk;27.0.12077973"      # mobile native builds need an NDK
 android sdk list --all                        # browse available packages
 ```
 
-> The exact NDK version is whatever `gomobile bind` resolves for your toolchain;
-> install a recent NDK (27.x) if the AAR build in the next step complains.
+The Gradle native build currently resolves NDK `27.0.12077973` and CMake
+`3.22.1`. The rollback AAR has its own gomobile toolchain requirements.
 
 ## Emulators
 
@@ -68,8 +68,14 @@ runtime through a gomobile-built AAR. Build the AAR once (and again whenever
 the legacy runtime or bridge changes), then use the `android` CLI to build,
 deploy, and launch on a connected device or emulator:
 
+The packaged C/JNI façade already covers native configuration, dashboard
+status/profile/server/rule reads, profile selection, and compiled-rule route
+explanations. The production factory remains on the rollback AAR until the
+remaining runtime/API/VPN gates pass.
+
 ```sh
 make build-android-mobile-aar                 # gomobile bind → ui/android/app/libs/
+make build-android-native                     # NDK builds libclambhook_jni.so
 make run-android                              # cd ui/android && android run
 ```
 
@@ -105,12 +111,12 @@ make test-android-compatibility # Compose instrumentation on API 30, 33, and 36
 ```
 
 The managed-device target packages only `arm64-v8a` for the arm64 AOSP
-emulators. This keeps the transitional multi-ABI gomobile APK below emulator
+emulators. This keeps the transitional multi-ABI APK below emulator
 installation timeouts; normal debug and release builds retain their full ABI
 set.
 
 The compatibility target uses Gradle build-managed AOSP Pixel 2 devices named
-`pixel2Api30`, `pixel2Api33`, and `pixel2Api36`. It is the required Android
+`pixel2Api30`, plus Pixel 6 devices named `pixel6Api33` and `pixel6Api36`. It is the required Android
 cutover gate, not a substitute for unit tests or lint.
 
 The release pipeline (`scripts/release-android.sh`) builds the AAR with

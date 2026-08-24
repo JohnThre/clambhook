@@ -24,12 +24,20 @@ pkg_check_modules(LLHTTP REQUIRED IMPORTED_TARGET libllhttp)
 pkg_check_modules(OPENSSL REQUIRED IMPORTED_TARGET openssl)
 pkg_check_modules(CURL REQUIRED IMPORTED_TARGET libcurl)
 
+# Pinned, unmodified C99 TOML parser. Keep third-party warnings separate from
+# the project's strict warning policy; provenance lives beside the source.
+add_library(tomlc99 STATIC third_party/tomlc99/toml.c)
+target_include_directories(tomlc99 PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/third_party/tomlc99)
+target_compile_definitions(tomlc99 PRIVATE _POSIX_C_SOURCE=200809L)
+
 if(CLAMBHOOK_ENABLE_SANITIZERS AND CMAKE_C_COMPILER_ID MATCHES "AppleClang|Clang|GNU")
   add_compile_options(-fno-omit-frame-pointer -fsanitize=address,undefined)
   add_link_options(-fno-omit-frame-pointer -fsanitize=address,undefined)
 endif()
 
 add_library(clambhook_core STATIC
+  native/src/config.c
+  native/src/config_payload.c
   native/src/error.c
   native/src/events.c
   native/src/json.c
@@ -37,8 +45,10 @@ add_library(clambhook_core STATIC
   native/src/license_http.c
   native/src/license_json.c
   native/src/rules.c
+  native/src/rules_config.c
   native/src/runtime.c
   native/src/socks.c
+  native/src/watcher.c
 )
 add_library(Clambhook::Core ALIAS clambhook_core)
 
@@ -60,7 +70,7 @@ target_include_directories(clambhook_core
   PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/native/src
 )
-target_link_libraries(clambhook_core PUBLIC PkgConfig::LIBUV PkgConfig::CURL Clambhook::Crypto)
+target_link_libraries(clambhook_core PUBLIC PkgConfig::LIBUV PkgConfig::CURL Clambhook::Crypto tomlc99)
 target_compile_definitions(clambhook_core PRIVATE _POSIX_C_SOURCE=200809L)
 target_compile_options(clambhook_core PRIVATE
   $<$<C_COMPILER_ID:AppleClang,Clang,GNU>:-Wall;-Wextra;-Wpedantic;-Wconversion;-Wshadow>
@@ -123,6 +133,7 @@ if(CLAMBHOOK_BUILD_TESTS)
   add_executable(clambhook-native-tests
     native/src/api_server.c
     native/tests/test_api_server.c
+    native/tests/test_config.c
     native/tests/test_main.c
     native/tests/test_events.c
     native/tests/test_crypto.c
@@ -131,8 +142,12 @@ if(CLAMBHOOK_BUILD_TESTS)
     native/tests/test_rules.c
     native/tests/test_runtime.c
     native/tests/test_socks.c
+    native/tests/test_watcher.c
   )
   target_include_directories(clambhook-native-tests PRIVATE native/src native/tests)
+  target_compile_definitions(clambhook-native-tests PRIVATE
+    CLAMBHOOK_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
+  )
   target_link_libraries(clambhook-native-tests PRIVATE Clambhook::Core PkgConfig::LLHTTP)
   add_test(NAME native-unit COMMAND clambhook-native-tests)
 endif()
