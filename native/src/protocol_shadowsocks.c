@@ -9,6 +9,7 @@
 #include <pthread.h>
 #include <stdbool.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
@@ -267,6 +268,163 @@ static int ch_ss_decrypt(const ch_ss_cipher *cipher, const uint8_t *key,
                 plaintext);
     }
     return CNET_ERR_INIT;
+}
+
+ch_status ch_ss_encrypt_datagram(const ch_ss_cipher *cipher,
+                                 const uint8_t *master_key,
+                                 const char *target,
+                                 const uint8_t *payload,
+                                 size_t payload_length,
+                                 uint8_t **out_frame,
+                                 size_t *out_frame_length,
+                                 ch_error *error) {
+    ch_error_clear(error);
+    if (cipher == NULL || master_key == NULL || target == NULL ||
+        (payload == NULL && payload_length > 0U) || out_frame == NULL ||
+        out_frame_length == NULL) {
+        ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
+                     "invalid Shadowsocks UDP datagram input");
+        return CH_ERROR_INVALID_ARGUMENT;
+    }
+    *out_frame = NULL;
+    *out_frame_length = 0U;
+    uint8_t *address = NULL;
+    size_t address_length = 0U;
+    ch_status status = ch_socks_encode_address(
+        target, &address, &address_length, error);
+    if (status != CH_OK) return status;
+    if (cipher->salt_size > 65535U || address_length >
+        65535U - cipher->salt_size || CH_SS_TAG_SIZE >
+        65535U - cipher->salt_size - address_length || payload_length >
+        65535U - cipher->salt_size - address_length - CH_SS_TAG_SIZE) {
+        free(address);
+        ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
+                     "Shadowsocks UDP datagram is too large");
+        return CH_ERROR_INVALID_ARGUMENT;
+    }
+    size_t plaintext_length = address_length + payload_length;
+    size_t frame_length = cipher->salt_size + plaintext_length +
+                          CH_SS_TAG_SIZE;
+    uint8_t *frame = malloc(frame_length);
+    uint8_t *plaintext = malloc(plaintext_length == 0U ? 1U :
+                                plaintext_length);
+    if (frame == NULL || plaintext == NULL) {
+        free(frame); free(plaintext); free(address);
+        ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                     "allocate Shadowsocks UDP datagram");
+        return CH_ERROR_OUT_OF_MEMORY;
+    }
+    memcpy(plaintext, address, address_length);
+    if (payload_length > 0U) memcpy(plaintext + address_length, payload,
+                                    payload_length);
+    free(address);
+    uint8_t subkey[32];
+    static const uint8_t info[] = "ss-subkey";
+    if (RAND_bytes(frame, (int)cipher->salt_size) != 1) {
+        status = CH_ERROR_INTERNAL;
+        ch_error_set(error, status,
+                     "generate Shadowsocks UDP salt failed");
+    } else {
+        status = ch_ss_hkdf_sha1(
+            master_key, cipher->key_size, frame, cipher->salt_size, info,
+            sizeof(info) - 1U, subkey, cipher->key_size, error);
+    }
+    uint8_t nonce[CH_SS_NONCE_SIZE] = {0};
+    if (status == CH_OK && ch_ss_encrypt(
+            cipher, subkey, nonce, plaintext, plaintext_length,
+            frame + cipher->salt_size,
+            frame + cipher->salt_size + plaintext_length) != CNET_OK) {
+        status = CH_ERROR_INTERNAL;
+        ch_error_set(error, status,
+                     "encrypt Shadowsocks UDP datagram failed");
+    }
+    free(plaintext);
+    if (status != CH_OK) {
+        free(frame);
+        return status;
+    }
+    *out_frame = frame;
+    *out_frame_length = frame_length;
+    return CH_OK;
+}
+
+ch_status ch_ss_decrypt_datagram(const ch_ss_cipher *cipher,
+                                 const uint8_t *master_key,
+                                 const uint8_t *frame,
+                                 size_t frame_length,
+                                 char **out_source,
+                                 uint8_t **out_payload,
+                                 size_t *out_payload_length,
+                                 ch_error *error) {
+    ch_error_clear(error);
+    if (cipher == NULL || master_key == NULL || frame == NULL ||
+        out_source == NULL || out_payload == NULL ||
+        out_payload_length == NULL || frame_length <
+        cipher->salt_size + CH_SS_TAG_SIZE + 1U) {
+        ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
+                     "invalid encrypted Shadowsocks UDP datagram");
+        return CH_ERROR_INVALID_ARGUMENT;
+    }
+    *out_source = NULL;
+    *out_payload = NULL;
+    *out_payload_length = 0U;
+    size_t plaintext_length = frame_length - cipher->salt_size -
+                              CH_SS_TAG_SIZE;
+    uint8_t *plaintext = malloc(plaintext_length);
+    if (plaintext == NULL) {
+        ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                     "allocate Shadowsocks UDP plaintext");
+        return CH_ERROR_OUT_OF_MEMORY;
+    }
+    uint8_t subkey[32];
+    static const uint8_t info[] = "ss-subkey";
+    ch_status status = ch_ss_hkdf_sha1(
+        master_key, cipher->key_size, frame, cipher->salt_size, info,
+        sizeof(info) - 1U, subkey, cipher->key_size, error);
+    uint8_t nonce[CH_SS_NONCE_SIZE] = {0};
+    if (status != CH_OK || ch_ss_decrypt(
+            cipher, subkey, nonce, frame + cipher->salt_size,
+            plaintext_length, frame + frame_length - CH_SS_TAG_SIZE,
+            plaintext) != CNET_OK) {
+        free(plaintext);
+        ch_error_set(error, CH_ERROR_PARSE,
+                     "authenticate Shadowsocks UDP datagram failed");
+        return CH_ERROR_PARSE;
+    }
+    char *host = NULL;
+    uint16_t port = 0U;
+    size_t consumed = 0U;
+    status = ch_socks_decode_address(plaintext, plaintext_length, &host,
+                                     &port, &consumed, error);
+    if (status != CH_OK || consumed > plaintext_length) {
+        if (status == CH_OK) {
+            ch_error_set(error, CH_ERROR_PARSE,
+                         "invalid Shadowsocks UDP source address");
+        }
+        free(host); free(plaintext);
+        return status == CH_OK ? CH_ERROR_PARSE : status;
+    }
+    int ipv6 = strchr(host, ':') != NULL;
+    size_t source_length = strlen(host) + 10U;
+    char *source = malloc(source_length);
+    size_t payload_length = plaintext_length - consumed;
+    uint8_t *payload_copy = malloc(payload_length == 0U ? 1U :
+                                   payload_length);
+    if (source == NULL || payload_copy == NULL) {
+        free(source); free(payload_copy); free(host); free(plaintext);
+        ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                     "copy Shadowsocks UDP result");
+        return CH_ERROR_OUT_OF_MEMORY;
+    }
+    (void)snprintf(source, source_length, ipv6 ? "[%s]:%u" : "%s:%u",
+                   host, (unsigned int)port);
+    if (payload_length > 0U) memcpy(payload_copy, plaintext + consumed,
+                                    payload_length);
+    free(host); free(plaintext);
+    *out_source = source;
+    *out_payload = payload_copy;
+    *out_payload_length = payload_length;
+    return CH_OK;
 }
 
 ch_status ch_ss_decrypt_length(const ch_ss_cipher *cipher,

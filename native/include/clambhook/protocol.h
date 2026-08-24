@@ -11,6 +11,8 @@
 extern "C" {
 #endif
 
+typedef struct ch_packet_connection ch_packet_connection;
+
 /* Connects a TCP stream with the native dial timeout. */
 ch_status ch_protocol_connect_tcp(const char *target, int *out_descriptor,
                                   ch_error *error);
@@ -22,6 +24,27 @@ ch_status ch_protocol_connect_tcp(const char *target, int *out_descriptor,
 ch_status ch_protocol_chain_dial(const ch_config_table *chain,
                                  const char *network, const char *target,
                                  int *out_descriptor, ch_error *error);
+
+/*
+ * Opens a datagram path for a native direct or single-hop Shadowsocks chain.
+ * Each send carries its own host:port target. Each receive returns a newly
+ * allocated source string that must be released with free().
+ */
+ch_status ch_protocol_chain_dial_packet(const ch_config_table *chain,
+                                        ch_packet_connection **out_connection,
+                                        ch_error *error);
+ch_status ch_packet_connection_send(ch_packet_connection *connection,
+                                    const char *target,
+                                    const uint8_t *payload,
+                                    size_t payload_length,
+                                    ch_error *error);
+ch_status ch_packet_connection_receive(ch_packet_connection *connection,
+                                       uint8_t *buffer,
+                                       size_t buffer_capacity,
+                                       size_t *out_length,
+                                       char **out_source,
+                                       ch_error *error);
+void ch_packet_connection_close(ch_packet_connection *connection);
 
 /* Exposed to freeze the Trojan/clambback opening-frame contract in tests. */
 ch_status ch_protocol_trojan_header(const char *password, const char *target,

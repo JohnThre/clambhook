@@ -60,6 +60,18 @@ typedef struct protocol_ss_relay {
     uint8_t nonce[12];
 } protocol_ss_relay;
 
+typedef struct protocol_udp_server {
+    int descriptor;
+    uint16_t port;
+    pthread_t thread;
+    int shadowsocks;
+    ch_ss_cipher cipher;
+    const char *password;
+    const char *expected_target;
+    const char *response_source;
+    int success;
+} protocol_udp_server;
+
 typedef struct protocol_tor_server {
     int descriptor;
     uint16_t port;
@@ -687,6 +699,107 @@ static int protocol_test_ss_server_start(protocol_ss_server *server,
 }
 
 static void protocol_test_ss_server_stop(protocol_ss_server *server) {
+    (void)pthread_join(server->thread, NULL);
+    if (server->descriptor >= 0) (void)close(server->descriptor);
+}
+
+static void *protocol_test_udp_server_main(void *opaque) {
+    protocol_udp_server *server = opaque;
+    uint8_t frame[65507];
+    struct sockaddr_storage client_address;
+    socklen_t client_length = (socklen_t)sizeof(client_address);
+    ssize_t frame_length;
+    do {
+        frame_length = recvfrom(
+            server->descriptor, frame, sizeof(frame), 0,
+            (struct sockaddr *)&client_address, &client_length);
+    } while (frame_length < 0 && errno == EINTR);
+    if (frame_length < 0) return NULL;
+    uint8_t master_key[32] = {0};
+    uint8_t *payload = frame;
+    uint8_t *owned_payload = NULL;
+    size_t payload_length = (size_t)frame_length;
+    char *target = NULL;
+    ch_error error;
+    int healthy = 1;
+    if (server->shadowsocks) {
+        healthy = ch_ss_evp_bytes_to_key(
+            (const uint8_t *)server->password, strlen(server->password),
+            server->cipher.key_size, master_key, &error) == CH_OK;
+        uint8_t *decrypted = NULL;
+        if (healthy) {
+            healthy = ch_ss_decrypt_datagram(
+                &server->cipher, master_key, frame, (size_t)frame_length,
+                &target, &decrypted, &payload_length, &error) == CH_OK;
+        }
+        if (healthy) {
+            owned_payload = decrypted;
+            payload = decrypted;
+        }
+        if (healthy && server->expected_target != NULL) {
+            healthy = strcmp(target, server->expected_target) == 0;
+        }
+    }
+    uint8_t *response = payload;
+    size_t response_length = payload_length;
+    if (healthy && server->shadowsocks) {
+        response = NULL;
+        healthy = ch_ss_encrypt_datagram(
+            &server->cipher, master_key, server->response_source, payload,
+            payload_length, &response, &response_length, &error) == CH_OK;
+    }
+    if (healthy) {
+        ssize_t sent;
+        do {
+            sent = sendto(server->descriptor, response, response_length, 0,
+                          (struct sockaddr *)&client_address, client_length);
+        } while (sent < 0 && errno == EINTR);
+        healthy = sent == (ssize_t)response_length;
+    }
+    if (server->shadowsocks) {
+        free(response);
+        free(owned_payload);
+        free(target);
+    }
+    server->success = healthy;
+    return NULL;
+}
+
+static int protocol_test_udp_server_start(protocol_udp_server *server,
+                                          const char *method,
+                                          const char *password,
+                                          const char *expected_target,
+                                          const char *response_source) {
+    memset(server, 0, sizeof(*server));
+    server->descriptor = -1;
+    server->password = password;
+    server->expected_target = expected_target;
+    server->response_source = response_source;
+    server->shadowsocks = method != NULL;
+    if (method != NULL) {
+        ch_error error;
+        if (ch_ss_cipher_from_name(method, &server->cipher, &error) != CH_OK) {
+            return 0;
+        }
+    }
+    server->descriptor = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    if (server->descriptor < 0) return 0;
+    struct sockaddr_in address = {
+        .sin_family = AF_INET,
+        .sin_port = 0,
+        .sin_addr = {.s_addr = htonl(INADDR_LOOPBACK)}
+    };
+    if (bind(server->descriptor, (struct sockaddr *)&address,
+             (socklen_t)sizeof(address)) != 0) return 0;
+    socklen_t length = (socklen_t)sizeof(address);
+    if (getsockname(server->descriptor, (struct sockaddr *)&address,
+                    &length) != 0) return 0;
+    server->port = ntohs(address.sin_port);
+    return pthread_create(&server->thread, NULL,
+                          protocol_test_udp_server_main, server) == 0;
+}
+
+static void protocol_test_udp_server_stop(protocol_udp_server *server) {
     (void)pthread_join(server->thread, NULL);
     if (server->descriptor >= 0) (void)close(server->descriptor);
 }
@@ -1743,6 +1856,143 @@ static void protocol_test_shadowsocks_frames(void) {
     }
 }
 
+static void protocol_test_shadowsocks_datagrams(void) {
+    static const char *const methods[] = {
+        "aes-128-gcm", "aes-256-gcm", "chacha20-ietf-poly1305"
+    };
+    static const uint8_t plaintext[] = "shadowsocks-udp-datagram";
+    for (size_t index = 0U; index < sizeof(methods) / sizeof(methods[0]);
+         ++index) {
+        ch_error error;
+        ch_ss_cipher cipher;
+        CH_TEST_ASSERT(ch_ss_cipher_from_name(methods[index], &cipher,
+                                              &error) == CH_OK);
+        uint8_t master_key[32];
+        CH_TEST_ASSERT(ch_ss_evp_bytes_to_key(
+            (const uint8_t *)"udp-secret", 10U, cipher.key_size,
+            master_key, &error) == CH_OK);
+        uint8_t *frame = NULL;
+        size_t frame_length = 0U;
+        CH_TEST_ASSERT(ch_ss_encrypt_datagram(
+            &cipher, master_key, "example.com:443", plaintext,
+            sizeof(plaintext), &frame, &frame_length, &error) == CH_OK);
+        CH_TEST_ASSERT(frame_length == cipher.salt_size + 1U + 1U + 11U +
+                                       2U + sizeof(plaintext) + 16U);
+        char *source = NULL;
+        uint8_t *decrypted = NULL;
+        size_t decrypted_length = 0U;
+        CH_TEST_ASSERT(ch_ss_decrypt_datagram(
+            &cipher, master_key, frame, frame_length, &source, &decrypted,
+            &decrypted_length, &error) == CH_OK);
+        CH_TEST_ASSERT(strcmp(source, "example.com:443") == 0);
+        CH_TEST_ASSERT(decrypted_length == sizeof(plaintext));
+        CH_TEST_ASSERT(memcmp(decrypted, plaintext, sizeof(plaintext)) == 0);
+        free(source);
+        free(decrypted);
+        frame[frame_length - 1U] ^= 0x01U;
+        CH_TEST_ASSERT(ch_ss_decrypt_datagram(
+            &cipher, master_key, frame, frame_length, &source, &decrypted,
+            &decrypted_length, &error) == CH_ERROR_PARSE);
+        free(frame);
+        CH_TEST_ASSERT(ch_ss_decrypt_datagram(
+            &cipher, master_key, (const uint8_t *)"x", 1U, &source,
+            &decrypted, &decrypted_length,
+            &error) == CH_ERROR_INVALID_ARGUMENT);
+    }
+}
+
+static void protocol_test_packet_connections(void) {
+    static const uint8_t payload[] = "native-packet-echo";
+    protocol_udp_server direct_server;
+    CH_TEST_ASSERT(protocol_test_udp_server_start(
+        &direct_server, NULL, NULL, NULL, NULL));
+    static const char direct_document[] =
+        "active = \"local\"\n"
+        "[[profile]]\nname = \"local\"\n"
+        "[[profile.chain]]\nname = \"direct\"\n"
+        "[[profile.chain.server]]\nprotocol = \"direct\"\n";
+    ch_error error;
+    ch_config *config = NULL;
+    CH_TEST_ASSERT(ch_config_parse(direct_document, NULL, &config,
+                                   &error) == CH_OK);
+    const ch_config_table *profile = ch_config_active_profile(config);
+    const ch_config_array *chains = ch_config_table_get_array(profile, "chain");
+    const ch_config_table *chain = ch_config_array_get_table(chains, 0U);
+    ch_packet_connection *packet = NULL;
+    CH_TEST_ASSERT(ch_protocol_chain_dial_packet(
+        chain, &packet, &error) == CH_OK);
+    char target[64];
+    (void)snprintf(target, sizeof(target), "127.0.0.1:%u",
+                   (unsigned int)direct_server.port);
+    CH_TEST_ASSERT(ch_packet_connection_send(
+        packet, target, payload, sizeof(payload), &error) == CH_OK);
+    uint8_t received[128];
+    size_t received_length = 0U;
+    char *source = NULL;
+    CH_TEST_ASSERT(ch_packet_connection_receive(
+        packet, received, sizeof(received), &received_length, &source,
+        &error) == CH_OK);
+    CH_TEST_ASSERT(received_length == sizeof(payload));
+    CH_TEST_ASSERT(memcmp(received, payload, sizeof(payload)) == 0);
+    CH_TEST_ASSERT(strcmp(source, target) == 0);
+    free(source);
+    CH_TEST_ASSERT(ch_packet_connection_send(
+        packet, target, payload, 65508U,
+        &error) == CH_ERROR_INVALID_ARGUMENT);
+    ch_packet_connection_close(packet);
+    ch_config_free(config);
+    protocol_test_udp_server_stop(&direct_server);
+    CH_TEST_ASSERT(direct_server.success == 1);
+
+    static const char *const methods[] = {
+        "aes-128-gcm", "aes-256-gcm", "chacha20-ietf-poly1305"
+    };
+    for (size_t index = 0U; index < sizeof(methods) / sizeof(methods[0]);
+         ++index) {
+        protocol_udp_server server;
+        CH_TEST_ASSERT(protocol_test_udp_server_start(
+            &server, methods[index], "packet-secret", "example.com:53",
+            "203.0.113.7:5353"));
+        char document[1024];
+        (void)snprintf(
+            document, sizeof(document),
+            "active = \"local\"\n"
+            "[[profile]]\nname = \"local\"\n"
+            "[[profile.chain]]\nname = \"shadowsocks-udp\"\n"
+            "[[profile.chain.server]]\n"
+            "address = \"127.0.0.1:%u\"\n"
+            "protocol = \"shadowsocks\"\n"
+            "[profile.chain.server.settings]\n"
+            "method = \"%s\"\npassword = \"packet-secret\"\n",
+            (unsigned int)server.port, methods[index]);
+        config = NULL;
+        CH_TEST_ASSERT(ch_config_parse(document, NULL, &config,
+                                       &error) == CH_OK);
+        profile = ch_config_active_profile(config);
+        chains = ch_config_table_get_array(profile, "chain");
+        chain = ch_config_array_get_table(chains, 0U);
+        packet = NULL;
+        CH_TEST_ASSERT(ch_protocol_chain_dial_packet(
+            chain, &packet, &error) == CH_OK);
+        CH_TEST_ASSERT(ch_packet_connection_send(
+            packet, "example.com:53", payload, sizeof(payload),
+            &error) == CH_OK);
+        source = NULL;
+        received_length = 0U;
+        CH_TEST_ASSERT(ch_packet_connection_receive(
+            packet, received, sizeof(received), &received_length, &source,
+            &error) == CH_OK);
+        CH_TEST_ASSERT(received_length == sizeof(payload));
+        CH_TEST_ASSERT(memcmp(received, payload, sizeof(payload)) == 0);
+        CH_TEST_ASSERT(strcmp(source, "203.0.113.7:5353") == 0);
+        free(source);
+        ch_packet_connection_close(packet);
+        ch_config_free(config);
+        protocol_test_udp_server_stop(&server);
+        CH_TEST_ASSERT(server.success == 1);
+    }
+}
+
 static void protocol_test_shadowsocks_streams(void) {
     static const char *const methods[] = {
         "aes-128-gcm", "aes-256-gcm", "chacha20-ietf-poly1305"
@@ -1987,6 +2237,8 @@ void ch_test_protocol(void) {
     protocol_test_trojan_chain();
     protocol_test_shadowsocks_kdf();
     protocol_test_shadowsocks_frames();
+    protocol_test_shadowsocks_datagrams();
+    protocol_test_packet_connections();
     protocol_test_shadowsocks_streams();
     protocol_test_shadowsocks_chain();
     protocol_test_tor_streams();

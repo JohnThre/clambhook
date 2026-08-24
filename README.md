@@ -186,8 +186,10 @@ The current native data-plane slice wires C SOCKS5 and HTTP proxy listeners to
 native TOML and compiled routing rules. Direct routes and TCP-only Trojan,
 clambback, Shadowsocks AEAD-2018, ShadowTLS v3 carrier, Tor SOCKS5, and modern
 VMESS-AEAD chains, including nested encrypted hops, are operational. Native
-VMESS covers raw TCP and TLS with AES-128-GCM or ChaCha20-Poly1305; protocol UDP
-modes and TUN remain guarded until their parity tests pass.
+VMESS covers raw TCP and TLS with AES-128-GCM or ChaCha20-Poly1305. The native
+packet API also covers direct UDP and single-hop Shadowsocks AEAD-2018 UDP;
+SOCKS5 UDP relay integration, remaining protocol UDP modes, and TUN remain
+guarded until their parity tests pass.
 Building, running, and testing require prior written permission from Pengfan
 Chang; see [`LICENSE`](LICENSE). The commands below are for the author and
 authorized parties, not a general contribution or redistribution grant.

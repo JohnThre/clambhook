@@ -44,7 +44,8 @@ The additive CMake build currently provides:
   handshakes, authentication, rule blocking, connection ceilings, and
   deterministic relay shutdown. Its native chain dialer supports direct TCP,
   Trojan/clambback, Shadowsocks AEAD-2018, Tor SOCKS5, and VMESS-AEAD TCP
-  streams, including nested encrypted hops;
+  streams, including nested encrypted hops. A protocol-neutral packet API now
+  supports direct UDP and single-hop Shadowsocks AEAD-2018 UDP;
 - `clambhook_crypto`: the existing C crypto surface, now covering AES-128-GCM,
   AES-256-GCM, ChaCha20-Poly1305, SHA-224, and random bytes through C
   dependencies;
@@ -80,7 +81,10 @@ implementation supports the same AEAD-2018 methods (`aes-128-gcm`,
 `aes-256-gcm`, and `chacha20-ietf-poly1305`), MD5 `EVP_BytesToKey`,
 HKDF-SHA1 `ss-subkey` derivation, per-direction salts, authenticated chunk
 lengths, and little-endian nonce counters. Legacy stream ciphers fail closed.
-Local integration tests cover every Shadowsocks TCP method plus nested
+Its UDP codec uses a fresh CSPRNG salt and zero nonce per packet, authenticates
+the SOCKS destination together with the payload, and rejects oversized or
+tampered datagrams. Local integration tests cover every Shadowsocks TCP and UDP
+method, direct UDP, plus nested
 Trojan/clambback and nested Shadowsocks streams under ASan/UBSan. The Tor row
 matches the legacy TCP-only SOCKS5 design, preserves remote domain and `.onion`
 resolution, supports optional RFC 1929 stream-isolation credentials, and is
@@ -105,9 +109,10 @@ hatch are preserved. A real TLS 1.3 relay test validates the complete handshake
 and echo path under ASan/UBSan, and final-hop ShadowTLS configurations fail
 closed because an addressed inner protocol is required.
 
-WireGuard, OpenVPN, protocol UDP modes (including VMESS UDP), UDP ASSOCIATE,
-TUN, DNS, prompts, traffic persistence, and developer inspection remain cutover
-blockers; unsupported chain protocols fail closed.
+WireGuard, OpenVPN, remaining protocol UDP modes (including VMESS UDP), SOCKS5
+UDP ASSOCIATE listener integration, TUN, DNS, prompts, traffic persistence, and
+developer inspection remain cutover blockers; multi-hop and unsupported packet
+chains fail closed.
 
 ## Build and test
 
@@ -159,9 +164,9 @@ Cutover is allowed only after all of the following are green:
 1. C unit tests pass under AddressSanitizer and UndefinedBehaviorSanitizer.
 2. Differential fixtures match the legacy implementation for config, rules,
    API JSON/status codes, events, license behavior, and each protocol wire
-   transcript. Trojan/clambback, Shadowsocks TCP, Tor SOCKS5/nested-stream, and
-   VMESS-AEAD TCP, and ShadowTLS v3 fixtures are green; the remaining protocol
-   rows are still open.
+   transcript. Trojan/clambback, Shadowsocks TCP/UDP, direct UDP, Tor
+   SOCKS5/nested-stream, VMESS-AEAD TCP, and ShadowTLS v3 fixtures are green;
+   the remaining protocol rows are still open.
 3. Listener and protocol integration tests cover TCP, UDP, cancellation,
    reload rollback, concurrency limits, and TUN lifecycle.
 4. GTK functional/accessibility QA matches the current Linux feature set.

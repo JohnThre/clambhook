@@ -55,6 +55,23 @@ ch_status ch_ss_decrypt_chunk(const ch_ss_cipher *cipher,
                               size_t *out_plaintext_length,
                               ch_error *error);
 
+ch_status ch_ss_encrypt_datagram(const ch_ss_cipher *cipher,
+                                 const uint8_t *master_key,
+                                 const char *target,
+                                 const uint8_t *payload,
+                                 size_t payload_length,
+                                 uint8_t **out_frame,
+                                 size_t *out_frame_length,
+                                 ch_error *error);
+ch_status ch_ss_decrypt_datagram(const ch_ss_cipher *cipher,
+                                 const uint8_t *master_key,
+                                 const uint8_t *frame,
+                                 size_t frame_length,
+                                 char **out_source,
+                                 uint8_t **out_payload,
+                                 size_t *out_payload_length,
+                                 ch_error *error);
+
 ch_status ch_protocol_shadowsocks_dial(const ch_config_table *server,
                                        int underlying_descriptor,
                                        const char *target,
