@@ -47,6 +47,7 @@ add_library(clambhook_core STATIC
   native/src/license_json.c
   native/src/listener.c
   native/src/protocol.c
+  native/src/protocol_shadowsocks.c
   native/src/rules.c
   native/src/rules_config.c
   native/src/runtime.c

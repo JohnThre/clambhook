@@ -67,8 +67,8 @@ make test-linux                              # host-side Kotlin unit tests for t
 ```
 
 During the phased C/GTK migration, run `make test-native` (including the
-loopback SOCKS5/HTTP relay, Trojan/clambback TLS chain, and runtime-lifecycle
-cases) and
+loopback SOCKS5/HTTP relay, Trojan/clambback TLS chain, all three Shadowsocks
+AEAD-2018 methods, nested encrypted chains, and runtime-lifecycle cases) and
 `make build-linux-gtk` alongside the existing distro harness. Production
 packages stay on their current binaries until the native packaging gate in
 [`c-migration.md`](c-migration.md) passes. See

@@ -22,6 +22,7 @@
 #include "clambhook/socks.h"
 #include "cnet.h"
 #include "internal.h"
+#include "protocol_shadowsocks.h"
 
 #define CH_PROTOCOL_DIAL_TIMEOUT_MS 30000
 #define CH_PROTOCOL_BUFFER_SIZE 32768U
@@ -745,6 +746,11 @@ ch_status ch_protocol_chain_dial(const ch_config_table *chain,
             int tunneled = -1;
             status = ch_protocol_trojan_dial(server, descriptor, hop_target,
                                              &tunneled, error);
+            descriptor = status == CH_OK ? tunneled : -1;
+        } else if (strcasecmp(protocol, "shadowsocks") == 0) {
+            int tunneled = -1;
+            status = ch_protocol_shadowsocks_dial(
+                server, descriptor, hop_target, &tunneled, error);
             descriptor = status == CH_OK ? tunneled : -1;
         } else {
             ch_protocol_close(&descriptor);

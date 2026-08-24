@@ -42,8 +42,9 @@ The additive CMake build currently provides:
   parsing/encoding, a bounded event replay ring, SOCKS address codec, compiled
   routing rule matcher, and native SOCKS5/HTTP proxy listeners with bounded
   handshakes, authentication, rule blocking, connection ceilings, and
-  deterministic relay shutdown. Its native chain dialer supports direct TCP
-  plus Trojan and clambback TCP streams, including nested encrypted hops;
+  deterministic relay shutdown. Its native chain dialer supports direct TCP,
+  Trojan/clambback, and Shadowsocks AEAD-2018 TCP streams, including nested
+  encrypted hops;
 - `clambhook_crypto`: the existing C crypto surface, now covering AES-128-GCM,
   AES-256-GCM, ChaCha20-Poly1305, SHA-224, and random bytes through C
   dependencies;
@@ -69,16 +70,21 @@ the full control API/WebSocket surface, persistence, and platform lifecycle
 tests pass their parity gates.
 
 The listener data plane currently completes direct-rule routes, single-hop test
-chains whose protocol is `direct`, and TCP chains made entirely of `trojan`
-and/or wire-compatible `clambback` hops. The C implementation matches the
-legacy SHA-224 password header and SOCKS address encoding, requires TLS 1.2 or
-newer, supports SNI and ALPN, verifies certificates by default, and honors the
-existing `skip_cert_verify` escape hatch. Local TLS integration tests cover a
-single hop and a nested Trojan-to-clambback stream under ASan/UBSan.
+chains whose protocol is `direct`, and TCP chains containing `trojan`,
+wire-compatible `clambback`, and `shadowsocks` hops. The C Trojan implementation
+matches the legacy SHA-224 password header and SOCKS address encoding, requires
+TLS 1.2 or newer, supports SNI and ALPN, verifies certificates by default, and
+honors the existing `skip_cert_verify` escape hatch. The C Shadowsocks
+implementation supports the same AEAD-2018 methods (`aes-128-gcm`,
+`aes-256-gcm`, and `chacha20-ietf-poly1305`), MD5 `EVP_BytesToKey`,
+HKDF-SHA1 `ss-subkey` derivation, per-direction salts, authenticated chunk
+lengths, and little-endian nonce counters. Legacy stream ciphers fail closed.
+Local integration tests cover every Shadowsocks TCP method plus nested
+Trojan/clambback and nested Shadowsocks streams under ASan/UBSan.
 
-Shadowsocks, VMESS, ShadowTLS, WireGuard, OpenVPN, Tor, UDP ASSOCIATE, TUN,
-DNS, prompts, traffic persistence, and developer inspection remain cutover
-blockers; unsupported chain protocols fail closed.
+VMESS, ShadowTLS, WireGuard, OpenVPN, Tor, protocol UDP modes, UDP ASSOCIATE,
+TUN, DNS, prompts, traffic persistence, and developer inspection remain
+cutover blockers; unsupported chain protocols fail closed.
 
 ## Build and test
 
@@ -130,8 +136,8 @@ Cutover is allowed only after all of the following are green:
 1. C unit tests pass under AddressSanitizer and UndefinedBehaviorSanitizer.
 2. Differential fixtures match the legacy implementation for config, rules,
    API JSON/status codes, events, license behavior, and each protocol wire
-   transcript. Trojan/clambback TCP header and nested-stream fixtures are green;
-   the remaining protocol rows are still open.
+   transcript. Trojan/clambback and Shadowsocks TCP/nested-stream fixtures are
+   green; the remaining protocol rows are still open.
 3. Listener and protocol integration tests cover TCP, UDP, cancellation,
    reload rollback, concurrency limits, and TUN lifecycle.
 4. GTK functional/accessibility QA matches the current Linux feature set.
