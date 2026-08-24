@@ -11,12 +11,15 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
+#include <time.h>
 #include <unistd.h>
 
 #include "clambhook/config.h"
 #include "clambhook/protocol.h"
 #include "clambhook/socks.h"
+#include "cnet.h"
 #include "protocol_shadowsocks.h"
+#include "protocol_vmess.h"
 
 typedef struct protocol_tls_server {
     int descriptor;
@@ -65,6 +68,14 @@ typedef struct protocol_tor_server {
     uint16_t expected_port;
     int success;
 } protocol_tor_server;
+
+typedef struct protocol_vmess_server {
+    int descriptor;
+    uint16_t port;
+    pthread_t thread;
+    ch_vmess_security security;
+    int success;
+} protocol_vmess_server;
 
 static int protocol_test_send_all(int descriptor, const void *bytes,
                                   size_t length) {
@@ -131,6 +142,70 @@ static int protocol_test_connect_loopback(uint16_t port) {
         return -1;
     }
     return descriptor;
+}
+
+static uint32_t protocol_test_crc32(const uint8_t *bytes, size_t length) {
+    uint32_t crc = UINT32_MAX;
+    for (size_t index = 0U; index < length; ++index) {
+        crc ^= bytes[index];
+        for (unsigned int bit = 0U; bit < 8U; ++bit) {
+            uint32_t mask = (uint32_t)-(int32_t)(crc & 1U);
+            crc = (crc >> 1U) ^ (0xedb88320U & mask);
+        }
+    }
+    return ~crc;
+}
+
+static uint32_t protocol_test_fnv1a(const uint8_t *bytes, size_t length) {
+    uint32_t hash = 2166136261U;
+    for (size_t index = 0U; index < length; ++index) {
+        hash ^= bytes[index];
+        hash *= 16777619U;
+    }
+    return hash;
+}
+
+static int protocol_test_sha256_16(const uint8_t input[16],
+                                   uint8_t output[16]) {
+    uint8_t digest[32];
+    unsigned int length = 0U;
+    int ok = EVP_Digest(input, 16U, digest, &length, EVP_sha256(), NULL) == 1 &&
+             length == sizeof(digest);
+    if (ok) memcpy(output, digest, 16U);
+    return ok;
+}
+
+static int protocol_test_aes128_ecb_decrypt(const uint8_t key[16],
+                                            const uint8_t input[16],
+                                            uint8_t output[16]) {
+    EVP_CIPHER_CTX *context = EVP_CIPHER_CTX_new();
+    int written = 0;
+    int final_written = 0;
+    int ok = context != NULL &&
+        EVP_DecryptInit_ex(context, EVP_aes_128_ecb(), NULL, key, NULL) == 1 &&
+        EVP_CIPHER_CTX_set_padding(context, 0) == 1 &&
+        EVP_DecryptUpdate(context, output, &written, input, 16) == 1 &&
+        EVP_DecryptFinal_ex(context, output + written, &final_written) == 1 &&
+        written + final_written == 16;
+    EVP_CIPHER_CTX_free(context);
+    return ok;
+}
+
+static int protocol_test_vmess_derive(
+    const uint8_t *key, size_t key_length, const char *label,
+    const uint8_t *extra_one, size_t extra_one_length,
+    const uint8_t *extra_two, size_t extra_two_length,
+    uint8_t *output, size_t output_length) {
+    const uint8_t *paths[3] = {(const uint8_t *)label, extra_one, extra_two};
+    size_t lengths[3] = {strlen(label), extra_one_length, extra_two_length};
+    size_t count = extra_two != NULL ? 3U : extra_one != NULL ? 2U : 1U;
+    uint8_t derived[32];
+    ch_error error;
+    if (output_length > sizeof(derived) ||
+        ch_vmess_kdf(key, key_length, paths, lengths, count, derived,
+                     &error) != CH_OK) return 0;
+    memcpy(output, derived, output_length);
+    return 1;
 }
 
 static void *protocol_test_tls_to_socket(void *opaque) {
@@ -763,6 +838,240 @@ static void protocol_test_tor_after_trojan(void) {
     free(outer_header);
 }
 
+static void *protocol_test_vmess_server_main(void *opaque) {
+    protocol_vmess_server *server = opaque;
+    int client;
+    do {
+        client = accept(server->descriptor, NULL, NULL);
+    } while (client < 0 && errno == EINTR);
+    if (client < 0) return NULL;
+
+    static const uint8_t uuid[16] = {
+        0xb8U,0x31U,0x38U,0x1dU,0x63U,0x24U,0x4dU,0x53U,
+        0xadU,0x4fU,0x8cU,0xdaU,0x48U,0xb3U,0x08U,0x11U
+    };
+    uint8_t command_key[16];
+    ch_error error;
+    int healthy = ch_vmess_command_key(uuid, command_key, &error) == CH_OK;
+    uint8_t prefix[42];
+    healthy = healthy && protocol_test_receive_exact(client, prefix,
+                                                      sizeof(prefix));
+    const uint8_t *auth_id = prefix;
+    const uint8_t *encrypted_length = prefix + 16U;
+    const uint8_t *connection_nonce = prefix + 34U;
+
+    uint8_t auth_key[16];
+    uint8_t auth_plain[16] = {0};
+    healthy = healthy && protocol_test_vmess_derive(
+        command_key, sizeof(command_key), "AES Auth ID Encryption",
+        NULL, 0U, NULL, 0U, auth_key, sizeof(auth_key)) &&
+        protocol_test_aes128_ecb_decrypt(auth_key, auth_id, auth_plain);
+    uint64_t timestamp = 0U;
+    for (size_t index = 0U; index < 8U; ++index) {
+        timestamp = (timestamp << 8U) | auth_plain[index];
+    }
+    uint32_t auth_checksum =
+        ((uint32_t)auth_plain[12] << 24U) |
+        ((uint32_t)auth_plain[13] << 16U) |
+        ((uint32_t)auth_plain[14] << 8U) | (uint32_t)auth_plain[15];
+    time_t now = time(NULL);
+    uint64_t now_seconds = now >= (time_t)0 ? (uint64_t)now : 0U;
+    healthy = healthy && auth_checksum == protocol_test_crc32(auth_plain, 12U) &&
+        timestamp + 10U >= now_seconds && timestamp <= now_seconds + 10U;
+
+    uint8_t length_key[16], length_nonce[12], plain_length[2] = {0};
+    healthy = healthy && protocol_test_vmess_derive(
+        command_key, sizeof(command_key), "VMess Header AEAD Key_Length",
+        auth_id, 16U, connection_nonce, 8U, length_key,
+        sizeof(length_key)) && protocol_test_vmess_derive(
+        command_key, sizeof(command_key), "VMess Header AEAD Nonce_Length",
+        auth_id, 16U, connection_nonce, 8U, length_nonce,
+        sizeof(length_nonce)) && cnet_aes128gcm_decrypt(
+        length_key, length_nonce, encrypted_length, 2U, auth_id, 16U,
+        encrypted_length + 2U, plain_length) == CNET_OK;
+    size_t body_length = healthy ?
+        ((size_t)plain_length[0] << 8U) | (size_t)plain_length[1] : 0U;
+    healthy = healthy && body_length >= 46U;
+    uint8_t *encrypted_body = healthy ? malloc(body_length + 16U) : NULL;
+    uint8_t *body = healthy ? malloc(body_length) : NULL;
+    healthy = healthy && encrypted_body != NULL && body != NULL &&
+        protocol_test_receive_exact(client, encrypted_body,
+                                    body_length + 16U);
+    uint8_t payload_key[16], payload_nonce[12];
+    healthy = healthy && protocol_test_vmess_derive(
+        command_key, sizeof(command_key), "VMess Header AEAD Key",
+        auth_id, 16U, connection_nonce, 8U, payload_key,
+        sizeof(payload_key)) && protocol_test_vmess_derive(
+        command_key, sizeof(command_key), "VMess Header AEAD Nonce",
+        auth_id, 16U, connection_nonce, 8U, payload_nonce,
+        sizeof(payload_nonce)) && cnet_aes128gcm_decrypt(
+        payload_key, payload_nonce, encrypted_body, body_length, auth_id,
+        16U, encrypted_body + body_length, body) == CNET_OK;
+    size_t checksum_offset = body_length >= 4U ? body_length - 4U : 0U;
+    uint32_t body_checksum = healthy ?
+        ((uint32_t)body[checksum_offset] << 24U) |
+        ((uint32_t)body[checksum_offset + 1U] << 16U) |
+        ((uint32_t)body[checksum_offset + 2U] << 8U) |
+        (uint32_t)body[checksum_offset + 3U] : 0U;
+    uint8_t expected_security = (uint8_t)server->security;
+    healthy = healthy && body[0] == 0x01U && body[34] == 0x01U &&
+        body[35] == expected_security && body[36] == 0x00U &&
+        body[37] == 0x01U && body[38] == 0x01U && body[39] == 0xbbU &&
+        body[40] == 0x02U && body[41] == 11U &&
+        checksum_offset == 53U &&
+        memcmp(body + 42U, "example.com", 11U) == 0 &&
+        body_checksum == protocol_test_fnv1a(body, checksum_offset);
+
+    uint8_t response_key[16], response_iv[16];
+    healthy = healthy && protocol_test_sha256_16(body + 17U, response_key) &&
+        protocol_test_sha256_16(body + 1U, response_iv);
+    uint8_t response_length_key[16], response_length_nonce[12];
+    uint8_t response_payload_key[16], response_payload_nonce[12];
+    healthy = healthy && protocol_test_vmess_derive(
+        response_key, sizeof(response_key), "AEAD Resp Header Len Key",
+        NULL, 0U, NULL, 0U, response_length_key,
+        sizeof(response_length_key)) && protocol_test_vmess_derive(
+        response_iv, sizeof(response_iv), "AEAD Resp Header Len IV",
+        NULL, 0U, NULL, 0U, response_length_nonce,
+        sizeof(response_length_nonce)) && protocol_test_vmess_derive(
+        response_key, sizeof(response_key), "AEAD Resp Header Key",
+        NULL, 0U, NULL, 0U, response_payload_key,
+        sizeof(response_payload_key)) && protocol_test_vmess_derive(
+        response_iv, sizeof(response_iv), "AEAD Resp Header IV",
+        NULL, 0U, NULL, 0U, response_payload_nonce,
+        sizeof(response_payload_nonce));
+    uint8_t response[38];
+    static const uint8_t response_length[2] = {0x00U, 0x04U};
+    uint8_t response_plain[4] = {0};
+    if (healthy) response_plain[0] = body[33];
+    healthy = healthy && cnet_aes128gcm_encrypt(
+        response_length_key, response_length_nonce, response_length,
+        sizeof(response_length), NULL, 0U, response, response + 2U) ==
+        CNET_OK && cnet_aes128gcm_encrypt(
+        response_payload_key, response_payload_nonce, response_plain,
+        sizeof(response_plain), NULL, 0U, response + 18U,
+        response + 22U) == CNET_OK && protocol_test_send_all(
+        client, response, sizeof(response));
+
+    uint8_t frame_length_bytes[2];
+    healthy = healthy && protocol_test_receive_exact(
+        client, frame_length_bytes, sizeof(frame_length_bytes));
+    size_t frame_payload_length = healthy ?
+        ((size_t)frame_length_bytes[0] << 8U) |
+        (size_t)frame_length_bytes[1] : 0U;
+    uint8_t *frame = healthy ? malloc(frame_payload_length + 2U) : NULL;
+    healthy = healthy && frame != NULL && frame_payload_length >= 16U;
+    if (healthy) {
+        memcpy(frame, frame_length_bytes, 2U);
+        healthy = protocol_test_receive_exact(client, frame + 2U,
+                                              frame_payload_length);
+    }
+    uint16_t read_counter = 0U;
+    bool read_exhausted = false;
+    uint8_t *plaintext = NULL;
+    size_t plaintext_length = 0U;
+    healthy = healthy && ch_vmess_decrypt_chunk(
+        server->security, body + 17U, body + 1U, &read_counter,
+        &read_exhausted, frame, frame_payload_length + 2U, &plaintext,
+        &plaintext_length, &error) == CH_OK;
+    uint16_t write_counter = 0U;
+    bool write_exhausted = false;
+    uint8_t *echo_frame = NULL;
+    size_t echo_frame_length = 0U;
+    healthy = healthy && ch_vmess_encrypt_chunk(
+        server->security, response_key, response_iv, &write_counter,
+        &write_exhausted, plaintext, plaintext_length, &echo_frame,
+        &echo_frame_length, &error) == CH_OK && protocol_test_send_all(
+        client, echo_frame, echo_frame_length);
+    server->success = healthy;
+    free(echo_frame);
+    free(plaintext);
+    free(frame);
+    free(body);
+    free(encrypted_body);
+    (void)shutdown(client, SHUT_RDWR);
+    (void)close(client);
+    return NULL;
+}
+
+static int protocol_test_vmess_server_start(protocol_vmess_server *server,
+                                             ch_vmess_security security) {
+    memset(server, 0, sizeof(*server));
+    server->descriptor = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    server->security = security;
+    if (server->descriptor < 0) return 0;
+    struct sockaddr_in address = {
+        .sin_family = AF_INET,
+        .sin_port = 0,
+        .sin_addr = {.s_addr = htonl(INADDR_LOOPBACK)}
+    };
+    if (bind(server->descriptor, (struct sockaddr *)&address,
+             (socklen_t)sizeof(address)) != 0 ||
+        listen(server->descriptor, 1) != 0) return 0;
+    socklen_t length = (socklen_t)sizeof(address);
+    if (getsockname(server->descriptor, (struct sockaddr *)&address,
+                    &length) != 0) return 0;
+    server->port = ntohs(address.sin_port);
+    return pthread_create(&server->thread, NULL,
+                          protocol_test_vmess_server_main, server) == 0;
+}
+
+static void protocol_test_vmess_server_stop(protocol_vmess_server *server) {
+    (void)pthread_join(server->thread, NULL);
+    if (server->descriptor >= 0) (void)close(server->descriptor);
+}
+
+static void protocol_test_vmess_streams(void) {
+    static const ch_vmess_security methods[] = {
+        CH_VMESS_AES_128_GCM, CH_VMESS_CHACHA20_POLY1305
+    };
+    static const char *const names[] = {
+        "aes-128-gcm", "chacha20-poly1305"
+    };
+    for (size_t index = 0U; index < sizeof(methods) / sizeof(methods[0]);
+         ++index) {
+        protocol_vmess_server server;
+        CH_TEST_ASSERT(protocol_test_vmess_server_start(&server,
+                                                        methods[index]));
+        char document[1400];
+        (void)snprintf(
+            document, sizeof(document),
+            "active = \"local\"\n"
+            "[[profile]]\nname = \"local\"\n"
+            "[[profile.chain]]\nname = \"vmess\"\n"
+            "[[profile.chain.server]]\n"
+            "address = \"127.0.0.1:%u\"\n"
+            "protocol = \"vmess\"\n"
+            "[profile.chain.server.settings]\n"
+            "uuid = \"b831381d-6324-4d53-ad4f-8cda48b30811\"\n"
+            "alter_id = 0\nsecurity = \"%s\"\n",
+            (unsigned int)server.port, names[index]);
+        ch_error error;
+        ch_config *config = NULL;
+        CH_TEST_ASSERT(ch_config_parse(document, NULL, &config,
+                                       &error) == CH_OK);
+        const ch_config_table *profile = ch_config_active_profile(config);
+        const ch_config_array *chains = ch_config_table_get_array(profile,
+                                                                  "chain");
+        const ch_config_table *chain = ch_config_array_get_table(chains, 0U);
+        int stream = -1;
+        CH_TEST_ASSERT(ch_protocol_chain_dial(
+            chain, "tcp", "example.com:443", &stream, &error) == CH_OK);
+        static const char payload[] = "native-vmess-aead-echo";
+        char echoed[sizeof(payload)];
+        CH_TEST_ASSERT(protocol_test_send_all(stream, payload,
+                                              sizeof(payload)));
+        CH_TEST_ASSERT(protocol_test_receive_exact(stream, echoed,
+                                                   sizeof(echoed)));
+        CH_TEST_ASSERT(memcmp(payload, echoed, sizeof(payload)) == 0);
+        (void)shutdown(stream, SHUT_RDWR);
+        (void)close(stream);
+        protocol_test_vmess_server_stop(&server);
+        CH_TEST_ASSERT(server.success == 1);
+        ch_config_free(config);
+    }
+}
+
 static void protocol_test_shadowsocks_kdf(void) {
     ch_error error;
     uint8_t master[16];
@@ -801,6 +1110,129 @@ static void protocol_test_shadowsocks_kdf(void) {
     uint8_t nonce[12] = {0xffU, 0U};
     ch_ss_nonce_increment(nonce);
     CH_TEST_ASSERT(nonce[0] == 0U && nonce[1] == 1U);
+}
+
+static void protocol_test_vmess_vectors(void) {
+    ch_error error;
+    uint8_t uuid[16];
+    static const uint8_t expected_uuid[16] = {
+        0xb8U,0x31U,0x38U,0x1dU,0x63U,0x24U,0x4dU,0x53U,
+        0xadU,0x4fU,0x8cU,0xdaU,0x48U,0xb3U,0x08U,0x11U
+    };
+    CH_TEST_ASSERT(ch_vmess_parse_uuid(
+        "  b831381d-6324-4d53-ad4f-8cda48b30811\t", uuid,
+        &error) == CH_OK);
+    CH_TEST_ASSERT(memcmp(uuid, expected_uuid, sizeof(uuid)) == 0);
+    CH_TEST_ASSERT(ch_vmess_parse_uuid(
+        "b831381d-6324-4d53-ad4f-8cda48b3 0811", uuid,
+        &error) == CH_ERROR_INVALID_ARGUMENT);
+
+    static const uint8_t kdf_key[] = "some-command-key";
+    static const uint8_t path_a[] = "label-a";
+    static const uint8_t path_b[] = "label-b";
+    const uint8_t *paths[] = {path_a, path_b};
+    const size_t path_lengths[] = {
+        sizeof(path_a) - 1U, sizeof(path_b) - 1U
+    };
+    static const uint8_t expected_kdf[32] = {
+        0xa6U,0xd8U,0x8fU,0x82U,0x6bU,0xa2U,0xc4U,0x6dU,
+        0x47U,0x6bU,0xb2U,0xd1U,0x03U,0x86U,0xe5U,0x09U,
+        0xa8U,0xabU,0xa9U,0x0fU,0x9aU,0x89U,0xa3U,0xb6U,
+        0xbfU,0x9aU,0x6dU,0x14U,0x34U,0xe2U,0xb5U,0xc9U
+    };
+    uint8_t derived[32];
+    CH_TEST_ASSERT(ch_vmess_kdf(
+        kdf_key, sizeof(kdf_key) - 1U, paths, path_lengths, 2U, derived,
+        &error) == CH_OK);
+    CH_TEST_ASSERT(memcmp(derived, expected_kdf, sizeof(derived)) == 0);
+
+    static const char *const targets[] = {
+        "1.2.3.4:80", "example.com:443", "[::1]:53"
+    };
+    static const uint8_t ipv4[] = {0x00U,0x50U,0x01U,1U,2U,3U,4U};
+    static const uint8_t domain[] = {
+        0x01U,0xbbU,0x02U,11U,'e','x','a','m','p','l','e','.','c','o','m'
+    };
+    static const uint8_t ipv6[] = {
+        0x00U,0x35U,0x03U,0U,0U,0U,0U,0U,0U,0U,0U,
+        0U,0U,0U,0U,0U,0U,0U,1U
+    };
+    const uint8_t *expected_addresses[] = {ipv4, domain, ipv6};
+    const size_t expected_lengths[] = {
+        sizeof(ipv4), sizeof(domain), sizeof(ipv6)
+    };
+    for (size_t index = 0U; index < 3U; ++index) {
+        uint8_t *address = NULL;
+        size_t address_length = 0U;
+        CH_TEST_ASSERT(ch_vmess_encode_address(
+            targets[index], &address, &address_length, &error) == CH_OK);
+        CH_TEST_ASSERT(address_length == expected_lengths[index]);
+        CH_TEST_ASSERT(memcmp(address, expected_addresses[index],
+                              address_length) == 0);
+        free(address);
+    }
+}
+
+static void protocol_test_vmess_frames(void) {
+    static const ch_vmess_security methods[] = {
+        CH_VMESS_AES_128_GCM, CH_VMESS_CHACHA20_POLY1305
+    };
+    uint8_t key[16];
+    uint8_t iv[16];
+    memset(key, 0x42, sizeof(key));
+    memset(iv, 0xa5, sizeof(iv));
+    static const uint8_t plaintext[] = "native-vmess-body-frame";
+    for (size_t index = 0U; index < sizeof(methods) / sizeof(methods[0]);
+         ++index) {
+        ch_error error;
+        uint16_t write_counter = 0U;
+        bool write_exhausted = false;
+        uint8_t *frame = NULL;
+        size_t frame_length = 0U;
+        CH_TEST_ASSERT(ch_vmess_encrypt_chunk(
+            methods[index], key, iv, &write_counter, &write_exhausted,
+            plaintext, sizeof(plaintext), &frame, &frame_length,
+            &error) == CH_OK);
+        CH_TEST_ASSERT(write_counter == 1U && !write_exhausted);
+        uint16_t read_counter = 0U;
+        bool read_exhausted = false;
+        uint8_t *decrypted = NULL;
+        size_t decrypted_length = 0U;
+        CH_TEST_ASSERT(ch_vmess_decrypt_chunk(
+            methods[index], key, iv, &read_counter, &read_exhausted, frame,
+            frame_length, &decrypted, &decrypted_length, &error) == CH_OK);
+        CH_TEST_ASSERT(decrypted_length == sizeof(plaintext));
+        CH_TEST_ASSERT(memcmp(decrypted, plaintext, sizeof(plaintext)) == 0);
+        free(decrypted);
+        frame[frame_length - 1U] ^= 0x01U;
+        read_counter = 0U;
+        CH_TEST_ASSERT(ch_vmess_decrypt_chunk(
+            methods[index], key, iv, &read_counter, &read_exhausted, frame,
+            frame_length, &decrypted, &decrypted_length,
+            &error) == CH_ERROR_PARSE);
+        free(frame);
+
+        write_counter = UINT16_MAX;
+        write_exhausted = false;
+        CH_TEST_ASSERT(ch_vmess_encrypt_chunk(
+            methods[index], key, iv, &write_counter, &write_exhausted,
+            plaintext, sizeof(plaintext), &frame, &frame_length,
+            &error) == CH_OK);
+        CH_TEST_ASSERT(write_counter == 0U && write_exhausted);
+        free(frame);
+        CH_TEST_ASSERT(ch_vmess_encrypt_chunk(
+            methods[index], key, iv, &write_counter, &write_exhausted,
+            plaintext, sizeof(plaintext), &frame, &frame_length,
+            &error) == CH_ERROR_INVALID_STATE);
+    }
+    ch_error error;
+    uint16_t counter = 0U;
+    uint8_t *frame = NULL;
+    size_t frame_length = 0U;
+    CH_TEST_ASSERT(ch_vmess_encrypt_chunk(
+        CH_VMESS_AES_128_GCM, key, iv, &counter, NULL, plaintext,
+        sizeof(plaintext), &frame, &frame_length,
+        &error) == CH_ERROR_INVALID_ARGUMENT);
 }
 
 static void protocol_test_shadowsocks_frames(void) {
@@ -1091,4 +1523,7 @@ void ch_test_protocol(void) {
     protocol_test_shadowsocks_chain();
     protocol_test_tor_streams();
     protocol_test_tor_after_trojan();
+    protocol_test_vmess_vectors();
+    protocol_test_vmess_frames();
+    protocol_test_vmess_streams();
 }

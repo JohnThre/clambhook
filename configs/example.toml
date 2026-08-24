@@ -114,9 +114,10 @@ name = "local"
       [profile.chain.server.settings]
       token = "replace-with-private-value"
 
-  # Example VMESS server (AEAD-only; alter_id must be 0 or omitted). security
-  # accepts "auto" (default), "aes-128-gcm", or "chacha20-poly1305". Set tls =
-  # true to run VMESS over TLS, with optional sni / alpn / skip_cert_verify.
+  # Example VMESS server. Both the legacy oracle and native C runtime support
+  # its AEAD TCP form (alter_id must be 0 or omitted). security accepts "auto"
+  # (default), "aes-128-gcm", or "chacha20-poly1305". Set tls = true to run
+  # VMESS over TLS, with optional sni / alpn / skip_cert_verify.
   #   [[profile.chain]]
   #   name = "vmess-example"
   #

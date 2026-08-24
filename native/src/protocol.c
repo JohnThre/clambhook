@@ -22,8 +22,10 @@
 #include "clambhook/socks.h"
 #include "cnet.h"
 #include "internal.h"
+#include "protocol_internal.h"
 #include "protocol_shadowsocks.h"
 #include "protocol_tor.h"
+#include "protocol_vmess.h"
 
 #define CH_PROTOCOL_DIAL_TIMEOUT_MS 30000
 #define CH_PROTOCOL_BUFFER_SIZE 32768U
@@ -420,10 +422,11 @@ static char *ch_protocol_optional_string(const ch_config_table *table,
 static ch_status ch_protocol_tls_configure(SSL_CTX *context, SSL *ssl,
                                            const ch_config_table *settings,
                                            const char *server_address,
+                                           const char *label,
                                            ch_error *error) {
     char *sni = ch_protocol_optional_string(settings, "sni");
     if (sni == NULL) {
-        ch_error_set(error, CH_ERROR_OUT_OF_MEMORY, "copy Trojan SNI");
+        ch_error_set(error, CH_ERROR_OUT_OF_MEMORY, "copy %s SNI", label);
         return CH_ERROR_OUT_OF_MEMORY;
     }
     if (sni[0] == '\0') {
@@ -448,7 +451,8 @@ static ch_status ch_protocol_tls_configure(SSL_CTX *context, SSL *ssl,
         if (SSL_CTX_set_default_verify_paths(context) != 1) {
             free(sni);
             ch_error_set(error, CH_ERROR_IO,
-                         "trojan load default certificate authorities failed");
+                         "%s load default certificate authorities failed",
+                         label);
             return CH_ERROR_IO;
         }
         X509_VERIFY_PARAM *parameters = SSL_get0_param(ssl);
@@ -458,13 +462,15 @@ static ch_status ch_protocol_tls_configure(SSL_CTX *context, SSL *ssl,
             if (X509_VERIFY_PARAM_set1_ip_asc(parameters, sni) != 1) {
                 free(sni);
                 ch_error_set(error, CH_ERROR_IO,
-                             "trojan configure certificate IP verification failed");
+                             "%s configure certificate IP verification failed",
+                             label);
                 return CH_ERROR_IO;
             }
         } else if (X509_VERIFY_PARAM_set1_host(parameters, sni, 0U) != 1) {
             free(sni);
             ch_error_set(error, CH_ERROR_IO,
-                         "trojan configure certificate hostname verification failed");
+                         "%s configure certificate hostname verification failed",
+                         label);
             return CH_ERROR_IO;
         }
     }
@@ -473,7 +479,7 @@ static ch_status ch_protocol_tls_configure(SSL_CTX *context, SSL *ssl,
         inet_pton(AF_INET6, sni, parsed_ip) != 1 &&
         SSL_set_tlsext_host_name(ssl, sni) != 1) {
         free(sni);
-        ch_error_set(error, CH_ERROR_IO, "trojan configure SNI failed");
+        ch_error_set(error, CH_ERROR_IO, "%s configure SNI failed", label);
         return CH_ERROR_IO;
     }
     free(sni);
@@ -490,7 +496,7 @@ static ch_status ch_protocol_tls_configure(SSL_CTX *context, SSL *ssl,
             wire_length > 65535U - strlen(value) - 1U) {
             free(value);
             ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
-                         "trojan ALPN entries must contain 1 to 255 bytes");
+                         "%s ALPN entries must contain 1 to 255 bytes", label);
             return CH_ERROR_INVALID_ARGUMENT;
         }
         wire_length += strlen(value) + 1U;
@@ -498,7 +504,7 @@ static ch_status ch_protocol_tls_configure(SSL_CTX *context, SSL *ssl,
     }
     uint8_t *wire = malloc(wire_length);
     if (wire == NULL) {
-        ch_error_set(error, CH_ERROR_OUT_OF_MEMORY, "allocate Trojan ALPN");
+        ch_error_set(error, CH_ERROR_OUT_OF_MEMORY, "allocate %s ALPN", label);
         return CH_ERROR_OUT_OF_MEMORY;
     }
     size_t offset = 0U;
@@ -518,20 +524,22 @@ static ch_status ch_protocol_tls_configure(SSL_CTX *context, SSL *ssl,
     int configured = SSL_set_alpn_protos(ssl, wire, (unsigned int)wire_length);
     free(wire);
     if (configured != 0) {
-        ch_error_set(error, CH_ERROR_IO, "trojan configure ALPN failed");
+        ch_error_set(error, CH_ERROR_IO, "%s configure ALPN failed", label);
         return CH_ERROR_IO;
     }
     return CH_OK;
 }
 
 static ch_status ch_protocol_ssl_write_all(SSL *ssl, const uint8_t *bytes,
-                                           size_t length, ch_error *error) {
+                                           size_t length, const char *label,
+                                           ch_error *error) {
     while (length > 0U) {
         int amount = length > (size_t)INT_MAX ? INT_MAX : (int)length;
         int written = SSL_write(ssl, bytes, amount);
         if (written <= 0) {
             unsigned long detail = ERR_get_error();
-            ch_error_set(error, CH_ERROR_IO, "trojan write header failed: %s",
+            ch_error_set(error, CH_ERROR_IO, "%s write handshake failed: %s",
+                         label,
                          detail == 0UL ? "TLS I/O error" :
                          ERR_reason_error_string(detail));
             return CH_ERROR_IO;
@@ -539,6 +547,121 @@ static ch_status ch_protocol_ssl_write_all(SSL *ssl, const uint8_t *bytes,
         bytes += (size_t)written;
         length -= (size_t)written;
     }
+    return CH_OK;
+}
+
+ch_status ch_protocol_tls_wrap(const ch_config_table *settings,
+                               const char *server_address,
+                               int underlying_descriptor,
+                               const uint8_t *initial_payload,
+                               size_t initial_payload_length,
+                               const char *label,
+                               int *out_descriptor,
+                               ch_error *error) {
+    if (server_address == NULL || label == NULL || out_descriptor == NULL ||
+        underlying_descriptor < 0 ||
+        (initial_payload == NULL && initial_payload_length > 0U)) {
+        ch_protocol_close(&underlying_descriptor);
+        ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
+                     "invalid TLS transport arguments");
+        return CH_ERROR_INVALID_ARGUMENT;
+    }
+    *out_descriptor = -1;
+    (void)pthread_once(&ch_protocol_sigpipe_once, ch_protocol_ignore_sigpipe);
+    ch_protocol_socket_timeout(underlying_descriptor,
+                               CH_PROTOCOL_DIAL_TIMEOUT_MS);
+    SSL_CTX *context = SSL_CTX_new(TLS_client_method());
+    if (context == NULL || SSL_CTX_set_min_proto_version(
+            context, TLS1_2_VERSION) != 1) {
+        SSL_CTX_free(context);
+        ch_protocol_close(&underlying_descriptor);
+        ch_error_set(error, CH_ERROR_IO, "create %s TLS context failed", label);
+        return CH_ERROR_IO;
+    }
+    SSL *ssl = SSL_new(context);
+    if (ssl == NULL || SSL_set_fd(ssl, underlying_descriptor) != 1) {
+        SSL_free(ssl);
+        SSL_CTX_free(context);
+        ch_protocol_close(&underlying_descriptor);
+        ch_error_set(error, CH_ERROR_IO, "create %s TLS stream failed", label);
+        return CH_ERROR_IO;
+    }
+    ch_status status = ch_protocol_tls_configure(
+        context, ssl, settings, server_address, label, error);
+    if (status != CH_OK) {
+        SSL_free(ssl);
+        SSL_CTX_free(context);
+        ch_protocol_close(&underlying_descriptor);
+        return status;
+    }
+    if (SSL_connect(ssl) != 1) {
+        unsigned long detail = ERR_get_error();
+        ch_error_set(error, CH_ERROR_IO, "%s TLS handshake failed: %s", label,
+                     detail == 0UL ? "TLS I/O error" :
+                     ERR_reason_error_string(detail));
+        SSL_free(ssl);
+        SSL_CTX_free(context);
+        ch_protocol_close(&underlying_descriptor);
+        return CH_ERROR_IO;
+    }
+    if (initial_payload_length > 0U) {
+        status = ch_protocol_ssl_write_all(ssl, initial_payload,
+                                           initial_payload_length, label,
+                                           error);
+    }
+    if (status != CH_OK) {
+        SSL_free(ssl);
+        SSL_CTX_free(context);
+        ch_protocol_close(&underlying_descriptor);
+        return status;
+    }
+    ch_protocol_socket_timeout(underlying_descriptor, 0U);
+    int pair[2] = {-1, -1};
+    if (socketpair(AF_UNIX, SOCK_STREAM, 0, pair) != 0) {
+        SSL_free(ssl);
+        SSL_CTX_free(context);
+        ch_protocol_close(&underlying_descriptor);
+        ch_error_set(error, CH_ERROR_IO, "create %s TLS relay stream: %s",
+                     label, strerror(errno));
+        return CH_ERROR_IO;
+    }
+    ch_tls_pump *pump = calloc(1U, sizeof(*pump));
+    if (pump == NULL) {
+        SSL_free(ssl);
+        SSL_CTX_free(context);
+        ch_protocol_close(&underlying_descriptor);
+        ch_protocol_close(&pair[0]);
+        ch_protocol_close(&pair[1]);
+        ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                     "allocate %s TLS relay stream", label);
+        return CH_ERROR_OUT_OF_MEMORY;
+    }
+    pump->context = context;
+    pump->ssl = ssl;
+    pump->network_descriptor = underlying_descriptor;
+    pump->local_descriptor = pair[1];
+    pthread_attr_t attributes;
+    int initialized = pthread_attr_init(&attributes) == 0;
+    if (initialized) {
+        (void)pthread_attr_setdetachstate(&attributes, PTHREAD_CREATE_DETACHED);
+    }
+    pthread_t thread;
+    int started = initialized &&
+        pthread_create(&thread, &attributes,
+                       ch_protocol_tls_pump_main, pump) == 0;
+    if (initialized) (void)pthread_attr_destroy(&attributes);
+    if (!started) {
+        free(pump);
+        SSL_free(ssl);
+        SSL_CTX_free(context);
+        ch_protocol_close(&underlying_descriptor);
+        ch_protocol_close(&pair[0]);
+        ch_protocol_close(&pair[1]);
+        ch_error_set(error, CH_ERROR_IO,
+                     "start %s TLS relay stream failed", label);
+        return CH_ERROR_IO;
+    }
+    *out_descriptor = pair[0];
     return CH_OK;
 }
 
@@ -583,111 +706,24 @@ static ch_status ch_protocol_trojan_dial(const ch_config_table *server,
             return status;
         }
     }
-    (void)pthread_once(&ch_protocol_sigpipe_once, ch_protocol_ignore_sigpipe);
-    ch_protocol_socket_timeout(underlying_descriptor,
-                               CH_PROTOCOL_DIAL_TIMEOUT_MS);
-    SSL_CTX *context = SSL_CTX_new(TLS_client_method());
-    if (context == NULL || SSL_CTX_set_min_proto_version(
-            context, TLS1_2_VERSION) != 1) {
-        SSL_CTX_free(context);
-        free(password);
-        free(server_address);
-        ch_protocol_close(&underlying_descriptor);
-        ch_error_set(error, CH_ERROR_IO, "create Trojan TLS context failed");
-        return CH_ERROR_IO;
-    }
-    SSL *ssl = SSL_new(context);
-    if (ssl == NULL || SSL_set_fd(ssl, underlying_descriptor) != 1) {
-        SSL_free(ssl);
-        SSL_CTX_free(context);
-        free(password);
-        free(server_address);
-        ch_protocol_close(&underlying_descriptor);
-        ch_error_set(error, CH_ERROR_IO, "create Trojan TLS stream failed");
-        return CH_ERROR_IO;
-    }
-    ch_status status = ch_protocol_tls_configure(context, ssl, settings,
-                                                 server_address, error);
-    free(server_address);
-    if (status != CH_OK) {
-        SSL_free(ssl);
-        SSL_CTX_free(context);
-        free(password);
-        ch_protocol_close(&underlying_descriptor);
-        return status;
-    }
-    if (SSL_connect(ssl) != 1) {
-        unsigned long detail = ERR_get_error();
-        ch_error_set(error, CH_ERROR_IO, "trojan TLS handshake failed: %s",
-                     detail == 0UL ? "TLS I/O error" :
-                     ERR_reason_error_string(detail));
-        SSL_free(ssl);
-        SSL_CTX_free(context);
-        free(password);
-        ch_protocol_close(&underlying_descriptor);
-        return CH_ERROR_IO;
-    }
     uint8_t *header = NULL;
     size_t header_length = 0U;
-    status = ch_protocol_trojan_header(password, target, &header,
-                                       &header_length, error);
+    ch_status status = ch_protocol_trojan_header(
+        password, target, &header, &header_length, error);
     free(password);
-    if (status == CH_OK) {
-        status = ch_protocol_ssl_write_all(ssl, header, header_length, error);
-    }
-    free(header);
     if (status != CH_OK) {
-        SSL_free(ssl);
-        SSL_CTX_free(context);
+        free(header);
+        free(server_address);
         ch_protocol_close(&underlying_descriptor);
         return status;
     }
-    ch_protocol_socket_timeout(underlying_descriptor, 0U);
-    int pair[2] = {-1, -1};
-    if (socketpair(AF_UNIX, SOCK_STREAM, 0, pair) != 0) {
-        SSL_free(ssl);
-        SSL_CTX_free(context);
-        ch_protocol_close(&underlying_descriptor);
-        ch_error_set(error, CH_ERROR_IO, "create Trojan relay stream: %s",
-                     strerror(errno));
-        return CH_ERROR_IO;
-    }
-    ch_tls_pump *pump = calloc(1U, sizeof(*pump));
-    if (pump == NULL) {
-        SSL_free(ssl);
-        SSL_CTX_free(context);
-        ch_protocol_close(&underlying_descriptor);
-        ch_protocol_close(&pair[0]);
-        ch_protocol_close(&pair[1]);
-        ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
-                     "allocate Trojan relay stream");
-        return CH_ERROR_OUT_OF_MEMORY;
-    }
-    pump->context = context;
-    pump->ssl = ssl;
-    pump->network_descriptor = underlying_descriptor;
-    pump->local_descriptor = pair[1];
-    pthread_attr_t attributes;
-    int initialized = pthread_attr_init(&attributes) == 0;
-    if (initialized) {
-        (void)pthread_attr_setdetachstate(&attributes, PTHREAD_CREATE_DETACHED);
-    }
-    pthread_t thread;
-    int started = initialized &&
-        pthread_create(&thread, &attributes, ch_protocol_tls_pump_main, pump) == 0;
-    if (initialized) (void)pthread_attr_destroy(&attributes);
-    if (!started) {
-        free(pump);
-        SSL_free(ssl);
-        SSL_CTX_free(context);
-        ch_protocol_close(&underlying_descriptor);
-        ch_protocol_close(&pair[0]);
-        ch_protocol_close(&pair[1]);
-        ch_error_set(error, CH_ERROR_IO, "start Trojan relay stream failed");
-        return CH_ERROR_IO;
-    }
-    *out_descriptor = pair[0];
-    return CH_OK;
+    status = ch_protocol_tls_wrap(settings, server_address,
+                                  underlying_descriptor, header,
+                                  header_length, "trojan", out_descriptor,
+                                  error);
+    free(header);
+    free(server_address);
+    return status;
 }
 
 ch_status ch_protocol_chain_dial(const ch_config_table *chain,
@@ -757,6 +793,11 @@ ch_status ch_protocol_chain_dial(const ch_config_table *chain,
             int tunneled = -1;
             status = ch_protocol_tor_dial(server, descriptor, hop_target,
                                           &tunneled, error);
+            descriptor = status == CH_OK ? tunneled : -1;
+        } else if (strcasecmp(protocol, "vmess") == 0) {
+            int tunneled = -1;
+            status = ch_protocol_vmess_dial(server, descriptor, hop_target,
+                                            &tunneled, error);
             descriptor = status == CH_OK ? tunneled : -1;
         } else {
             ch_protocol_close(&descriptor);

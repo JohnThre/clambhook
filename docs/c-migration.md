@@ -43,8 +43,8 @@ The additive CMake build currently provides:
   routing rule matcher, and native SOCKS5/HTTP proxy listeners with bounded
   handshakes, authentication, rule blocking, connection ceilings, and
   deterministic relay shutdown. Its native chain dialer supports direct TCP,
-  Trojan/clambback, Shadowsocks AEAD-2018, and Tor SOCKS5 TCP streams,
-  including nested encrypted hops;
+  Trojan/clambback, Shadowsocks AEAD-2018, Tor SOCKS5, and VMESS-AEAD TCP
+  streams, including nested encrypted hops;
 - `clambhook_crypto`: the existing C crypto surface, now covering AES-128-GCM,
   AES-256-GCM, ChaCha20-Poly1305, SHA-224, and random bytes through C
   dependencies;
@@ -71,7 +71,7 @@ tests pass their parity gates.
 
 The listener data plane currently completes direct-rule routes, single-hop test
 chains whose protocol is `direct`, and TCP chains containing `trojan`,
-wire-compatible `clambback`, and `shadowsocks` hops. The C Trojan implementation
+wire-compatible `clambback`, `shadowsocks`, `tor`, and `vmess` hops. The C Trojan implementation
 matches the legacy SHA-224 password header and SOCKS address encoding, requires
 TLS 1.2 or newer, supports SNI and ALPN, verifies certificates by default, and
 honors the existing `skip_cert_verify` escape hatch. The C Shadowsocks
@@ -85,9 +85,17 @@ matches the legacy TCP-only SOCKS5 design, preserves remote domain and `.onion`
 resolution, supports optional RFC 1929 stream-isolation credentials, and is
 tested both directly and after a Trojan hop.
 
-VMESS, ShadowTLS, WireGuard, OpenVPN, protocol UDP modes, UDP ASSOCIATE, TUN,
-DNS, prompts, traffic persistence, and developer inspection remain cutover
-blockers; unsupported chain protocols fail closed.
+The native VMESS row supports the modern AEAD header (`alter_id = 0`) over raw
+TCP or TLS, AES-128-GCM and ChaCha20-Poly1305 body streams, certificate/SNI/ALPN
+settings through the shared TLS transport, remote target encoding, authenticated
+responses, and fail-closed 16-bit nonce exhaustion. Fixed Go-derived KDF/address
+fixtures and local fake-server transcripts validate both cipher methods under
+ASan/UBSan. Legacy VMESS authentication and non-TCP transports remain out of
+scope, matching the existing documented compatibility boundary.
+
+ShadowTLS, WireGuard, OpenVPN, protocol UDP modes (including VMESS UDP), UDP
+ASSOCIATE, TUN, DNS, prompts, traffic persistence, and developer inspection
+remain cutover blockers; unsupported chain protocols fail closed.
 
 ## Build and test
 
@@ -139,8 +147,9 @@ Cutover is allowed only after all of the following are green:
 1. C unit tests pass under AddressSanitizer and UndefinedBehaviorSanitizer.
 2. Differential fixtures match the legacy implementation for config, rules,
    API JSON/status codes, events, license behavior, and each protocol wire
-   transcript. Trojan/clambback, Shadowsocks TCP, and Tor SOCKS5/nested-stream
-   fixtures are green; the remaining protocol rows are still open.
+   transcript. Trojan/clambback, Shadowsocks TCP, Tor SOCKS5/nested-stream, and
+   VMESS-AEAD TCP fixtures are green; the remaining protocol rows are still
+   open.
 3. Listener and protocol integration tests cover TCP, UDP, cancellation,
    reload rollback, concurrency limits, and TUN lifecycle.
 4. GTK functional/accessibility QA matches the current Linux feature set.
