@@ -19,6 +19,13 @@ typedef struct runtime_echo_server {
     uint16_t port;
 } runtime_echo_server;
 
+typedef struct runtime_udp_echo_server {
+    int descriptor;
+    pthread_t thread;
+    uint16_t port;
+    int success;
+} runtime_udp_echo_server;
+
 static int runtime_test_send_all(int descriptor, const void *bytes, size_t length) {
     const uint8_t *cursor = bytes;
     while (length > 0U) {
@@ -95,6 +102,51 @@ static void runtime_echo_stop(runtime_echo_server *server) {
     (void)close(server->descriptor);
 }
 
+static void *runtime_udp_echo_main(void *context) {
+    runtime_udp_echo_server *server = context;
+    uint8_t bytes[256];
+    struct sockaddr_storage source;
+    socklen_t source_length = (socklen_t)sizeof(source);
+    ssize_t received;
+    do {
+        received = recvfrom(server->descriptor, bytes, sizeof(bytes), 0,
+                            (struct sockaddr *)&source, &source_length);
+    } while (received < 0 && errno == EINTR);
+    if (received >= 0) {
+        ssize_t sent;
+        do {
+            sent = sendto(server->descriptor, bytes, (size_t)received, 0,
+                          (struct sockaddr *)&source, source_length);
+        } while (sent < 0 && errno == EINTR);
+        server->success = sent == received;
+    }
+    return NULL;
+}
+
+static int runtime_udp_echo_start(runtime_udp_echo_server *server) {
+    memset(server, 0, sizeof(*server));
+    server->descriptor = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    if (server->descriptor < 0) return 0;
+    struct sockaddr_in address = {
+        .sin_family = AF_INET,
+        .sin_port = 0,
+        .sin_addr = {.s_addr = htonl(INADDR_LOOPBACK)}
+    };
+    if (bind(server->descriptor, (struct sockaddr *)&address,
+             (socklen_t)sizeof(address)) != 0) return 0;
+    socklen_t length = (socklen_t)sizeof(address);
+    if (getsockname(server->descriptor, (struct sockaddr *)&address,
+                    &length) != 0) return 0;
+    server->port = ntohs(address.sin_port);
+    return pthread_create(&server->thread, NULL, runtime_udp_echo_main,
+                          server) == 0;
+}
+
+static void runtime_udp_echo_stop(runtime_udp_echo_server *server) {
+    (void)pthread_join(server->thread, NULL);
+    (void)close(server->descriptor);
+}
+
 static int runtime_connect_address(const char *address) {
     const char *separator = strrchr(address, ':');
     if (separator == NULL || separator == address) return -1;
@@ -150,7 +202,10 @@ void ch_test_runtime_listener(void) {
         ch_json_object_get(ch_json_array_get(listeners, 0U), "addr")
     );
     CH_TEST_ASSERT(listener_address != NULL);
-    int client = runtime_connect_address(listener_address);
+    char *listener_address_copy = malloc(strlen(listener_address) + 1U);
+    CH_TEST_ASSERT(listener_address_copy != NULL);
+    strcpy(listener_address_copy, listener_address);
+    int client = runtime_connect_address(listener_address_copy);
     CH_TEST_ASSERT(client >= 0);
     ch_json_value_destroy(status);
     ch_string_free(status_json);
@@ -173,6 +228,63 @@ void ch_test_runtime_listener(void) {
     CH_TEST_ASSERT(memcmp(payload, echoed, sizeof(payload)) == 0);
     (void)shutdown(client, SHUT_RDWR);
     (void)close(client);
+
+    runtime_udp_echo_server udp_echo;
+    CH_TEST_ASSERT(runtime_udp_echo_start(&udp_echo));
+    int control = runtime_connect_address(listener_address_copy);
+    CH_TEST_ASSERT(control >= 0);
+    CH_TEST_ASSERT(runtime_test_send_all(control, greeting, sizeof(greeting)));
+    CH_TEST_ASSERT(runtime_test_receive_exact(control, response, 2U));
+    CH_TEST_ASSERT(response[1] == 0x00U);
+    const uint8_t associate[] = {
+        0x05U, 0x03U, 0x00U, 0x01U, 0U, 0U, 0U, 0U, 0U, 0U
+    };
+    CH_TEST_ASSERT(runtime_test_send_all(control, associate,
+                                         sizeof(associate)));
+    CH_TEST_ASSERT(runtime_test_receive_exact(control, response,
+                                              sizeof(response)));
+    CH_TEST_ASSERT(response[1] == 0x00U && response[3] == 0x01U);
+    struct sockaddr_in relay = {.sin_family = AF_INET};
+    memcpy(&relay.sin_addr, response + 4U, 4U);
+    memcpy(&relay.sin_port, response + 8U, 2U);
+    int udp_client = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    CH_TEST_ASSERT(udp_client >= 0);
+    static const uint8_t udp_payload[] = "runtime-direct-udp";
+    uint8_t udp_request[10U + sizeof(udp_payload)];
+    memset(udp_request, 0, 3U);
+    udp_request[3] = 0x01U;
+    udp_request[4] = 127U;
+    udp_request[5] = 0U;
+    udp_request[6] = 0U;
+    udp_request[7] = 1U;
+    udp_request[8] = (uint8_t)(udp_echo.port >> 8U);
+    udp_request[9] = (uint8_t)udp_echo.port;
+    memcpy(udp_request + 10U, udp_payload, sizeof(udp_payload));
+    CH_TEST_ASSERT(sendto(udp_client, udp_request, sizeof(udp_request), 0,
+                          (struct sockaddr *)&relay,
+                          (socklen_t)sizeof(relay)) ==
+                   (ssize_t)sizeof(udp_request));
+    uint8_t udp_response[256];
+    ssize_t udp_response_length;
+    do {
+        udp_response_length = recv(udp_client, udp_response,
+                                   sizeof(udp_response), 0);
+    } while (udp_response_length < 0 && errno == EINTR);
+    CH_TEST_ASSERT(udp_response_length == (ssize_t)sizeof(udp_request));
+    CH_TEST_ASSERT(udp_response[0] == 0U && udp_response[1] == 0U &&
+                   udp_response[2] == 0U && udp_response[3] == 0x01U &&
+                   udp_response[4] == 127U && udp_response[5] == 0U &&
+                   udp_response[6] == 0U && udp_response[7] == 1U &&
+                   udp_response[8] == (uint8_t)(udp_echo.port >> 8U) &&
+                   udp_response[9] == (uint8_t)udp_echo.port);
+    CH_TEST_ASSERT(memcmp(udp_response + 10U, udp_payload,
+                          sizeof(udp_payload)) == 0);
+    (void)close(udp_client);
+    (void)shutdown(control, SHUT_RDWR);
+    (void)close(control);
+    runtime_udp_echo_stop(&udp_echo);
+    CH_TEST_ASSERT(udp_echo.success == 1);
+    free(listener_address_copy);
     CH_TEST_ASSERT(ch_runtime_stop(runtime, &error) == CH_OK);
     ch_runtime_destroy(runtime);
     runtime_echo_stop(&echo);

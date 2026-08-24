@@ -288,6 +288,22 @@ ch_status ch_protocol_chain_dial_packet(const ch_config_table *chain,
     return CH_OK;
 }
 
+ch_status ch_protocol_direct_packet_dial(
+    ch_packet_connection **out_connection,
+    ch_error *error) {
+    ch_error_clear(error);
+    if (out_connection == NULL) {
+        ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
+                     "direct packet output is required");
+        return CH_ERROR_INVALID_ARGUMENT;
+    }
+    *out_connection = ch_packet_allocate(CH_PACKET_DIRECT, error);
+    if (*out_connection == NULL) {
+        return error == NULL ? CH_ERROR_OUT_OF_MEMORY : error->code;
+    }
+    return CH_OK;
+}
+
 static ch_status ch_packet_send_direct(ch_packet_connection *connection,
                                        const char *target,
                                        const uint8_t *payload,
@@ -384,6 +400,7 @@ static ch_status ch_packet_receive_direct(ch_packet_connection *connection,
                                           size_t buffer_capacity,
                                           size_t *out_length,
                                           char **out_source,
+                                          int timeout_milliseconds,
                                           ch_error *error) {
     struct pollfd descriptors[2];
     nfds_t count = 0U;
@@ -406,8 +423,12 @@ static ch_status ch_packet_receive_direct(ch_packet_connection *connection,
     }
     int ready;
     do {
-        ready = poll(descriptors, count, -1);
+        ready = poll(descriptors, count, timeout_milliseconds);
     } while (ready < 0 && errno == EINTR);
+    if (ready == 0) {
+        ch_error_set(error, CH_ERROR_NOT_FOUND, "UDP receive timed out");
+        return CH_ERROR_NOT_FOUND;
+    }
     if (ready < 0) {
         ch_error_set(error, CH_ERROR_IO, "wait for UDP packet: %s",
                      strerror(errno));
@@ -460,9 +481,22 @@ ch_status ch_packet_connection_receive(ch_packet_connection *connection,
                                        size_t *out_length,
                                        char **out_source,
                                        ch_error *error) {
+    return ch_packet_connection_receive_timeout(
+        connection, buffer, buffer_capacity, out_length, out_source, -1,
+        error);
+}
+
+ch_status ch_packet_connection_receive_timeout(
+    ch_packet_connection *connection,
+    uint8_t *buffer,
+    size_t buffer_capacity,
+    size_t *out_length,
+    char **out_source,
+    int timeout_milliseconds,
+    ch_error *error) {
     ch_error_clear(error);
     if (connection == NULL || buffer == NULL || buffer_capacity == 0U ||
-        out_length == NULL || out_source == NULL) {
+        out_length == NULL || out_source == NULL || timeout_milliseconds < -1) {
         ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
                      "invalid packet receive input");
         return CH_ERROR_INVALID_ARGUMENT;
@@ -473,15 +507,30 @@ ch_status ch_packet_connection_receive(ch_packet_connection *connection,
     ch_status status;
     if (connection->kind == CH_PACKET_DIRECT) {
         status = ch_packet_receive_direct(connection, buffer, buffer_capacity,
-                                          out_length, out_source, error);
+                                          out_length, out_source,
+                                          timeout_milliseconds, error);
     } else {
         uint8_t frame[CH_PACKET_MAX_WIRE_SIZE];
-        ssize_t frame_length;
+        struct pollfd wait = {
+            .fd = connection->ipv4_descriptor,
+            .events = POLLIN
+        };
+        int ready;
         do {
-            frame_length = recv(connection->ipv4_descriptor, frame,
-                                sizeof(frame), 0);
-        } while (frame_length < 0 && errno == EINTR);
-        if (frame_length < 0) {
+            ready = poll(&wait, 1U, timeout_milliseconds);
+        } while (ready < 0 && errno == EINTR);
+        ssize_t frame_length = -1;
+        if (ready > 0 && (wait.revents & POLLIN) != 0) {
+            do {
+                frame_length = recv(connection->ipv4_descriptor, frame,
+                                    sizeof(frame), 0);
+            } while (frame_length < 0 && errno == EINTR);
+        }
+        if (ready == 0) {
+            ch_error_set(error, CH_ERROR_NOT_FOUND,
+                         "Shadowsocks UDP receive timed out");
+            status = CH_ERROR_NOT_FOUND;
+        } else if (ready < 0 || frame_length < 0) {
             ch_error_set(error, CH_ERROR_IO,
                          "receive Shadowsocks UDP packet: %s",
                          strerror(errno));

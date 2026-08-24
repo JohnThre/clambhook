@@ -45,7 +45,8 @@ The additive CMake build currently provides:
   deterministic relay shutdown. Its native chain dialer supports direct TCP,
   Trojan/clambback, Shadowsocks AEAD-2018, Tor SOCKS5, and VMESS-AEAD TCP
   streams, including nested encrypted hops. A protocol-neutral packet API now
-  supports direct UDP and single-hop Shadowsocks AEAD-2018 UDP;
+  supports direct UDP and single-hop Shadowsocks AEAD-2018 UDP, and the SOCKS5
+  listener implements `UDP ASSOCIATE` with asynchronous route-keyed sessions;
 - `clambhook_crypto`: the existing C crypto surface, now covering AES-128-GCM,
   AES-256-GCM, ChaCha20-Poly1305, SHA-224, and random bytes through C
   dependencies;
@@ -109,10 +110,13 @@ hatch are preserved. A real TLS 1.3 relay test validates the complete handshake
 and echo path under ASan/UBSan, and final-hop ShadowTLS configurations fail
 closed because an addressed inner protocol is required.
 
-WireGuard, OpenVPN, remaining protocol UDP modes (including VMESS UDP), SOCKS5
-UDP ASSOCIATE listener integration, TUN, DNS, prompts, traffic persistence, and
-developer inspection remain cutover blockers; multi-hop and unsupported packet
-chains fail closed.
+The SOCKS5 UDP relay binds to the control connection's local interface, pins
+the first client endpoint (and any explicitly requested port), rejects
+fragmentation, re-evaluates routing for each datagram, reuses one asynchronous
+packet session per selected route, and ties teardown to the TCP control
+connection. WireGuard, OpenVPN, remaining protocol UDP modes (including VMESS
+UDP), TUN, DNS, prompts, traffic persistence, and developer inspection remain
+cutover blockers; multi-hop and unsupported packet chains fail closed.
 
 ## Build and test
 
@@ -167,8 +171,9 @@ Cutover is allowed only after all of the following are green:
    transcript. Trojan/clambback, Shadowsocks TCP/UDP, direct UDP, Tor
    SOCKS5/nested-stream, VMESS-AEAD TCP, and ShadowTLS v3 fixtures are green;
    the remaining protocol rows are still open.
-3. Listener and protocol integration tests cover TCP, UDP, cancellation,
-   reload rollback, concurrency limits, and TUN lifecycle.
+3. Listener and protocol integration tests cover TCP, direct/Shadowsocks UDP,
+   SOCKS5 UDP association reuse and cancellation, reload rollback, concurrency
+   limits, remaining protocol UDP rows, and TUN lifecycle.
 4. GTK functional/accessibility QA matches the current Linux feature set.
 5. Android unit, lint, build, Compose instrumentation, VPN, background, and
    process-restart tests pass on API 30, 33, and 36.

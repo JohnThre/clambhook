@@ -2,6 +2,7 @@
 
 #include <limits.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
@@ -107,6 +108,22 @@ static ch_status runtime_dial_chain(const ch_runtime_listener_entry *entry,
     return ch_protocol_chain_dial(chain, "tcp", target, out_descriptor, error);
 }
 
+static ch_status runtime_dial_packet_chain(
+    const ch_runtime_listener_entry *entry,
+    const char *chain_name,
+    ch_packet_connection **out_connection,
+    ch_error *error) {
+    const ch_config_array *chains = ch_config_table_get_array(entry->profile,
+                                                               "chain");
+    const ch_config_table *chain = runtime_find_named(chains, chain_name);
+    if (chain == NULL) {
+        ch_error_set(error, CH_ERROR_NOT_FOUND, "chain %s not found",
+                     chain_name);
+        return CH_ERROR_NOT_FOUND;
+    }
+    return ch_protocol_chain_dial_packet(chain, out_connection, error);
+}
+
 static ch_status runtime_listener_dial(const char *network, const char *target,
                                        const char *source, ch_proxy_route *route,
                                        int *out_descriptor, void *context,
@@ -144,6 +161,60 @@ static ch_status runtime_listener_dial(const char *network, const char *target,
         if (status == CH_OK) {
             status = runtime_dial_chain(entry, chain_name, target,
                                         out_descriptor, error);
+        }
+        free(selected_group_chain);
+    }
+    ch_rule_decision_clear(&decision);
+    return status;
+}
+
+static ch_status runtime_listener_packet_dial(
+    const char *network,
+    const char *target,
+    const char *source,
+    ch_proxy_route *route,
+    ch_packet_connection **out_connection,
+    void *context,
+    ch_error *error) {
+    ch_runtime_listener_entry *entry = context;
+    ch_rule_match_context match = {
+        .network = network,
+        .target = target,
+        .source = source
+    };
+    ch_rule_decision decision;
+    ch_status status = ch_rule_engine_decide(entry->rules, &match, &decision,
+                                             error);
+    if (status != CH_OK) return status;
+    route->action = CH_PROXY_ROUTE_CONNECT;
+    *out_connection = NULL;
+    if (strcmp(decision.action, CH_RULE_ACTION_BLOCK) == 0) {
+        route->action = CH_PROXY_ROUTE_BLOCK;
+    } else if (strcmp(decision.action, CH_RULE_ACTION_REJECT) == 0) {
+        route->action = CH_PROXY_ROUTE_REJECT;
+    } else if (strcmp(decision.action, CH_RULE_ACTION_DIRECT) == 0) {
+        (void)snprintf(route->session_key, sizeof(route->session_key),
+                       "direct");
+        status = ch_protocol_direct_packet_dial(out_connection, error);
+    } else {
+        char *selected_group_chain = NULL;
+        const char *chain_name = decision.is_default ? entry->default_chain :
+            decision.chain_name;
+        if (strcmp(decision.action, CH_RULE_ACTION_GROUP) == 0) {
+            selected_group_chain = runtime_select_group_chain(
+                entry, decision.group_name, error);
+            if (selected_group_chain == NULL) {
+                status = error == NULL ? CH_ERROR_INVALID_ARGUMENT :
+                                         error->code;
+            } else {
+                chain_name = selected_group_chain;
+            }
+        }
+        if (status == CH_OK) {
+            (void)snprintf(route->session_key, sizeof(route->session_key),
+                           "chain:%s", chain_name);
+            status = runtime_dial_packet_chain(entry, chain_name,
+                                               out_connection, error);
         }
         free(selected_group_chain);
     }
@@ -284,6 +355,8 @@ static ch_status runtime_listener_add(ch_runtime_listener_set *set,
         .maximum_connections = (size_t)maximum,
         .handshake_timeout_milliseconds = timeout_milliseconds,
         .dial = runtime_listener_dial,
+        .packet_dial = protocol == CH_PROXY_LISTENER_SOCKS5 ?
+            runtime_listener_packet_dial : NULL,
         .dial_context = entry
     };
     entry->listener = ch_proxy_listener_start(&options, error);

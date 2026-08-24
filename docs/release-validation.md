@@ -71,7 +71,8 @@ loopback SOCKS5/HTTP relay, Trojan/clambback TLS chain, all three Shadowsocks
 AEAD-2018 TCP and UDP methods, direct UDP packet path, Tor SOCKS5 isolation,
 VMESS-AEAD TCP with both body ciphers,
 ShadowTLS v3 over a genuine TLS 1.3 relay, nested encrypted chains,
-nonce-exhaustion rejection, and runtime-lifecycle cases) and
+SOCKS5 UDP association/session reuse, nonce-exhaustion rejection, and
+runtime-lifecycle cases) and
 `make build-linux-gtk` alongside the existing distro harness. Production
 packages stay on their current binaries until the native packaging gate in
 [`c-migration.md`](c-migration.md) passes. See

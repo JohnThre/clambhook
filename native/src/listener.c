@@ -19,10 +19,14 @@
 
 #include <sodium.h>
 
+#include "clambhook/protocol.h"
+#include "clambhook/socks.h"
 #include "internal.h"
 
 #define CH_LISTENER_DEFAULT_HANDSHAKE_MS 30000U
 #define CH_HTTP_MAX_HEADER_BYTES (1024U * 1024U)
+#define CH_SOCKS_UDP_MAX_PACKET 65507U
+#define CH_SOCKS_UDP_READER_POLL_MS 500
 
 typedef struct ch_listener_connection ch_listener_connection;
 
@@ -36,6 +40,7 @@ struct ch_proxy_listener {
     size_t maximum_connections;
     unsigned int handshake_timeout_milliseconds;
     ch_proxy_dial_callback dial;
+    ch_proxy_packet_dial_callback packet_dial;
     void *dial_context;
     int descriptor;
     pthread_t accept_thread;
@@ -58,6 +63,26 @@ typedef struct ch_relay_direction {
     int source;
     int destination;
 } ch_relay_direction;
+
+typedef struct ch_socks_udp_association ch_socks_udp_association;
+
+typedef struct ch_socks_udp_session {
+    ch_socks_udp_association *association;
+    ch_packet_connection *packet;
+    char key[CH_PROXY_ROUTE_SESSION_KEY_SIZE];
+    pthread_t reader_thread;
+    int reader_started;
+    struct ch_socks_udp_session *next;
+} ch_socks_udp_session;
+
+struct ch_socks_udp_association {
+    int relay;
+    pthread_mutex_t mutex;
+    int stopping;
+    struct sockaddr_storage client;
+    socklen_t client_length;
+    ch_socks_udp_session *sessions;
+};
 
 static void ch_listener_close_descriptor(int *descriptor) {
     if (descriptor == NULL || *descriptor < 0) return;
@@ -149,6 +174,24 @@ static char *ch_listener_socket_address(int descriptor, int peer) {
     char *result = malloc(needed);
     if (result == NULL) return NULL;
     (void)snprintf(result, needed, ipv6 ? "[%s]:%s" : "%s:%s", host, service);
+    return result;
+}
+
+static char *ch_listener_format_address(const struct sockaddr *address,
+                                        socklen_t length) {
+    char host[1025];
+    char service[32];
+    if (getnameinfo(address, length, host, sizeof(host), service,
+                    sizeof(service), NI_NUMERICHOST | NI_NUMERICSERV) != 0) {
+        return NULL;
+    }
+    int ipv6 = address->sa_family == AF_INET6;
+    size_t needed = strlen(host) + strlen(service) + (ipv6 ? 4U : 2U);
+    char *result = malloc(needed);
+    if (result != NULL) {
+        (void)snprintf(result, needed, ipv6 ? "[%s]:%s" : "%s:%s", host,
+                       service);
+    }
     return result;
 }
 
@@ -322,6 +365,35 @@ static int ch_socks_write_reply(int descriptor, uint8_t reply) {
     return ch_listener_send_all(descriptor, bytes, sizeof(bytes));
 }
 
+static int ch_socks_write_bound_reply(int descriptor, uint8_t reply,
+                                      int bound_descriptor) {
+    if (bound_descriptor < 0) return ch_socks_write_reply(descriptor, reply);
+    struct sockaddr_storage address;
+    socklen_t length = (socklen_t)sizeof(address);
+    if (getsockname(bound_descriptor, (struct sockaddr *)&address,
+                    &length) != 0) {
+        return ch_socks_write_reply(descriptor, 0x01U);
+    }
+    uint8_t response[22] = {0x05U, reply, 0x00U};
+    size_t response_length;
+    if (address.ss_family == AF_INET) {
+        const struct sockaddr_in *ipv4 = (const struct sockaddr_in *)&address;
+        response[3] = 0x01U;
+        memcpy(response + 4U, &ipv4->sin_addr, 4U);
+        memcpy(response + 8U, &ipv4->sin_port, 2U);
+        response_length = 10U;
+    } else if (address.ss_family == AF_INET6) {
+        const struct sockaddr_in6 *ipv6 = (const struct sockaddr_in6 *)&address;
+        response[3] = 0x04U;
+        memcpy(response + 4U, &ipv6->sin6_addr, 16U);
+        memcpy(response + 20U, &ipv6->sin6_port, 2U);
+        response_length = 22U;
+    } else {
+        return ch_socks_write_reply(descriptor, 0x01U);
+    }
+    return ch_listener_send_all(descriptor, response, response_length);
+}
+
 static int ch_socks_negotiate(ch_listener_connection *connection) {
     ch_proxy_listener *listener = connection->listener;
     int descriptor = connection->client_descriptor;
@@ -393,6 +465,370 @@ static char *ch_socks_read_target(int descriptor, uint8_t *command,
     return target;
 }
 
+static uint16_t ch_listener_address_port(const struct sockaddr *address) {
+    if (address->sa_family == AF_INET) {
+        return ntohs(((const struct sockaddr_in *)address)->sin_port);
+    }
+    if (address->sa_family == AF_INET6) {
+        return ntohs(((const struct sockaddr_in6 *)address)->sin6_port);
+    }
+    return 0U;
+}
+
+static int ch_listener_same_ip(const struct sockaddr *left,
+                               const struct sockaddr *right) {
+    if (left->sa_family != right->sa_family) return 0;
+    if (left->sa_family == AF_INET) {
+        const struct sockaddr_in *left_ipv4 =
+            (const struct sockaddr_in *)left;
+        const struct sockaddr_in *right_ipv4 =
+            (const struct sockaddr_in *)right;
+        return memcmp(&left_ipv4->sin_addr, &right_ipv4->sin_addr,
+                      sizeof(left_ipv4->sin_addr)) == 0;
+    }
+    if (left->sa_family == AF_INET6) {
+        const struct sockaddr_in6 *left_ipv6 =
+            (const struct sockaddr_in6 *)left;
+        const struct sockaddr_in6 *right_ipv6 =
+            (const struct sockaddr_in6 *)right;
+        return left_ipv6->sin6_scope_id == right_ipv6->sin6_scope_id &&
+            memcmp(&left_ipv6->sin6_addr, &right_ipv6->sin6_addr,
+                   sizeof(left_ipv6->sin6_addr)) == 0;
+    }
+    return 0;
+}
+
+static int ch_listener_same_endpoint(const struct sockaddr *left,
+                                     const struct sockaddr *right) {
+    return ch_listener_same_ip(left, right) &&
+        ch_listener_address_port(left) == ch_listener_address_port(right);
+}
+
+static int ch_socks_udp_open(int client, ch_error *error) {
+    struct sockaddr_storage local;
+    socklen_t length = (socklen_t)sizeof(local);
+    if (getsockname(client, (struct sockaddr *)&local, &length) != 0) {
+        ch_error_set(error, CH_ERROR_IO, "read SOCKS5 local address: %s",
+                     strerror(errno));
+        return -1;
+    }
+    int descriptor = socket(local.ss_family, SOCK_DGRAM, IPPROTO_UDP);
+    if (descriptor < 0) {
+        ch_error_set(error, CH_ERROR_IO, "open SOCKS5 UDP relay: %s",
+                     strerror(errno));
+        return -1;
+    }
+    if (local.ss_family == AF_INET) {
+        ((struct sockaddr_in *)&local)->sin_port = 0U;
+        length = (socklen_t)sizeof(struct sockaddr_in);
+    } else if (local.ss_family == AF_INET6) {
+        ((struct sockaddr_in6 *)&local)->sin6_port = 0U;
+        length = (socklen_t)sizeof(struct sockaddr_in6);
+    } else {
+        (void)close(descriptor);
+        ch_error_set(error, CH_ERROR_UNSUPPORTED,
+                     "unsupported SOCKS5 UDP address family");
+        return -1;
+    }
+    if (bind(descriptor, (struct sockaddr *)&local, length) != 0) {
+        ch_error_set(error, CH_ERROR_IO, "bind SOCKS5 UDP relay: %s",
+                     strerror(errno));
+        (void)close(descriptor);
+        return -1;
+    }
+    return descriptor;
+}
+
+static uint16_t ch_socks_requested_udp_port(const char *target) {
+    const char *separator = target == NULL ? NULL : strrchr(target, ':');
+    if (separator == NULL || separator[1] == '\0') return 0U;
+    char *end = NULL;
+    unsigned long port = strtoul(separator + 1, &end, 10);
+    return end != separator + 1 && *end == '\0' && port <= 65535UL ?
+        (uint16_t)port : 0U;
+}
+
+static int ch_socks_udp_send_response(
+    int relay,
+    const struct sockaddr *client_address,
+    socklen_t client_length,
+    const char *source,
+    const uint8_t *payload,
+    size_t payload_length) {
+    ch_error error;
+    uint8_t *encoded_source = NULL;
+    size_t encoded_source_length = 0U;
+    if (ch_socks_encode_address(source, &encoded_source,
+                                &encoded_source_length, &error) != CH_OK ||
+        encoded_source_length > CH_SOCKS_UDP_MAX_PACKET - 3U ||
+        payload_length > CH_SOCKS_UDP_MAX_PACKET - 3U -
+                             encoded_source_length) {
+        free(encoded_source);
+        return 0;
+    }
+    size_t response_length = 3U + encoded_source_length + payload_length;
+    uint8_t *response = malloc(response_length);
+    if (response == NULL) {
+        free(encoded_source);
+        return 0;
+    }
+    response[0] = 0U;
+    response[1] = 0U;
+    response[2] = 0U;
+    memcpy(response + 3U, encoded_source, encoded_source_length);
+    if (payload_length > 0U) {
+        memcpy(response + 3U + encoded_source_length, payload,
+               payload_length);
+    }
+    free(encoded_source);
+    ssize_t sent;
+    do {
+        sent = sendto(relay, response, response_length, 0, client_address,
+                      client_length);
+    } while (sent < 0 && errno == EINTR);
+    free(response);
+    return sent == (ssize_t)response_length;
+}
+
+static void *ch_socks_udp_session_reader(void *opaque) {
+    ch_socks_udp_session *session = opaque;
+    ch_socks_udp_association *association = session->association;
+    uint8_t response[CH_SOCKS_UDP_MAX_PACKET];
+    for (;;) {
+        pthread_mutex_lock(&association->mutex);
+        int stopping = association->stopping;
+        pthread_mutex_unlock(&association->mutex);
+        if (stopping) break;
+        char *source = NULL;
+        size_t response_length = 0U;
+        ch_error error;
+        ch_status status = ch_packet_connection_receive_timeout(
+            session->packet, response, sizeof(response), &response_length,
+            &source, CH_SOCKS_UDP_READER_POLL_MS, &error);
+        if (status == CH_ERROR_NOT_FOUND) continue;
+        if (status != CH_OK) {
+            free(source);
+            break;
+        }
+        struct sockaddr_storage client;
+        socklen_t client_length;
+        pthread_mutex_lock(&association->mutex);
+        stopping = association->stopping;
+        client_length = association->client_length;
+        if (client_length > 0U) {
+            memcpy(&client, &association->client, client_length);
+        }
+        pthread_mutex_unlock(&association->mutex);
+        if (!stopping && client_length > 0U) {
+            (void)ch_socks_udp_send_response(
+                association->relay, (const struct sockaddr *)&client,
+                client_length, source, response, response_length);
+        }
+        free(source);
+    }
+    return NULL;
+}
+
+static ch_socks_udp_session *ch_socks_udp_session_get(
+    ch_socks_udp_association *association,
+    const char *key,
+    ch_packet_connection *packet) {
+    for (ch_socks_udp_session *session = association->sessions;
+         session != NULL; session = session->next) {
+        if (strcmp(session->key, key) == 0) {
+            ch_packet_connection_close(packet);
+            return session;
+        }
+    }
+    ch_socks_udp_session *session = calloc(1U, sizeof(*session));
+    if (session == NULL) {
+        ch_packet_connection_close(packet);
+        return NULL;
+    }
+    session->association = association;
+    session->packet = packet;
+    (void)snprintf(session->key, sizeof(session->key), "%s", key);
+    session->next = association->sessions;
+    association->sessions = session;
+    return session;
+}
+
+static int ch_socks_udp_session_start(ch_socks_udp_session *session) {
+    if (session->reader_started) return 1;
+    if (pthread_create(&session->reader_thread, NULL,
+                       ch_socks_udp_session_reader, session) != 0) {
+        return 0;
+    }
+    session->reader_started = 1;
+    return 1;
+}
+
+static void ch_socks_udp_association_clear(
+    ch_socks_udp_association *association) {
+    pthread_mutex_lock(&association->mutex);
+    association->stopping = 1;
+    pthread_mutex_unlock(&association->mutex);
+    ch_socks_udp_session *session = association->sessions;
+    while (session != NULL) {
+        ch_socks_udp_session *next = session->next;
+        if (session->reader_started) {
+            (void)pthread_join(session->reader_thread, NULL);
+        }
+        ch_packet_connection_close(session->packet);
+        free(session);
+        session = next;
+    }
+    (void)pthread_mutex_destroy(&association->mutex);
+}
+
+static void ch_socks_udp_associate(ch_listener_connection *connection,
+                                   const char *requested_client) {
+    ch_proxy_listener *listener = connection->listener;
+    int client = connection->client_descriptor;
+    if (listener->packet_dial == NULL) {
+        (void)ch_socks_write_reply(client, 0x07U);
+        return;
+    }
+    ch_error error;
+    int relay = ch_socks_udp_open(client, &error);
+    if (relay < 0) {
+        (void)ch_socks_write_reply(client, 0x01U);
+        return;
+    }
+    pthread_mutex_lock(&listener->mutex);
+    connection->remote_descriptor = relay;
+    pthread_mutex_unlock(&listener->mutex);
+    ch_socks_udp_association association;
+    memset(&association, 0, sizeof(association));
+    association.relay = relay;
+    if (pthread_mutex_init(&association.mutex, NULL) != 0) {
+        (void)ch_socks_write_reply(client, 0x01U);
+        return;
+    }
+    if (!ch_socks_write_bound_reply(client, 0x00U, relay)) {
+        ch_socks_udp_association_clear(&association);
+        return;
+    }
+    ch_listener_clear_timeout(client);
+    struct sockaddr_storage tcp_peer;
+    socklen_t tcp_peer_length = (socklen_t)sizeof(tcp_peer);
+    if (getpeername(client, (struct sockaddr *)&tcp_peer,
+                    &tcp_peer_length) != 0) {
+        ch_socks_udp_association_clear(&association);
+        return;
+    }
+    uint16_t requested_port = ch_socks_requested_udp_port(requested_client);
+    uint8_t request[CH_SOCKS_UDP_MAX_PACKET];
+    for (;;) {
+        struct pollfd wait[2] = {
+            {.fd = client, .events = POLLIN},
+            {.fd = relay, .events = POLLIN}
+        };
+        int ready;
+        do {
+            ready = poll(wait, 2U, -1);
+        } while (ready < 0 && errno == EINTR);
+        if (ready <= 0 || (wait[0].revents & (POLLERR | POLLHUP | POLLNVAL)) != 0) {
+            break;
+        }
+        if ((wait[0].revents & POLLIN) != 0) {
+            uint8_t ignored;
+            ssize_t control = recv(client, &ignored, 1U, 0);
+            if (control <= 0) break;
+        }
+        if ((wait[1].revents & POLLIN) == 0) continue;
+        struct sockaddr_storage udp_client;
+        socklen_t udp_client_length = (socklen_t)sizeof(udp_client);
+        ssize_t request_length;
+        do {
+            request_length = recvfrom(
+                relay, request, sizeof(request), 0,
+                (struct sockaddr *)&udp_client, &udp_client_length);
+        } while (request_length < 0 && errno == EINTR);
+        if (request_length < 4) continue;
+        if (!ch_listener_same_ip((const struct sockaddr *)&tcp_peer,
+                                 (const struct sockaddr *)&udp_client)) {
+            continue;
+        }
+        if (association.client_length == 0U) {
+            if (requested_port != 0U && ch_listener_address_port(
+                    (const struct sockaddr *)&udp_client) != requested_port) {
+                continue;
+            }
+            pthread_mutex_lock(&association.mutex);
+            memcpy(&association.client, &udp_client, udp_client_length);
+            association.client_length = udp_client_length;
+            pthread_mutex_unlock(&association.mutex);
+        } else if (!ch_listener_same_endpoint(
+                       (const struct sockaddr *)&association.client,
+                       (const struct sockaddr *)&udp_client)) {
+            continue;
+        }
+        if (request[0] != 0U || request[1] != 0U || request[2] != 0U) {
+            continue;
+        }
+        char *target_host = NULL;
+        uint16_t target_port = 0U;
+        size_t address_length = 0U;
+        if (ch_socks_decode_address(
+                request + 3U, (size_t)request_length - 3U, &target_host,
+                &target_port, &address_length, &error) != CH_OK ||
+            address_length > (size_t)request_length - 3U) {
+            free(target_host);
+            continue;
+        }
+        int target_ipv6 = strchr(target_host, ':') != NULL;
+        size_t target_length = strlen(target_host) + 10U;
+        char *target = malloc(target_length);
+        if (target == NULL) {
+            free(target_host);
+            continue;
+        }
+        (void)snprintf(target, target_length,
+                       target_ipv6 ? "[%s]:%u" : "%s:%u", target_host,
+                       (unsigned int)target_port);
+        free(target_host);
+        char *source = ch_listener_format_address(
+            (const struct sockaddr *)&udp_client, udp_client_length);
+        if (source == NULL) {
+            free(target);
+            continue;
+        }
+        ch_proxy_route route;
+        memset(&route, 0, sizeof(route));
+        ch_packet_connection *packet = NULL;
+        ch_status status = listener->packet_dial(
+            "udp", target, source, &route, &packet, listener->dial_context,
+            &error);
+        free(source);
+        if (route.action == 0) route.action = CH_PROXY_ROUTE_CONNECT;
+        size_t payload_offset = 3U + address_length;
+        ch_socks_udp_session *session = NULL;
+        if (status == CH_OK && route.action == CH_PROXY_ROUTE_CONNECT &&
+            packet != NULL) {
+            if (route.session_key[0] == '\0') {
+                (void)snprintf(route.session_key, sizeof(route.session_key),
+                               "target:%s", target);
+            }
+            session = ch_socks_udp_session_get(&association,
+                                                route.session_key, packet);
+            packet = NULL;
+            if (session == NULL) status = CH_ERROR_OUT_OF_MEMORY;
+        }
+        if (status == CH_OK && session != NULL) {
+            status = ch_packet_connection_send(
+                session->packet, target, request + payload_offset,
+                (size_t)request_length - payload_offset, &error);
+            if (status == CH_OK && !ch_socks_udp_session_start(session)) {
+                status = CH_ERROR_INTERNAL;
+            }
+        }
+        ch_packet_connection_close(packet);
+        free(target);
+    }
+    ch_socks_udp_association_clear(&association);
+}
+
 static void ch_socks_handle(ch_listener_connection *connection) {
     int client = connection->client_descriptor;
     if (!ch_socks_negotiate(connection)) return;
@@ -401,6 +837,11 @@ static void ch_socks_handle(ch_listener_connection *connection) {
     char *target = ch_socks_read_target(client, &command, &reply);
     if (target == NULL) {
         (void)ch_socks_write_reply(client, reply);
+        return;
+    }
+    if (command == 0x03U) {
+        ch_socks_udp_associate(connection, target);
+        free(target);
         return;
     }
     if (command != 0x01U) {
@@ -798,6 +1239,7 @@ ch_proxy_listener *ch_proxy_listener_start(const ch_proxy_listener_options *opti
     listener->handshake_timeout_milliseconds = options->handshake_timeout_milliseconds == 0U ?
         CH_LISTENER_DEFAULT_HANDSHAKE_MS : options->handshake_timeout_milliseconds;
     listener->dial = options->dial;
+    listener->packet_dial = options->packet_dial;
     listener->dial_context = options->dial_context;
     if (listener->configured_address == NULL || listener->username == NULL ||
         listener->password == NULL || pthread_mutex_init(&listener->mutex, NULL) != 0) {

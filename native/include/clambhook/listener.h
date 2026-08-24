@@ -2,6 +2,7 @@
 #define CLAMBHOOK_LISTENER_H
 
 #include <stddef.h>
+#include <stdint.h>
 
 #include "clambhook/error.h"
 
@@ -20,8 +21,11 @@ typedef enum ch_proxy_route_action {
     CH_PROXY_ROUTE_REJECT = 3
 } ch_proxy_route_action;
 
+#define CH_PROXY_ROUTE_SESSION_KEY_SIZE 128U
+
 typedef struct ch_proxy_route {
     ch_proxy_route_action action;
+    char session_key[CH_PROXY_ROUTE_SESSION_KEY_SIZE];
 } ch_proxy_route;
 
 /*
@@ -38,6 +42,19 @@ typedef ch_status (*ch_proxy_dial_callback)(
     ch_error *error
 );
 
+struct ch_packet_connection;
+
+/* On CH_OK + CONNECT, transfers one packet connection to the listener. */
+typedef ch_status (*ch_proxy_packet_dial_callback)(
+    const char *network,
+    const char *target,
+    const char *source,
+    ch_proxy_route *route,
+    struct ch_packet_connection **out_connection,
+    void *context,
+    ch_error *error
+);
+
 typedef struct ch_proxy_listener_options {
     ch_proxy_listener_protocol protocol;
     const char *address;
@@ -47,6 +64,7 @@ typedef struct ch_proxy_listener_options {
     size_t maximum_connections;
     unsigned int handshake_timeout_milliseconds;
     ch_proxy_dial_callback dial;
+    ch_proxy_packet_dial_callback packet_dial;
     void *dial_context;
 } ch_proxy_listener_options;
 
