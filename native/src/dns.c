@@ -229,6 +229,13 @@ static ch_status ch_dns_load_bootstrap(const ch_config_table *table,
             upstream->bootstrap_ip_count = count;
             return error == NULL ? CH_ERROR_PARSE : error->code;
         }
+        if (!ch_dns_is_ip(upstream->bootstrap_ips[index])) {
+            upstream->bootstrap_ip_count = count;
+            ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
+                         "dns bootstrap address %s is not an IP address",
+                         upstream->bootstrap_ips[index]);
+            return CH_ERROR_INVALID_ARGUMENT;
+        }
         ++upstream->bootstrap_ip_count;
     }
     return CH_OK;

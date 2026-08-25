@@ -29,6 +29,8 @@ typedef struct ch_runtime_listener_entry {
 struct ch_runtime_listener_set {
     ch_runtime_listener_entry entries[CH_RUNTIME_LISTENER_LIMIT];
     size_t count;
+    ch_runtime_listener_entry dns_entry;
+    int dns_ready;
 };
 
 static char *runtime_optional_string(const ch_config_table *table,
@@ -41,6 +43,16 @@ static char *runtime_optional_string(const ch_config_table *table,
         return ch_strdup("");
     }
     return value;
+}
+
+static int runtime_optional_bool(const ch_config_table *table,
+                                 const char *key, int fallback) {
+    bool value = fallback != 0;
+    ch_error ignored;
+    if (table != NULL) {
+        (void)ch_config_table_get_bool(table, key, &value, &ignored);
+    }
+    return value ? 1 : 0;
 }
 
 static const ch_config_table *runtime_find_named(const ch_config_array *array,
@@ -94,6 +106,29 @@ static char *runtime_select_group_chain(const ch_runtime_listener_entry *entry,
         return NULL;
     }
     return selected;
+}
+
+static const char *runtime_decision_chain(
+    const ch_runtime_listener_entry *entry,
+    const ch_rule_decision *decision,
+    char **out_selected_group_chain,
+    ch_error *error) {
+    *out_selected_group_chain = NULL;
+    const char *chain_name = decision->is_default ? entry->default_chain :
+                                                     decision->chain_name;
+    if (strcmp(decision->action, CH_RULE_ACTION_GROUP) == 0) {
+        *out_selected_group_chain = runtime_select_group_chain(
+            entry, decision->group_name, error);
+        chain_name = *out_selected_group_chain;
+    }
+    if (chain_name == NULL || chain_name[0] == '\0') {
+        free(*out_selected_group_chain);
+        *out_selected_group_chain = NULL;
+        ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
+                     "route has no selected chain");
+        return NULL;
+    }
+    return chain_name;
 }
 
 static ch_status runtime_dial_chain(const ch_runtime_listener_entry *entry,
@@ -169,18 +204,11 @@ static ch_status runtime_listener_dial(const char *network, const char *target,
         status = ch_protocol_connect_tcp(target, out_descriptor, error);
     } else {
         char *selected_group_chain = NULL;
-        const char *chain_name = decision.is_default ? entry->default_chain :
-            decision.chain_name;
-        if (strcmp(decision.action, CH_RULE_ACTION_GROUP) == 0) {
-            selected_group_chain = runtime_select_group_chain(entry,
-                                                               decision.group_name, error);
-            if (selected_group_chain == NULL) {
-                status = error == NULL ? CH_ERROR_INVALID_ARGUMENT : error->code;
-            } else {
-                chain_name = selected_group_chain;
-            }
-        }
-        if (status == CH_OK) {
+        const char *chain_name = runtime_decision_chain(
+            entry, &decision, &selected_group_chain, error);
+        if (chain_name == NULL) {
+            status = error == NULL ? CH_ERROR_INVALID_ARGUMENT : error->code;
+        } else {
             status = runtime_dial_chain(entry, chain_name, target,
                                         out_descriptor, error);
         }
@@ -215,19 +243,11 @@ static ch_status runtime_listener_packet_dial(
         status = ch_protocol_direct_packet_dial(out_connection, error);
     } else {
         char *selected_group_chain = NULL;
-        const char *chain_name = decision.is_default ? entry->default_chain :
-            decision.chain_name;
-        if (strcmp(decision.action, CH_RULE_ACTION_GROUP) == 0) {
-            selected_group_chain = runtime_select_group_chain(
-                entry, decision.group_name, error);
-            if (selected_group_chain == NULL) {
-                status = error == NULL ? CH_ERROR_INVALID_ARGUMENT :
-                                         error->code;
-            } else {
-                chain_name = selected_group_chain;
-            }
-        }
-        if (status == CH_OK) {
+        const char *chain_name = runtime_decision_chain(
+            entry, &decision, &selected_group_chain, error);
+        if (chain_name == NULL) {
+            status = error == NULL ? CH_ERROR_INVALID_ARGUMENT : error->code;
+        } else {
             uint8_t digest[28];
             static const char hex[] = "0123456789abcdef";
             char chain_hash[57];
@@ -281,6 +301,51 @@ static ch_status runtime_listener_default_chain(const ch_config_table *profile,
             return CH_ERROR_INVALID_ARGUMENT;
         }
     }
+    return CH_OK;
+}
+
+static ch_status runtime_dns_entry_initialize(
+    ch_runtime_listener_set *set,
+    const ch_config *config,
+    const ch_config_table *profile,
+    const char *profile_name,
+    ch_error *error) {
+    const ch_config_table *dns = ch_config_table_get_table(profile, "dns");
+    if (!runtime_optional_bool(dns, "enabled", 0)) return CH_OK;
+    const ch_config_array *chains = ch_config_table_get_array(profile,
+                                                               "chain");
+    const ch_config_table *first = ch_config_array_get_table(chains, 0U);
+    if (first == NULL) return CH_OK;
+    ch_runtime_listener_entry *entry = &set->dns_entry;
+    entry->config = config;
+    entry->profile = profile;
+    entry->profile_name = ch_strdup(profile_name);
+    const ch_config_table *listen = ch_config_table_get_table(profile,
+                                                               "listen");
+    const ch_config_table *tun = ch_config_table_get_table(listen, "tun");
+    entry->default_chain = runtime_optional_string(tun, "chain");
+    if (entry->profile_name == NULL || entry->default_chain == NULL) {
+        runtime_listener_entry_clear(entry);
+        ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                     "copy DNS route defaults");
+        return CH_ERROR_OUT_OF_MEMORY;
+    }
+    if (entry->default_chain[0] == '\0') {
+        free(entry->default_chain);
+        entry->default_chain = NULL;
+        if (ch_config_table_get_string(first, "name",
+                                       &entry->default_chain,
+                                       error) != CH_OK) {
+            runtime_listener_entry_clear(entry);
+            return error == NULL ? CH_ERROR_PARSE : error->code;
+        }
+    }
+    entry->rules = ch_rule_engine_compile_config(config, profile_name, error);
+    if (entry->rules == NULL) {
+        runtime_listener_entry_clear(entry);
+        return error == NULL ? CH_ERROR_INTERNAL : error->code;
+    }
+    set->dns_ready = 1;
     return CH_OK;
 }
 
@@ -423,9 +488,13 @@ ch_runtime_listener_set *ch_runtime_listener_set_start(const ch_config *config,
         return NULL;
     }
     const ch_config_table *listen = ch_config_table_get_table(profile, "listen");
-    ch_status status = runtime_listener_add(set, config, profile, listen,
-                                            selected_name,
-                                            CH_PROXY_LISTENER_SOCKS5, error);
+    ch_status status = runtime_dns_entry_initialize(
+        set, config, profile, selected_name, error);
+    if (status == CH_OK) {
+        status = runtime_listener_add(set, config, profile, listen,
+                                      selected_name,
+                                      CH_PROXY_LISTENER_SOCKS5, error);
+    }
     if (status == CH_OK) {
         status = runtime_listener_add(set, config, profile, listen,
                                       selected_name, CH_PROXY_LISTENER_HTTP, error);
@@ -443,6 +512,7 @@ void ch_runtime_listener_set_stop(ch_runtime_listener_set *set) {
     for (size_t index = 0U; index < CH_RUNTIME_LISTENER_LIMIT; ++index) {
         runtime_listener_entry_clear(&set->entries[index]);
     }
+    runtime_listener_entry_clear(&set->dns_entry);
     free(set);
 }
 
@@ -463,4 +533,113 @@ int ch_runtime_listener_set_append_status(ch_runtime_listener_set *set,
         }
     }
     return ch_json_append(json, "]");
+}
+
+ch_status ch_runtime_listener_set_dns_route(
+    ch_runtime_listener_set *set, const char *network, const char *target,
+    ch_dns_route_action *out_action, ch_error *error) {
+    ch_error_clear(error);
+    if (set == NULL || !set->dns_ready || network == NULL || target == NULL ||
+        out_action == NULL) {
+        ch_error_set(error, CH_ERROR_INVALID_STATE,
+                     "native DNS route planner is not available");
+        return CH_ERROR_INVALID_STATE;
+    }
+    ch_rule_decision decision;
+    ch_status status = runtime_listener_decide(
+        &set->dns_entry, network, target, "", &decision, error);
+    if (status != CH_OK) return status;
+    if (strcmp(decision.action, CH_RULE_ACTION_DIRECT) == 0) {
+        *out_action = CH_DNS_ROUTE_DIRECT;
+    } else if (strcmp(decision.action, CH_RULE_ACTION_BLOCK) == 0) {
+        *out_action = CH_DNS_ROUTE_BLOCK;
+    } else if (strcmp(decision.action, CH_RULE_ACTION_REJECT) == 0) {
+        *out_action = CH_DNS_ROUTE_REJECT;
+    } else {
+        *out_action = CH_DNS_ROUTE_CONNECT;
+    }
+    ch_rule_decision_clear(&decision);
+    return CH_OK;
+}
+
+static ch_status runtime_dns_direct_dial(
+    const char *target, const char *const *bootstrap_ips,
+    size_t bootstrap_ip_count, int *out_descriptor, ch_error *error) {
+    if (bootstrap_ip_count == 0U) {
+        return ch_protocol_connect_tcp(target, out_descriptor, error);
+    }
+    const char *separator = strrchr(target, ':');
+    if (separator == NULL || separator[1] == '\0') {
+        ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
+                     "DNS upstream target must be host:port");
+        return CH_ERROR_INVALID_ARGUMENT;
+    }
+    ch_status last_status = CH_ERROR_IO;
+    ch_error last_error;
+    ch_error_clear(&last_error);
+    for (size_t index = 0U; index < bootstrap_ip_count; ++index) {
+        const char *address = bootstrap_ips[index];
+        if (address == NULL || address[0] == '\0') continue;
+        bool ipv6 = strchr(address, ':') != NULL;
+        size_t capacity = strlen(address) + strlen(separator + 1U) +
+            (ipv6 ? 4U : 2U);
+        char *bootstrap_target = malloc(capacity);
+        if (bootstrap_target == NULL) {
+            ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                         "allocate DNS bootstrap target");
+            return CH_ERROR_OUT_OF_MEMORY;
+        }
+        (void)snprintf(bootstrap_target, capacity,
+                       ipv6 ? "[%s]:%s" : "%s:%s", address,
+                       separator + 1U);
+        ch_error attempt_error;
+        last_status = ch_protocol_connect_tcp(
+            bootstrap_target, out_descriptor, &attempt_error);
+        free(bootstrap_target);
+        if (last_status == CH_OK) return CH_OK;
+        last_error = attempt_error;
+    }
+    if (error != NULL) *error = last_error;
+    return last_status;
+}
+
+ch_status ch_runtime_listener_set_dns_dial(
+    ch_runtime_listener_set *set, const char *network, const char *target,
+    const char *const *bootstrap_ips, size_t bootstrap_ip_count,
+    int *out_descriptor, ch_error *error) {
+    ch_error_clear(error);
+    if (set == NULL || !set->dns_ready || network == NULL || target == NULL ||
+        out_descriptor == NULL ||
+        (bootstrap_ip_count > 0U && bootstrap_ips == NULL)) {
+        ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
+                     "invalid native DNS dial request");
+        return CH_ERROR_INVALID_ARGUMENT;
+    }
+    *out_descriptor = -1;
+    ch_rule_decision decision;
+    ch_status status = runtime_listener_decide(
+        &set->dns_entry, network, target, "", &decision, error);
+    if (status != CH_OK) return status;
+    if (strcmp(decision.action, CH_RULE_ACTION_BLOCK) == 0 ||
+        strcmp(decision.action, CH_RULE_ACTION_REJECT) == 0) {
+        ch_error_set(error, CH_ERROR_INVALID_STATE,
+                     "DNS upstream route is %s", decision.action);
+        status = CH_ERROR_INVALID_STATE;
+    } else if (strcmp(decision.action, CH_RULE_ACTION_DIRECT) == 0) {
+        status = runtime_dns_direct_dial(
+            target, bootstrap_ips, bootstrap_ip_count, out_descriptor, error);
+    } else {
+        char *selected_group_chain = NULL;
+        const char *chain_name = runtime_decision_chain(
+            &set->dns_entry, &decision, &selected_group_chain, error);
+        if (chain_name == NULL) {
+            status = error == NULL ? CH_ERROR_INVALID_ARGUMENT : error->code;
+        } else {
+            status = runtime_dial_chain(&set->dns_entry, chain_name, target,
+                                        out_descriptor, error);
+        }
+        free(selected_group_chain);
+    }
+    ch_rule_decision_clear(&decision);
+    return status;
 }

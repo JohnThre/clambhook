@@ -10,8 +10,10 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
+#include "clambhook/config.h"
 #include "clambhook/json.h"
 #include "clambhook/runtime.h"
+#include "internal.h"
 
 typedef struct runtime_echo_server {
     int descriptor;
@@ -172,7 +174,58 @@ static int runtime_connect_address(const char *address) {
     return descriptor;
 }
 
+static void runtime_test_dns_routing(void) {
+    runtime_echo_server echo;
+    CH_TEST_ASSERT(runtime_echo_start(&echo));
+    const char *document =
+        "[[profile]]\n"
+        "name = \"default\"\n"
+        "[profile.dns]\n"
+        "enabled = true\n"
+        "[[profile.dns.upstream]]\n"
+        "protocol = \"dot\"\n"
+        "address = \"resolver.invalid:853\"\n"
+        "bootstrap_ips = [\"127.0.0.1\"]\n"
+        "[[profile.chain]]\n"
+        "name = \"default\"\n"
+        "[[profile.chain.server]]\n"
+        "protocol = \"direct\"\n"
+        "[[profile.rule]]\n"
+        "name = \"direct-dns\"\n"
+        "action = \"direct\"\n"
+        "networks = [\"tcp\"]\n";
+    ch_config *config = NULL;
+    ch_error error;
+    CH_TEST_ASSERT(ch_config_parse(document, NULL, &config, &error) == CH_OK);
+    ch_runtime_listener_set *set = ch_runtime_listener_set_start(
+        config, "default", &error);
+    CH_TEST_ASSERT(set != NULL);
+    char target[96];
+    (void)snprintf(target, sizeof(target), "resolver.invalid:%u",
+                   (unsigned int)echo.port);
+    ch_dns_route_action action = CH_DNS_ROUTE_CONNECT;
+    CH_TEST_ASSERT(ch_runtime_listener_set_dns_route(
+        set, "tcp", target, &action, &error) == CH_OK);
+    CH_TEST_ASSERT(action == CH_DNS_ROUTE_DIRECT);
+    const char *bootstrap[] = {"127.0.0.1"};
+    int descriptor = -1;
+    CH_TEST_ASSERT(ch_runtime_listener_set_dns_dial(
+        set, "tcp", target, bootstrap, 1U, &descriptor, &error) == CH_OK);
+    static const char payload[] = "dns-bootstrap-route";
+    char echoed[sizeof(payload)];
+    CH_TEST_ASSERT(runtime_test_send_all(descriptor, payload,
+                                         sizeof(payload)));
+    CH_TEST_ASSERT(runtime_test_receive_exact(descriptor, echoed,
+                                               sizeof(echoed)));
+    CH_TEST_ASSERT(memcmp(payload, echoed, sizeof(payload)) == 0);
+    (void)close(descriptor);
+    ch_runtime_listener_set_stop(set);
+    ch_config_free(config);
+    runtime_echo_stop(&echo);
+}
+
 void ch_test_runtime_listener(void) {
+    runtime_test_dns_routing();
     runtime_echo_server echo;
     CH_TEST_ASSERT(runtime_echo_start(&echo));
     char config_path[160];

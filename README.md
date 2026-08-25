@@ -200,7 +200,9 @@ OpenVPN, DoQ, DNS-to-TUN integration, and TUN stay guarded until their parity
 tests pass. The additive native DNS library now provides route-planned DoH and
 DoT, Control D expansion/bootstrap hygiene, response correlation validation,
 upstream failover, and SERVFAIL generation; it deliberately rejects DoQ rather
-than downgrading it.
+than downgrading it. Runtime lifecycle/profile rollback now owns that proxy and
+routes upstream streams through the same native rules and chains as listener
+traffic.
 Building, running, and testing require prior written permission from Pengfan
 Chang; see [`LICENSE`](LICENSE). The commands below are for the author and
 authorized parties, not a general contribution or redistribution grant.

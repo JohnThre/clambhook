@@ -407,6 +407,22 @@ static void dns_test_configuration_contract(void) {
     CH_TEST_ASSERT(proxy == NULL);
     CH_TEST_ASSERT(error.code == CH_ERROR_UNSUPPORTED);
     ch_config_free(config);
+
+    const char *invalid_bootstrap_document =
+        "[[profile]]\n"
+        "name = \"default\"\n"
+        "[profile.dns]\n"
+        "enabled = true\n"
+        "[[profile.dns.upstream]]\n"
+        "protocol = \"doh\"\n"
+        "url = \"https://dns.example/dns-query\"\n"
+        "bootstrap_ips = [\"not-an-ip\"]\n";
+    config = NULL;
+    CH_TEST_ASSERT(ch_config_parse(invalid_bootstrap_document, NULL, &config,
+                                   &error) == CH_ERROR_INVALID_ARGUMENT);
+    CH_TEST_ASSERT(config == NULL);
+    CH_TEST_ASSERT(error.code == CH_ERROR_INVALID_ARGUMENT);
+    CH_TEST_ASSERT(strstr(error.message, "dns.bootstrap_ips") != NULL);
 }
 
 static void dns_test_failure_servfail(void) {

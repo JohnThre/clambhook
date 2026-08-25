@@ -9,6 +9,7 @@
 #include <uv.h>
 
 #include "clambhook/config.h"
+#include "clambhook/dns.h"
 #include "clambhook/netwatch.h"
 #include "internal.h"
 
@@ -46,6 +47,7 @@ struct ch_runtime {
     ch_command *queue_tail;
     atomic_bool running;
     ch_runtime_listener_set *listeners;
+    ch_dns_proxy *dns;
     ch_netwatch *network_watcher;
     ch_network_info network_info;
     ch_config *config;
@@ -89,6 +91,22 @@ static bool ch_runtime_append_network_info(ch_runtime *runtime,
     return ch_json_append(json, "}");
 }
 
+static bool ch_runtime_append_dns_status(ch_runtime *runtime,
+                                         ch_json_buffer *json) {
+    if (!ch_json_append(json, ",\"dns\":{\"enabled\":")) return false;
+    if (runtime->dns == NULL) return ch_json_append(json, "false}");
+    if (!ch_json_append(json, "true,\"upstreams\":[")) return false;
+    size_t count = ch_dns_proxy_upstream_count(runtime->dns);
+    for (size_t index = 0U; index < count; ++index) {
+        if ((index > 0U && !ch_json_append(json, ",")) ||
+            !ch_json_append_string(
+                json, ch_dns_proxy_upstream_name(runtime->dns, index))) {
+            return false;
+        }
+    }
+    return ch_json_append(json, "]}");
+}
+
 static char *ch_runtime_status_json(ch_runtime *runtime) {
     ch_json_buffer json;
     ch_json_init(&json);
@@ -99,6 +117,7 @@ static char *ch_runtime_status_json(ch_runtime *runtime) {
         ) ||
         !ch_json_append_string(&json, runtime->active_profile) ||
         !ch_runtime_append_network_info(runtime, &json) ||
+        !ch_runtime_append_dns_status(runtime, &json) ||
         !ch_runtime_listener_set_append_status(runtime->listeners, &json) ||
         !ch_json_append(&json, "}")) {
         ch_json_dispose(&json);
@@ -150,8 +169,26 @@ static void ch_command_fail(ch_command *command, ch_status status, const char *m
 }
 
 static void ch_runtime_stop_listeners(ch_runtime *runtime) {
+    ch_dns_proxy_destroy(runtime->dns);
+    runtime->dns = NULL;
     ch_runtime_listener_set_stop(runtime->listeners);
     runtime->listeners = NULL;
+}
+
+static ch_status ch_runtime_dns_route(
+    const char *network, const char *target,
+    ch_dns_route_action *out_action, void *context, ch_error *error) {
+    return ch_runtime_listener_set_dns_route(
+        context, network, target, out_action, error);
+}
+
+static ch_status ch_runtime_dns_dial(
+    const char *network, const char *target,
+    const char *const *bootstrap_ips, size_t bootstrap_ip_count,
+    int *out_descriptor, void *context, ch_error *error) {
+    return ch_runtime_listener_set_dns_dial(
+        context, network, target, bootstrap_ips, bootstrap_ip_count,
+        out_descriptor, error);
 }
 
 static char *ch_runtime_optional_config_string(const ch_config_table *table,
@@ -242,10 +279,12 @@ static char *ch_runtime_matching_profile(
     return NULL;
 }
 
-static bool ch_runtime_start_listeners(ch_runtime *runtime,
-                                       const ch_config *config,
-                                       const char *profile_name,
-                                       ch_command *command) {
+static bool ch_runtime_build_services(
+    const ch_config *config, const char *profile_name,
+    ch_runtime_listener_set **out_listeners, ch_dns_proxy **out_dns,
+    ch_command *command) {
+    *out_listeners = NULL;
+    *out_dns = NULL;
     ch_error listener_error;
     ch_runtime_listener_set *listeners = ch_runtime_listener_set_start(
         config, profile_name, &listener_error
@@ -255,7 +294,39 @@ static bool ch_runtime_start_listeners(ch_runtime *runtime,
         command->error = listener_error;
         return false;
     }
+    ch_dns_proxy *dns = NULL;
+    if (config != NULL) {
+        ch_dns_proxy_options options = {
+            .route = ch_runtime_dns_route,
+            .stream_dial = ch_runtime_dns_dial,
+            .dial_context = listeners
+        };
+        ch_error dns_error;
+        dns = ch_dns_proxy_create(config, profile_name, &options, &dns_error);
+        if (dns == NULL && dns_error.code != CH_OK) {
+            ch_runtime_listener_set_stop(listeners);
+            command->status = dns_error.code;
+            command->error = dns_error;
+            return false;
+        }
+    }
+    *out_listeners = listeners;
+    *out_dns = dns;
+    return true;
+}
+
+static bool ch_runtime_start_listeners(ch_runtime *runtime,
+                                       const ch_config *config,
+                                       const char *profile_name,
+                                       ch_command *command) {
+    ch_runtime_listener_set *listeners = NULL;
+    ch_dns_proxy *dns = NULL;
+    if (!ch_runtime_build_services(config, profile_name, &listeners, &dns,
+                                   command)) {
+        return false;
+    }
     runtime->listeners = listeners;
+    runtime->dns = dns;
     return true;
 }
 
@@ -274,9 +345,10 @@ static bool ch_runtime_switch_profile(ch_runtime *runtime, const char *name,
                                         command)) {
             ch_error profile_error = command->error;
             ch_status profile_status = command->status;
-            ch_error rollback_error;
-            runtime->listeners = ch_runtime_listener_set_start(
-                runtime->config, old_name, &rollback_error);
+            ch_command rollback_command;
+            memset(&rollback_command, 0, sizeof(rollback_command));
+            (void)ch_runtime_start_listeners(
+                runtime, runtime->config, old_name, &rollback_command);
             free(next_name);
             command->status = profile_status;
             command->error = profile_error;
@@ -412,22 +484,24 @@ static bool ch_runtime_apply_config(ch_runtime *runtime, ch_command *command,
         }
     }
     ch_runtime_listener_set *next_listeners = NULL;
+    ch_dns_proxy *next_dns = NULL;
     if (start_listeners) {
         ch_runtime_stop_listeners(runtime);
-        ch_error listener_error;
-        next_listeners = ch_runtime_listener_set_start(
-            next_config, next_profile, &listener_error
-        );
-        if (next_listeners == NULL) {
-            ch_error rollback_error;
-            runtime->listeners = ch_runtime_listener_set_start(
-                runtime->config, runtime->active_profile, &rollback_error
-            );
+        if (!ch_runtime_build_services(
+                next_config, next_profile, &next_listeners, &next_dns,
+                command)) {
+            ch_status next_status = command->status;
+            ch_error next_error = command->error;
+            ch_command rollback_command;
+            memset(&rollback_command, 0, sizeof(rollback_command));
+            (void)ch_runtime_start_listeners(
+                runtime, runtime->config, runtime->active_profile,
+                &rollback_command);
             ch_config_free(next_config);
             free(next_path);
             free(next_profile);
-            command->status = listener_error.code;
-            command->error = listener_error;
+            command->status = next_status;
+            command->error = next_error;
             return false;
         }
     }
@@ -438,6 +512,7 @@ static bool ch_runtime_apply_config(ch_runtime *runtime, ch_command *command,
     runtime->config_path = next_path;
     runtime->active_profile = next_profile;
     runtime->listeners = next_listeners;
+    runtime->dns = next_dns;
     return true;
 }
 

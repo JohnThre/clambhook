@@ -4,6 +4,7 @@
 #include <stdarg.h>
 #include <stddef.h>
 
+#include "clambhook/dns.h"
 #include "clambhook/error.h"
 
 void ch_error_set(ch_error *error, ch_status code, const char *format, ...)
@@ -38,6 +39,22 @@ ch_runtime_listener_set *ch_runtime_listener_set_start(
 void ch_runtime_listener_set_stop(ch_runtime_listener_set *set);
 int ch_runtime_listener_set_append_status(ch_runtime_listener_set *set,
                                           ch_json_buffer *json);
+ch_status ch_runtime_listener_set_dns_route(
+    ch_runtime_listener_set *set,
+    const char *network,
+    const char *target,
+    ch_dns_route_action *out_action,
+    ch_error *error
+);
+ch_status ch_runtime_listener_set_dns_dial(
+    ch_runtime_listener_set *set,
+    const char *network,
+    const char *target,
+    const char *const *bootstrap_ips,
+    size_t bootstrap_ip_count,
+    int *out_descriptor,
+    ch_error *error
+);
 
 char *ch_config_collection_payload_json(const struct ch_config *config,
                                         const char *fallback_profile,

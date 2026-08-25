@@ -55,7 +55,8 @@ void ch_test_runtime(void) {
     char *json = NULL;
     CH_TEST_ASSERT(ch_runtime_query(runtime, "status", NULL, &json, &error) == CH_OK);
     CH_TEST_ASSERT_STRING(
-        "{\"running\":false,\"profile\":\"default\",\"network_info\":{}}",
+        "{\"running\":false,\"profile\":\"default\",\"network_info\":{},"
+        "\"dns\":{\"enabled\":false}}",
         json
     );
     ch_string_free(json);
@@ -72,7 +73,8 @@ void ch_test_runtime(void) {
 
     CH_TEST_ASSERT(ch_runtime_mutate(runtime, "disconnect", NULL, &json, &error) == CH_OK);
     CH_TEST_ASSERT_STRING(
-        "{\"running\":false,\"profile\":\"default\",\"network_info\":{}}",
+        "{\"running\":false,\"profile\":\"default\",\"network_info\":{},"
+        "\"dns\":{\"enabled\":false}}",
         json
     );
     ch_string_free(json);
@@ -85,6 +87,48 @@ void ch_test_runtime(void) {
     CH_TEST_ASSERT(ch_runtime_query(runtime, "missing", NULL, &json, &error) == CH_ERROR_UNSUPPORTED);
     CH_TEST_ASSERT_STRING("unknown runtime query operation", error.message);
     ch_runtime_destroy(runtime);
+
+    {
+        char path[160];
+        (void)snprintf(path, sizeof(path),
+                       "/tmp/clambhook-dns-runtime-%ld.toml",
+                       (long)getpid());
+        FILE *file = fopen(path, "wb");
+        CH_TEST_ASSERT(file != NULL);
+        CH_TEST_ASSERT(fputs(
+            "active = \"secured\"\n"
+            "[[profile]]\nname = \"secured\"\n"
+            "[profile.dns]\nenabled = true\n"
+            "[[profile.dns.upstream]]\nprotocol = \"controld\"\n"
+            "resolver = \"abc123\"\n"
+            "[[profile.chain]]\nname = \"direct\"\n"
+            "[[profile.chain.server]]\nprotocol = \"direct\"\n"
+            "[[profile]]\nname = \"plain\"\n"
+            "[[profile.chain]]\nname = \"direct\"\n"
+            "[[profile.chain.server]]\nprotocol = \"direct\"\n",
+            file) >= 0);
+        CH_TEST_ASSERT(fclose(file) == 0);
+        runtime = ch_runtime_create(NULL, &error);
+        CH_TEST_ASSERT(runtime != NULL);
+        CH_TEST_ASSERT(ch_runtime_start(runtime, path, &error) == CH_OK);
+        CH_TEST_ASSERT(ch_runtime_query(runtime, "status", NULL, &json,
+                                        &error) == CH_OK);
+        CH_TEST_ASSERT(strstr(
+            json,
+            "\"dns\":{\"enabled\":true,"
+            "\"upstreams\":[\"controld:abc123\"]}") != NULL);
+        ch_string_free(json);
+        CH_TEST_ASSERT(ch_runtime_mutate(
+            runtime, "set_active_profile", "{\"name\":\"plain\"}",
+            &json, &error) == CH_OK);
+        CH_TEST_ASSERT_STRING(
+            "{\"running\":true,\"profile\":\"plain\","
+            "\"network_info\":{},\"dns\":{\"enabled\":false}}",
+            json);
+        ch_string_free(json);
+        ch_runtime_destroy(runtime);
+        CH_TEST_ASSERT(unlink(path) == 0);
+    }
 
     {
         char path[160];
@@ -195,7 +239,8 @@ void ch_test_runtime(void) {
             runtime, "set_active_profile", "{\"name\":\"home\"}", &json, &error
         ) == CH_OK);
         CH_TEST_ASSERT_STRING(
-            "{\"running\":true,\"profile\":\"home\",\"network_info\":{}}",
+            "{\"running\":true,\"profile\":\"home\",\"network_info\":{},"
+            "\"dns\":{\"enabled\":false}}",
             json
         );
         ch_string_free(json);

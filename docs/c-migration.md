@@ -145,7 +145,11 @@ total upstream failure still produces an owned SERVFAIL response for the packet
 stack. Control D custom and free resolver forms derive the same endpoints,
 TLS names, and anycast bootstrap addresses as the legacy implementation. DoQ is
 explicitly rejected until a portable QUIC dependency and transcript parity are
-available; this is not a silent downgrade to DoH or DoT.
+available; this is not a silent downgrade to DoH or DoT. Runtime start, reload,
+profile switching, and rollback now construct the DNS proxy transactionally;
+its stream dials use the same compiled rules, policy-group selection, default
+chain, and direct bootstrap addresses as the proxy listeners. Runtime status
+reports whether encrypted DNS is active and names its configured upstreams.
 
 Native process attribution is best-effort at the operating-system boundary,
 matching the rollback contract when permissions hide another process. It
