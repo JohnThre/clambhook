@@ -2,9 +2,49 @@
 
 #include <stdint.h>
 #include <stdio.h>
+#include <string.h>
+#include <time.h>
 #include <unistd.h>
 
 #include "clambhook/runtime.h"
+
+typedef struct runtime_network_probe_state {
+    unsigned int calls;
+} runtime_network_probe_state;
+
+static ch_status runtime_network_probe(ch_network_info *out_info,
+                                       void *context, ch_error *error) {
+    runtime_network_probe_state *state = context;
+    ch_error_clear(error);
+    ++state->calls;
+    memset(out_info, 0, sizeof(*out_info));
+    (void)snprintf(out_info->interface_name,
+                   sizeof(out_info->interface_name), "en0");
+    (void)snprintf(out_info->ssid, sizeof(out_info->ssid), "OfficeNet");
+    out_info->is_wifi = true;
+    return CH_OK;
+}
+
+static bool runtime_wait_for_profile(ch_runtime *runtime, const char *profile,
+                                     char **out_status, ch_error *error) {
+    struct timespec pause = {.tv_sec = 0, .tv_nsec = 10000000L};
+    for (unsigned int attempt = 0U; attempt < 200U; ++attempt) {
+        char *status = NULL;
+        if (ch_runtime_query(runtime, "status", NULL, &status, error) != CH_OK) {
+            return false;
+        }
+        char expected[320];
+        (void)snprintf(expected, sizeof(expected), "\"profile\":\"%s\"",
+                       profile);
+        if (strstr(status, expected) != NULL) {
+            *out_status = status;
+            return true;
+        }
+        ch_string_free(status);
+        (void)nanosleep(&pause, NULL);
+    }
+    return false;
+}
 
 void ch_test_runtime(void) {
     ch_error error;
@@ -45,6 +85,62 @@ void ch_test_runtime(void) {
     CH_TEST_ASSERT(ch_runtime_query(runtime, "missing", NULL, &json, &error) == CH_ERROR_UNSUPPORTED);
     CH_TEST_ASSERT_STRING("unknown runtime query operation", error.message);
     ch_runtime_destroy(runtime);
+
+    {
+        char path[160];
+        (void)snprintf(path, sizeof(path),
+                       "/tmp/clambhook-netwatch-runtime-%ld.toml",
+                       (long)getpid());
+        FILE *file = fopen(path, "wb");
+        CH_TEST_ASSERT(file != NULL);
+        CH_TEST_ASSERT(fputs(
+            "active = \"home\"\n"
+            "[[profile]]\nname = \"home\"\n"
+            "[[profile.chain]]\nname = \"home-default\"\n"
+            "[[profile.chain.server]]\nprotocol = \"direct\"\n"
+            "[[profile]]\nname = \"office\"\n"
+            "[[profile.network_trigger]]\nssid = \"officenet\"\n"
+            "interface = \"EN0\"\n"
+            "[[profile.chain]]\nname = \"office-default\"\n"
+            "[[profile.chain.server]]\nprotocol = \"direct\"\n"
+            "[[profile]]\nname = \"later\"\n"
+            "[[profile.network_trigger]]\ninterface = \"en0\"\n"
+            "[[profile.chain]]\nname = \"later-default\"\n"
+            "[[profile.chain.server]]\nprotocol = \"direct\"\n",
+            file) >= 0);
+        CH_TEST_ASSERT(fclose(file) == 0);
+        runtime_network_probe_state probe = {0};
+        ch_runtime_options options = {
+            .network_probe = runtime_network_probe,
+            .network_probe_context = &probe,
+            .network_poll_milliseconds = 10U
+        };
+        runtime = ch_runtime_create(&options, &error);
+        CH_TEST_ASSERT(runtime != NULL);
+        CH_TEST_ASSERT(ch_runtime_start(runtime, path, &error) == CH_OK);
+        json = NULL;
+        CH_TEST_ASSERT(runtime_wait_for_profile(runtime, "office", &json,
+                                                &error));
+        CH_TEST_ASSERT(strstr(
+            json,
+            "\"network_info\":{\"interface_name\":\"en0\","
+            "\"ssid\":\"OfficeNet\",\"is_wifi\":true}") != NULL);
+        ch_string_free(json);
+        CH_TEST_ASSERT(ch_runtime_query(runtime, "profiles", NULL, &json,
+                                        &error) == CH_OK);
+        CH_TEST_ASSERT_STRING(
+            "{\"profiles\":[\"home\",\"office\",\"later\"],"
+            "\"active\":\"office\"}",
+            json);
+        ch_string_free(json);
+        CH_TEST_ASSERT(ch_runtime_stop(runtime, &error) == CH_OK);
+        unsigned int stopped_probe_count = probe.calls;
+        struct timespec pause = {.tv_sec = 0, .tv_nsec = 50000000L};
+        (void)nanosleep(&pause, NULL);
+        CH_TEST_ASSERT(probe.calls == stopped_probe_count);
+        ch_runtime_destroy(runtime);
+        CH_TEST_ASSERT(unlink(path) == 0);
+    }
 
     {
         char path[128];

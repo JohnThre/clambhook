@@ -65,6 +65,14 @@ history_max_age = "168h"
 [[profile]]
 name = "local"
 
+  # Optional automatic selection. The first profile in file order with a
+  # matching trigger wins; matching is trimmed and case-insensitive. On macOS
+  # 14+, SSID matching requires Location Services permission, while an
+  # interface-only trigger continues to work.
+  # [[profile.network_trigger]]
+  # ssid = "Example WiFi"
+  # interface = "en0"
+
   [profile.listen]
   socks5 = "127.0.0.1:1080"
   http = "127.0.0.1:8080"

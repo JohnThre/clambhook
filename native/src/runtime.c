@@ -1,5 +1,6 @@
 #include "clambhook/runtime.h"
 
+#include <ctype.h>
 #include <stdatomic.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -8,6 +9,7 @@
 #include <uv.h>
 
 #include "clambhook/config.h"
+#include "clambhook/netwatch.h"
 #include "internal.h"
 
 typedef enum ch_command_kind {
@@ -44,6 +46,8 @@ struct ch_runtime {
     ch_command *queue_tail;
     atomic_bool running;
     ch_runtime_listener_set *listeners;
+    ch_netwatch *network_watcher;
+    ch_network_info network_info;
     ch_config *config;
     char *config_path;
     char *active_profile;
@@ -56,6 +60,35 @@ static void ch_runtime_log(ch_runtime *runtime, int level, const char *message) 
     }
 }
 
+static bool ch_runtime_append_network_info(ch_runtime *runtime,
+                                           ch_json_buffer *json) {
+    if (!ch_json_append(json, ",\"network_info\":{")) return false;
+    bool has_field = false;
+    if (runtime->network_info.interface_name[0] != '\0') {
+        if (!ch_json_append(json, "\"interface_name\":") ||
+            !ch_json_append_string(json,
+                                   runtime->network_info.interface_name)) {
+            return false;
+        }
+        has_field = true;
+    }
+    if (runtime->network_info.ssid[0] != '\0') {
+        if ((has_field && !ch_json_append(json, ",")) ||
+            !ch_json_append(json, "\"ssid\":") ||
+            !ch_json_append_string(json, runtime->network_info.ssid)) {
+            return false;
+        }
+        has_field = true;
+    }
+    if (runtime->network_info.is_wifi) {
+        if ((has_field && !ch_json_append(json, ",")) ||
+            !ch_json_append(json, "\"is_wifi\":true")) {
+            return false;
+        }
+    }
+    return ch_json_append(json, "}");
+}
+
 static char *ch_runtime_status_json(ch_runtime *runtime) {
     ch_json_buffer json;
     ch_json_init(&json);
@@ -65,7 +98,7 @@ static char *ch_runtime_status_json(ch_runtime *runtime) {
             atomic_load_explicit(&runtime->running, memory_order_acquire) ? "true" : "false"
         ) ||
         !ch_json_append_string(&json, runtime->active_profile) ||
-        !ch_json_append(&json, ",\"network_info\":{}") ||
+        !ch_runtime_append_network_info(runtime, &json) ||
         !ch_runtime_listener_set_append_status(runtime->listeners, &json) ||
         !ch_json_append(&json, "}")) {
         ch_json_dispose(&json);
@@ -121,6 +154,94 @@ static void ch_runtime_stop_listeners(ch_runtime *runtime) {
     runtime->listeners = NULL;
 }
 
+static char *ch_runtime_optional_config_string(const ch_config_table *table,
+                                               const char *key) {
+    char *value = NULL;
+    ch_error ignored;
+    if (table == NULL ||
+        ch_config_table_get_string(table, key, &value, &ignored) != CH_OK) {
+        free(value);
+        return ch_strdup("");
+    }
+    return value;
+}
+
+static bool ch_runtime_nonblank(const char *value) {
+    if (value == NULL) return false;
+    while (*value != '\0') {
+        if (!isspace((unsigned char)*value)) return true;
+        ++value;
+    }
+    return false;
+}
+
+static bool ch_runtime_has_network_triggers(const ch_config *config) {
+    size_t profile_count = ch_config_profile_count(config);
+    for (size_t profile_index = 0U; profile_index < profile_count;
+         ++profile_index) {
+        const ch_config_table *profile = ch_config_profile_at(
+            config, profile_index);
+        const ch_config_array *triggers = ch_config_table_get_array(
+            profile, "network_trigger");
+        size_t trigger_count = ch_config_array_count(triggers);
+        for (size_t trigger_index = 0U; trigger_index < trigger_count;
+             ++trigger_index) {
+            const ch_config_table *trigger = ch_config_array_get_table(
+                triggers, trigger_index);
+            char *ssid = ch_runtime_optional_config_string(trigger, "ssid");
+            char *interface_name = ch_runtime_optional_config_string(
+                trigger, "interface");
+            bool enabled = ch_runtime_nonblank(ssid) ||
+                ch_runtime_nonblank(interface_name);
+            free(ssid);
+            free(interface_name);
+            if (enabled) return true;
+        }
+    }
+    return false;
+}
+
+static char *ch_runtime_matching_profile(
+    const ch_config *config,
+    const ch_network_info *info,
+    char **out_trigger_ssid,
+    char **out_trigger_interface) {
+    *out_trigger_ssid = NULL;
+    *out_trigger_interface = NULL;
+    size_t profile_count = ch_config_profile_count(config);
+    for (size_t profile_index = 0U; profile_index < profile_count;
+         ++profile_index) {
+        const ch_config_table *profile = ch_config_profile_at(
+            config, profile_index);
+        const ch_config_array *triggers = ch_config_table_get_array(
+            profile, "network_trigger");
+        size_t trigger_count = ch_config_array_count(triggers);
+        for (size_t trigger_index = 0U; trigger_index < trigger_count;
+             ++trigger_index) {
+            const ch_config_table *trigger = ch_config_array_get_table(
+                triggers, trigger_index);
+            char *ssid = ch_runtime_optional_config_string(trigger, "ssid");
+            char *interface_name = ch_runtime_optional_config_string(
+                trigger, "interface");
+            if (ssid != NULL && interface_name != NULL &&
+                ch_network_info_matches(info, ssid, interface_name)) {
+                char *profile_name = NULL;
+                ch_error ignored;
+                if (ch_config_table_get_string(profile, "name", &profile_name,
+                                               &ignored) == CH_OK) {
+                    *out_trigger_ssid = ssid;
+                    *out_trigger_interface = interface_name;
+                    return profile_name;
+                }
+                free(profile_name);
+            }
+            free(ssid);
+            free(interface_name);
+        }
+    }
+    return NULL;
+}
+
 static bool ch_runtime_start_listeners(ch_runtime *runtime,
                                        const ch_config *config,
                                        const char *profile_name,
@@ -136,6 +257,117 @@ static bool ch_runtime_start_listeners(ch_runtime *runtime,
     }
     runtime->listeners = listeners;
     return true;
+}
+
+static bool ch_runtime_switch_profile(ch_runtime *runtime, const char *name,
+                                      ch_command *command) {
+    char *next_name = ch_strdup(name);
+    if (next_name == NULL) {
+        ch_command_fail(command, CH_ERROR_OUT_OF_MEMORY,
+                        "copy active profile");
+        return false;
+    }
+    if (atomic_load_explicit(&runtime->running, memory_order_acquire)) {
+        char *old_name = runtime->active_profile;
+        ch_runtime_stop_listeners(runtime);
+        if (!ch_runtime_start_listeners(runtime, runtime->config, name,
+                                        command)) {
+            ch_error profile_error = command->error;
+            ch_status profile_status = command->status;
+            ch_error rollback_error;
+            runtime->listeners = ch_runtime_listener_set_start(
+                runtime->config, old_name, &rollback_error);
+            free(next_name);
+            command->status = profile_status;
+            command->error = profile_error;
+            return false;
+        }
+        runtime->active_profile = next_name;
+        free(old_name);
+    } else {
+        free(runtime->active_profile);
+        runtime->active_profile = next_name;
+    }
+    return true;
+}
+
+static void ch_runtime_network_log(int level, const char *message,
+                                   void *context) {
+    ch_runtime_log(context, level, message);
+}
+
+static void ch_runtime_network_observation(const ch_network_info *info,
+                                           void *context) {
+    ch_runtime *runtime = context;
+    runtime->network_info = *info;
+    if (!atomic_load_explicit(&runtime->running, memory_order_acquire) ||
+        runtime->config == NULL) {
+        return;
+    }
+    char *trigger_ssid = NULL;
+    char *trigger_interface = NULL;
+    char *winner = ch_runtime_matching_profile(
+        runtime->config, info, &trigger_ssid, &trigger_interface);
+    if (winner == NULL || strcmp(winner, runtime->active_profile) == 0) {
+        free(winner);
+        free(trigger_ssid);
+        free(trigger_interface);
+        return;
+    }
+    char old_profile[256];
+    (void)snprintf(old_profile, sizeof(old_profile), "%s",
+                   runtime->active_profile);
+    ch_command command;
+    memset(&command, 0, sizeof(command));
+    if (!ch_runtime_switch_profile(runtime, winner, &command)) {
+        char message[512];
+        (void)snprintf(message, sizeof(message),
+                       "netwatch: auto-switch to profile \"%s\" failed: %s",
+                       winner, command.error.message);
+        ch_runtime_log(runtime, 2, message);
+    } else {
+        char message[768];
+        (void)snprintf(
+            message, sizeof(message),
+            "netwatch: switched profile \"%s\" to \"%s\" for SSID \"%s\" "
+            "and interface \"%s\" (trigger SSID \"%s\", interface \"%s\")",
+            old_profile, winner, info->ssid, info->interface_name,
+            trigger_ssid == NULL ? "" : trigger_ssid,
+            trigger_interface == NULL ? "" : trigger_interface);
+        ch_runtime_log(runtime, 1, message);
+    }
+    free(winner);
+    free(trigger_ssid);
+    free(trigger_interface);
+}
+
+static void ch_runtime_refresh_network_watcher(ch_runtime *runtime) {
+    ch_netwatch *previous = runtime->network_watcher;
+    runtime->network_watcher = NULL;
+    ch_netwatch_stop(previous);
+    if (!atomic_load_explicit(&runtime->running, memory_order_acquire) ||
+        runtime->config == NULL ||
+        !ch_runtime_has_network_triggers(runtime->config)) {
+        return;
+    }
+    ch_netwatch_options options = {
+        .poll_milliseconds = runtime->options.network_poll_milliseconds,
+        .probe = runtime->options.network_probe,
+        .probe_context = runtime->options.network_probe_context,
+        .observation = ch_runtime_network_observation,
+        .observation_context = runtime,
+        .log = ch_runtime_network_log,
+        .log_context = runtime
+    };
+    ch_error error;
+    runtime->network_watcher = ch_netwatch_start(&runtime->loop, &options,
+                                                 &error);
+    if (runtime->network_watcher == NULL) {
+        char message[512];
+        (void)snprintf(message, sizeof(message),
+                       "netwatch: start failed: %s", error.message);
+        ch_runtime_log(runtime, 2, message);
+    }
 }
 
 static bool ch_runtime_apply_config(ch_runtime *runtime, ch_command *command,
@@ -223,18 +455,23 @@ static void ch_command_process(ch_runtime *runtime, ch_command *command) {
                 break;
             }
             atomic_store_explicit(&runtime->running, true, memory_order_release);
+            ch_runtime_refresh_network_watcher(runtime);
             ch_runtime_log(runtime, 1, "native runtime started");
             break;
 
         case CH_COMMAND_STOP:
-            ch_runtime_stop_listeners(runtime);
             atomic_store_explicit(&runtime->running, false, memory_order_release);
+            ch_runtime_refresh_network_watcher(runtime);
+            ch_runtime_stop_listeners(runtime);
             ch_runtime_log(runtime, 1, "native runtime stopped");
             break;
 
         case CH_COMMAND_RELOAD: {
             bool running = atomic_load_explicit(&runtime->running, memory_order_acquire);
-            (void)ch_runtime_apply_config(runtime, command, command->payload, running);
+            if (ch_runtime_apply_config(runtime, command, command->payload,
+                                        running)) {
+                ch_runtime_refresh_network_watcher(runtime);
+            }
             break;
         }
 
@@ -307,10 +544,13 @@ static void ch_command_process(ch_runtime *runtime, ch_command *command) {
                     break;
                 }
                 atomic_store_explicit(&runtime->running, true, memory_order_release);
+                ch_runtime_refresh_network_watcher(runtime);
                 command->response = ch_runtime_status_json(runtime);
             } else if (strcmp(command->operation, "disconnect") == 0) {
+                atomic_store_explicit(&runtime->running, false,
+                                      memory_order_release);
+                ch_runtime_refresh_network_watcher(runtime);
                 ch_runtime_stop_listeners(runtime);
-                atomic_store_explicit(&runtime->running, false, memory_order_release);
                 command->response = ch_runtime_status_json(runtime);
             } else if (strcmp(command->operation, "set_active_profile") == 0) {
                 char *name = ch_json_request_string(command->payload, "name", &command->error);
@@ -325,28 +565,10 @@ static void ch_command_process(ch_runtime *runtime, ch_command *command) {
                     free(name);
                     break;
                 }
-                if (atomic_load_explicit(&runtime->running, memory_order_acquire)) {
-                    char *old_name = runtime->active_profile;
-                    ch_runtime_stop_listeners(runtime);
-                    if (!ch_runtime_start_listeners(runtime, runtime->config,
-                                                    name, command)) {
-                        ch_error profile_error = command->error;
-                        ch_status profile_status = command->status;
-                        ch_error rollback_error;
-                        runtime->listeners = ch_runtime_listener_set_start(
-                            runtime->config, old_name, &rollback_error
-                        );
-                        free(name);
-                        command->status = profile_status;
-                        command->error = profile_error;
-                        break;
-                    }
-                    runtime->active_profile = name;
-                    free(old_name);
-                } else {
-                    free(runtime->active_profile);
-                    runtime->active_profile = name;
-                }
+                bool switched = ch_runtime_switch_profile(runtime, name,
+                                                          command);
+                free(name);
+                if (!switched) break;
                 command->response = ch_runtime_status_json(runtime);
             } else {
                 ch_command_fail(command, CH_ERROR_UNSUPPORTED, "unknown runtime mutation operation");
@@ -358,8 +580,10 @@ static void ch_command_process(ch_runtime *runtime, ch_command *command) {
             break;
 
         case CH_COMMAND_SHUTDOWN:
+            atomic_store_explicit(&runtime->running, false,
+                                  memory_order_release);
+            ch_runtime_refresh_network_watcher(runtime);
             ch_runtime_stop_listeners(runtime);
-            atomic_store_explicit(&runtime->running, false, memory_order_release);
             uv_close((uv_handle_t *)&runtime->command_async, NULL);
             break;
     }

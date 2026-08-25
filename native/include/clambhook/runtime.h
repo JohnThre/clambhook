@@ -6,6 +6,7 @@
 #include <stdint.h>
 
 #include "clambhook/error.h"
+#include "clambhook/netwatch.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -21,6 +22,10 @@ typedef struct ch_runtime_options {
     void *packet_writer_context;
     ch_log_writer log_writer;
     void *log_writer_context;
+    /* Optional deterministic/platform seam; NULL uses the native probe. */
+    ch_network_probe_callback network_probe;
+    void *network_probe_context;
+    unsigned int network_poll_milliseconds;
 } ch_runtime_options;
 
 /*

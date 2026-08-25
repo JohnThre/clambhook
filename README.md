@@ -193,8 +193,10 @@ stream-carried hops. The SOCKS5 listener exposes those paths through
 asynchronous `UDP ASSOCIATE` sessions. Native process-rule attribution now maps
 local TCP and UDP source sockets through `libproc` on macOS and `/proc` on
 GNU/Linux; the listener skips that platform scan when no compiled rule uses a
-process matcher. WireGuard, OpenVPN, DNS, and TUN stay guarded until their
-parity tests pass.
+process matcher. The native runtime also observes macOS interface/SSID and
+GNU/Linux interface changes, reports them in status, and atomically selects the
+first matching profile trigger with listener rollback on failure. WireGuard,
+OpenVPN, DNS, and TUN stay guarded until their parity tests pass.
 Building, running, and testing require prior written permission from Pengfan
 Chang; see [`LICENSE`](LICENSE). The commands below are for the author and
 authorized parties, not a general contribution or redistribution grant.

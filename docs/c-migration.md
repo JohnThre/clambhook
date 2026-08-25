@@ -50,7 +50,9 @@ The additive CMake build currently provides:
   packet mode, and the SOCKS5 listener implements `UDP ASSOCIATE` with
   asynchronous route-keyed sessions. Process matchers resolve local TCP and
   UDP socket ownership through native `libproc` on Darwin and `/proc` on Linux,
-  with macOS code-signing enrichment;
+  with macOS code-signing enrichment. A bounded native network watcher reports
+  interface/SSID state and applies first-match profile triggers through the
+  serialized runtime;
 - `clambhook_crypto`: the existing C crypto surface, now covering AES-128-GCM,
   AES-256-GCM, ChaCha20-Poly1305, SHA-224, and random bytes through C
   dependencies;
@@ -138,6 +140,19 @@ cover live sockets, and an end-to-end SOCKS5 test proves that the owning native
 test process selects a process-name reject rule. The listener avoids ownership
 enumeration entirely when the compiled rule set has no process matcher.
 
+The native network watcher probes immediately and then every ten seconds,
+emitting only state changes. On macOS it invokes absolute-path `scutil`,
+`networksetup`, and `ipconfig` commands with conservative interface-name
+validation, close-on-exec descriptors, and one five-second deadline for the
+whole probe. It preserves interface-only triggers when macOS 14+ withholds the
+SSID without Location authorization. GNU/Linux reads `/proc/net/wireless` and
+falls back to the first up, non-loopback interface. Trigger matching trims and
+compares SSID/interface values case-insensitively, ignores an all-empty trigger,
+and selects only the first matching profile in configuration order. Listener
+rebuild failure rolls back to the prior profile; native status exposes
+`interface_name`, `ssid`, and `is_wifi`. Event-stream publication for the
+automatic switch remains part of the full control-API gate.
+
 ## Build and test
 
 The native host build requires CMake, Ninja, pkg-config, libuv, libsodium,
@@ -193,8 +208,9 @@ Cutover is allowed only after all of the following are green:
    ShadowTLS v3 fixtures are green; WireGuard/OpenVPN rows are still open.
 3. Listener and protocol integration tests cover TCP, direct/Shadowsocks UDP,
    SOCKS5 UDP association reuse and cancellation, reload rollback, concurrency
-   limits, native macOS/Linux process-rule attribution, remaining protocol UDP
-   rows, and TUN lifecycle.
+   limits, native macOS/Linux process-rule attribution, network-triggered
+   first-match profile switching, remaining protocol UDP rows, and TUN
+   lifecycle.
 4. GTK functional/accessibility QA matches the current Linux feature set.
 5. Android unit, lint, build, Compose instrumentation, VPN, background, and
    process-restart tests pass on API 30, 33, and 36.
