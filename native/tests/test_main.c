@@ -18,6 +18,7 @@ int main(void) {
     if (ch_test_selected(selected, "events")) ch_test_events();
     if (ch_test_selected(selected, "license")) ch_test_license();
     if (ch_test_selected(selected, "listener")) ch_test_listener();
+    if (ch_test_selected(selected, "procattr")) ch_test_procattr();
     if (ch_test_selected(selected, "protocol")) ch_test_protocol();
     if (ch_test_selected(selected, "rules")) ch_test_rules();
     if (ch_test_selected(selected, "runtime")) ch_test_runtime();

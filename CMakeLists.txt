@@ -46,6 +46,7 @@ add_library(clambhook_core STATIC
   native/src/license_http.c
   native/src/license_json.c
   native/src/listener.c
+  native/src/procattr.c
   native/src/protocol.c
   native/src/protocol_packet.c
   native/src/protocol_shadowtls.c
@@ -80,6 +81,10 @@ target_include_directories(clambhook_core
     ${CMAKE_CURRENT_SOURCE_DIR}/native/src
 )
 target_link_libraries(clambhook_core PUBLIC PkgConfig::LIBUV PkgConfig::CURL Clambhook::Crypto tomlc99 Threads::Threads)
+if(APPLE)
+  target_link_libraries(clambhook_core PUBLIC "-framework CoreFoundation" "-framework Security")
+  target_compile_definitions(clambhook_core PRIVATE _DARWIN_C_SOURCE)
+endif()
 target_compile_definitions(clambhook_core PRIVATE _POSIX_C_SOURCE=200809L)
 target_compile_options(clambhook_core PRIVATE
   $<$<C_COMPILER_ID:AppleClang,Clang,GNU>:-Wall;-Wextra;-Wpedantic;-Wconversion;-Wshadow>
@@ -149,6 +154,7 @@ if(CLAMBHOOK_BUILD_TESTS)
     native/tests/test_json.c
     native/tests/test_license.c
     native/tests/test_listener.c
+    native/tests/test_procattr.c
     native/tests/test_protocol.c
     native/tests/test_rules.c
     native/tests/test_runtime.c

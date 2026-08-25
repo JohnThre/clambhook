@@ -286,6 +286,46 @@ void ch_test_runtime_listener(void) {
     CH_TEST_ASSERT(udp_echo.success == 1);
     free(listener_address_copy);
     CH_TEST_ASSERT(ch_runtime_stop(runtime, &error) == CH_OK);
+
+    file = fopen(config_path, "wb");
+    CH_TEST_ASSERT(file != NULL);
+    CH_TEST_ASSERT(fputs(
+        "active = \"local\"\n"
+        "[[profile]]\nname = \"local\"\n"
+        "[profile.listen]\nsocks5 = \"127.0.0.1:0\"\n"
+        "[[profile.chain]]\nname = \"default\"\n"
+        "[[profile.chain.server]]\nprotocol = \"direct\"\n"
+        "[[profile.rule]]\nname = \"reject-native-test\"\n"
+        "action = \"reject\"\n"
+        "processes = [\"clambhook-native-tests\"]\n",
+        file) >= 0);
+    CH_TEST_ASSERT(fclose(file) == 0);
+    CH_TEST_ASSERT(ch_runtime_start(runtime, config_path, &error) == CH_OK);
+    status_json = NULL;
+    CH_TEST_ASSERT(ch_runtime_query(runtime, "status", "{}", &status_json,
+                                    &error) == CH_OK);
+    status = ch_json_parse(status_json, strlen(status_json), &error);
+    CH_TEST_ASSERT(status != NULL);
+    listeners = ch_json_object_get(status, "listeners");
+    CH_TEST_ASSERT(ch_json_array_size(listeners) == 1U);
+    listener_address = ch_json_string_value(
+        ch_json_object_get(ch_json_array_get(listeners, 0U), "addr")
+    );
+    CH_TEST_ASSERT(listener_address != NULL);
+    client = runtime_connect_address(listener_address);
+    CH_TEST_ASSERT(client >= 0);
+    ch_json_value_destroy(status);
+    ch_string_free(status_json);
+    CH_TEST_ASSERT(runtime_test_send_all(client, greeting, sizeof(greeting)));
+    CH_TEST_ASSERT(runtime_test_receive_exact(client, response, 2U));
+    CH_TEST_ASSERT(response[1] == 0x00U);
+    CH_TEST_ASSERT(runtime_test_send_all(client, request, sizeof(request)));
+    CH_TEST_ASSERT(runtime_test_receive_exact(client, response,
+                                              sizeof(response)));
+    CH_TEST_ASSERT(response[1] == 0x02U);
+    (void)shutdown(client, SHUT_RDWR);
+    (void)close(client);
+    CH_TEST_ASSERT(ch_runtime_stop(runtime, &error) == CH_OK);
     ch_runtime_destroy(runtime);
     runtime_echo_stop(&echo);
     CH_TEST_ASSERT(unlink(config_path) == 0);

@@ -9,6 +9,7 @@
 
 #include "clambhook/config.h"
 #include "clambhook/listener.h"
+#include "clambhook/procattr.h"
 #include "clambhook/protocol.h"
 #include "clambhook/rules.h"
 #include "cnet.h"
@@ -126,18 +127,37 @@ static ch_status runtime_dial_packet_chain(
     return ch_protocol_chain_dial_packet(chain, target, out_connection, error);
 }
 
+static ch_status runtime_listener_decide(
+    ch_runtime_listener_entry *entry,
+    const char *network,
+    const char *target,
+    const char *source,
+    ch_rule_decision *decision,
+    ch_error *error) {
+    ch_process_info process = {0};
+    int attributed = ch_rule_engine_needs_process(entry->rules) &&
+        ch_procattr_lookup(network, source, &process);
+    ch_rule_match_context match = {
+        .network = network,
+        .target = target,
+        .source = source,
+        .process_name = attributed ? process.name : "",
+        .process_path = attributed ? process.path : ""
+    };
+    ch_status status = ch_rule_engine_decide(entry->rules, &match, decision,
+                                             error);
+    ch_process_info_clear(&process);
+    return status;
+}
+
 static ch_status runtime_listener_dial(const char *network, const char *target,
                                        const char *source, ch_proxy_route *route,
                                        int *out_descriptor, void *context,
                                        ch_error *error) {
     ch_runtime_listener_entry *entry = context;
-    ch_rule_match_context match = {
-        .network = network,
-        .target = target,
-        .source = source
-    };
     ch_rule_decision decision;
-    ch_status status = ch_rule_engine_decide(entry->rules, &match, &decision, error);
+    ch_status status = runtime_listener_decide(entry, network, target, source,
+                                               &decision, error);
     if (status != CH_OK) return status;
     route->action = CH_PROXY_ROUTE_CONNECT;
     *out_descriptor = -1;
@@ -179,14 +199,9 @@ static ch_status runtime_listener_packet_dial(
     void *context,
     ch_error *error) {
     ch_runtime_listener_entry *entry = context;
-    ch_rule_match_context match = {
-        .network = network,
-        .target = target,
-        .source = source
-    };
     ch_rule_decision decision;
-    ch_status status = ch_rule_engine_decide(entry->rules, &match, &decision,
-                                             error);
+    ch_status status = runtime_listener_decide(entry, network, target, source,
+                                               &decision, error);
     if (status != CH_OK) return status;
     route->action = CH_PROXY_ROUTE_CONNECT;
     *out_connection = NULL;

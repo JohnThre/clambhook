@@ -58,6 +58,7 @@ struct ch_rule_engine {
     char *default_chain;
     ch_compiled_rule *rules;
     size_t rule_count;
+    bool needs_process;
 };
 
 typedef struct ch_match {
@@ -573,6 +574,9 @@ ch_rule_engine *ch_rule_engine_compile(
             ch_rule_engine_destroy(engine);
             return NULL;
         }
+        if (engine->rules[index].processes.count > 0U) {
+            engine->needs_process = true;
+        }
         ++engine->rule_count;
     }
     return engine;
@@ -586,6 +590,10 @@ void ch_rule_engine_destroy(ch_rule_engine *engine) {
     free(engine->rules);
     free(engine->default_chain);
     free(engine);
+}
+
+bool ch_rule_engine_needs_process(const ch_rule_engine *engine) {
+    return engine != NULL && engine->needs_process;
 }
 
 static void ch_normalize_host(char *host) {

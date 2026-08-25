@@ -190,8 +190,11 @@ VMESS covers raw TCP and TLS with AES-128-GCM or ChaCha20-Poly1305. The native
 packet API also covers direct UDP and single-hop Shadowsocks AEAD-2018 UDP;
 Trojan/clambback and modern VMESS-AEAD UDP are operational as single or final
 stream-carried hops. The SOCKS5 listener exposes those paths through
-asynchronous `UDP ASSOCIATE` sessions. WireGuard, OpenVPN, DNS, and TUN stay
-guarded until their parity tests pass.
+asynchronous `UDP ASSOCIATE` sessions. Native process-rule attribution now maps
+local TCP and UDP source sockets through `libproc` on macOS and `/proc` on
+GNU/Linux; the listener skips that platform scan when no compiled rule uses a
+process matcher. WireGuard, OpenVPN, DNS, and TUN stay guarded until their
+parity tests pass.
 Building, running, and testing require prior written permission from Pengfan
 Chang; see [`LICENSE`](LICENSE). The commands below are for the author and
 authorized parties, not a general contribution or redistribution grant.

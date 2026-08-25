@@ -38,6 +38,9 @@ capability approvals while preserving a practical direct-download macOS path.
   maps a connection's source socket to the owning process, matches rules on a
   `processes` matcher, and pauses undecided connections for an allow/block
   choice (`prompt` config, `GET/POST /api/v1/prompts/*`, surfaced in the TUI).
+  The additive C17 listener now has native Darwin/Linux socket attribution and
+  process-rule matching parity; prompt persistence and control-API parity are
+  still required before the Go rollback can be removed.
 - partial: activity filtering, quick filters, and free-text/token search.
 - deferred: interactive prompts inside the Apple GUI via a system-wide
   content-filter Network Extension (all-app attribution, not just proxied

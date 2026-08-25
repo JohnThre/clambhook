@@ -73,7 +73,8 @@ Trojan/clambback TCP and UDP framing, VMESS-AEAD TCP and UDP with both body
 ciphers,
 ShadowTLS v3 over a genuine TLS 1.3 relay, nested encrypted chains,
 stream-carried nested UDP chains, SOCKS5 UDP association/session reuse,
-nonce-exhaustion rejection, and
+native Darwin/Linux TCP and UDP process attribution with an end-to-end process
+rule decision, nonce-exhaustion rejection, and
 runtime-lifecycle cases) and
 `make build-linux-gtk` alongside the existing distro harness. Production
 packages stay on their current binaries until the native packaging gate in

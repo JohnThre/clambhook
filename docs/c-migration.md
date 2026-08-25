@@ -48,7 +48,9 @@ The additive CMake build currently provides:
   supports direct UDP, Shadowsocks AEAD-2018 UDP, Trojan/clambback UDP, and
   VMESS-AEAD UDP. Stream-carrier chains may end in Trojan/clambback or VMESS
   packet mode, and the SOCKS5 listener implements `UDP ASSOCIATE` with
-  asynchronous route-keyed sessions;
+  asynchronous route-keyed sessions. Process matchers resolve local TCP and
+  UDP socket ownership through native `libproc` on Darwin and `/proc` on Linux,
+  with macOS code-signing enrichment;
 - `clambhook_crypto`: the existing C crypto surface, now covering AES-128-GCM,
   AES-256-GCM, ChaCha20-Poly1305, SHA-224, and random bytes through C
   dependencies;
@@ -128,6 +130,14 @@ connection. WireGuard, OpenVPN, TUN, DNS, prompts, traffic persistence, and
 developer inspection remain cutover blockers; datagram protocols that cannot
 be represented by the native stream-carrier model fail closed.
 
+Native process attribution is best-effort at the operating-system boundary,
+matching the rollback contract when permissions hide another process. It
+normalizes executable name and path for `processes` rules and records signing
+identity/status on macOS without invoking a shell. TCP and UDP lookup fixtures
+cover live sockets, and an end-to-end SOCKS5 test proves that the owning native
+test process selects a process-name reject rule. The listener avoids ownership
+enumeration entirely when the compiled rule set has no process matcher.
+
 ## Build and test
 
 The native host build requires CMake, Ninja, pkg-config, libuv, libsodium,
@@ -183,7 +193,8 @@ Cutover is allowed only after all of the following are green:
    ShadowTLS v3 fixtures are green; WireGuard/OpenVPN rows are still open.
 3. Listener and protocol integration tests cover TCP, direct/Shadowsocks UDP,
    SOCKS5 UDP association reuse and cancellation, reload rollback, concurrency
-   limits, remaining protocol UDP rows, and TUN lifecycle.
+   limits, native macOS/Linux process-rule attribution, remaining protocol UDP
+   rows, and TUN lifecycle.
 4. GTK functional/accessibility QA matches the current Linux feature set.
 5. Android unit, lint, build, Compose instrumentation, VPN, background, and
    process-restart tests pass on API 30, 33, and 36.

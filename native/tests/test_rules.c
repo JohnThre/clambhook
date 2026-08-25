@@ -32,6 +32,7 @@ void ch_test_rules(void) {
         NULL, 0U, &error
     );
     CH_TEST_ASSERT(engine != NULL);
+    CH_TEST_ASSERT(!ch_rule_engine_needs_process(engine));
     ch_rule_decision decision;
     ch_rule_match_context context = {.network = "TCP", .target = "api.example.com:443"};
     CH_TEST_ASSERT(ch_rule_engine_decide(engine, &context, &decision, &error) == CH_OK);
@@ -72,6 +73,7 @@ void ch_test_rules(void) {
         (ch_string_list){0}, NULL, 0U, &error
     );
     CH_TEST_ASSERT(engine != NULL);
+    CH_TEST_ASSERT(!ch_rule_engine_needs_process(engine));
     context = (ch_rule_match_context){
         .network = "udp", .target = "10.1.2.3:53", .source = "192.168.1.2:1234"
     };
@@ -95,6 +97,7 @@ void ch_test_rules(void) {
         (ch_string_list){0}, NULL, 0U, &error
     );
     CH_TEST_ASSERT(engine != NULL);
+    CH_TEST_ASSERT(ch_rule_engine_needs_process(engine));
     context = (ch_rule_match_context){
         .network = "tcp", .target = "example.com:443",
         .process_name = "curl", .process_path = "/usr/bin/curl"

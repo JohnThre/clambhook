@@ -105,6 +105,8 @@ ch_status ch_rule_explain_config_json(
 );
 
 void ch_rule_engine_destroy(ch_rule_engine *engine);
+/* True when at least one compiled rule depends on process metadata. */
+bool ch_rule_engine_needs_process(const ch_rule_engine *engine);
 ch_status ch_rule_engine_decide(
     const ch_rule_engine *engine,
     const ch_rule_match_context *context,
