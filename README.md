@@ -196,7 +196,11 @@ GNU/Linux; the listener skips that platform scan when no compiled rule uses a
 process matcher. The native runtime also observes macOS interface/SSID and
 GNU/Linux interface changes, reports them in status, and atomically selects the
 first matching profile trigger with listener rollback on failure. WireGuard,
-OpenVPN, DNS, and TUN stay guarded until their parity tests pass.
+OpenVPN, DoQ, DNS-to-TUN integration, and TUN stay guarded until their parity
+tests pass. The additive native DNS library now provides route-planned DoH and
+DoT, Control D expansion/bootstrap hygiene, response correlation validation,
+upstream failover, and SERVFAIL generation; it deliberately rejects DoQ rather
+than downgrading it.
 Building, running, and testing require prior written permission from Pengfan
 Chang; see [`LICENSE`](LICENSE). The commands below are for the author and
 authorized parties, not a general contribution or redistribution grant.

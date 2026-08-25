@@ -15,6 +15,7 @@ int main(void) {
     if (ch_test_selected(selected, "config")) ch_test_config();
     if (ch_test_selected(selected, "json")) ch_test_json();
     if (ch_test_selected(selected, "crypto")) ch_test_crypto();
+    if (ch_test_selected(selected, "dns")) ch_test_dns();
     if (ch_test_selected(selected, "events")) ch_test_events();
     if (ch_test_selected(selected, "license")) ch_test_license();
     if (ch_test_selected(selected, "listener")) ch_test_listener();

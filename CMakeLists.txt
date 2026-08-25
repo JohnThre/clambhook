@@ -39,6 +39,7 @@ endif()
 add_library(clambhook_core STATIC
   native/src/config.c
   native/src/config_payload.c
+  native/src/dns.c
   native/src/error.c
   native/src/events.c
   native/src/json.c
@@ -154,6 +155,7 @@ if(CLAMBHOOK_BUILD_TESTS)
     native/tests/test_main.c
     native/tests/test_events.c
     native/tests/test_crypto.c
+    native/tests/test_dns.c
     native/tests/test_json.c
     native/tests/test_license.c
     native/tests/test_listener.c

@@ -52,7 +52,10 @@ The additive CMake build currently provides:
   UDP socket ownership through native `libproc` on Darwin and `/proc` on Linux,
   with macOS code-signing enrichment. A bounded native network watcher reports
   interface/SSID state and applies first-match profile triggers through the
-  serialized runtime;
+  serialized runtime. The encrypted-DNS library validates DNS transaction IDs
+  and question sections, returns SERVFAIL after upstream failover, expands
+  Control D resolver shorthand without system-DNS bootstrap loops, and performs
+  route-planned DoH and DoT exchanges with TLS 1.2 or newer;
 - `clambhook_crypto`: the existing C crypto surface, now covering AES-128-GCM,
   AES-256-GCM, ChaCha20-Poly1305, SHA-224, and random bytes through C
   dependencies;
@@ -128,9 +131,21 @@ The SOCKS5 UDP relay binds to the control connection's local interface, pins
 the first client endpoint (and any explicitly requested port), rejects
 fragmentation, re-evaluates routing for each datagram, reuses one asynchronous
 packet session per selected route, and ties teardown to the TCP control
-connection. WireGuard, OpenVPN, TUN, DNS, prompts, traffic persistence, and
-developer inspection remain cutover blockers; datagram protocols that cannot
+connection. WireGuard, OpenVPN, TUN, DoQ, DNS-to-TUN integration, prompts,
+traffic persistence, and developer inspection remain cutover blockers;
+datagram protocols that cannot
 be represented by the native stream-carrier model fail closed.
+
+Native encrypted DNS currently implements DoH with libcurl HTTP/2 negotiation
+and DoT with length-prefixed OpenSSL streams. Both transports use the route
+planner's already-connected descriptor, so direct hostname endpoints require
+validated bootstrap IPs while chained routes preserve remote name resolution.
+Each exchange rejects mismatched transaction IDs or question sections, and
+total upstream failure still produces an owned SERVFAIL response for the packet
+stack. Control D custom and free resolver forms derive the same endpoints,
+TLS names, and anycast bootstrap addresses as the legacy implementation. DoQ is
+explicitly rejected until a portable QUIC dependency and transcript parity are
+available; this is not a silent downgrade to DoH or DoT.
 
 Native process attribution is best-effort at the operating-system boundary,
 matching the rollback contract when permissions hide another process. It
@@ -205,7 +220,9 @@ Cutover is allowed only after all of the following are green:
    API JSON/status codes, events, license behavior, and each protocol wire
    transcript. Trojan/clambback TCP/UDP, Shadowsocks TCP/UDP, direct UDP, Tor
    SOCKS5/nested-stream, VMESS-AEAD TCP/UDP, nested packet carriers, and
-   ShadowTLS v3 fixtures are green; WireGuard/OpenVPN rows are still open.
+   ShadowTLS v3 fixtures are green. DNS wire, failover/SERVFAIL, Control D,
+   bootstrap-loop, DoH, and DoT fixtures are green; DoQ, WireGuard, and OpenVPN
+   rows are still open.
 3. Listener and protocol integration tests cover TCP, direct/Shadowsocks UDP,
    SOCKS5 UDP association reuse and cancellation, reload rollback, concurrency
    limits, native macOS/Linux process-rule attribution, network-triggered

@@ -29,6 +29,7 @@ void ch_test_json(void);
 void ch_test_api_server(void);
 void ch_test_config(void);
 void ch_test_crypto(void);
+void ch_test_dns(void);
 void ch_test_events(void);
 void ch_test_license(void);
 void ch_test_listener(void);
