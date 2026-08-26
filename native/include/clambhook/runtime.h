@@ -68,6 +68,26 @@ ch_status ch_runtime_mutate(
     ch_error *error
 );
 
+/*
+ * File-backed config operations used before a platform tunnel exists. These
+ * parse and validate with the same C config layer as the live runtime.
+ */
+ch_status ch_runtime_config_query_file(
+    const char *config_path,
+    const char *operation,
+    const char *request_json,
+    char **response_json,
+    ch_error *error
+);
+ch_status ch_runtime_config_mutate_file(
+    const char *config_path,
+    const char *mutation,
+    const char *response_operation,
+    const char *request_json,
+    char **response_json,
+    ch_error *error
+);
+
 void ch_string_free(char *string);
 
 #ifdef __cplusplus

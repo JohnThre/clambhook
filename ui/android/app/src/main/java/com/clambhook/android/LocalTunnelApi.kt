@@ -7,6 +7,10 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.encodeToJsonElement
+import kotlinx.serialization.json.put
 
 /**
  * [ClambhookApi] backed by the on-device packet-tunnel runtime instead of the
@@ -112,7 +116,12 @@ class LocalTunnelApi(
 
     override suspend fun replaceRules(profile: String, rules: List<RulePayload>): RulesPayload = io {
         val configPath = session.configPath
-        GomobileClambhookTunnelRuntimeFactory.replaceRulesJson(configPath, profile, ApiJson.encodeToString(rules))
+        NativeClambhookConfigBridge.mutate(
+            configPath,
+            "replace_rules",
+            "rules_persistence",
+            configCollectionRequest(profile, "rules", ApiJson.encodeToJsonElement(rules)),
+        )
         runtime().reload(configPath)
         ApiJson.decodeFromString(runtime().rulesJson())
     }
@@ -128,7 +137,17 @@ class LocalTunnelApi(
     override suspend fun createRule(rule: RulePayload): RulesPayload = io {
         val rt = runtime()
         val configPath = session.configPath
-        val json = GomobileClambhookTunnelRuntimeFactory.appendRuleJson(configPath, "", ApiJson.encodeToString(rule))
+        val json = NativeClambhookConfigBridge.mutate(
+            configPath,
+            "create_rule",
+            "rules_persistence",
+            ApiJson.encodeToString(
+                buildJsonObject {
+                    put("position", "append")
+                    put("rule", ApiJson.encodeToJsonElement(rule))
+                },
+            ),
+        )
         rt.reload(configPath)
         ApiJson.decodeFromString(json)
     }
@@ -166,9 +185,20 @@ class LocalTunnelApi(
     override suspend fun replaceRuleSets(profile: String, ruleSets: List<RuleSetPayload>): RuleSetsPayload = io {
         val rt = runtime()
         val configPath = session.configPath
-        GomobileClambhookTunnelRuntimeFactory.replaceRuleSetsJson(configPath, profile, ApiJson.encodeToString(ruleSets))
+        NativeClambhookConfigBridge.mutate(
+            configPath,
+            "replace_rule_sets",
+            "rule_sets_persistence",
+            configCollectionRequest(profile, "rule_sets", ApiJson.encodeToJsonElement(ruleSets)),
+        )
         rt.reload(configPath)
-        ApiJson.decodeFromString(GomobileClambhookTunnelRuntimeFactory.ruleSetsJson(configPath, profile))
+        ApiJson.decodeFromString(
+            NativeClambhookConfigBridge.query(
+                configPath,
+                "rule_sets",
+                configProfileRequest(profile),
+            ),
+        )
     }
 
     override suspend fun refreshRuleSets(profile: String, names: List<String>): RuleSetsPayload = io {
@@ -179,20 +209,55 @@ class LocalTunnelApi(
         ApiJson.decodeFromString(json)
     }
 
-    // The gomobile runtime exposes no [profile.conditioner] config-read or
-    // config-edit primitive, and we cannot add native methods without
-    // rebuilding the Go .aar. So we derive a read-only, disabled snapshot from
-    // the active profile the runtime already reports, and reject edits — the
-    // network conditioner can only be mutated through the daemon HTTP API.
     override suspend fun conditioner(profile: String): ConditionerPayload = io {
-        val active = profile.ifBlank { ApiJson.decodeFromString<StatusPayload>(runtime().statusJson()).profile }
-        ConditionerPayload(profile = active, enabled = false)
+        ApiJson.decodeFromString(
+            NativeClambhookConfigBridge.query(
+                session.configPath,
+                "conditioner",
+                configProfileRequest(profile),
+            ),
+        )
     }
 
-    override suspend fun updateConditioner(request: ConditionerUpdateRequest): ConditionerPayload =
-        throw UnsupportedOperationException("conditioner editing requires the daemon HTTP API")
+    override suspend fun updateConditioner(request: ConditionerUpdateRequest): ConditionerPayload = io {
+        val rt = runtime()
+        val result = NativeClambhookConfigBridge.mutate(
+            session.configPath,
+            "update_conditioner",
+            "conditioner",
+            conditionerRequestJson(request),
+        )
+        rt.reload(session.configPath)
+        ApiJson.decodeFromString(result)
+    }
 
-    override val supportsConditionerEditing: Boolean get() = false
+    override val supportsConditionerEditing: Boolean get() = true
+
+    private fun configProfileRequest(profile: String): String = ApiJson.encodeToString(
+        buildJsonObject {
+            if (profile.isNotBlank()) put("profile", profile)
+        },
+    )
+
+    private fun configCollectionRequest(profile: String, key: String, value: JsonElement): String =
+        ApiJson.encodeToString(
+            buildJsonObject {
+                if (profile.isNotBlank()) put("profile", profile)
+                put(key, value)
+            },
+        )
+
+    private fun conditionerRequestJson(request: ConditionerUpdateRequest): String = ApiJson.encodeToString(
+        buildJsonObject {
+            request.profile?.takeIf { it.isNotBlank() }?.let { put("profile", it) }
+            request.enabled?.let { put("enabled", it) }
+            request.downloadKbps?.let { put("download_kbps", it) }
+            request.uploadKbps?.let { put("upload_kbps", it) }
+            request.latency?.let { put("latency", it) }
+            request.jitter?.let { put("jitter", it) }
+            request.lossPercent?.let { put("loss_percent", it) }
+        },
+    )
 }
 
 /** Subset of the runtime dashboard payload used to source aggregate views. */

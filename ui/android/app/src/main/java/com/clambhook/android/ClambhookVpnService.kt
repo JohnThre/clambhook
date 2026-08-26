@@ -115,7 +115,7 @@ class ClambhookVpnService : VpnService() {
         try {
             val configPath = AndroidConfigStore(this).ensureConfig()
             val settings = json.decodeFromString<TunnelNetworkSettings>(
-                GomobileClambhookTunnelRuntimeFactory.networkSettingsJson(configPath)
+                NativeClambhookConfigBridge.query(configPath, "network_settings")
             )
             val appSettings = DataStoreSettingsStore(this).settings.first()
             pfd = establishInterface(settings, appSettings)

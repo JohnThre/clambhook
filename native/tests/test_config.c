@@ -8,6 +8,7 @@
 #include <unistd.h>
 
 #include "clambhook/config.h"
+#include "clambhook/runtime.h"
 #include "internal.h"
 
 static const char *valid_toml =
@@ -95,6 +96,17 @@ static void test_load_and_query(void) {
     CH_TEST_ASSERT(strstr(json, "\"enabled\":true") != NULL);
     CH_TEST_ASSERT(strstr(json, "\"mtu\":1400") != NULL);
     CH_TEST_ASSERT(strstr(json, "\"routes\":[\"0.0.0.0/1\",\"128.0.0.0/1\"]") != NULL);
+    free(json);
+    json = ch_config_query_payload_json(
+        config, "default", "network_settings", "{}", &error);
+    CH_TEST_ASSERT(json != NULL);
+    CH_TEST_ASSERT_STRING(
+        "{\"mtu\":1400,\"remote_address\":\"203.0.113.10\","
+        "\"ipv4\":[{\"address\":\"198.18.0.1\",\"prefix_len\":30}],"
+        "\"ipv6\":[],\"dns_servers\":[],"
+        "\"included_routes\":[\"0.0.0.0/1\",\"128.0.0.0/1\"],"
+        "\"excluded_routes\":[]}",
+        json);
     free(json);
     ch_config_free(config);
 }
@@ -599,6 +611,57 @@ static void test_atomic_write_and_backup_retention(void) {
     CH_TEST_ASSERT(rmdir(directory) == 0);
 }
 
+static void test_file_backed_runtime_config_bridge(void) {
+    char directory[180];
+    char path[220];
+    char *response = NULL;
+    ch_error error;
+    (void)snprintf(directory, sizeof(directory),
+                   "/tmp/clambhook-config-bridge-%ld", (long)getpid());
+    (void)snprintf(path, sizeof(path), "%s/config.toml", directory);
+    CH_TEST_ASSERT(ch_config_write_atomic_document(
+        path, valid_toml, NULL, &error) == CH_OK);
+    CH_TEST_ASSERT(ch_runtime_config_query_file(
+        path, "network_settings", "{}", &response, &error) == CH_OK);
+    CH_TEST_ASSERT(strstr(response, "\"mtu\":1400") != NULL);
+    CH_TEST_ASSERT(strstr(response,
+        "\"remote_address\":\"203.0.113.10\"") != NULL);
+    free(response);
+    response = NULL;
+    CH_TEST_ASSERT(ch_runtime_config_mutate_file(
+        path, "create_rule", "rules_persistence",
+        "{\"position\":\"append\",\"rule\":{"
+        "\"name\":\"native-file-rule\",\"action\":\"direct\"}}",
+        &response, &error) == CH_OK);
+    CH_TEST_ASSERT(strstr(response, "\"profile\":\"default\"") != NULL);
+    CH_TEST_ASSERT(strstr(response, "\"name\":\"native-file-rule\"") !=
+                   NULL);
+    free(response);
+    response = NULL;
+    CH_TEST_ASSERT(ch_runtime_config_mutate_file(
+        path, "replace_rules", "rules_persistence", "{\"rules\":{}}",
+        &response, &error) == CH_ERROR_INVALID_ARGUMENT);
+    CH_TEST_ASSERT(response == NULL);
+    CH_TEST_ASSERT(ch_runtime_config_query_file(
+        path, "rules_persistence", "{}", &response, &error) == CH_OK);
+    CH_TEST_ASSERT(strstr(response, "\"name\":\"native-file-rule\"") !=
+                   NULL);
+    free(response);
+
+    DIR *stream = opendir(directory);
+    struct dirent *entry;
+    CH_TEST_ASSERT(stream != NULL);
+    while ((entry = readdir(stream)) != NULL) {
+        if (entry->d_name[0] == '.') continue;
+        char file[260];
+        (void)snprintf(file, sizeof(file), "%s/%s", directory,
+                       entry->d_name);
+        CH_TEST_ASSERT(unlink(file) == 0);
+    }
+    (void)closedir(stream);
+    CH_TEST_ASSERT(rmdir(directory) == 0);
+}
+
 void ch_test_config(void) {
     test_load_and_query();
     test_duration_contract();
@@ -607,4 +670,5 @@ void ch_test_config(void) {
     test_replace_active_profile_document();
     test_structured_document_mutations();
     test_atomic_write_and_backup_retention();
+    test_file_backed_runtime_config_bridge();
 }

@@ -92,6 +92,7 @@ add_library(clambhook_jni SHARED
     "${CLAMBHOOK_ROOT}/native/src/android/jni.c"
     "${CLAMBHOOK_ROOT}/native/src/android/runtime_android.c"
     "${CLAMBHOOK_ROOT}/native/src/config.c"
+    "${CLAMBHOOK_ROOT}/native/src/config_mutation.c"
     "${CLAMBHOOK_ROOT}/native/src/config_payload.c"
     "${CLAMBHOOK_ROOT}/native/src/error.c"
     "${CLAMBHOOK_ROOT}/native/src/ip_stack.c"
@@ -106,6 +107,7 @@ add_library(clambhook_jni SHARED
     "${CLAMBHOOK_ROOT}/native/src/rule_feed_config.c"
     "${CLAMBHOOK_ROOT}/native/src/rules.c"
     "${CLAMBHOOK_ROOT}/native/src/rules_config.c"
+    "${CLAMBHOOK_ROOT}/native/src/runtime_config.c"
     "${CLAMBHOOK_ROOT}/native/src/socks.c"
 )
 

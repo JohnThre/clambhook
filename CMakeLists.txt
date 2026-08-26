@@ -97,6 +97,7 @@ add_library(clambhook_core STATIC
   native/src/rules.c
   native/src/rules_config.c
   native/src/runtime.c
+  native/src/runtime_config.c
   native/src/runtime_listener.c
   native/src/socks.c
   native/src/watcher.c

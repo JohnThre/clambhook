@@ -265,3 +265,71 @@ Java_com_clambhook_android_NativeClambhookBridge_nativeMutate(
     (void)bridge;
     return ch_jni_operation(environment, handle, operation, request_json, 1);
 }
+
+JNIEXPORT jstring JNICALL
+Java_com_clambhook_android_NativeClambhookConfigBridge_nativeQueryConfig(
+    JNIEnv *environment, jobject bridge, jstring config_path,
+    jstring operation, jstring request_json
+) {
+    (void)bridge;
+    const char *path_utf = ch_jni_get_utf(environment, config_path);
+    const char *operation_utf = ch_jni_get_utf(environment, operation);
+    const char *request_utf = ch_jni_get_utf(environment, request_json);
+    if (path_utf == NULL || operation_utf == NULL ||
+        (request_json != NULL && request_utf == NULL)) {
+        ch_jni_release_utf(environment, config_path, path_utf);
+        ch_jni_release_utf(environment, operation, operation_utf);
+        ch_jni_release_utf(environment, request_json, request_utf);
+        return NULL;
+    }
+    char *response = NULL;
+    ch_error error;
+    ch_status status = ch_runtime_config_query_file(
+        path_utf, operation_utf, request_utf, &response, &error);
+    ch_jni_release_utf(environment, config_path, path_utf);
+    ch_jni_release_utf(environment, operation, operation_utf);
+    ch_jni_release_utf(environment, request_json, request_utf);
+    if (status != CH_OK) {
+        ch_jni_check(environment, status, &error);
+        return NULL;
+    }
+    jstring result = (*environment)->NewStringUTF(environment, response);
+    ch_string_free(response);
+    return result;
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_clambhook_android_NativeClambhookConfigBridge_nativeMutateConfig(
+    JNIEnv *environment, jobject bridge, jstring config_path,
+    jstring mutation, jstring response_operation, jstring request_json
+) {
+    (void)bridge;
+    const char *path_utf = ch_jni_get_utf(environment, config_path);
+    const char *mutation_utf = ch_jni_get_utf(environment, mutation);
+    const char *response_utf = ch_jni_get_utf(environment,
+                                              response_operation);
+    const char *request_utf = ch_jni_get_utf(environment, request_json);
+    if (path_utf == NULL || mutation_utf == NULL || response_utf == NULL ||
+        request_utf == NULL) {
+        ch_jni_release_utf(environment, config_path, path_utf);
+        ch_jni_release_utf(environment, mutation, mutation_utf);
+        ch_jni_release_utf(environment, response_operation, response_utf);
+        ch_jni_release_utf(environment, request_json, request_utf);
+        return NULL;
+    }
+    char *response = NULL;
+    ch_error error;
+    ch_status status = ch_runtime_config_mutate_file(
+        path_utf, mutation_utf, response_utf, request_utf, &response, &error);
+    ch_jni_release_utf(environment, config_path, path_utf);
+    ch_jni_release_utf(environment, mutation, mutation_utf);
+    ch_jni_release_utf(environment, response_operation, response_utf);
+    ch_jni_release_utf(environment, request_json, request_utf);
+    if (status != CH_OK) {
+        ch_jni_check(environment, status, &error);
+        return NULL;
+    }
+    jstring result = (*environment)->NewStringUTF(environment, response);
+    ch_string_free(response);
+    return result;
+}

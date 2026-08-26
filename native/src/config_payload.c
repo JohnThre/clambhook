@@ -370,6 +370,242 @@ static char *ch_config_conditioner_payload_json(const ch_config *config,
     return result;
 }
 
+static char *config_network_host(const char *address, int *out_port) {
+    if (out_port != NULL) *out_port = 0;
+    char *copy = ch_strdup(address == NULL ? "" : address);
+    if (copy == NULL) return NULL;
+    trim_in_place(copy);
+    if (copy[0] == '[') {
+        char *close = strchr(copy, ']');
+        if (close != NULL) {
+            if (out_port != NULL && close[1] == ':' && close[2] != '\0') {
+                char *end = NULL;
+                long port = strtol(close + 2, &end, 10);
+                if (end != close + 2 && *end == '\0' && port > 0L &&
+                    port <= 65535L) {
+                    *out_port = (int)port;
+                }
+            }
+            size_t length = (size_t)(close - copy - 1);
+            memmove(copy, copy + 1, length);
+            copy[length] = '\0';
+        }
+        return copy;
+    }
+    char *colon = strrchr(copy, ':');
+    if (colon != NULL && strchr(copy, ':') == colon) {
+        if (out_port != NULL && colon[1] != '\0') {
+            char *end = NULL;
+            long port = strtol(colon + 1, &end, 10);
+            if (end != colon + 1 && *end == '\0' && port > 0L &&
+                port <= 65535L) {
+                *out_port = (int)port;
+            }
+        }
+        *colon = '\0';
+    }
+    return copy;
+}
+
+static char *config_first_server_host(const ch_config_table *profile) {
+    const ch_config_array *chains = ch_config_table_get_array(profile,
+                                                               "chain");
+    for (size_t chain_index = 0U;
+         chain_index < ch_config_array_count(chains); ++chain_index) {
+        const ch_config_table *chain = ch_config_array_get_table(
+            chains, chain_index);
+        const ch_config_array *servers = ch_config_table_get_array(
+            chain, "server");
+        for (size_t server_index = 0U;
+             server_index < ch_config_array_count(servers); ++server_index) {
+            char *address = optional_config_string(
+                ch_config_array_get_table(servers, server_index), "address");
+            if (address == NULL) return NULL;
+            char *host = config_network_host(address, NULL);
+            free(address);
+            if (host == NULL) return NULL;
+            if (host[0] != '\0') return host;
+            free(host);
+        }
+    }
+    return ch_strdup("127.0.0.1");
+}
+
+static int config_append_string_array(ch_json_buffer *json,
+                                      const ch_config_array *array,
+                                      const char *const *defaults,
+                                      size_t default_count,
+                                      ch_error *error) {
+    size_t count = ch_config_array_count(array);
+    if (!ch_json_append(json, "[")) return 0;
+    if (count == 0U) {
+        for (size_t index = 0U; index < default_count; ++index) {
+            if ((index > 0U && !ch_json_append(json, ",")) ||
+                !ch_json_append_string(json, defaults[index])) return 0;
+        }
+    } else {
+        for (size_t index = 0U; index < count; ++index) {
+            char *value = NULL;
+            if (ch_config_array_get_string(array, index, &value, error) !=
+                CH_OK) {
+                free(value);
+                return 0;
+            }
+            int okay = (index == 0U || ch_json_append(json, ",")) &&
+                ch_json_append_string(json, value);
+            free(value);
+            if (!okay) return 0;
+        }
+    }
+    return ch_json_append(json, "]");
+}
+
+static int config_append_ip_prefixes(ch_json_buffer *json,
+                                     const ch_config_array *addresses,
+                                     bool ipv6,
+                                     bool dns_enabled,
+                                     bool dns_only,
+                                     ch_error *error) {
+    static const char *const defaults[] = {
+        "198.18.0.1/30", "fd7a:636c:616d::1/64"
+    };
+    size_t count = ch_config_array_count(addresses);
+    size_t total = count == 0U ? 2U : count;
+    bool first = true;
+    if (!ch_json_append(json, "[")) return 0;
+    for (size_t index = 0U; index < total; ++index) {
+        char *owned = NULL;
+        const char *raw = NULL;
+        if (count == 0U) {
+            raw = defaults[index];
+        } else if (ch_config_array_get_string(addresses, index, &owned,
+                                              error) == CH_OK) {
+            raw = owned;
+        } else {
+            free(owned);
+            return 0;
+        }
+        bool is_ipv6 = strchr(raw, ':') != NULL;
+        if ((!dns_only && is_ipv6 != ipv6) || (dns_only && !dns_enabled)) {
+            free(owned);
+            continue;
+        }
+        char *address = ch_strdup(raw);
+        if (address == NULL) {
+            free(owned);
+            return 0;
+        }
+        char *slash = strrchr(address, '/');
+        int prefix = is_ipv6 ? 128 : 32;
+        if (slash != NULL) {
+            char *end = NULL;
+            long parsed = strtol(slash + 1, &end, 10);
+            if (end != slash + 1 && *end == '\0' && parsed >= 0L &&
+                parsed <= (is_ipv6 ? 128L : 32L)) {
+                prefix = (int)parsed;
+            }
+            *slash = '\0';
+        }
+        int okay = (first || ch_json_append(json, ","));
+        if (okay && dns_only) {
+            okay = ch_json_append_string(json, address);
+        } else if (okay) {
+            okay = ch_json_append(json, "{\"address\":") &&
+                ch_json_append_string(json, address) &&
+                ch_json_append_format(json, ",\"prefix_len\":%d}", prefix);
+        }
+        free(address);
+        free(owned);
+        if (!okay) return 0;
+        first = false;
+    }
+    return ch_json_append(json, "]");
+}
+
+static char *ch_config_network_settings_payload_json(
+    const ch_config *config, const char *profile_name, ch_error *error) {
+    static const char *const default_routes[] = {"0.0.0.0/0", "::/0"};
+    const ch_config_table *profile = select_profile(config, profile_name);
+    if (profile == NULL) {
+        ch_error_set(error, CH_ERROR_NOT_FOUND, "profile %s not found",
+                     profile_name == NULL ? "" : profile_name);
+        return NULL;
+    }
+    const ch_config_table *listen = ch_config_table_get_table(profile,
+                                                               "listen");
+    const ch_config_table *tun = ch_config_table_get_table(listen, "tun");
+    const ch_config_table *dns = ch_config_table_get_table(profile, "dns");
+    const ch_config_array *addresses = ch_config_table_get_array(tun,
+                                                                 "addresses");
+    const ch_config_array *routes = ch_config_table_get_array(tun, "routes");
+    const ch_config_array *excluded = ch_config_table_get_array(
+        tun, "exclude_cidrs");
+    int64_t mtu = optional_config_int(tun, "mtu", 1500);
+    if (mtu <= 0) mtu = 1500;
+    bool dns_enabled = optional_config_bool(dns, "enabled", false);
+    char *remote = config_first_server_host(profile);
+    char *http = optional_config_string(listen, "http");
+    int proxy_port = 0;
+    char *proxy_host = config_network_host(http, &proxy_port);
+    free(http);
+    if (remote == NULL || proxy_host == NULL) {
+        free(remote);
+        free(proxy_host);
+        ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                     "encode tunnel network settings");
+        return NULL;
+    }
+    if (proxy_host[0] == '\0' || strcmp(proxy_host, "0.0.0.0") == 0 ||
+        strcmp(proxy_host, "::") == 0) {
+        free(proxy_host);
+        proxy_host = ch_strdup("127.0.0.1");
+        if (proxy_host == NULL) {
+            free(remote);
+            ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                         "encode tunnel proxy settings");
+            return NULL;
+        }
+    }
+    ch_json_buffer json;
+    ch_json_init(&json);
+    int okay = ch_json_append_format(&json, "{\"mtu\":%" PRId64,
+                                       mtu) &&
+        ch_json_append(&json, ",\"remote_address\":") &&
+        ch_json_append_string(&json, remote) &&
+        ch_json_append(&json, ",\"ipv4\":") &&
+        config_append_ip_prefixes(&json, addresses, false, dns_enabled,
+                                  false, error) &&
+        ch_json_append(&json, ",\"ipv6\":") &&
+        config_append_ip_prefixes(&json, addresses, true, dns_enabled,
+                                  false, error) &&
+        ch_json_append(&json, ",\"dns_servers\":") &&
+        config_append_ip_prefixes(&json, addresses, false, dns_enabled,
+                                  true, error) &&
+        ch_json_append(&json, ",\"included_routes\":") &&
+        config_append_string_array(&json, routes, default_routes, 2U,
+                                   error) &&
+        ch_json_append(&json, ",\"excluded_routes\":") &&
+        config_append_string_array(&json, excluded, NULL, 0U, error);
+    if (okay && proxy_port > 0) {
+        okay = ch_json_append(&json, ",\"http_proxy\":{\"host\":") &&
+            ch_json_append_string(&json, proxy_host) &&
+            ch_json_append_format(&json, ",\"port\":%d},\"https_proxy\":{\"host\":",
+                                  proxy_port) &&
+            ch_json_append_string(&json, proxy_host) &&
+            ch_json_append_format(&json, ",\"port\":%d}", proxy_port);
+    }
+    if (okay) okay = ch_json_append(&json, "}");
+    free(remote);
+    free(proxy_host);
+    char *result = okay ? ch_json_take(&json) : NULL;
+    ch_json_dispose(&json);
+    if (result == NULL && (error == NULL || error->code == CH_OK)) {
+        ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                     "encode tunnel network settings");
+    }
+    return result;
+}
+
 static char *ch_config_developer_settings_payload_json(const ch_config *config,
                                                        ch_error *error) {
     static const char default_headers[] =
@@ -1307,6 +1543,9 @@ char *ch_config_query_payload_json(const ch_config *config,
         result = ch_config_settings_payload_json(config, profile, error);
     } else if (strcmp(operation, "conditioner") == 0) {
         result = ch_config_conditioner_payload_json(config, profile, error);
+    } else if (strcmp(operation, "network_settings") == 0) {
+        result = ch_config_network_settings_payload_json(config, profile,
+                                                         error);
     } else if (strcmp(operation, "developer_settings") == 0) {
         result = ch_config_developer_settings_payload_json(config, error);
     } else if (strcmp(operation, "developer_map_rules") == 0) {

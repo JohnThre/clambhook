@@ -144,6 +144,56 @@ class NativeClambhookBridgeTest {
     }
 
     @Test
+    fun readsVpnInterfaceSettingsFromNativeConfigBeforeRuntimeStart() {
+        val settings = ApiJson.decodeFromString<TunnelNetworkSettings>(
+            NativeClambhookConfigBridge.query(
+                configFile().absolutePath,
+                "network_settings",
+            ),
+        )
+        assertEquals(1500, settings.mtu)
+        assertEquals("127.0.0.1", settings.remote_address)
+        assertEquals(listOf("198.18.0.1"), settings.ipv4.map { it.address })
+        assertEquals(listOf(30), settings.ipv4.map { it.prefixLen })
+        assertEquals(listOf("fd7a:636c:616d::1"), settings.ipv6.map { it.address })
+        assertEquals(listOf(64), settings.ipv6.map { it.prefixLen })
+        assertEquals(listOf("0.0.0.0/0", "::/0"), settings.includedRoutes)
+        assertTrue(settings.dnsServers.isEmpty())
+    }
+
+    @Test
+    fun mutatesAndValidatesConfigThroughNativeFileBridge() {
+        val config = configFile()
+        val result = ApiJson.decodeFromString<RulesPayload>(
+            NativeClambhookConfigBridge.mutate(
+                config.absolutePath,
+                "create_rule",
+                "rules_persistence",
+                """{"position":"append","rule":{"name":"device-native-rule","action":"direct"}}""",
+            ),
+        )
+        assertEquals("work", result.profile)
+        assertEquals("device-native-rule", result.rules.last().name)
+        val persisted = ApiJson.decodeFromString<RulesPayload>(
+            NativeClambhookConfigBridge.query(config.absolutePath, "rules_persistence"),
+        )
+        assertEquals("device-native-rule", persisted.rules.last().name)
+
+        assertThrows(IllegalStateException::class.java) {
+            NativeClambhookConfigBridge.mutate(
+                config.absolutePath,
+                "replace_rules",
+                "rules_persistence",
+                """{"rules":{}}""",
+            )
+        }
+        val afterRejectedMutation = ApiJson.decodeFromString<RulesPayload>(
+            NativeClambhookConfigBridge.query(config.absolutePath, "rules_persistence"),
+        )
+        assertEquals("device-native-rule", afterRejectedMutation.rules.last().name)
+    }
+
+    @Test
     fun kotlinRuntimeFacadeDecodesDashboardAndSwitchesProfile() {
         NativeClambhookTunnelRuntime { }.use { runtime ->
             runtime.start(configFile().absolutePath)
