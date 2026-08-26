@@ -253,6 +253,53 @@ static size_t ip_stack_test_udp6_packet(
     return length;
 }
 
+static size_t ip_stack_test_ipv4_fragment(
+    uint8_t *fragment, size_t capacity, const uint8_t *packet,
+    size_t packet_length, size_t payload_offset, size_t payload_length,
+    int more_fragments) {
+    if (packet_length < 20U || payload_offset + payload_length >
+            packet_length - 20U || capacity < 20U + payload_length ||
+        (payload_offset & 7U) != 0U) {
+        return 0U;
+    }
+    size_t length = 20U + payload_length;
+    memcpy(fragment, packet, 20U);
+    memcpy(fragment + 20U, packet + 20U + payload_offset, payload_length);
+    ip_stack_test_write_u16(fragment + 2U, (uint16_t)length);
+    uint16_t field = (uint16_t)(payload_offset / 8U);
+    if (more_fragments) field |= 0x2000U;
+    ip_stack_test_write_u16(fragment + 6U, field);
+    fragment[10] = 0U;
+    fragment[11] = 0U;
+    ip_stack_test_set_checksum(fragment, 10U,
+                               ip_stack_test_checksum(fragment, 20U));
+    return length;
+}
+
+static size_t ip_stack_test_ipv6_fragment(
+    uint8_t *fragment, size_t capacity, const uint8_t *packet,
+    size_t packet_length, size_t payload_offset, size_t payload_length,
+    int more_fragments, uint32_t identifier) {
+    if (packet_length < 40U || payload_offset + payload_length >
+            packet_length - 40U || capacity < 48U + payload_length ||
+        (payload_offset & 7U) != 0U) {
+        return 0U;
+    }
+    size_t length = 48U + payload_length;
+    memcpy(fragment, packet, 40U);
+    fragment[6] = 44U;
+    ip_stack_test_write_u16(fragment + 4U,
+                            (uint16_t)(8U + payload_length));
+    fragment[40] = packet[6];
+    fragment[41] = 0U;
+    uint16_t field = (uint16_t)payload_offset;
+    if (more_fragments) field |= 1U;
+    ip_stack_test_write_u16(fragment + 42U, field);
+    ip_stack_test_write_u32(fragment + 44U, identifier);
+    memcpy(fragment + 48U, packet + 40U + payload_offset, payload_length);
+    return length;
+}
+
 static ch_status ip_stack_test_tcp_dialer(
     const char *target, const char *source, const char *domain_hint,
     int *out_descriptor, void *context, ch_error *error) {
@@ -721,6 +768,108 @@ static void ip_stack_test_dns_interception(ch_ip_stack *stack,
     CH_TEST_ASSERT_STRING("example.com:9999", udp->domain_hint);
 }
 
+static void ip_stack_test_fragmented_udp(ch_ip_stack *stack,
+                                         ip_stack_test_output *output,
+                                         ip_stack_test_udp *udp) {
+    static const uint8_t client4[] = {198U, 18U, 0U, 2U};
+    static const uint8_t target4[] = {192U, 0U, 2U, 44U};
+    static const uint8_t payload[] = {'f', 'r', 'a', 'g', '-', 'o', 'k'};
+    uint8_t packet[256];
+    size_t packet_length = ip_stack_test_udp4_packet(
+        packet, sizeof(packet), client4, target4, 46000U, 9000U,
+        payload, sizeof(payload));
+    uint8_t first[128];
+    uint8_t second[128];
+    size_t first_length = ip_stack_test_ipv4_fragment(
+        first, sizeof(first), packet, packet_length, 0U, 8U, 1);
+    size_t second_length = ip_stack_test_ipv4_fragment(
+        second, sizeof(second), packet, packet_length, 8U,
+        packet_length - 28U, 0);
+    ch_error error;
+    memset(output, 0, sizeof(*output));
+    CH_TEST_ASSERT(ch_ip_stack_inject(stack, second, second_length,
+                                      &error) == CH_OK);
+    CH_TEST_ASSERT(output->count == 0U);
+    CH_TEST_ASSERT(ch_ip_stack_inject(stack, first, first_length,
+                                      &error) == CH_OK);
+    CH_TEST_ASSERT(udp->dial_count == 4U);
+    CH_TEST_ASSERT_STRING("192.0.2.44:9000", udp->target);
+    CH_TEST_ASSERT(output->count == 1U);
+
+    static const uint8_t client6[16] = {
+        0xfdU, 0x7aU, 0x63U, 0x6cU, 0x61U, 0x6dU, 0U, 0U,
+        0U, 0U, 0U, 0U, 0U, 0U, 0U, 2U
+    };
+    static const uint8_t target6[16] = {
+        0x20U, 0x01U, 0x0dU, 0xb8U, 0U, 0U, 0U, 0U,
+        0U, 0U, 0U, 0U, 0U, 0U, 0U, 0x44U
+    };
+    packet_length = ip_stack_test_udp6_packet(
+        packet, sizeof(packet), client6, target6, 47000U, 9001U,
+        payload, sizeof(payload));
+    first_length = ip_stack_test_ipv6_fragment(
+        first, sizeof(first), packet, packet_length, 0U, 8U, 1,
+        UINT32_C(0x10203040));
+    second_length = ip_stack_test_ipv6_fragment(
+        second, sizeof(second), packet, packet_length, 8U,
+        packet_length - 48U, 0, UINT32_C(0x10203040));
+    memset(output, 0, sizeof(*output));
+    CH_TEST_ASSERT(ch_ip_stack_inject(stack, first, first_length,
+                                      &error) == CH_OK);
+    CH_TEST_ASSERT(output->count == 0U);
+    CH_TEST_ASSERT(ch_ip_stack_inject(stack, second, second_length,
+                                      &error) == CH_OK);
+    CH_TEST_ASSERT(udp->dial_count == 5U);
+    CH_TEST_ASSERT_STRING("[2001:db8::44]:9001", udp->target);
+    CH_TEST_ASSERT(output->count == 1U);
+
+    packet_length = ip_stack_test_udp4_packet(
+        packet, sizeof(packet), client4, target4, 48000U, 9002U,
+        payload, sizeof(payload));
+    first_length = ip_stack_test_ipv4_fragment(
+        first, sizeof(first), packet, packet_length, 0U, 8U, 1);
+    CH_TEST_ASSERT(ch_ip_stack_inject(stack, first, first_length,
+                                      &error) == CH_OK);
+    CH_TEST_ASSERT(ch_ip_stack_inject(stack, first, first_length,
+                                      &error) == CH_ERROR_PARSE);
+    CH_TEST_ASSERT(strstr(error.message, "overlapping") != NULL);
+}
+
+static void ip_stack_test_ipv6_extension_udp(ch_ip_stack *stack,
+                                             ip_stack_test_output *output,
+                                             ip_stack_test_udp *udp) {
+    static const uint8_t client[16] = {
+        0xfdU, 0x7aU, 0x63U, 0x6cU, 0x61U, 0x6dU, 0U, 0U,
+        0U, 0U, 0U, 0U, 0U, 0U, 0U, 2U
+    };
+    static const uint8_t target[16] = {
+        0x20U, 0x01U, 0x0dU, 0xb8U, 0U, 0U, 0U, 0U,
+        0U, 0U, 0U, 0U, 0U, 0U, 0U, 0x60U
+    };
+    static const uint8_t payload[] = {'e', 'x', 't'};
+    uint8_t plain[128];
+    size_t plain_length = ip_stack_test_udp6_packet(
+        plain, sizeof(plain), client, target, 49000U, 9003U,
+        payload, sizeof(payload));
+    uint8_t packet[136];
+    memcpy(packet, plain, 40U);
+    packet[6] = 60U;
+    ip_stack_test_write_u16(packet + 4U,
+                            (uint16_t)(plain_length - 40U + 8U));
+    memset(packet + 40U, 0, 8U);
+    packet[40] = 17U;
+    memcpy(packet + 48U, plain + 40U, plain_length - 40U);
+    size_t length = plain_length + 8U;
+    memset(output, 0, sizeof(*output));
+    ch_error error;
+    CH_TEST_ASSERT(ch_ip_stack_inject(stack, packet, length, &error) == CH_OK);
+    CH_TEST_ASSERT(udp->dial_count == 6U);
+    CH_TEST_ASSERT_STRING("[2001:db8::60]:9003", udp->target);
+    CH_TEST_ASSERT(output->count == 1U);
+    CH_TEST_ASSERT(ip_stack_test_udp6_checksum(
+        output->packet, output->length) == 0U);
+}
+
 void ch_test_ip_stack(void) {
     ip_stack_test_output output = {0};
     ip_stack_test_dial dial = {.peer = -1};
@@ -751,6 +900,8 @@ void ch_test_ip_stack(void) {
     ip_stack_test_ipv4_udp(stack, &output, &udp);
     ip_stack_test_ipv6_udp(stack, &output, &udp);
     ip_stack_test_dns_interception(stack, &output, &udp, &dns);
+    ip_stack_test_fragmented_udp(stack, &output, &udp);
+    ip_stack_test_ipv6_extension_udp(stack, &output, &udp);
     const uint8_t invalid[] = {0x70U, 0U, 0U, 0U, 0U, 0U, 0U, 0U,
                                0U, 0U, 0U, 0U, 0U, 0U, 0U, 0U,
                                0U, 0U, 0U, 0U};
@@ -758,5 +909,5 @@ void ch_test_ip_stack(void) {
                                       &error) == CH_ERROR_PARSE);
     ch_ip_stack_tick(stack);
     ch_ip_stack_destroy(stack);
-    CH_TEST_ASSERT(udp.close_count == 3U);
+    CH_TEST_ASSERT(udp.close_count == 6U);
 }

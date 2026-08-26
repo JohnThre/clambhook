@@ -81,7 +81,9 @@ native lwIP IPv4/IPv6 ICMP/checksum fixtures, configured TUN CIDRs, packet-stack
 runtime/profile lifecycle cases, bounded IPv4/IPv6 TCP flow translation and
 descriptor echo, IPv4/IPv6 UDP session reuse and tuple/checksum restoration,
 encrypted-DNS port-53 interception and domain recovery, direct TUN route
-dialing, and Android JNI packet callback compilation),
+dialing, bounded out-of-order IPv4/IPv6 fragment reassembly with overlap
+rejection, common IPv6 extension-chain parsing, and Android JNI packet callback
+compilation),
 plus `make build-linux-gtk` alongside the existing distro harness. Production
 packages stay on their current binaries until the native packaging gate in
 [`c-migration.md`](c-migration.md) passes. See

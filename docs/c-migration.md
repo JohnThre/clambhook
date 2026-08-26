@@ -135,8 +135,8 @@ The SOCKS5 UDP relay binds to the control connection's local interface, pins
 the first client endpoint (and any explicitly requested port), rejects
 fragmentation, re-evaluates routing for each datagram, reuses one asynchronous
 packet session per selected route, and ties teardown to the TCP control
-connection. WireGuard, OpenVPN, DoQ, IP fragmentation, prompts, traffic
-persistence, and developer inspection remain cutover blockers;
+connection. WireGuard, OpenVPN, DoQ, prompts, traffic persistence, and
+developer inspection remain cutover blockers;
 datagram protocols that cannot
 be represented by the native stream-carrier model fail closed.
 
@@ -174,8 +174,13 @@ VMESS packet transports. UDP/53 is intercepted by the route-planned encrypted
 DNS proxy; validated A and AAAA answers populate a TTL-capped, bounded cache so
 subsequent domain rules still apply while transport dialing remains numeric.
 Both UDP families validate lengths and checksums and reject over-MTU output.
-IP fragmentation, IPv6 extension headers, Android native transport linkage,
-and platform TUN lifecycle tests remain open.
+A bounded pre-routing cache reassembles out-of-order IPv4 and IPv6 fragments,
+rejects overlaps and inconsistent totals, expires incomplete flows, and removes
+the IPv6 Fragment header before transport translation. Common IPv6 hop-by-hop,
+routing, destination-options, and authentication extension chains are parsed
+with depth and size limits. Incomplete TCP handshakes now expire after thirty
+seconds and abort their private lwIP PCB before releasing the mapping. Android
+native transport linkage and platform TUN lifecycle tests remain open.
 
 Native process attribution is best-effort at the operating-system boundary,
 matching the rollback contract when permissions hide another process. It
@@ -256,11 +261,12 @@ Cutover is allowed only after all of the following are green:
 3. Listener and protocol integration tests cover TCP, direct/Shadowsocks UDP,
    SOCKS5 UDP association reuse and cancellation, reload rollback, concurrency
    limits, native macOS/Linux process-rule attribution, network-triggered
-   first-match profile switching, remaining protocol UDP rows, fragmentation,
-   and platform TUN lifecycle. Native IPv4/IPv6 TCP mapping and descriptor
+   first-match profile switching, remaining protocol UDP rows, and platform
+   TUN lifecycle. Native IPv4/IPv6 TCP mapping and descriptor
    bridging, IPv4/IPv6 UDP session forwarding, encrypted-DNS interception,
-   TTL-bounded domain recovery, ICMP injection, checksum rewriting, direct
-   route dialing, and runtime lifecycle fixtures are green.
+   TTL-bounded domain recovery, out-of-order fragment reassembly and overlap
+   rejection, common IPv6 extension parsing, ICMP injection, checksum
+   rewriting, direct route dialing, and runtime lifecycle fixtures are green.
 4. GTK functional/accessibility QA matches the current Linux feature set.
 5. Android unit, lint, build, Compose instrumentation, VPN, background, and
    process-restart tests pass on API 30, 33, and 36.

@@ -21,6 +21,7 @@
 #include "lwip/ip6_addr.h"
 #include "lwip/netif.h"
 #include "lwip/pbuf.h"
+#include "lwip/priv/tcp_priv.h"
 #include "lwip/tcp.h"
 #include "lwip/timeouts.h"
 
@@ -33,16 +34,23 @@
 #define CH_IP_STACK_TCP_QUEUE_LIMIT (1024U * 1024U)
 #define CH_IP_STACK_TCP_READ_SIZE 16384U
 #define CH_IP_STACK_TCP_FLOW_LIMIT 512U
+#define CH_IP_STACK_TCP_HANDSHAKE_TIMEOUT_MS 30000U
 #define CH_IP_STACK_UDP_FLOW_LIMIT 512U
 #define CH_IP_STACK_UDP_FLOW_TIMEOUT_MS 120000U
 #define CH_IP_STACK_DNS_CACHE_LIMIT 1024U
 #define CH_IP_STACK_DNS_MAX_TTL_MS 86400000U
 #define CH_IP_STACK_DNS_NAME_CAPACITY 256U
 #define CH_IP_STACK_DOMAIN_HINT_CAPACITY 264U
+#define CH_IP_STACK_FRAGMENT_FLOW_LIMIT 64U
+#define CH_IP_STACK_FRAGMENT_TIMEOUT_MS 30000U
+#define CH_IP_STACK_FRAGMENT_DATA_CAPACITY 65535U
+#define CH_IP_STACK_FRAGMENT_COVERAGE_BYTES 8192U
+#define CH_IP_STACK_EXTENSION_HEADER_LIMIT 512U
 
 typedef struct ch_ip_stack_tcp_flow ch_ip_stack_tcp_flow;
 typedef struct ch_ip_stack_udp_flow ch_ip_stack_udp_flow;
 typedef struct ch_ip_stack_dns_entry ch_ip_stack_dns_entry;
+typedef struct ch_ip_stack_fragment_flow ch_ip_stack_fragment_flow;
 
 struct ch_ip_stack_tcp_flow {
     ch_ip_stack_tcp_flow *next;
@@ -56,6 +64,7 @@ struct ch_ip_stack_tcp_flow {
     uint16_t source_port;
     uint16_t target_port;
     uint16_t internal_port;
+    u32_t created_at;
     char domain_hint[CH_IP_STACK_DOMAIN_HINT_CAPACITY];
     uint8_t *pending;
     size_t pending_offset;
@@ -89,6 +98,26 @@ struct ch_ip_stack_dns_entry {
     uint64_t sequence;
 };
 
+struct ch_ip_stack_fragment_flow {
+    ch_ip_stack_fragment_flow *next;
+    uint8_t source_address[16];
+    uint8_t target_address[16];
+    uint8_t header[CH_IP_STACK_EXTENSION_HEADER_LIMIT];
+    uint8_t *data;
+    uint8_t *coverage;
+    size_t header_length;
+    size_t ipv6_next_header_offset;
+    size_t total_payload_length;
+    size_t covered_length;
+    uint32_t identifier;
+    int address_family;
+    uint8_t protocol;
+    int total_known;
+    int have_first;
+    int dead;
+    u32_t last_activity;
+};
+
 struct ch_ip_stack {
     struct netif interface;
     ch_ip_stack_packet_writer packet_writer;
@@ -109,6 +138,8 @@ struct ch_ip_stack {
     ch_ip_stack_dns_entry *dns_entries;
     size_t dns_entry_count;
     uint64_t dns_sequence;
+    ch_ip_stack_fragment_flow *fragment_flows;
+    size_t fragment_flow_count;
     uint16_t next_tcp_port;
     s8_t ipv6_index;
     unsigned int mtu;
@@ -210,14 +241,45 @@ static void ch_ip_stack_ipv4_checksums(uint8_t *packet, size_t length) {
                           ch_ip_stack_checksum_finish(sum));
 }
 
-static void ch_ip_stack_ipv6_tcp_checksum(uint8_t *packet, size_t length) {
-    if (length < 60U || (packet[0] >> 4U) != 6U || packet[6] != 6U ||
+static int ch_ip_stack_ipv6_transport(
+    const uint8_t *packet, size_t length, uint8_t *out_protocol,
+    size_t *out_offset) {
+    if (length < 40U || (packet[0] >> 4U) != 6U ||
         ch_ip_stack_read_u16(packet + 4U) != length - 40U) {
+        return 0;
+    }
+    uint8_t protocol = packet[6];
+    size_t offset = 40U;
+    unsigned int extension_count = 0U;
+    while (protocol == 0U || protocol == 43U || protocol == 60U ||
+           protocol == 51U) {
+        if (++extension_count > 16U || offset + 2U > length) return 0;
+        size_t extension_length = protocol == 51U ?
+            ((size_t)packet[offset + 1U] + 2U) * 4U :
+            ((size_t)packet[offset + 1U] + 1U) * 8U;
+        if (extension_length < 8U || offset + extension_length > length ||
+            offset + extension_length > CH_IP_STACK_EXTENSION_HEADER_LIMIT) {
+            return 0;
+        }
+        protocol = packet[offset];
+        offset += extension_length;
+    }
+    if (protocol == 44U) return 0;
+    *out_protocol = protocol;
+    *out_offset = offset;
+    return 1;
+}
+
+static void ch_ip_stack_ipv6_tcp_checksum(uint8_t *packet, size_t length) {
+    uint8_t protocol = 0U;
+    size_t tcp_offset = 0U;
+    if (!ch_ip_stack_ipv6_transport(packet, length, &protocol, &tcp_offset) ||
+        protocol != 6U || length < tcp_offset + 20U) {
         return;
     }
-    size_t tcp_length = length - 40U;
-    packet[56] = 0U;
-    packet[57] = 0U;
+    size_t tcp_length = length - tcp_offset;
+    packet[tcp_offset + 16U] = 0U;
+    packet[tcp_offset + 17U] = 0U;
     uint32_t sum = ch_ip_stack_checksum_add(packet + 8U, 32U, 0U);
     uint8_t pseudo[8] = {
         (uint8_t)(tcp_length >> 24U),
@@ -227,8 +289,8 @@ static void ch_ip_stack_ipv6_tcp_checksum(uint8_t *packet, size_t length) {
         0U, 0U, 0U, 6U
     };
     sum = ch_ip_stack_checksum_add(pseudo, sizeof(pseudo), sum);
-    sum = ch_ip_stack_checksum_add(packet + 40U, tcp_length, sum);
-    ch_ip_stack_write_u16(packet + 56U,
+    sum = ch_ip_stack_checksum_add(packet + tcp_offset, tcp_length, sum);
+    ch_ip_stack_write_u16(packet + tcp_offset + 16U,
                           ch_ip_stack_checksum_finish(sum));
 }
 
@@ -478,6 +540,308 @@ static void ch_ip_stack_domain_hint(ch_ip_stack *stack, int address_family,
     }
 }
 
+static int ch_ip_stack_fragment_covered(const uint8_t *coverage,
+                                        size_t offset) {
+    return (coverage[offset >> 3U] & (uint8_t)(1U << (offset & 7U))) != 0U;
+}
+
+static void ch_ip_stack_fragment_mark(uint8_t *coverage, size_t offset) {
+    coverage[offset >> 3U] |= (uint8_t)(1U << (offset & 7U));
+}
+
+static ch_ip_stack_fragment_flow *ch_ip_stack_fragment_find(
+    ch_ip_stack *stack, int address_family, const uint8_t *source_address,
+    const uint8_t *target_address, uint32_t identifier, uint8_t protocol) {
+    size_t address_length = ch_ip_stack_address_length(address_family);
+    for (ch_ip_stack_fragment_flow *flow = stack->fragment_flows; flow != NULL;
+         flow = flow->next) {
+        if (!flow->dead && flow->address_family == address_family &&
+            flow->identifier == identifier && flow->protocol == protocol &&
+            memcmp(flow->source_address, source_address,
+                   address_length) == 0 &&
+            memcmp(flow->target_address, target_address,
+                   address_length) == 0) {
+            return flow;
+        }
+    }
+    return NULL;
+}
+
+static void ch_ip_stack_fragment_sweep(ch_ip_stack *stack) {
+    ch_ip_stack_fragment_flow **cursor = &stack->fragment_flows;
+    while (*cursor != NULL) {
+        ch_ip_stack_fragment_flow *flow = *cursor;
+        if (!flow->dead) {
+            cursor = &flow->next;
+            continue;
+        }
+        *cursor = flow->next;
+        free(flow->data);
+        free(flow->coverage);
+        free(flow);
+        --stack->fragment_flow_count;
+    }
+}
+
+static ch_ip_stack_fragment_flow *ch_ip_stack_fragment_create(
+    ch_ip_stack *stack, int address_family, const uint8_t *source_address,
+    const uint8_t *target_address, uint32_t identifier, uint8_t protocol,
+    ch_error *error) {
+    if (stack->fragment_flow_count >= CH_IP_STACK_FRAGMENT_FLOW_LIMIT) {
+        ch_error_set(error, CH_ERROR_INVALID_STATE,
+                     "native IP fragment flow limit reached");
+        return NULL;
+    }
+    ch_ip_stack_fragment_flow *flow = calloc(1U, sizeof(*flow));
+    if (flow == NULL) {
+        ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                     "allocate IP fragment flow");
+        return NULL;
+    }
+    flow->data = malloc(CH_IP_STACK_FRAGMENT_DATA_CAPACITY);
+    flow->coverage = calloc(1U, CH_IP_STACK_FRAGMENT_COVERAGE_BYTES);
+    if (flow->data == NULL || flow->coverage == NULL) {
+        free(flow->data);
+        free(flow->coverage);
+        free(flow);
+        ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                     "allocate IP fragment buffers");
+        return NULL;
+    }
+    flow->address_family = address_family;
+    flow->identifier = identifier;
+    flow->protocol = protocol;
+    size_t address_length = ch_ip_stack_address_length(address_family);
+    memcpy(flow->source_address, source_address, address_length);
+    memcpy(flow->target_address, target_address, address_length);
+    flow->last_activity = sys_now();
+    flow->next = stack->fragment_flows;
+    stack->fragment_flows = flow;
+    ++stack->fragment_flow_count;
+    return flow;
+}
+
+static ch_status ch_ip_stack_fragment_store(
+    ch_ip_stack *stack, int address_family, const uint8_t *source_address,
+    const uint8_t *target_address, uint32_t identifier, uint8_t protocol,
+    const uint8_t *header, size_t header_length,
+    size_t ipv6_next_header_offset, size_t fragment_offset,
+    const uint8_t *fragment, size_t fragment_length, int more_fragments,
+    uint8_t **out_packet, size_t *out_length, ch_error *error) {
+    *out_packet = NULL;
+    *out_length = 0U;
+    if (fragment_offset > CH_IP_STACK_FRAGMENT_DATA_CAPACITY ||
+        fragment_length > CH_IP_STACK_FRAGMENT_DATA_CAPACITY -
+            fragment_offset ||
+        (more_fragments && (fragment_length == 0U ||
+                            (fragment_length & 7U) != 0U))) {
+        ch_error_set(error, CH_ERROR_PARSE,
+                     "invalid IP fragment offset or length");
+        return CH_ERROR_PARSE;
+    }
+    size_t fragment_end = fragment_offset + fragment_length;
+    ch_ip_stack_fragment_flow *flow = ch_ip_stack_fragment_find(
+        stack, address_family, source_address, target_address, identifier,
+        protocol);
+    if (flow == NULL) {
+        flow = ch_ip_stack_fragment_create(
+            stack, address_family, source_address, target_address,
+            identifier, protocol, error);
+        if (flow == NULL) return error == NULL ? CH_ERROR_INTERNAL :
+                                                error->code;
+    }
+    if ((flow->total_known && fragment_end > flow->total_payload_length) ||
+        (!more_fragments && flow->total_known &&
+         fragment_end != flow->total_payload_length)) {
+        flow->dead = 1;
+        ch_ip_stack_fragment_sweep(stack);
+        ch_error_set(error, CH_ERROR_PARSE,
+                     "inconsistent IP fragment total length");
+        return CH_ERROR_PARSE;
+    }
+    for (size_t offset = fragment_offset; offset < fragment_end; ++offset) {
+        if (ch_ip_stack_fragment_covered(flow->coverage, offset)) {
+            flow->dead = 1;
+            ch_ip_stack_fragment_sweep(stack);
+            ch_error_set(error, CH_ERROR_PARSE,
+                         "overlapping IP fragments are rejected");
+            return CH_ERROR_PARSE;
+        }
+    }
+    memcpy(flow->data + fragment_offset, fragment, fragment_length);
+    for (size_t offset = fragment_offset; offset < fragment_end; ++offset) {
+        ch_ip_stack_fragment_mark(flow->coverage, offset);
+    }
+    flow->covered_length += fragment_length;
+    flow->last_activity = sys_now();
+    if (fragment_offset == 0U) {
+        if (header_length > sizeof(flow->header)) {
+            flow->dead = 1;
+            ch_ip_stack_fragment_sweep(stack);
+            ch_error_set(error, CH_ERROR_PARSE,
+                         "IP fragment header is too large");
+            return CH_ERROR_PARSE;
+        }
+        memcpy(flow->header, header, header_length);
+        flow->header_length = header_length;
+        flow->ipv6_next_header_offset = ipv6_next_header_offset;
+        flow->have_first = 1;
+    }
+    if (!more_fragments) {
+        if (flow->covered_length > fragment_end) {
+            flow->dead = 1;
+            ch_ip_stack_fragment_sweep(stack);
+            ch_error_set(error, CH_ERROR_PARSE,
+                         "IP fragments extend beyond final fragment");
+            return CH_ERROR_PARSE;
+        }
+        flow->total_payload_length = fragment_end;
+        flow->total_known = 1;
+    }
+    if (!flow->have_first || !flow->total_known ||
+        flow->covered_length != flow->total_payload_length) {
+        return CH_OK;
+    }
+    size_t packet_length = flow->header_length + flow->total_payload_length;
+    if (packet_length > CH_IP_STACK_MAX_PACKET) {
+        flow->dead = 1;
+        ch_ip_stack_fragment_sweep(stack);
+        ch_error_set(error, CH_ERROR_PARSE,
+                     "reassembled IP packet is too large");
+        return CH_ERROR_PARSE;
+    }
+    uint8_t *packet = malloc(packet_length);
+    if (packet == NULL) {
+        flow->dead = 1;
+        ch_ip_stack_fragment_sweep(stack);
+        ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                     "allocate reassembled IP packet");
+        return CH_ERROR_OUT_OF_MEMORY;
+    }
+    memcpy(packet, flow->header, flow->header_length);
+    memcpy(packet + flow->header_length, flow->data,
+           flow->total_payload_length);
+    if (address_family == AF_INET) {
+        ch_ip_stack_write_u16(packet + 2U, (uint16_t)packet_length);
+        uint16_t flags = ch_ip_stack_read_u16(packet + 6U) & 0x4000U;
+        ch_ip_stack_write_u16(packet + 6U, flags);
+        packet[10] = 0U;
+        packet[11] = 0U;
+        ch_ip_stack_write_u16(packet + 10U,
+                              ch_ip_stack_checksum(packet,
+                                                   flow->header_length));
+    } else {
+        if (flow->ipv6_next_header_offset >= flow->header_length) {
+            free(packet);
+            flow->dead = 1;
+            ch_ip_stack_fragment_sweep(stack);
+            ch_error_set(error, CH_ERROR_INTERNAL,
+                         "invalid saved IPv6 extension chain");
+            return CH_ERROR_INTERNAL;
+        }
+        packet[flow->ipv6_next_header_offset] = flow->protocol;
+        ch_ip_stack_write_u16(packet + 4U,
+                              (uint16_t)(packet_length - 40U));
+    }
+    flow->dead = 1;
+    ch_ip_stack_fragment_sweep(stack);
+    *out_packet = packet;
+    *out_length = packet_length;
+    return CH_OK;
+}
+
+static ch_status ch_ip_stack_prepare_input_packet(
+    ch_ip_stack *stack, const uint8_t *packet, size_t length,
+    uint8_t **out_packet, size_t *out_length, ch_error *error) {
+    *out_packet = NULL;
+    *out_length = 0U;
+    unsigned int version = packet[0] >> 4U;
+    if (version == 4U) {
+        size_t header_length = (size_t)(packet[0] & 0x0fU) * 4U;
+        if (header_length < 20U || header_length > length ||
+            ch_ip_stack_read_u16(packet + 2U) != length ||
+            ch_ip_stack_checksum(packet, header_length) != 0U) {
+            ch_error_set(error, CH_ERROR_PARSE,
+                         "invalid IPv4 packet header");
+            return CH_ERROR_PARSE;
+        }
+        uint16_t fragment_field = ch_ip_stack_read_u16(packet + 6U);
+        size_t fragment_offset = (size_t)(fragment_field & 0x1fffU) * 8U;
+        int more_fragments = (fragment_field & 0x2000U) != 0U;
+        if (fragment_offset == 0U && !more_fragments) {
+            *out_packet = malloc(length);
+            if (*out_packet != NULL) {
+                memcpy(*out_packet, packet, length);
+                *out_length = length;
+                return CH_OK;
+            }
+            ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                         "copy IP packet input");
+            return CH_ERROR_OUT_OF_MEMORY;
+        }
+        return ch_ip_stack_fragment_store(
+            stack, AF_INET, packet + 12U, packet + 16U,
+            ch_ip_stack_read_u16(packet + 4U), packet[9], packet,
+            header_length, 0U, fragment_offset, packet + header_length,
+            length - header_length, more_fragments, out_packet, out_length,
+            error);
+    }
+    if (length < 40U || ch_ip_stack_read_u16(packet + 4U) != length - 40U) {
+        ch_error_set(error, CH_ERROR_PARSE, "invalid IPv6 packet length");
+        return CH_ERROR_PARSE;
+    }
+    uint8_t next_header = packet[6];
+    size_t cursor = 40U;
+    size_t next_header_offset = 6U;
+    unsigned int extension_count = 0U;
+    while (next_header == 0U || next_header == 43U ||
+           next_header == 60U || next_header == 51U) {
+        if (++extension_count > 16U || cursor + 2U > length) {
+            ch_error_set(error, CH_ERROR_PARSE,
+                         "invalid IPv6 extension header chain");
+            return CH_ERROR_PARSE;
+        }
+        size_t extension_length = next_header == 51U ?
+            ((size_t)packet[cursor + 1U] + 2U) * 4U :
+            ((size_t)packet[cursor + 1U] + 1U) * 8U;
+        if (extension_length < 8U || cursor + extension_length > length ||
+            cursor + extension_length > CH_IP_STACK_EXTENSION_HEADER_LIMIT) {
+            ch_error_set(error, CH_ERROR_PARSE,
+                         "invalid or excessive IPv6 extension header");
+            return CH_ERROR_PARSE;
+        }
+        next_header_offset = cursor;
+        next_header = packet[cursor];
+        cursor += extension_length;
+    }
+    if (next_header != 44U) {
+        *out_packet = malloc(length);
+        if (*out_packet != NULL) {
+            memcpy(*out_packet, packet, length);
+            *out_length = length;
+            return CH_OK;
+        }
+        ch_error_set(error, CH_ERROR_OUT_OF_MEMORY, "copy IP packet input");
+        return CH_ERROR_OUT_OF_MEMORY;
+    }
+    if (cursor + 8U > length || packet[cursor + 1U] != 0U) {
+        ch_error_set(error, CH_ERROR_PARSE, "invalid IPv6 fragment header");
+        return CH_ERROR_PARSE;
+    }
+    uint16_t fragment_field = ch_ip_stack_read_u16(packet + cursor + 2U);
+    if ((fragment_field & 0x0006U) != 0U) {
+        ch_error_set(error, CH_ERROR_PARSE,
+                     "invalid IPv6 fragment reserved bits");
+        return CH_ERROR_PARSE;
+    }
+    return ch_ip_stack_fragment_store(
+        stack, AF_INET6, packet + 8U, packet + 24U,
+        ch_ip_stack_read_u32(packet + cursor + 4U), packet[cursor], packet,
+        cursor, next_header_offset, fragment_field & 0xfff8U,
+        packet + cursor + 8U, length - cursor - 8U,
+        (fragment_field & 1U) != 0U, out_packet, out_length, error);
+}
+
 static uint16_t ch_ip_stack_udp_checksum_ipv4(const uint8_t *packet,
                                               size_t length) {
     size_t header_length = (size_t)(packet[0] & 0x0fU) * 4U;
@@ -494,8 +858,13 @@ static uint16_t ch_ip_stack_udp_checksum_ipv4(const uint8_t *packet,
 
 static uint16_t ch_ip_stack_udp_checksum_ipv6(const uint8_t *packet,
                                               size_t length) {
-    if (length < 48U) return UINT16_MAX;
-    size_t udp_length = length - 40U;
+    uint8_t protocol = 0U;
+    size_t udp_offset = 0U;
+    if (!ch_ip_stack_ipv6_transport(packet, length, &protocol, &udp_offset) ||
+        protocol != 17U || length < udp_offset + 8U) {
+        return UINT16_MAX;
+    }
+    size_t udp_length = length - udp_offset;
     uint32_t sum = ch_ip_stack_checksum_add(packet + 8U, 32U, 0U);
     uint8_t pseudo[8] = {
         (uint8_t)(udp_length >> 24U),
@@ -505,7 +874,7 @@ static uint16_t ch_ip_stack_udp_checksum_ipv6(const uint8_t *packet,
         0U, 0U, 0U, 17U
     };
     sum = ch_ip_stack_checksum_add(pseudo, sizeof(pseudo), sum);
-    sum = ch_ip_stack_checksum_add(packet + 40U, udp_length, sum);
+    sum = ch_ip_stack_checksum_add(packet + udp_offset, udp_length, sum);
     return ch_ip_stack_checksum_finish(sum);
 }
 
@@ -772,6 +1141,7 @@ static ch_ip_stack_tcp_flow *ch_ip_stack_tcp_flow_create(
     memcpy(flow->target_address, target_address, address_length);
     flow->source_port = source_port;
     flow->target_port = target_port;
+    flow->created_at = sys_now();
     ch_ip_stack_domain_hint(stack, address_family, target_address,
                             target_port, flow->domain_hint);
     struct tcp_pcb *pcb = NULL;
@@ -838,6 +1208,15 @@ static ch_ip_stack_tcp_flow *ch_ip_stack_tcp_flow_create(
 
 static void ch_ip_stack_tcp_flow_abort(ch_ip_stack_tcp_flow *flow) {
     if (flow == NULL) return;
+    struct tcp_pcb *active = tcp_active_pcbs;
+    while (active != NULL) {
+        struct tcp_pcb *next = active->next;
+        if (active != flow->client && active->callback_arg == flow &&
+            active->state == SYN_RCVD) {
+            tcp_abort(active);
+        }
+        active = next;
+    }
     if (flow->listener != NULL) {
         tcp_arg(flow->listener, NULL);
         tcp_accept(flow->listener, NULL);
@@ -857,7 +1236,14 @@ static void ch_ip_stack_tcp_flow_abort(ch_ip_stack_tcp_flow *flow) {
 }
 
 static void ch_ip_stack_tcp_flow_tick(ch_ip_stack_tcp_flow *flow) {
-    if (flow->dead || flow->descriptor < 0 || flow->client == NULL) return;
+    if (flow->dead) return;
+    if (flow->client == NULL &&
+        (u32_t)(sys_now() - flow->created_at) >=
+            CH_IP_STACK_TCP_HANDSHAKE_TIMEOUT_MS) {
+        ch_ip_stack_tcp_flow_abort(flow);
+        return;
+    }
+    if (flow->descriptor < 0 || flow->client == NULL) return;
     while (flow->pending_offset < flow->pending_length) {
         ssize_t written = ch_ip_stack_send(
             flow->descriptor, flow->pending + flow->pending_offset,
@@ -1118,17 +1504,20 @@ static void ch_ip_stack_rewrite_tcp_output(ch_ip_stack *stack,
                                            uint8_t *packet, size_t length) {
     unsigned int version = packet[0] >> 4U;
     if (version == 6U) {
-        if (length < 60U || packet[6] != 6U ||
-            ch_ip_stack_read_u16(packet + 4U) != length - 40U) {
+        uint8_t protocol = 0U;
+        size_t tcp_offset = 0U;
+        if (!ch_ip_stack_ipv6_transport(
+                packet, length, &protocol, &tcp_offset) ||
+            protocol != 6U || length < tcp_offset + 20U) {
             return;
         }
-        uint16_t internal_port = ch_ip_stack_read_u16(packet + 40U);
-        uint16_t client_port = ch_ip_stack_read_u16(packet + 42U);
+        uint16_t internal_port = ch_ip_stack_read_u16(packet + tcp_offset);
+        uint16_t client_port = ch_ip_stack_read_u16(packet + tcp_offset + 2U);
         ch_ip_stack_tcp_flow *flow = ch_ip_stack_tcp_flow_for_output(
             stack, AF_INET6, packet + 24U, client_port, internal_port);
         if (flow == NULL) return;
         memcpy(packet + 8U, flow->target_address, 16U);
-        ch_ip_stack_write_u16(packet + 40U, flow->target_port);
+        ch_ip_stack_write_u16(packet + tcp_offset, flow->target_port);
         ch_ip_stack_ipv6_tcp_checksum(packet, length);
         return;
     }
@@ -1205,12 +1594,15 @@ static ch_status ch_ip_stack_prepare_ipv6_tcp_input(
         ch_error_set(error, CH_ERROR_PARSE, "invalid IPv6 packet length");
         return CH_ERROR_PARSE;
     }
-    if (packet[6] == 44U) {
-        ch_error_set(error, CH_ERROR_UNSUPPORTED,
-                     "fragmented IPv6 forwarding is not implemented");
-        return CH_ERROR_UNSUPPORTED;
+    uint8_t protocol = 0U;
+    size_t tcp_offset = 0U;
+    if (!ch_ip_stack_ipv6_transport(
+            packet, length, &protocol, &tcp_offset)) {
+        ch_error_set(error, CH_ERROR_PARSE,
+                     "invalid IPv6 extension header chain");
+        return CH_ERROR_PARSE;
     }
-    if (packet[6] != 6U ||
+    if (protocol != 6U ||
         memcmp(packet + 24U,
                netif_ip6_addr(&stack->interface, stack->ipv6_index),
                16U) == 0) {
@@ -1221,13 +1613,14 @@ static ch_status ch_ip_stack_prepare_ipv6_tcp_input(
                      "IPv6 TCP forwarding has no route dialer");
         return CH_ERROR_UNSUPPORTED;
     }
-    if (length < 60U) {
+    if (length < tcp_offset + 20U) {
         ch_error_set(error, CH_ERROR_PARSE, "truncated IPv6 TCP packet");
         return CH_ERROR_PARSE;
     }
-    uint8_t *tcp = packet + 40U;
+    uint8_t *tcp = packet + tcp_offset;
     size_t tcp_header_length = (size_t)(tcp[12] >> 4U) * 4U;
-    if (tcp_header_length < 20U || 40U + tcp_header_length > length) {
+    if (tcp_header_length < 20U ||
+        tcp_offset + tcp_header_length > length) {
         ch_error_set(error, CH_ERROR_PARSE, "invalid IPv6 TCP header");
         return CH_ERROR_PARSE;
     }
@@ -1370,19 +1763,27 @@ static ch_status ch_ip_stack_handle_ipv6_udp(
     ch_ip_stack *stack, uint8_t *packet, size_t length, int *out_handled,
     ch_error *error) {
     *out_handled = 0;
-    if (packet[6] != 17U ||
+    uint8_t protocol = 0U;
+    size_t udp_offset = 0U;
+    if (!ch_ip_stack_ipv6_transport(
+            packet, length, &protocol, &udp_offset)) {
+        ch_error_set(error, CH_ERROR_PARSE,
+                     "invalid IPv6 extension header chain");
+        return CH_ERROR_PARSE;
+    }
+    if (protocol != 17U ||
         memcmp(packet + 24U,
                netif_ip6_addr(&stack->interface, stack->ipv6_index),
                16U) == 0) {
         return CH_OK;
     }
-    if (length < 48U) {
+    if (length < udp_offset + 8U) {
         ch_error_set(error, CH_ERROR_PARSE, "truncated IPv6 UDP packet");
         return CH_ERROR_PARSE;
     }
-    uint8_t *udp = packet + 40U;
+    uint8_t *udp = packet + udp_offset;
     uint16_t udp_length = ch_ip_stack_read_u16(udp + 4U);
-    if (udp_length < 8U || 40U + udp_length != length ||
+    if (udp_length < 8U || udp_offset + udp_length != length ||
         ch_ip_stack_read_u16(udp + 6U) == 0U) {
         ch_error_set(error, CH_ERROR_PARSE,
                      "invalid IPv6 UDP length or checksum field");
@@ -1585,6 +1986,11 @@ void ch_ip_stack_destroy(ch_ip_stack *stack) {
         flow->dead = 1;
     }
     ch_ip_stack_udp_sweep(stack);
+    for (ch_ip_stack_fragment_flow *flow = stack->fragment_flows;
+         flow != NULL; flow = flow->next) {
+        flow->dead = 1;
+    }
+    ch_ip_stack_fragment_sweep(stack);
     free(stack->dns_entries);
     netif_set_link_down(&stack->interface);
     netif_set_down(&stack->interface);
@@ -1609,30 +2015,33 @@ ch_status ch_ip_stack_inject(ch_ip_stack *stack, const uint8_t *packet,
                      "packet is not a complete IPv4 or IPv6 datagram");
         return CH_ERROR_PARSE;
     }
-    uint8_t *transformed = malloc(length);
+    uint8_t *transformed = NULL;
+    size_t transformed_length = 0U;
+    ch_status fragment_status = ch_ip_stack_prepare_input_packet(
+        stack, packet, length, &transformed, &transformed_length, error);
+    if (fragment_status != CH_OK) return fragment_status;
     if (transformed == NULL) {
-        ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
-                     "allocate transformed IP packet");
-        return CH_ERROR_OUT_OF_MEMORY;
+        ch_ip_stack_tick(stack);
+        return CH_OK;
     }
-    memcpy(transformed, packet, length);
     ch_status prepare_status = ch_ip_stack_prepare_tcp_input(
-        stack, transformed, length, error);
+        stack, transformed, transformed_length, error);
     if (prepare_status != CH_OK) {
         free(transformed);
         return prepare_status;
     }
     int udp_handled = 0;
     ch_status udp_status = ch_ip_stack_handle_udp_input(
-        stack, transformed, length, &udp_handled, error);
+        stack, transformed, transformed_length, &udp_handled, error);
     if (udp_status != CH_OK || udp_handled) {
         free(transformed);
         ch_ip_stack_tick(stack);
         return udp_status;
     }
-    struct pbuf *buffer = pbuf_alloc(PBUF_RAW, (u16_t)length, PBUF_RAM);
+    struct pbuf *buffer = pbuf_alloc(PBUF_RAW, (u16_t)transformed_length,
+                                     PBUF_RAM);
     if (buffer == NULL ||
-        pbuf_take(buffer, transformed, (u16_t)length) != ERR_OK) {
+        pbuf_take(buffer, transformed, (u16_t)transformed_length) != ERR_OK) {
         free(transformed);
         if (buffer != NULL) (void)pbuf_free(buffer);
         ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
@@ -1668,4 +2077,13 @@ void ch_ip_stack_tick(ch_ip_stack *stack) {
         free(udp_buffer);
     }
     ch_ip_stack_udp_sweep(stack);
+    u32_t now = sys_now();
+    for (ch_ip_stack_fragment_flow *flow = stack->fragment_flows;
+         flow != NULL; flow = flow->next) {
+        if ((u32_t)(now - flow->last_activity) >=
+            CH_IP_STACK_FRAGMENT_TIMEOUT_MS) {
+            flow->dead = 1;
+        }
+    }
+    ch_ip_stack_fragment_sweep(stack);
 }
