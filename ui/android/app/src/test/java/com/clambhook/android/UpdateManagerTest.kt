@@ -9,7 +9,7 @@ import java.security.MessageDigest
 class UpdateManagerTest {
     private fun manifest(
         versionCode: Long = 2,
-        minSdk: Int = 30,
+        minSdk: Int = 31,
         apkUrl: String = "https://store.clambercloud.com/clambhook.apk",
         sha256: String = "abc123",
     ) = AndroidUpdateManifest(

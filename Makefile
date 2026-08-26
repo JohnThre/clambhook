@@ -147,8 +147,8 @@ test-apple:
 test-android:
 	cd ui/android && ANDROID_HOME="$(ANDROID_HOME)" ./gradlew :app:testDebugUnitTest
 
-# Runs Compose instrumentation tests on Android 11, 13, and 16 (API
-# 30/33/36) using Gradle build-managed AOSP devices.
+# Runs Compose instrumentation tests on Android 12, 13, and 16 (API
+# 31/33/36) using Gradle build-managed AOSP devices.
 test-android-compatibility:
 	cd ui/android && ANDROID_HOME="$(ANDROID_HOME)" ./gradlew :app:androidCompatibilityGroupDebugAndroidTest -Pclambhook.managedDeviceTestAbi=arm64-v8a -Pandroid.experimental.testOptions.managedDevices.maxConcurrentDevices=1 -Pandroid.testoptions.manageddevices.emulator.gpu=swiftshader_indirect
 

@@ -103,7 +103,7 @@ No P0 findings. Six P1 items should block release.
 
 - [x] Serialize `ClambhookVpnService` start/stop transitions; unsynchronized
   cross-thread field mutation can leak a freshly established TUN descriptor.
-- [x] Handle excluded routes on Android 11/12 (`SDK_INT < TIRAMISU`) or surface a
+- [x] Handle excluded routes on Android 12 (`SDK_INT < TIRAMISU`) or surface a
   blocking warning; today they are dropped and become a full tunnel silently.
 - [x] Decide the non-embedded daemon mode: either wire `LocalDaemonService` and
   permit secure loopback transport, or remove the dead service, its
@@ -135,7 +135,7 @@ No P0 findings. Six P1 items should block release.
   binary builds.
 - [x] Apply the source-only GitHub publication guard to the Linux release path,
   not only macOS.
-- [x] Reconcile the Android floor: build is `minSdk 30` (Android 11); README
+- [x] Reconcile the Android floor: build is `minSdk 31` (Android 12); README
   says "Android 12+".
 - [x] Remove or replace the README link to `AGENTS.md`, which is gitignored and
   absent.

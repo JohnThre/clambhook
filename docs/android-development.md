@@ -42,14 +42,14 @@ the same default). Override with `android --sdk=/path/to/sdk …` or the
 Provision the platform, build tools, and NDK the project needs:
 
 ```sh
-android sdk install "platforms;android-30" "platforms;android-33" "platforms;android-36" "platform-tools"
+android sdk install "platforms;android-31" "platforms;android-33" "platforms;android-36" "platform-tools"
 android sdk install "ndk;27.0.12077973"      # mobile native builds need an NDK
 android sdk list --all                        # browse available packages
 ```
 
 The Gradle native build currently resolves NDK `27.0.12077973` and CMake
 `3.22.1`. It downloads the official OpenSSL 3.5.8 LTS source archive, verifies
-the pinned SHA-256 digest, and caches static API 30 libraries for each ABI under
+the pinned SHA-256 digest, and caches static API 31 libraries for each ABI under
 the ignored `ui/android/.native-deps/` directory. See
 `third_party/openssl/README.clambhook.md` for provenance and update steps. The
 rollback AAR has its own gomobile toolchain requirements.
@@ -58,7 +58,7 @@ rollback AAR has its own gomobile toolchain requirements.
 
 ```sh
 android emulator list                         # available AVDs
-android emulator create --name=clambhook --package="system-images;android-30;google_apis;arm64-v8a"
+android emulator create --name=clambhook --package="system-images;android-31;google_apis;arm64-v8a"
 android emulator start clambhook              # blocks until the AVD is booted
 android emulator stop clambhook
 android emulator remove clambhook
@@ -66,10 +66,10 @@ android emulator remove clambhook
 
 ## Build and run (default dev loop)
 
-The Android GUI is Kotlin with Jetpack Compose and supports Android 11 and
-newer (`minSdk = 30`). Until native parity is complete, it embeds the proven
-runtime through a gomobile-built AAR. Build the AAR once (and again whenever
-the legacy runtime or bridge changes), then use the `android` CLI to build,
+The Android GUI is Kotlin with Jetpack Compose and supports Android 12 and
+newer (`minSdk = 31`). The production VPN uses the native C/JNI packet runtime;
+the transitional gomobile AAR remains only for the last unported Android
+operations. Build it when those legacy bridge operations change, then use the `android` CLI to build,
 deploy, and launch on a connected device or emulator:
 
 The packaged C/JNI façade already covers native configuration, dashboard
@@ -120,7 +120,7 @@ make test-android        # ./gradlew :app:testDebugUnitTest
 make lint-android        # ./gradlew :app:lintDebug
 make build-android       # ./gradlew :app:assembleDebug   (headless build, no device)
 make build-android-release   # ./gradlew :app:assembleRelease  (signed release APK)
-make test-android-compatibility # Compose instrumentation on API 30, 33, and 36
+make test-android-compatibility # Compose instrumentation on API 31, 33, and 36
 ```
 
 The managed-device target packages only `arm64-v8a` for the arm64 AOSP
@@ -129,7 +129,7 @@ installation timeouts; normal debug and release builds retain their full ABI
 set.
 
 The compatibility target uses Gradle build-managed AOSP Pixel 2 devices named
-`pixel2Api30`, plus Pixel 6 devices named `pixel6Api33` and `pixel6Api36`. It is the required Android
+`pixel2Api31`, plus Pixel 6 devices named `pixel6Api33` and `pixel6Api36`. It is the required Android
 cutover gate, not a substitute for unit tests or lint.
 
 The release pipeline (`scripts/release-android.sh`) builds the AAR with
@@ -146,12 +146,11 @@ are documented in [`github-cicd.md`](github-cicd.md).
 ## Local CI
 
 `scripts/ci-local.sh android` runs the AAR build, unit tests, lint, and debug
-build headlessly. The on-device smoke uses an Android SDK Emulator (AVD) — Apple
-`container` is Linux-only and cannot run Android. Set `CI_LOCAL_ANDROID_AVD=<name>`
+build headlessly. The on-device smoke uses an Android SDK Emulator (AVD). Set `CI_LOCAL_ANDROID_AVD=<name>`
 to boot that AVD and run `make run-android` against it:
 
 ```sh
-android emulator create --name=clambhook --package="system-images;android-30;google_apis;arm64-v8a"
+android emulator create --name=clambhook --package="system-images;android-31;google_apis;arm64-v8a"
 CI_LOCAL_ANDROID_AVD=clambhook scripts/ci-local.sh android
 ```
 

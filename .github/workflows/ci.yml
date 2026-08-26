@@ -143,7 +143,7 @@ jobs:
             "cmake;${ANDROID_CMAKE_VERSION}"
       - name: Install transitional gomobile rollback tool
         run: go install "golang.org/x/mobile/cmd/gomobile@${GOMOBILE_VERSION}"
-      - name: Test, lint, and build Android 11+ app
+      - name: Test, lint, and build Android 12+ app
         working-directory: ui/android
         run: ./gradlew --no-daemon :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:externalNativeBuildDebug
       - name: Upload Android test and lint reports
@@ -162,8 +162,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - api: 30
-            task: pixel2Api30DebugAndroidTest
+          - api: 31
+            task: pixel2Api31DebugAndroidTest
           - api: 33
             task: pixel6Api33DebugAndroidTest
           - api: 36

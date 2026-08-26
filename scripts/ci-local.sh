@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Local mirror of ClambHook's GitHub Actions CI gates. This script orchestrates
-# the full developer-machine gate; GNU/Linux uses Apple's `container` tool on
-# macOS or Docker/Podman on GNU/Linux.
+# the full developer-machine gate; optional local GNU/Linux isolation uses
+# Podman or Docker.
 #
 #   scripts/ci-local.sh              # all sections
 #   scripts/ci-local.sh go linux     # selected sections
@@ -95,8 +95,7 @@ section_android() {
     make lint-android
     make build-android
     # On-device smoke on an Android SDK Emulator (AVD) via Google's `android`
-    # CLI. Apple `container` is Linux-only and cannot run Android, so the
-    # Android on-device CI/CD path uses an AVD. Opt-in (boots an emulator):
+    # CLI. Opt-in (boots an emulator):
     # set CI_LOCAL_ANDROID_AVD=<name>. Create one with
     # `android emulator create --name=clambhook --package="system-images;android-34;google_apis;arm64-v8a"`.
     # The emulator is left running after the run; stop it with
@@ -128,11 +127,11 @@ section_linux() {
     else
         echo "ci-local: [linux] skip: java/ui/linux gradlew missing (host Kotlin tests)" >&2
     fi
-    # Cross-distro container validation (Apple container on macOS, podman/docker on Linux).
-    if HAVE container || HAVE podman || HAVE docker; then
+    # Cross-distro validation through Podman or Docker.
+    if HAVE podman || HAVE docker; then
         scripts/validate-linux-distros.sh
     else
-        echo "ci-local: [linux] skip: no container engine (Apple container/podman/docker)" >&2
+        echo "ci-local: [linux] skip: no container engine (podman/docker)" >&2
     fi
 }
 
@@ -153,12 +152,12 @@ section_e2e() {
     fi
     echo "==================== ci-local: e2e ===================="
     CLAMBHOOK_E2E_BACKEND=auto make e2e-required
-    # Privileged TUN round-trip needs /dev/net/tun + CAP_NET_ADMIN + root. Run it
-    # on a Linux host; on macOS, run it inside an Apple container with NET_ADMIN.
+    # Privileged TUN round-trip needs /dev/net/tun + CAP_NET_ADMIN + root and
+    # therefore runs only on a suitable GNU/Linux host.
     if [[ "$HOST_OS" == "Linux" ]] && [[ -c /dev/net/tun ]]; then
         make e2e-tun
     else
-        echo "ci-local: [e2e] skip: e2e-tun needs Linux + /dev/net/tun (on macOS, run inside an Apple container with NET_ADMIN)" >&2
+        echo "ci-local: [e2e] skip: e2e-tun needs Linux + /dev/net/tun" >&2
     fi
 }
 

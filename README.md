@@ -166,7 +166,7 @@ See [`docs/macos-v1-scope.md`](docs/macos-v1-scope.md) for the full scope.
 | --- | --- | --- |
 | macOS 14+ (Apple Silicon) | SwiftUI | Public release |
 | GNU/Linux (Trisquel, Rocky Linux, AlmaLinux) | C / GTK 4 target; Compose remains during parity | Public release |
-| Android 11+ | Kotlin / Compose | Internal developer QA |
+| Android 12+ | Kotlin / Compose | Internal developer QA |
 
 Windows development is discontinued with no planned resumption date.
 
@@ -210,7 +210,7 @@ option/routing/authentication extension chains. Android native transport
 linkage now resolves direct, named-chain, and policy-group decisions through
 the shared C protocol layer for TCP and UDP. Android builds pin and checksum
 OpenSSL 3.5.8 LTS from its official source archive, statically link it for all
-four packaged ABIs at the Android 11/API 30 floor, and package its Apache 2.0
+four packaged ABIs at the Android 12/API 31 floor, and package its Apache 2.0
 license without changing Clambhook's own license. A physical Pixel 3a XL/API
 32 passes the six-test JNI/Compose suite, including on-device AES-128-GCM,
 AES-256-GCM, and ChaCha20-Poly1305 self-tests and delayed direct UDP. Encrypted
@@ -275,7 +275,7 @@ authorized parties, not a general contribution or redistribution grant.
 | `make test-native` | Runs sanitizer-backed C tests and license differential parity. |
 | `make build-linux-gtk` | Builds the additive C/GTK 4 GNU/Linux client. |
 | `make build-android-native` | Builds the C/JNI runtime for the Android NDK ABIs. |
-| `make test-android-compatibility` | Runs Compose instrumentation on managed API 30/33/36 devices. |
+| `make test-android-compatibility` | Runs Compose instrumentation on managed API 31/33/36 devices. |
 | `make lint` | Runs `go vet ./...` (and `staticcheck` when installed). |
 | `make clean` | Removes `bin/` and build artifacts. |
 
@@ -287,7 +287,7 @@ See the [Repository layout](#repository-layout) section below and the
 
 GitHub Actions is the primary CI orchestrator. [`.github/workflows/ci.yml`](.github/workflows/ci.yml)
 runs source/workflow policy checks, native C sanitizers, Apple builds/tests,
-Android unit/lint/build gates, Compose/JNI instrumentation on API 30/33/36, and
+Android unit/lint/build gates, Compose/JNI instrumentation on API 31/33/36, and
 the only supported GNU/Linux test matrix: Trisquel 12, Rocky Linux 9, and
 AlmaLinux 9. [`.github/workflows/security.yml`](.github/workflows/security.yml)
 runs CodeQL and pull-request dependency review; Dependabot covers Actions, Go,
@@ -301,12 +301,10 @@ installer/package outputs are never stored in GitHub artifacts or Releases.
 See [`docs/github-cicd.md`](docs/github-cicd.md) for environment protection,
 required secrets, release behavior, and branch-protection setup.
 
-The local mirror remains available with Apple's
-[`container`](https://github.com/apple/container) tool on macOS or Docker/Podman
-on GNU/Linux:
+The optional local GNU/Linux mirror uses Podman or Docker; GitHub Actions is the
+authoritative cross-distro lane:
 
 ```sh
-container system start                       # one-time: start the Apple container service
 scripts/validate-linux-distros.sh            # Trisquel 12 + Rocky Linux 9 + AlmaLinux 9
 ```
 
@@ -314,7 +312,7 @@ scripts/validate-linux-distros.sh            # Trisquel 12 + Rocky Linux 9 + Alm
 (`go`, `apple`, `android`, `linux`, `e2e`, `smoke`; default `all`), skipping any
 section whose tooling is absent. Apple builds can also validate locally with
 `make build-apple` and `make test-apple` (`swift test`); Android with
-`make test-android`, `make lint-android`, and `make build-android` (plus an on-device AVD smoke when `CI_LOCAL_ANDROID_AVD=<name>` is set — Apple `container` is Linux-only and cannot run Android); the Go core
+`make test-android`, `make lint-android`, and `make build-android` (plus an on-device AVD smoke when `CI_LOCAL_ANDROID_AVD=<name>` is set); the Go core
 with `make test`, `make test-race`, and `make lint`. See
 [`docs/release-validation.md`](docs/release-validation.md) for the full policy
 and [`packaging/README.md`](packaging/README.md) for the container harness.

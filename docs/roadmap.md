@@ -11,7 +11,7 @@ post-v1 work is unblocked and sequenced as:
 1. **C runtime and native Linux migration. In progress.** Replace the Go
    daemon/TUI/mobile backend with C17, replace the GNU/Linux Compose client with
    C/GTK 4, and retain Kotlin/Jetpack Compose on Android over JNI. Contract,
-   differential, packaging, and API 30/33/36 gates are defined in
+   differential, packaging, and API 31/33/36 gates are defined in
    [`c-migration.md`](c-migration.md); the legacy implementations remain the
    rollback path until those gates pass.
 2. **v1.1 — capture and network tooling. Shipped.** The network throttling /

@@ -73,7 +73,7 @@ development is discontinued with no planned resumption date.
 Every installer is validated before manual QA, signing, or upload to an
 approved channel — never on GitHub Releases. GitHub Actions runs Apple builds,
 native C sanitizers, Android unit/lint/build plus managed-device Compose/JNI
-tests on API 30/33/36, and the only GNU/Linux matrix: Trisquel 12, Rocky Linux
+tests on API 31/33/36, and the only GNU/Linux matrix: Trisquel 12, Rocky Linux
 9, and AlmaLinux 9. CodeQL, dependency review, and Dependabot cover the source
 and dependency surfaces. Protected GitHub CD signs/notarizes and deploys
 directly to Cloudflare R2; it never stores installers in GitHub. See

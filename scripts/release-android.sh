@@ -118,7 +118,7 @@ SHA256="$(awk '{print $1}' "$APK.sha256")"
 
 # minSdk must match build.gradle.kts defaultConfig. VERSION_CODE is supplied by
 # protected CI (or defaults to the current checked-in value for local release).
-MIN_SDK=30
+MIN_SDK=31
 
 {
   printf '{\n'

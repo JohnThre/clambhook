@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Build real Linux package recipes inside throwaway Linux containers (Apple
-# `container` on macOS, podman/docker on Linux). Outputs remain inside the
+# Build real Linux package recipes inside throwaway Podman/Docker containers.
+# Outputs remain inside the
 # throwaway container and are never uploaded.
 set -euo pipefail
 

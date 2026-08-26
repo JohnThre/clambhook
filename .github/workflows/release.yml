@@ -139,7 +139,7 @@ jobs:
         run: scripts/upload-release-linux.sh
 
   android:
-    name: Sign and publish Android 11+
+    name: Sign and publish Android 12+
     needs: prepare
     if: needs.prepare.outputs.platform == 'all' || needs.prepare.outputs.platform == 'android'
     runs-on: ubuntu-24.04

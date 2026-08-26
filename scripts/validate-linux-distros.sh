@@ -10,8 +10,7 @@
 #   scripts/validate-linux-distros.sh            # all three targets
 #   scripts/validate-linux-distros.sh trisquel   # one target
 #
-# The harness supports Apple's `container` tool on macOS and Docker/Podman on
-# GNU/Linux. It validates the sanitizer-backed C runtime, C/GTK client, the
+# The harness supports Podman or Docker. It validates the sanitizer-backed C runtime, C/GTK client, the
 # legacy rollback runtime while migration is active, desktop controller tests,
 # and the distro-family package recipe. No artifact is published.
 set -euo pipefail
@@ -20,20 +19,13 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 engine=""
 mount_suffix=""
-if command -v container >/dev/null 2>&1; then
-  engine="container"
-elif command -v podman >/dev/null 2>&1; then
+if command -v podman >/dev/null 2>&1; then
   engine="podman"
   mount_suffix=":Z"
 elif command -v docker >/dev/null 2>&1; then
   engine="docker"
 else
-  echo "Need Apple container, podman, or docker to validate GNU/Linux." >&2
-  exit 2
-fi
-
-if [[ "$engine" == "container" ]] && ! container list >/dev/null 2>&1; then
-  echo "Apple container service is not running. Start it with: container system start" >&2
+  echo "Need podman or docker to validate GNU/Linux locally." >&2
   exit 2
 fi
 

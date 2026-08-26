@@ -24,7 +24,7 @@ cd "$ROOT_DIR"
 # path (pkg/cnet/cnet_purego.go) so the AAR is self-contained.
 GOFLAGS=-mod=mod gomobile bind \
     -target="$TARGETS" \
-    -androidapi 30 \
+    -androidapi 31 \
     -javapkg=com.clambhook \
     -tags purego \
     -o "$OUT" \

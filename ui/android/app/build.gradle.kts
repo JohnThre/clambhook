@@ -27,7 +27,7 @@ android {
 
     defaultConfig {
         applicationId = "org.jpfchang.clambhook"
-        minSdk = 30
+        minSdk = 31
         targetSdk = 36
         versionCode = configuredVersionCode ?: 3
         versionName = configuredVersionName ?: "1.0.2"
@@ -115,16 +115,16 @@ android {
         includeInBundle = false
     }
 
-    // Android 11 is the compatibility floor. Keep instrumented Compose tests
+    // Android 12 is the compatibility floor. Keep instrumented Compose tests
     // running on the floor, a representative middle release, and the current
     // target so platform behavior cannot drift unnoticed during JNI cutover.
     testOptions {
         animationsDisabled = true
         managedDevices {
             localDevices {
-                create("pixel2Api30") {
+                create("pixel2Api31") {
                     device = "Pixel 2"
-                    apiLevel = 30
+                    apiLevel = 31
                     systemImageSource = "aosp"
                 }
                 create("pixel6Api33") {
@@ -140,7 +140,7 @@ android {
             }
             groups {
                 create("androidCompatibility") {
-                    targetDevices.add(allDevices["pixel2Api30"])
+                    targetDevices.add(allDevices["pixel2Api31"])
                     targetDevices.add(allDevices["pixel6Api33"])
                     targetDevices.add(allDevices["pixel6Api36"])
                 }

@@ -5,7 +5,7 @@ import java.net.InetAddress
 /**
  * Pure (Android-framework-free) routing helpers shared by [ClambhookVpnService].
  *
- * Extracted so the CIDR parsing, the Android 11/12 inverse-route fallback, and
+ * Extracted so the CIDR parsing, the Android 12 inverse-route fallback, and
  * the split-tunnel selection can be unit tested on the JVM without a device or
  * the VpnService.Builder.
  */

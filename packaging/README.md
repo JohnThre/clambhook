@@ -41,18 +41,12 @@ GNU/Linux app on exactly Trisquel 12, Rocky Linux 9, and AlmaLinux 9 in
 throwaway Linux containers. GitHub Actions runs the same harness; it is also
 the GNU/Linux section of `scripts/ci-local.sh`.
 
-It auto-selects a container engine:
+It auto-selects a supported local container engine:
 
-- **macOS (Apple silicon):** Apple's [`container`](https://github.com/apple/container)
-  tool, which runs each OCI Linux image inside a lightweight VM. This is how the
-  real GNU/Linux installer is exercised from a Mac. Requires macOS 26 and a
-  running service (`container system start`).
-- **Linux:** falls back to `podman` (preferred) or `docker`.
+- **Podman** is preferred.
+- **Docker** is the fallback.
 
 ```bash
-# macOS one-time setup: install container from its GitHub releases, then:
-container system start
-
 # Validate all three supported distros (or pass one):
 scripts/validate-linux-distros.sh
 scripts/validate-linux-distros.sh trisquel
@@ -68,18 +62,16 @@ manual desktop QA gate.
 
 ```mermaid
 flowchart TD
-    dev["Developer on macOS (Apple silicon)"] --> tool["Apple container CLI\ncontainer system start"]
-    tool --> vm["Lightweight Linux VM per image\n(OCI runtime)"]
+    dev["Developer host"] --> tool["Podman or Docker"]
     subgraph distros["Distro images (validate-linux-distros.sh)"]
         trisquel["Trisquel 12 official rootfs\n→ .deb path"]
         rocky["Rocky Linux 9 official image\n→ .rpm path"]
         alma["AlmaLinux 9 official image\n→ .rpm path"]
     end
-    vm --> distros
+    tool --> distros
     distros --> build["make test-native + build-linux-gtk\nrollback + packaging gates"]
     build --> smoke["Smoke test:\nclambhook-license trial (ok:true)\nclambhook -version\nclambhook-tui -version"]
     smoke --> pass["PASS / FAIL per distro"]
-    linux["Developer on GNU/Linux"] -->|"podman / docker fallback"| distros
 ```
 
 See [`../docs/release-validation.md`](../docs/release-validation.md) for the
