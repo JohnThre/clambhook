@@ -1,0 +1,57 @@
+version: 2
+
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: '02:00'
+      timezone: Asia/Singapore
+    groups:
+      actions:
+        patterns: ['*']
+
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: '02:15'
+      timezone: Asia/Singapore
+    groups:
+      go-modules:
+        patterns: ['*']
+
+  - package-ecosystem: gradle
+    directory: /ui/android
+    schedule:
+      interval: weekly
+      day: monday
+      time: '02:30'
+      timezone: Asia/Singapore
+    groups:
+      android:
+        patterns: ['*']
+
+  - package-ecosystem: gradle
+    directory: /ui/linux
+    schedule:
+      interval: weekly
+      day: monday
+      time: '02:45'
+      timezone: Asia/Singapore
+    groups:
+      linux-desktop:
+        patterns: ['*']
+
+  - package-ecosystem: swift
+    directory: /ui/apple
+    schedule:
+      interval: weekly
+      day: monday
+      time: '03:00'
+      timezone: Asia/Singapore
+    groups:
+      apple:
+        patterns: ['*']

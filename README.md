@@ -165,7 +165,7 @@ See [`docs/macos-v1-scope.md`](docs/macos-v1-scope.md) for the full scope.
 | Platform | UI framework | Status |
 | --- | --- | --- |
 | macOS 14+ (Apple Silicon) | SwiftUI | Public release |
-| GNU/Linux (Ubuntu, Debian, Fedora) | C / GTK 4 target; Compose remains during parity | Public release |
+| GNU/Linux (Trisquel, Rocky Linux, AlmaLinux) | C / GTK 4 target; Compose remains during parity | Public release |
 | Android 11+ | Kotlin / Compose | Internal developer QA |
 
 Windows development is discontinued with no planned resumption date.
@@ -285,20 +285,27 @@ See the [Repository layout](#repository-layout) section below and the
 
 ## CI/CD and testing
 
-CI/CD and testing run on the local machine (macOS) plus Apple's
-[`container`](https://github.com/apple/container) tool for GNU/Linux containers —
-there are no GitHub Actions workflows and no Xcode Cloud integration in this
-repo. GNU/Linux packages are validated across the three supported distributions
-(Ubuntu, Debian, Fedora) from a Mac with:
+GitHub Actions is the primary CI orchestrator. [`.github/workflows/ci.yml`](.github/workflows/ci.yml)
+runs source/workflow policy checks, native C sanitizers, Apple builds/tests,
+Android unit/lint/build gates, Compose/JNI instrumentation on API 30/33/36, and
+the only supported GNU/Linux test matrix: Trisquel 12, Rocky Linux 9, and
+AlmaLinux 9. [`.github/workflows/security.yml`](.github/workflows/security.yml)
+runs CodeQL and pull-request dependency review; Dependabot covers Actions, Go,
+Gradle, and Swift dependencies. All third-party actions are pinned to immutable
+commit SHAs and workflow permissions default to none.
+
+The local mirror remains available with Apple's
+[`container`](https://github.com/apple/container) tool on macOS or Docker/Podman
+on GNU/Linux:
 
 ```sh
 container system start                       # one-time: start the Apple container service
-scripts/validate-linux-distros.sh            # build + headless smoke in ubuntu/debian/fedora containers
+scripts/validate-linux-distros.sh            # Trisquel 12 + Rocky Linux 9 + AlmaLinux 9
 ```
 
-`scripts/ci-local.sh` runs the full local gate across all platforms in sections
+`scripts/ci-local.sh` runs the corresponding local gate across all platforms in sections
 (`go`, `apple`, `android`, `linux`, `e2e`, `smoke`; default `all`), skipping any
-section whose tooling is absent. Apple builds validate locally with
+section whose tooling is absent. Apple builds can also validate locally with
 `make build-apple` and `make test-apple` (`swift test`); Android with
 `make test-android`, `make lint-android`, and `make build-android` (plus an on-device AVD smoke when `CI_LOCAL_ANDROID_AVD=<name>` is set — Apple `container` is Linux-only and cannot run Android); the Go core
 with `make test`, `make test-race`, and `make lint`. See
@@ -336,7 +343,7 @@ through the remaining API/VPN parity gates. See
 The end-user macOS app is distributed only from `https://store.clambercloud.com/clambhook/`
 as a free public DMG download for Apple Silicon Macs running macOS 14 or later. The GNU/Linux
 app is distributed only from the same host as free per-distro packages (`.deb` and `.rpm`)
-tested on Ubuntu, Debian, and Fedora. First launch
+tested on Trisquel, Rocky Linux, and AlmaLinux. First launch
 starts a one-calendar-month trial, after which a USD 49.99 one-time ClambHook license is
 purchased from `https://store.swiphtgroup.com/clambhook/buy`.
 

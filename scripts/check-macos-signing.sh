@@ -9,6 +9,7 @@ EXPECTED_APP_ID="org.jpfchang.clambhook.mac"
 EXPECTED_WIDGET_ID="org.jpfchang.clambhook.mac.widgets"
 EXPECTED_HELPER_LABEL="org.jpfchang.clambhook.mac.helper"
 EXPECTED_APP_GROUP="group.org.jpfchang.clambhook"
+# shellcheck disable=SC2016 # Xcode expands AppIdentifierPrefix in entitlements.
 EXPECTED_KEYCHAIN_GROUP='$(AppIdentifierPrefix)org.jpfchang.clambhook'
 
 fail() {

@@ -30,17 +30,17 @@ log() {
 assert_kv() {
     local key="$1" value="$2" file="$3"
     grep -Eq "^[[:space:]]*${key}[[:space:]]*=[[:space:]]*${value}[[:space:]]*$" "$file" \
-        || fail "expected '${key}=${value}' in ${file#$ROOT/}"
+        || fail "expected '${key}=${value}' in ${file#"$ROOT"/}"
 }
 
 assert_contains() {
     local pattern="$1" file="$2" desc="$3"
-    grep -Eq "$pattern" "$file" || fail "$desc (missing /$pattern/ in ${file#$ROOT/})"
+    grep -Eq "$pattern" "$file" || fail "$desc (missing /$pattern/ in ${file#"$ROOT"/})"
 }
 
 refute_contains() {
     local pattern="$1" file="$2" desc="$3"
-    grep -Eq "$pattern" "$file" && fail "$desc (found /$pattern/ in ${file#$ROOT/})"
+    grep -Eq "$pattern" "$file" && fail "$desc (found /$pattern/ in ${file#"$ROOT"/})"
     return 0
 }
 

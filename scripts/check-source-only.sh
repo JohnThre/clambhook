@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Enforce the repository's source-only GitHub policy. Installer artifacts are
-# built for validation and private distribution, never published by workflows.
+# Enforce the repository's source-only GitHub Release policy. GitHub Actions
+# may validate, sign, and deploy through the approved R2 channel, but installer
+# artifacts must never be committed or attached to a GitHub Release.
 # This guard has two layers:
 #   1. Workflow-text scan: reject prohibited release/upload patterns in .github/.
 #   2. Tree scan: reject committed binary/installer artifacts anywhere in the
@@ -42,19 +43,17 @@ reject_artifact_ext() {
 
 command -v grep >/dev/null 2>&1 || fail "grep is required for source-only policy checks."
 
-# No GitHub Actions workflows live in this repo: CI/CD runs locally (local
-# machine + Apple container; see scripts/ci-local.sh). The text checks below
-# remain as a defensive guard against any future workflow that attempts a
-# public GitHub Release or a third-party release-upload action.
+# GitHub Actions is the primary CI/CD orchestrator. These text checks prohibit
+# GitHub Release publication while allowing R2-only deployment workflows.
+reject_tree_text "gh release create"
 reject_tree_text "gh release upload"
 reject_tree_text "softprops/action-gh-release"
 reject_tree_text "actions/create-release"
+reject_tree_text "actions/upload-release-asset"
+reject_tree_text "ncipollo/release-action"
 
 # The tree scan below is the authoritative guard against committed installer
-# artifacts. There is no in-tree workflow text that legitimately references
-# package extensions, so any committed .deb/.rpm/.dmg/.apk/etc. is a policy
-# violation. Public GitHub Releases remain prohibited via the text checks
-# above.
+# artifacts. Public GitHub Releases remain prohibited by the text checks above.
 
 # Tree scan: reject committed installer artifacts by extension anywhere in the
 # repo, not just in .github/. This catches binaries that bypass the workflow

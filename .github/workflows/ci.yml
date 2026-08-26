@@ -1,0 +1,224 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+    tags: ['v*']
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GO_VERSION: '1.25.0'
+  JAVA_VERSION: '17'
+  ANDROID_NDK_VERSION: '27.0.12077973'
+  ANDROID_CMAKE_VERSION: '3.22.1'
+  GOMOBILE_VERSION: 'v0.0.0-20260529142300-ecb4cd65260a'
+
+jobs:
+  policy:
+    name: Source and workflow policy
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: false
+      - name: Install shell checker
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
+      - name: Validate publication and workflow policy
+        run: scripts/check-github-actions.sh
+      - name: Lint shell automation
+        run: shellcheck scripts/*.sh
+      - name: Validate workflow syntax
+        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+
+  linux:
+    name: GNU/Linux - ${{ matrix.name }}
+    needs: policy
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Trisquel 12
+            target: trisquel
+            runner: ubuntu-24.04-arm
+          - name: Rocky Linux 9
+            target: rocky
+            runner: ubuntu-24.04
+          - name: AlmaLinux 9
+            target: alma
+            runner: ubuntu-24.04
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
+    permissions:
+      contents: read
+    steps:
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Validate ClambHook in ${{ matrix.name }}
+        run: scripts/validate-linux-distros.sh "${{ matrix.target }}"
+
+  apple:
+    name: Apple and native C
+    needs: policy
+    runs-on: macos-15
+    timeout-minutes: 75
+    permissions:
+      contents: read
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: '1'
+    steps:
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+      - name: Install native and Apple build dependencies
+        run: brew install cmake ninja pkg-config libuv libsodium llhttp openssl@3 curl xcodegen
+      - name: Export Homebrew pkg-config paths
+        run: echo "PKG_CONFIG_PATH=$(brew --prefix openssl@3)/lib/pkgconfig:$(brew --prefix curl)/lib/pkgconfig:${PKG_CONFIG_PATH:-}" >> "$GITHUB_ENV"
+      - name: Test native C runtime
+        run: make test-native
+      - name: Test Swift package
+        run: make test-apple
+      - name: Build unsigned macOS application
+        run: make build-apple
+
+  android:
+    name: Android build, unit tests, and lint
+    needs: policy
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    permissions:
+      contents: read
+    steps:
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+      - name: Set up Java
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@748248ddd2a24f49513d8f472f81c3a07d4d50e1 # v4.4.4
+      - name: Install Android SDK and NDK components
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager \
+            'platform-tools' \
+            'platforms;android-36' \
+            'build-tools;36.0.0' \
+            "ndk;${ANDROID_NDK_VERSION}" \
+            "cmake;${ANDROID_CMAKE_VERSION}"
+      - name: Install transitional gomobile rollback tool
+        run: go install "golang.org/x/mobile/cmd/gomobile@${GOMOBILE_VERSION}"
+      - name: Test, lint, and build Android 11+ app
+        working-directory: ui/android
+        run: ./gradlew --no-daemon :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:externalNativeBuildDebug
+      - name: Upload Android test and lint reports
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: android-reports
+          path: ui/android/app/build/reports/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  android-device:
+    name: Android ${{ matrix.api }} Compose and JNI
+    needs: policy
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - api: 30
+            task: pixel2Api30DebugAndroidTest
+          - api: 33
+            task: pixel6Api33DebugAndroidTest
+          - api: 36
+            task: pixel6Api36DebugAndroidTest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    permissions:
+      contents: read
+    env:
+      CLAMBHOOK_GOMOBILE_TARGETS: android/amd64
+    steps:
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+      - name: Set up Java
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@748248ddd2a24f49513d8f472f81c3a07d4d50e1 # v4.4.4
+      - name: Enable KVM acceleration
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Install Android ${{ matrix.api }} emulator components
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager \
+            'platform-tools' \
+            'emulator' \
+            'platforms;android-36' \
+            'build-tools;36.0.0' \
+            "ndk;${ANDROID_NDK_VERSION}" \
+            "cmake;${ANDROID_CMAKE_VERSION}" \
+            'system-images;android-${{ matrix.api }};default;x86_64'
+      - name: Install transitional gomobile rollback tool
+        run: go install "golang.org/x/mobile/cmd/gomobile@${GOMOBILE_VERSION}"
+      - name: Run Compose and native JNI tests
+        working-directory: ui/android
+        run: >-
+          ./gradlew --no-daemon
+          :app:${{ matrix.task }}
+          -Pclambhook.managedDeviceTestAbi=x86_64
+          -Pandroid.experimental.testOptions.managedDevices.maxConcurrentDevices=1
+          -Pandroid.testoptions.manageddevices.emulator.gpu=swiftshader_indirect
+      - name: Upload managed-device reports
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: android-${{ matrix.api }}-reports
+          path: ui/android/app/build/reports/androidTests/managedDevice/
+          if-no-files-found: ignore
+          retention-days: 14

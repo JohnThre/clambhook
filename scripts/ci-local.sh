@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
-# Local CI/CD gate for ClambHook. CI/CD and testing run on the developer's
-# local machine (macOS) plus Apple's `container` tool for GNU/Linux containers —
-# there are no GitHub Actions workflows in this repo. This script orchestrates
-# the full local gate across all platforms in sections.
+# Local mirror of ClambHook's GitHub Actions CI gates. This script orchestrates
+# the full developer-machine gate; GNU/Linux uses Apple's `container` tool on
+# macOS or Docker/Podman on GNU/Linux.
 #
 #   scripts/ci-local.sh              # all sections
 #   scripts/ci-local.sh go linux     # selected sections
@@ -13,7 +12,7 @@
 #   apple   make build-apple, make test-apple (swift test)            [macOS only]
 #   android make build-android-mobile-aar, test-android, lint-android, build-android
 #          + on-device AVD smoke (Android SDK Emulator) when CI_LOCAL_ANDROID_AVD=<name>
-#   linux   make test-linux (host JVM) + scripts/validate-linux-distros.sh (Apple container)
+#   linux   make test-linux + Trisquel/Rocky/Alma container validation
 #   e2e     make e2e-required (local sing-box/Tor/ClambBack) + make e2e-tun (Linux + /dev/net/tun)
 #   smoke   make macos-release-contract-check, make package-smoke
 #   all     run every section (default)

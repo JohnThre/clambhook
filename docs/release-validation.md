@@ -1,25 +1,29 @@
 # Release Validation Policy
 
 Every installer is validated **before** any manual QA, signing, or upload to an
-approved store channel. ClambHook runs all CI/CD and testing on the developer's
-local machine (macOS) plus Apple's [`container`](https://github.com/apple/container)
-tool for GNU/Linux containers — there are no GitHub Actions workflows and no
-Xcode Cloud integration in this repo. Nothing is uploaded to GitHub Releases.
+approved store channel. GitHub Actions is the primary automated gate, with a
+local mirror for physical-device and desktop QA. Nothing is attached to GitHub
+Releases: workflow reports remain short-lived Actions artifacts and production
+installers use only the approved R2-backed store channel.
 
-`scripts/ci-local.sh` runs the full local gate across all platforms in sections
+`.github/workflows/ci.yml` runs source policy, Apple, Android, and GNU/Linux
+jobs. Android instrumentation covers API 30, 33, and 36; GNU/Linux is limited
+to Trisquel 12, Rocky Linux 9, and AlmaLinux 9. `.github/workflows/security.yml`
+runs CodeQL and dependency review. `scripts/ci-local.sh` mirrors the platform
+gate in sections
 (`go`, `apple`, `android`, `linux`, `e2e`, `smoke`; default `all`), skipping any
 section whose tooling is absent. CI validates builds and installers; it never
 publishes end-user installers. Distribution stays on the approved channels only
 (see [`distribution.md`](distribution.md)).
 
-## Ordering: local gate before distribution
+## Ordering: GitHub and local gates before distribution
 
 ```mermaid
 flowchart LR
     commit["Commit / release tag"] --> gate{Platform family}
-    gate -->|Apple| apple["Local macOS<br/>make build-apple · swift test · xcodebuild"]
-    gate -->|"GNU/Linux"| linux["Local + Apple container<br/>scripts/validate-linux-distros.sh<br/>ubuntu · debian · fedora"]
-    gate -->|Android| android["Local<br/>make test-android · lint-android · build-android<br/>+ android CLI"]
+    gate -->|Apple| apple["GitHub macOS + local QA<br/>native C · Swift · Xcode"]
+    gate -->|"GNU/Linux"| linux["GitHub + local containers<br/>Trisquel · Rocky · Alma<br/>C/GTK + package recipes"]
+    gate -->|Android| android["GitHub API 30 · 33 · 36<br/>unit · lint · build · Compose/JNI<br/>+ physical Pixel QA"]
     apple --> qa["Manual QA + sign + notarize"]
     linux --> qa
     android --> qa
@@ -30,18 +34,18 @@ flowchart LR
 
 | Platform | Where | Build target | Validation | ClambHook status |
 | --- | --- | --- | --- | --- |
-| macOS | Local (macOS) | `ClambhookMac` (`ui/apple`) | `make build-apple` + `swift test` + notarized DMG smoke | Shipping (public) |
-| GNU/Linux | Local + Apple container | `.deb` / `.rpm` | `scripts/validate-linux-distros.sh` (ubuntu/debian/fedora containers) + `make test-linux` | Shipping (public) |
-| Android 11+ | Local | `.apk` | unit/lint/build + Compose instrumentation on API 30/33/36 + `android` CLI on-device | Internal developer QA |
+| macOS | GitHub macOS + local | `ClambhookMac` (`ui/apple`) | native C sanitizers + `make build-apple` + `swift test` + notarized installer smoke | Shipping (public) |
+| GNU/Linux | GitHub + local containers | Debian/RPM recipes | Trisquel 12, Rocky Linux 9, AlmaLinux 9; native sanitizers + C/GTK + package smoke | Shipping (public) |
+| Android 11+ | GitHub + physical device | sideload build | unit/lint/build + Compose/JNI instrumentation on API 30/33/36 + Pixel 3a XL QA | Internal developer QA |
 
 ClambHook's Apple surface is currently macOS only. Windows development is
 discontinued with no planned resumption date.
 
-## Apple lane — local macOS
+## Apple lane — GitHub macOS plus local QA
 
-Apple builds validate on the developer's Mac. The Apple project is generated
-with XcodeGen; the current release still embeds the legacy daemon while the C
-runtime follows the cross-platform parity gates.
+Apple builds validate on the GitHub macOS runner and the developer's Mac. The
+Apple project is generated with XcodeGen; the current release still embeds the
+legacy daemon while the C runtime follows the cross-platform parity gates.
 
 ```sh
 make prepare-apple-runtime   # darwin daemon + TUI runtime
@@ -54,15 +58,16 @@ For a release, `make release-macos` archives, Developer ID-signs, notarizes, and
 staples the DMG. See
 [`docs/website-release/release-runbook.md`](website-release/release-runbook.md).
 
-## GNU/Linux lane — local + Apple container
+## GNU/Linux lane — Trisquel, Rocky Linux, and AlmaLinux only
 
-GNU/Linux packages (`.deb` for Ubuntu/Debian, `.rpm` for Fedora) are built and
-headless-smoke-tested in throwaway Linux containers from a Mac using Apple's
-`container` tool (podman/docker fallback on Linux):
+GNU/Linux is tested only on Trisquel 12, Rocky Linux 9, and AlmaLinux 9. GitHub
+uses official Rocky/Alma images and constructs the Trisquel image from the
+official checksum-pinned Trisquel 12 arm64 root filesystem. Local validation
+uses Apple's `container` tool (podman/docker fallback on GNU/Linux):
 
 ```sh
 container system start                       # one-time: start the Apple container service
-scripts/validate-linux-distros.sh            # ubuntu · debian · fedora
+scripts/validate-linux-distros.sh            # Trisquel 12 · Rocky Linux 9 · AlmaLinux 9
 make test-linux                              # host-side Kotlin unit tests for the Compose controller
 ```
 
@@ -92,18 +97,18 @@ details. For a release, `make release-linux` builds the
 `.deb` + `.rpm`, checksums, GPG-signs, and writes the update manifest; see
 [`docs/website-release/linux-release-runbook.md`](website-release/linux-release-runbook.md).
 
-## Android lane — local
+## Android lane — GitHub managed devices plus physical-device QA
 
-Android validates on the developer's machine. The GUI is Kotlin/Jetpack Compose
-with an Android 11 (API 30) floor. During runtime migration Gradle packages the
+Android validates in GitHub Actions and on the developer's physical Pixel. The
+GUI is Kotlin/Jetpack Compose with an Android 11 (API 30) floor. During runtime
+migration Gradle packages the
 NDK-built C/JNI runtime alongside the gomobile rollback AAR. The focused native
 configuration/dashboard/route-explanation, profile-rule rebuild, raw-packet
 callback, direct/encrypted route linkage, OpenSSL AEAD, and direct-UDP/timer
-tests must pass on API 30; unit tests, lint, and the debug build run on Gradle;
-Google's
-`android` CLI is the default for the on-device dev loop, using an Android SDK
-Emulator (AVD) for local CI/CD (Apple `container` is Linux-only and cannot run
-Android). A physical Pixel 3a XL on Android 12/API 32 additionally passed the
+tests must pass on API 30; GitHub runs unit tests, lint, the debug build, and
+managed Compose/JNI devices at API 30, 33, and 36. Google's `android` CLI is the
+default for the local on-device dev loop. A physical Pixel 3a XL on Android
+12/API 32 additionally passed the
 six-test instrumentation suite after OpenSSL 3.5.8 LTS was statically linked
 and C rule decisions were connected to native encrypted TCP/UDP chains. The
 device run executes AES-128-GCM, AES-256-GCM, and ChaCha20-Poly1305 through JNI.

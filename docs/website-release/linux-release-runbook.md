@@ -8,8 +8,8 @@ This runbook covers the owner-held steps. None of these publish anything to GitH
 
 | Distro | Package | Recipe |
 | --- | --- | --- |
-| Ubuntu, Debian | `.deb` | `debian/` |
-| Fedora | `.rpm` | `packaging/rpm/clambhook.spec` |
+| Trisquel | `.deb` | `debian/` |
+| Rocky Linux, AlmaLinux | `.rpm` | `packaging/rpm/clambhook.spec` |
 
 Validation is run with `scripts/validate-linux-distros.sh` before release. See `packaging/README.md` for the container harness details.
 
@@ -67,7 +67,8 @@ Then run the cross-distro validation harness:
 scripts/validate-linux-distros.sh
 ```
 
-This builds and headless-smoke-tests Ubuntu, Debian, and Fedora. Do not proceed if any distro fails.
+This builds and headless-smoke-tests Trisquel 12, Rocky Linux 9, and AlmaLinux
+9. Do not proceed if any distro fails.
 
 ## 2. Build, checksum, sign, and upload
 

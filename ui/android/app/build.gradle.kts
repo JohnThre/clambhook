@@ -36,10 +36,9 @@ android {
             }
         }
         if (!managedDeviceTestAbi.isNullOrBlank()) {
-            // Managed devices in this matrix are arm64. Filtering only when
-            // the explicit QA property is present keeps the large transitional
-            // gomobile APK below emulator install timeouts without changing
-            // release ABI coverage.
+            // Filter only when the explicit QA property is present. Local
+            // Apple-silicon devices use arm64-v8a; GitHub-hosted managed
+            // devices use x86_64. Release builds retain full ABI coverage.
             ndk {
                 abiFilters += managedDeviceTestAbi
             }

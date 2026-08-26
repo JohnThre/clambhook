@@ -128,8 +128,8 @@ release-check:
 	$(internal-release-notice)
 	$(MAKE) macos-release-contract-check test lint package-smoke e2e-release
 
-# Local CI/CD gate across all platforms (Go, Apple, Android, GNU/Linux
-# containers via Apple `container`, e2e, packaging smoke). See scripts/ci-local.sh.
+# Local mirror of GitHub Actions across Go, Apple, Android, the
+# Trisquel/Rocky/Alma GNU/Linux matrix, e2e, and packaging smoke.
 ci-local:
 	./scripts/ci-local.sh
 

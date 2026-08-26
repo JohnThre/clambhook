@@ -58,17 +58,18 @@ checksum_and_sign() {
   echo "  sha256: $(awk '{print $1}' "$artifact.sha256")"
 }
 
-# 1. Debian / Ubuntu (.deb)
+# 1. Trisquel / Debian-format package (.deb)
 build_deb() {
   require dpkg-buildpackage ".deb build"
   dpkg-buildpackage -us -uc -b
   local built
+  # shellcheck disable=SC2012 # Package filenames are controlled by dpkg.
   built="$(ls -t ../clambhook_*_*.deb | head -n1)"
   cp "$built" "$DIST_DIR/clambhook-${VERSION}-${ARCH}.deb"
   checksum_and_sign "$DIST_DIR/clambhook-${VERSION}-${ARCH}.deb"
 }
 
-# 2. Fedora (.rpm)
+# 2. Rocky Linux / AlmaLinux RPM package (.rpm)
 build_rpm() {
   require rpmbuild ".rpm build"
   local topdir="$DIST_DIR/rpmbuild"
@@ -80,6 +81,7 @@ build_rpm() {
   rpmbuild --define "_topdir $topdir" --define "version ${rpmver}" \
     -bb packaging/rpm/clambhook.spec
   local built
+  # shellcheck disable=SC2012 # Package filenames are controlled by rpmbuild.
   built="$(ls -t "$topdir"/RPMS/*/clambhook-*.rpm | head -n1)"
   cp "$built" "$DIST_DIR/clambhook-${VERSION}-${ARCH}.rpm"
   checksum_and_sign "$DIST_DIR/clambhook-${VERSION}-${ARCH}.rpm"
@@ -105,6 +107,7 @@ write_manifest_entry() {
     sha256="$(awk '{print $1}' "$artifact.sha256")"
   fi
   printf '    "%s": {\n' "$pkg"
+  # shellcheck disable=SC2016 # Emit a literal website environment placeholder.
   printf '      "url": "${%s}",\n' "$url_key"
   if [[ -n "$sha256" ]]; then
     printf '      "sha256": "%s"\n' "$sha256"

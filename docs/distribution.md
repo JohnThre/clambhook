@@ -23,7 +23,7 @@ flowchart TD
 - Buy or upgrade page: `https://store.swiphtgroup.com/clambhook/buy/`.
 - License portal: `https://store.swiphtgroup.com/clambhook/portal/`.
 - The public macOS DMG download is free and supports Apple Silicon Macs running macOS 14.0 or later.
-- The public GNU/Linux download is free and ships as `.deb` and `.rpm` packages tested on Ubuntu, Debian, and Fedora.
+- The public GNU/Linux download is free and ships as `.deb` and `.rpm` packages tested on Trisquel, Rocky Linux, and AlmaLinux.
 - The first launch starts a one-calendar-month trial.
 - A USD 49.99 one-time ClambHook license is required after the trial and includes one year of all updates from the purchase date.
 - Versions released on or before the update cutoff remain usable after the cutoff.
@@ -71,19 +71,16 @@ development is discontinued with no planned resumption date.
 ## CI Validation Before Release
 
 Every installer is validated before manual QA, signing, or upload to an
-approved channel — never on GitHub Releases. CI/CD and testing run on the
-developer's local machine (macOS) plus Apple's
-[`container`](https://github.com/apple/container) tool for GNU/Linux containers;
-there are no GitHub Actions workflows and no Xcode Cloud integration. Apple
-builds validate locally (`make build-apple`, `swift test`); GNU/Linux packages
-validate in Ubuntu/Debian/Fedora containers
-(`scripts/validate-linux-distros.sh`); Android validates locally
-(`make test-android`/`lint-android`/`build-android` plus managed-device Compose
-tests on API 30/33/36). During the C migration, `make test-native` and
-`make build-linux-gtk` are additional non-release gates until the packaging
-cutover criteria in [`c-migration.md`](c-migration.md) pass. `scripts/ci-local.sh`
-runs the full local gate. See [`release-validation.md`](release-validation.md)
-for the full policy and diagrams.
+approved channel — never on GitHub Releases. GitHub Actions runs Apple builds,
+native C sanitizers, Android unit/lint/build plus managed-device Compose/JNI
+tests on API 30/33/36, and the only GNU/Linux matrix: Trisquel 12, Rocky Linux
+9, and AlmaLinux 9. CodeQL, dependency review, and Dependabot cover the source
+and dependency surfaces. `scripts/ci-local.sh` mirrors the platform gates and
+adds physical-device/manual QA. During the C migration, `make test-native` and
+`make build-linux-gtk` remain mandatory until the packaging cutover criteria in
+[`c-migration.md`](c-migration.md) pass. See
+[`release-validation.md`](release-validation.md) for the full policy and
+diagrams.
 
 ## macOS Scope
 

@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT="${1:-$ROOT_DIR/ui/android/app/libs/clambhookmobile.aar}"
+TARGETS="${CLAMBHOOK_GOMOBILE_TARGETS:-android/arm,android/arm64,android/amd64}"
 
 if ! command -v gomobile >/dev/null 2>&1; then
     echo "gomobile is required to build the embedded Android daemon AAR." >&2
@@ -22,7 +23,7 @@ cd "$ROOT_DIR"
 # libgojni.so and fail at dlopen. The `purego` tag selects the pure-Go crypto
 # path (pkg/cnet/cnet_purego.go) so the AAR is self-contained.
 GOFLAGS=-mod=mod gomobile bind \
-    -target=android/arm,android/arm64,android/amd64 \
+    -target="$TARGETS" \
     -androidapi 30 \
     -javapkg=com.clambhook \
     -tags purego \

@@ -6,6 +6,14 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 MODE="${1:-}"
+WORKDIR_TO_CLEAN=""
+
+cleanup() {
+    if [[ -n "$WORKDIR_TO_CLEAN" ]]; then
+        rm -rf "$WORKDIR_TO_CLEAN"
+    fi
+}
+trap cleanup EXIT
 
 log() {
     printf 'ci-package-recipes: %s\n' "$*"
@@ -26,7 +34,7 @@ build_rpm() {
     local version="${CI_PACKAGE_VERSION:-0.0.0}"
     local workdir topdir source
     workdir="$(mktemp -d "${TMPDIR:-/tmp}/clambhook-rpm-ci.XXXXXX")"
-    trap "rm -rf '$workdir'" EXIT
+    WORKDIR_TO_CLEAN="$workdir"
     topdir="$workdir/rpmbuild"
     source="$topdir/SOURCES/clambhook-$version.tar.gz"
     mkdir -p "$topdir"/{BUILD,RPMS,SOURCES,SPECS,SRPMS}

@@ -57,9 +57,6 @@ for suffix in deb rpm; do
         continue
     fi
 
-    # Map package key used by the website variable naming.
-    pkg="$suffix"
-
     # Binary package.
     case "$suffix" in
     deb) content_type="application/vnd.debian.binary-package" ;;

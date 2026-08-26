@@ -10,8 +10,8 @@ mirrors.
 
 | Distro | Package | Recipe |
 | --- | --- | --- |
-| Ubuntu, Debian | `.deb` | `debian/` (`dpkg-buildpackage -us -uc -b`) |
-| Fedora | `.rpm` | `packaging/rpm/clambhook.spec` |
+| Trisquel | `.deb` | `debian/` (`dpkg-buildpackage -us -uc -b`) |
+| Rocky Linux, AlmaLinux | `.rpm` | `packaging/rpm/clambhook.spec` |
 
 Current packages install the daemon (`clambhook`), the legacy Kotlin/Compose
 Multiplatform desktop controller (`clambhook-linux`), the terminal dashboard
@@ -37,8 +37,9 @@ parity and no-Go packaging gates in
 ## Validation
 
 `scripts/validate-linux-distros.sh` does a headless build + smoke test of the
-GNU/Linux app on every supported distribution in throwaway Linux containers. It
-is the GNU/Linux section of `scripts/ci-local.sh` (the local CI/CD gate).
+GNU/Linux app on exactly Trisquel 12, Rocky Linux 9, and AlmaLinux 9 in
+throwaway Linux containers. GitHub Actions runs the same harness; it is also
+the GNU/Linux section of `scripts/ci-local.sh`.
 
 It auto-selects a container engine:
 
@@ -52,28 +53,30 @@ It auto-selects a container engine:
 # macOS one-time setup: install container from its GitHub releases, then:
 container system start
 
-# Validate all three supported distros (or pass one, e.g. fedora):
+# Validate all three supported distros (or pass one):
 scripts/validate-linux-distros.sh
-scripts/validate-linux-distros.sh fedora
+scripts/validate-linux-distros.sh trisquel
+scripts/validate-linux-distros.sh rocky
+scripts/validate-linux-distros.sh alma
 ```
 
-Per distro the harness installs the build toolchain, runs `make build` +
-`make build-linux`, then smoke-tests headlessly: `clambhook-license` seeds and
-evaluates a trial (expects `"ok":true`), and `clambhook` / `clambhook-tui`
-report their versions. GUI rendering is out of scope for headless containers
-and is covered by the Gradle test suite plus manual desktop QA.
+Per distro the harness installs the build toolchain, runs sanitizer-backed C
+tests, builds the C/GTK client, validates the rollback runtime and desktop
+controller while migration remains active, and builds the matching Debian/RPM
+recipe. GUI rendering is out of scope for headless containers and remains a
+manual desktop QA gate.
 
 ```mermaid
 flowchart TD
     dev["Developer on macOS (Apple silicon)"] --> tool["Apple container CLI\ncontainer system start"]
     tool --> vm["Lightweight Linux VM per image\n(OCI runtime)"]
     subgraph distros["Distro images (validate-linux-distros.sh)"]
-        ubuntu["ubuntu:24.04\n→ .deb path"]
-        debian["debian:12\n→ .deb path"]
-        fedora["fedora:41\n→ .rpm path"]
+        trisquel["Trisquel 12 official rootfs\n→ .deb path"]
+        rocky["Rocky Linux 9 official image\n→ .rpm path"]
+        alma["AlmaLinux 9 official image\n→ .rpm path"]
     end
     vm --> distros
-    distros --> build["make build + make build-linux"]
+    distros --> build["make test-native + build-linux-gtk\nrollback + packaging gates"]
     build --> smoke["Smoke test:\nclambhook-license trial (ok:true)\nclambhook -version\nclambhook-tui -version"]
     smoke --> pass["PASS / FAIL per distro"]
     linux["Developer on GNU/Linux"] -->|"podman / docker fallback"| distros
