@@ -212,6 +212,15 @@ class NativeClambhookBridgeTest {
             assertThrows(IllegalStateException::class.java) {
                 runtime.injectPacket(ipv4UdpPacket(9, "blocked".encodeToByteArray()))
             }
+            val invalid = configFile().apply { writeText("not valid toml = [") }
+            assertThrows(IllegalStateException::class.java) {
+                runtime.reload(invalid.absolutePath)
+            }
+            assertTrue(runtime.isRunning())
+            assertEquals(
+                "home",
+                ApiJson.decodeFromString<StatusPayload>(runtime.statusJson()).profile,
+            )
         }
     }
 

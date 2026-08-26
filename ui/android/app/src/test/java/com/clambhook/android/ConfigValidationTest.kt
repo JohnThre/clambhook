@@ -39,16 +39,8 @@ class ConfigValidationTest {
 
 private class RecordingRuntime(
     private val error: Throwable? = null
-) : EmbeddedClambhookRuntime {
+) : ConfigPathValidator {
     var validatedConfig: String = ""
-
-    override fun start(configPath: String, apiAddr: String, apiToken: String) = Unit
-
-    override fun stop() = Unit
-
-    override fun reload(configPath: String) = Unit
-
-    override fun isRunning(): Boolean = false
 
     override fun validateConfig(configPath: String) {
         validatedConfig = File(configPath).readText()

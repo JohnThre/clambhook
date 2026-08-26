@@ -13,7 +13,6 @@ import android.net.VpnService
 import android.os.Build
 import android.os.ParcelFileDescriptor
 import android.util.Log
-import com.clambhook.mobile.PacketWriter
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -31,12 +30,13 @@ import java.net.InetAddress
 
 /**
  * ClambhookVpnService bridges the Android system TUN interface to the embedded
- * clambhook packet-tunnel runtime (`pkg/mobile.TunnelRuntime`).
+ * native C packet-tunnel runtime.
  *
- * Inbound device packets are read from the TUN fd and injected into the Go
+ * Inbound device packets are read from the TUN fd and injected into the C
  * userspace packet stack; the runtime writes routed packets back through the
- * [PacketWriter] onto the same fd. The app's own package is excluded from the
- * tunnel via [VpnService.Builder.addDisallowedApplication] so the runtime's
+ * [NativeClambhookBridge.PacketWriter] onto the same fd. The app's own package
+ * is excluded from the tunnel via [VpnService.Builder.addDisallowedApplication]
+ * so the runtime's
  * outbound proxy sockets bypass the VPN instead of looping back into it.
  */
 class ClambhookVpnService : VpnService() {
@@ -121,7 +121,7 @@ class ClambhookVpnService : VpnService() {
             pfd = establishInterface(settings, appSettings)
                 ?: error("system rejected VPN interface establishment")
             out = FileOutputStream(pfd.fileDescriptor)
-            rt = GomobileClambhookTunnelRuntimeFactory.create(PacketWriterImpl(out, writeLock))
+            rt = NativeClambhookTunnelRuntimeFactory.create(PacketWriterImpl(out, writeLock))
             rt.start(configPath)
             val compatRouting = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU &&
                 settings.excludedRoutes.isNotEmpty()
@@ -321,7 +321,7 @@ class ClambhookVpnService : VpnService() {
     private class PacketWriterImpl(
         private val out: FileOutputStream,
         private val lock: Any,
-    ) : PacketWriter {
+    ) : NativeClambhookBridge.PacketWriter {
         override fun writePacket(packet: ByteArray) {
             synchronized(lock) { out.write(packet) }
         }
@@ -349,7 +349,7 @@ class ClambhookVpnService : VpnService() {
     }
 }
 
-/** Mirrors `pkg/mobile.tunnelNetworkSettings` emitted by `Mobile.tunnelNetworkSettingsJSON`. */
+/** Network settings emitted by the native C config bridge. */
 @Serializable
 data class TunnelNetworkSettings(
     val mtu: Int = 0,

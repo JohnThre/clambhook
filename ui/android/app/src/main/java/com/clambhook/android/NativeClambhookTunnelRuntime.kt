@@ -6,18 +6,25 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
 /**
- * Kotlin façade over the C/JNI runtime. Production selection remains gated,
- * but every implemented read uses the same [ClambhookTunnelRuntime] contract
- * as the gomobile oracle so parity tests can compare them directly.
+ * Kotlin façade over the C/JNI packet-tunnel runtime used by the Android VPN
+ * service. Android owns the platform lifecycle and TUN descriptor; C owns
+ * configuration, routing, protocol chains, and packet forwarding.
  */
 internal class NativeClambhookTunnelRuntime(
     packetWriter: NativeClambhookBridge.PacketWriter,
 ) : ClambhookTunnelRuntime, AutoCloseable {
     private val bridge = NativeClambhookBridge(packetWriter)
+    private var configPath: String = ""
 
-    override fun start(configPath: String) = bridge.start(configPath)
+    override fun start(configPath: String) {
+        bridge.start(configPath)
+        this.configPath = configPath
+    }
     override fun stop() = bridge.stop()
-    override fun reload(configPath: String) = bridge.reload(configPath)
+    override fun reload(configPath: String) {
+        bridge.reload(configPath)
+        this.configPath = configPath
+    }
     override fun injectPacket(packet: ByteArray) = bridge.injectPacket(packet)
     override fun isRunning(): Boolean = bridge.isRunning()
 
@@ -25,7 +32,7 @@ internal class NativeClambhookTunnelRuntime(
     override fun profilesJson(): String = bridge.query("profiles")
     override fun serversJson(): String = bridge.query("servers")
     override fun rulesJson(): String = bridge.query("rules")
-    override fun trafficJson(): String = "{}"
+    override fun trafficJson(): String = EMPTY_TRAFFIC_JSON
 
     override fun dashboardJson(): String {
         val dashboard =
@@ -36,12 +43,12 @@ internal class NativeClambhookTunnelRuntime(
                 put("rules", ApiJson.parseToJsonElement(rulesJson()))
                 put("policy_groups", ApiJson.parseToJsonElement(bridge.query("policy_groups")))
                 put("rule_sets", ApiJson.parseToJsonElement(bridge.query("rule_sets")))
-                put("traffic", JsonObject(emptyMap()))
+                put("traffic", ApiJson.parseToJsonElement(trafficJson()))
             }
         return ApiJson.encodeToString(JsonObject.serializer(), dashboard)
     }
 
-    override fun developerStatusJson(): String = "{}"
+    override fun developerStatusJson(): String = "{\"enabled\":false}"
     override fun developerEntriesJson(): String = "{\"entries\":[]}"
     override fun developerHarJson(): String = "{\"log\":{\"version\":\"1.2\",\"entries\":[]}}"
     override fun developerCaPem(): String = unsupported("developer MITM CA")
@@ -56,8 +63,21 @@ internal class NativeClambhookTunnelRuntime(
         bridge.mutate("set_active_profile", ApiJson.encodeToString(JsonObject.serializer(), request))
     }
 
-    override fun selectPolicyGroup(profile: String, group: String, chain: String) =
-        unsupported<Unit>("policy group selection")
+    override fun selectPolicyGroup(profile: String, group: String, chain: String) {
+        check(configPath.isNotBlank()) { "native runtime has no config path" }
+        val request = buildJsonObject {
+            if (profile.isNotBlank()) put("profile", profile)
+            put("group", group)
+            put("chain", chain)
+        }
+        NativeClambhookConfigBridge.mutate(
+            configPath,
+            "select_policy_group",
+            "policy_group_selection",
+            ApiJson.encodeToString(JsonObject.serializer(), request),
+        )
+        reload(configPath)
+    }
 
     override fun createTemporaryRuleFromConnectionJson(
         connId: String,
@@ -127,4 +147,17 @@ internal class NativeClambhookTunnelRuntime(
 
     private fun <T> unsupported(feature: String): T =
         throw UnsupportedOperationException("$feature has not passed the native parity gate")
+
+    private companion object {
+        const val EMPTY_TRAFFIC_JSON =
+            "{\"updated_ts_ns\":0,\"summary\":{},\"connections\":[],\"total\":0," +
+                "\"temporary_rules\":[],\"profile_context\":{},\"quick_filters\":[]," +
+                "\"rule_hits\":[],\"block_decisions\":[],\"cleanup_suggestions\":[]," +
+                "\"rule_suggestions\":[],\"breakdowns\":{}}"
+    }
+}
+
+internal object NativeClambhookTunnelRuntimeFactory {
+    fun create(packetWriter: NativeClambhookBridge.PacketWriter): ClambhookTunnelRuntime =
+        NativeClambhookTunnelRuntime(packetWriter)
 }

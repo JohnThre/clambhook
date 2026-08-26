@@ -11,7 +11,7 @@ interface ConfigValidator {
 
 class AndroidConfigValidator(
     context: Context,
-    runtime: EmbeddedClambhookRuntime = GomobileClambhookRuntime
+    runtime: ConfigPathValidator = NativeConfigPathValidator,
 ) : ConfigValidator {
     private val delegate = RuntimeConfigValidator(
         runtime = runtime,
@@ -24,7 +24,7 @@ class AndroidConfigValidator(
 }
 
 class RuntimeConfigValidator(
-    private val runtime: EmbeddedClambhookRuntime,
+    private val runtime: ConfigPathValidator,
     private val tempDir: File
 ) : ConfigValidator {
     override suspend fun validate(configToml: String) = withContext(Dispatchers.IO) {
@@ -36,5 +36,15 @@ class RuntimeConfigValidator(
         } finally {
             tempFile.delete()
         }
+    }
+}
+
+fun interface ConfigPathValidator {
+    fun validateConfig(configPath: String)
+}
+
+internal object NativeConfigPathValidator : ConfigPathValidator {
+    override fun validateConfig(configPath: String) {
+        NativeClambhookConfigBridge.query(configPath, "config")
     }
 }

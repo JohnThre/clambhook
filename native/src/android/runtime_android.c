@@ -19,6 +19,13 @@ typedef struct android_route {
     char *selected_group_chain;
 } android_route;
 
+typedef struct android_config_state {
+    ch_config *config;
+    ch_rule_engine *rules;
+    char *config_path;
+    char *active_profile;
+} android_config_state;
+
 struct ch_runtime {
     pthread_mutex_t mutex;
     pthread_mutex_t ip_mutex;
@@ -277,12 +284,45 @@ static void android_runtime_stop_ip_stack(ch_runtime *runtime) {
     pthread_mutex_unlock(&runtime->ip_mutex);
 }
 
-static ch_status android_runtime_apply_config(ch_runtime *runtime,
-                                              const char *config_path,
-                                              ch_error *error) {
+static void android_config_state_clear(android_config_state *state) {
+    if (state == NULL) return;
+    ch_config_free(state->config);
+    ch_rule_engine_destroy(state->rules);
+    free(state->config_path);
+    free(state->active_profile);
+    memset(state, 0, sizeof(*state));
+}
+
+static android_config_state android_runtime_take_config(ch_runtime *runtime) {
+    android_config_state state = {
+        .config = runtime->config,
+        .rules = runtime->rules,
+        .config_path = runtime->config_path,
+        .active_profile = runtime->active_profile
+    };
+    runtime->config = NULL;
+    runtime->rules = NULL;
+    runtime->config_path = NULL;
+    runtime->active_profile = NULL;
+    return state;
+}
+
+static void android_runtime_install_config(ch_runtime *runtime,
+                                           android_config_state *state) {
+    runtime->config = state->config;
+    runtime->rules = state->rules;
+    runtime->config_path = state->config_path;
+    runtime->active_profile = state->active_profile;
+    memset(state, 0, sizeof(*state));
+}
+
+static ch_status android_runtime_load_config(const char *config_path,
+                                             android_config_state *state,
+                                             ch_error *error) {
     ch_config *config = NULL;
     char *path;
     char *active;
+    memset(state, 0, sizeof(*state));
     if (config_path == NULL) config_path = "";
     path = ch_strdup(config_path);
     if (path == NULL) {
@@ -323,15 +363,46 @@ static ch_status android_runtime_apply_config(ch_runtime *runtime,
                 CH_ERROR_INVALID_ARGUMENT : error->code;
         }
     }
-    ch_config_free(runtime->config);
-    ch_rule_engine_destroy(runtime->rules);
-    free(runtime->config_path);
-    free(runtime->active_profile);
-    runtime->config = config;
-    runtime->rules = rules;
-    runtime->config_path = path;
-    runtime->active_profile = active;
+    state->config = config;
+    state->rules = rules;
+    state->config_path = path;
+    state->active_profile = active;
     return CH_OK;
+}
+
+static ch_status android_runtime_replace_config(ch_runtime *runtime,
+                                                const char *config_path,
+                                                bool restart,
+                                                ch_error *error) {
+    android_config_state next;
+    ch_status status = android_runtime_load_config(config_path, &next, error);
+    if (status != CH_OK) return status;
+
+    android_config_state previous = android_runtime_take_config(runtime);
+    if (restart) android_runtime_stop_ip_stack(runtime);
+    android_runtime_install_config(runtime, &next);
+    if (restart) status = android_runtime_start_ip_stack(runtime, error);
+    if (status == CH_OK) {
+        android_config_state_clear(&previous);
+        return CH_OK;
+    }
+
+    ch_error replacement_error = *error;
+    android_config_state failed = android_runtime_take_config(runtime);
+    android_runtime_install_config(runtime, &previous);
+    ch_error rollback_error;
+    ch_status rollback_status = restart ?
+        android_runtime_start_ip_stack(runtime, &rollback_error) : CH_OK;
+    android_config_state_clear(&failed);
+    if (rollback_status != CH_OK) {
+        runtime->running = false;
+        ch_error_set(error, CH_ERROR_INTERNAL,
+                     "replace Android config failed: %s; rollback failed: %s",
+                     replacement_error.message, rollback_error.message);
+        return CH_ERROR_INTERNAL;
+    }
+    *error = replacement_error;
+    return status;
 }
 
 static ch_status android_runtime_select_profile(ch_runtime *runtime,
@@ -548,7 +619,7 @@ ch_status ch_runtime_start(ch_runtime *runtime, const char *config_path, ch_erro
         ch_error_set(error, CH_ERROR_INVALID_STATE, "engine already running");
         return CH_ERROR_INVALID_STATE;
     }
-    status = android_runtime_apply_config(runtime, config_path, error);
+    status = android_runtime_replace_config(runtime, config_path, false, error);
     if (status == CH_OK) status = android_runtime_start_ip_stack(runtime,
                                                                 error);
     if (status == CH_OK) runtime->running = true;
@@ -578,18 +649,8 @@ ch_status ch_runtime_reload(ch_runtime *runtime, const char *config_path, ch_err
     }
     pthread_mutex_lock(&runtime->mutex);
     bool running = runtime->running;
-    if (running) android_runtime_stop_ip_stack(runtime);
-    status = android_runtime_apply_config(runtime, config_path, error);
-    if (running) {
-        ch_error stack_error;
-        ch_status stack_status = android_runtime_start_ip_stack(runtime,
-                                                                &stack_error);
-        if (status == CH_OK && stack_status != CH_OK) {
-            status = stack_status;
-            *error = stack_error;
-            runtime->running = false;
-        }
-    }
+    status = android_runtime_replace_config(runtime, config_path, running,
+                                            error);
     pthread_mutex_unlock(&runtime->mutex);
     return status;
 }
