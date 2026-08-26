@@ -16,6 +16,8 @@
 #include "clambhook/protocol.h"
 #include "internal.h"
 
+#define CH_RUNTIME_MAX_CONFIG_TRANSFER_BYTES (4U * 1024U * 1024U)
+
 typedef enum ch_command_kind {
     CH_COMMAND_START,
     CH_COMMAND_STOP,
@@ -206,6 +208,30 @@ static char *ch_runtime_profiles_json(ch_runtime *runtime) {
         return NULL;
     }
     return ch_json_take(&json);
+}
+
+static char *ch_runtime_import_result_json(ch_runtime *runtime,
+                                           const char *backup_path) {
+    char *profiles = ch_runtime_profiles_json(runtime);
+    if (profiles == NULL) return NULL;
+    size_t length = strlen(profiles);
+    if (length == 0U || profiles[length - 1U] != '}') {
+        free(profiles);
+        return NULL;
+    }
+    size_t count = runtime->config == NULL ? 0U :
+        ch_config_profile_count(runtime->config);
+    ch_json_buffer json;
+    ch_json_init(&json);
+    int okay = ch_json_append_bytes(&json, profiles, length - 1U) &&
+        ch_json_append(&json, ",\"backup_path\":") &&
+        ch_json_append_string(&json, backup_path == NULL ? "" : backup_path) &&
+        ch_json_append_format(
+            &json, ",\"message\":\"imported %zu profile(s)\"}", count);
+    free(profiles);
+    char *result = okay ? ch_json_take(&json) : NULL;
+    ch_json_dispose(&json);
+    return result;
 }
 
 static void ch_command_fail(ch_command *command, ch_status status, const char *message) {
@@ -873,6 +899,97 @@ static bool ch_runtime_persist_active_profile(ch_runtime *runtime,
     return true;
 }
 
+static bool ch_runtime_import_config(ch_runtime *runtime,
+                                     const char *document,
+                                     ch_command *command) {
+    if (runtime->config_path == NULL || runtime->config_path[0] == '\0') {
+        ch_command_fail(command, CH_ERROR_INVALID_STATE,
+                        "config import requires daemon config path");
+        return false;
+    }
+    size_t document_length = document == NULL ? 0U : strlen(document);
+    if (document_length == 0U) {
+        ch_command_fail(command, CH_ERROR_INVALID_ARGUMENT,
+                        "empty config body");
+        return false;
+    }
+    if (document_length > CH_RUNTIME_MAX_CONFIG_TRANSFER_BYTES) {
+        ch_command_fail(command, CH_ERROR_INVALID_ARGUMENT,
+                        "config exceeds import size limit");
+        return false;
+    }
+    bool only_whitespace = true;
+    for (size_t index = 0U; index < document_length; ++index) {
+        if (isspace((unsigned char)document[index]) == 0) {
+            only_whitespace = false;
+            break;
+        }
+    }
+    if (only_whitespace) {
+        ch_command_fail(command, CH_ERROR_INVALID_ARGUMENT,
+                        "empty config body");
+        return false;
+    }
+
+    char *path = ch_strdup(runtime->config_path);
+    ch_config *disk_config = NULL;
+    ch_config *incoming = NULL;
+    char *backup_path = NULL;
+    ch_error config_error;
+    if (path == NULL) {
+        ch_command_fail(command, CH_ERROR_OUT_OF_MEMORY, "copy config path");
+        return false;
+    }
+    ch_status status = ch_config_load(path, &disk_config, &config_error);
+    if (status == CH_OK) {
+        status = ch_config_parse(document, path, &incoming, &config_error);
+    }
+    if (status == CH_OK) {
+        status = ch_config_write_atomic_document(path, document, &backup_path,
+                                                 &config_error);
+    }
+    if (status != CH_OK) {
+        command->status = status;
+        command->error = config_error;
+        free(backup_path);
+        ch_config_free(incoming);
+        ch_config_free(disk_config);
+        free(path);
+        return false;
+    }
+
+    bool running = atomic_load_explicit(&runtime->running,
+                                        memory_order_acquire);
+    if (!ch_runtime_apply_config(runtime, command, path, running)) {
+        ch_status apply_status = command->status;
+        ch_error apply_error = command->error;
+        ch_error restore_error;
+        ch_status restore_status = ch_config_write_atomic_document(
+            path, ch_config_document(disk_config), NULL, &restore_error);
+        if (restore_status != CH_OK) {
+            ch_error_set(&command->error, CH_ERROR_INTERNAL,
+                         "%s; restore config: %s", apply_error.message,
+                         restore_error.message);
+            command->status = CH_ERROR_INTERNAL;
+        } else {
+            command->status = apply_status;
+            command->error = apply_error;
+        }
+        free(backup_path);
+        ch_config_free(incoming);
+        ch_config_free(disk_config);
+        free(path);
+        return false;
+    }
+    ch_runtime_refresh_network_watcher(runtime);
+    command->response = ch_runtime_import_result_json(runtime, backup_path);
+    free(backup_path);
+    ch_config_free(incoming);
+    ch_config_free(disk_config);
+    free(path);
+    return true;
+}
+
 static void ch_command_process(ch_runtime *runtime, ch_command *command) {
     command->status = CH_OK;
     ch_error_clear(&command->error);
@@ -937,6 +1054,28 @@ static void ch_command_process(ch_runtime *runtime, ch_command *command) {
                     runtime->config, runtime->active_profile,
                     command->operation, command->payload, &command->error
                 );
+            } else if (strcmp(command->operation, "config_export") == 0) {
+                if (runtime->config_path == NULL ||
+                    runtime->config_path[0] == '\0') {
+                    ch_command_fail(command, CH_ERROR_INVALID_STATE,
+                                    "config export requires daemon config path");
+                    break;
+                }
+                ch_config *disk_config = NULL;
+                command->status = ch_config_load(runtime->config_path,
+                                                 &disk_config,
+                                                 &command->error);
+                if (command->status != CH_OK) break;
+                const char *document = ch_config_document(disk_config);
+                if (document == NULL ||
+                    strlen(document) > CH_RUNTIME_MAX_CONFIG_TRANSFER_BYTES) {
+                    ch_config_free(disk_config);
+                    ch_command_fail(command, CH_ERROR_INVALID_STATE,
+                                    "config exceeds export size limit");
+                    break;
+                }
+                command->response = ch_strdup(document);
+                ch_config_free(disk_config);
             } else if (strcmp(command->operation, "test_rule") == 0) {
                 command->status = ch_rule_explain_request_json(
                     runtime->config, runtime->active_profile, command->payload,
@@ -1018,6 +1157,11 @@ static void ch_command_process(ch_runtime *runtime, ch_command *command) {
                     runtime, name, command);
                 free(name);
                 if (!persisted) break;
+            } else if (strcmp(command->operation, "config_import") == 0) {
+                if (!ch_runtime_import_config(runtime, command->payload,
+                                              command)) {
+                    break;
+                }
             } else {
                 ch_command_fail(command, CH_ERROR_UNSUPPORTED, "unknown runtime mutation operation");
                 break;

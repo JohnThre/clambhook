@@ -121,6 +121,15 @@ void ch_test_runtime(void) {
     CH_TEST_ASSERT(strstr(json, "\"persisted\":false") != NULL);
     ch_string_free(json);
 
+    CH_TEST_ASSERT(ch_runtime_query(
+        runtime, "config_export", NULL, &json, &error) ==
+        CH_ERROR_INVALID_STATE);
+    CH_TEST_ASSERT_STRING("config export requires daemon config path",
+                          error.message);
+    CH_TEST_ASSERT(ch_runtime_mutate(
+        runtime, "config_import", "active = \"default\"\n", &json,
+        &error) == CH_ERROR_INVALID_STATE);
+
     CH_TEST_ASSERT(ch_runtime_query(runtime, "missing", NULL, &json, &error) == CH_ERROR_UNSUPPORTED);
     CH_TEST_ASSERT_STRING("unknown runtime query operation", error.message);
     ch_runtime_destroy(runtime);
@@ -407,6 +416,79 @@ void ch_test_runtime(void) {
             runtime, "persist_active_profile", "{\"name\":\"missing\"}",
             &json, &error) == CH_ERROR_NOT_FOUND);
         runtime_assert_config_profile(path, "two");
+        ch_runtime_destroy(runtime);
+
+        runtime = ch_runtime_create(NULL, &error);
+        CH_TEST_ASSERT(runtime != NULL);
+        CH_TEST_ASSERT(ch_runtime_start(runtime, path, &error) == CH_OK);
+        CH_TEST_ASSERT(ch_runtime_query(runtime, "status", NULL, &json,
+                                        &error) == CH_OK);
+        CH_TEST_ASSERT(strstr(json, "\"profile\":\"two\"") != NULL);
+        ch_string_free(json);
+        ch_runtime_destroy(runtime);
+        CH_TEST_ASSERT(unlink(path) == 0);
+        CH_TEST_ASSERT(unlink(backup_path) == 0);
+    }
+
+    {
+        static const char original[] =
+            "active = \"one\"\n"
+            "[[profile]]\nname = \"one\"\n"
+            "[[profile.chain]]\nname = \"direct\"\n"
+            "[[profile.chain.server]]\nprotocol = \"direct\"\n";
+        static const char imported[] =
+            "# imported document\n"
+            "active = \"two\"\n"
+            "[[profile]]\nname = \"one\"\n"
+            "[[profile.chain]]\nname = \"direct\"\n"
+            "[[profile.chain.server]]\nprotocol = \"direct\"\n"
+            "[[profile]]\nname = \"two\"\n"
+            "[[profile.chain]]\nname = \"direct\"\n"
+            "[[profile.chain.server]]\nprotocol = \"direct\"\n";
+        char path[160];
+        char backup_path[256];
+        (void)snprintf(path, sizeof(path),
+                       "/tmp/clambhook-import-runtime-%ld.toml",
+                       (long)getpid());
+        FILE *file = fopen(path, "wb");
+        CH_TEST_ASSERT(file != NULL);
+        CH_TEST_ASSERT(fputs(original, file) >= 0);
+        CH_TEST_ASSERT(fclose(file) == 0);
+        runtime = ch_runtime_create(NULL, &error);
+        CH_TEST_ASSERT(runtime != NULL);
+        CH_TEST_ASSERT(ch_runtime_start(runtime, path, &error) == CH_OK);
+        CH_TEST_ASSERT(ch_runtime_query(
+            runtime, "config_export", NULL, &json, &error) == CH_OK);
+        CH_TEST_ASSERT_STRING(original, json);
+        ch_string_free(json);
+        CH_TEST_ASSERT(ch_runtime_mutate(
+            runtime, "config_import", "not valid = [", &json,
+            &error) == CH_ERROR_PARSE);
+        runtime_assert_config_profile(path, "one");
+        CH_TEST_ASSERT(ch_runtime_mutate(
+            runtime, "config_import", imported, &json, &error) == CH_OK);
+        CH_TEST_ASSERT(strstr(json, "\"profiles\":[\"one\",\"two\"]") !=
+                       NULL);
+        CH_TEST_ASSERT(strstr(json, "\"active\":\"two\"") != NULL);
+        CH_TEST_ASSERT(strstr(json, "\"message\":\"imported 2 profile(s)\"") !=
+                       NULL);
+        const char *backup = strstr(json, "\"backup_path\":\"");
+        CH_TEST_ASSERT(backup != NULL);
+        backup += strlen("\"backup_path\":\"");
+        const char *backup_end = strchr(backup, '\"');
+        CH_TEST_ASSERT(backup_end != NULL);
+        size_t backup_length = (size_t)(backup_end - backup);
+        CH_TEST_ASSERT(backup_length > 0U &&
+                       backup_length < sizeof(backup_path));
+        memcpy(backup_path, backup, backup_length);
+        backup_path[backup_length] = '\0';
+        ch_string_free(json);
+        runtime_assert_config_profile(path, "two");
+        runtime_assert_config_profile(backup_path, "one");
+        CH_TEST_ASSERT(ch_runtime_query(
+            runtime, "config_export", NULL, &json, &error) == CH_OK);
+        CH_TEST_ASSERT_STRING(imported, json);
+        ch_string_free(json);
         ch_runtime_destroy(runtime);
 
         runtime = ch_runtime_create(NULL, &error);

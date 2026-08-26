@@ -108,6 +108,9 @@ file-backed daemon profile-persistence checkpoints; this supplements rather
 than replaces the API 30/33/36 matrix. The daemon-side persistence path is also
 covered by sanitizer-backed host tests that verify the active selection on
 disk, the retained backup, and survival across runtime destruction/restart.
+Native config export/import adds exact TOML round-trip, invalid-import
+no-write, retained-backup, restart, and live HTTP header/response smoke checks;
+the shared runtime continues to compile for every packaged Android ABI.
 
 ```sh
 make build-android-mobile-aar                # gomobile bind → ui/android/app/libs/

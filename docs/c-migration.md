@@ -75,9 +75,13 @@ The additive CMake build currently provides:
   and restores the previous document if the selected profile cannot start. It
   returns `persisted:true` plus `backup_path` for file-backed daemon configs and
   `persisted:false` for an in-memory runtime. `POST /api/v1/routes/explain`
-  shares the native route explanation path. Configured proxy listeners
-  participate in runtime start, stop, reload, profile switching, and status
-  reporting;
+  shares the native route explanation path. Config export/import also matches
+  the 4 MiB symmetric transfer contract: export reads a fresh validated disk
+  snapshot and supplies attachment metadata, while import validates before
+  writing, retains the old document as a backup, reloads live, restores disk on
+  apply failure, and reports the resulting profiles and backup path.
+  Configured proxy listeners participate in runtime start, stop, reload,
+  profile switching, and status reporting;
 - `clambhook-linux-c`: an additive `GtkApplication` dashboard using GTK 4,
   libsoup 3, and json-glib;
 - `clambhook_jni`: the thin JNI ownership/callback boundary used by the Kotlin

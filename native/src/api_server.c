@@ -14,6 +14,7 @@
 #include "internal.h"
 
 #define CH_API_MAX_REQUEST_BYTES (1024U * 1024U)
+#define CH_API_MAX_CONFIG_TRANSFER_BYTES (4U * 1024U * 1024U)
 
 typedef struct ch_api_client ch_api_client;
 
@@ -305,23 +306,33 @@ static const char *ch_api_reason(int status) {
         case 403: return "Forbidden";
         case 404: return "Not Found";
         case 405: return "Method Not Allowed";
+        case 409: return "Conflict";
         default: return "Internal Server Error";
     }
 }
 
-static void ch_api_respond(ch_api_client *client, int status, const char *type, const char *body) {
+static void ch_api_respond_with_headers(ch_api_client *client, int status,
+                                        const char *type,
+                                        const char *content_disposition,
+                                        const char *body) {
     if (client->responded) return;
     client->responded = 1;
     (void)uv_read_stop((uv_stream_t *)&client->stream);
     if (type == NULL) type = "text/plain; charset=utf-8";
     if (body == NULL) body = "";
     size_t body_length = strlen(body);
+    const char *disposition_header = content_disposition == NULL ? "" :
+        "Content-Disposition: ";
+    const char *disposition_value = content_disposition == NULL ? "" :
+        content_disposition;
+    const char *disposition_end = content_disposition == NULL ? "" : "\r\n";
     int header_length = snprintf(
         NULL, 0,
-        "HTTP/1.1 %d %s\r\nContent-Type: %s\r\nContent-Length: %zu\r\n"
-        "Cache-Control: no-store\r\nConnection: close\r\n\r\n",
-        status, ch_api_reason(status), type, body_length
-    );
+        "HTTP/1.1 %d %s\r\nContent-Type: %s\r\n%s%s%s"
+        "Content-Length: %zu\r\nCache-Control: no-store\r\n"
+        "Connection: close\r\n\r\n",
+        status, ch_api_reason(status), type, disposition_header,
+        disposition_value, disposition_end, body_length);
     if (header_length < 0 || (size_t)header_length > SIZE_MAX - body_length - 1U) {
         ch_api_close_client(client);
         return;
@@ -335,10 +346,11 @@ static void ch_api_respond(ch_api_client *client, int status, const char *type, 
     }
     (void)snprintf(
         write->bytes, (size_t)header_length + 1U,
-        "HTTP/1.1 %d %s\r\nContent-Type: %s\r\nContent-Length: %zu\r\n"
-        "Cache-Control: no-store\r\nConnection: close\r\n\r\n",
-        status, ch_api_reason(status), type, body_length
-    );
+        "HTTP/1.1 %d %s\r\nContent-Type: %s\r\n%s%s%s"
+        "Content-Length: %zu\r\nCache-Control: no-store\r\n"
+        "Connection: close\r\n\r\n",
+        status, ch_api_reason(status), type, disposition_header,
+        disposition_value, disposition_end, body_length);
     memcpy(write->bytes + header_length, body, body_length);
     write->bytes[total] = '\0';
     uv_buf_t buffer = uv_buf_init(write->bytes, (unsigned int)total);
@@ -348,6 +360,11 @@ static void ch_api_respond(ch_api_client *client, int status, const char *type, 
         free(write);
         ch_api_close_client(client);
     }
+}
+
+static void ch_api_respond(ch_api_client *client, int status,
+                           const char *type, const char *body) {
+    ch_api_respond_with_headers(client, status, type, NULL, body);
 }
 
 static void ch_api_runtime_error(ch_api_client *client, ch_status status, const ch_error *error) {
@@ -387,6 +404,9 @@ static void ch_api_route(ch_api_client *client) {
         return;
     }
     char *json = NULL;
+    const char *response_type = "application/json";
+    const char *content_disposition = NULL;
+    int config_transfer = 0;
     ch_error error;
     ch_status status;
     char *profile_request = ch_api_profile_request_json(url, &error);
@@ -413,6 +433,20 @@ static void ch_api_route(ch_api_client *client) {
         status = ch_runtime_query(client->server->runtime, "test_rule",
                                   client->body.data == NULL ? "{}" : client->body.data,
                                   &json, &error);
+    } else if (strcmp(method, "GET") == 0 &&
+               strcmp(path, "/api/v1/config/export") == 0) {
+        config_transfer = 1;
+        response_type = "text/plain; charset=utf-8";
+        content_disposition = "attachment; filename=\"clambhook.toml\"";
+        status = ch_runtime_query(client->server->runtime, "config_export",
+                                  "{}", &json, &error);
+    } else if (strcmp(method, "POST") == 0 &&
+               strcmp(path, "/api/v1/config/import") == 0) {
+        config_transfer = 1;
+        status = ch_runtime_mutate(
+            client->server->runtime, "config_import",
+            client->body.data == NULL ? "" : client->body.data,
+            &json, &error);
     } else if (strcmp(method, "PUT") == 0 &&
                strcmp(path, "/api/v1/profiles/active") == 0) {
         status = ch_runtime_mutate(
@@ -428,6 +462,8 @@ static void ch_api_route(ch_api_client *client) {
             strcmp(path, "/api/v1/servers") == 0 || strcmp(path, "/api/v1/rules") == 0 ||
             strcmp(path, "/api/v1/policy-groups") == 0 || strcmp(path, "/api/v1/rule-sets") == 0 ||
             strcmp(path, "/api/v1/rules/test") == 0 || strcmp(path, "/api/v1/routes/explain") == 0 ||
+            strcmp(path, "/api/v1/config/export") == 0 ||
+            strcmp(path, "/api/v1/config/import") == 0 ||
             strcmp(path, "/api/v1/profiles/active") == 0 ||
             strcmp(path, "/api/v1/connect") == 0 || strcmp(path, "/api/v1/disconnect") == 0;
         ch_api_respond(client, known ? 405 : 404, NULL, known ? "method not allowed\n" : "not found\n");
@@ -438,16 +474,31 @@ static void ch_api_route(ch_api_client *client) {
     free(profile_request);
     free(path);
     if (status != CH_OK) {
-        ch_api_runtime_error(client, status, &error);
+        if (config_transfer && status == CH_ERROR_INVALID_STATE) {
+            ch_json_buffer body;
+            ch_json_init(&body);
+            int okay = ch_json_append(&body, "{\"error\":") &&
+                ch_json_append_string(&body, error.message) &&
+                ch_json_append(&body, "}");
+            char *encoded = okay ? ch_json_take(&body) : NULL;
+            ch_json_dispose(&body);
+            ch_api_respond(client, 409, "application/json",
+                           encoded == NULL ?
+                               "{\"error\":\"conflict\"}" : encoded);
+            free(encoded);
+        } else {
+            ch_api_runtime_error(client, status, &error);
+        }
     } else {
-        ch_api_respond(client, 200, "application/json", json);
+        ch_api_respond_with_headers(client, 200, response_type,
+                                    content_disposition, json);
     }
     ch_string_free(json);
 }
 
 static int ch_api_append(ch_json_buffer *buffer, const char *at, size_t length) {
     if (length > CH_API_MAX_REQUEST_BYTES || buffer->length > CH_API_MAX_REQUEST_BYTES - length) return HPE_USER;
-    return ch_json_append_format(buffer, "%.*s", (int)length, at) ? 0 : HPE_USER;
+    return ch_json_append_bytes(buffer, at, length) ? 0 : HPE_USER;
 }
 
 static int ch_api_on_url(llhttp_t *parser, const char *at, size_t length) {
@@ -483,7 +534,19 @@ static int ch_api_on_value_complete(llhttp_t *parser) {
 }
 
 static int ch_api_on_body(llhttp_t *parser, const char *at, size_t length) {
-    return ch_api_append(&((ch_api_client *)parser->data)->body, at, length);
+    ch_api_client *client = parser->data;
+    const char *url = client->url.data == NULL ? "" : client->url.data;
+    static const char import_path[] = "/api/v1/config/import";
+    size_t import_length = sizeof(import_path) - 1U;
+    int is_import = strncmp(url, import_path, import_length) == 0 &&
+        (url[import_length] == '\0' || url[import_length] == '?');
+    size_t limit = is_import ? CH_API_MAX_CONFIG_TRANSFER_BYTES :
+        CH_API_MAX_REQUEST_BYTES;
+    if (memchr(at, '\0', length) != NULL || length > limit ||
+        client->body.length > limit - length) {
+        return HPE_USER;
+    }
+    return ch_json_append_bytes(&client->body, at, length) ? 0 : HPE_USER;
 }
 
 static int ch_api_on_complete(llhttp_t *parser) {
