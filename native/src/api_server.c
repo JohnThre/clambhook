@@ -193,6 +193,66 @@ malformed:
     return NULL;
 }
 
+static char *ch_api_path_decode(const char *text, size_t length,
+                                ch_error *error) {
+    char *decoded = malloc(length + 1U);
+    if (decoded == NULL) {
+        ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                     "allocate decoded path segment");
+        return NULL;
+    }
+    size_t output = 0U;
+    for (size_t index = 0U; index < length; ++index) {
+        if (text[index] == '%') {
+            if (index + 2U >= length) goto malformed;
+            int high = ch_api_hex_digit(text[index + 1U]);
+            int low = ch_api_hex_digit(text[index + 2U]);
+            if (high < 0 || low < 0 || (high == 0 && low == 0)) {
+                goto malformed;
+            }
+            decoded[output++] = (char)((high << 4) | low);
+            index += 2U;
+        } else {
+            decoded[output++] = text[index];
+        }
+    }
+    decoded[output] = '\0';
+    return decoded;
+
+malformed:
+    free(decoded);
+    ch_error_set(error, CH_ERROR_PARSE, "malformed URL path encoding");
+    return NULL;
+}
+
+static char *ch_api_path_id_request_json(const char *path,
+                                         const char *prefix,
+                                         ch_error *error) {
+    size_t prefix_length = strlen(prefix);
+    if (strncmp(path, prefix, prefix_length) != 0 ||
+        path[prefix_length] == '\0' || strchr(path + prefix_length, '/') !=
+        NULL) {
+        ch_error_set(error, CH_ERROR_NOT_FOUND,
+                     "developer rule path not found");
+        return NULL;
+    }
+    char *id = ch_api_path_decode(path + prefix_length,
+                                  strlen(path + prefix_length), error);
+    if (id == NULL) return NULL;
+    ch_json_buffer request;
+    ch_json_init(&request);
+    int okay = ch_json_append(&request, "{\"id\":") &&
+        ch_json_append_string(&request, id) && ch_json_append(&request, "}");
+    free(id);
+    char *result = okay ? ch_json_take(&request) : NULL;
+    ch_json_dispose(&request);
+    if (result == NULL) {
+        ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                     "encode developer rule id");
+    }
+    return result;
+}
+
 char *ch_api_profile_request_json(const char *url, ch_error *error) {
     ch_error_clear(error);
     const char *query = url == NULL ? NULL : strchr(url, '?');
@@ -436,6 +496,12 @@ static void ch_api_route(ch_api_client *client) {
         status = ch_runtime_query(client->server->runtime, "conditioner", profile_request, &json, &error);
     } else if (strcmp(method, "GET") == 0 && strcmp(path, "/api/v1/developer/settings") == 0) {
         status = ch_runtime_query(client->server->runtime, "developer_settings", "{}", &json, &error);
+    } else if (strcmp(method, "GET") == 0 && strcmp(path, "/api/v1/developer/map-rules") == 0) {
+        status = ch_runtime_query(client->server->runtime, "developer_map_rules", "{}", &json, &error);
+    } else if (strcmp(method, "GET") == 0 && strcmp(path, "/api/v1/developer/breakpoint-rules") == 0) {
+        status = ch_runtime_query(client->server->runtime, "developer_breakpoint_rules", "{}", &json, &error);
+    } else if (strcmp(method, "GET") == 0 && strcmp(path, "/api/v1/developer/rewrite-rules") == 0) {
+        status = ch_runtime_query(client->server->runtime, "developer_rewrite_rules", "{}", &json, &error);
     } else if (strcmp(method, "GET") == 0 && strcmp(path, "/api/v1/rule-subscriptions") == 0) {
         status = ch_runtime_query(client->server->runtime, "rule_subscriptions", profile_request, &json, &error);
     } else if (strcmp(method, "PUT") == 0 && strcmp(path, "/api/v1/dns") == 0) {
@@ -500,6 +566,52 @@ static void ch_api_route(ch_api_client *client) {
             client->server->runtime, "update_developer_settings",
             client->body.data == NULL ? "{}" : client->body.data,
             &json, &error);
+    } else if (strcmp(method, "PUT") == 0 &&
+               strcmp(path, "/api/v1/developer/map-rules") == 0) {
+        persistence_required = 1;
+        status = ch_runtime_mutate(
+            client->server->runtime, "replace_developer_map_rules",
+            client->body.data == NULL ? "{}" : client->body.data,
+            &json, &error);
+    } else if (strcmp(method, "PUT") == 0 &&
+               strcmp(path, "/api/v1/developer/breakpoint-rules") == 0) {
+        persistence_required = 1;
+        status = ch_runtime_mutate(
+            client->server->runtime, "replace_developer_breakpoint_rules",
+            client->body.data == NULL ? "{}" : client->body.data,
+            &json, &error);
+    } else if (strcmp(method, "PUT") == 0 &&
+               strcmp(path, "/api/v1/developer/rewrite-rules") == 0) {
+        persistence_required = 1;
+        status = ch_runtime_mutate(
+            client->server->runtime, "replace_developer_rewrite_rules",
+            client->body.data == NULL ? "{}" : client->body.data,
+            &json, &error);
+    } else if (strcmp(method, "DELETE") == 0 &&
+               (strncmp(path, "/api/v1/developer/map-rules/", 28U) == 0 ||
+                strncmp(path, "/api/v1/developer/breakpoint-rules/", 35U) == 0 ||
+                strncmp(path, "/api/v1/developer/rewrite-rules/", 32U) == 0)) {
+        const char *prefix = strncmp(
+            path, "/api/v1/developer/map-rules/", 28U) == 0 ?
+            "/api/v1/developer/map-rules/" :
+            (strncmp(path, "/api/v1/developer/breakpoint-rules/", 35U) == 0 ?
+                "/api/v1/developer/breakpoint-rules/" :
+                "/api/v1/developer/rewrite-rules/");
+        const char *operation = prefix[18] == 'm' ?
+            "delete_developer_map_rule" :
+            (prefix[18] == 'b' ? "delete_developer_breakpoint_rule" :
+                                "delete_developer_rewrite_rule");
+        char *request = ch_api_path_id_request_json(path, prefix, &error);
+        if (request == NULL) {
+            ch_api_runtime_error(client, error.code, &error);
+            free(profile_request);
+            free(path);
+            return;
+        }
+        persistence_required = 1;
+        status = ch_runtime_mutate(client->server->runtime, operation,
+                                   request, &json, &error);
+        free(request);
     } else if (strcmp(method, "POST") == 0 &&
                (strcmp(path, "/api/v1/rules/test") == 0 ||
                 strcmp(path, "/api/v1/routes/explain") == 0)) {
@@ -540,6 +652,9 @@ static void ch_api_route(ch_api_client *client) {
             strcmp(path, "/api/v1/rule-subscriptions") == 0 ||
             strcmp(path, "/api/v1/policy-groups/selection") == 0 ||
             strcmp(path, "/api/v1/developer/settings") == 0 ||
+            strcmp(path, "/api/v1/developer/map-rules") == 0 ||
+            strcmp(path, "/api/v1/developer/breakpoint-rules") == 0 ||
+            strcmp(path, "/api/v1/developer/rewrite-rules") == 0 ||
             strcmp(path, "/api/v1/rules/test") == 0 || strcmp(path, "/api/v1/routes/explain") == 0 ||
             strcmp(path, "/api/v1/config/export") == 0 ||
             strcmp(path, "/api/v1/config/import") == 0 ||

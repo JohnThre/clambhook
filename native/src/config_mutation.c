@@ -717,6 +717,134 @@ static ch_status mutation_apply_developer_settings(ch_json_value *root,
     return CH_OK;
 }
 
+static ch_status mutation_replace_developer_rules(ch_json_value *root,
+                                                  const ch_json_value *request,
+                                                  const char *config_key,
+                                                  bool rewrite,
+                                                  ch_error *error) {
+    ch_json_value *developer = mutation_ensure_object(root, "developer", error);
+    if (developer == NULL) return error->code;
+    const ch_json_value *rules = ch_json_object_get(request, "rules");
+    if (rules == NULL || ch_json_value_type(rules) == CH_JSON_NULL ||
+        (ch_json_value_type(rules) == CH_JSON_ARRAY &&
+         ch_json_array_size(rules) == 0U)) {
+        (void)ch_json_object_remove(developer, config_key);
+        return CH_OK;
+    }
+    if (ch_json_value_type(rules) != CH_JSON_ARRAY) {
+        return mutation_type_error("rules", "an array", error);
+    }
+    ch_json_value *next = ch_json_value_new_array();
+    if (next == NULL) {
+        ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                     "allocate developer rules");
+        return CH_ERROR_OUT_OF_MEMORY;
+    }
+    for (size_t index = 0U; index < ch_json_array_size(rules); ++index) {
+        const ch_json_value *source = ch_json_array_get(rules, index);
+        if (ch_json_value_type(source) != CH_JSON_OBJECT) {
+            ch_json_value_destroy(next);
+            return mutation_type_error("rules", "an array of objects", error);
+        }
+        ch_json_value *rule = ch_json_value_clone(source);
+        if (rule == NULL) {
+            ch_json_value_destroy(next);
+            ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                         "copy developer rule");
+            return CH_ERROR_OUT_OF_MEMORY;
+        }
+        if (ch_json_object_get(rule, "enabled") == NULL &&
+            mutation_set_owned(rule, "enabled",
+                               ch_json_value_new_bool(false), error) != CH_OK) {
+            ch_json_value_destroy(rule);
+            ch_json_value_destroy(next);
+            return error->code;
+        }
+        if (ch_json_object_get(rule, "match") == NULL &&
+            mutation_set_owned(rule, "match", ch_json_value_new_object(),
+                               error) != CH_OK) {
+            ch_json_value_destroy(rule);
+            ch_json_value_destroy(next);
+            return error->code;
+        }
+        if (rewrite) {
+            const ch_json_value *ops = ch_json_object_get(rule, "ops");
+            (void)ch_json_object_remove(rule, "op");
+            if (ops != NULL && ch_json_value_type(ops) != CH_JSON_NULL) {
+                if (ch_json_value_type(ops) != CH_JSON_ARRAY ||
+                    mutation_set_clone(rule, "op", ops, error) != CH_OK) {
+                    ch_json_value_destroy(rule);
+                    ch_json_value_destroy(next);
+                    if (error->code == CH_OK) {
+                        return mutation_type_error("ops", "an array", error);
+                    }
+                    return error->code;
+                }
+            }
+            (void)ch_json_object_remove(rule, "ops");
+        }
+        ch_status status = ch_json_array_append(next, rule, error);
+        if (status != CH_OK) {
+            ch_json_value_destroy(rule);
+            ch_json_value_destroy(next);
+            return status;
+        }
+    }
+    return mutation_set_owned(developer, config_key, next, error);
+}
+
+static ch_status mutation_delete_developer_rule(ch_json_value *root,
+                                                const ch_json_value *request,
+                                                const char *config_key,
+                                                ch_error *error) {
+    const char *id_text = ch_json_string_value(ch_json_object_get(request,
+                                                                  "id"));
+    char *id = id_text == NULL ? NULL : mutation_trimmed_copy(id_text);
+    if (id == NULL || id[0] == '\0') {
+        free(id);
+        ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
+                     "developer rule id is required");
+        return CH_ERROR_INVALID_ARGUMENT;
+    }
+    ch_json_value *developer = mutation_ensure_object(root, "developer", error);
+    if (developer == NULL) {
+        free(id);
+        return error->code;
+    }
+    const ch_json_value *rules = ch_json_object_get(developer, config_key);
+    ch_json_value *next = ch_json_value_new_array();
+    if (next == NULL) {
+        free(id);
+        ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                     "allocate developer rules");
+        return CH_ERROR_OUT_OF_MEMORY;
+    }
+    for (size_t index = 0U; index < ch_json_array_size(rules); ++index) {
+        const ch_json_value *rule = ch_json_array_get(rules, index);
+        const char *candidate = ch_json_string_value(
+            ch_json_object_get(rule, "id"));
+        if (candidate != NULL && strcmp(candidate, id) == 0) continue;
+        ch_json_value *copy = ch_json_value_clone(rule);
+        if (copy == NULL || ch_json_array_append(next, copy, error) != CH_OK) {
+            ch_json_value_destroy(copy);
+            ch_json_value_destroy(next);
+            free(id);
+            if (error->code == CH_OK) {
+                ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                             "copy developer rules");
+            }
+            return error->code;
+        }
+    }
+    free(id);
+    if (ch_json_array_size(next) == 0U) {
+        ch_json_value_destroy(next);
+        (void)ch_json_object_remove(developer, config_key);
+        return CH_OK;
+    }
+    return mutation_set_owned(developer, config_key, next, error);
+}
+
 static ch_status mutation_select_profile(ch_json_value *root,
                                          const ch_json_value *request,
                                          const char *fallback_profile,
@@ -1037,6 +1165,30 @@ ch_status ch_config_mutate_document_json(const ch_config *config,
     } else if (status == CH_OK &&
                strcmp(operation, "update_developer_settings") == 0) {
         status = mutation_apply_developer_settings(root, request, error);
+    } else if (status == CH_OK &&
+               strcmp(operation, "replace_developer_map_rules") == 0) {
+        status = mutation_replace_developer_rules(
+            root, request, "map_rule", false, error);
+    } else if (status == CH_OK &&
+               strcmp(operation, "replace_developer_breakpoint_rules") == 0) {
+        status = mutation_replace_developer_rules(
+            root, request, "breakpoint_rule", false, error);
+    } else if (status == CH_OK &&
+               strcmp(operation, "replace_developer_rewrite_rules") == 0) {
+        status = mutation_replace_developer_rules(
+            root, request, "rewrite_rule", true, error);
+    } else if (status == CH_OK &&
+               strcmp(operation, "delete_developer_map_rule") == 0) {
+        status = mutation_delete_developer_rule(
+            root, request, "map_rule", error);
+    } else if (status == CH_OK &&
+               strcmp(operation, "delete_developer_breakpoint_rule") == 0) {
+        status = mutation_delete_developer_rule(
+            root, request, "breakpoint_rule", error);
+    } else if (status == CH_OK &&
+               strcmp(operation, "delete_developer_rewrite_rule") == 0) {
+        status = mutation_delete_developer_rule(
+            root, request, "rewrite_rule", error);
     } else if (status == CH_OK) {
         ch_error_set(error, CH_ERROR_UNSUPPORTED,
                      "unknown configuration mutation operation");

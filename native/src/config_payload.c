@@ -435,6 +435,136 @@ static char *ch_config_developer_settings_payload_json(const ch_config *config,
     return result;
 }
 
+static char *replace_json_token(const char *input, const char *from,
+                                const char *to) {
+    if (input == NULL || from == NULL || to == NULL || from[0] == '\0') {
+        return NULL;
+    }
+    size_t from_length = strlen(from);
+    size_t to_length = strlen(to);
+    size_t count = 0U;
+    for (const char *cursor = input;
+         (cursor = strstr(cursor, from)) != NULL;
+         cursor += from_length) ++count;
+    size_t input_length = strlen(input);
+    if (to_length > from_length &&
+        count > (SIZE_MAX - input_length - 1U) / (to_length - from_length)) {
+        return NULL;
+    }
+    size_t output_length = input_length;
+    if (to_length >= from_length) {
+        output_length += count * (to_length - from_length);
+    } else {
+        output_length -= count * (from_length - to_length);
+    }
+    char *output = malloc(output_length + 1U);
+    if (output == NULL) return NULL;
+    const char *source = input;
+    char *destination = output;
+    const char *match;
+    while ((match = strstr(source, from)) != NULL) {
+        size_t prefix = (size_t)(match - source);
+        memcpy(destination, source, prefix);
+        destination += prefix;
+        memcpy(destination, to, to_length);
+        destination += to_length;
+        source = match + from_length;
+    }
+    strcpy(destination, source);
+    return output;
+}
+
+static char *ch_config_developer_rules_array_json(
+    const ch_config_table *developer, const char *config_key, bool rewrite,
+    ch_error *error) {
+    const ch_config_array *rules = developer == NULL ? NULL :
+        ch_config_table_get_array(developer, config_key);
+    char *json = config_array_json_or_empty(rules, error);
+    if (json == NULL || !rewrite) return json;
+    char *mapped = replace_json_token(json, "\"op\":", "\"ops\":");
+    free(json);
+    if (mapped == NULL) {
+        ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                     "map developer rewrite operations");
+    }
+    return mapped;
+}
+
+static char *ch_config_developer_collection_payload_json(
+    const ch_config *config, const char *config_key, bool rewrite,
+    ch_error *error) {
+    const ch_config_table *developer = ch_config_table_get_table(
+        ch_config_root(config), "developer");
+    char *rules = ch_config_developer_rules_array_json(
+        developer, config_key, rewrite, error);
+    if (rules == NULL) return NULL;
+    ch_json_buffer json;
+    ch_json_init(&json);
+    int okay = ch_json_append(&json, "{\"rules\":") &&
+        ch_json_append(&json, rules) && ch_json_append(&json, "}");
+    free(rules);
+    char *result = okay ? ch_json_take(&json) : NULL;
+    ch_json_dispose(&json);
+    if (result == NULL) {
+        ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                     "encode developer rules");
+    }
+    return result;
+}
+
+static char *ch_config_developer_persistence_payload_json(
+    const ch_config *config, ch_error *error) {
+    const ch_config_table *developer = ch_config_table_get_table(
+        ch_config_root(config), "developer");
+    char *settings = ch_config_developer_settings_payload_json(config, error);
+    char *ca_cert = optional_config_string(developer, "ca_cert_path");
+    char *ca_key = optional_config_string(developer, "ca_key_path");
+    char *map_rules = ch_config_developer_rules_array_json(
+        developer, "map_rule", false, error);
+    char *breakpoint_rules = ch_config_developer_rules_array_json(
+        developer, "breakpoint_rule", false, error);
+    char *rewrite_rules = ch_config_developer_rules_array_json(
+        developer, "rewrite_rule", true, error);
+    ch_json_buffer json;
+    ch_json_init(&json);
+    size_t settings_length = settings == NULL ? 0U : strlen(settings);
+    int okay = settings != NULL && settings_length > 0U &&
+        settings[settings_length - 1U] == '}' && ca_cert != NULL &&
+        ca_key != NULL && map_rules != NULL && breakpoint_rules != NULL &&
+        rewrite_rules != NULL && ch_json_append(&json, "{\"developer\":") &&
+        ch_json_append_bytes(&json, settings, settings_length - 1U);
+    if (okay && ca_cert[0] != '\0') {
+        okay = ch_json_append(&json, ",\"ca_cert_path\":") &&
+            ch_json_append_string(&json, ca_cert);
+    }
+    if (okay && ca_key[0] != '\0') {
+        okay = ch_json_append(&json, ",\"ca_key_path\":") &&
+            ch_json_append_string(&json, ca_key);
+    }
+    if (okay && strcmp(map_rules, "[]") != 0) {
+        okay = ch_json_append(&json, ",\"map_rules\":") &&
+            ch_json_append(&json, map_rules);
+    }
+    if (okay && strcmp(breakpoint_rules, "[]") != 0) {
+        okay = ch_json_append(&json, ",\"breakpoint_rules\":") &&
+            ch_json_append(&json, breakpoint_rules);
+    }
+    if (okay && strcmp(rewrite_rules, "[]") != 0) {
+        okay = ch_json_append(&json, ",\"rewrite_rules\":") &&
+            ch_json_append(&json, rewrite_rules);
+    }
+    if (okay) okay = ch_json_append(&json, "}}");
+    free(settings); free(ca_cert); free(ca_key); free(map_rules);
+    free(breakpoint_rules); free(rewrite_rules);
+    char *result = okay ? ch_json_take(&json) : NULL;
+    ch_json_dispose(&json);
+    if (result == NULL && (error == NULL || error->code == CH_OK)) {
+        ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                     "encode developer persistence response");
+    }
+    return result;
+}
+
 static char *ch_config_subscriptions_payload_json(const ch_config *config,
                                                   const char *profile_name,
                                                   ch_error *error) {
@@ -884,6 +1014,17 @@ char *ch_config_query_payload_json(const ch_config *config,
         result = ch_config_conditioner_payload_json(config, profile, error);
     } else if (strcmp(operation, "developer_settings") == 0) {
         result = ch_config_developer_settings_payload_json(config, error);
+    } else if (strcmp(operation, "developer_map_rules") == 0) {
+        result = ch_config_developer_collection_payload_json(
+            config, "map_rule", false, error);
+    } else if (strcmp(operation, "developer_breakpoint_rules") == 0) {
+        result = ch_config_developer_collection_payload_json(
+            config, "breakpoint_rule", false, error);
+    } else if (strcmp(operation, "developer_rewrite_rules") == 0) {
+        result = ch_config_developer_collection_payload_json(
+            config, "rewrite_rule", true, error);
+    } else if (strcmp(operation, "developer_persistence") == 0) {
+        result = ch_config_developer_persistence_payload_json(config, error);
     } else if (strcmp(operation, "rule_subscriptions") == 0) {
         result = ch_config_subscriptions_payload_json(config, profile, error);
     } else if (strcmp(operation, "rules_persistence") == 0) {

@@ -104,8 +104,11 @@ The additive CMake build currently provides:
   writes with bounded defaults, lowercase/trimmed redaction and TLS-host lists,
   the same first-enable HTTPS-capture acknowledgement requirement, invalid
   no-write behavior, and CA-path omission. This is configuration parity only;
-  native capture, MITM, CA management, replay, breakpoint, map, and rewrite
-  execution remain guarded.
+  map, breakpoint, and rewrite rule collections now support config-derived
+  reads, ordered replacement, and percent-decoded ID deletion with the
+  Go-compatible developer/backup response. The API maps wire `ops` to TOML
+  `op` without weakening validation. Native capture, MITM, CA management,
+  replay, breakpoint, map, and rewrite execution remain guarded.
   Configured proxy listeners participate in runtime start, stop, reload,
   profile switching, and status reporting;
 - `clambhook-linux-c`: an additive `GtkApplication` dashboard using GTK 4,

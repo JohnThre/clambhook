@@ -126,6 +126,11 @@ omission, first-enable HTTPS acknowledgement, invalid-update byte-for-byte
 no-write behavior, list normalization, retained backup, restart survival, and
 a live HTTP hash/write/readback smoke check. This does not satisfy the native
 developer capture/MITM data-plane gate.
+Developer map/breakpoint/rewrite collection fixtures add nested-table
+render/reparse validation, public `ops` mapping, complete persistence envelopes,
+restart preservation, target-only deletion, encoded-path ID handling, and live
+HTTP replace/read/delete coverage. Execution of those rules remains a separate
+native data-plane gate.
 The shared runtime continues to compile for every packaged Android ABI, and the
 connected Pixel 3a XL on Android 12/API 32 again passed all six instrumentation
 tests after this collection-persistence checkpoint.

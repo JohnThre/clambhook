@@ -646,6 +646,53 @@ void ch_test_runtime(void) {
         CH_TEST_ASSERT(strstr(json, "\"ca_key_path\"") == NULL);
         CH_TEST_ASSERT(strstr(json, "\"backup_path\":\"") != NULL);
         ch_string_free(json);
+        CH_TEST_ASSERT(ch_runtime_mutate(
+            runtime, "replace_developer_map_rules",
+            "{\"rules\":[{\"id\":\"map-1\",\"enabled\":true,"
+            "\"match\":{\"methods\":[\"GET\"],"
+            "\"host\":\"api.example\"},\"kind\":\"local\","
+            "\"local_path\":\"/tmp/reply.json\"}]}",
+            &json, &error) == CH_OK);
+        CH_TEST_ASSERT(strstr(json, "\"developer\":{") != NULL);
+        CH_TEST_ASSERT(strstr(json, "\"map_rules\":[{\"id\":\"map-1\"") !=
+                       NULL);
+        CH_TEST_ASSERT(strstr(json, "\"backup_path\":\"") != NULL);
+        ch_string_free(json);
+        CH_TEST_ASSERT(ch_runtime_mutate(
+            runtime, "replace_developer_breakpoint_rules",
+            "{\"rules\":[{\"id\":\"bp-1\",\"enabled\":true,"
+            "\"match\":{},\"stage\":\"request\"}]}",
+            &json, &error) == CH_OK);
+        CH_TEST_ASSERT(strstr(json, "\"breakpoint_rules\":[{"
+                                    "\"id\":\"bp-1\"") != NULL);
+        ch_string_free(json);
+        CH_TEST_ASSERT(ch_runtime_mutate(
+            runtime, "replace_developer_rewrite_rules",
+            "{\"rules\":[{\"id\":\"rw-1\",\"enabled\":true,"
+            "\"match\":{\"host\":\"api.example\"},"
+            "\"stage\":\"request\",\"ops\":[{"
+            "\"target\":\"header\",\"action\":\"set\","
+            "\"field\":\"X-Test\",\"value\":\"native\"}]}]}",
+            &json, &error) == CH_OK);
+        CH_TEST_ASSERT(strstr(json, "\"rewrite_rules\":[{"
+                                    "\"id\":\"rw-1\"") != NULL);
+        CH_TEST_ASSERT(strstr(json, "\"ops\":[{\"target\":\"header\"") !=
+                       NULL);
+        CH_TEST_ASSERT(strstr(json, "\"op\":") == NULL);
+        ch_string_free(json);
+        CH_TEST_ASSERT(ch_runtime_query(
+            runtime, "developer_rewrite_rules", "{}", &json,
+            &error) == CH_OK);
+        CH_TEST_ASSERT(strstr(json, "\"rules\":[{\"id\":\"rw-1\"") !=
+                       NULL);
+        CH_TEST_ASSERT(strstr(json, "\"ops\":[{") != NULL);
+        ch_string_free(json);
+        CH_TEST_ASSERT(ch_runtime_mutate(
+            runtime, "delete_developer_rewrite_rule",
+            "{\"id\":\"rw-1\"}", &json, &error) == CH_OK);
+        CH_TEST_ASSERT(strstr(json, "\"rewrite_rules\"") == NULL);
+        CH_TEST_ASSERT(strstr(json, "\"map_rules\":[{") != NULL);
+        ch_string_free(json);
         CH_TEST_ASSERT(ch_runtime_query(
             runtime, "dns", "{}", &json, &error) == CH_OK);
         CH_TEST_ASSERT(strstr(json, "\"profile\":\"rich\"") != NULL);

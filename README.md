@@ -241,7 +241,11 @@ subscription base status with strict profile selection. Developer settings
 reads and transactional writes now apply Go-compatible defaults, enforce the
 explicit HTTPS-capture acknowledgement, normalize redaction/host lists, and
 never expose CA key or certificate paths. The C developer capture/MITM engine
-itself remains gated. Rule cleanup/from-
+itself remains gated. Developer map, breakpoint, and rewrite rule reads,
+ordered replacement, and ID deletion now persist through the same transaction;
+responses retain the public `ops` wire name while TOML uses `op`. These rules
+are configuration-only until the native developer engine executes them. Rule
+cleanup/from-
 connection creation, remote collection refresh, cache-enriched
 subscription status and DNS upstream route annotations remain gated. Android
 exercises the same requested-profile contract over JNI and keeps its app-owned
