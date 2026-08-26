@@ -207,7 +207,10 @@ reuse, encrypted-DNS port-53 interception, and TTL-bounded A/AAAA domain
 recovery for rule matching. A bounded pre-routing reassembler rejects fragment
 overlaps, expires incomplete IPv4/IPv6 datagrams, and supports common IPv6
 option/routing/authentication extension chains. Android native transport
-linkage and platform TUN lifecycle remain gated. The
+linkage now covers rule-enforced direct TCP/UDP, with a C-owned periodic packet
+timer and transactional active-profile rule rebuilds. A delayed UDP round trip
+passes on the Android 11/API 30 floor. Encrypted Android transport linkage and
+the production platform TUN lifecycle remain gated. The
 additive native DNS library now provides route-planned DoH and DoT, Control D
 expansion/bootstrap hygiene, response correlation validation, upstream
 failover, and SERVFAIL generation; it deliberately rejects DoQ rather than

@@ -83,7 +83,7 @@ descriptor echo, IPv4/IPv6 UDP session reuse and tuple/checksum restoration,
 encrypted-DNS port-53 interception and domain recovery, direct TUN route
 dialing, bounded out-of-order IPv4/IPv6 fragment reassembly with overlap
 rejection, common IPv6 extension-chain parsing, and Android JNI packet callback
-compilation),
+compilation plus an API 30 delayed direct-UDP round trip),
 plus `make build-linux-gtk` alongside the existing distro harness. Production
 packages stay on their current binaries until the native packaging gate in
 [`c-migration.md`](c-migration.md) passes. See
@@ -97,8 +97,9 @@ details. For a release, `make release-linux` builds the
 Android validates on the developer's machine. The GUI is Kotlin/Jetpack Compose
 with an Android 11 (API 30) floor. During runtime migration Gradle packages the
 NDK-built C/JNI runtime alongside the gomobile rollback AAR. The focused native
-configuration/dashboard/route-explanation and raw-packet callback test must
-pass on API 30; unit tests, lint, and the debug build run on Gradle; Google's
+configuration/dashboard/route-explanation, profile-rule rebuild, raw-packet
+callback, and direct-UDP/timer tests must pass on API 30; unit tests, lint, and
+the debug build run on Gradle; Google's
 `android` CLI is the default for the on-device dev loop, using an Android SDK
 Emulator (AVD) for local CI/CD (Apple `container` is Linux-only and cannot run
 Android).

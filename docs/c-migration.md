@@ -180,7 +180,12 @@ the IPv6 Fragment header before transport translation. Common IPv6 hop-by-hop,
 routing, destination-options, and authentication extension chains are parsed
 with depth and size limits. Incomplete TCP handshakes now expire after thirty
 seconds and abort their private lwIP PCB before releasing the mapping. Android
-native transport linkage and platform TUN lifecycle tests remain open.
+now wires rule-enforced direct TCP and UDP sockets into that shared stack. A
+C-owned ten-millisecond timer receives delayed remote packets without Kotlin
+polling, active-profile changes transactionally rebuild the compiled rules and
+packet stack with rollback, and an API 30 device test verifies an actual
+loopback UDP request/reply. Android encrypted transport linkage and the
+production platform TUN lifecycle tests remain open.
 
 Native process attribution is best-effort at the operating-system boundary,
 matching the rollback contract when permissions hide another process. It
@@ -243,8 +248,11 @@ production tunnel factory still selects the gomobile rollback runtime until
 the remaining runtime/API/VPN operations pass parity. A focused managed-device
 test loads TOML in C and exercises start, stop, status, profiles, server/rule
 payload decoding, profile switching, compiled-rule route explanations, and a
-raw IPv4 packet round trip over JNI; both focused cases pass on the API 30
-floor. API 33/36 remain mandatory before cutover.
+raw IPv4 packet round trip over JNI. A third focused case sends a raw IPv4 UDP
+request through the C direct socket path and verifies that the independent C
+timer returns the delayed reply through the JNI packet callback. The three
+focused cases pass on the API 30 floor; the complete managed-device run is six
+of six. API 33/36 remain mandatory before cutover.
 
 ## Cutover gates
 
@@ -266,7 +274,9 @@ Cutover is allowed only after all of the following are green:
    bridging, IPv4/IPv6 UDP session forwarding, encrypted-DNS interception,
    TTL-bounded domain recovery, out-of-order fragment reassembly and overlap
    rejection, common IPv6 extension parsing, ICMP injection, checksum
-   rewriting, direct route dialing, and runtime lifecycle fixtures are green.
+   rewriting, direct route dialing, Android direct UDP/timer/profile-switching,
+   and runtime lifecycle fixtures are green. Android encrypted transport and
+   production VPN lifecycle rows remain open.
 4. GTK functional/accessibility QA matches the current Linux feature set.
 5. Android unit, lint, build, Compose instrumentation, VPN, background, and
    process-restart tests pass on API 30, 33, and 36.
