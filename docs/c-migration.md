@@ -100,6 +100,12 @@ The additive CMake build currently provides:
   results; active native health probes are not yet claimed. Rule cleanup/from-
   connection creation, remote collection refresh, subscription cache
   enrichment, and DNS upstream route annotations are also still gated.
+  `/api/v1/developer/settings` now has config-derived reads and transactional
+  writes with bounded defaults, lowercase/trimmed redaction and TLS-host lists,
+  the same first-enable HTTPS-capture acknowledgement requirement, invalid
+  no-write behavior, and CA-path omission. This is configuration parity only;
+  native capture, MITM, CA management, replay, breakpoint, map, and rewrite
+  execution remain guarded.
   Configured proxy listeners participate in runtime start, stop, reload,
   profile switching, and status reporting;
 - `clambhook-linux-c`: an additive `GtkApplication` dashboard using GTK 4,

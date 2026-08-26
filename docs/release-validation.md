@@ -121,6 +121,11 @@ restart, exact response-envelope, and live HTTP write/read fixtures. The
 manual policy-selection fixture additionally checks group type/membership,
 config-derived snapshot defaults, nested response compatibility, backup, and
 restart persistence; active health-probe result parity remains a separate gate.
+Developer-settings fixtures verify default limits/redaction lists, CA-path
+omission, first-enable HTTPS acknowledgement, invalid-update byte-for-byte
+no-write behavior, list normalization, retained backup, restart survival, and
+a live HTTP hash/write/readback smoke check. This does not satisfy the native
+developer capture/MITM data-plane gate.
 The shared runtime continues to compile for every packaged Android ABI, and the
 connected Pixel 3a XL on Android 12/API 32 again passed all six instrumentation
 tests after this collection-persistence checkpoint.

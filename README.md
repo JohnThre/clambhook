@@ -237,7 +237,11 @@ export/import now round-trips validated TOML with a 4 MiB
 transfer limit, attachment metadata, atomic backup, transactional live reload,
 and disk rollback on apply failure. Config-derived GET coverage now also
 includes DNS, listener/TUN/DNS/prompt settings, conditioner state, and rule
-subscription base status with strict profile selection. Rule cleanup/from-
+subscription base status with strict profile selection. Developer settings
+reads and transactional writes now apply Go-compatible defaults, enforce the
+explicit HTTPS-capture acknowledgement, normalize redaction/host lists, and
+never expose CA key or certificate paths. The C developer capture/MITM engine
+itself remains gated. Rule cleanup/from-
 connection creation, remote collection refresh, cache-enriched
 subscription status and DNS upstream route annotations remain gated. Android
 exercises the same requested-profile contract over JNI and keeps its app-owned

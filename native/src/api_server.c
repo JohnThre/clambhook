@@ -434,6 +434,8 @@ static void ch_api_route(ch_api_client *client) {
         status = ch_runtime_query(client->server->runtime, "config_settings", profile_request, &json, &error);
     } else if (strcmp(method, "GET") == 0 && strcmp(path, "/api/v1/conditioner") == 0) {
         status = ch_runtime_query(client->server->runtime, "conditioner", profile_request, &json, &error);
+    } else if (strcmp(method, "GET") == 0 && strcmp(path, "/api/v1/developer/settings") == 0) {
+        status = ch_runtime_query(client->server->runtime, "developer_settings", "{}", &json, &error);
     } else if (strcmp(method, "GET") == 0 && strcmp(path, "/api/v1/rule-subscriptions") == 0) {
         status = ch_runtime_query(client->server->runtime, "rule_subscriptions", profile_request, &json, &error);
     } else if (strcmp(method, "PUT") == 0 && strcmp(path, "/api/v1/dns") == 0) {
@@ -491,6 +493,13 @@ static void ch_api_route(ch_api_client *client) {
             client->server->runtime, "select_policy_group",
             client->body.data == NULL ? "{}" : client->body.data,
             &json, &error);
+    } else if (strcmp(method, "PUT") == 0 &&
+               strcmp(path, "/api/v1/developer/settings") == 0) {
+        persistence_required = 1;
+        status = ch_runtime_mutate(
+            client->server->runtime, "update_developer_settings",
+            client->body.data == NULL ? "{}" : client->body.data,
+            &json, &error);
     } else if (strcmp(method, "POST") == 0 &&
                (strcmp(path, "/api/v1/rules/test") == 0 ||
                 strcmp(path, "/api/v1/routes/explain") == 0)) {
@@ -530,6 +539,7 @@ static void ch_api_route(ch_api_client *client) {
             strcmp(path, "/api/v1/conditioner") == 0 ||
             strcmp(path, "/api/v1/rule-subscriptions") == 0 ||
             strcmp(path, "/api/v1/policy-groups/selection") == 0 ||
+            strcmp(path, "/api/v1/developer/settings") == 0 ||
             strcmp(path, "/api/v1/rules/test") == 0 || strcmp(path, "/api/v1/routes/explain") == 0 ||
             strcmp(path, "/api/v1/config/export") == 0 ||
             strcmp(path, "/api/v1/config/import") == 0 ||

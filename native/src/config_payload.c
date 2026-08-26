@@ -368,6 +368,73 @@ static char *ch_config_conditioner_payload_json(const ch_config *config,
     return result;
 }
 
+static char *ch_config_developer_settings_payload_json(const ch_config *config,
+                                                       ch_error *error) {
+    static const char default_headers[] =
+        "[\"authorization\",\"proxy-authorization\",\"cookie\","
+        "\"set-cookie\",\"x-api-key\",\"api-key\",\"x-auth-token\","
+        "\"x-csrf-token\",\"x-xsrf-token\",\"csrf-token\",\"xsrf-token\"]";
+    static const char default_query[] =
+        "[\"token\",\"access_token\",\"refresh_token\",\"id_token\","
+        "\"api_key\",\"apikey\",\"key\",\"secret\",\"password\","
+        "\"passwd\",\"code\",\"session\",\"auth\"]";
+    const ch_config_table *developer = ch_config_table_get_table(
+        ch_config_root(config), "developer");
+    const ch_config_array *header_array = developer == NULL ? NULL :
+        ch_config_table_get_array(developer, "redact_headers");
+    const ch_config_array *query_array = developer == NULL ? NULL :
+        ch_config_table_get_array(developer, "redact_query_params");
+    const ch_config_array *hosts_array = developer == NULL ? NULL :
+        ch_config_table_get_array(developer, "ssl_decrypt_hosts");
+    char *headers = ch_config_array_count(header_array) == 0U ?
+        ch_strdup(default_headers) : config_array_json_or_empty(header_array,
+                                                                error);
+    char *query = ch_config_array_count(query_array) == 0U ?
+        ch_strdup(default_query) : config_array_json_or_empty(query_array,
+                                                              error);
+    char *hosts = config_array_json_or_empty(hosts_array, error);
+    int64_t capture_limit = optional_config_int(developer, "capture_limit", 0);
+    int64_t body_limit = optional_config_int(developer, "body_limit_bytes", 0);
+    int64_t header_limit = optional_config_int(
+        developer, "header_value_limit_bytes", 0);
+    if (capture_limit == 0) capture_limit = 200;
+    if (body_limit == 0) body_limit = 65536;
+    if (header_limit == 0) header_limit = 8192;
+    ch_json_buffer json;
+    ch_json_init(&json);
+    int okay = headers != NULL && query != NULL && hosts != NULL &&
+        ch_json_append_format(
+            &json,
+            "{\"enabled\":%s,\"mitm_enabled\":%s,"
+            "\"no_cache_enabled\":%s,\"capture_limit\":%" PRId64
+            ",\"body_limit_bytes\":%" PRId64
+            ",\"header_value_limit_bytes\":%" PRId64,
+            optional_config_bool(developer, "enabled", false) ? "true" :
+                "false",
+            optional_config_bool(developer, "mitm_enabled", false) ? "true" :
+                "false",
+            optional_config_bool(developer, "no_cache_enabled", false) ?
+                "true" : "false",
+            capture_limit, body_limit, header_limit) &&
+        ch_json_append(&json, ",\"redact_headers\":") &&
+        ch_json_append(&json, headers) &&
+        ch_json_append(&json, ",\"redact_query_params\":") &&
+        ch_json_append(&json, query);
+    if (okay && ch_config_array_count(hosts_array) > 0U) {
+        okay = ch_json_append(&json, ",\"ssl_decrypt_hosts\":") &&
+            ch_json_append(&json, hosts);
+    }
+    if (okay) okay = ch_json_append(&json, "}");
+    free(headers); free(query); free(hosts);
+    char *result = okay ? ch_json_take(&json) : NULL;
+    ch_json_dispose(&json);
+    if (result == NULL && (error == NULL || error->code == CH_OK)) {
+        ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                     "encode developer settings");
+    }
+    return result;
+}
+
 static char *ch_config_subscriptions_payload_json(const ch_config *config,
                                                   const char *profile_name,
                                                   ch_error *error) {
@@ -815,6 +882,8 @@ char *ch_config_query_payload_json(const ch_config *config,
         result = ch_config_settings_payload_json(config, profile, error);
     } else if (strcmp(operation, "conditioner") == 0) {
         result = ch_config_conditioner_payload_json(config, profile, error);
+    } else if (strcmp(operation, "developer_settings") == 0) {
+        result = ch_config_developer_settings_payload_json(config, error);
     } else if (strcmp(operation, "rule_subscriptions") == 0) {
         result = ch_config_subscriptions_payload_json(config, profile, error);
     } else if (strcmp(operation, "rules_persistence") == 0) {
