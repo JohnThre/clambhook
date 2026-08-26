@@ -32,6 +32,23 @@ void ch_test_json(void) {
     const ch_json_value *numbers = ch_json_object_get(root, "numbers");
     CH_TEST_ASSERT(ch_json_array_size(numbers) == 3U);
     CH_TEST_ASSERT(ch_json_number_value(ch_json_array_get(numbers, 1U), 0.0) == -12.5);
+    ch_json_value *copy = ch_json_value_clone(root);
+    CH_TEST_ASSERT(copy != NULL);
+    CH_TEST_ASSERT(ch_json_object_set(
+        copy, "enabled", ch_json_value_new_bool(false), &error) == CH_OK);
+    CH_TEST_ASSERT(!ch_json_bool_value(ch_json_object_get(copy, "enabled"),
+                                      true));
+    CH_TEST_ASSERT(ch_json_bool_value(ch_json_object_get(root, "enabled"),
+                                     false));
+    CH_TEST_ASSERT(ch_json_object_set(
+        copy, "label", ch_json_value_new_string("native"), &error) == CH_OK);
+    CH_TEST_ASSERT_STRING(
+        "native", ch_json_string_value(ch_json_object_get(copy, "label")));
+    CH_TEST_ASSERT(ch_json_object_remove(copy, "nothing"));
+    CH_TEST_ASSERT(ch_json_object_get(copy, "nothing") == NULL);
+    CH_TEST_ASSERT(ch_json_array_get_mutable(
+        ch_json_object_get_mutable(copy, "numbers"), 2U) != NULL);
+    ch_json_value_destroy(copy);
     ch_json_value_destroy(root);
 
     const char invalid[] = "{\"bad\": [1,]}";

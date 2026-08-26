@@ -83,8 +83,15 @@ The additive CMake build currently provides:
   Config-derived reads also cover `/api/v1/dns`,
   `/api/v1/config/settings`, `/api/v1/conditioner`, and
   `/api/v1/rule-subscriptions`, including requested-profile 404 behavior and
-  normalized empty/default fields. Subscription cache enrichment and DNS
-  upstream route annotations are not yet claimed.
+  normalized empty/default fields. `PUT` support for the DNS, settings, and
+  conditioner endpoints now uses one typed JSON-tree mutation path and a
+  complete semantic TOML renderer. File-backed mutations retain an atomic
+  backup, validate the rendered document before writing, apply it to the live
+  runtime transactionally, and restore the previous file and runtime when a
+  new listener cannot start. The writer preserves the live active profile
+  selected by a network trigger rather than reverting to a stale disk
+  selection. Subscription cache enrichment and DNS upstream route annotations
+  are not yet claimed.
   Configured proxy listeners participate in runtime start, stop, reload,
   profile switching, and status reporting;
 - `clambhook-linux-c`: an additive `GtkApplication` dashboard using GTK 4,

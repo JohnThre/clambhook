@@ -234,6 +234,26 @@ static char *ch_runtime_import_result_json(ch_runtime *runtime,
     return result;
 }
 
+static char *ch_runtime_json_with_backup(char *payload,
+                                         const char *backup_path) {
+    if (payload == NULL) return NULL;
+    size_t length = strlen(payload);
+    if (length == 0U || payload[length - 1U] != '}') {
+        free(payload);
+        return NULL;
+    }
+    ch_json_buffer json;
+    ch_json_init(&json);
+    int okay = ch_json_append_bytes(&json, payload, length - 1U) &&
+        ch_json_append(&json, ",\"backup_path\":") &&
+        ch_json_append_string(&json, backup_path == NULL ? "" : backup_path) &&
+        ch_json_append(&json, "}");
+    free(payload);
+    char *result = okay ? ch_json_take(&json) : NULL;
+    ch_json_dispose(&json);
+    return result;
+}
+
 static void ch_command_fail(ch_command *command, ch_status status, const char *message) {
     command->status = status;
     ch_error_set(&command->error, status, "%s", message);
@@ -990,6 +1010,91 @@ static bool ch_runtime_import_config(ch_runtime *runtime,
     return true;
 }
 
+static bool ch_runtime_persist_config_mutation(ch_runtime *runtime,
+                                               const char *mutation,
+                                               const char *response_operation,
+                                               const char *request_json,
+                                               bool include_backup,
+                                               ch_command *command) {
+    if (runtime->config_path == NULL || runtime->config_path[0] == '\0') {
+        ch_command_fail(command, CH_ERROR_INVALID_STATE,
+                        "configuration persistence requires daemon config path");
+        return false;
+    }
+    char *path = ch_strdup(runtime->config_path);
+    ch_config *disk_config = NULL;
+    char *document = NULL;
+    char *backup_path = NULL;
+    ch_error config_error;
+    if (path == NULL) {
+        ch_command_fail(command, CH_ERROR_OUT_OF_MEMORY, "copy config path");
+        return false;
+    }
+    ch_status status = ch_config_load(path, &disk_config, &config_error);
+    if (status == CH_OK) {
+        status = ch_config_mutate_document_json(
+            disk_config, runtime->active_profile, mutation, request_json,
+            &document, &config_error);
+    }
+    if (status == CH_OK) {
+        status = ch_config_write_atomic_document(path, document, &backup_path,
+                                                 &config_error);
+    }
+    if (status != CH_OK) {
+        command->status = status;
+        command->error = config_error;
+        free(backup_path);
+        free(document);
+        ch_config_free(disk_config);
+        free(path);
+        return false;
+    }
+    bool running = atomic_load_explicit(&runtime->running,
+                                        memory_order_acquire);
+    if (!ch_runtime_apply_config(runtime, command, path, running)) {
+        ch_status apply_status = command->status;
+        ch_error apply_error = command->error;
+        ch_error restore_error;
+        ch_status restore_status = ch_config_write_atomic_document(
+            path, ch_config_document(disk_config), NULL, &restore_error);
+        if (restore_status != CH_OK) {
+            ch_error_set(&command->error, CH_ERROR_INTERNAL,
+                         "%s; restore config: %s", apply_error.message,
+                         restore_error.message);
+            command->status = CH_ERROR_INTERNAL;
+        } else {
+            command->status = apply_status;
+            command->error = apply_error;
+        }
+        free(backup_path);
+        free(document);
+        ch_config_free(disk_config);
+        free(path);
+        return false;
+    }
+    ch_runtime_refresh_network_watcher(runtime);
+    command->response = ch_config_query_payload_json(
+        runtime->config, runtime->active_profile, response_operation,
+        request_json, &command->error);
+    if (command->response == NULL) {
+        command->status = command->error.code == CH_OK ?
+            CH_ERROR_OUT_OF_MEMORY : command->error.code;
+    } else if (include_backup) {
+        command->response = ch_runtime_json_with_backup(command->response,
+                                                        backup_path);
+        if (command->response == NULL) {
+            command->status = CH_ERROR_OUT_OF_MEMORY;
+            ch_error_set(&command->error, CH_ERROR_OUT_OF_MEMORY,
+                         "encode configuration persistence response");
+        }
+    }
+    free(backup_path);
+    free(document);
+    ch_config_free(disk_config);
+    free(path);
+    return command->status == CH_OK;
+}
+
 static void ch_command_process(ch_runtime *runtime, ch_command *command) {
     command->status = CH_OK;
     ch_error_clear(&command->error);
@@ -1166,6 +1271,20 @@ static void ch_command_process(ch_runtime *runtime, ch_command *command) {
                                               command)) {
                     break;
                 }
+            } else if (strcmp(command->operation, "update_dns") == 0) {
+                if (!ch_runtime_persist_config_mutation(
+                        runtime, "update_dns", "dns", command->payload,
+                        false, command)) break;
+            } else if (strcmp(command->operation,
+                              "update_conditioner") == 0) {
+                if (!ch_runtime_persist_config_mutation(
+                        runtime, "update_conditioner", "conditioner",
+                        command->payload, true, command)) break;
+            } else if (strcmp(command->operation,
+                              "update_config_settings") == 0) {
+                if (!ch_runtime_persist_config_mutation(
+                        runtime, "update_config_settings", "config_settings",
+                        command->payload, true, command)) break;
             } else {
                 ch_command_fail(command, CH_ERROR_UNSUPPORTED, "unknown runtime mutation operation");
                 break;

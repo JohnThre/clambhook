@@ -1,9 +1,13 @@
 #include "test.h"
 
+#include <arpa/inet.h>
+#include <dirent.h>
+#include <netinet/in.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/socket.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -74,6 +78,63 @@ static void runtime_assert_config_profile(const char *path,
     CH_TEST_ASSERT_STRING(expected, name);
     free(name);
     ch_config_free(config);
+}
+
+static void runtime_remove_config_backups(const char *path) {
+    const char *separator = strrchr(path, '/');
+    const char *name = separator == NULL ? path : separator + 1U;
+    char directory[256];
+    size_t directory_length = separator == NULL ? 1U :
+        (size_t)(separator - path);
+    CH_TEST_ASSERT(directory_length < sizeof(directory));
+    if (separator == NULL) {
+        (void)snprintf(directory, sizeof(directory), ".");
+    } else if (directory_length == 0U) {
+        (void)snprintf(directory, sizeof(directory), "/");
+    } else {
+        memcpy(directory, path, directory_length);
+        directory[directory_length] = '\0';
+    }
+    DIR *stream = opendir(directory);
+    CH_TEST_ASSERT(stream != NULL);
+    struct dirent *entry;
+    size_t name_length = strlen(name);
+    while ((entry = readdir(stream)) != NULL) {
+        size_t length = strlen(entry->d_name);
+        if (length <= name_length + 5U ||
+            strncmp(entry->d_name, name, name_length) != 0 ||
+            entry->d_name[name_length] != '.' ||
+            strcmp(entry->d_name + length - 4U, ".bak") != 0) {
+            continue;
+        }
+        char backup_path[512];
+        (void)snprintf(backup_path, sizeof(backup_path), "%s/%s", directory,
+                       entry->d_name);
+        CH_TEST_ASSERT(unlink(backup_path) == 0);
+    }
+    CH_TEST_ASSERT(closedir(stream) == 0);
+}
+
+static int runtime_block_loopback_port(uint16_t *out_port) {
+    int descriptor = socket(AF_INET, SOCK_STREAM, 0);
+    if (descriptor < 0) return -1;
+    struct sockaddr_in address;
+    memset(&address, 0, sizeof(address));
+    address.sin_family = AF_INET;
+    address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    address.sin_port = 0;
+    if (bind(descriptor, (const struct sockaddr *)&address, sizeof(address)) !=
+            0 || listen(descriptor, 1) != 0) {
+        (void)close(descriptor);
+        return -1;
+    }
+    socklen_t length = (socklen_t)sizeof(address);
+    if (getsockname(descriptor, (struct sockaddr *)&address, &length) != 0) {
+        (void)close(descriptor);
+        return -1;
+    }
+    *out_port = ntohs(address.sin_port);
+    return descriptor;
 }
 
 void ch_test_runtime(void) {
@@ -576,7 +637,110 @@ void ch_test_runtime(void) {
         CH_TEST_ASSERT(ch_runtime_query(
             runtime, "dns", "{\"profile\":\"missing\"}", &json,
             &error) == CH_ERROR_NOT_FOUND);
+        CH_TEST_ASSERT(ch_runtime_mutate(
+            runtime, "update_conditioner",
+            "{\"profile\":\"rich\",\"download_kbps\":4096,"
+            "\"latency\":\"75ms\"}", &json, &error) == CH_OK);
+        CH_TEST_ASSERT(strstr(json, "\"download_kbps\":4096") != NULL);
+        CH_TEST_ASSERT(strstr(json, "\"upload_kbps\":1024") != NULL);
+        CH_TEST_ASSERT(strstr(json, "\"latency\":\"75ms\"") != NULL);
+        CH_TEST_ASSERT(strstr(json, "\"backup_path\":\"") != NULL);
+        ch_string_free(json);
+        CH_TEST_ASSERT(ch_runtime_query(
+            runtime, "config_export", NULL, &json, &error) == CH_OK);
+        char *before_invalid = strdup(json);
+        CH_TEST_ASSERT(before_invalid != NULL);
+        ch_string_free(json);
+        CH_TEST_ASSERT(ch_runtime_mutate(
+            runtime, "update_conditioner", "{\"loss_percent\":101}",
+            &json, &error) == CH_ERROR_INVALID_ARGUMENT);
+        CH_TEST_ASSERT(ch_runtime_query(
+            runtime, "config_export", NULL, &json, &error) == CH_OK);
+        CH_TEST_ASSERT_STRING(before_invalid, json);
+        free(before_invalid);
+        ch_string_free(json);
+        CH_TEST_ASSERT(ch_runtime_mutate(
+            runtime, "update_dns",
+            "{\"profile\":\"rich\",\"enabled\":false,"
+            "\"upstreams\":[]}", &json, &error) == CH_OK);
+        CH_TEST_ASSERT(strstr(json, "\"strategy\":\"route\"") != NULL);
+        CH_TEST_ASSERT(strstr(json, "\"enabled\":false") != NULL);
+        ch_string_free(json);
+        CH_TEST_ASSERT(ch_runtime_mutate(
+            runtime, "update_config_settings",
+            "{\"profile\":\"rich\",\"listen\":{"
+            "\"http\":\" 127.0.0.1:18080 \"},\"prompt\":{"
+            "\"silent_mode\":\"deny\"}}",
+            &json, &error) == CH_OK);
+        CH_TEST_ASSERT(strstr(json, "\"http\":\"127.0.0.1:18080\"") !=
+                       NULL);
+        CH_TEST_ASSERT(strstr(json, "\"silent_mode\":\"deny\"") != NULL);
+        CH_TEST_ASSERT(strstr(json, "\"backup_path\":\"") != NULL);
+        ch_string_free(json);
+        ch_runtime_destroy(runtime);
+        runtime = ch_runtime_create(NULL, &error);
+        CH_TEST_ASSERT(runtime != NULL);
+        CH_TEST_ASSERT(ch_runtime_reload(runtime, path, &error) == CH_OK);
+        CH_TEST_ASSERT(ch_runtime_query(
+            runtime, "config_settings", "{}", &json, &error) == CH_OK);
+        CH_TEST_ASSERT(strstr(json, "\"http\":\"127.0.0.1:18080\"") !=
+                       NULL);
+        CH_TEST_ASSERT(strstr(json, "\"silent_mode\":\"deny\"") != NULL);
+        ch_string_free(json);
         ch_runtime_destroy(runtime);
         CH_TEST_ASSERT(unlink(path) == 0);
+        runtime_remove_config_backups(path);
+    }
+
+    {
+        char path[160];
+        (void)snprintf(path, sizeof(path),
+                       "/tmp/clambhook-live-mutation-runtime-%ld.toml",
+                       (long)getpid());
+        FILE *file = fopen(path, "wb");
+        CH_TEST_ASSERT(file != NULL);
+        CH_TEST_ASSERT(fputs(
+            "active = \"live\"\n"
+            "[[profile]]\nname = \"live\"\n"
+            "[[profile.chain]]\nname = \"direct\"\n"
+            "[[profile.chain.server]]\nprotocol = \"direct\"\n",
+            file) >= 0);
+        CH_TEST_ASSERT(fclose(file) == 0);
+        runtime = ch_runtime_create(NULL, &error);
+        CH_TEST_ASSERT(runtime != NULL);
+        CH_TEST_ASSERT(ch_runtime_start(runtime, path, &error) == CH_OK);
+        CH_TEST_ASSERT(ch_runtime_query(
+            runtime, "config_export", NULL, &json, &error) == CH_OK);
+        char *before = strdup(json);
+        CH_TEST_ASSERT(before != NULL);
+        ch_string_free(json);
+        uint16_t blocked_port = 0U;
+        int blocker = runtime_block_loopback_port(&blocked_port);
+        CH_TEST_ASSERT(blocker >= 0 && blocked_port > 0U);
+        char request[256];
+        (void)snprintf(
+            request, sizeof(request),
+            "{\"listen\":{\"http\":\"127.0.0.1:%u\","
+            "\"http_chain\":\"direct\"}}", (unsigned)blocked_port);
+        CH_TEST_ASSERT(ch_runtime_mutate(
+            runtime, "update_config_settings", request, &json, &error) !=
+            CH_OK);
+        CH_TEST_ASSERT(ch_runtime_is_running(runtime));
+        CH_TEST_ASSERT(ch_runtime_query(
+            runtime, "config_export", NULL, &json, &error) == CH_OK);
+        CH_TEST_ASSERT_STRING(before, json);
+        free(before);
+        ch_string_free(json);
+        CH_TEST_ASSERT(close(blocker) == 0);
+        CH_TEST_ASSERT(ch_runtime_mutate(
+            runtime, "update_conditioner",
+            "{\"enabled\":true,\"download_kbps\":512}",
+            &json, &error) == CH_OK);
+        CH_TEST_ASSERT(strstr(json, "\"enabled\":true") != NULL);
+        CH_TEST_ASSERT(strstr(json, "\"download_kbps\":512") != NULL);
+        ch_string_free(json);
+        ch_runtime_destroy(runtime);
+        CH_TEST_ASSERT(unlink(path) == 0);
+        runtime_remove_config_backups(path);
     }
 }

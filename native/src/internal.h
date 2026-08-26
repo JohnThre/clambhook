@@ -92,6 +92,12 @@ char *ch_config_query_payload_json(const struct ch_config *config,
                                    const char *operation,
                                    const char *request_json,
                                    ch_error *error);
+ch_status ch_config_mutate_document_json(const struct ch_config *config,
+                                         const char *fallback_profile,
+                                         const char *operation,
+                                         const char *request_json,
+                                         char **out_toml,
+                                         ch_error *error);
 int ch_config_has_profile(const struct ch_config *config, const char *name);
 char *ch_json_request_string(const char *request_json, const char *key,
                              ch_error *error);

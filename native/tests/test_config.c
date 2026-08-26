@@ -8,6 +8,7 @@
 #include <unistd.h>
 
 #include "clambhook/config.h"
+#include "internal.h"
 
 static const char *valid_toml =
     "active = \"default\"\n"
@@ -190,6 +191,135 @@ static void test_replace_active_profile_document(void) {
     ch_config_free(config);
 }
 
+static void test_structured_document_mutations(void) {
+    ch_config *config = NULL;
+    ch_config *updated = NULL;
+    char *toml = NULL;
+    char *value = NULL;
+    int64_t integer = 0;
+    double number = 0.0;
+    bool enabled = false;
+    ch_error error;
+    CH_TEST_ASSERT(ch_config_parse(valid_toml, "/tmp/config.toml", &config,
+                                   &error) == CH_OK);
+    CH_TEST_ASSERT(ch_config_mutate_document_json(
+        config, "default", "update_conditioner",
+        "{\"enabled\":true,\"download_kbps\":2048,"
+        "\"upload_kbps\":1024,\"latency\":\"50ms\","
+        "\"jitter\":\"5ms\",\"loss_percent\":1.5}",
+        &toml, &error) == CH_OK);
+    CH_TEST_ASSERT(ch_config_parse(toml, "/tmp/config.toml", &updated,
+                                   &error) == CH_OK);
+    const ch_config_table *profile = ch_config_active_profile(updated);
+    const ch_config_table *conditioner = ch_config_table_get_table(
+        profile, "conditioner");
+    CH_TEST_ASSERT(ch_config_table_get_bool(conditioner, "enabled", &enabled,
+                                            &error) == CH_OK && enabled);
+    CH_TEST_ASSERT(ch_config_table_get_int(
+        conditioner, "download_kbps", &integer, &error) == CH_OK &&
+        integer == 2048);
+    CH_TEST_ASSERT(ch_config_table_get_double(
+        conditioner, "loss_percent", &number, &error) == CH_OK &&
+        number == 1.5);
+    CH_TEST_ASSERT(ch_config_table_get_string(
+        conditioner, "latency", &value, &error) == CH_OK);
+    CH_TEST_ASSERT_STRING("50ms", value);
+    free(value);
+    CH_TEST_ASSERT(ch_config_array_count(
+        ch_config_table_get_array(profile, "rule")) == 1U);
+    ch_config_free(config);
+    config = updated;
+    updated = NULL;
+    free(toml);
+    toml = NULL;
+
+    CH_TEST_ASSERT(ch_config_mutate_document_json(
+        config, "default", "update_dns",
+        "{\"enabled\":true,\"timeout\":\"4s\",\"upstreams\":[{"
+        "\"name\":\"cloudflare\",\"protocol\":\"dot\","
+        "\"address\":\"1.1.1.1:853\","
+        "\"server_name\":\"cloudflare-dns.com\"}]}",
+        &toml, &error) == CH_OK);
+    CH_TEST_ASSERT(ch_config_parse(toml, "/tmp/config.toml", &updated,
+                                   &error) == CH_OK);
+    profile = ch_config_active_profile(updated);
+    const ch_config_table *dns = ch_config_table_get_table(profile, "dns");
+    CH_TEST_ASSERT(ch_config_table_get_bool(dns, "enabled", &enabled,
+                                            &error) == CH_OK && enabled);
+    CH_TEST_ASSERT(ch_config_array_count(
+        ch_config_table_get_array(dns, "upstream")) == 1U);
+    ch_config_free(config);
+    config = updated;
+    updated = NULL;
+    free(toml);
+    toml = NULL;
+
+    CH_TEST_ASSERT(ch_config_mutate_document_json(
+        config, "default", "update_config_settings",
+        "{\"listen\":{\"http\":\" 127.0.0.1:8081 \","
+        "\"tun\":{\"enabled\":true,\"name\":\"clamb0\","
+        "\"chain\":\"main\",\"mtu\":1300,"
+        "\"addresses\":[\"198.18.0.1/30\"],"
+        "\"routes\":[\"0.0.0.0/0\"]}},"
+        "\"network_triggers\":[{\"interface\":\"en0\"}],"
+        "\"prompt\":{\"enabled\":true,\"silent_mode\":\"deny\"}}",
+        &toml, &error) == CH_OK);
+    CH_TEST_ASSERT(ch_config_parse(toml, "/tmp/config.toml", &updated,
+                                   &error) == CH_OK);
+    profile = ch_config_active_profile(updated);
+    const ch_config_table *listen = ch_config_table_get_table(profile,
+                                                               "listen");
+    CH_TEST_ASSERT(ch_config_table_get_string(listen, "http", &value,
+                                              &error) == CH_OK);
+    CH_TEST_ASSERT_STRING("127.0.0.1:8081", value);
+    free(value);
+    const ch_config_table *tun = ch_config_table_get_table(listen, "tun");
+    CH_TEST_ASSERT(ch_config_table_get_int(tun, "mtu", &integer, &error) ==
+                   CH_OK && integer == 1300);
+    CH_TEST_ASSERT(ch_config_array_count(
+        ch_config_table_get_array(profile, "network_trigger")) == 1U);
+    const ch_config_table *prompt = ch_config_table_get_table(
+        ch_config_root(updated), "prompt");
+    CH_TEST_ASSERT(ch_config_table_get_string(prompt, "silent_mode", &value,
+                                              &error) == CH_OK);
+    CH_TEST_ASSERT_STRING("deny", value);
+    free(value);
+    free(toml);
+    ch_config_free(updated);
+    ch_config_free(config);
+
+    config = NULL;
+    toml = NULL;
+    CH_TEST_ASSERT(ch_config_parse(valid_toml, NULL, &config, &error) == CH_OK);
+    CH_TEST_ASSERT(ch_config_mutate_document_json(
+        config, "default", "update_conditioner",
+        "{\"loss_percent\":101}", &toml, &error) ==
+        CH_ERROR_INVALID_ARGUMENT);
+    CH_TEST_ASSERT(toml == NULL);
+    ch_config_free(config);
+
+    const char *two_profiles =
+        "active = \"one\"\n"
+        "[[profile]]\nname = \"one\"\n"
+        "[[profile]]\nname = \"two\"\n";
+    config = NULL;
+    updated = NULL;
+    CH_TEST_ASSERT(ch_config_parse(two_profiles, NULL, &config, &error) ==
+                   CH_OK);
+    CH_TEST_ASSERT(ch_config_mutate_document_json(
+        config, "two", "update_conditioner",
+        "{\"profile\":\"one\",\"enabled\":true}", &toml,
+        &error) == CH_OK);
+    CH_TEST_ASSERT(ch_config_parse(toml, NULL, &updated, &error) == CH_OK);
+    CH_TEST_ASSERT(ch_config_table_get_string(
+        ch_config_active_profile(updated), "name", &value, &error) == CH_OK);
+    CH_TEST_ASSERT_STRING("two", value);
+    free(value);
+    free(toml);
+    ch_config_free(updated);
+    ch_config_free(config);
+}
+
 static void test_atomic_write_and_backup_retention(void) {
     char directory[160];
     char path[200];
@@ -240,5 +370,6 @@ void ch_test_config(void) {
     test_validation();
     test_repository_config_contracts();
     test_replace_active_profile_document();
+    test_structured_document_mutations();
     test_atomic_write_and_backup_retention();
 }

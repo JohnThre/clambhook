@@ -407,6 +407,7 @@ static void ch_api_route(ch_api_client *client) {
     const char *response_type = "application/json";
     const char *content_disposition = NULL;
     int config_transfer = 0;
+    int persistence_required = 0;
     ch_error error;
     ch_status status;
     char *profile_request = ch_api_profile_request_json(url, &error);
@@ -435,6 +436,24 @@ static void ch_api_route(ch_api_client *client) {
         status = ch_runtime_query(client->server->runtime, "conditioner", profile_request, &json, &error);
     } else if (strcmp(method, "GET") == 0 && strcmp(path, "/api/v1/rule-subscriptions") == 0) {
         status = ch_runtime_query(client->server->runtime, "rule_subscriptions", profile_request, &json, &error);
+    } else if (strcmp(method, "PUT") == 0 && strcmp(path, "/api/v1/dns") == 0) {
+        persistence_required = 1;
+        status = ch_runtime_mutate(
+            client->server->runtime, "update_dns",
+            client->body.data == NULL ? "{}" : client->body.data,
+            &json, &error);
+    } else if (strcmp(method, "PUT") == 0 && strcmp(path, "/api/v1/config/settings") == 0) {
+        persistence_required = 1;
+        status = ch_runtime_mutate(
+            client->server->runtime, "update_config_settings",
+            client->body.data == NULL ? "{}" : client->body.data,
+            &json, &error);
+    } else if (strcmp(method, "PUT") == 0 && strcmp(path, "/api/v1/conditioner") == 0) {
+        persistence_required = 1;
+        status = ch_runtime_mutate(
+            client->server->runtime, "update_conditioner",
+            client->body.data == NULL ? "{}" : client->body.data,
+            &json, &error);
     } else if (strcmp(method, "POST") == 0 &&
                (strcmp(path, "/api/v1/rules/test") == 0 ||
                 strcmp(path, "/api/v1/routes/explain") == 0)) {
@@ -486,7 +505,8 @@ static void ch_api_route(ch_api_client *client) {
     free(profile_request);
     free(path);
     if (status != CH_OK) {
-        if (config_transfer && status == CH_ERROR_INVALID_STATE) {
+        if ((config_transfer || persistence_required) &&
+            status == CH_ERROR_INVALID_STATE) {
             ch_json_buffer body;
             ch_json_init(&body);
             int okay = ch_json_append(&body, "{\"error\":") &&

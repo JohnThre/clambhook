@@ -111,8 +111,12 @@ disk, the retained backup, and survival across runtime destruction/restart.
 Native config export/import adds exact TOML round-trip, invalid-import
 no-write, retained-backup, restart, and live HTTP header/response smoke checks;
 config-derived DNS/settings/conditioner/subscription reads add rich-profile and
-missing-profile fixtures. The shared runtime continues to compile for every
-packaged Android ABI.
+missing-profile fixtures. Structured DNS/settings/conditioner writes add
+render-and-reparse validation, retained backups, restart survival, active
+profile preservation, invalid-update no-write checks, an occupied-listener
+transaction fixture that proves disk and service rollback, and a live HTTP
+write/read/export smoke check. The shared runtime continues to compile for
+every packaged Android ABI.
 
 ```sh
 make build-android-mobile-aar                # gomobile bind → ui/android/app/libs/

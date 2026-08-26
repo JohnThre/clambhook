@@ -36,6 +36,21 @@ const char *ch_json_object_key(const ch_json_value *value, size_t index);
 const ch_json_value *ch_json_object_value(const ch_json_value *value, size_t index);
 const ch_json_value *ch_json_object_get(const ch_json_value *value, const char *key);
 
+/* Mutable tree helpers used by validated native configuration transactions. */
+ch_json_value *ch_json_value_clone(const ch_json_value *value);
+ch_json_value *ch_json_value_new_bool(bool value);
+ch_json_value *ch_json_value_new_number(double value);
+ch_json_value *ch_json_value_new_string(const char *value);
+ch_json_value *ch_json_value_new_array(void);
+ch_json_value *ch_json_value_new_object(void);
+ch_json_value *ch_json_array_get_mutable(ch_json_value *value, size_t index);
+ch_json_value *ch_json_object_get_mutable(ch_json_value *value,
+                                          const char *key);
+/* On success object owns member_value; on failure ownership stays with caller. */
+ch_status ch_json_object_set(ch_json_value *object, const char *key,
+                             ch_json_value *member_value, ch_error *error);
+bool ch_json_object_remove(ch_json_value *object, const char *key);
+
 #ifdef __cplusplus
 }
 #endif

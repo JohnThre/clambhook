@@ -594,6 +594,186 @@ const ch_json_value *ch_json_object_get(const ch_json_value *value, const char *
     return NULL;
 }
 
+ch_json_value *ch_json_value_new_bool(bool value) {
+    ch_json_value *result = calloc(1U, sizeof(*result));
+    if (result != NULL) {
+        result->type = CH_JSON_BOOL;
+        result->as.boolean = value;
+    }
+    return result;
+}
+
+ch_json_value *ch_json_value_new_number(double value) {
+    if (!isfinite(value)) return NULL;
+    ch_json_value *result = calloc(1U, sizeof(*result));
+    if (result != NULL) {
+        result->type = CH_JSON_NUMBER;
+        result->as.number = value;
+    }
+    return result;
+}
+
+ch_json_value *ch_json_value_new_string(const char *value) {
+    ch_json_value *result = calloc(1U, sizeof(*result));
+    if (result == NULL) return NULL;
+    result->type = CH_JSON_STRING;
+    result->as.string = ch_strdup(value == NULL ? "" : value);
+    if (result->as.string == NULL) {
+        free(result);
+        return NULL;
+    }
+    return result;
+}
+
+ch_json_value *ch_json_value_new_array(void) {
+    ch_json_value *result = calloc(1U, sizeof(*result));
+    if (result != NULL) result->type = CH_JSON_ARRAY;
+    return result;
+}
+
+ch_json_value *ch_json_value_new_object(void) {
+    ch_json_value *result = calloc(1U, sizeof(*result));
+    if (result != NULL) result->type = CH_JSON_OBJECT;
+    return result;
+}
+
+ch_json_value *ch_json_value_clone(const ch_json_value *value) {
+    if (value == NULL) return NULL;
+    ch_json_value *copy = calloc(1U, sizeof(*copy));
+    if (copy == NULL) return NULL;
+    copy->type = value->type;
+    switch (value->type) {
+        case CH_JSON_NULL:
+            break;
+        case CH_JSON_BOOL:
+            copy->as.boolean = value->as.boolean;
+            break;
+        case CH_JSON_NUMBER:
+            copy->as.number = value->as.number;
+            break;
+        case CH_JSON_STRING:
+            copy->as.string = ch_strdup(value->as.string);
+            if (copy->as.string == NULL) goto failure;
+            break;
+        case CH_JSON_ARRAY:
+            if (value->as.array.count > 0U) {
+                copy->as.array.items = calloc(
+                    value->as.array.count, sizeof(*copy->as.array.items));
+                if (copy->as.array.items == NULL) goto failure;
+            }
+            for (size_t index = 0U; index < value->as.array.count; ++index) {
+                copy->as.array.items[index] = ch_json_value_clone(
+                    value->as.array.items[index]);
+                if (copy->as.array.items[index] == NULL) goto failure;
+                ++copy->as.array.count;
+            }
+            break;
+        case CH_JSON_OBJECT:
+            if (value->as.object.count > 0U) {
+                copy->as.object.members = calloc(
+                    value->as.object.count, sizeof(*copy->as.object.members));
+                if (copy->as.object.members == NULL) goto failure;
+            }
+            for (size_t index = 0U; index < value->as.object.count; ++index) {
+                ch_json_member *member = &copy->as.object.members[index];
+                member->key = ch_strdup(value->as.object.members[index].key);
+                member->value = ch_json_value_clone(
+                    value->as.object.members[index].value);
+                if (member->key == NULL || member->value == NULL) {
+                    free(member->key);
+                    ch_json_value_destroy(member->value);
+                    member->key = NULL;
+                    member->value = NULL;
+                    goto failure;
+                }
+                ++copy->as.object.count;
+            }
+            break;
+    }
+    return copy;
+
+failure:
+    ch_json_value_destroy(copy);
+    return NULL;
+}
+
+ch_json_value *ch_json_array_get_mutable(ch_json_value *value, size_t index) {
+    return value != NULL && value->type == CH_JSON_ARRAY &&
+        index < value->as.array.count ? value->as.array.items[index] : NULL;
+}
+
+ch_json_value *ch_json_object_get_mutable(ch_json_value *value,
+                                          const char *key) {
+    if (value == NULL || value->type != CH_JSON_OBJECT || key == NULL) {
+        return NULL;
+    }
+    for (size_t index = 0U; index < value->as.object.count; ++index) {
+        if (strcmp(value->as.object.members[index].key, key) == 0) {
+            return value->as.object.members[index].value;
+        }
+    }
+    return NULL;
+}
+
+ch_status ch_json_object_set(ch_json_value *object, const char *key,
+                             ch_json_value *member_value, ch_error *error) {
+    ch_error_clear(error);
+    if (object == NULL || object->type != CH_JSON_OBJECT || key == NULL ||
+        key[0] == '\0' || member_value == NULL) {
+        ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
+                     "JSON object, key, and value are required");
+        return CH_ERROR_INVALID_ARGUMENT;
+    }
+    for (size_t index = 0U; index < object->as.object.count; ++index) {
+        if (strcmp(object->as.object.members[index].key, key) == 0) {
+            ch_json_value_destroy(object->as.object.members[index].value);
+            object->as.object.members[index].value = member_value;
+            return CH_OK;
+        }
+    }
+    if (object->as.object.count == SIZE_MAX / sizeof(ch_json_member)) {
+        ch_error_set(error, CH_ERROR_OUT_OF_MEMORY, "JSON object is too large");
+        return CH_ERROR_OUT_OF_MEMORY;
+    }
+    char *owned_key = ch_strdup(key);
+    if (owned_key == NULL) {
+        ch_error_set(error, CH_ERROR_OUT_OF_MEMORY, "copy JSON object key");
+        return CH_ERROR_OUT_OF_MEMORY;
+    }
+    ch_json_member *grown = realloc(
+        object->as.object.members,
+        (object->as.object.count + 1U) * sizeof(*grown));
+    if (grown == NULL) {
+        free(owned_key);
+        ch_error_set(error, CH_ERROR_OUT_OF_MEMORY, "grow JSON object");
+        return CH_ERROR_OUT_OF_MEMORY;
+    }
+    object->as.object.members = grown;
+    object->as.object.members[object->as.object.count++] =
+        (ch_json_member){owned_key, member_value};
+    return CH_OK;
+}
+
+bool ch_json_object_remove(ch_json_value *object, const char *key) {
+    if (object == NULL || object->type != CH_JSON_OBJECT || key == NULL) {
+        return false;
+    }
+    for (size_t index = 0U; index < object->as.object.count; ++index) {
+        if (strcmp(object->as.object.members[index].key, key) != 0) continue;
+        free(object->as.object.members[index].key);
+        ch_json_value_destroy(object->as.object.members[index].value);
+        if (index + 1U < object->as.object.count) {
+            memmove(&object->as.object.members[index],
+                    &object->as.object.members[index + 1U],
+                    (object->as.object.count - index - 1U) *
+                        sizeof(*object->as.object.members));
+        }
+        --object->as.object.count;
+        return true;
+    }
+    return false;
+}
+
 int ch_json_append_value(ch_json_buffer *buffer, const ch_json_value *value) {
     if (buffer == NULL || value == NULL) return 0;
     switch (ch_json_value_type(value)) {

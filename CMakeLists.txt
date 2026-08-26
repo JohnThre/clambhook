@@ -73,6 +73,7 @@ endif()
 
 add_library(clambhook_core STATIC
   native/src/config.c
+  native/src/config_mutation.c
   native/src/config_payload.c
   native/src/dns.c
   native/src/error.c
