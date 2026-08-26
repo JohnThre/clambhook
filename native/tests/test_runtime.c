@@ -295,6 +295,16 @@ void ch_test_runtime(void) {
         CH_TEST_ASSERT(strstr(json, "\"profile\":\"work\"") != NULL);
         CH_TEST_ASSERT(strstr(json, "\"name\":\"direct-web\"") != NULL);
         ch_string_free(json);
+        CH_TEST_ASSERT(ch_runtime_query(
+            runtime, "rules", "{\"profile\":\"home\"}", &json,
+            &error) == CH_OK);
+        CH_TEST_ASSERT(strstr(json, "\"profile\":\"home\"") != NULL);
+        CH_TEST_ASSERT(strstr(json, "direct-web") == NULL);
+        ch_string_free(json);
+        CH_TEST_ASSERT(ch_runtime_query(
+            runtime, "rules", "{\"profile\":\"missing\"}", &json,
+            &error) == CH_ERROR_NOT_FOUND);
+        CH_TEST_ASSERT_STRING("profile missing not found", error.message);
         CH_TEST_ASSERT(ch_runtime_query(runtime, "servers", NULL, &json, &error) == CH_OK);
         CH_TEST_ASSERT(strstr(json, "\"name\":\"work-default\"") != NULL);
         CH_TEST_ASSERT(strstr(json, "\"servers\":[{\"name\":\"\",\"address\":\"\",\"protocol\":\"direct\"") != NULL);

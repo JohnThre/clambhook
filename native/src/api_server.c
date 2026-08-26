@@ -150,6 +150,92 @@ static int ch_api_origin_allowed(const ch_api_server *server, const char *origin
         (!server->wildcard_bind && strcasecmp(host, server->bind_host) == 0);
 }
 
+static int ch_api_hex_digit(char value) {
+    if (value >= '0' && value <= '9') return value - '0';
+    if (value >= 'a' && value <= 'f') return value - 'a' + 10;
+    if (value >= 'A' && value <= 'F') return value - 'A' + 10;
+    return -1;
+}
+
+static char *ch_api_query_decode(const char *text, size_t length,
+                                 ch_error *error) {
+    char *decoded = malloc(length + 1U);
+    if (decoded == NULL) {
+        ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                     "allocate decoded query parameter");
+        return NULL;
+    }
+    size_t output = 0U;
+    for (size_t index = 0U; index < length; ++index) {
+        if (text[index] == '+') {
+            decoded[output++] = ' ';
+        } else if (text[index] == '%') {
+            if (index + 2U >= length) goto malformed;
+            int high = ch_api_hex_digit(text[index + 1U]);
+            int low = ch_api_hex_digit(text[index + 2U]);
+            if (high < 0 || low < 0 || (high == 0 && low == 0)) {
+                goto malformed;
+            }
+            decoded[output++] = (char)((high << 4) | low);
+            index += 2U;
+        } else {
+            decoded[output++] = text[index];
+        }
+    }
+    decoded[output] = '\0';
+    return decoded;
+
+malformed:
+    free(decoded);
+    ch_error_set(error, CH_ERROR_PARSE,
+                 "malformed URL query encoding");
+    return NULL;
+}
+
+char *ch_api_profile_request_json(const char *url, ch_error *error) {
+    ch_error_clear(error);
+    const char *query = url == NULL ? NULL : strchr(url, '?');
+    char *profile = NULL;
+    if (query != NULL) {
+        ++query;
+        while (*query != '\0' && *query != '#') {
+            const char *end = query + strcspn(query, "&#");
+            const char *separator = memchr(query, '=', (size_t)(end - query));
+            const char *key_end = separator == NULL ? end : separator;
+            char *key = ch_api_query_decode(
+                query, (size_t)(key_end - query), error);
+            if (key == NULL) return NULL;
+            if (profile == NULL && strcmp(key, "profile") == 0) {
+                const char *value = separator == NULL ? end : separator + 1U;
+                profile = ch_api_query_decode(
+                    value, (size_t)(end - value), error);
+            }
+            free(key);
+            if (error != NULL && error->code != CH_OK) {
+                free(profile);
+                return NULL;
+            }
+            query = *end == '&' ? end + 1U : end;
+        }
+    }
+    ch_json_buffer request;
+    ch_json_init(&request);
+    int okay = ch_json_append(&request, "{");
+    if (okay && profile != NULL) {
+        okay = ch_json_append(&request, "\"profile\":") &&
+            ch_json_append_string(&request, profile);
+    }
+    if (okay) okay = ch_json_append(&request, "}");
+    free(profile);
+    char *result = okay ? ch_json_take(&request) : NULL;
+    ch_json_dispose(&request);
+    if (result == NULL) {
+        ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                     "encode profile query");
+    }
+    return result;
+}
+
 static int ch_token_equal(const char *configured, const char *authorization) {
     if (configured == NULL || configured[0] == '\0') return 1;
     static const char prefix[] = "Bearer ";
@@ -276,9 +362,34 @@ static void ch_api_runtime_error(ch_api_client *client, ch_status status, const 
         return;
     }
     int http_status = status == CH_ERROR_NOT_FOUND ? 404 :
-        (status == CH_ERROR_INVALID_ARGUMENT || status == CH_ERROR_INVALID_STATE ? 400 : 500);
+        (status == CH_ERROR_INVALID_ARGUMENT ||
+         status == CH_ERROR_INVALID_STATE || status == CH_ERROR_PARSE ?
+            400 : 500);
     ch_api_respond(client, http_status, "application/json", body);
     free(body);
+}
+
+static char *ch_api_in_memory_profile_status(char *status_json,
+                                             ch_error *error) {
+    if (status_json == NULL) return NULL;
+    size_t length = strlen(status_json);
+    if (length == 0U || status_json[length - 1U] != '}') {
+        ch_error_set(error, CH_ERROR_INTERNAL,
+                     "invalid profile status response");
+        return NULL;
+    }
+    ch_json_buffer result;
+    ch_json_init(&result);
+    int okay = ch_json_append_format(
+        &result, "%.*s,\"persisted\":false}", (int)(length - 1U),
+        status_json);
+    char *decorated = okay ? ch_json_take(&result) : NULL;
+    ch_json_dispose(&result);
+    if (decorated == NULL) {
+        ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                     "encode profile persistence status");
+    }
+    return decorated;
 }
 
 static void ch_api_route(ch_api_client *client) {
@@ -301,22 +412,42 @@ static void ch_api_route(ch_api_client *client) {
     char *json = NULL;
     ch_error error;
     ch_status status;
+    char *profile_request = ch_api_profile_request_json(url, &error);
+    if (profile_request == NULL) {
+        ch_api_runtime_error(client, error.code, &error);
+        free(path);
+        return;
+    }
     if (strcmp(method, "GET") == 0 && strcmp(path, "/api/v1/status") == 0) {
         status = ch_runtime_query(client->server->runtime, "status", "{}", &json, &error);
     } else if (strcmp(method, "GET") == 0 && strcmp(path, "/api/v1/profiles") == 0) {
         status = ch_runtime_query(client->server->runtime, "profiles", "{}", &json, &error);
     } else if (strcmp(method, "GET") == 0 && strcmp(path, "/api/v1/servers") == 0) {
-        status = ch_runtime_query(client->server->runtime, "servers", "{}", &json, &error);
+        status = ch_runtime_query(client->server->runtime, "servers", profile_request, &json, &error);
     } else if (strcmp(method, "GET") == 0 && strcmp(path, "/api/v1/rules") == 0) {
-        status = ch_runtime_query(client->server->runtime, "rules", "{}", &json, &error);
+        status = ch_runtime_query(client->server->runtime, "rules", profile_request, &json, &error);
     } else if (strcmp(method, "GET") == 0 && strcmp(path, "/api/v1/policy-groups") == 0) {
-        status = ch_runtime_query(client->server->runtime, "policy_groups", "{}", &json, &error);
+        status = ch_runtime_query(client->server->runtime, "policy_groups", profile_request, &json, &error);
     } else if (strcmp(method, "GET") == 0 && strcmp(path, "/api/v1/rule-sets") == 0) {
-        status = ch_runtime_query(client->server->runtime, "rule_sets", "{}", &json, &error);
-    } else if (strcmp(method, "POST") == 0 && strcmp(path, "/api/v1/rules/test") == 0) {
+        status = ch_runtime_query(client->server->runtime, "rule_sets", profile_request, &json, &error);
+    } else if (strcmp(method, "POST") == 0 &&
+               (strcmp(path, "/api/v1/rules/test") == 0 ||
+                strcmp(path, "/api/v1/routes/explain") == 0)) {
         status = ch_runtime_query(client->server->runtime, "test_rule",
                                   client->body.data == NULL ? "{}" : client->body.data,
                                   &json, &error);
+    } else if (strcmp(method, "PUT") == 0 &&
+               strcmp(path, "/api/v1/profiles/active") == 0) {
+        status = ch_runtime_mutate(
+            client->server->runtime, "set_active_profile",
+            client->body.data == NULL ? "{}" : client->body.data,
+            &json, &error);
+        if (status == CH_OK) {
+            char *decorated = ch_api_in_memory_profile_status(json, &error);
+            ch_string_free(json);
+            json = decorated;
+            if (json == NULL) status = error.code;
+        }
     } else if (strcmp(method, "POST") == 0 && strcmp(path, "/api/v1/connect") == 0) {
         status = ch_runtime_mutate(client->server->runtime, "connect", client->body.data, &json, &error);
     } else if (strcmp(method, "POST") == 0 && strcmp(path, "/api/v1/disconnect") == 0) {
@@ -325,12 +456,15 @@ static void ch_api_route(ch_api_client *client) {
         int known = strcmp(path, "/api/v1/status") == 0 || strcmp(path, "/api/v1/profiles") == 0 ||
             strcmp(path, "/api/v1/servers") == 0 || strcmp(path, "/api/v1/rules") == 0 ||
             strcmp(path, "/api/v1/policy-groups") == 0 || strcmp(path, "/api/v1/rule-sets") == 0 ||
-            strcmp(path, "/api/v1/rules/test") == 0 ||
+            strcmp(path, "/api/v1/rules/test") == 0 || strcmp(path, "/api/v1/routes/explain") == 0 ||
+            strcmp(path, "/api/v1/profiles/active") == 0 ||
             strcmp(path, "/api/v1/connect") == 0 || strcmp(path, "/api/v1/disconnect") == 0;
         ch_api_respond(client, known ? 405 : 404, NULL, known ? "method not allowed\n" : "not found\n");
+        free(profile_request);
         free(path);
         return;
     }
+    free(profile_request);
     free(path);
     if (status != CH_OK) {
         ch_api_runtime_error(client, status, &error);

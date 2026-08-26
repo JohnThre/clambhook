@@ -21,4 +21,7 @@ const char *ch_api_server_address(const ch_api_server *server);
 /* Shared by the Host/Origin guard and native security regression tests. */
 int ch_api_is_loopback_host(const char *host);
 
+/* Decodes the optional profile query into the runtime bridge JSON contract. */
+char *ch_api_profile_request_json(const char *url, ch_error *error);
+
 #endif

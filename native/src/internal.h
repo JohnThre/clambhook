@@ -85,6 +85,11 @@ char *ch_config_servers_payload_json(const struct ch_config *config,
 char *ch_config_profile_payload_json(const struct ch_config *config,
                                      const char *profile_name,
                                      ch_error *error);
+char *ch_config_query_payload_json(const struct ch_config *config,
+                                   const char *fallback_profile,
+                                   const char *operation,
+                                   const char *request_json,
+                                   ch_error *error);
 int ch_config_has_profile(const struct ch_config *config, const char *name);
 char *ch_json_request_string(const char *request_json, const char *key,
                              ch_error *error);

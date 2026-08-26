@@ -843,21 +843,14 @@ ch_status ch_runtime_query(ch_runtime *runtime, const char *operation,
     pthread_mutex_lock(&runtime->mutex);
     if (strcmp(operation, "status") == 0) response = android_runtime_status_json(runtime);
     else if (strcmp(operation, "profiles") == 0) response = android_runtime_profiles_json(runtime);
-    else if (strcmp(operation, "servers") == 0) {
-        response = ch_config_servers_payload_json(runtime->config,
-            runtime->active_profile, error);
-    } else if (strcmp(operation, "rules") == 0) {
-        response = ch_config_collection_payload_json(runtime->config, runtime->active_profile,
-            "rule", "rules", 1, 0, error);
-    } else if (strcmp(operation, "policy_groups") == 0) {
-        response = ch_config_collection_payload_json(runtime->config, runtime->active_profile,
-            "policy_group", "groups", 0, 0, error);
-    } else if (strcmp(operation, "rule_sets") == 0) {
-        response = ch_config_collection_payload_json(runtime->config, runtime->active_profile,
-            "rule_set", "rule_sets", 0, 1, error);
-    } else if (strcmp(operation, "config") == 0) {
-        response = ch_config_profile_payload_json(runtime->config,
-            runtime->active_profile, error);
+    else if (strcmp(operation, "servers") == 0 ||
+             strcmp(operation, "rules") == 0 ||
+             strcmp(operation, "policy_groups") == 0 ||
+             strcmp(operation, "rule_sets") == 0 ||
+             strcmp(operation, "config") == 0) {
+        response = ch_config_query_payload_json(
+            runtime->config, runtime->active_profile, operation,
+            request_json, error);
     } else if (strcmp(operation, "test_rule") == 0) {
         ch_status status = ch_rule_explain_request_json(runtime->config,
             runtime->active_profile, request_json, &response, error);

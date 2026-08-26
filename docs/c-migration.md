@@ -67,8 +67,12 @@ The additive CMake build currently provides:
   native TOML configuration, honors the active profile's API address, and
   serves status/profile/server/rule/policy-group/rule-set JSON plus native
   route explanations through a small libuv + llhttp API with hardened
-  bearer/Host/Origin checks. Configured proxy listeners participate in runtime
-  start, stop, reload, profile switching, and status reporting;
+  bearer/Host/Origin checks. Profile-scoped reads decode URL query parameters,
+  return 404 for unknown profiles, and share one requested-profile contract
+  with JNI. `PUT /api/v1/profiles/active` currently reports
+  `persisted:false`, and `POST /api/v1/routes/explain` shares the native route
+  explanation path. Configured proxy listeners participate in runtime start,
+  stop, reload, profile switching, and status reporting;
 - `clambhook-linux-c`: an additive `GtkApplication` dashboard using GTK 4,
   libsoup 3, and json-glib;
 - `clambhook_jni`: the thin JNI ownership/callback boundary used by the Kotlin
@@ -252,7 +256,9 @@ raw IPv4 packet round trip over JNI. A third focused case sends a raw IPv4 UDP
 request through the C direct socket path and verifies that the independent C
 timer returns the delayed reply through the JNI packet callback. The three
 focused cases pass on the API 30 floor; the complete managed-device run is six
-of six. API 33/36 remain mandatory before cutover.
+of six. The same six tests, including a requested-profile JNI read, pass on a
+physical Pixel 3a XL running Android 12/API 32. API 33/36 remain mandatory
+before cutover.
 
 ## Cutover gates
 

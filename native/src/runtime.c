@@ -812,28 +812,14 @@ static void ch_command_process(ch_runtime *runtime, ch_command *command) {
                 command->response = ch_runtime_status_json(runtime);
             } else if (strcmp(command->operation, "profiles") == 0) {
                 command->response = ch_runtime_profiles_json(runtime);
-            } else if (strcmp(command->operation, "servers") == 0) {
-                command->response = ch_config_servers_payload_json(
-                    runtime->config, runtime->active_profile, &command->error
-                );
-            } else if (strcmp(command->operation, "rules") == 0) {
-                command->response = ch_config_collection_payload_json(
-                    runtime->config, runtime->active_profile, "rule", "rules", 1, 0,
-                    &command->error
-                );
-            } else if (strcmp(command->operation, "policy_groups") == 0) {
-                command->response = ch_config_collection_payload_json(
-                    runtime->config, runtime->active_profile, "policy_group", "groups", 0, 0,
-                    &command->error
-                );
-            } else if (strcmp(command->operation, "rule_sets") == 0) {
-                command->response = ch_config_collection_payload_json(
-                    runtime->config, runtime->active_profile, "rule_set", "rule_sets", 0, 1,
-                    &command->error
-                );
-            } else if (strcmp(command->operation, "config") == 0) {
-                command->response = ch_config_profile_payload_json(
-                    runtime->config, runtime->active_profile, &command->error
+            } else if (strcmp(command->operation, "servers") == 0 ||
+                       strcmp(command->operation, "rules") == 0 ||
+                       strcmp(command->operation, "policy_groups") == 0 ||
+                       strcmp(command->operation, "rule_sets") == 0 ||
+                       strcmp(command->operation, "config") == 0) {
+                command->response = ch_config_query_payload_json(
+                    runtime->config, runtime->active_profile,
+                    command->operation, command->payload, &command->error
                 );
             } else if (strcmp(command->operation, "test_rule") == 0) {
                 command->status = ch_rule_explain_request_json(

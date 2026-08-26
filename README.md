@@ -216,7 +216,11 @@ expansion/bootstrap hygiene, response correlation validation, upstream
 failover, and SERVFAIL generation; it deliberately rejects DoQ rather than
 downgrading it. Runtime lifecycle/profile rollback now owns that proxy and
 routes upstream streams through the same native rules and chains as listener
-traffic.
+traffic. Native profile-scoped control reads now decode `?profile=` strictly,
+return 404 for unknown profiles instead of silently falling back, expose the
+route-explanation alias, and support an explicitly in-memory active-profile
+mutation while persistent control edits remain gated. Android exercises the
+same requested-profile contract over JNI.
 Building, running, and testing require prior written permission from Pengfan
 Chang; see [`LICENSE`](LICENSE). The commands below are for the author and
 authorized parties, not a general contribution or redistribution grant.

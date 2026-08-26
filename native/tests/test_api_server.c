@@ -1,8 +1,11 @@
 #include "test.h"
 
+#include <stdlib.h>
+
 #include "api_server.h"
 
 void ch_test_api_server(void) {
+    ch_error error;
     CH_TEST_ASSERT(ch_api_is_loopback_host("localhost"));
     CH_TEST_ASSERT(ch_api_is_loopback_host("LOCALHOST:9090"));
     CH_TEST_ASSERT(ch_api_is_loopback_host("127.0.0.1"));
@@ -20,4 +23,22 @@ void ch_test_api_server(void) {
     CH_TEST_ASSERT(!ch_api_is_loopback_host("[::1]:bad"));
     CH_TEST_ASSERT(!ch_api_is_loopback_host("0.0.0.0:9090"));
     CH_TEST_ASSERT(!ch_api_is_loopback_host("192.168.1.2"));
+
+    char *request = ch_api_profile_request_json(
+        "/api/v1/rules?state=active&profile=work%20vpn", &error);
+    CH_TEST_ASSERT(request != NULL);
+    CH_TEST_ASSERT_STRING("{\"profile\":\"work vpn\"}", request);
+    free(request);
+    request = ch_api_profile_request_json(
+        "/api/v1/rules?profile=first&profile=second", &error);
+    CH_TEST_ASSERT(request != NULL);
+    CH_TEST_ASSERT_STRING("{\"profile\":\"first\"}", request);
+    free(request);
+    request = ch_api_profile_request_json("/api/v1/rules", &error);
+    CH_TEST_ASSERT(request != NULL);
+    CH_TEST_ASSERT_STRING("{}", request);
+    free(request);
+    CH_TEST_ASSERT(ch_api_profile_request_json(
+        "/api/v1/rules?profile=bad%2", &error) == NULL);
+    CH_TEST_ASSERT(error.code == CH_ERROR_PARSE);
 }

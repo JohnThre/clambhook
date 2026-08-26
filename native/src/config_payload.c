@@ -38,6 +38,7 @@ static const ch_config_table *select_profile(const ch_config *config,
             free(candidate);
             if (matches) return profile;
         }
+        return NULL;
     }
     return ch_config_active_profile(config);
 }
@@ -60,11 +61,13 @@ char *ch_config_collection_payload_json(const ch_config *config,
         ch_error_set(error, CH_ERROR_INVALID_ARGUMENT, "collection keys are required");
         return NULL;
     }
-    if (profile == NULL ||
-        ch_config_table_get_string(profile, "name", &profile_name, error) != CH_OK) {
-        profile_name = ch_strdup(fallback_profile == NULL ? "default" : fallback_profile);
-        ch_error_clear(error);
+    if (profile == NULL) {
+        ch_error_set(error, CH_ERROR_NOT_FOUND, "profile %s not found",
+                     fallback_profile == NULL ? "" : fallback_profile);
+        return NULL;
     }
+    if (ch_config_table_get_string(profile, "name", &profile_name,
+                                   error) != CH_OK) goto failure;
     if (profile_name == NULL) goto out_of_memory;
     if (collection == NULL) collection_json = empty_array();
     else if (ch_config_array_json(collection, &collection_json, error) != CH_OK) goto failure;
@@ -178,8 +181,90 @@ char *ch_config_profile_payload_json(const ch_config *config,
     ch_error_clear(error);
     if (config == NULL) return ch_strdup("{}");
     profile = select_profile(config, profile_name);
-    if (profile == NULL || ch_config_table_json(profile, &json, error) != CH_OK) return NULL;
+    if (profile == NULL) {
+        ch_error_set(error, CH_ERROR_NOT_FOUND, "profile %s not found",
+                     profile_name == NULL ? "" : profile_name);
+        return NULL;
+    }
+    if (ch_config_table_json(profile, &json, error) != CH_OK) return NULL;
     return json;
+}
+
+static ch_status request_optional_string(const char *request_json,
+                                         const char *key,
+                                         char **out_value,
+                                         ch_error *error) {
+    *out_value = NULL;
+    if (request_json == NULL || request_json[0] == '\0') return CH_OK;
+    ch_json_value *root = ch_json_parse(request_json, strlen(request_json),
+                                        error);
+    if (root == NULL) return error == NULL ? CH_ERROR_PARSE : error->code;
+    if (ch_json_value_type(root) != CH_JSON_OBJECT) {
+        ch_json_value_destroy(root);
+        ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
+                     "request must be a JSON object");
+        return CH_ERROR_INVALID_ARGUMENT;
+    }
+    const ch_json_value *value = ch_json_object_get(root, key);
+    if (value == NULL) {
+        ch_json_value_destroy(root);
+        return CH_OK;
+    }
+    const char *text = ch_json_string_value(value);
+    if (text == NULL) {
+        ch_json_value_destroy(root);
+        ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
+                     "%s must be a string", key);
+        return CH_ERROR_INVALID_ARGUMENT;
+    }
+    *out_value = ch_strdup(text);
+    ch_json_value_destroy(root);
+    if (*out_value == NULL) {
+        ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                     "copy request %s", key);
+        return CH_ERROR_OUT_OF_MEMORY;
+    }
+    return CH_OK;
+}
+
+char *ch_config_query_payload_json(const ch_config *config,
+                                   const char *fallback_profile,
+                                   const char *operation,
+                                   const char *request_json,
+                                   ch_error *error) {
+    char *requested = NULL;
+    ch_status status = request_optional_string(
+        request_json, "profile", &requested, error);
+    if (status != CH_OK) return NULL;
+    const char *profile = requested == NULL || requested[0] == '\0' ?
+        fallback_profile : requested;
+    if (config != NULL && profile != NULL && profile[0] != '\0' &&
+        !ch_config_has_profile(config, profile)) {
+        ch_error_set(error, CH_ERROR_NOT_FOUND, "profile %s not found",
+                     profile);
+        free(requested);
+        return NULL;
+    }
+    char *result = NULL;
+    if (strcmp(operation, "servers") == 0) {
+        result = ch_config_servers_payload_json(config, profile, error);
+    } else if (strcmp(operation, "rules") == 0) {
+        result = ch_config_collection_payload_json(
+            config, profile, "rule", "rules", 1, 0, error);
+    } else if (strcmp(operation, "policy_groups") == 0) {
+        result = ch_config_collection_payload_json(
+            config, profile, "policy_group", "groups", 0, 0, error);
+    } else if (strcmp(operation, "rule_sets") == 0) {
+        result = ch_config_collection_payload_json(
+            config, profile, "rule_set", "rule_sets", 0, 1, error);
+    } else if (strcmp(operation, "config") == 0) {
+        result = ch_config_profile_payload_json(config, profile, error);
+    } else {
+        ch_error_set(error, CH_ERROR_UNSUPPORTED,
+                     "unknown configuration payload operation");
+    }
+    free(requested);
+    return result;
 }
 
 ch_status ch_rule_explain_request_json(const ch_config *config,

@@ -75,7 +75,10 @@ and accepts raw packets through JNI, returning native stack output through the
 Kotlin packet-writer callback. The JNI runtime owns its independent packet
 timer, enforces compiled rules for direct TCP/UDP sockets, and transactionally
 rebuilds those rules when the active profile changes. Its delayed direct-UDP
-round-trip test passes on API 30. The production factory remains on the
+round-trip test passes on API 30. Requested-profile reads share the strict C
+control contract and were also verified with the full six-test instrumentation
+suite on a physical Pixel 3a XL running Android 12/API 32. The production
+factory remains on the
 rollback AAR until encrypted TCP/UDP/DNS forwarding and the remaining
 runtime/API/VPN gates pass.
 

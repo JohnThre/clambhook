@@ -128,6 +128,11 @@ class NativeClambhookBridgeTest {
             assertEquals("work", rules.profile)
             assertEquals("direct-web", rules.rules.single().name)
             assertEquals(listOf(80, 443), rules.rules.single().ports)
+            val homeRules = ApiJson.decodeFromString<RulesPayload>(
+                bridge.query("rules", "{\"profile\":\"home\"}"),
+            )
+            assertEquals("home", homeRules.profile)
+            assertEquals("block-discard", homeRules.rules.single().name)
             bridge.stop()
             assertFalse(bridge.isRunning())
         }
