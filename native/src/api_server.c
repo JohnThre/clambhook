@@ -427,6 +427,14 @@ static void ch_api_route(ch_api_client *client) {
         status = ch_runtime_query(client->server->runtime, "policy_groups", profile_request, &json, &error);
     } else if (strcmp(method, "GET") == 0 && strcmp(path, "/api/v1/rule-sets") == 0) {
         status = ch_runtime_query(client->server->runtime, "rule_sets", profile_request, &json, &error);
+    } else if (strcmp(method, "GET") == 0 && strcmp(path, "/api/v1/dns") == 0) {
+        status = ch_runtime_query(client->server->runtime, "dns", profile_request, &json, &error);
+    } else if (strcmp(method, "GET") == 0 && strcmp(path, "/api/v1/config/settings") == 0) {
+        status = ch_runtime_query(client->server->runtime, "config_settings", profile_request, &json, &error);
+    } else if (strcmp(method, "GET") == 0 && strcmp(path, "/api/v1/conditioner") == 0) {
+        status = ch_runtime_query(client->server->runtime, "conditioner", profile_request, &json, &error);
+    } else if (strcmp(method, "GET") == 0 && strcmp(path, "/api/v1/rule-subscriptions") == 0) {
+        status = ch_runtime_query(client->server->runtime, "rule_subscriptions", profile_request, &json, &error);
     } else if (strcmp(method, "POST") == 0 &&
                (strcmp(path, "/api/v1/rules/test") == 0 ||
                 strcmp(path, "/api/v1/routes/explain") == 0)) {
@@ -461,6 +469,10 @@ static void ch_api_route(ch_api_client *client) {
         int known = strcmp(path, "/api/v1/status") == 0 || strcmp(path, "/api/v1/profiles") == 0 ||
             strcmp(path, "/api/v1/servers") == 0 || strcmp(path, "/api/v1/rules") == 0 ||
             strcmp(path, "/api/v1/policy-groups") == 0 || strcmp(path, "/api/v1/rule-sets") == 0 ||
+            strcmp(path, "/api/v1/dns") == 0 ||
+            strcmp(path, "/api/v1/config/settings") == 0 ||
+            strcmp(path, "/api/v1/conditioner") == 0 ||
+            strcmp(path, "/api/v1/rule-subscriptions") == 0 ||
             strcmp(path, "/api/v1/rules/test") == 0 || strcmp(path, "/api/v1/routes/explain") == 0 ||
             strcmp(path, "/api/v1/config/export") == 0 ||
             strcmp(path, "/api/v1/config/import") == 0 ||

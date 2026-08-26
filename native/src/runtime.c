@@ -1049,6 +1049,10 @@ static void ch_command_process(ch_runtime *runtime, ch_command *command) {
                        strcmp(command->operation, "rules") == 0 ||
                        strcmp(command->operation, "policy_groups") == 0 ||
                        strcmp(command->operation, "rule_sets") == 0 ||
+                       strcmp(command->operation, "dns") == 0 ||
+                       strcmp(command->operation, "config_settings") == 0 ||
+                       strcmp(command->operation, "conditioner") == 0 ||
+                       strcmp(command->operation, "rule_subscriptions") == 0 ||
                        strcmp(command->operation, "config") == 0) {
                 command->response = ch_config_query_payload_json(
                     runtime->config, runtime->active_profile,

@@ -80,6 +80,11 @@ The additive CMake build currently provides:
   snapshot and supplies attachment metadata, while import validates before
   writing, retains the old document as a backup, reloads live, restores disk on
   apply failure, and reports the resulting profiles and backup path.
+  Config-derived reads also cover `/api/v1/dns`,
+  `/api/v1/config/settings`, `/api/v1/conditioner`, and
+  `/api/v1/rule-subscriptions`, including requested-profile 404 behavior and
+  normalized empty/default fields. Subscription cache enrichment and DNS
+  upstream route annotations are not yet claimed.
   Configured proxy listeners participate in runtime start, stop, reload,
   profile switching, and status reporting;
 - `clambhook-linux-c`: an additive `GtkApplication` dashboard using GTK 4,

@@ -502,4 +502,81 @@ void ch_test_runtime(void) {
         CH_TEST_ASSERT(unlink(path) == 0);
         CH_TEST_ASSERT(unlink(backup_path) == 0);
     }
+
+    {
+        char path[160];
+        (void)snprintf(path, sizeof(path),
+                       "/tmp/clambhook-settings-runtime-%ld.toml",
+                       (long)getpid());
+        FILE *file = fopen(path, "wb");
+        CH_TEST_ASSERT(file != NULL);
+        CH_TEST_ASSERT(fputs(
+            "active = \"rich\"\n"
+            "[prompt]\nenabled = true\ntimeout_seconds = 20\n"
+            "default_allow = true\nsilent_mode = \"allow\"\n"
+            "[[profile]]\nname = \"rich\"\n"
+            "[[profile.network_trigger]]\nssid = \"Office\"\n"
+            "interface = \"wlan0\"\n"
+            "[profile.listen]\nsocks5 = \"127.0.0.1:1080\"\n"
+            "socks5_chain = \"direct\"\nhttp = \"127.0.0.1:8080\"\n"
+            "http_chain = \"direct\"\n"
+            "[profile.listen.tun]\nenabled = true\nname = \"clamb0\"\n"
+            "chain = \"direct\"\nmtu = 1400\n"
+            "addresses = [\"198.18.0.1/30\"]\n"
+            "routes = [\"0.0.0.0/0\"]\n"
+            "exclude_cidrs = [\"127.0.0.0/8\"]\n"
+            "[profile.dns]\nenabled = true\ntimeout = \"4s\"\n"
+            "[[profile.dns.upstream]]\nname = \"cloudflare\"\n"
+            "protocol = \"dot\"\naddress = \"1.1.1.1:853\"\n"
+            "server_name = \"cloudflare-dns.com\"\n"
+            "[profile.conditioner]\nenabled = true\n"
+            "download_kbps = 2048\nupload_kbps = 1024\n"
+            "latency = \"50ms\"\njitter = \"5ms\"\n"
+            "loss_percent = 1.5\n"
+            "[[profile.rule_subscription]]\nname = \"ads\"\n"
+            "url = \"https://lists.example.invalid/ads.txt\"\n"
+            "format = \"adblock\"\naction = \"reject\"\n"
+            "networks = [\"tcp\"]\ndisabled = true\n"
+            "[[profile.chain]]\nname = \"direct\"\n"
+            "[[profile.chain.server]]\nprotocol = \"direct\"\n",
+            file) >= 0);
+        CH_TEST_ASSERT(fclose(file) == 0);
+        runtime = ch_runtime_create(NULL, &error);
+        CH_TEST_ASSERT(runtime != NULL);
+        CH_TEST_ASSERT(ch_runtime_reload(runtime, path, &error) == CH_OK);
+        CH_TEST_ASSERT(ch_runtime_query(
+            runtime, "dns", "{}", &json, &error) == CH_OK);
+        CH_TEST_ASSERT(strstr(json, "\"profile\":\"rich\"") != NULL);
+        CH_TEST_ASSERT(strstr(json, "\"strategy\":\"encrypted\"") != NULL);
+        CH_TEST_ASSERT(strstr(json, "\"timeout\":\"4s\"") != NULL);
+        CH_TEST_ASSERT(strstr(json, "\"protocol\":\"dot\"") != NULL);
+        CH_TEST_ASSERT(strstr(json, "\"intercepts_port_53\":true") != NULL);
+        ch_string_free(json);
+        CH_TEST_ASSERT(ch_runtime_query(
+            runtime, "config_settings", "{}", &json, &error) == CH_OK);
+        CH_TEST_ASSERT(strstr(json, "\"socks5\":\"127.0.0.1:1080\"") != NULL);
+        CH_TEST_ASSERT(strstr(json, "\"tun\":{\"enabled\":true") != NULL);
+        CH_TEST_ASSERT(strstr(json, "\"network_triggers\":[{\"ssid\":\"Office\"") != NULL);
+        CH_TEST_ASSERT(strstr(json, "\"prompt\":{\"enabled\":true") != NULL);
+        CH_TEST_ASSERT(strstr(json, "\"silent_mode\":\"allow\"") != NULL);
+        ch_string_free(json);
+        CH_TEST_ASSERT(ch_runtime_query(
+            runtime, "conditioner", "{}", &json, &error) == CH_OK);
+        CH_TEST_ASSERT(strstr(json, "\"download_kbps\":2048") != NULL);
+        CH_TEST_ASSERT(strstr(json, "\"latency\":\"50ms\"") != NULL);
+        CH_TEST_ASSERT(strstr(json, "\"loss_percent\":1.5") != NULL);
+        ch_string_free(json);
+        CH_TEST_ASSERT(ch_runtime_query(
+            runtime, "rule_subscriptions", "{}", &json, &error) == CH_OK);
+        CH_TEST_ASSERT(strstr(json, "\"name\":\"ads\"") != NULL);
+        CH_TEST_ASSERT(strstr(json, "\"format\":\"adblock\"") != NULL);
+        CH_TEST_ASSERT(strstr(json, "\"action\":\"reject\"") != NULL);
+        CH_TEST_ASSERT(strstr(json, "\"cached\":false") != NULL);
+        ch_string_free(json);
+        CH_TEST_ASSERT(ch_runtime_query(
+            runtime, "dns", "{\"profile\":\"missing\"}", &json,
+            &error) == CH_ERROR_NOT_FOUND);
+        ch_runtime_destroy(runtime);
+        CH_TEST_ASSERT(unlink(path) == 0);
+    }
 }

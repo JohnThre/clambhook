@@ -110,7 +110,9 @@ covered by sanitizer-backed host tests that verify the active selection on
 disk, the retained backup, and survival across runtime destruction/restart.
 Native config export/import adds exact TOML round-trip, invalid-import
 no-write, retained-backup, restart, and live HTTP header/response smoke checks;
-the shared runtime continues to compile for every packaged Android ABI.
+config-derived DNS/settings/conditioner/subscription reads add rich-profile and
+missing-profile fixtures. The shared runtime continues to compile for every
+packaged Android ABI.
 
 ```sh
 make build-android-mobile-aar                # gomobile bind → ui/android/app/libs/

@@ -223,9 +223,13 @@ TOML replacement, atomic backups, live transactional reload, and disk rollback
 when the new profile cannot start. Other persistent control edits remain
 gated. Native config export/import now round-trips validated TOML with a 4 MiB
 transfer limit, attachment metadata, atomic backup, transactional live reload,
-and disk rollback on apply failure. Android exercises the same
-requested-profile contract over JNI and keeps its app-owned active-profile
-switch in memory, matching the current mobile lifecycle contract.
+and disk rollback on apply failure. Config-derived GET coverage now also
+includes DNS, listener/TUN/DNS/prompt settings, conditioner state, and rule
+subscription base status with strict profile selection. Cache-enriched
+subscription status and DNS upstream route annotations remain gated. Android
+exercises the same requested-profile contract over JNI and keeps its app-owned
+active-profile switch in memory, matching the current mobile lifecycle
+contract.
 Building, running, and testing require prior written permission from Pengfan
 Chang; see [`LICENSE`](LICENSE). The commands below are for the author and
 authorized parties, not a general contribution or redistribution grant.
