@@ -5,10 +5,8 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonElement
 
 /**
- * Kotlin mirror of the shared Go license domain (`internal/license`) as exposed
- * through `pkg/mobile`. Field names match the Go JSON tags exactly so the same
- * payloads round-trip across the gomobile boundary. All evaluation, date math,
- * and HTTP live in Go; these types are transport + rendering only.
+ * Kotlin mirror of the shared C license domain. Field names match its stable
+ * JSON contracts; these types provide Android transport and rendering only.
  */
 
 @Serializable

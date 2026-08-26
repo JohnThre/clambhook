@@ -10,7 +10,7 @@
 #include <strings.h>
 #include <time.h>
 
-#include <sodium.h>
+#include <openssl/rand.h>
 
 #include "clambhook/json.h"
 #include "clambhook/license.h"
@@ -562,7 +562,11 @@ static int ch_append_expired_updates(
 char *ch_license_new_install_id(ch_error *error) {
     ch_error_clear(error);
     uint8_t bytes[16];
-    randombytes_buf(bytes, sizeof(bytes));
+    if (RAND_bytes(bytes, (int)sizeof(bytes)) != 1) {
+        ch_error_set(error, CH_ERROR_INTERNAL,
+                     "generate install identifier entropy");
+        return NULL;
+    }
     bytes[6] = (uint8_t)((bytes[6] & 0x0fU) | 0x40U);
     bytes[8] = (uint8_t)((bytes[8] & 0x3fU) | 0x80U);
     char *identifier = malloc(37U);

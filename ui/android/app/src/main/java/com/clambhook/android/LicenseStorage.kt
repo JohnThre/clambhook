@@ -4,7 +4,6 @@ import android.content.Context
 import android.os.Build
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
-import com.clambhook.mobile.Mobile
 
 /**
  * Encrypted persistence for license state. The license key, email, install ID,
@@ -44,11 +43,11 @@ class LicenseStorage(context: Context) {
         get() = prefs.getString(KEY_DEVICE_STATE, "").orEmpty()
         set(value) = prefs.edit().putString(KEY_DEVICE_STATE, value).apply()
 
-    /** Stable lowercase install ID, generated once via the Go bridge. */
+    /** Stable lowercase install ID, generated once by the native C bridge. */
     fun installId(): String {
         val existing = prefs.getString(KEY_INSTALL_ID, "").orEmpty()
         if (existing.isNotBlank()) return existing
-        val generated = Mobile.newLicenseInstallID()
+        val generated = NativeClambhookLicenseBridge.newInstallId()
         prefs.edit().putString(KEY_INSTALL_ID, generated).apply()
         return generated
     }

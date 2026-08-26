@@ -90,6 +90,7 @@ target_include_directories(lwipcore PUBLIC
 add_library(clambhook_jni SHARED
     "${CLAMBHOOK_ROOT}/clib/src/crypto.c"
     "${CLAMBHOOK_ROOT}/native/src/android/jni.c"
+    "${CLAMBHOOK_ROOT}/native/src/android/license_jni.c"
     "${CLAMBHOOK_ROOT}/native/src/android/runtime_android.c"
     "${CLAMBHOOK_ROOT}/native/src/config.c"
     "${CLAMBHOOK_ROOT}/native/src/config_mutation.c"
@@ -97,6 +98,8 @@ add_library(clambhook_jni SHARED
     "${CLAMBHOOK_ROOT}/native/src/error.c"
     "${CLAMBHOOK_ROOT}/native/src/ip_stack.c"
     "${CLAMBHOOK_ROOT}/native/src/json.c"
+    "${CLAMBHOOK_ROOT}/native/src/license.c"
+    "${CLAMBHOOK_ROOT}/native/src/license_json.c"
     "${CLAMBHOOK_ROOT}/native/src/protocol.c"
     "${CLAMBHOOK_ROOT}/native/src/protocol_packet.c"
     "${CLAMBHOOK_ROOT}/native/src/protocol_shadowtls.c"

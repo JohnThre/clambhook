@@ -194,6 +194,32 @@ class NativeClambhookBridgeTest {
     }
 
     @Test
+    fun evaluatesLicenseStateThroughNativeC() {
+        val installId = NativeClambhookLicenseBridge.newInstallId()
+        assertTrue(
+            Regex("^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
+                .matches(installId),
+        )
+        val snapshot = NativeClambhookLicenseBridge.ensureTrial("", 1_788_000_000_000L)
+        val status = ApiJson.decodeFromString<LicenseStatus>(
+            NativeClambhookLicenseBridge.status(
+                snapshot,
+                publishedMillis = 0,
+                nowMillis = 1_788_000_000_000L,
+            ),
+        )
+        assertEquals("trial", status.decision.reason)
+        assertTrue(status.decision.canUseApp)
+        assertTrue(
+            NativeClambhookLicenseBridge.updateAllowed(
+                snapshot,
+                publishedMillis = 1_788_000_000_000L,
+                nowMillis = 1_788_000_000_000L,
+            ),
+        )
+    }
+
+    @Test
     fun kotlinRuntimeFacadeDecodesDashboardAndSwitchesProfile() {
         NativeClambhookTunnelRuntime { }.use { runtime ->
             runtime.start(configFile().absolutePath)
