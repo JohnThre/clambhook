@@ -294,6 +294,13 @@ runs CodeQL and pull-request dependency review; Dependabot covers Actions, Go,
 Gradle, and Swift dependencies. All third-party actions are pinned to immutable
 commit SHAs and workflow permissions default to none.
 
+[`.github/workflows/release.yml`](.github/workflows/release.yml) provides the
+protected CD path for signed tags and approved manual beta/recovery runs. It
+signs/notarizes on protected runners and uploads directly to Cloudflare R2;
+installer/package outputs are never stored in GitHub artifacts or Releases.
+See [`docs/github-cicd.md`](docs/github-cicd.md) for environment protection,
+required secrets, release behavior, and branch-protection setup.
+
 The local mirror remains available with Apple's
 [`container`](https://github.com/apple/container) tool on macOS or Docker/Podman
 on GNU/Linux:

@@ -75,7 +75,9 @@ approved channel — never on GitHub Releases. GitHub Actions runs Apple builds,
 native C sanitizers, Android unit/lint/build plus managed-device Compose/JNI
 tests on API 30/33/36, and the only GNU/Linux matrix: Trisquel 12, Rocky Linux
 9, and AlmaLinux 9. CodeQL, dependency review, and Dependabot cover the source
-and dependency surfaces. `scripts/ci-local.sh` mirrors the platform gates and
+and dependency surfaces. Protected GitHub CD signs/notarizes and deploys
+directly to Cloudflare R2; it never stores installers in GitHub. See
+[`github-cicd.md`](github-cicd.md). `scripts/ci-local.sh` mirrors the platform gates and
 adds physical-device/manual QA. During the C migration, `make test-native` and
 `make build-linux-gtk` remain mandatory until the packaging cutover criteria in
 [`c-migration.md`](c-migration.md) pass. See

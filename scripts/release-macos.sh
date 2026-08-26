@@ -28,6 +28,27 @@ APPCAST_DOWNLOAD_URL="${CLAMBHOOK_APPCAST_DOWNLOAD_URL:-https://store.clamberclo
 DAEMON="$ROOT_DIR/bin/clambhook"
 TUI="$ROOT_DIR/bin/clambhook-tui"
 SODIUM="$ROOT_DIR/bin/libsodium.26.dylib"
+XCODE_AUTH_ARGS=()
+
+if [[ -n "${XCODE_AUTHENTICATION_KEY_PATH:-}" || \
+      -n "${XCODE_AUTHENTICATION_KEY_ID:-}" || \
+      -n "${XCODE_AUTHENTICATION_KEY_ISSUER_ID:-}" ]]; then
+    if [[ -z "${XCODE_AUTHENTICATION_KEY_PATH:-}" || \
+          -z "${XCODE_AUTHENTICATION_KEY_ID:-}" || \
+          -z "${XCODE_AUTHENTICATION_KEY_ISSUER_ID:-}" ]]; then
+        echo "Xcode authentication requires key path, key ID, and issuer ID together." >&2
+        exit 1
+    fi
+    if [[ ! -f "$XCODE_AUTHENTICATION_KEY_PATH" ]]; then
+        echo "Xcode authentication key not found: $XCODE_AUTHENTICATION_KEY_PATH" >&2
+        exit 1
+    fi
+    XCODE_AUTH_ARGS=(
+        -authenticationKeyPath "$XCODE_AUTHENTICATION_KEY_PATH"
+        -authenticationKeyID "$XCODE_AUTHENTICATION_KEY_ID"
+        -authenticationKeyIssuerID "$XCODE_AUTHENTICATION_KEY_ISSUER_ID"
+    )
+fi
 
 if [[ -z "$TEAM_ID" ]]; then
     echo "CLAMBHOOK_DEVELOPMENT_TEAM must be set to your paid Apple Developer Team ID." >&2
@@ -102,6 +123,7 @@ xcodebuild archive \
     -destination 'generic/platform=macOS' \
     -archivePath "$ARCHIVE_PATH" \
     -allowProvisioningUpdates \
+    "${XCODE_AUTH_ARGS[@]}" \
     DEVELOPMENT_TEAM="$TEAM_ID" \
     CODE_SIGN_STYLE=Automatic \
     MARKETING_VERSION="$SHORT_VERSION" \
@@ -113,6 +135,7 @@ xcodebuild -exportArchive \
     -exportOptionsPlist "$EXPORT_OPTIONS" \
     -exportPath "$EXPORT_PATH" \
     -allowProvisioningUpdates \
+    "${XCODE_AUTH_ARGS[@]}" \
     DEVELOPMENT_TEAM="$TEAM_ID"
 
 if [[ ! -d "$APP_PATH" ]]; then
@@ -197,6 +220,7 @@ fi
 gpg_sign_release() {
     # gpg_sign_release <file> — writes a detached, armored signature to <file>.sig.
     local target="$1"
+    local passphrase_args=()
     if [[ "$REQUIRE_SIGNING" != "1" ]]; then
         return 0
     fi
@@ -208,7 +232,15 @@ gpg_sign_release() {
         echo "ClambHook releases must be GPG-signed, but gpg was not found on PATH." >&2
         exit 1
     fi
+    if [[ -n "${GPG_PASSPHRASE_FILE:-}" ]]; then
+        if [[ ! -f "$GPG_PASSPHRASE_FILE" ]]; then
+            echo "GPG_PASSPHRASE_FILE does not exist." >&2
+            exit 2
+        fi
+        passphrase_args=(--passphrase-file "$GPG_PASSPHRASE_FILE")
+    fi
     if ! gpg --batch --yes --pinentry-mode loopback --local-user "$GPG_KEY" \
+        "${passphrase_args[@]}" \
         --detach-sign --armor --output "$target.sig" "$target"; then
         echo "GPG signing failed for $target with key $GPG_KEY (check the release key passphrase / gpg-agent)." >&2
         exit 1

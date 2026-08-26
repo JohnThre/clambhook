@@ -4,14 +4,21 @@ set -euo pipefail
 echo "internal-only: uploading notarized macOS installer to Cloudflare R2." >&2
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+UPDATE_CHANNEL="${UPDATE_CHANNEL:-stable}"
 FINAL_ZIP="${1:-$ROOT_DIR/dist/macos/ClambhookMac-arm64.zip}"
 FINAL_DMG="${2:-$ROOT_DIR/dist/macos/ClambhookMac-arm64.dmg}"
 FINAL_DMG_CHECKSUM="${3:-$ROOT_DIR/dist/macos/ClambhookMac-arm64.dmg.sha256}"
-UPDATE_MANIFEST="${4:-$ROOT_DIR/dist/macos/clambhook-update-manifest.json}"
-APPCAST="${5:-$ROOT_DIR/dist/macos/appcast.xml}"
+if [[ "$UPDATE_CHANNEL" == "beta" ]]; then
+    DEFAULT_UPDATE_MANIFEST="$ROOT_DIR/dist/macos/clambhook-beta-update-manifest.json"
+    DEFAULT_APPCAST="$ROOT_DIR/dist/macos/appcast-beta.xml"
+else
+    DEFAULT_UPDATE_MANIFEST="$ROOT_DIR/dist/macos/clambhook-update-manifest.json"
+    DEFAULT_APPCAST="$ROOT_DIR/dist/macos/appcast.xml"
+fi
+UPDATE_MANIFEST="${4:-$DEFAULT_UPDATE_MANIFEST}"
+APPCAST="${5:-$DEFAULT_APPCAST}"
 BUCKET="${CLAMBHOOK_R2_BUCKET:-clambhook-artifacts}"
 VERSION="${VERSION:-$(git -C "$ROOT_DIR" describe --tags --always --dirty 2>/dev/null || echo 'unknown')}"
-UPDATE_CHANNEL="${UPDATE_CHANNEL:-stable}"
 
 if [[ ! -f "$FINAL_ZIP" ]]; then
     echo "Installer not found: $FINAL_ZIP" >&2

@@ -70,6 +70,12 @@ scripts/validate-linux-distros.sh
 This builds and headless-smoke-tests Trisquel 12, Rocky Linux 9, and AlmaLinux
 9. Do not proceed if any distro fails.
 
+The primary automated path is the protected GNU/Linux job in
+`.github/workflows/release.yml`: Trisquel produces the `.deb`, Rocky produces
+the `.rpm`, the protected runner signs the combined outputs, and the final step
+uploads directly to R2. AlmaLinux remains a validation-only lane. See
+[`../github-cicd.md`](../github-cicd.md) for environment setup and secrets.
+
 ## 2. Build, checksum, sign, and upload
 
 From the repo root on the GNU/Linux build host:

@@ -2,9 +2,9 @@
 # Build and smoke-test ClambHook only on the supported GNU/Linux validation
 # matrix: Trisquel 12, Rocky Linux 9, and AlmaLinux 9.
 #
-# Trisquel does not publish an amd64 OCI image. Its lane therefore runs on an
-# arm64 host (including GitHub's ubuntu-24.04-arm runner) and builds a local OCI
-# image from Trisquel's official, checksum-pinned arm64 base root filesystem.
+# Trisquel does not publish an OCI image. On arm64 the harness uses Trisquel's
+# official checksum-pinned base root filesystem. On x86_64 it uses debootstrap
+# with Trisquel's official archive key and repositories.
 # Rocky Linux and AlmaLinux use their official version-9 container images.
 #
 #   scripts/validate-linux-distros.sh            # all three targets
@@ -49,30 +49,62 @@ prepare_trisquel_image() {
     return
   fi
 
-  case "$(uname -m)" in
-    arm64|aarch64) ;;
-    *)
-      echo "Trisquel 12 CI requires an arm64 host because the official base rootfs is arm64." >&2
-      echo "GitHub Actions uses runs-on: ubuntu-24.04-arm for this lane." >&2
-      return 2
-      ;;
-  esac
-
   command -v curl >/dev/null 2>&1 || {
     echo "curl is required to provision the official Trisquel rootfs." >&2
     return 2
   }
 
-  local workdir rootfs checksum image
+  local workdir rootfs checksum image keyring rootdir fingerprint
   workdir="$(mktemp -d "${TMPDIR:-/tmp}/clambhook-trisquel-ci.XXXXXX")"
-  rootfs="$workdir/trisquel-base_12.0_arm64.tar.bz2"
-  checksum="a241899069ca300eb54fadb06a1107f9d218add00d5f76387a8121ba1f23bf46"
+  rootfs="$workdir/trisquel-rootfs.tar.bz2"
   image="${IMAGE[trisquel]}"
 
-  curl --fail --location --silent --show-error --retry 3 \
-    --output "$rootfs" \
-    "https://cdbuilds.trisquel.org/ecne/trisquel-base_12.0_arm64.tar.bz2"
-  printf '%s  %s\n' "$checksum" "$rootfs" | sha256sum --check -
+  case "$(uname -m)" in
+    arm64|aarch64)
+      checksum="a241899069ca300eb54fadb06a1107f9d218add00d5f76387a8121ba1f23bf46"
+      curl --fail --location --silent --show-error --retry 3 \
+        --output "$rootfs" \
+        "https://cdbuilds.trisquel.org/ecne/trisquel-base_12.0_arm64.tar.bz2"
+      printf '%s  %s\n' "$checksum" "$rootfs" | sha256sum --check -
+      ;;
+    x86_64|amd64)
+      command -v debootstrap >/dev/null 2>&1 || {
+        echo "debootstrap is required to construct the official Trisquel x86_64 image." >&2
+        return 2
+      }
+      command -v sudo >/dev/null 2>&1 || {
+        echo "sudo is required to construct the official Trisquel x86_64 image." >&2
+        return 2
+      }
+      command -v gpg >/dev/null 2>&1 || {
+        echo "gpg is required to authenticate the official Trisquel archive key." >&2
+        return 2
+      }
+      keyring="$workdir/trisquel-archive-signkey.gpg"
+      rootdir="$workdir/rootfs"
+      fingerprint="60364C9869F92450421F0C22B138CA450C05112F"
+      curl --fail --location --silent --show-error --retry 3 \
+        --output "$keyring" \
+        "https://archive.trisquel.info/trisquel/trisquel-archive-signkey.gpg"
+      gpg --batch --no-default-keyring --keyring "$keyring" \
+        --with-colons --fingerprint "$fingerprint" | \
+        grep -q "^fpr:::::::::${fingerprint}:$"
+      sudo debootstrap \
+        --arch=amd64 \
+        --variant=minbase \
+        --keyring="$keyring" \
+        ecne "$rootdir" \
+        https://archive.trisquel.info/trisquel \
+        /usr/share/debootstrap/scripts/noble
+      sudo tar --numeric-owner -C "$rootdir" -cjf "$rootfs" .
+      sudo rm -rf "$rootdir"
+      ;;
+    *)
+      echo "unsupported Trisquel container architecture: $(uname -m)" >&2
+      return 2
+      ;;
+  esac
+
   cp "$repo_root/packaging/ci/trisquel.Containerfile" "$workdir/Containerfile"
   "$engine" build --tag "$image" --file "$workdir/Containerfile" "$workdir"
   rm -rf "$workdir"
@@ -131,7 +163,8 @@ echo "$SNAP" | grep -q "\"ok\":true"
 echo "ClambHook C, GTK, rollback, desktop, and license smoke: OK"'
 
 run_one() {
-  local distro="$1" image="${IMAGE[$1]:-}" setup recipe
+  local distro="$1" image="${IMAGE[$1]:-}" setup recipe command
+  local -a container_env=()
   if [[ -z "$image" ]]; then
     echo "Unknown distro: $distro (known: trisquel rocky alma)" >&2
     return 2
@@ -149,11 +182,36 @@ run_one() {
       ;;
   esac
 
+  if [[ "${CLAMBHOOK_LINUX_RELEASE_BUILD:-0}" == "1" ]]; then
+    [[ -n "${VERSION:-}" ]] || {
+      echo "VERSION is required for containerized release builds." >&2
+      return 2
+    }
+    container_env+=(--env "VERSION=$VERSION")
+    container_env+=(--env "UPDATE_CHANNEL=${UPDATE_CHANNEL:-stable}")
+    case "$distro" in
+      trisquel)
+        command='make clean; REQUIRE_SIGNING=0 CLAMBHOOK_RELEASE_APPEND=0 scripts/release-linux.sh deb'
+        ;;
+      rocky)
+        command='make clean; REQUIRE_SIGNING=0 CLAMBHOOK_RELEASE_APPEND=1 scripts/release-linux.sh rpm'
+        ;;
+      alma)
+        echo "AlmaLinux is a validation lane; release RPMs are built on Rocky Linux." >&2
+        return 2
+        ;;
+    esac
+    recipe=':'
+  else
+    command="$smoke"
+  fi
+
   echo "==================== $distro ($image) ===================="
   "$engine" run --rm \
+    "${container_env[@]}" \
     --volume "$repo_root:/src${mount_suffix}" \
     --workdir /src \
-    "$image" bash -lc "$setup; $go_setup; $smoke; $recipe"
+    "$image" bash -lc "$setup; $go_setup; $command; $recipe"
   echo "==================== $distro: PASS ===================="
 }
 

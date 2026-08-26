@@ -8,6 +8,12 @@ GPG-signed with the configured release key.
 This runbook covers the parts that require owner-held secrets. None of these
 steps publish anything to GitHub.
 
+The primary automated path is `.github/workflows/release.yml`, protected by the
+GitHub `production` environment. A signed `v*` tag performs a stable all-platform
+release; manual dispatch from `master` is the approved beta/recovery path. See
+[`../github-cicd.md`](../github-cicd.md) for protection rules and required
+secrets. The steps below remain the owner-side QA and local recovery procedure.
+
 ## 0. One-time setup
 
 ### 0.1 Capabilities and signing (do this in Xcode, not the website)

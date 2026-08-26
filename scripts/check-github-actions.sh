@@ -4,6 +4,8 @@ set -euo pipefail
 
 ROOT_DIR="${1:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 WORKFLOW_DIR="$ROOT_DIR/.github/workflows"
+RELEASE_PUBLIC_KEY="$ROOT_DIR/keys/clambhook-release-key.asc"
+EXPECTED_RELEASE_FINGERPRINT="BAFC7769FDA1E0D4EBD23E2F6FF4807EAD977A9B"
 
 fail() {
   echo "github-actions-policy: $1" >&2
@@ -13,6 +15,17 @@ fail() {
 [[ -d "$WORKFLOW_DIR" ]] || fail "missing .github/workflows"
 find "$WORKFLOW_DIR" -maxdepth 1 -type f -name '*.yml' -print -quit | grep -q . || \
   fail "no workflow files found"
+
+[[ -f "$RELEASE_PUBLIC_KEY" ]] || fail "missing pinned public release key"
+command -v gpg >/dev/null 2>&1 || fail "gpg is required to validate the public release key"
+key_home="$(mktemp -d "${TMPDIR:-/tmp}/clambhook-release-key.XXXXXX")"
+chmod 0700 "$key_home"
+fingerprint="$(GNUPGHOME="$key_home" gpg --batch --show-keys --with-colons \
+  --fingerprint "$RELEASE_PUBLIC_KEY" 2>/dev/null | \
+  awk -F: '$1 == "fpr" { print $10; exit }')"
+rm -rf "$key_home"
+[[ "$fingerprint" == "$EXPECTED_RELEASE_FINGERPRINT" ]] || \
+  fail "public release key fingerprint does not match the pinned owner key"
 
 if grep -Riq --include='*.yml' 'pull_request_target:' "$WORKFLOW_DIR"; then
   fail "pull_request_target is prohibited"

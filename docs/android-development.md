@@ -138,6 +138,11 @@ checksums, GPG-signs, and writes the update manifest — see
 [`docs/website-release/release-runbook.md`](website-release/release-runbook.md)
 and [`docs/release-validation.md`](release-validation.md).
 
+Protected GitHub CD builds without the Android keystore, signs the completed
+package with the Android SDK `apksigner`, verifies that signature, deletes the
+temporary keystore, and uploads only to R2. Environment setup and secret names
+are documented in [`github-cicd.md`](github-cicd.md).
+
 ## Local CI
 
 `scripts/ci-local.sh android` runs the AAR build, unit tests, lint, and debug

@@ -15,6 +15,8 @@ val keystoreProperties = Properties().apply {
     }
 }
 val managedDeviceTestAbi = providers.gradleProperty("clambhook.managedDeviceTestAbi").orNull
+val configuredVersionName = providers.gradleProperty("clambhook.versionName").orNull
+val configuredVersionCode = providers.gradleProperty("clambhook.versionCode").orNull?.toIntOrNull()
 val repositoryRoot = rootProject.layout.projectDirectory.dir("../..")
 val generatedThirdPartyNoticesDirectory =
     layout.buildDirectory.dir("generated/thirdPartyNotices")
@@ -27,8 +29,8 @@ android {
         applicationId = "org.jpfchang.clambhook"
         minSdk = 30
         targetSdk = 36
-        versionCode = 3
-        versionName = "1.0.2"
+        versionCode = configuredVersionCode ?: 3
+        versionName = configuredVersionName ?: "1.0.2"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         externalNativeBuild {
             cmake {

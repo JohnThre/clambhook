@@ -28,7 +28,9 @@ ARCH="$(uname -m)"
 DIST_DIR="$ROOT_DIR/dist/linux"
 BUCKET="${CLAMBHOOK_R2_BUCKET:-clambhook-artifacts}"
 
-rm -rf "$DIST_DIR"
+if [[ "${CLAMBHOOK_RELEASE_APPEND:-0}" != "1" ]]; then
+  rm -rf "$DIST_DIR"
+fi
 mkdir -p "$DIST_DIR"
 
 require() { command -v "$1" >/dev/null 2>&1 || {
@@ -38,12 +40,21 @@ require() { command -v "$1" >/dev/null 2>&1 || {
 
 gpg_sign() {
   local target="$1"
+  local passphrase_args=()
   if [[ "$REQUIRE_SIGNING" != "1" ]]; then
     echo "REQUIRE_SIGNING!=1: skipping signature for $target" >&2
     return 0
   fi
   require gpg "release signing"
+  if [[ -n "${GPG_PASSPHRASE_FILE:-}" ]]; then
+    [[ -f "$GPG_PASSPHRASE_FILE" ]] || {
+      echo "GPG_PASSPHRASE_FILE does not exist." >&2
+      exit 2
+    }
+    passphrase_args=(--passphrase-file "$GPG_PASSPHRASE_FILE")
+  fi
   gpg --batch --yes --pinentry-mode loopback --local-user "$GPG_KEY" \
+    "${passphrase_args[@]}" \
     --detach-sign --armor --output "$target.sig" "$target"
   echo "GPG-signed $target → $target.sig"
 }

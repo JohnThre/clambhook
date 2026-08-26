@@ -9,7 +9,10 @@ installers use only the approved R2-backed store channel.
 `.github/workflows/ci.yml` runs source policy, Apple, Android, and GNU/Linux
 jobs. Android instrumentation covers API 30, 33, and 36; GNU/Linux is limited
 to Trisquel 12, Rocky Linux 9, and AlmaLinux 9. `.github/workflows/security.yml`
-runs CodeQL and dependency review. `scripts/ci-local.sh` mirrors the platform
+runs CodeQL and dependency review. After these gates and owner QA,
+`.github/workflows/release.yml` uses a protected GitHub environment to sign,
+notarize, and deploy directly to R2 without GitHub installer artifacts. See
+[`github-cicd.md`](github-cicd.md). `scripts/ci-local.sh` mirrors the platform
 gate in sections
 (`go`, `apple`, `android`, `linux`, `e2e`, `smoke`; default `all`), skipping any
 section whose tooling is absent. CI validates builds and installers; it never
@@ -62,8 +65,9 @@ staples the DMG. See
 
 GNU/Linux is tested only on Trisquel 12, Rocky Linux 9, and AlmaLinux 9. GitHub
 uses official Rocky/Alma images and constructs the Trisquel image from the
-official checksum-pinned Trisquel 12 arm64 root filesystem. Local validation
-uses Apple's `container` tool (podman/docker fallback on GNU/Linux):
+official signed Ecne package archive on x86-64. ARM64 local hosts can use the
+official checksum-pinned Trisquel 12 base root filesystem. Local validation
+uses Apple's `container` tool (Podman/Docker fallback on GNU/Linux):
 
 ```sh
 container system start                       # one-time: start the Apple container service
