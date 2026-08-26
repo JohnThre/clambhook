@@ -103,8 +103,11 @@ the debug build run on Gradle; Google's
 `android` CLI is the default for the on-device dev loop, using an Android SDK
 Emulator (AVD) for local CI/CD (Apple `container` is Linux-only and cannot run
 Android). A physical Pixel 3a XL on Android 12/API 32 additionally passed the
-six-test instrumentation suite for the native requested-profile checkpoint;
-this supplements rather than replaces the API 30/33/36 matrix.
+six-test instrumentation suite after the native requested-profile and
+file-backed daemon profile-persistence checkpoints; this supplements rather
+than replaces the API 30/33/36 matrix. The daemon-side persistence path is also
+covered by sanitizer-backed host tests that verify the active selection on
+disk, the retained backup, and survival across runtime destruction/restart.
 
 ```sh
 make build-android-mobile-aar                # gomobile bind → ui/android/app/libs/

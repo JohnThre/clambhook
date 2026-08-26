@@ -37,6 +37,12 @@ const char *ch_config_source_path(const ch_config *config);
 const char *ch_config_document(const ch_config *config);
 const ch_config_table *ch_config_root(const ch_config *config);
 
+/* Returns a validated document with the top-level active profile replaced. */
+ch_status ch_config_document_set_active(const ch_config *config,
+                                        const char *profile_name,
+                                        char **out_toml,
+                                        ch_error *error);
+
 size_t ch_config_profile_count(const ch_config *config);
 const ch_config_table *ch_config_profile_at(const ch_config *config, size_t index);
 const ch_config_table *ch_config_active_profile(const ch_config *config);

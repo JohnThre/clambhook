@@ -21,6 +21,8 @@ typedef struct ch_json_buffer {
 void ch_json_init(ch_json_buffer *buffer);
 void ch_json_dispose(ch_json_buffer *buffer);
 int ch_json_append(ch_json_buffer *buffer, const char *value);
+int ch_json_append_bytes(ch_json_buffer *buffer, const char *value,
+                         size_t length);
 int ch_json_append_format(ch_json_buffer *buffer, const char *format, ...)
     __attribute__((format(printf, 2, 3)));
 int ch_json_append_string(ch_json_buffer *buffer, const char *value);

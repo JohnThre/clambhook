@@ -1252,6 +1252,124 @@ const ch_config_table *ch_config_root(const ch_config *config) {
     return config == NULL ? NULL : as_config_table(config->root);
 }
 
+static int config_append_toml_string(ch_json_buffer *output,
+                                     const char *value) {
+    static const char hex[] = "0123456789abcdef";
+    if (!ch_json_append(output, "\"")) return 0;
+    const unsigned char *cursor = (const unsigned char *)value;
+    for (; *cursor != 0U; ++cursor) {
+        const char *escaped = NULL;
+        switch (*cursor) {
+            case '\b': escaped = "\\b"; break;
+            case '\t': escaped = "\\t"; break;
+            case '\n': escaped = "\\n"; break;
+            case '\f': escaped = "\\f"; break;
+            case '\r': escaped = "\\r"; break;
+            case '"': escaped = "\\\""; break;
+            case '\\': escaped = "\\\\"; break;
+            default: break;
+        }
+        if (escaped != NULL) {
+            if (!ch_json_append(output, escaped)) return 0;
+        } else if (*cursor < 0x20U || *cursor == 0x7fU) {
+            char encoded[7] = {
+                '\\', 'u', '0', '0', hex[*cursor >> 4U],
+                hex[*cursor & 0x0fU], '\0'
+            };
+            if (!ch_json_append(output, encoded)) return 0;
+        } else {
+            char character[2] = {(char)*cursor, '\0'};
+            if (!ch_json_append(output, character)) return 0;
+        }
+    }
+    return ch_json_append(output, "\"");
+}
+
+ch_status ch_config_document_set_active(const ch_config *config,
+                                        const char *profile_name,
+                                        char **out_toml,
+                                        ch_error *error) {
+    ch_error_clear(error);
+    if (config == NULL || profile_name == NULL || profile_name[0] == '\0' ||
+        out_toml == NULL) {
+        ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
+                     "config, profile name, and TOML output are required");
+        return CH_ERROR_INVALID_ARGUMENT;
+    }
+    *out_toml = NULL;
+    if (ch_config_profile_named(config, profile_name) == NULL) {
+        ch_error_set(error, CH_ERROR_NOT_FOUND, "profile %s not found",
+                     profile_name);
+        return CH_ERROR_NOT_FOUND;
+    }
+    const char *document = ch_config_document(config);
+    if (document == NULL) {
+        ch_error_set(error, CH_ERROR_INVALID_STATE,
+                     "config has no source document");
+        return CH_ERROR_INVALID_STATE;
+    }
+    const char *active_start = NULL;
+    const char *active_after = NULL;
+    const char *cursor = document;
+    while (*cursor != '\0') {
+        const char *line_start = cursor;
+        const char *line_end = strchr(cursor, '\n');
+        if (line_end == NULL) line_end = cursor + strlen(cursor);
+        const char *content = line_start;
+        while (content < line_end &&
+               (*content == ' ' || *content == '\t')) {
+            ++content;
+        }
+        if (content < line_end && *content == '[') break;
+        if ((size_t)(line_end - content) >= 6U &&
+            strncmp(content, "active", 6U) == 0) {
+            const char *separator = content + 6U;
+            while (separator < line_end &&
+                   (*separator == ' ' || *separator == '\t')) {
+                ++separator;
+            }
+            if (separator < line_end && *separator == '=') {
+                active_start = line_start;
+                active_after = *line_end == '\n' ? line_end + 1U : line_end;
+                break;
+            }
+        }
+        cursor = *line_end == '\n' ? line_end + 1U : line_end;
+    }
+
+    ch_json_buffer rendered;
+    ch_json_init(&rendered);
+    int okay = 1;
+    if (active_start != NULL) {
+        okay = ch_json_append_bytes(
+            &rendered, document, (size_t)(active_start - document));
+    }
+    if (okay) okay = ch_json_append(&rendered, "active = ");
+    if (okay) okay = config_append_toml_string(&rendered, profile_name);
+    if (okay) okay = ch_json_append(&rendered, "\n");
+    if (okay) {
+        okay = ch_json_append(
+            &rendered, active_after == NULL ? document : active_after);
+    }
+    char *candidate = okay ? ch_json_take(&rendered) : NULL;
+    ch_json_dispose(&rendered);
+    if (candidate == NULL) {
+        ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                     "render active profile document");
+        return CH_ERROR_OUT_OF_MEMORY;
+    }
+    ch_config *validated = NULL;
+    ch_status status = ch_config_parse(
+        candidate, ch_config_source_path(config), &validated, error);
+    ch_config_free(validated);
+    if (status != CH_OK) {
+        free(candidate);
+        return status;
+    }
+    *out_toml = candidate;
+    return CH_OK;
+}
+
 size_t ch_config_profile_count(const ch_config *config) {
     const toml_array_t *profiles;
     int count;

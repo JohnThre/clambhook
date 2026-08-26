@@ -67,6 +67,20 @@ int ch_json_append(ch_json_buffer *buffer, const char *value) {
     return 1;
 }
 
+int ch_json_append_bytes(ch_json_buffer *buffer, const char *value,
+                         size_t length) {
+    if (buffer == NULL || (value == NULL && length != 0U) ||
+        !ch_json_reserve(buffer, length)) {
+        return 0;
+    }
+    if (length > 0U) {
+        memcpy(buffer->data + buffer->length, value, length);
+    }
+    buffer->length += length;
+    buffer->data[buffer->length] = '\0';
+    return 1;
+}
+
 int ch_json_append_format(ch_json_buffer *buffer, const char *format, ...) {
     if (buffer == NULL || format == NULL) {
         return 0;

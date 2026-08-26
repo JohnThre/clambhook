@@ -369,29 +369,6 @@ static void ch_api_runtime_error(ch_api_client *client, ch_status status, const 
     free(body);
 }
 
-static char *ch_api_in_memory_profile_status(char *status_json,
-                                             ch_error *error) {
-    if (status_json == NULL) return NULL;
-    size_t length = strlen(status_json);
-    if (length == 0U || status_json[length - 1U] != '}') {
-        ch_error_set(error, CH_ERROR_INTERNAL,
-                     "invalid profile status response");
-        return NULL;
-    }
-    ch_json_buffer result;
-    ch_json_init(&result);
-    int okay = ch_json_append_format(
-        &result, "%.*s,\"persisted\":false}", (int)(length - 1U),
-        status_json);
-    char *decorated = okay ? ch_json_take(&result) : NULL;
-    ch_json_dispose(&result);
-    if (decorated == NULL) {
-        ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
-                     "encode profile persistence status");
-    }
-    return decorated;
-}
-
 static void ch_api_route(ch_api_client *client) {
     if (!ch_api_host_allowed(client->server, client->host) ||
         !ch_api_origin_allowed(client->server, client->origin)) {
@@ -439,15 +416,9 @@ static void ch_api_route(ch_api_client *client) {
     } else if (strcmp(method, "PUT") == 0 &&
                strcmp(path, "/api/v1/profiles/active") == 0) {
         status = ch_runtime_mutate(
-            client->server->runtime, "set_active_profile",
+            client->server->runtime, "persist_active_profile",
             client->body.data == NULL ? "{}" : client->body.data,
             &json, &error);
-        if (status == CH_OK) {
-            char *decorated = ch_api_in_memory_profile_status(json, &error);
-            ch_string_free(json);
-            json = decorated;
-            if (json == NULL) status = error.code;
-        }
     } else if (strcmp(method, "POST") == 0 && strcmp(path, "/api/v1/connect") == 0) {
         status = ch_runtime_mutate(client->server->runtime, "connect", client->body.data, &json, &error);
     } else if (strcmp(method, "POST") == 0 && strcmp(path, "/api/v1/disconnect") == 0) {

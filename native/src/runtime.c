@@ -145,6 +145,32 @@ static char *ch_runtime_status_json(ch_runtime *runtime) {
     return ch_json_take(&json);
 }
 
+static char *ch_runtime_profile_status_json(ch_runtime *runtime,
+                                            bool persisted,
+                                            const char *backup_path) {
+    char *status = ch_runtime_status_json(runtime);
+    if (status == NULL) return NULL;
+    size_t length = strlen(status);
+    if (length == 0U || status[length - 1U] != '}') {
+        free(status);
+        return NULL;
+    }
+    ch_json_buffer json;
+    ch_json_init(&json);
+    int okay = ch_json_append_bytes(&json, status, length - 1U) &&
+        ch_json_append_format(&json, ",\"persisted\":%s",
+                              persisted ? "true" : "false");
+    if (okay && backup_path != NULL && backup_path[0] != '\0') {
+        okay = ch_json_append(&json, ",\"backup_path\":") &&
+            ch_json_append_string(&json, backup_path);
+    }
+    if (okay) okay = ch_json_append(&json, "}");
+    free(status);
+    char *result = okay ? ch_json_take(&json) : NULL;
+    ch_json_dispose(&json);
+    return result;
+}
+
 static char *ch_runtime_profiles_json(ch_runtime *runtime) {
     ch_json_buffer json;
     ch_json_init(&json);
@@ -602,6 +628,16 @@ static bool ch_runtime_switch_profile(ch_runtime *runtime, const char *name,
     return true;
 }
 
+static void ch_runtime_trim_in_place(char *value) {
+    char *start = value;
+    while (*start != '\0' && isspace((unsigned char)*start) != 0) ++start;
+    char *end = start + strlen(start);
+    while (end > start && isspace((unsigned char)end[-1]) != 0) --end;
+    size_t length = (size_t)(end - start);
+    if (start != value && length > 0U) memmove(value, start, length);
+    value[length] = '\0';
+}
+
 static void ch_runtime_network_log(int level, const char *message,
                                    void *context) {
     ch_runtime_log(context, level, message);
@@ -757,6 +793,86 @@ static bool ch_runtime_apply_config(ch_runtime *runtime, ch_command *command,
     return true;
 }
 
+static bool ch_runtime_persist_active_profile(ch_runtime *runtime,
+                                              const char *name,
+                                              ch_command *command) {
+    if (runtime->config_path == NULL || runtime->config_path[0] == '\0') {
+        bool found = runtime->config == NULL
+            ? strcmp(name, "default") == 0
+            : ch_config_has_profile(runtime->config, name);
+        if (!found) {
+            ch_error_set(&command->error, CH_ERROR_NOT_FOUND,
+                         "profile %s not found", name);
+            command->status = CH_ERROR_NOT_FOUND;
+            return false;
+        }
+        if (!ch_runtime_switch_profile(runtime, name, command)) return false;
+        command->response = ch_runtime_profile_status_json(runtime, false,
+                                                           NULL);
+        return true;
+    }
+
+    char *path = ch_strdup(runtime->config_path);
+    ch_config *disk_config = NULL;
+    char *document = NULL;
+    char *backup_path = NULL;
+    ch_error config_error;
+    if (path == NULL) {
+        ch_command_fail(command, CH_ERROR_OUT_OF_MEMORY, "copy config path");
+        return false;
+    }
+    ch_status status = ch_config_load(path, &disk_config, &config_error);
+    if (status == CH_OK) {
+        status = ch_config_document_set_active(disk_config, name, &document,
+                                               &config_error);
+    }
+    if (status == CH_OK) {
+        status = ch_config_write_atomic_document(path, document, &backup_path,
+                                                 &config_error);
+    }
+    if (status != CH_OK) {
+        command->status = status;
+        command->error = config_error;
+        free(backup_path);
+        free(document);
+        ch_config_free(disk_config);
+        free(path);
+        return false;
+    }
+
+    bool running = atomic_load_explicit(&runtime->running,
+                                        memory_order_acquire);
+    if (!ch_runtime_apply_config(runtime, command, path, running)) {
+        ch_status apply_status = command->status;
+        ch_error apply_error = command->error;
+        ch_error restore_error;
+        ch_status restore_status = ch_config_write_atomic_document(
+            path, ch_config_document(disk_config), NULL, &restore_error);
+        if (restore_status != CH_OK) {
+            ch_error_set(&command->error, CH_ERROR_INTERNAL,
+                         "%s; restore config: %s", apply_error.message,
+                         restore_error.message);
+            command->status = CH_ERROR_INTERNAL;
+        } else {
+            command->status = apply_status;
+            command->error = apply_error;
+        }
+        free(backup_path);
+        free(document);
+        ch_config_free(disk_config);
+        free(path);
+        return false;
+    }
+    ch_runtime_refresh_network_watcher(runtime);
+    command->response = ch_runtime_profile_status_json(runtime, true,
+                                                       backup_path);
+    free(backup_path);
+    free(document);
+    ch_config_free(disk_config);
+    free(path);
+    return true;
+}
+
 static void ch_command_process(ch_runtime *runtime, ch_command *command) {
     command->status = CH_OK;
     ch_error_clear(&command->error);
@@ -864,6 +980,13 @@ static void ch_command_process(ch_runtime *runtime, ch_command *command) {
                     command->status = command->error.code;
                     break;
                 }
+                ch_runtime_trim_in_place(name);
+                if (name[0] == '\0') {
+                    ch_command_fail(command, CH_ERROR_INVALID_ARGUMENT,
+                                    "profile name is required");
+                    free(name);
+                    break;
+                }
                 if (runtime->config == NULL || !ch_config_has_profile(runtime->config, name)) {
                     ch_error_set(&command->error, CH_ERROR_NOT_FOUND,
                                  "profile %s not found", name);
@@ -876,6 +999,25 @@ static void ch_command_process(ch_runtime *runtime, ch_command *command) {
                 free(name);
                 if (!switched) break;
                 command->response = ch_runtime_status_json(runtime);
+            } else if (strcmp(command->operation,
+                              "persist_active_profile") == 0) {
+                char *name = ch_json_request_string(command->payload, "name",
+                                                    &command->error);
+                if (name == NULL) {
+                    command->status = command->error.code;
+                    break;
+                }
+                ch_runtime_trim_in_place(name);
+                if (name[0] == '\0') {
+                    ch_command_fail(command, CH_ERROR_INVALID_ARGUMENT,
+                                    "profile name is required");
+                    free(name);
+                    break;
+                }
+                bool persisted = ch_runtime_persist_active_profile(
+                    runtime, name, command);
+                free(name);
+                if (!persisted) break;
             } else {
                 ch_command_fail(command, CH_ERROR_UNSUPPORTED, "unknown runtime mutation operation");
                 break;

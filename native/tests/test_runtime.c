@@ -2,10 +2,12 @@
 
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
 
+#include "clambhook/config.h"
 #include "clambhook/runtime.h"
 
 typedef struct runtime_network_probe_state {
@@ -61,6 +63,19 @@ static bool runtime_wait_for_profile(ch_runtime *runtime, const char *profile,
     return false;
 }
 
+static void runtime_assert_config_profile(const char *path,
+                                          const char *expected) {
+    ch_config *config = NULL;
+    char *name = NULL;
+    ch_error error;
+    CH_TEST_ASSERT(ch_config_load(path, &config, &error) == CH_OK);
+    CH_TEST_ASSERT(ch_config_table_get_string(
+        ch_config_active_profile(config), "name", &name, &error) == CH_OK);
+    CH_TEST_ASSERT_STRING(expected, name);
+    free(name);
+    ch_config_free(config);
+}
+
 void ch_test_runtime(void) {
     ch_error error;
     ch_runtime *runtime = ch_runtime_create(NULL, &error);
@@ -97,6 +112,13 @@ void ch_test_runtime(void) {
 
     CH_TEST_ASSERT(ch_runtime_query(runtime, "profiles", NULL, &json, &error) == CH_OK);
     CH_TEST_ASSERT_STRING("{\"profiles\":[\"default\"],\"active\":\"default\"}", json);
+    ch_string_free(json);
+
+    CH_TEST_ASSERT(ch_runtime_mutate(
+        runtime, "persist_active_profile", "{\"name\":\" default \"}",
+        &json, &error) == CH_OK);
+    CH_TEST_ASSERT(strstr(json, "\"profile\":\"default\"") != NULL);
+    CH_TEST_ASSERT(strstr(json, "\"persisted\":false") != NULL);
     ch_string_free(json);
 
     CH_TEST_ASSERT(ch_runtime_query(runtime, "missing", NULL, &json, &error) == CH_ERROR_UNSUPPORTED);
@@ -340,5 +362,62 @@ void ch_test_runtime(void) {
         ) == CH_ERROR_NOT_FOUND);
         ch_runtime_destroy(runtime);
         CH_TEST_ASSERT(unlink(path) == 0);
+    }
+
+    {
+        char path[160];
+        char backup_path[256];
+        (void)snprintf(path, sizeof(path),
+                       "/tmp/clambhook-persist-runtime-%ld.toml",
+                       (long)getpid());
+        FILE *file = fopen(path, "wb");
+        CH_TEST_ASSERT(file != NULL);
+        CH_TEST_ASSERT(fputs(
+            "active = \"one\"\n"
+            "[[profile]]\nname = \"one\"\n"
+            "[[profile.chain]]\nname = \"direct\"\n"
+            "[[profile.chain.server]]\nprotocol = \"direct\"\n"
+            "[[profile]]\nname = \"two\"\n"
+            "[[profile.chain]]\nname = \"direct\"\n"
+            "[[profile.chain.server]]\nprotocol = \"direct\"\n",
+            file) >= 0);
+        CH_TEST_ASSERT(fclose(file) == 0);
+        runtime = ch_runtime_create(NULL, &error);
+        CH_TEST_ASSERT(runtime != NULL);
+        CH_TEST_ASSERT(ch_runtime_start(runtime, path, &error) == CH_OK);
+        CH_TEST_ASSERT(ch_runtime_mutate(
+            runtime, "persist_active_profile", "{\"name\":\" two \"}",
+            &json, &error) == CH_OK);
+        CH_TEST_ASSERT(strstr(json, "\"profile\":\"two\"") != NULL);
+        CH_TEST_ASSERT(strstr(json, "\"persisted\":true") != NULL);
+        const char *backup = strstr(json, "\"backup_path\":\"");
+        CH_TEST_ASSERT(backup != NULL);
+        backup += strlen("\"backup_path\":\"");
+        const char *backup_end = strchr(backup, '\"');
+        CH_TEST_ASSERT(backup_end != NULL);
+        size_t backup_length = (size_t)(backup_end - backup);
+        CH_TEST_ASSERT(backup_length > 0U &&
+                       backup_length < sizeof(backup_path));
+        memcpy(backup_path, backup, backup_length);
+        backup_path[backup_length] = '\0';
+        ch_string_free(json);
+        runtime_assert_config_profile(path, "two");
+        runtime_assert_config_profile(backup_path, "one");
+        CH_TEST_ASSERT(ch_runtime_mutate(
+            runtime, "persist_active_profile", "{\"name\":\"missing\"}",
+            &json, &error) == CH_ERROR_NOT_FOUND);
+        runtime_assert_config_profile(path, "two");
+        ch_runtime_destroy(runtime);
+
+        runtime = ch_runtime_create(NULL, &error);
+        CH_TEST_ASSERT(runtime != NULL);
+        CH_TEST_ASSERT(ch_runtime_start(runtime, path, &error) == CH_OK);
+        CH_TEST_ASSERT(ch_runtime_query(runtime, "status", NULL, &json,
+                                        &error) == CH_OK);
+        CH_TEST_ASSERT(strstr(json, "\"profile\":\"two\"") != NULL);
+        ch_string_free(json);
+        ch_runtime_destroy(runtime);
+        CH_TEST_ASSERT(unlink(path) == 0);
+        CH_TEST_ASSERT(unlink(backup_path) == 0);
     }
 }

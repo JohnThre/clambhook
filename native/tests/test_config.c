@@ -149,6 +149,47 @@ static void test_repository_config_contracts(void) {
     ch_config_free(config);
 }
 
+static void test_replace_active_profile_document(void) {
+    const char *document =
+        "# retained header\n"
+        "active = \"one\" # selected profile\n"
+        "[prompt]\ntimeout_seconds = 30\n"
+        "[[profile]]\nname = \"one\"\n"
+        "[[profile]]\nname = \"qa\\\"lab\"\n";
+    ch_config *config = NULL;
+    ch_config *updated = NULL;
+    char *toml = NULL;
+    char *name = NULL;
+    ch_error error;
+    CH_TEST_ASSERT(ch_config_parse(document, "/tmp/profile.toml", &config,
+                                   &error) == CH_OK);
+    CH_TEST_ASSERT(ch_config_document_set_active(
+        config, "qa\"lab", &toml, &error) == CH_OK);
+    CH_TEST_ASSERT(strstr(toml, "active = \"qa\\\"lab\"\n") != NULL);
+    CH_TEST_ASSERT(strstr(toml, "# retained header\n") != NULL);
+    CH_TEST_ASSERT(strstr(toml, "[prompt]\ntimeout_seconds = 30\n") != NULL);
+    CH_TEST_ASSERT(ch_config_parse(toml, NULL, &updated, &error) == CH_OK);
+    CH_TEST_ASSERT(ch_config_table_get_string(
+        ch_config_active_profile(updated), "name", &name, &error) == CH_OK);
+    CH_TEST_ASSERT_STRING("qa\"lab", name);
+    free(name);
+    free(toml);
+    ch_config_free(updated);
+    ch_config_free(config);
+
+    const char *without_active =
+        "# no root selection\n[[profile]]\nname = \"only\"\n";
+    config = NULL;
+    toml = NULL;
+    CH_TEST_ASSERT(ch_config_parse(without_active, NULL, &config, &error) ==
+                   CH_OK);
+    CH_TEST_ASSERT(ch_config_document_set_active(config, "only", &toml,
+                                                 &error) == CH_OK);
+    CH_TEST_ASSERT(strncmp(toml, "active = \"only\"\n", 16U) == 0);
+    free(toml);
+    ch_config_free(config);
+}
+
 static void test_atomic_write_and_backup_retention(void) {
     char directory[160];
     char path[200];
@@ -198,5 +239,6 @@ void ch_test_config(void) {
     test_duration_contract();
     test_validation();
     test_repository_config_contracts();
+    test_replace_active_profile_document();
     test_atomic_write_and_backup_retention();
 }

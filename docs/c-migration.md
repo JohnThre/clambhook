@@ -69,10 +69,15 @@ The additive CMake build currently provides:
   route explanations through a small libuv + llhttp API with hardened
   bearer/Host/Origin checks. Profile-scoped reads decode URL query parameters,
   return 404 for unknown profiles, and share one requested-profile contract
-  with JNI. `PUT /api/v1/profiles/active` currently reports
-  `persisted:false`, and `POST /api/v1/routes/explain` shares the native route
-  explanation path. Configured proxy listeners participate in runtime start,
-  stop, reload, profile switching, and status reporting;
+  with JNI. `PUT /api/v1/profiles/active` now validates the requested profile
+  against a fresh disk snapshot, atomically replaces the top-level TOML
+  selection with a retained backup, reloads the live runtime transactionally,
+  and restores the previous document if the selected profile cannot start. It
+  returns `persisted:true` plus `backup_path` for file-backed daemon configs and
+  `persisted:false` for an in-memory runtime. `POST /api/v1/routes/explain`
+  shares the native route explanation path. Configured proxy listeners
+  participate in runtime start, stop, reload, profile switching, and status
+  reporting;
 - `clambhook-linux-c`: an additive `GtkApplication` dashboard using GTK 4,
   libsoup 3, and json-glib;
 - `clambhook_jni`: the thin JNI ownership/callback boundary used by the Kotlin
