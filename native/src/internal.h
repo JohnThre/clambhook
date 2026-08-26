@@ -6,6 +6,7 @@
 
 #include "clambhook/dns.h"
 #include "clambhook/error.h"
+#include "clambhook/rule_feed.h"
 
 void ch_error_set(ch_error *error, ch_status code, const char *format, ...)
     __attribute__((format(printf, 3, 4)));
@@ -106,5 +107,8 @@ ch_status ch_rule_explain_request_json(const struct ch_config *config,
                                        const char *request_json,
                                        char **out_json,
                                        ch_error *error);
+char *ch_config_refresh_rule_feeds_json(
+    const struct ch_config *config, const char *fallback_profile,
+    ch_rule_feed_kind kind, const char *request_json, ch_error *error);
 
 #endif

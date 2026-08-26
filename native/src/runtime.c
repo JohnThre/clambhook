@@ -1095,6 +1095,63 @@ static bool ch_runtime_persist_config_mutation(ch_runtime *runtime,
     return command->status == CH_OK;
 }
 
+static bool ch_runtime_refresh_rule_feeds(
+    ch_runtime *runtime, ch_rule_feed_kind kind, const char *request_json,
+    ch_command *command) {
+    if (runtime->config_path == NULL || runtime->config_path[0] == '\0' ||
+        runtime->config == NULL) {
+        ch_command_fail(command, CH_ERROR_INVALID_STATE,
+                        "rule feed refresh requires daemon config path");
+        return false;
+    }
+    char *response = ch_config_refresh_rule_feeds_json(
+        runtime->config, runtime->active_profile, kind, request_json,
+        &command->error);
+    if (response == NULL) {
+        command->status = command->error.code == CH_OK ?
+            CH_ERROR_OUT_OF_MEMORY : command->error.code;
+        return false;
+    }
+    char *path = ch_strdup(runtime->config_path);
+    char *document = NULL;
+    char *backup_path = NULL;
+    ch_error write_error;
+    ch_status status = path == NULL ? CH_ERROR_OUT_OF_MEMORY :
+        ch_config_document_set_active(runtime->config,
+                                      runtime->active_profile, &document,
+                                      &write_error);
+    if (status == CH_OK) {
+        status = ch_config_write_atomic_document(
+            path, document, &backup_path, &write_error);
+    }
+    if (path == NULL) {
+        ch_error_set(&write_error, CH_ERROR_OUT_OF_MEMORY,
+                     "copy rule feed config path");
+    }
+    if (status != CH_OK) {
+        command->status = status;
+        command->error = write_error;
+        free(response); free(path); free(document); free(backup_path);
+        return false;
+    }
+    bool running = atomic_load_explicit(&runtime->running,
+                                        memory_order_acquire);
+    if (!ch_runtime_apply_config(runtime, command, path, running)) {
+        free(response); free(path); free(document); free(backup_path);
+        return false;
+    }
+    ch_runtime_refresh_network_watcher(runtime);
+    command->response = ch_runtime_json_with_backup(response, backup_path);
+    if (command->response == NULL) {
+        ch_command_fail(command, CH_ERROR_OUT_OF_MEMORY,
+                        "encode rule feed refresh response");
+    }
+    free(path);
+    free(document);
+    free(backup_path);
+    return command->status == CH_OK;
+}
+
 static void ch_command_process(ch_runtime *runtime, ch_command *command) {
     command->status = CH_OK;
     ch_error_clear(&command->error);
@@ -1311,6 +1368,16 @@ static void ch_command_process(ch_runtime *runtime, ch_command *command) {
                         runtime, "replace_rule_subscriptions",
                         "rule_subscriptions_persistence", command->payload,
                         true, command)) break;
+            } else if (strcmp(command->operation,
+                              "refresh_rule_sets") == 0) {
+                if (!ch_runtime_refresh_rule_feeds(
+                        runtime, CH_RULE_FEED_RULE_SET, command->payload,
+                        command)) break;
+            } else if (strcmp(command->operation,
+                              "refresh_rule_subscriptions") == 0) {
+                if (!ch_runtime_refresh_rule_feeds(
+                        runtime, CH_RULE_FEED_SUBSCRIPTION,
+                        command->payload, command)) break;
             } else if (strcmp(command->operation,
                               "select_policy_group") == 0) {
                 if (!ch_runtime_persist_config_mutation(

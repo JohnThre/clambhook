@@ -2,11 +2,13 @@
 
 #include <ctype.h>
 #include <inttypes.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include "clambhook/config.h"
 #include "clambhook/json.h"
+#include "clambhook/rule_feed.h"
 #include "clambhook/rules.h"
 
 static ch_status request_optional_string(const char *request_json,
@@ -565,28 +567,26 @@ static char *ch_config_developer_persistence_payload_json(
     return result;
 }
 
-static char *ch_config_subscriptions_payload_json(const ch_config *config,
-                                                  const char *profile_name,
-                                                  ch_error *error) {
-    const ch_config_table *profile = select_profile(config, profile_name);
-    if (profile == NULL) {
-        ch_error_set(error, CH_ERROR_NOT_FOUND, "profile %s not found",
-                     profile_name == NULL ? "" : profile_name);
-        return NULL;
-    }
-    char *name = optional_config_string(profile, "name");
+static int ch_config_append_subscription_rule_name(ch_json_buffer *json,
+                                                    const char *name,
+                                                    const char *kind) {
+    int length = snprintf(NULL, 0, "subscription:%s:%s", name, kind);
+    char *generated = length < 0 ? NULL : malloc((size_t)length + 1U);
+    if (generated == NULL) return 0;
+    (void)snprintf(generated, (size_t)length + 1U, "subscription:%s:%s",
+                   name, kind);
+    int okay = ch_json_append_string(json, generated);
+    free(generated);
+    return okay;
+}
+
+static int ch_config_append_subscription_statuses(
+    ch_json_buffer *json, const ch_config *config,
+    const ch_config_table *profile, const char *profile_name,
+    ch_error *error) {
     const ch_config_array *subscriptions = ch_config_table_get_array(
         profile, "rule_subscription");
-    if (name == NULL) {
-        ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
-                     "encode subscription payload");
-        return NULL;
-    }
-    ch_json_buffer json;
-    ch_json_init(&json);
-    int okay = ch_json_append(&json, "{\"profile\":") &&
-        ch_json_append_string(&json, name) &&
-        ch_json_append(&json, ",\"subscriptions\":[");
+    int okay = ch_json_append(json, "[");
     size_t count = ch_config_array_count(subscriptions);
     for (size_t index = 0U; okay && index < count; ++index) {
         const ch_config_table *subscription = ch_config_array_get_table(
@@ -597,37 +597,106 @@ static char *ch_config_subscriptions_payload_json(const ch_config *config,
         char *action = optional_config_string(subscription, "action");
         const ch_config_array *networks = ch_config_table_get_array(
             subscription, "networks");
+        ch_rule_feed_cache cache;
+        ch_error cache_error;
+        ch_status cache_status = ch_rule_feed_cache_load(
+            ch_config_source_path(config), CH_RULE_FEED_SUBSCRIPTION,
+            profile_name,
+            sub_name == NULL ? "" : sub_name, url == NULL ? "" : url,
+            &cache, &cache_error);
         okay = sub_name != NULL && url != NULL && format != NULL &&
-            action != NULL && (index == 0U || ch_json_append(&json, ",")) &&
-            ch_json_append(&json, "{\"name\":") &&
-            ch_json_append_string(&json, sub_name) &&
-            ch_json_append(&json, ",\"url\":") &&
-            ch_json_append_string(&json, url) &&
-            ch_json_append(&json, ",\"format\":") &&
-            ch_json_append_string(&json, format[0] == '\0' ? "auto" : format) &&
-            ch_json_append(&json, ",\"action\":") &&
-            ch_json_append_string(&json, action[0] == '\0' ? "block" : action);
+            action != NULL && (index == 0U || ch_json_append(json, ",")) &&
+            ch_json_append(json, "{\"name\":") &&
+            ch_json_append_string(json, sub_name) &&
+            ch_json_append(json, ",\"url\":") &&
+            ch_json_append_string(json, url) &&
+            ch_json_append(json, ",\"format\":") &&
+            ch_json_append_string(
+                json, cache_status == CH_OK && cache.feed.format != NULL &&
+                    cache.feed.format[0] != '\0' ? cache.feed.format :
+                    (format[0] == '\0' ? "auto" : format)) &&
+            ch_json_append(json, ",\"action\":") &&
+            ch_json_append_string(json, action[0] == '\0' ? "block" : action);
         if (okay && ch_config_array_count(networks) > 0U) {
             char *encoded = NULL;
             if (ch_config_array_json(networks, &encoded, error) != CH_OK) {
                 okay = 0;
             } else {
-                okay = ch_json_append(&json, ",\"networks\":") &&
-                    ch_json_append(&json, encoded);
+                okay = ch_json_append(json, ",\"networks\":") &&
+                    ch_json_append(json, encoded);
             }
             free(encoded);
         }
         if (okay && optional_config_bool(subscription, "disabled", false)) {
-            okay = ch_json_append(&json, ",\"disabled\":true");
+            okay = ch_json_append(json, ",\"disabled\":true");
         }
-        if (okay) {
+        if (okay && cache_status == CH_OK) {
+            okay = ch_json_append(json, ",\"cached\":true") &&
+                ch_json_append_format(
+                    json, ",\"fetched_ts_ns\":%" PRId64
+                           ",\"domain_count\":%zu,\"cidr_count\":%zu",
+                    cache.fetched_ts_ns, cache.feed.domain_suffix_count,
+                    cache.feed.cidr_count);
+            if (okay && cache.feed.skipped > 0U) {
+                okay = ch_json_append_format(json, ",\"skipped\":%zu",
+                                             cache.feed.skipped);
+            }
+            if (okay && (cache.feed.domain_suffix_count > 0U ||
+                         cache.feed.cidr_count > 0U)) {
+                okay = ch_json_append(json, ",\"generated_rules\":[");
+                int emitted = 0;
+                if (okay && cache.feed.domain_suffix_count > 0U) {
+                    okay = ch_config_append_subscription_rule_name(
+                        json, sub_name, "domains");
+                    emitted = 1;
+                }
+                if (okay && cache.feed.cidr_count > 0U) {
+                    okay = (!emitted || ch_json_append(json, ",")) &&
+                        ch_config_append_subscription_rule_name(
+                            json, sub_name, "cidrs");
+                }
+                if (okay) okay = ch_json_append(json, "]");
+            }
+        } else if (okay) {
             okay = ch_json_append(
-                &json,
-                ",\"cached\":false,\"domain_count\":0,\"cidr_count\":0}");
+                json, ",\"cached\":false,\"domain_count\":0,"
+                       "\"cidr_count\":0");
+            if (okay && cache_status != CH_ERROR_NOT_FOUND &&
+                cache_error.message[0] != '\0') {
+                okay = ch_json_append(json, ",\"cache_error\":") &&
+                    ch_json_append_string(json, cache_error.message);
+            }
         }
+        if (okay) okay = ch_json_append(json, "}");
+        if (cache_status == CH_OK) ch_rule_feed_cache_clear(&cache);
         free(sub_name); free(url); free(format); free(action);
     }
-    if (okay) okay = ch_json_append(&json, "]}");
+    return okay && ch_json_append(json, "]");
+}
+
+static char *ch_config_subscriptions_payload_json(const ch_config *config,
+                                                  const char *profile_name,
+                                                  ch_error *error) {
+    const ch_config_table *profile = select_profile(config, profile_name);
+    if (profile == NULL) {
+        ch_error_set(error, CH_ERROR_NOT_FOUND, "profile %s not found",
+                     profile_name == NULL ? "" : profile_name);
+        return NULL;
+    }
+    char *name = optional_config_string(profile, "name");
+    if (name == NULL) {
+        ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                     "encode subscription payload");
+        return NULL;
+    }
+    ch_json_buffer json;
+    ch_json_init(&json);
+    int okay = ch_json_append(&json, "{\"profile\":") &&
+        ch_json_append_string(&json, name) &&
+        ch_json_append(&json, ",\"subscriptions\":") &&
+        ch_config_append_subscription_statuses(
+            &json, config, profile, name, error) &&
+        ch_json_append(&json, "}");
     free(name);
     char *result = okay ? ch_json_take(&json) : NULL;
     ch_json_dispose(&json);
@@ -791,6 +860,211 @@ static char *ch_config_policy_selection_payload_json(
     return result;
 }
 
+static int ch_config_append_rule_set_statuses(
+    ch_json_buffer *json, const ch_config *config,
+    const ch_config_table *profile, const char *profile_name,
+    ch_error *error) {
+    const ch_config_array *sets = ch_config_table_get_array(profile,
+                                                             "rule_set");
+    if (!ch_json_append(json, "[")) return 0;
+    size_t count = ch_config_array_count(sets);
+    for (size_t index = 0U; index < count; ++index) {
+        const ch_config_table *set = ch_config_array_get_table(sets, index);
+        char *name = optional_config_string(set, "name");
+        char *url = optional_config_string(set, "url");
+        char *format = optional_config_string(set, "format");
+        size_t inline_domains =
+            ch_config_array_count(ch_config_table_get_array(set, "domains")) +
+            ch_config_array_count(ch_config_table_get_array(
+                set, "domain_suffixes")) +
+            ch_config_array_count(ch_config_table_get_array(
+                set, "domain_keywords"));
+        size_t inline_cidrs = ch_config_array_count(
+            ch_config_table_get_array(set, "cidrs"));
+        ch_rule_feed_cache cache;
+        ch_error cache_error;
+        ch_status cache_status = ch_rule_feed_cache_load(
+            ch_config_source_path(config), CH_RULE_FEED_RULE_SET,
+            profile_name, name == NULL ? "" : name,
+            url == NULL ? "" : url, &cache, &cache_error);
+        int okay = name != NULL && url != NULL && format != NULL &&
+            (index == 0U || ch_json_append(json, ",")) &&
+            ch_json_append(json, "{\"name\":") &&
+            ch_json_append_string(json, name);
+        if (okay && url[0] != '\0') {
+            okay = ch_json_append(json, ",\"url\":") &&
+                ch_json_append_string(json, url);
+        }
+        if (okay && (format[0] != '\0' || url[0] != '\0')) {
+            okay = ch_json_append(json, ",\"format\":") &&
+                ch_json_append_string(
+                    json, cache_status == CH_OK &&
+                        cache.feed.format != NULL &&
+                        cache.feed.format[0] != '\0' ? cache.feed.format :
+                        (format[0] == '\0' ? "auto" : format));
+        }
+        if (okay && optional_config_bool(set, "disabled", false)) {
+            okay = ch_json_append(json, ",\"disabled\":true");
+        }
+        if (okay) {
+            okay = ch_json_append_format(
+                json, ",\"cached\":%s,\"inline_domain_count\":%zu,"
+                      "\"inline_cidr_count\":%zu,\"domain_count\":%zu,"
+                      "\"cidr_count\":%zu",
+                cache_status == CH_OK ? "true" : "false",
+                inline_domains, inline_cidrs,
+                inline_domains + (cache_status == CH_OK ?
+                    cache.feed.domain_suffix_count : 0U),
+                inline_cidrs + (cache_status == CH_OK ?
+                    cache.feed.cidr_count : 0U));
+        }
+        if (okay && cache_status == CH_OK) {
+            okay = ch_json_append_format(json, ",\"fetched_ts_ns\":%" PRId64,
+                                         cache.fetched_ts_ns);
+            if (okay && cache.feed.skipped > 0U) {
+                okay = ch_json_append_format(json, ",\"skipped\":%zu",
+                                             cache.feed.skipped);
+            }
+        } else if (okay && cache_status != CH_ERROR_NOT_FOUND &&
+                   cache_error.message[0] != '\0') {
+            okay = ch_json_append(json, ",\"cache_error\":") &&
+                ch_json_append_string(json, cache_error.message);
+        }
+        if (okay) okay = ch_json_append(json, "}");
+        if (cache_status == CH_OK) ch_rule_feed_cache_clear(&cache);
+        free(name); free(url); free(format);
+        if (!okay) {
+            if (error == NULL || error->code == CH_OK) {
+                ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                             "encode rule set status");
+            }
+            return 0;
+        }
+    }
+    return ch_json_append(json, "]");
+}
+
+static int ch_config_append_feed_strings(ch_json_buffer *json,
+                                         char *const *items, size_t count) {
+    if (!ch_json_append(json, "[")) return 0;
+    for (size_t index = 0U; index < count; ++index) {
+        if ((index == 0U || ch_json_append(json, ",")) &&
+            ch_json_append_string(json, items[index])) continue;
+        return 0;
+    }
+    return ch_json_append(json, "]");
+}
+
+static int ch_config_append_generated_subscription_rule(
+    ch_json_buffer *json, int *emitted, const char *subscription_name,
+    const char *kind, const char *action,
+    char *const *matchers, size_t matcher_count,
+    const ch_config_array *networks, ch_error *error) {
+    if (matcher_count == 0U) return 1;
+    int name_size = snprintf(NULL, 0, "subscription:%s:%s",
+                             subscription_name, kind);
+    char *name = name_size < 0 ? NULL : malloc((size_t)name_size + 1U);
+    if (name == NULL) return 0;
+    (void)snprintf(name, (size_t)name_size + 1U, "subscription:%s:%s",
+                   subscription_name, kind);
+    int okay = (!*emitted || ch_json_append(json, ",")) &&
+        ch_json_append(json, "{\"name\":") &&
+        ch_json_append_string(json, name) &&
+        ch_json_append(json, ",\"action\":") &&
+        ch_json_append_string(json, action) &&
+        ch_json_append(json, strcmp(kind, "domains") == 0 ?
+                       ",\"domain_suffixes\":" : ",\"cidrs\":") &&
+        ch_config_append_feed_strings(json, matchers, matcher_count);
+    if (okay && ch_config_array_count(networks) > 0U) {
+        char *encoded = NULL;
+        if (ch_config_array_json(networks, &encoded, error) != CH_OK) {
+            okay = 0;
+        } else {
+            okay = ch_json_append(json, ",\"networks\":") &&
+                ch_json_append(json, encoded);
+        }
+        free(encoded);
+    }
+    if (okay) okay = ch_json_append(json, "}");
+    free(name);
+    if (okay) *emitted = 1;
+    return okay;
+}
+
+static char *ch_config_generated_rules_json(
+    const ch_config *config, const ch_config_table *profile,
+    const char *profile_name, ch_error *error) {
+    const ch_config_array *subscriptions = ch_config_table_get_array(
+        profile, "rule_subscription");
+    ch_json_buffer json;
+    ch_json_init(&json);
+    int okay = ch_json_append(&json, "[");
+    int emitted = 0;
+    size_t count = ch_config_array_count(subscriptions);
+    for (size_t index = 0U; okay && index < count; ++index) {
+        const ch_config_table *subscription = ch_config_array_get_table(
+            subscriptions, index);
+        if (optional_config_bool(subscription, "disabled", false)) continue;
+        char *name = optional_config_string(subscription, "name");
+        char *url = optional_config_string(subscription, "url");
+        char *action = optional_config_string(subscription, "action");
+        const ch_config_array *networks = ch_config_table_get_array(
+            subscription, "networks");
+        ch_rule_feed_cache cache;
+        ch_error cache_error;
+        ch_status cache_status = ch_rule_feed_cache_load(
+            ch_config_source_path(config), CH_RULE_FEED_SUBSCRIPTION,
+            profile_name, name == NULL ? "" : name,
+            url == NULL ? "" : url, &cache, &cache_error);
+        if (name == NULL || url == NULL || action == NULL) {
+            okay = 0;
+        } else if (cache_status == CH_OK) {
+            const char *resolved_action = action[0] == '\0' ? "block" :
+                action;
+            okay = ch_config_append_generated_subscription_rule(
+                &json, &emitted, name, "domains", resolved_action,
+                cache.feed.domain_suffixes,
+                cache.feed.domain_suffix_count, networks, error) &&
+                ch_config_append_generated_subscription_rule(
+                    &json, &emitted, name, "cidrs", resolved_action,
+                    cache.feed.cidrs, cache.feed.cidr_count, networks,
+                    error);
+            ch_rule_feed_cache_clear(&cache);
+        }
+        free(name); free(url); free(action);
+    }
+    if (okay) okay = ch_json_append(&json, "]");
+    char *result = okay ? ch_json_take(&json) : NULL;
+    ch_json_dispose(&json);
+    if (result == NULL && (error == NULL || error->code == CH_OK)) {
+        ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                     "encode generated subscription rules");
+    }
+    return result;
+}
+
+static char *ch_config_join_rule_arrays(const char *manual,
+                                        const char *generated) {
+    size_t manual_length = strlen(manual);
+    size_t generated_length = strlen(generated);
+    if (manual_length < 2U || generated_length < 2U || manual[0] != '[' ||
+        generated[0] != '[' || manual[manual_length - 1U] != ']' ||
+        generated[generated_length - 1U] != ']') return NULL;
+    ch_json_buffer json;
+    ch_json_init(&json);
+    int has_manual = manual_length > 2U;
+    int has_generated = generated_length > 2U;
+    int okay = ch_json_append(&json, "[") &&
+        ch_json_append_bytes(&json, manual + 1U, manual_length - 2U) &&
+        (!has_manual || !has_generated || ch_json_append(&json, ",")) &&
+        ch_json_append_bytes(&json, generated + 1U,
+                             generated_length - 2U) &&
+        ch_json_append(&json, "]");
+    char *result = okay ? ch_json_take(&json) : NULL;
+    ch_json_dispose(&json);
+    return result;
+}
+
 char *ch_config_collection_payload_json(const ch_config *config,
                                         const char *fallback_profile,
                                         const char *config_key,
@@ -830,15 +1104,36 @@ char *ch_config_collection_payload_json(const ch_config *config,
         ch_json_dispose(&json);
         goto out_of_memory;
     }
-    if (include_rule_fields != 0 &&
-        (!ch_json_append(&json, ",\"generated_rules\":[],\"effective_rules\":") ||
-         !ch_json_append(&json, collection_json))) {
-        ch_json_dispose(&json);
-        goto out_of_memory;
+    if (include_rule_fields != 0) {
+        char *generated = ch_config_generated_rules_json(
+            config, profile, profile_name, error);
+        char *effective = generated == NULL ? NULL :
+            ch_config_join_rule_arrays(collection_json, generated);
+        int appended = generated != NULL && effective != NULL &&
+            ch_json_append(&json, ",\"generated_rules\":") &&
+            ch_json_append(&json, generated) &&
+            ch_json_append(&json, ",\"effective_rules\":") &&
+            ch_json_append(&json, effective) &&
+            ch_json_append(&json, ",\"rule_sets\":") &&
+            ch_config_append_rule_set_statuses(
+                &json, config, profile, profile_name, error) &&
+            ch_json_append(&json, ",\"subscriptions\":") &&
+            ch_config_append_subscription_statuses(
+                &json, config, profile, profile_name, error);
+        free(generated);
+        free(effective);
+        if (!appended) {
+            ch_json_dispose(&json);
+            goto out_of_memory;
+        }
     }
-    if (include_statuses != 0 && !ch_json_append(&json, ",\"statuses\":[]")) {
-        ch_json_dispose(&json);
-        goto out_of_memory;
+    if (include_statuses != 0) {
+        if (!ch_json_append(&json, ",\"statuses\":") ||
+            !ch_config_append_rule_set_statuses(
+                &json, config, profile, profile_name, error)) {
+            ch_json_dispose(&json);
+            goto out_of_memory;
+        }
     }
     if (!ch_json_append(&json, "}")) {
         ch_json_dispose(&json);

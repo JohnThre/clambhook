@@ -131,9 +131,23 @@ render/reparse validation, public `ops` mapping, complete persistence envelopes,
 restart preservation, target-only deletion, encoded-path ID handling, and live
 HTTP replace/read/delete coverage. Execution of those rules remains a separate
 native data-plane gate.
+Native rule-feed fixtures cover Go-equivalent hosts/adblock parsing, CIDR
+masking, sorted de-duplication, exact SHA-256 cache naming, nanosecond timestamp
+round trips, legacy cache reads, atomic version-1 writes, generated-rule
+ordering, rule-set cache enrichment, selected-name validation, and rejection of
+loopback/private/link-local/metadata/file destinations. A live native API smoke
+refresh fetched a public hosts source, wrote and read back a cache, exposed nine
+generated suffixes in `effective_rules`, and repeated successfully with
+conditional cache metadata. Sanitizer tests, ten license differential cases,
+and all four Android ABI builds remained green afterward. Android packages the
+portable parser/cache reader; outbound refresh remains in the app-owned Kotlin
+networking lane until native Android HTTP/TLS dependencies are selected.
 The shared runtime continues to compile for every packaged Android ABI, and the
 connected Pixel 3a XL on Android 12/API 32 again passed all six instrumentation
-tests after this collection-persistence checkpoint.
+tests against the rebuilt JNI library after this rule-feed checkpoint. Keep a
+physical device awake and dismiss its keyguard before the Compose run; a locked
+device stops the test host activity and produces a false `No compose
+hierarchies found` failure.
 
 ```sh
 make build-android-mobile-aar                # gomobile bind → ui/android/app/libs/

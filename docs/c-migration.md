@@ -97,9 +97,17 @@ The additive CMake build currently provides:
   now validate group type and membership, persist transactionally, and return
   the nested Go-compatible policy snapshot. Config-derived policy reads include
   normalized defaults, selected chain, selection mode/reason, and empty probe
-  results; active native health probes are not yet claimed. Rule cleanup/from-
-  connection creation, remote collection refresh, subscription cache
-  enrichment, and DNS upstream route annotations are also still gated.
+  results; active native health probes are not yet claimed. Remote rule sets
+  and subscriptions now share a portable C17 parser/cache subsystem for
+  `auto`, `plain`, `hosts`, and `adblock` input, normalized sorted domain/CIDR
+  matchers, the 5 MiB/200,000-entry contract, and version-1 Go cache
+  compatibility. The native refresh endpoints use conditional
+  ETag/Last-Modified requests, reject non-public and metadata destinations,
+  pin validated DNS results, permit only same-origin redirects, atomically
+  replace cache files, retain old caches on failure, rebuild live rules, and
+  expose cache counts, generated rule names, timestamps, skipped entries, and
+  per-feed errors. Rule cleanup/from-connection creation and DNS upstream route
+  annotations are still gated.
   `/api/v1/developer/settings` now has config-derived reads and transactional
   writes with bounded defaults, lowercase/trimmed redaction and TLS-host lists,
   the same first-enable HTTPS-capture acknowledgement requirement, invalid

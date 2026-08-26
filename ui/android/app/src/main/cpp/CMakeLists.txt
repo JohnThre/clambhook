@@ -54,6 +54,8 @@ add_library(clambhook_jni SHARED
     "${CLAMBHOOK_ROOT}/native/src/error.c"
     "${CLAMBHOOK_ROOT}/native/src/ip_stack.c"
     "${CLAMBHOOK_ROOT}/native/src/json.c"
+    "${CLAMBHOOK_ROOT}/native/src/rule_feed.c"
+    "${CLAMBHOOK_ROOT}/native/src/rule_feed_config.c"
     "${CLAMBHOOK_ROOT}/native/src/rules.c"
     "${CLAMBHOOK_ROOT}/native/src/rules_config.c"
 )

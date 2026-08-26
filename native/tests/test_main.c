@@ -23,6 +23,7 @@ int main(void) {
     if (ch_test_selected(selected, "netwatch")) ch_test_netwatch();
     if (ch_test_selected(selected, "procattr")) ch_test_procattr();
     if (ch_test_selected(selected, "protocol")) ch_test_protocol();
+    if (ch_test_selected(selected, "rule_feed")) ch_test_rule_feed();
     if (ch_test_selected(selected, "rules")) ch_test_rules();
     if (ch_test_selected(selected, "runtime")) ch_test_runtime();
     if (ch_test_selected(selected, "runtime_listener")) {

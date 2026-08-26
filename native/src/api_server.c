@@ -613,6 +613,16 @@ static void ch_api_route(ch_api_client *client) {
                                    request, &json, &error);
         free(request);
     } else if (strcmp(method, "POST") == 0 &&
+               (strcmp(path, "/api/v1/rule-sets/refresh") == 0 ||
+                strcmp(path, "/api/v1/rule-subscriptions/refresh") == 0)) {
+        persistence_required = 1;
+        status = ch_runtime_mutate(
+            client->server->runtime,
+            strcmp(path, "/api/v1/rule-sets/refresh") == 0 ?
+                "refresh_rule_sets" : "refresh_rule_subscriptions",
+            client->body.data == NULL ? "{}" : client->body.data,
+            &json, &error);
+    } else if (strcmp(method, "POST") == 0 &&
                (strcmp(path, "/api/v1/rules/test") == 0 ||
                 strcmp(path, "/api/v1/routes/explain") == 0)) {
         status = ch_runtime_query(client->server->runtime, "test_rule",
@@ -655,6 +665,8 @@ static void ch_api_route(ch_api_client *client) {
             strcmp(path, "/api/v1/developer/map-rules") == 0 ||
             strcmp(path, "/api/v1/developer/breakpoint-rules") == 0 ||
             strcmp(path, "/api/v1/developer/rewrite-rules") == 0 ||
+            strcmp(path, "/api/v1/rule-sets/refresh") == 0 ||
+            strcmp(path, "/api/v1/rule-subscriptions/refresh") == 0 ||
             strcmp(path, "/api/v1/rules/test") == 0 || strcmp(path, "/api/v1/routes/explain") == 0 ||
             strcmp(path, "/api/v1/config/export") == 0 ||
             strcmp(path, "/api/v1/config/import") == 0 ||

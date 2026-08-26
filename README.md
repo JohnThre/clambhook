@@ -245,9 +245,15 @@ itself remains gated. Developer map, breakpoint, and rewrite rule reads,
 ordered replacement, and ID deletion now persist through the same transaction;
 responses retain the public `ops` wire name while TOML uses `op`. These rules
 are configuration-only until the native developer engine executes them. Rule
-cleanup/from-
-connection creation, remote collection refresh, cache-enriched
-subscription status and DNS upstream route annotations remain gated. Android
+cleanup/from-connection creation and DNS upstream route annotations remain
+gated. The C rule-feed subsystem now parses `auto`, `plain`, `hosts`, and
+`adblock` sources with the frozen 5 MiB and 200,000-entry limits, reads and
+writes the version-1 Go cache format, enriches rule-set/subscription status,
+and appends cached subscription rules after manual rules in the live route
+engine. The native daemon owns both refresh endpoints with conditional HTTP,
+atomic cache replacement, public-address validation, DNS pinning against
+rebinding, same-origin redirect checks, and per-feed error reporting that
+retains the previous cache. Android
 exercises the same requested-profile contract over JNI and keeps its app-owned
 active-profile switch in memory, matching the current mobile lifecycle
 contract.

@@ -3,11 +3,13 @@
 #include <errno.h>
 #include <limits.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
 
 #include "clambhook/config.h"
+#include "clambhook/rule_feed.h"
 #include "internal.h"
 
 typedef struct config_strings {
@@ -84,6 +86,53 @@ static ch_status config_load_strings(const ch_config_table *table,
         ++out->count;
     }
     return CH_OK;
+}
+
+static ch_status config_strings_take(config_strings *target, char ***items,
+                                     size_t *count, ch_error *error) {
+    if (items == NULL || count == NULL || *count == 0U) return CH_OK;
+    if (*count > SIZE_MAX - target->count ||
+        target->count + *count > SIZE_MAX / sizeof(*target->items)) {
+        ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                     "configuration string list is too large");
+        return CH_ERROR_OUT_OF_MEMORY;
+    }
+    size_t next_count = target->count + *count;
+    char **grown = realloc(target->items,
+                           next_count * sizeof(*target->items));
+    if (grown == NULL) {
+        ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                     "grow configuration string list");
+        return CH_ERROR_OUT_OF_MEMORY;
+    }
+    memcpy(grown + target->count, *items, *count * sizeof(*grown));
+    free(*items);
+    target->items = grown;
+    target->count = next_count;
+    *items = NULL;
+    *count = 0U;
+    return CH_OK;
+}
+
+static int config_optional_bool(const ch_config_table *table,
+                                const char *key, int fallback) {
+    bool value = false;
+    ch_error ignored;
+    return table != NULL && ch_config_table_has(table, key) &&
+        ch_config_table_get_bool(table, key, &value, &ignored) == CH_OK ?
+        (value ? 1 : 0) : fallback;
+}
+
+static char *config_string_or(const ch_config_table *table,
+                              const char *key, const char *fallback) {
+    char *value = NULL;
+    ch_error ignored;
+    if (table == NULL || !ch_config_table_has(table, key) ||
+        ch_config_table_get_string(table, key, &value, &ignored) != CH_OK) {
+        free(value);
+        return ch_strdup(fallback);
+    }
+    return value;
 }
 
 static ch_status config_load_ports(const ch_config_table *table,
@@ -210,6 +259,92 @@ static ch_status config_load_rule_set(const ch_config_table *table,
     return CH_OK;
 }
 
+static ch_status config_extend_rule_set_from_cache(
+    const ch_config *config, const char *profile_name,
+    const ch_config_table *table, config_rule_set_owner *owner,
+    ch_rule_set_spec *spec, ch_error *error) {
+    const char *config_path = ch_config_source_path(config);
+    if (config_path == NULL || config_path[0] == '\0' ||
+        config_optional_bool(table, "disabled", 0)) return CH_OK;
+    char *url = config_string_or(table, "url", "");
+    if (url == NULL) {
+        ch_error_set(error, CH_ERROR_OUT_OF_MEMORY, "copy rule set URL");
+        return CH_ERROR_OUT_OF_MEMORY;
+    }
+    if (url[0] == '\0') {
+        free(url);
+        return CH_OK;
+    }
+    ch_rule_feed_cache cache;
+    ch_error cache_error;
+    ch_status status = ch_rule_feed_cache_load(
+        config_path, CH_RULE_FEED_RULE_SET, profile_name, owner->name, url,
+        &cache, &cache_error);
+    free(url);
+    if (status == CH_ERROR_NOT_FOUND || status == CH_ERROR_PARSE ||
+        status == CH_ERROR_IO) {
+        return CH_OK;
+    }
+    if (status != CH_OK) {
+        *error = cache_error;
+        return status;
+    }
+    status = config_strings_take(&owner->domain_suffixes,
+                                 &cache.feed.domain_suffixes,
+                                 &cache.feed.domain_suffix_count, error);
+    if (status == CH_OK) {
+        status = config_strings_take(&owner->cidrs, &cache.feed.cidrs,
+                                     &cache.feed.cidr_count, error);
+    }
+    ch_rule_feed_cache_clear(&cache);
+    if (status == CH_OK) {
+        spec->domain_suffixes = config_strings_view(&owner->domain_suffixes);
+        spec->cidrs = config_strings_view(&owner->cidrs);
+    }
+    return status;
+}
+
+static ch_status config_load_subscription_rule(
+    const ch_config_table *table, const char *subscription_name,
+    const char *kind, char ***cached_items, size_t *cached_count,
+    config_rule_owner *owner, ch_rule_spec *spec, ch_error *error) {
+    memset(owner, 0, sizeof(*owner));
+    memset(spec, 0, sizeof(*spec));
+    int length = snprintf(NULL, 0, "subscription:%s:%s", subscription_name,
+                          kind);
+    owner->name = length < 0 ? NULL : malloc((size_t)length + 1U);
+    owner->action = config_string_or(table, "action", "block");
+    if (owner->name != NULL) {
+        (void)snprintf(owner->name, (size_t)length + 1U,
+                       "subscription:%s:%s", subscription_name, kind);
+    }
+    ch_status status = owner->name == NULL || owner->action == NULL ?
+        CH_ERROR_OUT_OF_MEMORY : config_load_strings(
+            table, "networks", &owner->networks, error);
+    if (status == CH_ERROR_OUT_OF_MEMORY) {
+        ch_error_set(error, status, "allocate generated subscription rule");
+    }
+    if (status == CH_OK && strcmp(kind, "domains") == 0) {
+        status = config_strings_take(&owner->domain_suffixes, cached_items,
+                                     cached_count, error);
+    } else if (status == CH_OK) {
+        status = config_strings_take(&owner->cidrs, cached_items,
+                                     cached_count, error);
+    }
+    if (status != CH_OK) {
+        config_rule_owner_clear(owner);
+        return status;
+    }
+    *spec = (ch_rule_spec){
+        .name = owner->name,
+        .action = owner->action,
+        .domain_suffixes = config_strings_view(&owner->domain_suffixes),
+        .cidrs = config_strings_view(&owner->cidrs),
+        .networks = config_strings_view(&owner->networks)
+    };
+    return CH_OK;
+}
+
 static const ch_config_table *config_select_profile(const ch_config *config,
                                                      const char *profile_name,
                                                      ch_error *error) {
@@ -269,8 +404,21 @@ ch_rule_engine *ch_rule_engine_compile_config(const ch_config *config,
     const ch_config_array *groups = ch_config_table_get_array(profile, "policy_group");
     const ch_config_array *sets = ch_config_table_get_array(profile, "rule_set");
     const ch_config_array *rules = ch_config_table_get_array(profile, "rule");
+    const ch_config_array *subscriptions = ch_config_table_get_array(
+        profile, "rule_subscription");
     size_t set_count = ch_config_array_count(sets);
-    size_t rule_count = ch_config_array_count(rules);
+    size_t configured_rule_count = ch_config_array_count(rules);
+    size_t subscription_count = ch_config_array_count(subscriptions);
+    size_t rule_capacity = configured_rule_count;
+    if (subscription_count <= (SIZE_MAX - rule_capacity) / 2U) {
+        rule_capacity += subscription_count * 2U;
+    } else {
+        ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                     "generated subscription rule count is too large");
+        return NULL;
+    }
+    size_t rule_count = 0U;
+    char *selected_profile_name = NULL;
     config_strings chain_names = {0};
     config_strings group_names = {0};
     config_rule_set_owner *set_owners = NULL;
@@ -279,6 +427,10 @@ ch_rule_engine *ch_rule_engine_compile_config(const ch_config *config,
     ch_rule_spec *rule_specs = NULL;
     ch_rule_engine *engine = NULL;
     ch_status status = config_load_names(chains, &chain_names, error);
+    if (status == CH_OK) {
+        status = ch_config_table_get_string(profile, "name",
+                                            &selected_profile_name, error);
+    }
     if (status == CH_OK && chain_names.count == 0U) {
         ch_error_set(error, CH_ERROR_INVALID_ARGUMENT, "profile has no chains");
         status = CH_ERROR_INVALID_ARGUMENT;
@@ -299,24 +451,72 @@ ch_rule_engine *ch_rule_engine_compile_config(const ch_config *config,
             status = CH_ERROR_PARSE;
         } else {
             status = config_load_rule_set(table, &set_owners[index], &set_specs[index], error);
+            if (status == CH_OK) {
+                status = config_extend_rule_set_from_cache(
+                    config, selected_profile_name, table, &set_owners[index],
+                    &set_specs[index], error);
+            }
         }
     }
-    if (status == CH_OK && rule_count > 0U) {
-        rule_owners = calloc(rule_count, sizeof(*rule_owners));
-        rule_specs = calloc(rule_count, sizeof(*rule_specs));
+    if (status == CH_OK && rule_capacity > 0U) {
+        rule_owners = calloc(rule_capacity, sizeof(*rule_owners));
+        rule_specs = calloc(rule_capacity, sizeof(*rule_specs));
         if (rule_owners == NULL || rule_specs == NULL) {
             ch_error_set(error, CH_ERROR_OUT_OF_MEMORY, "allocate rule configuration");
             status = CH_ERROR_OUT_OF_MEMORY;
         }
     }
-    for (size_t index = 0U; status == CH_OK && index < rule_count; ++index) {
+    for (size_t index = 0U; status == CH_OK &&
+         index < configured_rule_count; ++index) {
         const ch_config_table *table = ch_config_array_get_table(rules, index);
         if (table == NULL) {
             ch_error_set(error, CH_ERROR_PARSE, "rule configuration is not a table");
             status = CH_ERROR_PARSE;
         } else {
-            status = config_load_rule(table, &rule_owners[index], &rule_specs[index], error);
+            status = config_load_rule(table, &rule_owners[rule_count],
+                                      &rule_specs[rule_count], error);
+            if (status == CH_OK) ++rule_count;
         }
+    }
+    for (size_t index = 0U; status == CH_OK && index < subscription_count;
+         ++index) {
+        const ch_config_table *table = ch_config_array_get_table(
+            subscriptions, index);
+        if (table == NULL || config_optional_bool(table, "disabled", 0)) {
+            continue;
+        }
+        char *name = config_string_or(table, "name", "");
+        char *url = config_string_or(table, "url", "");
+        if (name == NULL || url == NULL) {
+            free(name); free(url);
+            ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                         "copy subscription cache identity");
+            status = CH_ERROR_OUT_OF_MEMORY;
+            break;
+        }
+        ch_rule_feed_cache cache;
+        ch_error cache_error;
+        ch_status cache_status = ch_rule_feed_cache_load(
+            ch_config_source_path(config), CH_RULE_FEED_SUBSCRIPTION,
+            selected_profile_name, name, url, &cache, &cache_error);
+        free(url);
+        if (cache_status == CH_OK && cache.feed.domain_suffix_count > 0U) {
+            status = config_load_subscription_rule(
+                table, name, "domains", &cache.feed.domain_suffixes,
+                &cache.feed.domain_suffix_count, &rule_owners[rule_count],
+                &rule_specs[rule_count], error);
+            if (status == CH_OK) ++rule_count;
+        }
+        if (cache_status == CH_OK && status == CH_OK &&
+            cache.feed.cidr_count > 0U) {
+            status = config_load_subscription_rule(
+                table, name, "cidrs", &cache.feed.cidrs,
+                &cache.feed.cidr_count, &rule_owners[rule_count],
+                &rule_specs[rule_count], error);
+            if (status == CH_OK) ++rule_count;
+        }
+        if (cache_status == CH_OK) ch_rule_feed_cache_clear(&cache);
+        free(name);
     }
     if (status == CH_OK) {
         engine = ch_rule_engine_compile(
@@ -337,6 +537,7 @@ ch_rule_engine *ch_rule_engine_compile_config(const ch_config *config,
     free(set_specs);
     config_strings_clear(&group_names);
     config_strings_clear(&chain_names);
+    free(selected_profile_name);
     return engine;
 }
 
