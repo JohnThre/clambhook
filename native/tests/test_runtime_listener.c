@@ -12,6 +12,7 @@
 
 #include "clambhook/config.h"
 #include "clambhook/json.h"
+#include "clambhook/protocol.h"
 #include "clambhook/runtime.h"
 #include "internal.h"
 
@@ -191,6 +192,11 @@ static void runtime_test_dns_routing(void) {
         "[[profile.chain.server]]\n"
         "protocol = \"direct\"\n"
         "[[profile.rule]]\n"
+        "name = \"block-recovered-domain\"\n"
+        "action = \"block\"\n"
+        "networks = [\"tcp\"]\n"
+        "domains = [\"blocked.example\"]\n"
+        "[[profile.rule]]\n"
         "name = \"direct-dns\"\n"
         "action = \"direct\"\n"
         "networks = [\"tcp\"]\n";
@@ -219,6 +225,11 @@ static void runtime_test_dns_routing(void) {
                                                sizeof(echoed)));
     CH_TEST_ASSERT(memcmp(payload, echoed, sizeof(payload)) == 0);
     (void)close(descriptor);
+    descriptor = -1;
+    CH_TEST_ASSERT(ch_runtime_listener_set_tun_tcp_dial(
+        set, target, "198.18.0.2:40001", "blocked.example:443",
+        &descriptor, &error) == CH_ERROR_INVALID_STATE);
+    CH_TEST_ASSERT(descriptor == -1);
     ch_runtime_listener_set_stop(set);
     ch_config_free(config);
     runtime_echo_stop(&echo);
@@ -252,7 +263,7 @@ static void runtime_test_tun_tcp_routing(void) {
                    (unsigned int)echo.port);
     int descriptor = -1;
     CH_TEST_ASSERT(ch_runtime_listener_set_tun_tcp_dial(
-        set, target, "198.18.0.2:40000", &descriptor, &error) == CH_OK);
+        set, target, "198.18.0.2:40000", "", &descriptor, &error) == CH_OK);
     static const char payload[] = "tun-direct-route";
     char echoed[sizeof(payload)];
     CH_TEST_ASSERT(runtime_test_send_all(descriptor, payload,
@@ -266,9 +277,60 @@ static void runtime_test_tun_tcp_routing(void) {
     runtime_echo_stop(&echo);
 }
 
+static void runtime_test_tun_udp_routing(void) {
+    runtime_udp_echo_server echo;
+    CH_TEST_ASSERT(runtime_udp_echo_start(&echo));
+    const char *document =
+        "[[profile]]\n"
+        "name = \"default\"\n"
+        "[profile.listen.tun]\n"
+        "enabled = true\n"
+        "chain = \"default\"\n"
+        "[[profile.chain]]\n"
+        "name = \"default\"\n"
+        "[[profile.chain.server]]\n"
+        "protocol = \"direct\"\n"
+        "[[profile.rule]]\n"
+        "name = \"direct-tun-udp\"\n"
+        "action = \"direct\"\n"
+        "networks = [\"udp\"]\n";
+    ch_config *config = NULL;
+    ch_error error;
+    CH_TEST_ASSERT(ch_config_parse(document, NULL, &config, &error) == CH_OK);
+    ch_runtime_listener_set *set = ch_runtime_listener_set_start(
+        config, "default", &error);
+    CH_TEST_ASSERT(set != NULL);
+    char target[96];
+    (void)snprintf(target, sizeof(target), "127.0.0.1:%u",
+                   (unsigned int)echo.port);
+    void *opaque = NULL;
+    CH_TEST_ASSERT(ch_runtime_listener_set_tun_udp_dial(
+        set, target, "198.18.0.2:42000", "", &opaque, &error) == CH_OK);
+    ch_packet_connection *connection = opaque;
+    static const uint8_t payload[] = "tun-direct-udp-route";
+    CH_TEST_ASSERT(ch_packet_connection_send(
+        connection, target, payload, sizeof(payload), &error) == CH_OK);
+    uint8_t echoed[sizeof(payload)];
+    size_t echoed_length = 0U;
+    char *source = NULL;
+    CH_TEST_ASSERT(ch_packet_connection_receive_timeout(
+        connection, echoed, sizeof(echoed), &echoed_length, &source, 1000,
+        &error) == CH_OK);
+    CH_TEST_ASSERT(echoed_length == sizeof(payload));
+    CH_TEST_ASSERT(memcmp(payload, echoed, sizeof(payload)) == 0);
+    CH_TEST_ASSERT(source != NULL);
+    free(source);
+    ch_packet_connection_close(connection);
+    ch_runtime_listener_set_stop(set);
+    ch_config_free(config);
+    runtime_udp_echo_stop(&echo);
+    CH_TEST_ASSERT(echo.success == 1);
+}
+
 void ch_test_runtime_listener(void) {
     runtime_test_dns_routing();
     runtime_test_tun_tcp_routing();
+    runtime_test_tun_udp_routing();
     runtime_echo_server echo;
     CH_TEST_ASSERT(runtime_echo_start(&echo));
     char config_path[160];

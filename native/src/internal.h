@@ -59,7 +59,16 @@ ch_status ch_runtime_listener_set_tun_tcp_dial(
     ch_runtime_listener_set *set,
     const char *target,
     const char *source,
+    const char *domain_hint,
     int *out_descriptor,
+    ch_error *error
+);
+ch_status ch_runtime_listener_set_tun_udp_dial(
+    ch_runtime_listener_set *set,
+    const char *target,
+    const char *source,
+    const char *domain_hint,
+    void **out_connection,
     ch_error *error
 );
 

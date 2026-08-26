@@ -187,14 +187,14 @@ static ch_status runtime_listener_decide(
     return status;
 }
 
-static ch_status runtime_listener_dial(const char *network, const char *target,
-                                       const char *source, ch_proxy_route *route,
-                                       int *out_descriptor, void *context,
-                                       ch_error *error) {
+static ch_status runtime_listener_dial_targets(
+    const char *network, const char *route_target, const char *dial_target,
+    const char *source, ch_proxy_route *route, int *out_descriptor,
+    void *context, ch_error *error) {
     ch_runtime_listener_entry *entry = context;
     ch_rule_decision decision;
-    ch_status status = runtime_listener_decide(entry, network, target, source,
-                                               &decision, error);
+    ch_status status = runtime_listener_decide(
+        entry, network, route_target, source, &decision, error);
     if (status != CH_OK) return status;
     route->action = CH_PROXY_ROUTE_CONNECT;
     *out_descriptor = -1;
@@ -203,7 +203,7 @@ static ch_status runtime_listener_dial(const char *network, const char *target,
     } else if (strcmp(decision.action, CH_RULE_ACTION_REJECT) == 0) {
         route->action = CH_PROXY_ROUTE_REJECT;
     } else if (strcmp(decision.action, CH_RULE_ACTION_DIRECT) == 0) {
-        status = ch_protocol_connect_tcp(target, out_descriptor, error);
+        status = ch_protocol_connect_tcp(dial_target, out_descriptor, error);
     } else {
         char *selected_group_chain = NULL;
         const char *chain_name = runtime_decision_chain(
@@ -211,7 +211,7 @@ static ch_status runtime_listener_dial(const char *network, const char *target,
         if (chain_name == NULL) {
             status = error == NULL ? CH_ERROR_INVALID_ARGUMENT : error->code;
         } else {
-            status = runtime_dial_chain(entry, chain_name, target,
+            status = runtime_dial_chain(entry, chain_name, dial_target,
                                         out_descriptor, error);
         }
         free(selected_group_chain);
@@ -220,9 +220,19 @@ static ch_status runtime_listener_dial(const char *network, const char *target,
     return status;
 }
 
-static ch_status runtime_listener_packet_dial(
+static ch_status runtime_listener_dial(const char *network, const char *target,
+                                       const char *source, ch_proxy_route *route,
+                                       int *out_descriptor, void *context,
+                                       ch_error *error) {
+    return runtime_listener_dial_targets(
+        network, target, target, source, route, out_descriptor, context,
+        error);
+}
+
+static ch_status runtime_listener_packet_dial_targets(
     const char *network,
-    const char *target,
+    const char *route_target,
+    const char *dial_target,
     const char *source,
     ch_proxy_route *route,
     ch_packet_connection **out_connection,
@@ -230,8 +240,8 @@ static ch_status runtime_listener_packet_dial(
     ch_error *error) {
     ch_runtime_listener_entry *entry = context;
     ch_rule_decision decision;
-    ch_status status = runtime_listener_decide(entry, network, target, source,
-                                               &decision, error);
+    ch_status status = runtime_listener_decide(
+        entry, network, route_target, source, &decision, error);
     if (status != CH_OK) return status;
     route->action = CH_PROXY_ROUTE_CONNECT;
     *out_connection = NULL;
@@ -262,14 +272,24 @@ static ch_status runtime_listener_packet_dial(
             }
             chain_hash[56] = '\0';
             (void)snprintf(route->session_key, sizeof(route->session_key),
-                           "chain:%s|target:%s", chain_hash, target);
+                           "chain:%s|target:%s", chain_hash, dial_target);
             status = runtime_dial_packet_chain(entry, chain_name,
-                                               target, out_connection, error);
+                                               dial_target, out_connection,
+                                               error);
         }
         free(selected_group_chain);
     }
     ch_rule_decision_clear(&decision);
     return status;
+}
+
+static ch_status runtime_listener_packet_dial(
+    const char *network, const char *target, const char *source,
+    ch_proxy_route *route, ch_packet_connection **out_connection,
+    void *context, ch_error *error) {
+    return runtime_listener_packet_dial_targets(
+        network, target, target, source, route, out_connection, context,
+        error);
 }
 
 static void runtime_listener_entry_clear(ch_runtime_listener_entry *entry) {
@@ -688,7 +708,7 @@ ch_status ch_runtime_listener_set_dns_dial(
 
 ch_status ch_runtime_listener_set_tun_tcp_dial(
     ch_runtime_listener_set *set, const char *target, const char *source,
-    int *out_descriptor, ch_error *error) {
+    const char *domain_hint, int *out_descriptor, ch_error *error) {
     ch_error_clear(error);
     if (set == NULL || !set->tun_ready || target == NULL || source == NULL ||
         out_descriptor == NULL) {
@@ -698,13 +718,46 @@ ch_status ch_runtime_listener_set_tun_tcp_dial(
     }
     ch_proxy_route route;
     memset(&route, 0, sizeof(route));
-    ch_status status = runtime_listener_dial(
-        "tcp", target, source, &route, out_descriptor, &set->tun_entry, error);
+    const char *route_target = domain_hint != NULL && domain_hint[0] != '\0' ?
+        domain_hint : target;
+    ch_status status = runtime_listener_dial_targets(
+        "tcp", route_target, target, source, &route, out_descriptor,
+        &set->tun_entry, error);
     if (status != CH_OK) return status;
     if (route.action != CH_PROXY_ROUTE_CONNECT || *out_descriptor < 0) {
         ch_error_set(error, CH_ERROR_INVALID_STATE,
                      "TUN route rejected TCP flow");
         return CH_ERROR_INVALID_STATE;
     }
+    return CH_OK;
+}
+
+ch_status ch_runtime_listener_set_tun_udp_dial(
+    ch_runtime_listener_set *set, const char *target, const char *source,
+    const char *domain_hint, void **out_connection, ch_error *error) {
+    ch_error_clear(error);
+    if (set == NULL || !set->tun_ready || target == NULL || source == NULL ||
+        out_connection == NULL) {
+        ch_error_set(error, CH_ERROR_INVALID_STATE,
+                     "native TUN route planner is not available");
+        return CH_ERROR_INVALID_STATE;
+    }
+    *out_connection = NULL;
+    ch_proxy_route route;
+    memset(&route, 0, sizeof(route));
+    ch_packet_connection *connection = NULL;
+    const char *route_target = domain_hint != NULL && domain_hint[0] != '\0' ?
+        domain_hint : target;
+    ch_status status = runtime_listener_packet_dial_targets(
+        "udp", route_target, target, source, &route, &connection,
+        &set->tun_entry, error);
+    if (status != CH_OK) return status;
+    if (route.action != CH_PROXY_ROUTE_CONNECT || connection == NULL) {
+        ch_packet_connection_close(connection);
+        ch_error_set(error, CH_ERROR_INVALID_STATE,
+                     "TUN route rejected UDP flow");
+        return CH_ERROR_INVALID_STATE;
+    }
+    *out_connection = connection;
     return CH_OK;
 }

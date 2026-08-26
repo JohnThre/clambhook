@@ -196,15 +196,17 @@ GNU/Linux; the listener skips that platform scan when no compiled rule uses a
 process matcher. The native runtime also observes macOS interface/SSID and
 GNU/Linux interface changes, reports them in status, and atomically selects the
 first matching profile trigger with listener rollback on failure. WireGuard,
-OpenVPN, DoQ, DNS-to-TUN integration, and transparent TUN TCP/UDP forwarding
-stay guarded until their parity tests pass. A pinned lwIP 2.2.1 C core now
+OpenVPN, DoQ, IP fragmentation, and platform VPN lifecycle stay guarded until
+their parity tests pass. A pinned lwIP 2.2.1 C core now
 provides the shared IPv4/IPv6 packet foundation on host platforms and all four
 Android NDK ABIs. Native runtime/JNI lifecycle, configured MTU/CIDRs, ICMP
-checksums, packet injection, and Kotlin callback output are covered; route and
-chain forwarding now works for bounded IPv4 TCP flows through native direct or
-encrypted descriptors, including address/port/checksum rewriting and
-backpressure. IPv6 TCP, UDP, DNS interception, and platform TUN lifecycle are
-still gated. The additive native DNS library now provides route-planned DoH and DoT, Control D
+checksums, packet injection, and Kotlin callback output are covered. Bounded
+IPv4/IPv6 TCP and UDP flows now route through native direct or encrypted
+transports with tuple/checksum restoration, TCP backpressure, UDP session
+reuse, encrypted-DNS port-53 interception, and TTL-bounded A/AAAA domain
+recovery for rule matching. IP fragmentation, IPv6 extension headers, Android
+native transport linkage, and platform TUN lifecycle remain gated. The
+additive native DNS library now provides route-planned DoH and DoT, Control D
 expansion/bootstrap hygiene, response correlation validation, upstream
 failover, and SERVFAIL generation; it deliberately rejects DoQ rather than
 downgrading it. Runtime lifecycle/profile rollback now owns that proxy and

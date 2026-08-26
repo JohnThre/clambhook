@@ -13,6 +13,7 @@
 #include "clambhook/dns.h"
 #include "clambhook/ip_stack.h"
 #include "clambhook/netwatch.h"
+#include "clambhook/protocol.h"
 #include "internal.h"
 
 typedef enum ch_command_kind {
@@ -203,11 +204,48 @@ static void ch_runtime_write_packet(const uint8_t *packet, size_t length,
 }
 
 static ch_status ch_runtime_tun_tcp_dial(
-    const char *target, const char *source, int *out_descriptor,
+    const char *target, const char *source, const char *domain_hint,
+    int *out_descriptor,
     void *context, ch_error *error) {
     ch_runtime *runtime = context;
     return ch_runtime_listener_set_tun_tcp_dial(
-        runtime->listeners, target, source, out_descriptor, error);
+        runtime->listeners, target, source, domain_hint, out_descriptor,
+        error);
+}
+
+static ch_status ch_runtime_tun_udp_dial(
+    const char *target, const char *source, const char *domain_hint,
+    void **out_connection, void *context, ch_error *error) {
+    ch_runtime *runtime = context;
+    return ch_runtime_listener_set_tun_udp_dial(
+        runtime->listeners, target, source, domain_hint, out_connection,
+        error);
+}
+
+static ch_status ch_runtime_tun_udp_send(
+    void *connection, const char *target, const uint8_t *payload,
+    size_t payload_length, ch_error *error) {
+    return ch_packet_connection_send(connection, target, payload,
+                                     payload_length, error);
+}
+
+static ch_status ch_runtime_tun_udp_receive(
+    void *connection, uint8_t *buffer, size_t buffer_capacity,
+    size_t *out_length, char **out_source, ch_error *error) {
+    return ch_packet_connection_receive_timeout(
+        connection, buffer, buffer_capacity, out_length, out_source, 0,
+        error);
+}
+
+static void ch_runtime_tun_udp_close(void *connection) {
+    ch_packet_connection_close(connection);
+}
+
+static ch_status ch_runtime_tun_dns_exchange(
+    const uint8_t *query, size_t query_length, uint8_t **out_response,
+    size_t *out_response_length, void *context, ch_error *error) {
+    return ch_dns_proxy_exchange(context, query, query_length, out_response,
+                                 out_response_length, error);
 }
 
 static bool ch_runtime_parse_tun_address(ch_runtime_tun_config *config,
@@ -489,6 +527,15 @@ static bool ch_runtime_build_services(
         tun_config.options.packet_writer_context = runtime;
         tun_config.options.tcp_dialer = ch_runtime_tun_tcp_dial;
         tun_config.options.tcp_dialer_context = runtime;
+        tun_config.options.udp_dialer = ch_runtime_tun_udp_dial;
+        tun_config.options.udp_dialer_context = runtime;
+        tun_config.options.udp_sender = ch_runtime_tun_udp_send;
+        tun_config.options.udp_receiver = ch_runtime_tun_udp_receive;
+        tun_config.options.udp_closer = ch_runtime_tun_udp_close;
+        if (dns != NULL) {
+            tun_config.options.dns_exchange = ch_runtime_tun_dns_exchange;
+            tun_config.options.dns_exchange_context = dns;
+        }
         ch_error ip_error;
         ip_stack = ch_ip_stack_create(&tun_config.options, &ip_error);
         if (ip_stack == NULL) {
