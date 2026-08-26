@@ -226,11 +226,15 @@ now use a shared typed configuration tree and complete semantic TOML renderer.
 File-backed updates retain an atomic backup, apply to the live runtime
 transactionally, restore both disk and service state when apply fails, and
 preserve the runtime's current active profile across network-triggered
-switches. Native config export/import now round-trips validated TOML with a 4 MiB
+switches. Ordered rule replacement and append-only creation, policy-group
+replacement, rule-set replacement, and rule-subscription replacement use the
+same transaction and return the Go-compatible profile/collection/backup
+envelopes. Native config export/import now round-trips validated TOML with a 4 MiB
 transfer limit, attachment metadata, atomic backup, transactional live reload,
 and disk rollback on apply failure. Config-derived GET coverage now also
 includes DNS, listener/TUN/DNS/prompt settings, conditioner state, and rule
-subscription base status with strict profile selection. Cache-enriched
+subscription base status with strict profile selection. Rule cleanup/from-
+connection creation, remote collection refresh, cache-enriched
 subscription status and DNS upstream route annotations remain gated. Android
 exercises the same requested-profile contract over JNI and keeps its app-owned
 active-profile switch in memory, matching the current mobile lifecycle

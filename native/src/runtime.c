@@ -1285,6 +1285,28 @@ static void ch_command_process(ch_runtime *runtime, ch_command *command) {
                 if (!ch_runtime_persist_config_mutation(
                         runtime, "update_config_settings", "config_settings",
                         command->payload, true, command)) break;
+            } else if (strcmp(command->operation, "replace_rules") == 0 ||
+                       strcmp(command->operation, "create_rule") == 0) {
+                if (!ch_runtime_persist_config_mutation(
+                        runtime, command->operation, "rules_persistence",
+                        command->payload, true, command)) break;
+            } else if (strcmp(command->operation,
+                              "replace_policy_groups") == 0) {
+                if (!ch_runtime_persist_config_mutation(
+                        runtime, "replace_policy_groups",
+                        "policy_groups_persistence", command->payload, true,
+                        command)) break;
+            } else if (strcmp(command->operation,
+                              "replace_rule_sets") == 0) {
+                if (!ch_runtime_persist_config_mutation(
+                        runtime, "replace_rule_sets", "rule_sets_persistence",
+                        command->payload, true, command)) break;
+            } else if (strcmp(command->operation,
+                              "replace_rule_subscriptions") == 0) {
+                if (!ch_runtime_persist_config_mutation(
+                        runtime, "replace_rule_subscriptions",
+                        "rule_subscriptions_persistence", command->payload,
+                        true, command)) break;
             } else {
                 ch_command_fail(command, CH_ERROR_UNSUPPORTED, "unknown runtime mutation operation");
                 break;

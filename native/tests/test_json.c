@@ -48,6 +48,16 @@ void ch_test_json(void) {
     CH_TEST_ASSERT(ch_json_object_get(copy, "nothing") == NULL);
     CH_TEST_ASSERT(ch_json_array_get_mutable(
         ch_json_object_get_mutable(copy, "numbers"), 2U) != NULL);
+    ch_json_value *new_number = ch_json_value_new_number(7.0);
+    CH_TEST_ASSERT(new_number != NULL);
+    CH_TEST_ASSERT(ch_json_array_append(
+        ch_json_object_get_mutable(copy, "numbers"), new_number, &error) ==
+        CH_OK);
+    CH_TEST_ASSERT(ch_json_array_size(
+        ch_json_object_get(copy, "numbers")) == 4U);
+    CH_TEST_ASSERT(ch_json_number_value(
+        ch_json_array_get(ch_json_object_get(copy, "numbers"), 3U), 0.0) ==
+        7.0);
     ch_json_value_destroy(copy);
     ch_json_value_destroy(root);
 

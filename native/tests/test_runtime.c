@@ -677,6 +677,64 @@ void ch_test_runtime(void) {
         CH_TEST_ASSERT(strstr(json, "\"silent_mode\":\"deny\"") != NULL);
         CH_TEST_ASSERT(strstr(json, "\"backup_path\":\"") != NULL);
         ch_string_free(json);
+        CH_TEST_ASSERT(ch_runtime_mutate(
+            runtime, "replace_rule_sets",
+            "{\"profile\":\"rich\",\"rule_sets\":[{"
+            "\"name\":\"local\",\"domains\":[\"set.example\"]}]}",
+            &json, &error) == CH_OK);
+        CH_TEST_ASSERT(strstr(json, "\"profile\":\"rich\"") != NULL);
+        CH_TEST_ASSERT(strstr(json, "\"rule_sets\":[{\"name\":\"local\"") !=
+                       NULL);
+        CH_TEST_ASSERT(strstr(json, "\"statuses\"") == NULL);
+        CH_TEST_ASSERT(strstr(json, "\"backup_path\":\"") != NULL);
+        ch_string_free(json);
+        CH_TEST_ASSERT(ch_runtime_mutate(
+            runtime, "replace_policy_groups",
+            "{\"profile\":\"rich\",\"policy_groups\":[{"
+            "\"name\":\"manual\",\"type\":\"select\","
+            "\"chains\":[\"direct\"],\"selected\":\"direct\"}]}",
+            &json, &error) == CH_OK);
+        CH_TEST_ASSERT(strstr(json, "\"policy_groups\":[{") != NULL);
+        CH_TEST_ASSERT(strstr(json, "\"groups\"") == NULL);
+        CH_TEST_ASSERT(strstr(json, "\"backup_path\":\"") != NULL);
+        ch_string_free(json);
+        CH_TEST_ASSERT(ch_runtime_mutate(
+            runtime, "replace_rules",
+            "{\"profile\":\"rich\",\"rules\":[{"
+            "\"name\":\"set-rule\",\"action\":\"group:manual\","
+            "\"rule_sets\":[\"local\"]}]}",
+            &json, &error) == CH_OK);
+        CH_TEST_ASSERT(strstr(json, "\"rules\":[{\"name\":\"set-rule\"") !=
+                       NULL);
+        CH_TEST_ASSERT(strstr(json, "\"generated_rules\"") == NULL);
+        CH_TEST_ASSERT(strstr(json, "\"backup_path\":\"") != NULL);
+        ch_string_free(json);
+        CH_TEST_ASSERT(ch_runtime_mutate(
+            runtime, "create_rule",
+            "{\"profile\":\"rich\",\"position\":\"append\","
+            "\"rule\":{\"name\":\"second\",\"action\":\"block\","
+            "\"domains\":[\"blocked.example\"]}}",
+            &json, &error) == CH_OK);
+        CH_TEST_ASSERT(strstr(json, "\"name\":\"set-rule\"") != NULL);
+        CH_TEST_ASSERT(strstr(json, "\"name\":\"second\"") != NULL);
+        ch_string_free(json);
+        CH_TEST_ASSERT(ch_runtime_mutate(
+            runtime, "replace_rule_subscriptions",
+            "{\"profile\":\"rich\",\"subscriptions\":[{"
+            "\"name\":\"native\","
+            "\"url\":\"https://lists.example/native.txt\","
+            "\"format\":\"auto\",\"action\":\"block\"}]}",
+            &json, &error) == CH_OK);
+        CH_TEST_ASSERT(strstr(json, "\"subscriptions\":[{"
+                                    "\"name\":\"native\"") != NULL);
+        CH_TEST_ASSERT(strstr(json, "\"cached\"") == NULL);
+        CH_TEST_ASSERT(strstr(json, "\"backup_path\":\"") != NULL);
+        ch_string_free(json);
+        CH_TEST_ASSERT(ch_runtime_mutate(
+            runtime, "create_rule",
+            "{\"position\":\"first\",\"rule\":{"
+            "\"name\":\"bad\",\"action\":\"block\"}}",
+            &json, &error) == CH_ERROR_INVALID_ARGUMENT);
         ch_runtime_destroy(runtime);
         runtime = ch_runtime_create(NULL, &error);
         CH_TEST_ASSERT(runtime != NULL);
@@ -686,6 +744,15 @@ void ch_test_runtime(void) {
         CH_TEST_ASSERT(strstr(json, "\"http\":\"127.0.0.1:18080\"") !=
                        NULL);
         CH_TEST_ASSERT(strstr(json, "\"silent_mode\":\"deny\"") != NULL);
+        ch_string_free(json);
+        CH_TEST_ASSERT(ch_runtime_query(
+            runtime, "rules", "{}", &json, &error) == CH_OK);
+        CH_TEST_ASSERT(strstr(json, "\"name\":\"set-rule\"") != NULL);
+        CH_TEST_ASSERT(strstr(json, "\"name\":\"second\"") != NULL);
+        ch_string_free(json);
+        CH_TEST_ASSERT(ch_runtime_query(
+            runtime, "rule_subscriptions", "{}", &json, &error) == CH_OK);
+        CH_TEST_ASSERT(strstr(json, "\"name\":\"native\"") != NULL);
         ch_string_free(json);
         ch_runtime_destroy(runtime);
         CH_TEST_ASSERT(unlink(path) == 0);

@@ -648,6 +648,19 @@ char *ch_config_query_payload_json(const ch_config *config,
         result = ch_config_conditioner_payload_json(config, profile, error);
     } else if (strcmp(operation, "rule_subscriptions") == 0) {
         result = ch_config_subscriptions_payload_json(config, profile, error);
+    } else if (strcmp(operation, "rules_persistence") == 0) {
+        result = ch_config_collection_payload_json(
+            config, profile, "rule", "rules", 0, 0, error);
+    } else if (strcmp(operation, "policy_groups_persistence") == 0) {
+        result = ch_config_collection_payload_json(
+            config, profile, "policy_group", "policy_groups", 0, 0, error);
+    } else if (strcmp(operation, "rule_sets_persistence") == 0) {
+        result = ch_config_collection_payload_json(
+            config, profile, "rule_set", "rule_sets", 0, 0, error);
+    } else if (strcmp(operation, "rule_subscriptions_persistence") == 0) {
+        result = ch_config_collection_payload_json(
+            config, profile, "rule_subscription", "subscriptions", 0, 0,
+            error);
     } else {
         ch_error_set(error, CH_ERROR_UNSUPPORTED,
                      "unknown configuration payload operation");

@@ -715,6 +715,30 @@ ch_json_value *ch_json_object_get_mutable(ch_json_value *value,
     return NULL;
 }
 
+ch_status ch_json_array_append(ch_json_value *array, ch_json_value *item,
+                               ch_error *error) {
+    ch_error_clear(error);
+    if (array == NULL || array->type != CH_JSON_ARRAY || item == NULL) {
+        ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
+                     "JSON array and item are required");
+        return CH_ERROR_INVALID_ARGUMENT;
+    }
+    if (array->as.array.count == SIZE_MAX / sizeof(*array->as.array.items)) {
+        ch_error_set(error, CH_ERROR_OUT_OF_MEMORY, "JSON array is too large");
+        return CH_ERROR_OUT_OF_MEMORY;
+    }
+    ch_json_value **grown = realloc(
+        array->as.array.items,
+        (array->as.array.count + 1U) * sizeof(*grown));
+    if (grown == NULL) {
+        ch_error_set(error, CH_ERROR_OUT_OF_MEMORY, "grow JSON array");
+        return CH_ERROR_OUT_OF_MEMORY;
+    }
+    array->as.array.items = grown;
+    array->as.array.items[array->as.array.count++] = item;
+    return CH_OK;
+}
+
 ch_status ch_json_object_set(ch_json_value *object, const char *key,
                              ch_json_value *member_value, ch_error *error) {
     ch_error_clear(error);

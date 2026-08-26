@@ -90,8 +90,12 @@ The additive CMake build currently provides:
   runtime transactionally, and restore the previous file and runtime when a
   new listener cannot start. The writer preserves the live active profile
   selected by a network trigger rather than reverting to a stale disk
-  selection. Subscription cache enrichment and DNS upstream route annotations
-  are not yet claimed.
+  selection. The same transaction now implements `PUT /api/v1/rules`,
+  append-only `POST /api/v1/rules`, and `PUT` replacement for policy groups,
+  rule sets, and rule subscriptions with ordered persistence and the existing
+  profile/collection/backup response contract. Rule cleanup/from-connection
+  creation, remote collection refresh, subscription cache enrichment, and DNS
+  upstream route annotations are not yet claimed.
   Configured proxy listeners participate in runtime start, stop, reload,
   profile switching, and status reporting;
 - `clambhook-linux-c`: an additive `GtkApplication` dashboard using GTK 4,

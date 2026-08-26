@@ -115,8 +115,12 @@ missing-profile fixtures. Structured DNS/settings/conditioner writes add
 render-and-reparse validation, retained backups, restart survival, active
 profile preservation, invalid-update no-write checks, an occupied-listener
 transaction fixture that proves disk and service rollback, and a live HTTP
-write/read/export smoke check. The shared runtime continues to compile for
-every packaged Android ABI.
+write/read/export smoke check. Ordered rule replacement/append and policy-
+group/rule-set/subscription replacement add rendered-config, invalid-position,
+restart, exact response-envelope, and live HTTP write/read fixtures. The
+shared runtime continues to compile for every packaged Android ABI, and the
+connected Pixel 3a XL on Android 12/API 32 again passed all six instrumentation
+tests after this collection-persistence checkpoint.
 
 ```sh
 make build-android-mobile-aar                # gomobile bind → ui/android/app/libs/

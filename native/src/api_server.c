@@ -454,6 +454,36 @@ static void ch_api_route(ch_api_client *client) {
             client->server->runtime, "update_conditioner",
             client->body.data == NULL ? "{}" : client->body.data,
             &json, &error);
+    } else if ((strcmp(method, "PUT") == 0 ||
+                strcmp(method, "POST") == 0) &&
+               strcmp(path, "/api/v1/rules") == 0) {
+        persistence_required = 1;
+        status = ch_runtime_mutate(
+            client->server->runtime,
+            strcmp(method, "PUT") == 0 ? "replace_rules" : "create_rule",
+            client->body.data == NULL ? "{}" : client->body.data,
+            &json, &error);
+    } else if (strcmp(method, "PUT") == 0 &&
+               strcmp(path, "/api/v1/policy-groups") == 0) {
+        persistence_required = 1;
+        status = ch_runtime_mutate(
+            client->server->runtime, "replace_policy_groups",
+            client->body.data == NULL ? "{}" : client->body.data,
+            &json, &error);
+    } else if (strcmp(method, "PUT") == 0 &&
+               strcmp(path, "/api/v1/rule-sets") == 0) {
+        persistence_required = 1;
+        status = ch_runtime_mutate(
+            client->server->runtime, "replace_rule_sets",
+            client->body.data == NULL ? "{}" : client->body.data,
+            &json, &error);
+    } else if (strcmp(method, "PUT") == 0 &&
+               strcmp(path, "/api/v1/rule-subscriptions") == 0) {
+        persistence_required = 1;
+        status = ch_runtime_mutate(
+            client->server->runtime, "replace_rule_subscriptions",
+            client->body.data == NULL ? "{}" : client->body.data,
+            &json, &error);
     } else if (strcmp(method, "POST") == 0 &&
                (strcmp(path, "/api/v1/rules/test") == 0 ||
                 strcmp(path, "/api/v1/routes/explain") == 0)) {

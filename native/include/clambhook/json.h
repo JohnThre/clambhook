@@ -46,6 +46,9 @@ ch_json_value *ch_json_value_new_object(void);
 ch_json_value *ch_json_array_get_mutable(ch_json_value *value, size_t index);
 ch_json_value *ch_json_object_get_mutable(ch_json_value *value,
                                           const char *key);
+/* On success array owns item; on failure ownership stays with caller. */
+ch_status ch_json_array_append(ch_json_value *array, ch_json_value *item,
+                               ch_error *error);
 /* On success object owns member_value; on failure ownership stays with caller. */
 ch_status ch_json_object_set(ch_json_value *object, const char *key,
                              ch_json_value *member_value, ch_error *error);

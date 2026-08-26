@@ -284,8 +284,108 @@ static void test_structured_document_mutations(void) {
                                               &error) == CH_OK);
     CH_TEST_ASSERT_STRING("deny", value);
     free(value);
+    ch_config_free(config);
+    config = updated;
+    updated = NULL;
+    free(toml);
+    toml = NULL;
+
+    CH_TEST_ASSERT(ch_config_mutate_document_json(
+        config, "default", "replace_rule_sets",
+        "{\"rule_sets\":[{\"name\":\"local\","
+        "\"domains\":[\"set.example\"]}]}",
+        &toml, &error) == CH_OK);
+    CH_TEST_ASSERT(ch_config_parse(toml, "/tmp/config.toml", &updated,
+                                   &error) == CH_OK);
+    CH_TEST_ASSERT(ch_config_array_count(ch_config_table_get_array(
+        ch_config_active_profile(updated), "rule_set")) == 1U);
+    ch_config_free(config);
+    config = updated;
+    updated = NULL;
+    free(toml);
+    toml = NULL;
+
+    CH_TEST_ASSERT(ch_config_mutate_document_json(
+        config, "default", "replace_policy_groups",
+        "{\"policy_groups\":[{\"name\":\"manual\","
+        "\"type\":\"select\",\"chains\":[\"main\"],"
+        "\"selected\":\"main\"}]}",
+        &toml, &error) == CH_OK);
+    CH_TEST_ASSERT(ch_config_parse(toml, "/tmp/config.toml", &updated,
+                                   &error) == CH_OK);
+    CH_TEST_ASSERT(ch_config_array_count(ch_config_table_get_array(
+        ch_config_active_profile(updated), "policy_group")) == 1U);
+    ch_config_free(config);
+    config = updated;
+    updated = NULL;
+    free(toml);
+    toml = NULL;
+
+    CH_TEST_ASSERT(ch_config_mutate_document_json(
+        config, "default", "replace_rules",
+        "{\"rules\":[{\"name\":\"set-rule\","
+        "\"action\":\"group:manual\",\"rule_sets\":[\"local\"]}]}",
+        &toml, &error) == CH_OK);
+    CH_TEST_ASSERT(ch_config_parse(toml, "/tmp/config.toml", &updated,
+                                   &error) == CH_OK);
+    CH_TEST_ASSERT(ch_config_array_count(ch_config_table_get_array(
+        ch_config_active_profile(updated), "rule")) == 1U);
+    ch_config_free(config);
+    config = updated;
+    updated = NULL;
+    free(toml);
+    toml = NULL;
+
+    CH_TEST_ASSERT(ch_config_mutate_document_json(
+        config, "default", "create_rule",
+        "{\"position\":\"append\",\"rule\":{\"name\":\"second\","
+        "\"action\":\"block\",\"domains\":[\"blocked.example\"]}}",
+        &toml, &error) == CH_OK);
+    CH_TEST_ASSERT(ch_config_parse(toml, "/tmp/config.toml", &updated,
+                                   &error) == CH_OK);
+    CH_TEST_ASSERT(ch_config_array_count(ch_config_table_get_array(
+        ch_config_active_profile(updated), "rule")) == 2U);
+    ch_config_free(config);
+    config = updated;
+    updated = NULL;
+    free(toml);
+    toml = NULL;
+
+    CH_TEST_ASSERT(ch_config_mutate_document_json(
+        config, "default", "replace_rule_subscriptions",
+        "{\"subscriptions\":[{\"name\":\"ads\","
+        "\"url\":\"https://lists.example/ads.txt\","
+        "\"format\":\"auto\",\"action\":\"reject\","
+        "\"networks\":[\"tcp\"],\"disabled\":true}]}",
+        &toml, &error) == CH_OK);
+    CH_TEST_ASSERT(ch_config_parse(toml, "/tmp/config.toml", &updated,
+                                   &error) == CH_OK);
+    CH_TEST_ASSERT(ch_config_array_count(ch_config_table_get_array(
+        ch_config_active_profile(updated), "rule_subscription")) == 1U);
+    ch_config_free(config);
+    config = updated;
+    updated = NULL;
+    free(toml);
+    toml = NULL;
+
+    CH_TEST_ASSERT(ch_config_mutate_document_json(
+        config, "default", "replace_rules", "{\"rules\":[]}",
+        &toml, &error) == CH_OK);
+    CH_TEST_ASSERT(ch_config_parse(toml, "/tmp/config.toml", &updated,
+                                   &error) == CH_OK);
+    CH_TEST_ASSERT(ch_config_table_get_array(
+        ch_config_active_profile(updated), "rule") == NULL);
     free(toml);
     ch_config_free(updated);
+    ch_config_free(config);
+
+    config = NULL;
+    toml = NULL;
+    CH_TEST_ASSERT(ch_config_parse(valid_toml, NULL, &config, &error) == CH_OK);
+    CH_TEST_ASSERT(ch_config_mutate_document_json(
+        config, "default", "replace_rules", "{\"rules\":{}}",
+        &toml, &error) == CH_ERROR_INVALID_ARGUMENT);
+    CH_TEST_ASSERT(toml == NULL);
     ch_config_free(config);
 
     config = NULL;

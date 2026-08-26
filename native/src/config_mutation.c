@@ -386,6 +386,86 @@ static ch_status mutation_apply_config_settings(ch_json_value *root,
     return CH_OK;
 }
 
+static ch_status mutation_replace_collection(ch_json_value *profile,
+                                             const ch_json_value *request,
+                                             const char *request_key,
+                                             const char *config_key,
+                                             ch_error *error) {
+    const ch_json_value *collection = ch_json_object_get(request, request_key);
+    if (collection == NULL || ch_json_value_type(collection) == CH_JSON_NULL) {
+        (void)ch_json_object_remove(profile, config_key);
+        return CH_OK;
+    }
+    if (ch_json_value_type(collection) != CH_JSON_ARRAY) {
+        return mutation_type_error(request_key, "an array", error);
+    }
+    if (ch_json_array_size(collection) == 0U) {
+        (void)ch_json_object_remove(profile, config_key);
+        return CH_OK;
+    }
+    for (size_t index = 0U; index < ch_json_array_size(collection); ++index) {
+        if (ch_json_value_type(ch_json_array_get(collection, index)) !=
+            CH_JSON_OBJECT) {
+            return mutation_type_error(request_key,
+                                       "an array of objects", error);
+        }
+    }
+    return mutation_set_clone(profile, config_key, collection, error);
+}
+
+static ch_status mutation_create_rule(ch_json_value *profile,
+                                      const ch_json_value *request,
+                                      ch_error *error) {
+    const ch_json_value *position = ch_json_object_get(request, "position");
+    if (position != NULL && ch_json_value_type(position) != CH_JSON_NULL) {
+        const char *text = ch_json_string_value(position);
+        char *trimmed = text == NULL ? NULL : mutation_trimmed_copy(text);
+        if (text == NULL) {
+            return mutation_type_error("position", "a string", error);
+        }
+        if (trimmed == NULL) {
+            ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                         "copy rule position");
+            return CH_ERROR_OUT_OF_MEMORY;
+        }
+        bool valid = trimmed[0] == '\0' || strcmp(trimmed, "append") == 0;
+        free(trimmed);
+        if (!valid) {
+            ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
+                         "position must be append");
+            return CH_ERROR_INVALID_ARGUMENT;
+        }
+    }
+    const ch_json_value *rule = ch_json_object_get(request, "rule");
+    if (rule == NULL || ch_json_value_type(rule) != CH_JSON_OBJECT) {
+        return mutation_type_error("rule", "an object", error);
+    }
+    ch_json_value *rules = ch_json_object_get_mutable(profile, "rule");
+    if (rules == NULL) {
+        rules = ch_json_value_new_array();
+        if (rules == NULL) {
+            ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                         "allocate rules configuration");
+            return CH_ERROR_OUT_OF_MEMORY;
+        }
+        ch_status status = ch_json_object_set(profile, "rule", rules, error);
+        if (status != CH_OK) {
+            ch_json_value_destroy(rules);
+            return status;
+        }
+    } else if (ch_json_value_type(rules) != CH_JSON_ARRAY) {
+        return mutation_type_error("rule", "an array", error);
+    }
+    ch_json_value *copy = ch_json_value_clone(rule);
+    if (copy == NULL) {
+        ch_error_set(error, CH_ERROR_OUT_OF_MEMORY, "copy rule");
+        return CH_ERROR_OUT_OF_MEMORY;
+    }
+    ch_status status = ch_json_array_append(rules, copy, error);
+    if (status != CH_OK) ch_json_value_destroy(copy);
+    return status;
+}
+
 static ch_status mutation_select_profile(ch_json_value *root,
                                          const ch_json_value *request,
                                          const char *fallback_profile,
@@ -683,6 +763,23 @@ ch_status ch_config_mutate_document_json(const ch_config *config,
     } else if (status == CH_OK &&
                strcmp(operation, "update_config_settings") == 0) {
         status = mutation_apply_config_settings(root, profile, request, error);
+    } else if (status == CH_OK && strcmp(operation, "replace_rules") == 0) {
+        status = mutation_replace_collection(profile, request, "rules", "rule",
+                                             error);
+    } else if (status == CH_OK && strcmp(operation, "create_rule") == 0) {
+        status = mutation_create_rule(profile, request, error);
+    } else if (status == CH_OK &&
+               strcmp(operation, "replace_policy_groups") == 0) {
+        status = mutation_replace_collection(
+            profile, request, "policy_groups", "policy_group", error);
+    } else if (status == CH_OK &&
+               strcmp(operation, "replace_rule_sets") == 0) {
+        status = mutation_replace_collection(
+            profile, request, "rule_sets", "rule_set", error);
+    } else if (status == CH_OK &&
+               strcmp(operation, "replace_rule_subscriptions") == 0) {
+        status = mutation_replace_collection(
+            profile, request, "subscriptions", "rule_subscription", error);
     } else if (status == CH_OK) {
         ch_error_set(error, CH_ERROR_UNSUPPORTED,
                      "unknown configuration mutation operation");
