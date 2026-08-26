@@ -161,6 +161,9 @@ val generateClambhookMobileAar = tasks.register<Exec>("generateClambhookMobileAa
 
 val generateThirdPartyNotices = tasks.register<Sync>("generateThirdPartyNotices") {
     from(repositoryRoot.file("THIRD_PARTY_NOTICES.md"))
+    from(repositoryRoot.file("third_party/openssl/LICENSE.txt")) {
+        into("licenses/openssl")
+    }
     into(generatedThirdPartyNoticesDirectory)
 }
 

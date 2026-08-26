@@ -7,14 +7,14 @@
 /* Return codes for cnet_* functions. */
 #define CNET_OK                0
 #define CNET_ERR_AUTH         -1  /* AEAD authentication failure on decrypt. */
-#define CNET_ERR_AES_UNAVAIL  -2  /* Hardware AES (AES-NI / ARM Crypto) absent. */
-#define CNET_ERR_INIT         -3  /* libsodium init failure. */
+#define CNET_ERR_AES_UNAVAIL  -2  /* Retained for source compatibility. */
+#define CNET_ERR_INIT         -3  /* OpenSSL cipher/context initialization failure. */
 
 /*
  * AEAD ciphers (AES-128-GCM, AES-256-GCM and ChaCha20-Poly1305-IETF).
  *
- * Fixed sizes for both families:
- *   key    = 32 bytes
+ * Fixed sizes:
+ *   key    = 16 bytes for AES-128-GCM, 32 bytes for the other ciphers
  *   nonce  = 12 bytes
  *   tag    = 16 bytes (detached; not appended to ciphertext)
  *   ciphertext buffer: >= pt_len bytes
@@ -23,11 +23,9 @@
  * Aliasing is permitted: ciphertext and plaintext may point to the same
  * buffer for in-place encryption/decryption.
  *
- * Returns CNET_OK on success; CNET_ERR_AUTH when decrypt authentication
- * fails; CNET_ERR_AES_UNAVAIL if AES-256-GCM is called on a host without
- * hardware AES.
- *
- * AES-128-GCM uses OpenSSL because libsodium intentionally omits it.
+ * Returns CNET_OK on success and CNET_ERR_AUTH when decrypt authentication
+ * fails. OpenSSL supplies constant-time software fallbacks when hardware
+ * acceleration is unavailable.
  */
 
 int cnet_aes128gcm_encrypt(const uint8_t *key, const uint8_t *nonce,
@@ -55,7 +53,7 @@ int cnet_aes256gcm_decrypt(const uint8_t *key, const uint8_t *nonce,
                            const uint8_t *tag,
                            uint8_t *plaintext);
 
-/* Returns 1 if AES-256-GCM can run on this host, 0 otherwise. */
+/* Returns 1 when the linked OpenSSL provider exposes AES-256-GCM. */
 int cnet_aes256gcm_available(void);
 
 int cnet_chacha20poly1305_encrypt(const uint8_t *key, const uint8_t *nonce,

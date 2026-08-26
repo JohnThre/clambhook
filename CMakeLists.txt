@@ -109,7 +109,7 @@ target_include_directories(clambhook_crypto PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/clib/include>
   $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
 )
-target_link_libraries(clambhook_crypto PUBLIC PkgConfig::LIBSODIUM PkgConfig::OPENSSL)
+target_link_libraries(clambhook_crypto PUBLIC PkgConfig::OPENSSL)
 target_compile_options(clambhook_crypto PRIVATE
   $<$<C_COMPILER_ID:AppleClang,Clang,GNU>:-Wall;-Wextra;-Wpedantic;-Wconversion;-Wshadow>
 )
@@ -121,7 +121,10 @@ target_include_directories(clambhook_core
   PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/native/src
 )
-target_link_libraries(clambhook_core PUBLIC PkgConfig::LIBUV PkgConfig::CURL Clambhook::Crypto lwipcore tomlc99 Threads::Threads)
+target_link_libraries(clambhook_core PUBLIC
+  PkgConfig::LIBUV PkgConfig::LIBSODIUM PkgConfig::CURL
+  Clambhook::Crypto lwipcore tomlc99 Threads::Threads
+)
 if(APPLE)
   target_link_libraries(clambhook_core PUBLIC "-framework CoreFoundation" "-framework Security")
   target_compile_definitions(clambhook_core PRIVATE _DARWIN_C_SOURCE)
@@ -225,3 +228,5 @@ install(DIRECTORY native/include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
 install(FILES clib/include/cnet.h DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
 install(FILES THIRD_PARTY_NOTICES.md
   DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/doc/clambhook)
+install(FILES third_party/openssl/LICENSE.txt
+  DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/doc/clambhook/licenses/openssl)

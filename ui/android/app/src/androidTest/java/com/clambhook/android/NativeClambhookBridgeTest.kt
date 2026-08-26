@@ -113,6 +113,11 @@ class NativeClambhookBridgeTest {
                     "\"tunnel_mode\":\"tun\"}",
                 bridge.query("status"),
             )
+            assertEquals(
+                "{\"openssl\":\"3.5.8\",\"aes_128_gcm\":true," +
+                    "\"aes_256_gcm\":true,\"chacha20_poly1305\":true}",
+                bridge.query("crypto_self_test"),
+            )
             bridge.injectPacket(
                 byteArrayOf(
                     0x45, 0x00, 0x00, 0x20, 0x12, 0x34, 0x00, 0x00,

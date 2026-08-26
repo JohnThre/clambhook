@@ -1,70 +1,96 @@
 #include "cnet.h"
 #include <limits.h>
 #include <openssl/evp.h>
-#include <sodium.h>
 #include <stdlib.h>
 #include <string.h>
 
-_Static_assert(crypto_aead_aes256gcm_ABYTES == 16,
-               "AES-256-GCM tag size must be 16 bytes");
-_Static_assert(crypto_aead_aes256gcm_KEYBYTES == 32,
-               "AES-256-GCM key size must be 32 bytes");
-_Static_assert(crypto_aead_aes256gcm_NPUBBYTES == 12,
-               "AES-256-GCM nonce size must be 12 bytes");
-_Static_assert(crypto_aead_chacha20poly1305_ietf_ABYTES == 16,
-               "ChaCha20-Poly1305-IETF tag size must be 16 bytes");
-_Static_assert(crypto_aead_chacha20poly1305_ietf_KEYBYTES == 32,
-               "ChaCha20-Poly1305-IETF key size must be 32 bytes");
-_Static_assert(crypto_aead_chacha20poly1305_ietf_NPUBBYTES == 12,
-               "ChaCha20-Poly1305-IETF nonce size must be 12 bytes");
-
-__attribute__((constructor))
-static void cnet_crypto_init(void) {
-    if (sodium_init() < 0) {
-        abort();
-    }
-}
-
 int cnet_aes256gcm_available(void) {
-    return crypto_aead_aes256gcm_is_available();
+    return EVP_aes_256_gcm() != NULL;
 }
 
 int cnet_aes128gcm_available(void) {
-    return 1;
+    return EVP_aes_128_gcm() != NULL;
+}
+
+static int cnet_aead_encrypt(const EVP_CIPHER *cipher,
+                             const uint8_t *key, const uint8_t *nonce,
+                             const uint8_t *plaintext, size_t pt_len,
+                             const uint8_t *aad, size_t aad_len,
+                             uint8_t *ciphertext, uint8_t *tag) {
+    if (cipher == NULL || key == NULL || nonce == NULL || tag == NULL ||
+        (pt_len > 0 && (plaintext == NULL || ciphertext == NULL)) ||
+        (aad_len > 0 && aad == NULL) || pt_len > INT_MAX ||
+        aad_len > INT_MAX) {
+        return CNET_ERR_INIT;
+    }
+    EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
+    if (ctx == NULL) return CNET_ERR_INIT;
+    int written = 0;
+    int final_written = 0;
+    int ok = EVP_EncryptInit_ex(ctx, cipher, NULL, NULL, NULL) == 1 &&
+             EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_AEAD_SET_IVLEN, 12, NULL) == 1 &&
+             EVP_EncryptInit_ex(ctx, NULL, NULL, key, nonce) == 1;
+    if (ok && aad_len > 0) {
+        ok = EVP_EncryptUpdate(ctx, NULL, &written, aad, (int)aad_len) == 1;
+    }
+    if (ok && pt_len > 0) {
+        ok = EVP_EncryptUpdate(ctx, ciphertext, &written, plaintext,
+                               (int)pt_len) == 1;
+    }
+    if (ok) {
+        uint8_t scratch[16];
+        uint8_t *output = pt_len > 0 ? ciphertext + written : scratch;
+        ok = EVP_EncryptFinal_ex(ctx, output, &final_written) == 1 &&
+             EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_AEAD_GET_TAG, 16, tag) == 1;
+    }
+    EVP_CIPHER_CTX_free(ctx);
+    return ok ? CNET_OK : CNET_ERR_INIT;
+}
+
+static int cnet_aead_decrypt(const EVP_CIPHER *cipher,
+                             const uint8_t *key, const uint8_t *nonce,
+                             const uint8_t *ciphertext, size_t ct_len,
+                             const uint8_t *aad, size_t aad_len,
+                             const uint8_t *tag, uint8_t *plaintext) {
+    if (cipher == NULL || key == NULL || nonce == NULL || tag == NULL ||
+        (ct_len > 0 && (ciphertext == NULL || plaintext == NULL)) ||
+        (aad_len > 0 && aad == NULL) || ct_len > INT_MAX ||
+        aad_len > INT_MAX) {
+        return CNET_ERR_INIT;
+    }
+    EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
+    if (ctx == NULL) return CNET_ERR_INIT;
+    int written = 0;
+    int final_written = 0;
+    int ok = EVP_DecryptInit_ex(ctx, cipher, NULL, NULL, NULL) == 1 &&
+             EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_AEAD_SET_IVLEN, 12, NULL) == 1 &&
+             EVP_DecryptInit_ex(ctx, NULL, NULL, key, nonce) == 1;
+    if (ok && aad_len > 0) {
+        ok = EVP_DecryptUpdate(ctx, NULL, &written, aad, (int)aad_len) == 1;
+    }
+    if (ok && ct_len > 0) {
+        ok = EVP_DecryptUpdate(ctx, plaintext, &written, ciphertext,
+                               (int)ct_len) == 1;
+    }
+    if (ok) {
+        ok = EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_AEAD_SET_TAG, 16,
+                                 (void *)tag) == 1;
+    }
+    if (ok) {
+        uint8_t scratch[16];
+        uint8_t *output = ct_len > 0 ? plaintext + written : scratch;
+        ok = EVP_DecryptFinal_ex(ctx, output, &final_written) == 1;
+    }
+    EVP_CIPHER_CTX_free(ctx);
+    return ok ? CNET_OK : CNET_ERR_AUTH;
 }
 
 int cnet_aes128gcm_encrypt(const uint8_t *key, const uint8_t *nonce,
                            const uint8_t *plaintext, size_t pt_len,
                            const uint8_t *aad, size_t aad_len,
                            uint8_t *ciphertext, uint8_t *tag) {
-    if (key == NULL || nonce == NULL || tag == NULL ||
-        (pt_len > 0 && (plaintext == NULL || ciphertext == NULL)) ||
-        (aad_len > 0 && aad == NULL) || pt_len > INT_MAX || aad_len > INT_MAX) {
-        return CNET_ERR_INIT;
-    }
-    EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
-    if (ctx == NULL) {
-        return CNET_ERR_INIT;
-    }
-    int written = 0;
-    int final_written = 0;
-    int ok = EVP_EncryptInit_ex(ctx, EVP_aes_128_gcm(), NULL, NULL, NULL) == 1 &&
-             EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_IVLEN, 12, NULL) == 1 &&
-             EVP_EncryptInit_ex(ctx, NULL, NULL, key, nonce) == 1;
-    if (ok && aad_len > 0) {
-        ok = EVP_EncryptUpdate(ctx, NULL, &written, aad, (int)aad_len) == 1;
-    }
-    if (ok && pt_len > 0) {
-        ok = EVP_EncryptUpdate(ctx, ciphertext, &written, plaintext, (int)pt_len) == 1;
-    }
-    if (ok) {
-        uint8_t scratch[16];
-        uint8_t *final_output = pt_len > 0 ? ciphertext + written : scratch;
-        ok = EVP_EncryptFinal_ex(ctx, final_output, &final_written) == 1 &&
-             EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_GET_TAG, 16, tag) == 1;
-    }
-    EVP_CIPHER_CTX_free(ctx);
-    return ok ? CNET_OK : CNET_ERR_INIT;
+    return cnet_aead_encrypt(EVP_aes_128_gcm(), key, nonce, plaintext,
+                             pt_len, aad, aad_len, ciphertext, tag);
 }
 
 int cnet_aes128gcm_decrypt(const uint8_t *key, const uint8_t *nonce,
@@ -72,53 +98,16 @@ int cnet_aes128gcm_decrypt(const uint8_t *key, const uint8_t *nonce,
                            const uint8_t *aad, size_t aad_len,
                            const uint8_t *tag,
                            uint8_t *plaintext) {
-    if (key == NULL || nonce == NULL || tag == NULL ||
-        (ct_len > 0 && (ciphertext == NULL || plaintext == NULL)) ||
-        (aad_len > 0 && aad == NULL) || ct_len > INT_MAX || aad_len > INT_MAX) {
-        return CNET_ERR_INIT;
-    }
-    EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
-    if (ctx == NULL) {
-        return CNET_ERR_INIT;
-    }
-    int written = 0;
-    int final_written = 0;
-    int ok = EVP_DecryptInit_ex(ctx, EVP_aes_128_gcm(), NULL, NULL, NULL) == 1 &&
-             EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_IVLEN, 12, NULL) == 1 &&
-             EVP_DecryptInit_ex(ctx, NULL, NULL, key, nonce) == 1;
-    if (ok && aad_len > 0) {
-        ok = EVP_DecryptUpdate(ctx, NULL, &written, aad, (int)aad_len) == 1;
-    }
-    if (ok && ct_len > 0) {
-        ok = EVP_DecryptUpdate(ctx, plaintext, &written, ciphertext, (int)ct_len) == 1;
-    }
-    if (ok) {
-        ok = EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_TAG, 16, (void *)tag) == 1;
-    }
-    if (ok) {
-        uint8_t scratch[16];
-        uint8_t *final_output = ct_len > 0 ? plaintext + written : scratch;
-        ok = EVP_DecryptFinal_ex(ctx, final_output, &final_written) == 1;
-    }
-    EVP_CIPHER_CTX_free(ctx);
-    return ok ? CNET_OK : CNET_ERR_AUTH;
+    return cnet_aead_decrypt(EVP_aes_128_gcm(), key, nonce, ciphertext,
+                             ct_len, aad, aad_len, tag, plaintext);
 }
 
 int cnet_aes256gcm_encrypt(const uint8_t *key, const uint8_t *nonce,
                            const uint8_t *plaintext, size_t pt_len,
                            const uint8_t *aad, size_t aad_len,
                            uint8_t *ciphertext, uint8_t *tag) {
-    if (!crypto_aead_aes256gcm_is_available()) {
-        return CNET_ERR_AES_UNAVAIL;
-    }
-    if (crypto_aead_aes256gcm_encrypt_detached(
-            ciphertext, tag, NULL,
-            plaintext, pt_len,
-            aad, aad_len,
-            NULL, nonce, key) != 0) {
-        return CNET_ERR_INIT;
-    }
-    return CNET_OK;
+    return cnet_aead_encrypt(EVP_aes_256_gcm(), key, nonce, plaintext,
+                             pt_len, aad, aad_len, ciphertext, tag);
 }
 
 int cnet_aes256gcm_decrypt(const uint8_t *key, const uint8_t *nonce,
@@ -126,31 +115,16 @@ int cnet_aes256gcm_decrypt(const uint8_t *key, const uint8_t *nonce,
                            const uint8_t *aad, size_t aad_len,
                            const uint8_t *tag,
                            uint8_t *plaintext) {
-    if (!crypto_aead_aes256gcm_is_available()) {
-        return CNET_ERR_AES_UNAVAIL;
-    }
-    if (crypto_aead_aes256gcm_decrypt_detached(
-            plaintext, NULL,
-            ciphertext, ct_len,
-            tag, aad, aad_len,
-            nonce, key) != 0) {
-        return CNET_ERR_AUTH;
-    }
-    return CNET_OK;
+    return cnet_aead_decrypt(EVP_aes_256_gcm(), key, nonce, ciphertext,
+                             ct_len, aad, aad_len, tag, plaintext);
 }
 
 int cnet_chacha20poly1305_encrypt(const uint8_t *key, const uint8_t *nonce,
                                   const uint8_t *plaintext, size_t pt_len,
                                   const uint8_t *aad, size_t aad_len,
                                   uint8_t *ciphertext, uint8_t *tag) {
-    if (crypto_aead_chacha20poly1305_ietf_encrypt_detached(
-            ciphertext, tag, NULL,
-            plaintext, pt_len,
-            aad, aad_len,
-            NULL, nonce, key) != 0) {
-        return CNET_ERR_INIT;
-    }
-    return CNET_OK;
+    return cnet_aead_encrypt(EVP_chacha20_poly1305(), key, nonce, plaintext,
+                             pt_len, aad, aad_len, ciphertext, tag);
 }
 
 int cnet_chacha20poly1305_decrypt(const uint8_t *key, const uint8_t *nonce,
@@ -158,14 +132,8 @@ int cnet_chacha20poly1305_decrypt(const uint8_t *key, const uint8_t *nonce,
                                   const uint8_t *aad, size_t aad_len,
                                   const uint8_t *tag,
                                   uint8_t *plaintext) {
-    if (crypto_aead_chacha20poly1305_ietf_decrypt_detached(
-            plaintext, NULL,
-            ciphertext, ct_len,
-            tag, aad, aad_len,
-            nonce, key) != 0) {
-        return CNET_ERR_AUTH;
-    }
-    return CNET_OK;
+    return cnet_aead_decrypt(EVP_chacha20_poly1305(), key, nonce, ciphertext,
+                             ct_len, aad, aad_len, tag, plaintext);
 }
 
 /* SHA-256 round constants: first 32 bits of the fractional parts of

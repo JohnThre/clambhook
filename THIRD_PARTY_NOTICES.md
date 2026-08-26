@@ -1,7 +1,7 @@
 # Third-party notices
 
-Clambhook's native builds vendor the following unmodified components. Their
-source provenance is recorded beside each import.
+Clambhook's native builds bundle or build the following upstream components.
+Their source provenance is recorded beside each import.
 
 ## lwIP 2.2.1
 
@@ -57,3 +57,16 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 Upstream and commit details: `third_party/tomlc99/README.clambhook.md`.
+
+## OpenSSL 3.5.8 LTS
+
+Copyright 1998-2026 The OpenSSL Project Authors. All Rights Reserved.
+
+Licensed under the Apache License 2.0. The complete license is distributed at
+`third_party/openssl/LICENSE.txt` in source checkouts and at
+`licenses/openssl/LICENSE.txt` in installed/package assets.
+
+The Android build downloads the official release archive, validates its
+SHA-256 digest, and statically links the resulting per-ABI libraries. Version,
+archive, digest, configuration, and update details are recorded in
+`third_party/openssl/README.clambhook.md`.

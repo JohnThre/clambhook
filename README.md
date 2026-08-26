@@ -207,10 +207,14 @@ reuse, encrypted-DNS port-53 interception, and TTL-bounded A/AAAA domain
 recovery for rule matching. A bounded pre-routing reassembler rejects fragment
 overlaps, expires incomplete IPv4/IPv6 datagrams, and supports common IPv6
 option/routing/authentication extension chains. Android native transport
-linkage now covers rule-enforced direct TCP/UDP, with a C-owned periodic packet
-timer and transactional active-profile rule rebuilds. A delayed UDP round trip
-passes on the Android 11/API 30 floor. Encrypted Android transport linkage and
-the production platform TUN lifecycle remain gated. The
+linkage now resolves direct, named-chain, and policy-group decisions through
+the shared C protocol layer for TCP and UDP. Android builds pin and checksum
+OpenSSL 3.5.8 LTS from its official source archive, statically link it for all
+four packaged ABIs at the Android 11/API 30 floor, and package its Apache 2.0
+license without changing Clambhook's own license. A physical Pixel 3a XL/API
+32 passes the six-test JNI/Compose suite, including on-device AES-128-GCM,
+AES-256-GCM, and ChaCha20-Poly1305 self-tests and delayed direct UDP. Encrypted
+DNS and the production platform VPN lifecycle remain gated. The
 additive native DNS library now provides route-planned DoH and DoT, Control D
 expansion/bootstrap hygiene, response correlation validation, upstream
 failover, and SERVFAIL generation; it deliberately rejects DoQ rather than
@@ -309,8 +313,9 @@ build-deploy-launch on a device or Android SDK Emulator (AVD) (`android run`, or
 Gradle is still used for unit tests (`make test-android`), lint
 (`make lint-android`), and release assembly (`make build-android-release`)
 because the `android` CLI has no equivalent commands. Gradle now packages the
-NDK-built C/JNI library; the current gomobile AAR remains the selected rollback
-runtime while `NativeClambhookBridge` advances through parity. See
+NDK-built C/JNI library and its pinned OpenSSL runtime; the current gomobile AAR
+remains the selected rollback runtime while `NativeClambhookBridge` advances
+through the remaining API/VPN parity gates. See
 [`docs/android-development.md`](docs/android-development.md) for the full guide.
 
 ## Repository layout

@@ -98,14 +98,17 @@ Android validates on the developer's machine. The GUI is Kotlin/Jetpack Compose
 with an Android 11 (API 30) floor. During runtime migration Gradle packages the
 NDK-built C/JNI runtime alongside the gomobile rollback AAR. The focused native
 configuration/dashboard/route-explanation, profile-rule rebuild, raw-packet
-callback, and direct-UDP/timer tests must pass on API 30; unit tests, lint, and
-the debug build run on Gradle; Google's
+callback, direct/encrypted route linkage, OpenSSL AEAD, and direct-UDP/timer
+tests must pass on API 30; unit tests, lint, and the debug build run on Gradle;
+Google's
 `android` CLI is the default for the on-device dev loop, using an Android SDK
 Emulator (AVD) for local CI/CD (Apple `container` is Linux-only and cannot run
 Android). A physical Pixel 3a XL on Android 12/API 32 additionally passed the
-six-test instrumentation suite after the native requested-profile and
-file-backed daemon profile-persistence checkpoints; this supplements rather
-than replaces the API 30/33/36 matrix. The daemon-side persistence path is also
+six-test instrumentation suite after OpenSSL 3.5.8 LTS was statically linked
+and C rule decisions were connected to native encrypted TCP/UDP chains. The
+device run executes AES-128-GCM, AES-256-GCM, and ChaCha20-Poly1305 through JNI.
+This supplements rather than replaces the API 30/33/36 matrix. The daemon-side
+persistence path is also
 covered by sanitizer-backed host tests that verify the active selection on
 disk, the retained backup, and survival across runtime destruction/restart.
 Native config export/import adds exact TOML round-trip, invalid-import

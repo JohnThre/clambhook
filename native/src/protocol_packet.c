@@ -940,7 +940,9 @@ void ch_packet_connection_close(ch_packet_connection *connection) {
     if (connection == NULL) return;
     if (connection->kind == CH_PACKET_VMESS &&
         connection->stream_descriptor >= 0) {
-        (void)send(connection->stream_descriptor, NULL, 0U, 0);
+        /* SOCK_DGRAM peer closure has no EOF; wake the detached relay. */
+        const uint8_t wake = 0U;
+        (void)send(connection->stream_descriptor, &wake, 0U, 0);
     }
     ch_packet_close_descriptor(&connection->ipv4_descriptor);
     ch_packet_close_descriptor(&connection->ipv6_descriptor);

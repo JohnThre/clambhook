@@ -1,31 +1,23 @@
 #include "clambhook/runtime.h"
 
-#include <arpa/inet.h>
-#include <errno.h>
-#include <fcntl.h>
-#include <netdb.h>
-#include <poll.h>
 #include <pthread.h>
 #include <stdatomic.h>
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/socket.h>
-#include <sys/uio.h>
 #include <time.h>
-#include <unistd.h>
 
 #include "clambhook/config.h"
 #include "clambhook/ip_stack.h"
+#include "clambhook/protocol.h"
 #include "clambhook/rules.h"
+#include "cnet.h"
 #include "internal.h"
 
-#define ANDROID_RUNTIME_CONNECT_TIMEOUT_MS 10000
-
-typedef struct android_packet_connection {
-    int ipv4_descriptor;
-    int ipv6_descriptor;
-} android_packet_connection;
+typedef struct android_route {
+    bool direct;
+    const ch_config_table *chain;
+    char *selected_group_chain;
+} android_route;
 
 struct ch_runtime {
     pthread_mutex_t mutex;
@@ -88,28 +80,18 @@ static const char *android_selected_group_chain(
     return *out_chain;
 }
 
-static int android_chain_is_direct(const ch_runtime *runtime,
-                                   const char *chain_name) {
-    const ch_config_table *profile = ch_config_profile_named(
-        runtime->config, runtime->active_profile);
-    const ch_config_table *chain = android_named_table(
-        ch_config_table_get_array(profile, "chain"), chain_name);
-    const ch_config_array *servers = ch_config_table_get_array(chain, "server");
-    size_t count = ch_config_array_count(servers);
-    if (count == 0U) return 0;
-    for (size_t index = 0U; index < count; ++index) {
-        char *protocol = android_optional_string(
-            ch_config_array_get_table(servers, index), "protocol");
-        int direct = protocol != NULL && strcmp(protocol, "direct") == 0;
-        free(protocol);
-        if (!direct) return 0;
-    }
-    return 1;
+static void android_route_clear(android_route *route) {
+    if (route == NULL) return;
+    free(route->selected_group_chain);
+    memset(route, 0, sizeof(*route));
 }
 
-static ch_status android_runtime_require_direct_route(
+static ch_status android_runtime_resolve_route(
     ch_runtime *runtime, const char *network, const char *target,
-    const char *source, const char *domain_hint, ch_error *error) {
+    const char *source, const char *domain_hint, android_route *out_route,
+    ch_error *error) {
+    memset(out_route, 0, sizeof(*out_route));
+    out_route->direct = true;
     if (runtime->rules == NULL) return CH_OK;
     ch_rule_match_context context = {
         .network = network,
@@ -124,334 +106,100 @@ static ch_status android_runtime_require_direct_route(
                                              &decision, error);
     if (status != CH_OK) return status;
     const char *chain_name = decision.chain_name;
-    char *selected_group_chain = NULL;
     if (strcmp(decision.action, CH_RULE_ACTION_BLOCK) == 0 ||
         strcmp(decision.action, CH_RULE_ACTION_REJECT) == 0) {
         ch_error_set(error, CH_ERROR_INVALID_STATE,
                      "Android native route rejected flow");
         status = CH_ERROR_INVALID_STATE;
+    } else if (strcmp(decision.action, CH_RULE_ACTION_DIRECT) == 0) {
+        status = CH_OK;
     } else if (strcmp(decision.action, CH_RULE_ACTION_GROUP) == 0) {
         const ch_config_table *profile = ch_config_profile_named(
             runtime->config, runtime->active_profile);
         chain_name = android_selected_group_chain(
-            profile, decision.group_name, &selected_group_chain);
-        if (chain_name == NULL ||
-            !android_chain_is_direct(runtime, chain_name)) {
-            ch_error_set(error, CH_ERROR_UNSUPPORTED,
-                         "Android native policy group selected a non-direct chain");
-            status = CH_ERROR_UNSUPPORTED;
+            profile, decision.group_name, &out_route->selected_group_chain);
+        if (chain_name == NULL) {
+            ch_error_set(error, CH_ERROR_NOT_FOUND,
+                         "Android native policy group has no selected chain");
+            status = CH_ERROR_NOT_FOUND;
         }
-    } else if (strcmp(decision.action, CH_RULE_ACTION_DIRECT) != 0 &&
-               (chain_name == NULL ||
-                !android_chain_is_direct(runtime, chain_name))) {
+    } else if (strcmp(decision.action, CH_RULE_ACTION_CHAIN) != 0) {
         ch_error_set(error, CH_ERROR_UNSUPPORTED,
-                     "Android native encrypted chain linkage is not available");
+                     "Android native route action is not supported");
         status = CH_ERROR_UNSUPPORTED;
     }
-    free(selected_group_chain);
+    if (status == CH_OK &&
+        strcmp(decision.action, CH_RULE_ACTION_DIRECT) != 0) {
+        const ch_config_table *profile = ch_config_profile_named(
+            runtime->config, runtime->active_profile);
+        out_route->chain = android_named_table(
+            ch_config_table_get_array(profile, "chain"), chain_name);
+        if (out_route->chain == NULL) {
+            ch_error_set(error, CH_ERROR_NOT_FOUND,
+                         "Android native route chain was not found");
+            status = CH_ERROR_NOT_FOUND;
+        } else {
+            out_route->direct = false;
+        }
+    }
     ch_rule_decision_clear(&decision);
+    if (status != CH_OK) android_route_clear(out_route);
     return status;
-}
-
-static ch_status android_split_target(const char *target, char **out_host,
-                                      char **out_service, ch_error *error) {
-    *out_host = NULL;
-    *out_service = NULL;
-    if (target == NULL || target[0] == '\0') goto invalid;
-    const char *host_start = target;
-    const char *host_end = NULL;
-    const char *service = NULL;
-    if (target[0] == '[') {
-        host_start = target + 1U;
-        host_end = strchr(host_start, ']');
-        if (host_end == NULL || host_end[1] != ':' || host_end[2] == '\0') {
-            goto invalid;
-        }
-        service = host_end + 2U;
-    } else {
-        host_end = strrchr(target, ':');
-        if (host_end == NULL || host_end == target || host_end[1] == '\0') {
-            goto invalid;
-        }
-        service = host_end + 1U;
-    }
-    size_t host_length = (size_t)(host_end - host_start);
-    *out_host = malloc(host_length + 1U);
-    *out_service = ch_strdup(service);
-    if (*out_host == NULL || *out_service == NULL) {
-        free(*out_host);
-        free(*out_service);
-        *out_host = NULL;
-        *out_service = NULL;
-        ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
-                     "copy Android route target");
-        return CH_ERROR_OUT_OF_MEMORY;
-    }
-    memcpy(*out_host, host_start, host_length);
-    (*out_host)[host_length] = '\0';
-    return CH_OK;
-
-invalid:
-    ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
-                 "Android route target must be numeric host:port");
-    return CH_ERROR_INVALID_ARGUMENT;
-}
-
-static ch_status android_resolve_numeric(
-    const char *target, int socket_type, struct addrinfo **out_addresses,
-    ch_error *error) {
-    char *host = NULL;
-    char *service = NULL;
-    ch_status status = android_split_target(target, &host, &service, error);
-    if (status != CH_OK) return status;
-    struct addrinfo hints;
-    memset(&hints, 0, sizeof(hints));
-    hints.ai_family = AF_UNSPEC;
-    hints.ai_socktype = socket_type;
-    hints.ai_flags = AI_NUMERICHOST | AI_NUMERICSERV;
-    int result = getaddrinfo(host, service, &hints, out_addresses);
-    free(host);
-    free(service);
-    if (result != 0) {
-        ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
-                     "resolve Android numeric target: %s",
-                     gai_strerror(result));
-        return CH_ERROR_INVALID_ARGUMENT;
-    }
-    return CH_OK;
-}
-
-static ch_status android_connect_tcp(const char *target, int *out_descriptor,
-                                     ch_error *error) {
-    struct addrinfo *addresses = NULL;
-    ch_status status = android_resolve_numeric(
-        target, SOCK_STREAM, &addresses, error);
-    if (status != CH_OK) return status;
-    int saved_error = EHOSTUNREACH;
-    *out_descriptor = -1;
-    for (const struct addrinfo *candidate = addresses; candidate != NULL;
-         candidate = candidate->ai_next) {
-        int descriptor = socket(candidate->ai_family, SOCK_STREAM,
-                                candidate->ai_protocol);
-        if (descriptor < 0) {
-            saved_error = errno;
-            continue;
-        }
-        int flags = fcntl(descriptor, F_GETFL, 0);
-        if (flags < 0 ||
-            fcntl(descriptor, F_SETFL, flags | O_NONBLOCK) != 0) {
-            saved_error = errno;
-            (void)close(descriptor);
-            continue;
-        }
-        int connected = connect(descriptor, candidate->ai_addr,
-                                candidate->ai_addrlen);
-        if (connected != 0 && errno == EINPROGRESS) {
-            struct pollfd wait = {.fd = descriptor, .events = POLLOUT};
-            do {
-                connected = poll(&wait, 1U,
-                                 ANDROID_RUNTIME_CONNECT_TIMEOUT_MS);
-            } while (connected < 0 && errno == EINTR);
-            if (connected > 0 && (wait.revents & POLLOUT) != 0) {
-                socklen_t error_length = (socklen_t)sizeof(saved_error);
-                if (getsockopt(descriptor, SOL_SOCKET, SO_ERROR,
-                               &saved_error, &error_length) == 0 &&
-                    saved_error == 0) {
-                    connected = 0;
-                } else {
-                    connected = -1;
-                }
-            } else {
-                saved_error = connected == 0 ? ETIMEDOUT : errno;
-                connected = -1;
-            }
-        }
-        if (connected == 0) {
-            *out_descriptor = descriptor;
-            break;
-        }
-        if (saved_error == 0) saved_error = errno;
-        (void)close(descriptor);
-    }
-    freeaddrinfo(addresses);
-    if (*out_descriptor < 0) {
-        ch_error_set(error, CH_ERROR_IO, "connect Android TCP target %s: %s",
-                     target, strerror(saved_error));
-        return CH_ERROR_IO;
-    }
-    return CH_OK;
 }
 
 static ch_status android_runtime_tcp_dial(
     const char *target, const char *source, const char *domain_hint,
     int *out_descriptor, void *context, ch_error *error) {
     ch_runtime *runtime = context;
-    ch_status status = android_runtime_require_direct_route(
-        runtime, "tcp", target, source, domain_hint, error);
-    if (status != CH_OK) return status;
-    return android_connect_tcp(target, out_descriptor, error);
+    android_route route;
+    ch_status status = android_runtime_resolve_route(
+        runtime, "tcp", target, source, domain_hint, &route, error);
+    if (status == CH_OK) {
+        status = route.direct ?
+            ch_protocol_connect_tcp(target, out_descriptor, error) :
+            ch_protocol_chain_dial(route.chain, "tcp", target,
+                                   out_descriptor, error);
+    }
+    android_route_clear(&route);
+    return status;
 }
 
 static ch_status android_runtime_udp_dial(
     const char *target, const char *source, const char *domain_hint,
     void **out_connection, void *context, ch_error *error) {
     ch_runtime *runtime = context;
-    ch_status status = android_runtime_require_direct_route(
-        runtime, "udp", target, source, domain_hint, error);
-    if (status != CH_OK) return status;
-    android_packet_connection *connection = calloc(1U, sizeof(*connection));
-    if (connection == NULL) {
-        ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
-                     "allocate Android UDP connection");
-        return CH_ERROR_OUT_OF_MEMORY;
+    *out_connection = NULL;
+    android_route route;
+    ch_status status = android_runtime_resolve_route(
+        runtime, "udp", target, source, domain_hint, &route, error);
+    if (status == CH_OK) {
+        ch_packet_connection *connection = NULL;
+        status = route.direct ?
+            ch_protocol_direct_packet_dial(&connection, error) :
+            ch_protocol_chain_dial_packet(route.chain, target,
+                                          &connection, error);
+        if (status == CH_OK) *out_connection = connection;
     }
-    connection->ipv4_descriptor = -1;
-    connection->ipv6_descriptor = -1;
-    *out_connection = connection;
-    return CH_OK;
+    android_route_clear(&route);
+    return status;
 }
 
 static ch_status android_runtime_udp_send(
     void *opaque, const char *target, const uint8_t *payload,
     size_t payload_length, ch_error *error) {
-    android_packet_connection *connection = opaque;
-    struct addrinfo *addresses = NULL;
-    ch_status status = android_resolve_numeric(
-        target, SOCK_DGRAM, &addresses, error);
-    if (status != CH_OK) return status;
-    int saved_error = EHOSTUNREACH;
-    int sent = 0;
-    for (const struct addrinfo *candidate = addresses; candidate != NULL;
-         candidate = candidate->ai_next) {
-        int *descriptor = candidate->ai_family == AF_INET6 ?
-            &connection->ipv6_descriptor : &connection->ipv4_descriptor;
-        if (*descriptor < 0) {
-            *descriptor = socket(candidate->ai_family, SOCK_DGRAM,
-                                 candidate->ai_protocol);
-            if (*descriptor < 0) {
-                saved_error = errno;
-                continue;
-            }
-        }
-        ssize_t written;
-        do {
-            written = sendto(*descriptor, payload, payload_length, 0,
-                             candidate->ai_addr, candidate->ai_addrlen);
-        } while (written < 0 && errno == EINTR);
-        if (written == (ssize_t)payload_length) {
-            sent = 1;
-            break;
-        }
-        saved_error = written < 0 ? errno : EMSGSIZE;
-    }
-    freeaddrinfo(addresses);
-    if (!sent) {
-        ch_error_set(error, CH_ERROR_IO, "send Android UDP target %s: %s",
-                     target, strerror(saved_error));
-        return CH_ERROR_IO;
-    }
-    return CH_OK;
+    return ch_packet_connection_send(opaque, target, payload,
+                                     payload_length, error);
 }
 
 static ch_status android_runtime_udp_receive(
     void *opaque, uint8_t *buffer, size_t buffer_capacity,
     size_t *out_length, char **out_source, ch_error *error) {
-    android_packet_connection *connection = opaque;
-    struct pollfd descriptors[2];
-    nfds_t count = 0U;
-    if (connection->ipv4_descriptor >= 0) {
-        descriptors[count++] = (struct pollfd){
-            .fd = connection->ipv4_descriptor, .events = POLLIN
-        };
-    }
-    if (connection->ipv6_descriptor >= 0) {
-        descriptors[count++] = (struct pollfd){
-            .fd = connection->ipv6_descriptor, .events = POLLIN
-        };
-    }
-    if (count == 0U) {
-        ch_error_set(error, CH_ERROR_NOT_FOUND,
-                     "Android UDP connection has no packet");
-        return CH_ERROR_NOT_FOUND;
-    }
-    int ready;
-    do {
-        ready = poll(descriptors, count, 0);
-    } while (ready < 0 && errno == EINTR);
-    if (ready == 0) {
-        ch_error_set(error, CH_ERROR_NOT_FOUND,
-                     "Android UDP receive has no packet");
-        return CH_ERROR_NOT_FOUND;
-    }
-    if (ready < 0) {
-        ch_error_set(error, CH_ERROR_IO, "poll Android UDP: %s",
-                     strerror(errno));
-        return CH_ERROR_IO;
-    }
-    int descriptor = -1;
-    for (nfds_t index = 0U; index < count; ++index) {
-        if ((descriptors[index].revents & POLLIN) != 0) {
-            descriptor = descriptors[index].fd;
-            break;
-        }
-    }
-    if (descriptor < 0) {
-        ch_error_set(error, CH_ERROR_IO, "Android UDP socket closed");
-        return CH_ERROR_IO;
-    }
-    struct sockaddr_storage source;
-    struct iovec vector = {.iov_base = buffer, .iov_len = buffer_capacity};
-    struct msghdr message;
-    memset(&message, 0, sizeof(message));
-    message.msg_name = &source;
-    message.msg_namelen = (socklen_t)sizeof(source);
-    message.msg_iov = &vector;
-    message.msg_iovlen = 1U;
-    ssize_t received;
-    do {
-        received = recvmsg(descriptor, &message, 0);
-    } while (received < 0 && errno == EINTR);
-    if (received < 0 || (message.msg_flags & MSG_TRUNC) != 0) {
-        ch_error_set(error, CH_ERROR_IO, "receive Android UDP: %s",
-                     received < 0 ? strerror(errno) : "truncated datagram");
-        return CH_ERROR_IO;
-    }
-    char host[NI_MAXHOST];
-    char service[NI_MAXSERV];
-    int formatted = getnameinfo(
-        (const struct sockaddr *)&source, message.msg_namelen,
-        host, sizeof(host), service, sizeof(service),
-        NI_NUMERICHOST | NI_NUMERICSERV);
-    if (formatted != 0) {
-        ch_error_set(error, CH_ERROR_IO, "format Android UDP source: %s",
-                     gai_strerror(formatted));
-        return CH_ERROR_IO;
-    }
-    int ipv6 = source.ss_family == AF_INET6;
-    size_t source_length = strlen(host) + strlen(service) + 4U;
-    char *rendered = malloc(source_length);
-    if (rendered == NULL) {
-        ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
-                     "copy Android UDP source");
-        return CH_ERROR_OUT_OF_MEMORY;
-    }
-    (void)snprintf(rendered, source_length,
-                   ipv6 ? "[%s]:%s" : "%s:%s", host, service);
-    *out_length = (size_t)received;
-    *out_source = rendered;
-    return CH_OK;
+    return ch_packet_connection_receive_timeout(
+        opaque, buffer, buffer_capacity, out_length, out_source, 0, error);
 }
 
 static void android_runtime_udp_close(void *opaque) {
-    android_packet_connection *connection = opaque;
-    if (connection == NULL) return;
-    if (connection->ipv4_descriptor >= 0) {
-        (void)close(connection->ipv4_descriptor);
-    }
-    if (connection->ipv6_descriptor >= 0) {
-        (void)close(connection->ipv6_descriptor);
-    }
-    free(connection);
+    ch_packet_connection_close(opaque);
 }
 
 static void *android_runtime_tick_main(void *context) {
@@ -686,6 +434,57 @@ failure:
     return NULL;
 }
 
+static char *android_runtime_crypto_self_test_json(ch_error *error) {
+    static const uint8_t plaintext[] = "clambhook-android-openssl-self-test";
+    static const uint8_t aad[] = "native-c17";
+    uint8_t key[32] = {0};
+    uint8_t nonce[12] = {0};
+    uint8_t ciphertext[sizeof(plaintext)];
+    uint8_t recovered[sizeof(plaintext)];
+    uint8_t tag[16];
+    int healthy = cnet_aes128gcm_available() &&
+        cnet_aes256gcm_available();
+    if (healthy) {
+        healthy = cnet_aes128gcm_encrypt(
+            key, nonce, plaintext, sizeof(plaintext), aad, sizeof(aad),
+            ciphertext, tag) == CNET_OK &&
+            cnet_aes128gcm_decrypt(
+                key, nonce, ciphertext, sizeof(ciphertext), aad, sizeof(aad),
+                tag, recovered) == CNET_OK &&
+            memcmp(recovered, plaintext, sizeof(plaintext)) == 0;
+    }
+    if (healthy) {
+        healthy = cnet_aes256gcm_encrypt(
+            key, nonce, plaintext, sizeof(plaintext), aad, sizeof(aad),
+            ciphertext, tag) == CNET_OK &&
+            cnet_aes256gcm_decrypt(
+                key, nonce, ciphertext, sizeof(ciphertext), aad, sizeof(aad),
+                tag, recovered) == CNET_OK &&
+            memcmp(recovered, plaintext, sizeof(plaintext)) == 0;
+    }
+    if (healthy) {
+        healthy = cnet_chacha20poly1305_encrypt(
+            key, nonce, plaintext, sizeof(plaintext), aad, sizeof(aad),
+            ciphertext, tag) == CNET_OK &&
+            cnet_chacha20poly1305_decrypt(
+                key, nonce, ciphertext, sizeof(ciphertext), aad, sizeof(aad),
+                tag, recovered) == CNET_OK &&
+            memcmp(recovered, plaintext, sizeof(plaintext)) == 0;
+    }
+    memset(key, 0, sizeof(key));
+    memset(ciphertext, 0, sizeof(ciphertext));
+    memset(recovered, 0, sizeof(recovered));
+    memset(tag, 0, sizeof(tag));
+    if (!healthy) {
+        ch_error_set(error, CH_ERROR_INTERNAL,
+                     "Android native OpenSSL AEAD self-test failed");
+        return NULL;
+    }
+    return ch_strdup(
+        "{\"openssl\":\"3.5.8\",\"aes_128_gcm\":true,"
+        "\"aes_256_gcm\":true,\"chacha20_poly1305\":true}");
+}
+
 ch_runtime *ch_runtime_create(const ch_runtime_options *options, ch_error *error) {
     ch_runtime *runtime;
     ch_error_clear(error);
@@ -843,6 +642,9 @@ ch_status ch_runtime_query(ch_runtime *runtime, const char *operation,
     pthread_mutex_lock(&runtime->mutex);
     if (strcmp(operation, "status") == 0) response = android_runtime_status_json(runtime);
     else if (strcmp(operation, "profiles") == 0) response = android_runtime_profiles_json(runtime);
+    else if (strcmp(operation, "crypto_self_test") == 0) {
+        response = android_runtime_crypto_self_test_json(error);
+    }
     else if (strcmp(operation, "servers") == 0 ||
              strcmp(operation, "rules") == 0 ||
              strcmp(operation, "policy_groups") == 0 ||

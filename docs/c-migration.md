@@ -230,12 +230,16 @@ the IPv6 Fragment header before transport translation. Common IPv6 hop-by-hop,
 routing, destination-options, and authentication extension chains are parsed
 with depth and size limits. Incomplete TCP handshakes now expire after thirty
 seconds and abort their private lwIP PCB before releasing the mapping. Android
-now wires rule-enforced direct TCP and UDP sockets into that shared stack. A
-C-owned ten-millisecond timer receives delayed remote packets without Kotlin
-polling, active-profile changes transactionally rebuild the compiled rules and
-packet stack with rollback, and an API 30 device test verifies an actual
-loopback UDP request/reply. Android encrypted transport linkage and the
-production platform TUN lifecycle tests remain open.
+now resolves rule-enforced direct, named-chain, and policy-group TCP and UDP
+routes through that shared protocol layer. A C-owned ten-millisecond timer
+receives delayed remote packets without Kotlin polling, active-profile changes
+transactionally rebuild the compiled rules and packet stack with rollback, and
+an API 30 device test verifies an actual loopback UDP request/reply. The Android
+NDK build pins and checksums the official OpenSSL 3.5.8 LTS source, statically
+links it across all four ABIs at API 30, and packages the upstream Apache 2.0
+license without relicensing Clambhook. The physical Pixel suite executes all
+three native AEAD families through JNI. Encrypted DNS and production platform
+VPN lifecycle tests remain open.
 
 Native process attribution is best-effort at the operating-system boundary,
 matching the rollback contract when permissions hide another process. It
@@ -295,16 +299,16 @@ make test-android-compatibility
 
 Every Android build now compiles and packages `libclambhook_jni.so`; the
 production tunnel factory still selects the gomobile rollback runtime until
-the remaining runtime/API/VPN operations pass parity. A focused managed-device
-test loads TOML in C and exercises start, stop, status, profiles, server/rule
-payload decoding, profile switching, compiled-rule route explanations, and a
-raw IPv4 packet round trip over JNI. A third focused case sends a raw IPv4 UDP
-request through the C direct socket path and verifies that the independent C
-timer returns the delayed reply through the JNI packet callback. The three
-focused cases pass on the API 30 floor; the complete managed-device run is six
-of six. The same six tests, including a requested-profile JNI read, pass on a
-physical Pixel 3a XL running Android 12/API 32. API 33/36 remain mandatory
-before cutover.
+the remaining runtime/API/VPN operations pass parity. Focused managed-device
+tests load TOML in C and exercise start, stop, status, profiles, server/rule
+payload decoding, profile switching, compiled-rule route explanations, a raw
+IPv4 packet round trip, and delayed direct UDP. The native route callbacks now
+dial configured encrypted TCP/UDP chains, and the JNI suite calls the statically
+linked OpenSSL implementation for AES-128-GCM, AES-256-GCM, and
+ChaCha20-Poly1305. The complete managed-device run is six of six on the API 30
+floor. The same six tests pass on a physical Pixel 3a XL running Android
+12/API 32 after the encrypted-chain linkage checkpoint. API 33/36 remain
+mandatory before cutover.
 
 ## Cutover gates
 
@@ -326,9 +330,10 @@ Cutover is allowed only after all of the following are green:
    bridging, IPv4/IPv6 UDP session forwarding, encrypted-DNS interception,
    TTL-bounded domain recovery, out-of-order fragment reassembly and overlap
    rejection, common IPv6 extension parsing, ICMP injection, checksum
-   rewriting, direct route dialing, Android direct UDP/timer/profile-switching,
-   and runtime lifecycle fixtures are green. Android encrypted transport and
-   production VPN lifecycle rows remain open.
+   rewriting, direct route dialing, Android direct/encrypted route linkage,
+   OpenSSL AEAD execution, UDP timer/profile switching, and runtime lifecycle
+   fixtures are green. Android encrypted DNS and production VPN lifecycle rows
+   remain open.
 4. GTK functional/accessibility QA matches the current Linux feature set.
 5. Android unit, lint, build, Compose instrumentation, VPN, background, and
    process-restart tests pass on API 30, 33, and 36.

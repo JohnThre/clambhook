@@ -48,7 +48,11 @@ android sdk list --all                        # browse available packages
 ```
 
 The Gradle native build currently resolves NDK `27.0.12077973` and CMake
-`3.22.1`. The rollback AAR has its own gomobile toolchain requirements.
+`3.22.1`. It downloads the official OpenSSL 3.5.8 LTS source archive, verifies
+the pinned SHA-256 digest, and caches static API 30 libraries for each ABI under
+the ignored `ui/android/.native-deps/` directory. See
+`third_party/openssl/README.clambhook.md` for provenance and update steps. The
+rollback AAR has its own gomobile toolchain requirements.
 
 ## Emulators
 
@@ -73,14 +77,14 @@ status/profile/server/rule reads, profile selection, and compiled-rule route
 explanations. It now also builds the shared lwIP IPv4/IPv6 core for every ABI
 and accepts raw packets through JNI, returning native stack output through the
 Kotlin packet-writer callback. The JNI runtime owns its independent packet
-timer, enforces compiled rules for direct TCP/UDP sockets, and transactionally
-rebuilds those rules when the active profile changes. Its delayed direct-UDP
-round-trip test passes on API 30. Requested-profile reads share the strict C
-control contract and were also verified with the full six-test instrumentation
-suite on a physical Pixel 3a XL running Android 12/API 32. The production
-factory remains on the
-rollback AAR until encrypted TCP/UDP/DNS forwarding and the remaining
-runtime/API/VPN gates pass.
+timer, resolves direct, named-chain, and policy-group TCP/UDP decisions through
+the shared C protocol layer, and transactionally rebuilds those rules when the
+active profile changes. Its delayed direct-UDP round-trip test passes on API
+30. Requested-profile reads share the strict C control contract, and the JNI
+test calls all three native AEAD families in the statically linked OpenSSL
+build. The full six-test suite passes on a physical Pixel 3a XL running Android
+12/API 32. The production factory remains on the rollback AAR until encrypted
+DNS and the remaining runtime/API/VPN gates pass.
 
 ```sh
 make build-android-mobile-aar                 # gomobile bind → ui/android/app/libs/
