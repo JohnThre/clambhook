@@ -202,6 +202,14 @@ static void ch_runtime_write_packet(const uint8_t *packet, size_t length,
                                    runtime->options.packet_writer_context);
 }
 
+static ch_status ch_runtime_tun_tcp_dial(
+    const char *target, const char *source, int *out_descriptor,
+    void *context, ch_error *error) {
+    ch_runtime *runtime = context;
+    return ch_runtime_listener_set_tun_tcp_dial(
+        runtime->listeners, target, source, out_descriptor, error);
+}
+
 static bool ch_runtime_parse_tun_address(ch_runtime_tun_config *config,
                                          const char *cidr,
                                          ch_command *command) {
@@ -479,6 +487,8 @@ static bool ch_runtime_build_services(
         }
         tun_config.options.packet_writer = ch_runtime_write_packet;
         tun_config.options.packet_writer_context = runtime;
+        tun_config.options.tcp_dialer = ch_runtime_tun_tcp_dial;
+        tun_config.options.tcp_dialer_context = runtime;
         ch_error ip_error;
         ip_stack = ch_ip_stack_create(&tun_config.options, &ip_error);
         if (ip_stack == NULL) {

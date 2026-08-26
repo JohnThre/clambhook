@@ -78,7 +78,9 @@ rule decision, bounded Darwin/Linux network observation and first-match profile
 switching, encrypted-DNS wire validation, Control D/bootstrap guards, real TLS
 DoH and DoT exchanges, failover SERVFAIL behavior, nonce-exhaustion rejection,
 native lwIP IPv4/IPv6 ICMP/checksum fixtures, configured TUN CIDRs, packet-stack
-runtime/profile lifecycle cases, and Android JNI packet callback compilation),
+runtime/profile lifecycle cases, bounded IPv4 TCP flow translation and
+descriptor echo, direct TUN route dialing, and Android JNI packet callback
+compilation),
 plus `make build-linux-gtk` alongside the existing distro harness. Production
 packages stay on their current binaries until the native packaging gate in
 [`c-migration.md`](c-migration.md) passes. See

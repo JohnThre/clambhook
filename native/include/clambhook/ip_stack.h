@@ -18,14 +18,29 @@ typedef void (*ch_ip_stack_packet_writer)(
     void *context
 );
 
+typedef ch_status (*ch_ip_stack_tcp_dialer)(
+    const char *target,
+    const char *source,
+    int *out_descriptor,
+    void *context,
+    ch_error *error
+);
+
 typedef struct ch_ip_stack_options {
     ch_ip_stack_packet_writer packet_writer;
     void *packet_writer_context;
+    ch_ip_stack_tcp_dialer tcp_dialer;
+    void *tcp_dialer_context;
     const char *ipv4_address; /* Default: 198.18.0.1. */
     const char *ipv4_netmask; /* Default: 255.255.255.252. */
     const char *ipv6_address; /* Default: fd7a:636c:616d::1. */
     unsigned int mtu;         /* Default: 1500. */
 } ch_ip_stack_options;
+
+/*
+ * A successful TCP dial transfers ownership of out_descriptor to the stack.
+ * target and source are numeric host:port strings valid only during the call.
+ */
 
 /*
  * The lwIP raw API is process-global and single-context. At most one stack may

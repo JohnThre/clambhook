@@ -201,8 +201,10 @@ stay guarded until their parity tests pass. A pinned lwIP 2.2.1 C core now
 provides the shared IPv4/IPv6 packet foundation on host platforms and all four
 Android NDK ABIs. Native runtime/JNI lifecycle, configured MTU/CIDRs, ICMP
 checksums, packet injection, and Kotlin callback output are covered; route and
-chain forwarding is the remaining TUN data-plane gate. The additive native
-DNS library now provides route-planned DoH and DoT, Control D
+chain forwarding now works for bounded IPv4 TCP flows through native direct or
+encrypted descriptors, including address/port/checksum rewriting and
+backpressure. IPv6 TCP, UDP, DNS interception, and platform TUN lifecycle are
+still gated. The additive native DNS library now provides route-planned DoH and DoT, Control D
 expansion/bootstrap hygiene, response correlation validation, upstream
 failover, and SERVFAIL generation; it deliberately rejects DoQ rather than
 downgrading it. Runtime lifecycle/profile rollback now owns that proxy and

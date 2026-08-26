@@ -224,8 +224,51 @@ static void runtime_test_dns_routing(void) {
     runtime_echo_stop(&echo);
 }
 
+static void runtime_test_tun_tcp_routing(void) {
+    runtime_echo_server echo;
+    CH_TEST_ASSERT(runtime_echo_start(&echo));
+    const char *document =
+        "[[profile]]\n"
+        "name = \"default\"\n"
+        "[profile.listen.tun]\n"
+        "enabled = true\n"
+        "chain = \"default\"\n"
+        "[[profile.chain]]\n"
+        "name = \"default\"\n"
+        "[[profile.chain.server]]\n"
+        "protocol = \"direct\"\n"
+        "[[profile.rule]]\n"
+        "name = \"direct-tun\"\n"
+        "action = \"direct\"\n"
+        "networks = [\"tcp\"]\n";
+    ch_config *config = NULL;
+    ch_error error;
+    CH_TEST_ASSERT(ch_config_parse(document, NULL, &config, &error) == CH_OK);
+    ch_runtime_listener_set *set = ch_runtime_listener_set_start(
+        config, "default", &error);
+    CH_TEST_ASSERT(set != NULL);
+    char target[96];
+    (void)snprintf(target, sizeof(target), "127.0.0.1:%u",
+                   (unsigned int)echo.port);
+    int descriptor = -1;
+    CH_TEST_ASSERT(ch_runtime_listener_set_tun_tcp_dial(
+        set, target, "198.18.0.2:40000", &descriptor, &error) == CH_OK);
+    static const char payload[] = "tun-direct-route";
+    char echoed[sizeof(payload)];
+    CH_TEST_ASSERT(runtime_test_send_all(descriptor, payload,
+                                         sizeof(payload)));
+    CH_TEST_ASSERT(runtime_test_receive_exact(descriptor, echoed,
+                                               sizeof(echoed)));
+    CH_TEST_ASSERT(memcmp(payload, echoed, sizeof(payload)) == 0);
+    (void)close(descriptor);
+    ch_runtime_listener_set_stop(set);
+    ch_config_free(config);
+    runtime_echo_stop(&echo);
+}
+
 void ch_test_runtime_listener(void) {
     runtime_test_dns_routing();
+    runtime_test_tun_tcp_routing();
     runtime_echo_server echo;
     CH_TEST_ASSERT(runtime_echo_start(&echo));
     char config_path[160];

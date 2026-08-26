@@ -31,6 +31,8 @@ struct ch_runtime_listener_set {
     size_t count;
     ch_runtime_listener_entry dns_entry;
     int dns_ready;
+    ch_runtime_listener_entry tun_entry;
+    int tun_ready;
 };
 
 static char *runtime_optional_string(const ch_config_table *table,
@@ -349,6 +351,41 @@ static ch_status runtime_dns_entry_initialize(
     return CH_OK;
 }
 
+static ch_status runtime_tun_entry_initialize(
+    ch_runtime_listener_set *set,
+    const ch_config *config,
+    const ch_config_table *profile,
+    const char *profile_name,
+    ch_error *error) {
+    const ch_config_table *listen = ch_config_table_get_table(profile,
+                                                               "listen");
+    const ch_config_table *tun = ch_config_table_get_table(listen, "tun");
+    if (!runtime_optional_bool(tun, "enabled", 0)) return CH_OK;
+    ch_runtime_listener_entry *entry = &set->tun_entry;
+    entry->config = config;
+    entry->profile = profile;
+    entry->profile_name = ch_strdup(profile_name);
+    if (entry->profile_name == NULL) {
+        runtime_listener_entry_clear(entry);
+        ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                     "copy TUN route profile");
+        return CH_ERROR_OUT_OF_MEMORY;
+    }
+    ch_status status = runtime_listener_default_chain(
+        profile, tun, "chain", &entry->default_chain, error);
+    if (status != CH_OK) {
+        runtime_listener_entry_clear(entry);
+        return status;
+    }
+    entry->rules = ch_rule_engine_compile_config(config, profile_name, error);
+    if (entry->rules == NULL) {
+        runtime_listener_entry_clear(entry);
+        return error == NULL ? CH_ERROR_INTERNAL : error->code;
+    }
+    set->tun_ready = 1;
+    return CH_OK;
+}
+
 static ch_status runtime_listener_add(ch_runtime_listener_set *set,
                                       const ch_config *config,
                                       const ch_config_table *profile,
@@ -491,6 +528,10 @@ ch_runtime_listener_set *ch_runtime_listener_set_start(const ch_config *config,
     ch_status status = runtime_dns_entry_initialize(
         set, config, profile, selected_name, error);
     if (status == CH_OK) {
+        status = runtime_tun_entry_initialize(
+            set, config, profile, selected_name, error);
+    }
+    if (status == CH_OK) {
         status = runtime_listener_add(set, config, profile, listen,
                                       selected_name,
                                       CH_PROXY_LISTENER_SOCKS5, error);
@@ -513,6 +554,7 @@ void ch_runtime_listener_set_stop(ch_runtime_listener_set *set) {
         runtime_listener_entry_clear(&set->entries[index]);
     }
     runtime_listener_entry_clear(&set->dns_entry);
+    runtime_listener_entry_clear(&set->tun_entry);
     free(set);
 }
 
@@ -642,4 +684,27 @@ ch_status ch_runtime_listener_set_dns_dial(
     }
     ch_rule_decision_clear(&decision);
     return status;
+}
+
+ch_status ch_runtime_listener_set_tun_tcp_dial(
+    ch_runtime_listener_set *set, const char *target, const char *source,
+    int *out_descriptor, ch_error *error) {
+    ch_error_clear(error);
+    if (set == NULL || !set->tun_ready || target == NULL || source == NULL ||
+        out_descriptor == NULL) {
+        ch_error_set(error, CH_ERROR_INVALID_STATE,
+                     "native TUN route planner is not available");
+        return CH_ERROR_INVALID_STATE;
+    }
+    ch_proxy_route route;
+    memset(&route, 0, sizeof(route));
+    ch_status status = runtime_listener_dial(
+        "tcp", target, source, &route, out_descriptor, &set->tun_entry, error);
+    if (status != CH_OK) return status;
+    if (route.action != CH_PROXY_ROUTE_CONNECT || *out_descriptor < 0) {
+        ch_error_set(error, CH_ERROR_INVALID_STATE,
+                     "TUN route rejected TCP flow");
+        return CH_ERROR_INVALID_STATE;
+    }
+    return CH_OK;
 }

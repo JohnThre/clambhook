@@ -166,9 +166,12 @@ profile enabled TUN. Host tests verify IPv4 and IPv6 ICMP echo checksums,
 configured CIDRs, singleton ownership, profile teardown/recreation, and output
 callbacks. Android builds the identical core for all four ABIs and its JNI
 runtime exercises the same injection/callback boundary. This is not yet the
-TUN cutover: outbound TCP/UDP flows still need transparent destination mapping
-into the native rule/chain dialers, DNS port-53 interception, fragmentation
-coverage, and platform TUN lifecycle tests.
+TUN cutover: IPv4 TCP now has bounded transparent flow mapping, preserves the
+original numeric destination/source for native rule evaluation, dials direct or
+encrypted native chains, bridges the resulting descriptor with nonblocking
+backpressure, and rewrites reply addresses, ports, and checksums. IPv6 TCP,
+UDP, DNS port-53 interception/domain recovery, fragmentation coverage, and
+platform TUN lifecycle tests remain open.
 
 Native process attribution is best-effort at the operating-system boundary,
 matching the rollback contract when permissions hide another process. It
@@ -250,8 +253,10 @@ Cutover is allowed only after all of the following are green:
    SOCKS5 UDP association reuse and cancellation, reload rollback, concurrency
    limits, native macOS/Linux process-rule attribution, network-triggered
    first-match profile switching, remaining protocol UDP rows, transparent TUN
-   TCP/UDP/DNS forwarding, fragmentation, and platform TUN lifecycle. Native
-   IPv4/IPv6 ICMP injection and runtime lifecycle fixtures are green.
+   IPv6 TCP plus IPv4/IPv6 UDP/DNS forwarding, fragmentation, and platform TUN
+   lifecycle. Native IPv4 TCP mapping/descriptor bridging, IPv4/IPv6 ICMP
+   injection, checksum rewriting, direct route dialing, and runtime lifecycle
+   fixtures are green.
 4. GTK functional/accessibility QA matches the current Linux feature set.
 5. Android unit, lint, build, Compose instrumentation, VPN, background, and
    process-restart tests pass on API 30, 33, and 36.

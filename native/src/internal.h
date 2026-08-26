@@ -55,6 +55,13 @@ ch_status ch_runtime_listener_set_dns_dial(
     int *out_descriptor,
     ch_error *error
 );
+ch_status ch_runtime_listener_set_tun_tcp_dial(
+    ch_runtime_listener_set *set,
+    const char *target,
+    const char *source,
+    int *out_descriptor,
+    ch_error *error
+);
 
 char *ch_config_collection_payload_json(const struct ch_config *config,
                                         const char *fallback_profile,
