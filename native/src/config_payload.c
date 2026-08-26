@@ -1,5 +1,6 @@
 #include "internal.h"
 
+#include <ctype.h>
 #include <inttypes.h>
 #include <stdlib.h>
 #include <string.h>
@@ -7,6 +8,22 @@
 #include "clambhook/config.h"
 #include "clambhook/json.h"
 #include "clambhook/rules.h"
+
+static ch_status request_optional_string(const char *request_json,
+                                         const char *key,
+                                         char **out_value,
+                                         ch_error *error);
+
+static void trim_in_place(char *value) {
+    if (value == NULL) return;
+    char *start = value;
+    while (*start != '\0' && isspace((unsigned char)*start) != 0) ++start;
+    char *end = start + strlen(start);
+    while (end > start && isspace((unsigned char)end[-1]) != 0) --end;
+    size_t length = (size_t)(end - start);
+    memmove(value, start, length);
+    value[length] = '\0';
+}
 
 static char *empty_array(void) {
     return ch_strdup("[]");
@@ -424,6 +441,159 @@ static char *ch_config_subscriptions_payload_json(const ch_config *config,
     return result;
 }
 
+static const char *policy_selection_mode(const char *type) {
+    if (strcmp(type, "select") == 0) return "manual";
+    if (strcmp(type, "fallback") == 0) return "fallback";
+    if (strcmp(type, "load-balance") == 0) return "load-balance";
+    if (strcmp(type, "smart") == 0) return "smart";
+    return "latency";
+}
+
+static const char *policy_selection_reason(const char *type) {
+    if (strcmp(type, "select") == 0) return "manual";
+    if (strcmp(type, "fallback") == 0) return "first_healthy";
+    if (strcmp(type, "load-balance") == 0) return "stable_hash";
+    if (strcmp(type, "smart") == 0) return "sticky_healthy";
+    return "lowest_latency";
+}
+
+static int ch_config_append_policy_groups(ch_json_buffer *json,
+                                          const ch_config_table *profile,
+                                          ch_error *error) {
+    const ch_config_array *groups = ch_config_table_get_array(
+        profile, "policy_group");
+    if (!ch_json_append(json, "[")) return 0;
+    for (size_t index = 0U; index < ch_config_array_count(groups); ++index) {
+        const ch_config_table *group = ch_config_array_get_table(groups, index);
+        char *name = optional_config_string(group, "name");
+        char *type = optional_config_string(group, "type");
+        char *selected = optional_config_string(group, "selected");
+        char *test_url = optional_config_string(group, "test_url");
+        char *interval = optional_config_string(group, "interval");
+        char *timeout = optional_config_string(group, "timeout");
+        char *chains = config_array_json_or_empty(
+            ch_config_table_get_array(group, "chains"), error);
+        if (selected != NULL && selected[0] == '\0') {
+            free(selected);
+            selected = NULL;
+            const ch_config_array *members = ch_config_table_get_array(
+                group, "chains");
+            if (ch_config_array_count(members) > 0U &&
+                ch_config_array_get_string(members, 0U, &selected, error) !=
+                CH_OK) {
+                selected = NULL;
+            }
+        }
+        int okay = name != NULL && type != NULL && selected != NULL &&
+            test_url != NULL && interval != NULL && timeout != NULL &&
+            chains != NULL && (index == 0U || ch_json_append(json, ",")) &&
+            ch_json_append(json, "{\"name\":") &&
+            ch_json_append_string(json, name) &&
+            ch_json_append(json, ",\"type\":") &&
+            ch_json_append_string(json, type) &&
+            ch_json_append(json, ",\"chains\":") &&
+            ch_json_append(json, chains) &&
+            ch_json_append(json, ",\"selected\":") &&
+            ch_json_append_string(json, selected) &&
+            (!optional_config_bool(group, "hidden", false) ||
+             ch_json_append(json, ",\"hidden\":true")) &&
+            ch_json_append(json, ",\"test_url\":") &&
+            ch_json_append_string(json, test_url[0] == '\0' ?
+                "https://www.gstatic.com/generate_204" : test_url) &&
+            ch_json_append(json, ",\"interval\":") &&
+            ch_json_append_string(json, interval[0] == '\0' ? "30s" : interval) &&
+            ch_json_append(json, ",\"timeout\":") &&
+            ch_json_append_string(json, timeout[0] == '\0' ? "5s" : timeout) &&
+            ch_json_append(json, ",\"selected_chain\":") &&
+            ch_json_append_string(json, selected) &&
+            ch_json_append(json, ",\"selection_mode\":") &&
+            ch_json_append_string(json, policy_selection_mode(type)) &&
+            ch_json_append(json, ",\"selection_reason\":") &&
+            ch_json_append_string(json, policy_selection_reason(type)) &&
+            ch_json_append(json, ",\"results\":[]}");
+        free(name); free(type); free(selected); free(test_url);
+        free(interval); free(timeout); free(chains);
+        if (!okay) return 0;
+    }
+    return ch_json_append(json, "]");
+}
+
+static char *ch_config_policy_snapshot_json(const ch_config *config,
+                                            const char *profile_name,
+                                            ch_error *error) {
+    const ch_config_table *profile = select_profile(config, profile_name);
+    if (profile == NULL) {
+        ch_error_set(error, CH_ERROR_NOT_FOUND, "profile %s not found",
+                     profile_name == NULL ? "" : profile_name);
+        return NULL;
+    }
+    char *name = optional_config_string(profile, "name");
+    ch_json_buffer json;
+    ch_json_init(&json);
+    int okay = name != NULL && ch_json_append(&json, "{\"profile\":") &&
+        ch_json_append_string(&json, name) &&
+        ch_json_append(&json, ",\"groups\":") &&
+        ch_config_append_policy_groups(&json, profile, error) &&
+        ch_json_append(&json, "}");
+    free(name);
+    char *result = okay ? ch_json_take(&json) : NULL;
+    ch_json_dispose(&json);
+    if (result == NULL && (error == NULL || error->code == CH_OK)) {
+        ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                     "encode policy group snapshot");
+    }
+    return result;
+}
+
+static char *ch_config_policy_selection_payload_json(
+    const ch_config *config, const char *profile_name,
+    const char *request_json, ch_error *error) {
+    char *group = NULL;
+    char *chain = NULL;
+    if (request_optional_string(request_json, "group", &group, error) !=
+            CH_OK ||
+        request_optional_string(request_json, "chain", &chain, error) !=
+            CH_OK) {
+        free(group);
+        free(chain);
+        return NULL;
+    }
+    trim_in_place(group);
+    trim_in_place(chain);
+    const ch_config_table *profile = select_profile(config, profile_name);
+    char *name = optional_config_string(profile, "name");
+    ch_json_buffer groups;
+    ch_json_init(&groups);
+    int groups_okay = profile != NULL &&
+        ch_config_append_policy_groups(&groups, profile, error);
+    char *groups_json = groups_okay ? ch_json_take(&groups) : NULL;
+    ch_json_dispose(&groups);
+    ch_json_buffer json;
+    ch_json_init(&json);
+    int okay = name != NULL && group != NULL && chain != NULL &&
+        groups_json != NULL && ch_json_append(&json, "{\"profile\":") &&
+        ch_json_append_string(&json, name) &&
+        ch_json_append(&json, ",\"groups\":") &&
+        ch_json_append(&json, groups_json) &&
+        ch_json_append(&json, ",\"policy_groups\":{\"profile\":") &&
+        ch_json_append_string(&json, name) &&
+        ch_json_append(&json, ",\"groups\":") &&
+        ch_json_append(&json, groups_json) &&
+        ch_json_append(&json, "},\"group\":") &&
+        ch_json_append_string(&json, group) &&
+        ch_json_append(&json, ",\"chain\":") &&
+        ch_json_append_string(&json, chain) &&
+        ch_json_append(&json, "}");
+    free(name); free(group); free(chain); free(groups_json);
+    char *result = okay ? ch_json_take(&json) : NULL;
+    ch_json_dispose(&json);
+    if (result == NULL && (error == NULL || error->code == CH_OK)) {
+        ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                     "encode policy group selection");
+    }
+    return result;
+}
+
 char *ch_config_collection_payload_json(const ch_config *config,
                                         const char *fallback_profile,
                                         const char *config_key,
@@ -633,8 +803,7 @@ char *ch_config_query_payload_json(const ch_config *config,
         result = ch_config_collection_payload_json(
             config, profile, "rule", "rules", 1, 0, error);
     } else if (strcmp(operation, "policy_groups") == 0) {
-        result = ch_config_collection_payload_json(
-            config, profile, "policy_group", "groups", 0, 0, error);
+        result = ch_config_policy_snapshot_json(config, profile, error);
     } else if (strcmp(operation, "rule_sets") == 0) {
         result = ch_config_collection_payload_json(
             config, profile, "rule_set", "rule_sets", 0, 1, error);
@@ -661,6 +830,9 @@ char *ch_config_query_payload_json(const ch_config *config,
         result = ch_config_collection_payload_json(
             config, profile, "rule_subscription", "subscriptions", 0, 0,
             error);
+    } else if (strcmp(operation, "policy_group_selection") == 0) {
+        result = ch_config_policy_selection_payload_json(
+            config, profile, request_json, error);
     } else {
         ch_error_set(error, CH_ERROR_UNSUPPORTED,
                      "unknown configuration payload operation");

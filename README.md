@@ -229,7 +229,11 @@ preserve the runtime's current active profile across network-triggered
 switches. Ordered rule replacement and append-only creation, policy-group
 replacement, rule-set replacement, and rule-subscription replacement use the
 same transaction and return the Go-compatible profile/collection/backup
-envelopes. Native config export/import now round-trips validated TOML with a 4 MiB
+envelopes. Manual `select` policy-group changes are also persisted
+transactionally; policy-group reads expose the config-derived Go snapshot
+shape with normalized defaults, selected chain, selection mode/reason, and an
+empty result set until active native health probes land. Native config
+export/import now round-trips validated TOML with a 4 MiB
 transfer limit, attachment metadata, atomic backup, transactional live reload,
 and disk rollback on apply failure. Config-derived GET coverage now also
 includes DNS, listener/TUN/DNS/prompt settings, conditioner state, and rule

@@ -5,6 +5,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 
 #include "clambhook/config.h"
 #include "clambhook/json.h"
@@ -466,6 +467,86 @@ static ch_status mutation_create_rule(ch_json_value *profile,
     return status;
 }
 
+static ch_status mutation_select_policy_group(ch_json_value *profile,
+                                              const ch_json_value *request,
+                                              ch_error *error) {
+    const ch_json_value *group_value = ch_json_object_get(request, "group");
+    const ch_json_value *chain_value = ch_json_object_get(request, "chain");
+    const char *group_text = ch_json_string_value(group_value);
+    const char *chain_text = ch_json_string_value(chain_value);
+    if (group_text == NULL || chain_text == NULL) {
+        ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
+                     "group and chain are required");
+        return CH_ERROR_INVALID_ARGUMENT;
+    }
+    char *group_name = mutation_trimmed_copy(group_text);
+    char *chain_name = mutation_trimmed_copy(chain_text);
+    if (group_name == NULL || chain_name == NULL) {
+        free(group_name);
+        free(chain_name);
+        ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                     "copy policy group selection");
+        return CH_ERROR_OUT_OF_MEMORY;
+    }
+    if (group_name[0] == '\0' || chain_name[0] == '\0') {
+        free(group_name);
+        free(chain_name);
+        ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
+                     "group and chain are required");
+        return CH_ERROR_INVALID_ARGUMENT;
+    }
+    ch_json_value *groups = ch_json_object_get_mutable(profile, "policy_group");
+    ch_json_value *group = NULL;
+    for (size_t index = 0U; index < ch_json_array_size(groups); ++index) {
+        ch_json_value *candidate = ch_json_array_get_mutable(groups, index);
+        const char *name = ch_json_string_value(
+            ch_json_object_get(candidate, "name"));
+        if (name != NULL && strcmp(name, group_name) == 0) {
+            group = candidate;
+            break;
+        }
+    }
+    if (group == NULL) {
+        ch_error_set(error, CH_ERROR_NOT_FOUND,
+                     "policy group %s not found", group_name);
+        free(group_name);
+        free(chain_name);
+        return CH_ERROR_NOT_FOUND;
+    }
+    const char *type = ch_json_string_value(ch_json_object_get(group, "type"));
+    if (type == NULL || strcasecmp(type, "select") != 0) {
+        ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
+                     "policy group %s is %s, not select", group_name,
+                     type == NULL ? "" : type);
+        free(group_name);
+        free(chain_name);
+        return CH_ERROR_INVALID_ARGUMENT;
+    }
+    const ch_json_value *chains = ch_json_object_get(group, "chains");
+    bool member = false;
+    for (size_t index = 0U; index < ch_json_array_size(chains); ++index) {
+        const char *candidate = ch_json_string_value(
+            ch_json_array_get(chains, index));
+        if (candidate != NULL && strcmp(candidate, chain_name) == 0) {
+            member = true;
+            break;
+        }
+    }
+    if (!member) {
+        ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
+                     "policy group %s has no member chain %s", group_name,
+                     chain_name);
+        free(group_name);
+        free(chain_name);
+        return CH_ERROR_INVALID_ARGUMENT;
+    }
+    ch_status status = mutation_set_owned(
+        group, "selected", ch_json_value_new_string(chain_name), error);
+    free(group_name);
+    free(chain_name);
+    return status;
+}
+
 static ch_status mutation_select_profile(ch_json_value *root,
                                          const ch_json_value *request,
                                          const char *fallback_profile,
@@ -780,6 +861,9 @@ ch_status ch_config_mutate_document_json(const ch_config *config,
                strcmp(operation, "replace_rule_subscriptions") == 0) {
         status = mutation_replace_collection(
             profile, request, "subscriptions", "rule_subscription", error);
+    } else if (status == CH_OK &&
+               strcmp(operation, "select_policy_group") == 0) {
+        status = mutation_select_policy_group(profile, request, error);
     } else if (status == CH_OK) {
         ch_error_set(error, CH_ERROR_UNSUPPORTED,
                      "unknown configuration mutation operation");

@@ -118,7 +118,10 @@ transaction fixture that proves disk and service rollback, and a live HTTP
 write/read/export smoke check. Ordered rule replacement/append and policy-
 group/rule-set/subscription replacement add rendered-config, invalid-position,
 restart, exact response-envelope, and live HTTP write/read fixtures. The
-shared runtime continues to compile for every packaged Android ABI, and the
+manual policy-selection fixture additionally checks group type/membership,
+config-derived snapshot defaults, nested response compatibility, backup, and
+restart persistence; active health-probe result parity remains a separate gate.
+The shared runtime continues to compile for every packaged Android ABI, and the
 connected Pixel 3a XL on Android 12/API 32 again passed all six instrumentation
 tests after this collection-persistence checkpoint.
 

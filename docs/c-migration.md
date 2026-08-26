@@ -93,9 +93,13 @@ The additive CMake build currently provides:
   selection. The same transaction now implements `PUT /api/v1/rules`,
   append-only `POST /api/v1/rules`, and `PUT` replacement for policy groups,
   rule sets, and rule subscriptions with ordered persistence and the existing
-  profile/collection/backup response contract. Rule cleanup/from-connection
-  creation, remote collection refresh, subscription cache enrichment, and DNS
-  upstream route annotations are not yet claimed.
+  profile/collection/backup response contract. Manual `select` group changes
+  now validate group type and membership, persist transactionally, and return
+  the nested Go-compatible policy snapshot. Config-derived policy reads include
+  normalized defaults, selected chain, selection mode/reason, and empty probe
+  results; active native health probes are not yet claimed. Rule cleanup/from-
+  connection creation, remote collection refresh, subscription cache
+  enrichment, and DNS upstream route annotations are also still gated.
   Configured proxy listeners participate in runtime start, stop, reload,
   profile switching, and status reporting;
 - `clambhook-linux-c`: an additive `GtkApplication` dashboard using GTK 4,

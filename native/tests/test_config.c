@@ -322,6 +322,30 @@ static void test_structured_document_mutations(void) {
     toml = NULL;
 
     CH_TEST_ASSERT(ch_config_mutate_document_json(
+        config, "default", "select_policy_group",
+        "{\"group\":\" manual \",\"chain\":\" main \"}",
+        &toml, &error) == CH_OK);
+    CH_TEST_ASSERT(ch_config_parse(toml, "/tmp/config.toml", &updated,
+                                   &error) == CH_OK);
+    const ch_config_table *selected_group = ch_config_array_get_table(
+        ch_config_table_get_array(ch_config_active_profile(updated),
+                                  "policy_group"), 0U);
+    CH_TEST_ASSERT(ch_config_table_get_string(
+        selected_group, "selected", &value, &error) == CH_OK);
+    CH_TEST_ASSERT_STRING("main", value);
+    free(value);
+    ch_config_free(config);
+    config = updated;
+    updated = NULL;
+    free(toml);
+    toml = NULL;
+    CH_TEST_ASSERT(ch_config_mutate_document_json(
+        config, "default", "select_policy_group",
+        "{\"group\":\"manual\",\"chain\":\"missing\"}",
+        &toml, &error) == CH_ERROR_INVALID_ARGUMENT);
+    CH_TEST_ASSERT(toml == NULL);
+
+    CH_TEST_ASSERT(ch_config_mutate_document_json(
         config, "default", "replace_rules",
         "{\"rules\":[{\"name\":\"set-rule\","
         "\"action\":\"group:manual\",\"rule_sets\":[\"local\"]}]}",

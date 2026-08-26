@@ -698,6 +698,34 @@ void ch_test_runtime(void) {
         CH_TEST_ASSERT(strstr(json, "\"groups\"") == NULL);
         CH_TEST_ASSERT(strstr(json, "\"backup_path\":\"") != NULL);
         ch_string_free(json);
+        CH_TEST_ASSERT(ch_runtime_query(
+            runtime, "policy_groups", "{}", &json, &error) == CH_OK);
+        CH_TEST_ASSERT(strstr(json, "\"groups\":[{\"name\":\"manual\"") !=
+                       NULL);
+        CH_TEST_ASSERT(strstr(json, "\"test_url\":"
+                                    "\"https://www.gstatic.com/generate_204\"") !=
+                       NULL);
+        CH_TEST_ASSERT(strstr(json, "\"interval\":\"30s\"") != NULL);
+        CH_TEST_ASSERT(strstr(json, "\"selection_mode\":\"manual\"") != NULL);
+        CH_TEST_ASSERT(strstr(json, "\"selection_reason\":\"manual\"") != NULL);
+        CH_TEST_ASSERT(strstr(json, "\"results\":[]") != NULL);
+        ch_string_free(json);
+        CH_TEST_ASSERT(ch_runtime_mutate(
+            runtime, "select_policy_group",
+            "{\"profile\":\"rich\",\"group\":\" manual \","
+            "\"chain\":\" direct \"}", &json, &error) == CH_OK);
+        CH_TEST_ASSERT(strstr(json, "\"profile\":\"rich\"") != NULL);
+        CH_TEST_ASSERT(strstr(json, "\"group\":\"manual\"") != NULL);
+        CH_TEST_ASSERT(strstr(json, "\"chain\":\"direct\"") != NULL);
+        CH_TEST_ASSERT(strstr(json, "\"selected_chain\":\"direct\"") != NULL);
+        CH_TEST_ASSERT(strstr(json, "\"policy_groups\":{"
+                                    "\"profile\":\"rich\"") != NULL);
+        CH_TEST_ASSERT(strstr(json, "\"backup_path\":\"") != NULL);
+        ch_string_free(json);
+        CH_TEST_ASSERT(ch_runtime_mutate(
+            runtime, "select_policy_group",
+            "{\"group\":\"manual\",\"chain\":\"missing\"}",
+            &json, &error) == CH_ERROR_INVALID_ARGUMENT);
         CH_TEST_ASSERT(ch_runtime_mutate(
             runtime, "replace_rules",
             "{\"profile\":\"rich\",\"rules\":[{"

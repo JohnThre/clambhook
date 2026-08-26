@@ -1307,6 +1307,12 @@ static void ch_command_process(ch_runtime *runtime, ch_command *command) {
                         runtime, "replace_rule_subscriptions",
                         "rule_subscriptions_persistence", command->payload,
                         true, command)) break;
+            } else if (strcmp(command->operation,
+                              "select_policy_group") == 0) {
+                if (!ch_runtime_persist_config_mutation(
+                        runtime, "select_policy_group",
+                        "policy_group_selection", command->payload, true,
+                        command)) break;
             } else {
                 ch_command_fail(command, CH_ERROR_UNSUPPORTED, "unknown runtime mutation operation");
                 break;
