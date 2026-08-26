@@ -6,7 +6,7 @@ Files: *
 Copyright: 2026 Pengfan Chang
 License: Clambhook-Proprietary-View-Only
 
-Files: vendor/*
+Files: vendor/* third_party/*
 Copyright: see vendored upstream notices
 License: Vendored-Third-Party-Notices
 

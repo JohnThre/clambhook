@@ -12,6 +12,21 @@ typedef struct runtime_network_probe_state {
     unsigned int calls;
 } runtime_network_probe_state;
 
+typedef struct runtime_packet_output {
+    uint8_t packet[64];
+    size_t length;
+    unsigned int count;
+} runtime_packet_output;
+
+static void runtime_packet_writer(const uint8_t *packet, size_t length,
+                                  void *context) {
+    runtime_packet_output *output = context;
+    ++output->count;
+    output->length = length > sizeof(output->packet) ? sizeof(output->packet) :
+                                                        length;
+    memcpy(output->packet, packet, output->length);
+}
+
 static ch_status runtime_network_probe(ch_network_info *out_info,
                                        void *context, ch_error *error) {
     runtime_network_probe_state *state = context;
@@ -87,6 +102,66 @@ void ch_test_runtime(void) {
     CH_TEST_ASSERT(ch_runtime_query(runtime, "missing", NULL, &json, &error) == CH_ERROR_UNSUPPORTED);
     CH_TEST_ASSERT_STRING("unknown runtime query operation", error.message);
     ch_runtime_destroy(runtime);
+
+    {
+        char path[160];
+        (void)snprintf(path, sizeof(path),
+                       "/tmp/clambhook-packet-runtime-%ld.toml",
+                       (long)getpid());
+        FILE *file = fopen(path, "wb");
+        CH_TEST_ASSERT(file != NULL);
+        CH_TEST_ASSERT(fputs(
+            "active = \"tunnel\"\n"
+            "[[profile]]\nname = \"tunnel\"\n"
+            "[profile.listen.tun]\nenabled = true\nmtu = 1400\n"
+            "addresses = [\"198.18.0.9/29\", "
+            "\"fd7a:636c:616d::9/64\"]\n"
+            "[[profile.chain]]\nname = \"direct\"\n"
+            "[[profile.chain.server]]\nprotocol = \"direct\"\n"
+            "[[profile]]\nname = \"proxy\"\n"
+            "[[profile.chain]]\nname = \"direct\"\n"
+            "[[profile.chain.server]]\nprotocol = \"direct\"\n",
+            file) >= 0);
+        CH_TEST_ASSERT(fclose(file) == 0);
+        runtime_packet_output output = {0};
+        ch_runtime_options options = {
+            .packet_writer = runtime_packet_writer,
+            .packet_writer_context = &output
+        };
+        runtime = ch_runtime_create(&options, &error);
+        CH_TEST_ASSERT(runtime != NULL);
+        CH_TEST_ASSERT(ch_runtime_start(runtime, path, &error) == CH_OK);
+        CH_TEST_ASSERT(ch_runtime_query(runtime, "status", NULL, &json,
+                                        &error) == CH_OK);
+        CH_TEST_ASSERT(strstr(json, "\"tunnel_mode\":\"tun\"") != NULL);
+        ch_string_free(json);
+        const uint8_t echo[] = {
+            0x45U, 0x00U, 0x00U, 0x20U, 0x12U, 0x34U, 0x00U, 0x00U,
+            64U, 1U, 0xdcU, 0x71U, 198U, 18U, 0U, 10U,
+            198U, 18U, 0U, 9U,
+            8U, 0U, 0x6dU, 0x60U, 0xabU, 0xcdU, 0U, 1U,
+            'p', 'i', 'n', 'g'
+        };
+        CH_TEST_ASSERT(ch_runtime_inject_packet(
+            runtime, echo, sizeof(echo), &error) == CH_OK);
+        CH_TEST_ASSERT(output.count == 1U);
+        CH_TEST_ASSERT(output.length == sizeof(echo));
+        CH_TEST_ASSERT(output.packet[20] == 0U);
+        CH_TEST_ASSERT(ch_runtime_mutate(
+            runtime, "set_active_profile", "{\"name\":\"proxy\"}",
+            &json, &error) == CH_OK);
+        CH_TEST_ASSERT(strstr(json, "\"tunnel_mode\"") == NULL);
+        ch_string_free(json);
+        CH_TEST_ASSERT(ch_runtime_inject_packet(
+            runtime, echo, sizeof(echo), &error) == CH_ERROR_UNSUPPORTED);
+        CH_TEST_ASSERT(ch_runtime_mutate(
+            runtime, "set_active_profile", "{\"name\":\"tunnel\"}",
+            &json, &error) == CH_OK);
+        CH_TEST_ASSERT(strstr(json, "\"tunnel_mode\":\"tun\"") != NULL);
+        ch_string_free(json);
+        ch_runtime_destroy(runtime);
+        CH_TEST_ASSERT(unlink(path) == 0);
+    }
 
     {
         char path[160];

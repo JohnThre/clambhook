@@ -5,6 +5,7 @@
 #include <string.h>
 
 #include "clambhook/config.h"
+#include "clambhook/ip_stack.h"
 #include "internal.h"
 
 struct ch_runtime {
@@ -13,8 +14,36 @@ struct ch_runtime {
     ch_config *config;
     char *config_path;
     char *active_profile;
+    ch_ip_stack *ip_stack;
     ch_runtime_options options;
 };
+
+static void android_runtime_write_packet(const uint8_t *packet, size_t length,
+                                         void *context) {
+    ch_runtime *runtime = context;
+    runtime->options.packet_writer(packet, length,
+                                   runtime->options.packet_writer_context);
+}
+
+static ch_status android_runtime_start_ip_stack(ch_runtime *runtime,
+                                                ch_error *error) {
+    if (runtime->options.packet_writer == NULL) {
+        ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
+                     "Android runtime packet writer is required");
+        return CH_ERROR_INVALID_ARGUMENT;
+    }
+    ch_ip_stack_options options = {
+        .packet_writer = android_runtime_write_packet,
+        .packet_writer_context = runtime
+    };
+    runtime->ip_stack = ch_ip_stack_create(&options, error);
+    return runtime->ip_stack == NULL ? error->code : CH_OK;
+}
+
+static void android_runtime_stop_ip_stack(ch_runtime *runtime) {
+    ch_ip_stack_destroy(runtime->ip_stack);
+    runtime->ip_stack = NULL;
+}
 
 static ch_status android_runtime_apply_config(ch_runtime *runtime,
                                               const char *config_path,
@@ -66,7 +95,10 @@ static char *android_runtime_status_json(const ch_runtime *runtime) {
     if (!ch_json_append_format(&json, "{\"running\":%s,\"profile\":",
                                runtime->running ? "true" : "false") ||
         !ch_json_append_string(&json, runtime->active_profile) ||
-        !ch_json_append(&json, ",\"network_info\":{}}")) {
+        !ch_json_append(&json, ",\"network_info\":{}") ||
+        (runtime->ip_stack != NULL &&
+         !ch_json_append(&json, ",\"tunnel_mode\":\"tun\"")) ||
+        !ch_json_append(&json, "}")) {
         ch_json_dispose(&json);
         return NULL;
     }
@@ -132,6 +164,7 @@ void ch_runtime_destroy(ch_runtime *runtime) {
     if (runtime == NULL) return;
     pthread_mutex_lock(&runtime->mutex);
     runtime->running = false;
+    android_runtime_stop_ip_stack(runtime);
     ch_config_free(runtime->config);
     runtime->config = NULL;
     free(runtime->config_path);
@@ -155,6 +188,8 @@ ch_status ch_runtime_start(ch_runtime *runtime, const char *config_path, ch_erro
         return CH_ERROR_INVALID_STATE;
     }
     status = android_runtime_apply_config(runtime, config_path, error);
+    if (status == CH_OK) status = android_runtime_start_ip_stack(runtime,
+                                                                error);
     if (status == CH_OK) runtime->running = true;
     pthread_mutex_unlock(&runtime->mutex);
     return status;
@@ -168,6 +203,7 @@ ch_status ch_runtime_stop(ch_runtime *runtime, ch_error *error) {
     }
     pthread_mutex_lock(&runtime->mutex);
     runtime->running = false;
+    android_runtime_stop_ip_stack(runtime);
     pthread_mutex_unlock(&runtime->mutex);
     return CH_OK;
 }
@@ -180,7 +216,19 @@ ch_status ch_runtime_reload(ch_runtime *runtime, const char *config_path, ch_err
         return CH_ERROR_INVALID_ARGUMENT;
     }
     pthread_mutex_lock(&runtime->mutex);
+    bool running = runtime->running;
+    if (running) android_runtime_stop_ip_stack(runtime);
     status = android_runtime_apply_config(runtime, config_path, error);
+    if (running) {
+        ch_error stack_error;
+        ch_status stack_status = android_runtime_start_ip_stack(runtime,
+                                                                &stack_error);
+        if (status == CH_OK && stack_status != CH_OK) {
+            status = stack_status;
+            *error = stack_error;
+            runtime->running = false;
+        }
+    }
     pthread_mutex_unlock(&runtime->mutex);
     return status;
 }
@@ -193,12 +241,20 @@ ch_status ch_runtime_inject_packet(ch_runtime *runtime, const uint8_t *packet,
         return CH_ERROR_INVALID_ARGUMENT;
     }
     pthread_mutex_lock(&runtime->mutex);
-    bool running = runtime->running;
+    ch_status status;
+    if (!runtime->running) {
+        ch_error_set(error, CH_ERROR_INVALID_STATE,
+                     "runtime is not running");
+        status = CH_ERROR_INVALID_STATE;
+    } else if (runtime->ip_stack == NULL) {
+        ch_error_set(error, CH_ERROR_INVALID_STATE,
+                     "Android packet stack is not active");
+        status = CH_ERROR_INVALID_STATE;
+    } else {
+        status = ch_ip_stack_inject(runtime->ip_stack, packet, length, error);
+    }
     pthread_mutex_unlock(&runtime->mutex);
-    ch_error_set(error, running ? CH_ERROR_UNSUPPORTED : CH_ERROR_INVALID_STATE,
-                 running ? "userspace packet stack has not been enabled in this migration phase"
-                         : "runtime is not running");
-    return running ? CH_ERROR_UNSUPPORTED : CH_ERROR_INVALID_STATE;
+    return status;
 }
 
 bool ch_runtime_is_running(ch_runtime *runtime) {
@@ -274,8 +330,20 @@ ch_status ch_runtime_mutate(ch_runtime *runtime, const char *operation,
         return CH_ERROR_INVALID_ARGUMENT;
     }
     pthread_mutex_lock(&runtime->mutex);
-    if (strcmp(operation, "connect") == 0) runtime->running = true;
-    else if (strcmp(operation, "disconnect") == 0) runtime->running = false;
+    if (strcmp(operation, "connect") == 0) {
+        if (!runtime->running) {
+            ch_status status = android_runtime_start_ip_stack(runtime, error);
+            if (status != CH_OK) {
+                pthread_mutex_unlock(&runtime->mutex);
+                return status;
+            }
+            runtime->running = true;
+        }
+    }
+    else if (strcmp(operation, "disconnect") == 0) {
+        runtime->running = false;
+        android_runtime_stop_ip_stack(runtime);
+    }
     else if (strcmp(operation, "set_active_profile") == 0) {
         char *name = ch_json_request_string(request_json, "name", error);
         if (name == NULL) {

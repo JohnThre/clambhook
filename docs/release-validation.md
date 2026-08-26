@@ -77,9 +77,9 @@ native Darwin/Linux TCP and UDP process attribution with an end-to-end process
 rule decision, bounded Darwin/Linux network observation and first-match profile
 switching, encrypted-DNS wire validation, Control D/bootstrap guards, real TLS
 DoH and DoT exchanges, failover SERVFAIL behavior, nonce-exhaustion rejection,
-and
-runtime-lifecycle cases) and
-`make build-linux-gtk` alongside the existing distro harness. Production
+native lwIP IPv4/IPv6 ICMP/checksum fixtures, configured TUN CIDRs, packet-stack
+runtime/profile lifecycle cases, and Android JNI packet callback compilation),
+plus `make build-linux-gtk` alongside the existing distro harness. Production
 packages stay on their current binaries until the native packaging gate in
 [`c-migration.md`](c-migration.md) passes. See
 [`packaging/README.md`](../packaging/README.md) for the container-harness
@@ -92,8 +92,8 @@ details. For a release, `make release-linux` builds the
 Android validates on the developer's machine. The GUI is Kotlin/Jetpack Compose
 with an Android 11 (API 30) floor. During runtime migration Gradle packages the
 NDK-built C/JNI runtime alongside the gomobile rollback AAR. The focused native
-configuration/dashboard/route-explanation test must pass on API 30; unit tests,
-lint, and the debug build run on Gradle; Google's
+configuration/dashboard/route-explanation and raw-packet callback test must
+pass on API 30; unit tests, lint, and the debug build run on Gradle; Google's
 `android` CLI is the default for the on-device dev loop, using an Android SDK
 Emulator (AVD) for local CI/CD (Apple `container` is Linux-only and cannot run
 Android).

@@ -90,6 +90,8 @@ install-linux: check-linux-ui-deps build-daemon build-tui build-license
 	install -m 0644 packaging/systemd/clambhook-daemon.service "$(DESTDIR)$(PREFIX)/lib/systemd/system/clambhook-daemon.service"
 	install -d "$(DESTDIR)$(PREFIX)/share/polkit-1/actions"
 	install -m 0644 packaging/polkit/com.clambhook.Clambhook.policy "$(DESTDIR)$(PREFIX)/share/polkit-1/actions/com.clambhook.Clambhook.policy"
+	install -d "$(DESTDIR)$(PREFIX)/share/doc/clambhook"
+	install -m 0644 THIRD_PARTY_NOTICES.md "$(DESTDIR)$(PREFIX)/share/doc/clambhook/THIRD_PARTY_NOTICES.md"
 
 prepare-apple-runtime:
 	GOOS=darwin GOARCH=arm64 CGO_ENABLED=1 $(MAKE) build-daemon

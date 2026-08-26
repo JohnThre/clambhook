@@ -70,8 +70,11 @@ deploy, and launch on a connected device or emulator:
 
 The packaged C/JNI façade already covers native configuration, dashboard
 status/profile/server/rule reads, profile selection, and compiled-rule route
-explanations. The production factory remains on the rollback AAR until the
-remaining runtime/API/VPN gates pass.
+explanations. It now also builds the shared lwIP IPv4/IPv6 core for every ABI
+and accepts raw packets through JNI, returning native stack output through the
+Kotlin packet-writer callback. The production factory remains on the rollback
+AAR until transparent TCP/UDP/DNS forwarding and the remaining runtime/API/VPN
+gates pass.
 
 ```sh
 make build-android-mobile-aar                 # gomobile bind → ui/android/app/libs/

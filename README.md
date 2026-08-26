@@ -196,11 +196,16 @@ GNU/Linux; the listener skips that platform scan when no compiled rule uses a
 process matcher. The native runtime also observes macOS interface/SSID and
 GNU/Linux interface changes, reports them in status, and atomically selects the
 first matching profile trigger with listener rollback on failure. WireGuard,
-OpenVPN, DoQ, DNS-to-TUN integration, and TUN stay guarded until their parity
-tests pass. The additive native DNS library now provides route-planned DoH and
-DoT, Control D expansion/bootstrap hygiene, response correlation validation,
-upstream failover, and SERVFAIL generation; it deliberately rejects DoQ rather
-than downgrading it. Runtime lifecycle/profile rollback now owns that proxy and
+OpenVPN, DoQ, DNS-to-TUN integration, and transparent TUN TCP/UDP forwarding
+stay guarded until their parity tests pass. A pinned lwIP 2.2.1 C core now
+provides the shared IPv4/IPv6 packet foundation on host platforms and all four
+Android NDK ABIs. Native runtime/JNI lifecycle, configured MTU/CIDRs, ICMP
+checksums, packet injection, and Kotlin callback output are covered; route and
+chain forwarding is the remaining TUN data-plane gate. The additive native
+DNS library now provides route-planned DoH and DoT, Control D
+expansion/bootstrap hygiene, response correlation validation, upstream
+failover, and SERVFAIL generation; it deliberately rejects DoQ rather than
+downgrading it. Runtime lifecycle/profile rollback now owns that proxy and
 routes upstream streams through the same native rules and chains as listener
 traffic.
 Building, running, and testing require prior written permission from Pengfan

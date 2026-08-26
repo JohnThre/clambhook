@@ -15,6 +15,9 @@ val keystoreProperties = Properties().apply {
     }
 }
 val managedDeviceTestAbi = providers.gradleProperty("clambhook.managedDeviceTestAbi").orNull
+val repositoryRoot = rootProject.layout.projectDirectory.dir("../..")
+val generatedThirdPartyNoticesDirectory =
+    layout.buildDirectory.dir("generated/thirdPartyNotices")
 
 android {
     namespace = "com.clambhook.android"
@@ -53,6 +56,8 @@ android {
     buildFeatures {
         compose = true
     }
+
+    sourceSets.getByName("main").assets.srcDir(generatedThirdPartyNoticesDirectory)
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -145,14 +150,18 @@ android {
 }
 
 val clambhookMobileAar = layout.projectDirectory.file("libs/clambhookmobile.aar")
-val generateClambhookMobileAar by tasks.registering(Exec::class) {
-    val repoRoot = rootProject.layout.projectDirectory.dir("../..")
-    workingDir = repoRoot.asFile
+val generateClambhookMobileAar = tasks.register<Exec>("generateClambhookMobileAar") {
+    workingDir = repositoryRoot.asFile
     commandLine(
-        repoRoot.file("scripts/build-android-mobile-aar.sh").asFile.absolutePath,
+        repositoryRoot.file("scripts/build-android-mobile-aar.sh").asFile.absolutePath,
         clambhookMobileAar.asFile.absolutePath
     )
     outputs.file(clambhookMobileAar)
+}
+
+val generateThirdPartyNotices = tasks.register<Sync>("generateThirdPartyNotices") {
+    from(repositoryRoot.file("THIRD_PARTY_NOTICES.md"))
+    into(generatedThirdPartyNoticesDirectory)
 }
 
 // Every build task transitively depends on preBuild, so wiring the AAR
@@ -160,6 +169,7 @@ val generateClambhookMobileAar by tasks.registering(Exec::class) {
 // R8, lint, dependency collection) without enumerating each one.
 tasks.named("preBuild") {
     dependsOn(generateClambhookMobileAar)
+    dependsOn(generateThirdPartyNotices)
 }
 
 kotlin {

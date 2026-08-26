@@ -44,8 +44,9 @@ class NativeClambhookBridgeTest {
     @Test
     fun loadsConfigAndReportsProfilesThroughJni() {
         val config = configFile()
+        var outputPacket: ByteArray? = null
 
-        NativeClambhookBridge { }.use { bridge ->
+        NativeClambhookBridge { outputPacket = it }.use { bridge ->
             assertFalse(bridge.isRunning())
             bridge.start(config.absolutePath)
             assertTrue(bridge.isRunning())
@@ -54,9 +55,21 @@ class NativeClambhookBridgeTest {
                 bridge.query("profiles"),
             )
             assertEquals(
-                "{\"running\":true,\"profile\":\"work\",\"network_info\":{}}",
+                "{\"running\":true,\"profile\":\"work\",\"network_info\":{}," +
+                    "\"tunnel_mode\":\"tun\"}",
                 bridge.query("status"),
             )
+            bridge.injectPacket(
+                byteArrayOf(
+                    0x45, 0x00, 0x00, 0x20, 0x12, 0x34, 0x00, 0x00,
+                    64, 1, 0xdc.toByte(), 0x81.toByte(),
+                    198.toByte(), 18, 0, 2, 198.toByte(), 18, 0, 1,
+                    8, 0, 0x6d, 0x60, 0xab.toByte(), 0xcd.toByte(), 0, 1,
+                    'p'.code.toByte(), 'i'.code.toByte(),
+                    'n'.code.toByte(), 'g'.code.toByte(),
+                ),
+            )
+            assertEquals(0, outputPacket?.get(20)?.toInt())
             val rules = ApiJson.decodeFromString<RulesPayload>(bridge.query("rules"))
             assertEquals("work", rules.profile)
             assertEquals("direct-web", rules.rules.single().name)

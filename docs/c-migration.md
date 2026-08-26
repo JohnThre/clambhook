@@ -55,7 +55,9 @@ The additive CMake build currently provides:
   serialized runtime. The encrypted-DNS library validates DNS transaction IDs
   and question sections, returns SERVFAIL after upstream failover, expands
   Control D resolver shorthand without system-DNS bootstrap loops, and performs
-  route-planned DoH and DoT exchanges with TLS 1.2 or newer;
+  route-planned DoH and DoT exchanges with TLS 1.2 or newer. A pinned lwIP
+  2.2.1 `NO_SYS` raw core supplies the portable IPv4/IPv6 packet-stack
+  foundation used by host runtimes and the Android JNI library;
 - `clambhook_crypto`: the existing C crypto surface, now covering AES-128-GCM,
   AES-256-GCM, ChaCha20-Poly1305, SHA-224, and random bytes through C
   dependencies;
@@ -71,7 +73,9 @@ The additive CMake build currently provides:
   libsoup 3, and json-glib;
 - `clambhook_jni`: the thin JNI ownership/callback boundary used by the Kotlin
   bridge during Android cutover. Gradle now builds and packages it with the NDK
-  for arm64-v8a, armeabi-v7a, x86, and x86_64;
+  for arm64-v8a, armeabi-v7a, x86, and x86_64. The JNI runtime now accepts raw
+  IPv4/IPv6 packets in C and returns stack output through the Kotlin packet
+  writer callback;
 - sanitizer-backed native unit tests and a byte-for-byte license parity gate
   against the current helper.
 
@@ -131,8 +135,9 @@ The SOCKS5 UDP relay binds to the control connection's local interface, pins
 the first client endpoint (and any explicitly requested port), rejects
 fragmentation, re-evaluates routing for each datagram, reuses one asynchronous
 packet session per selected route, and ties teardown to the TCP control
-connection. WireGuard, OpenVPN, TUN, DoQ, DNS-to-TUN integration, prompts,
-traffic persistence, and developer inspection remain cutover blockers;
+connection. WireGuard, OpenVPN, TUN TCP/UDP forwarding, DoQ,
+DNS-to-TUN integration, prompts, traffic persistence, and developer inspection
+remain cutover blockers;
 datagram protocols that cannot
 be represented by the native stream-carrier model fail closed.
 
@@ -150,6 +155,20 @@ profile switching, and rollback now construct the DNS proxy transactionally;
 its stream dials use the same compiled rules, policy-group selection, default
 chain, and direct bootstrap addresses as the proxy listeners. Runtime status
 reports whether encrypted DNS is active and names its configured upstreams.
+
+The native TUN foundation vendors the unmodified BSD-3-Clause lwIP 2.2.1
+release and presents it as a layer-3 IPv4/IPv6 interface. Runtime start,
+reload, profile selection, rollback, stop, and periodic timeout processing own
+the stack on the same serialized thread as other native services. The active
+profile's MTU and first IPv4/IPv6 CIDRs are applied, status reports `tun` only
+while the stack is active, and raw packet injection is rejected unless that
+profile enabled TUN. Host tests verify IPv4 and IPv6 ICMP echo checksums,
+configured CIDRs, singleton ownership, profile teardown/recreation, and output
+callbacks. Android builds the identical core for all four ABIs and its JNI
+runtime exercises the same injection/callback boundary. This is not yet the
+TUN cutover: outbound TCP/UDP flows still need transparent destination mapping
+into the native rule/chain dialers, DNS port-53 interception, fragmentation
+coverage, and platform TUN lifecycle tests.
 
 Native process attribution is best-effort at the operating-system boundary,
 matching the rollback contract when permissions hide another process. It
@@ -211,9 +230,9 @@ Every Android build now compiles and packages `libclambhook_jni.so`; the
 production tunnel factory still selects the gomobile rollback runtime until
 the remaining runtime/API/VPN operations pass parity. A focused managed-device
 test loads TOML in C and exercises start, stop, status, profiles, server/rule
-payload decoding, profile switching, and compiled-rule route explanations over
-JNI; both focused cases pass on the API 30 floor. API 33/36 remain mandatory
-before cutover.
+payload decoding, profile switching, compiled-rule route explanations, and a
+raw IPv4 packet round trip over JNI; both focused cases pass on the API 30
+floor. API 33/36 remain mandatory before cutover.
 
 ## Cutover gates
 
@@ -230,8 +249,9 @@ Cutover is allowed only after all of the following are green:
 3. Listener and protocol integration tests cover TCP, direct/Shadowsocks UDP,
    SOCKS5 UDP association reuse and cancellation, reload rollback, concurrency
    limits, native macOS/Linux process-rule attribution, network-triggered
-   first-match profile switching, remaining protocol UDP rows, and TUN
-   lifecycle.
+   first-match profile switching, remaining protocol UDP rows, transparent TUN
+   TCP/UDP/DNS forwarding, fragmentation, and platform TUN lifecycle. Native
+   IPv4/IPv6 ICMP injection and runtime lifecycle fixtures are green.
 4. GTK functional/accessibility QA matches the current Linux feature set.
 5. Android unit, lint, build, Compose instrumentation, VPN, background, and
    process-restart tests pass on API 30, 33, and 36.

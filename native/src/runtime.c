@@ -1,5 +1,6 @@
 #include "clambhook/runtime.h"
 
+#include <arpa/inet.h>
 #include <ctype.h>
 #include <stdatomic.h>
 #include <stdio.h>
@@ -10,6 +11,7 @@
 
 #include "clambhook/config.h"
 #include "clambhook/dns.h"
+#include "clambhook/ip_stack.h"
 #include "clambhook/netwatch.h"
 #include "internal.h"
 
@@ -38,9 +40,17 @@ typedef struct ch_command {
     struct ch_command *next;
 } ch_command;
 
+typedef struct ch_runtime_tun_config {
+    ch_ip_stack_options options;
+    char ipv4_address[INET_ADDRSTRLEN];
+    char ipv4_netmask[INET_ADDRSTRLEN];
+    char ipv6_address[INET6_ADDRSTRLEN];
+} ch_runtime_tun_config;
+
 struct ch_runtime {
     uv_loop_t loop;
     uv_async_t command_async;
+    uv_timer_t packet_timer;
     uv_thread_t thread;
     uv_mutex_t queue_mutex;
     ch_command *queue_head;
@@ -48,6 +58,7 @@ struct ch_runtime {
     atomic_bool running;
     ch_runtime_listener_set *listeners;
     ch_dns_proxy *dns;
+    ch_ip_stack *ip_stack;
     ch_netwatch *network_watcher;
     ch_network_info network_info;
     ch_config *config;
@@ -107,6 +118,12 @@ static bool ch_runtime_append_dns_status(ch_runtime *runtime,
     return ch_json_append(json, "]}");
 }
 
+static bool ch_runtime_append_tunnel_status(ch_runtime *runtime,
+                                            ch_json_buffer *json) {
+    if (runtime->ip_stack == NULL) return true;
+    return ch_json_append(json, ",\"tunnel_mode\":\"tun\"");
+}
+
 static char *ch_runtime_status_json(ch_runtime *runtime) {
     ch_json_buffer json;
     ch_json_init(&json);
@@ -118,6 +135,7 @@ static char *ch_runtime_status_json(ch_runtime *runtime) {
         !ch_json_append_string(&json, runtime->active_profile) ||
         !ch_runtime_append_network_info(runtime, &json) ||
         !ch_runtime_append_dns_status(runtime, &json) ||
+        !ch_runtime_append_tunnel_status(runtime, &json) ||
         !ch_runtime_listener_set_append_status(runtime->listeners, &json) ||
         !ch_json_append(&json, "}")) {
         ch_json_dispose(&json);
@@ -169,10 +187,141 @@ static void ch_command_fail(ch_command *command, ch_status status, const char *m
 }
 
 static void ch_runtime_stop_listeners(ch_runtime *runtime) {
+    ch_ip_stack_destroy(runtime->ip_stack);
+    runtime->ip_stack = NULL;
     ch_dns_proxy_destroy(runtime->dns);
     runtime->dns = NULL;
     ch_runtime_listener_set_stop(runtime->listeners);
     runtime->listeners = NULL;
+}
+
+static void ch_runtime_write_packet(const uint8_t *packet, size_t length,
+                                    void *context) {
+    ch_runtime *runtime = context;
+    runtime->options.packet_writer(packet, length,
+                                   runtime->options.packet_writer_context);
+}
+
+static bool ch_runtime_parse_tun_address(ch_runtime_tun_config *config,
+                                         const char *cidr,
+                                         ch_command *command) {
+    const char *slash = cidr == NULL ? NULL : strrchr(cidr, '/');
+    if (slash == NULL || slash == cidr || slash[1] == '\0') {
+        ch_command_fail(command, CH_ERROR_INVALID_ARGUMENT,
+                        "listen.tun.addresses contains an invalid CIDR");
+        return false;
+    }
+    size_t address_length = (size_t)(slash - cidr);
+    char address[INET6_ADDRSTRLEN];
+    if (address_length >= sizeof(address)) {
+        ch_command_fail(command, CH_ERROR_INVALID_ARGUMENT,
+                        "listen.tun.addresses contains an invalid address");
+        return false;
+    }
+    memcpy(address, cidr, address_length);
+    address[address_length] = '\0';
+    char *end = NULL;
+    long prefix = strtol(slash + 1, &end, 10);
+    if (end == slash + 1 || *end != '\0') {
+        ch_command_fail(command, CH_ERROR_INVALID_ARGUMENT,
+                        "listen.tun.addresses contains an invalid prefix");
+        return false;
+    }
+    struct in_addr ipv4;
+    if (inet_pton(AF_INET, address, &ipv4) == 1) {
+        if (prefix < 0 || prefix > 32) {
+            ch_command_fail(command, CH_ERROR_INVALID_ARGUMENT,
+                            "listen.tun.addresses IPv4 prefix is invalid");
+            return false;
+        }
+        if (config->ipv4_address[0] != '\0') return true;
+        uint32_t mask = prefix == 0 ? 0U :
+            UINT32_MAX << (32U - (unsigned int)prefix);
+        struct in_addr netmask = {.s_addr = htonl(mask)};
+        if (inet_ntop(AF_INET, &ipv4, config->ipv4_address,
+                      sizeof(config->ipv4_address)) == NULL ||
+            inet_ntop(AF_INET, &netmask, config->ipv4_netmask,
+                      sizeof(config->ipv4_netmask)) == NULL) {
+            ch_command_fail(command, CH_ERROR_INTERNAL,
+                            "format listen.tun IPv4 address");
+            return false;
+        }
+        return true;
+    }
+    struct in6_addr ipv6;
+    if (inet_pton(AF_INET6, address, &ipv6) == 1) {
+        if (prefix < 0 || prefix > 128) {
+            ch_command_fail(command, CH_ERROR_INVALID_ARGUMENT,
+                            "listen.tun.addresses IPv6 prefix is invalid");
+            return false;
+        }
+        if (config->ipv6_address[0] != '\0') return true;
+        if (inet_ntop(AF_INET6, &ipv6, config->ipv6_address,
+                      sizeof(config->ipv6_address)) == NULL) {
+            ch_command_fail(command, CH_ERROR_INTERNAL,
+                            "format listen.tun IPv6 address");
+            return false;
+        }
+        return true;
+    }
+    ch_command_fail(command, CH_ERROR_INVALID_ARGUMENT,
+                    "listen.tun.addresses contains an invalid address");
+    return false;
+}
+
+static bool ch_runtime_tun_options(
+    const ch_config *config, const char *profile_name,
+    ch_runtime_tun_config *out_config, ch_command *command) {
+    memset(out_config, 0, sizeof(*out_config));
+    if (config == NULL) return false;
+    const ch_config_table *profile = ch_config_profile_named(config,
+                                                             profile_name);
+    const ch_config_table *listen = ch_config_table_get_table(profile,
+                                                               "listen");
+    const ch_config_table *tun = ch_config_table_get_table(listen, "tun");
+    bool enabled = false;
+    ch_error value_error;
+    if (tun == NULL || !ch_config_table_has(tun, "enabled")) return false;
+    if (ch_config_table_get_bool(tun, "enabled", &enabled, &value_error) !=
+            CH_OK ||
+        !enabled) {
+        return false;
+    }
+    if (ch_config_table_has(tun, "mtu")) {
+        int64_t mtu = 0;
+        if (ch_config_table_get_int(tun, "mtu", &mtu, &value_error) != CH_OK ||
+            mtu < 0 || mtu > UINT16_MAX) {
+            command->status = CH_ERROR_INVALID_ARGUMENT;
+            ch_error_set(&command->error, CH_ERROR_INVALID_ARGUMENT,
+                         "listen.tun.mtu is invalid");
+            return false;
+        }
+        out_config->options.mtu = (unsigned int)mtu;
+    }
+    const ch_config_array *addresses = ch_config_table_get_array(
+        tun, "addresses");
+    size_t address_count = ch_config_array_count(addresses);
+    for (size_t index = 0U; index < address_count; ++index) {
+        char *cidr = NULL;
+        if (ch_config_array_get_string(addresses, index, &cidr,
+                                       &value_error) != CH_OK ||
+            !ch_runtime_parse_tun_address(out_config, cidr, command)) {
+            free(cidr);
+            if (command->status == CH_OK) {
+                command->status = value_error.code;
+                command->error = value_error;
+            }
+            return false;
+        }
+        free(cidr);
+    }
+    out_config->options.ipv4_address = out_config->ipv4_address[0] == '\0' ?
+        NULL : out_config->ipv4_address;
+    out_config->options.ipv4_netmask = out_config->ipv4_netmask[0] == '\0' ?
+        NULL : out_config->ipv4_netmask;
+    out_config->options.ipv6_address = out_config->ipv6_address[0] == '\0' ?
+        NULL : out_config->ipv6_address;
+    return true;
 }
 
 static ch_status ch_runtime_dns_route(
@@ -280,11 +429,12 @@ static char *ch_runtime_matching_profile(
 }
 
 static bool ch_runtime_build_services(
-    const ch_config *config, const char *profile_name,
+    ch_runtime *runtime, const ch_config *config, const char *profile_name,
     ch_runtime_listener_set **out_listeners, ch_dns_proxy **out_dns,
-    ch_command *command) {
+    ch_ip_stack **out_ip_stack, ch_command *command) {
     *out_listeners = NULL;
     *out_dns = NULL;
+    *out_ip_stack = NULL;
     ch_error listener_error;
     ch_runtime_listener_set *listeners = ch_runtime_listener_set_start(
         config, profile_name, &listener_error
@@ -310,8 +460,38 @@ static bool ch_runtime_build_services(
             return false;
         }
     }
+    ch_runtime_tun_config tun_config;
+    bool tun_enabled = ch_runtime_tun_options(config, profile_name,
+                                              &tun_config, command);
+    if (command->status != CH_OK) {
+        ch_dns_proxy_destroy(dns);
+        ch_runtime_listener_set_stop(listeners);
+        return false;
+    }
+    ch_ip_stack *ip_stack = NULL;
+    if (tun_enabled) {
+        if (runtime->options.packet_writer == NULL) {
+            ch_dns_proxy_destroy(dns);
+            ch_runtime_listener_set_stop(listeners);
+            ch_command_fail(command, CH_ERROR_INVALID_ARGUMENT,
+                            "listen.tun requires a runtime packet writer");
+            return false;
+        }
+        tun_config.options.packet_writer = ch_runtime_write_packet;
+        tun_config.options.packet_writer_context = runtime;
+        ch_error ip_error;
+        ip_stack = ch_ip_stack_create(&tun_config.options, &ip_error);
+        if (ip_stack == NULL) {
+            ch_dns_proxy_destroy(dns);
+            ch_runtime_listener_set_stop(listeners);
+            command->status = ip_error.code;
+            command->error = ip_error;
+            return false;
+        }
+    }
     *out_listeners = listeners;
     *out_dns = dns;
+    *out_ip_stack = ip_stack;
     return true;
 }
 
@@ -321,12 +501,14 @@ static bool ch_runtime_start_listeners(ch_runtime *runtime,
                                        ch_command *command) {
     ch_runtime_listener_set *listeners = NULL;
     ch_dns_proxy *dns = NULL;
-    if (!ch_runtime_build_services(config, profile_name, &listeners, &dns,
-                                   command)) {
+    ch_ip_stack *ip_stack = NULL;
+    if (!ch_runtime_build_services(runtime, config, profile_name, &listeners,
+                                   &dns, &ip_stack, command)) {
         return false;
     }
     runtime->listeners = listeners;
     runtime->dns = dns;
+    runtime->ip_stack = ip_stack;
     return true;
 }
 
@@ -485,11 +667,12 @@ static bool ch_runtime_apply_config(ch_runtime *runtime, ch_command *command,
     }
     ch_runtime_listener_set *next_listeners = NULL;
     ch_dns_proxy *next_dns = NULL;
+    ch_ip_stack *next_ip_stack = NULL;
     if (start_listeners) {
         ch_runtime_stop_listeners(runtime);
         if (!ch_runtime_build_services(
-                next_config, next_profile, &next_listeners, &next_dns,
-                command)) {
+                runtime, next_config, next_profile, &next_listeners,
+                &next_dns, &next_ip_stack, command)) {
             ch_status next_status = command->status;
             ch_error next_error = command->error;
             ch_command rollback_command;
@@ -513,6 +696,7 @@ static bool ch_runtime_apply_config(ch_runtime *runtime, ch_command *command,
     runtime->active_profile = next_profile;
     runtime->listeners = next_listeners;
     runtime->dns = next_dns;
+    runtime->ip_stack = next_ip_stack;
     return true;
 }
 
@@ -553,12 +737,16 @@ static void ch_command_process(ch_runtime *runtime, ch_command *command) {
         case CH_COMMAND_INJECT:
             if (!atomic_load_explicit(&runtime->running, memory_order_acquire)) {
                 ch_command_fail(command, CH_ERROR_INVALID_STATE, "runtime is not running");
-            } else {
+            } else if (runtime->ip_stack == NULL) {
                 ch_command_fail(
                     command,
                     CH_ERROR_UNSUPPORTED,
-                    "userspace packet stack has not been enabled in this migration phase"
+                    "active profile does not enable a userspace packet stack"
                 );
+            } else {
+                command->status = ch_ip_stack_inject(
+                    runtime->ip_stack, command->packet,
+                    command->packet_length, &command->error);
             }
             break;
 
@@ -659,9 +847,16 @@ static void ch_command_process(ch_runtime *runtime, ch_command *command) {
                                   memory_order_release);
             ch_runtime_refresh_network_watcher(runtime);
             ch_runtime_stop_listeners(runtime);
+            uv_timer_stop(&runtime->packet_timer);
+            uv_close((uv_handle_t *)&runtime->packet_timer, NULL);
             uv_close((uv_handle_t *)&runtime->command_async, NULL);
             break;
     }
+}
+
+static void ch_runtime_packet_tick(uv_timer_t *timer) {
+    ch_runtime *runtime = timer->data;
+    ch_ip_stack_tick(runtime->ip_stack);
 }
 
 static void ch_command_complete(ch_command *command) {
@@ -816,7 +1011,8 @@ ch_runtime *ch_runtime_create(const ch_runtime_options *options, ch_error *error
         ch_error_set(error, CH_ERROR_INTERNAL, "initialize runtime loop");
         return NULL;
     }
-    if (uv_async_init(&runtime->loop, &runtime->command_async, ch_runtime_drain_commands) != 0) {
+    if (uv_async_init(&runtime->loop, &runtime->command_async,
+                      ch_runtime_drain_commands) != 0) {
         uv_mutex_destroy(&runtime->queue_mutex);
         (void)uv_loop_close(&runtime->loop);
         free(runtime->active_profile);
@@ -825,7 +1021,35 @@ ch_runtime *ch_runtime_create(const ch_runtime_options *options, ch_error *error
         return NULL;
     }
     runtime->command_async.data = runtime;
+    if (uv_timer_init(&runtime->loop, &runtime->packet_timer) != 0) {
+        uv_close((uv_handle_t *)&runtime->command_async, NULL);
+        (void)uv_run(&runtime->loop, UV_RUN_DEFAULT);
+        uv_mutex_destroy(&runtime->queue_mutex);
+        (void)uv_loop_close(&runtime->loop);
+        free(runtime->active_profile);
+        free(runtime);
+        ch_error_set(error, CH_ERROR_INTERNAL,
+                     "initialize runtime packet timer");
+        return NULL;
+    }
+    runtime->packet_timer.data = runtime;
+    if (uv_timer_start(&runtime->packet_timer, ch_runtime_packet_tick,
+                       10U, 10U) != 0) {
+        uv_close((uv_handle_t *)&runtime->packet_timer, NULL);
+        uv_close((uv_handle_t *)&runtime->command_async, NULL);
+        (void)uv_run(&runtime->loop, UV_RUN_DEFAULT);
+        uv_mutex_destroy(&runtime->queue_mutex);
+        (void)uv_loop_close(&runtime->loop);
+        free(runtime->active_profile);
+        free(runtime);
+        ch_error_set(error, CH_ERROR_INTERNAL,
+                     "start runtime packet timer");
+        return NULL;
+    }
+    uv_unref((uv_handle_t *)&runtime->packet_timer);
     if (uv_thread_create(&runtime->thread, ch_runtime_thread, runtime) != 0) {
+        uv_timer_stop(&runtime->packet_timer);
+        uv_close((uv_handle_t *)&runtime->packet_timer, NULL);
         uv_close((uv_handle_t *)&runtime->command_async, NULL);
         (void)uv_run(&runtime->loop, UV_RUN_DEFAULT);
         uv_mutex_destroy(&runtime->queue_mutex);

@@ -1,0 +1,2 @@
+# Preserve pinned upstream bytes exactly; upstream whitespace is intentional.
+third_party/lwip/** -whitespace

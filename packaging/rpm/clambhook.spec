@@ -101,6 +101,7 @@ exit 0
 %systemd_postun_with_restart clambhook-daemon.service
 
 %files
+%doc THIRD_PARTY_NOTICES.md
 %{_bindir}/clambhook
 %{_bindir}/clambhook-tui
 %{_bindir}/clambhook-license
