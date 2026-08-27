@@ -98,6 +98,7 @@ add_library(clambhook_jni SHARED
     "${CLAMBHOOK_ROOT}/native/src/config_mutation.c"
     "${CLAMBHOOK_ROOT}/native/src/config_payload.c"
     "${CLAMBHOOK_ROOT}/native/src/developer_curl.c"
+    "${CLAMBHOOK_ROOT}/native/src/dns.c"
     "${CLAMBHOOK_ROOT}/native/src/error.c"
     "${CLAMBHOOK_ROOT}/native/src/ip_stack.c"
     "${CLAMBHOOK_ROOT}/native/src/json.c"
@@ -129,7 +130,10 @@ target_include_directories(clambhook_jni PRIVATE
     "${CLAMBHOOK_ROOT}/clib/include"
     "${CLAMBHOOK_ROOT}/third_party/tomlc99"
 )
-target_compile_definitions(clambhook_jni PRIVATE _POSIX_C_SOURCE=200809L)
+target_compile_definitions(clambhook_jni PRIVATE
+    _POSIX_C_SOURCE=200809L
+    CLAMBHOOK_DNS_NO_DOH=1
+)
 target_compile_options(clambhook_jni PRIVATE
     -Wall -Wextra -Wpedantic -Wconversion -Wshadow
 )

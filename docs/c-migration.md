@@ -10,9 +10,10 @@ target platform architecture is:
 | Android GUI | Kotlin with Jetpack Compose, calling C through JNI |
 | macOS GUI | SwiftUI, calling the same C runtime boundary |
 
-The legacy Go daemon, Go TUI, gomobile Android bridge, and Kotlin/Compose
-Desktop Linux client remain the shipping implementations while parity work is
-in progress. They are the behavior oracles and rollback path; they must not be
+The legacy Go daemon, Go TUI, and Kotlin/Compose Desktop Linux client remain
+shipping implementations while their parity work is in progress. The gomobile
+Android bridge remains a source-level behavior oracle but is no longer packaged
+or selected by the Android app. Remaining legacy implementations must not be
 removed merely because an additive C target compiles.
 
 ## Frozen compatibility contracts
@@ -280,8 +281,12 @@ an API 31 device test verifies an actual loopback UDP request/reply. The Android
 NDK build pins and checksums the official OpenSSL 3.5.8 LTS source, statically
 links it across all four ABIs at API 31, and packages the upstream Apache 2.0
 license without relicensing Clambhook. The physical Pixel suite executes all
-three native AEAD families through JNI. Encrypted DNS and production platform
-VPN lifecycle tests remain open.
+three native AEAD families through JNI, but physical hardware is optional and
+the managed API 31/33/36 matrix is authoritative. The production VPN factory
+selects this C/JNI runtime and packages no gomobile AAR. Android now intercepts
+UDP/53 through the shared DoT engine and emits SERVFAIL on encrypted-upstream
+failure. DoH fails closed on Android until the NDK build links libcurl; it does
+not fall back to plaintext DNS. Full VPN-service lifecycle tests remain open.
 
 Native process attribution is best-effort at the operating-system boundary,
 matching the rollback contract when permissions hide another process. It
@@ -341,18 +346,18 @@ make test-android-compatibility
 ```
 
 Every Android build now compiles and packages `libclambhook_jni.so`; the
-production VPN factory selects the native C/JNI packet runtime. The transitional
-gomobile artifact remains only for Android operations not yet ported in this
-migration checkpoint. Focused managed-device
+production VPN factory selects the native C/JNI packet runtime and no gomobile
+AAR is present in the application. Focused managed-device
 tests load TOML in C and exercise start, stop, status, profiles, server/rule
 payload decoding, profile switching, compiled-rule route explanations, a raw
-IPv4 packet round trip, and delayed direct UDP. The native route callbacks now
+IPv4 packet round trip, delayed direct UDP, and encrypted-DNS DoT interception
+with fail-closed DoH. The native route callbacks now
 dial configured encrypted TCP/UDP chains, and the JNI suite calls the statically
 linked OpenSSL implementation for AES-128-GCM, AES-256-GCM, and
 ChaCha20-Poly1305. The complete managed-device run is required on the API 31
-floor. The same six tests pass on a physical Pixel 3a XL running Android
-12/API 32 after the encrypted-chain linkage checkpoint. API 33/36 remain
-mandatory before cutover.
+floor. A physical Pixel 3a XL running Android 12/API 32 has also passed focused
+instrumentation, but connected hardware is optional and never substitutes for
+the API 31/33/36 CI matrix.
 
 ## Cutover gates
 

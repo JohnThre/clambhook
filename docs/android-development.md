@@ -4,9 +4,9 @@ Google's [`android`](https://developer.android.com/cli) CLI is the default tool
 for ClambHook Android development. It manages the SDK and emulators and builds,
 deploys, and launches the app on a device or emulator. Gradle is still used for
 unit tests, lint, release assembly, and the API compatibility matrix — the
-`android` CLI has no equivalent commands for those. During the C-runtime
-migration, Gradle builds and packages `libclambhook_jni.so` with the NDK while
-gomobile continues to generate the shipping rollback AAR. See
+`android` CLI has no equivalent commands for those. Gradle builds and packages
+`libclambhook_jni.so` with the NDK; the production VPN service selects that
+C/JNI runtime and packages no gomobile AAR. See
 [`c-migration.md`](c-migration.md).
 
 Building, running, and testing require prior written permission from Pengfan
@@ -51,8 +51,7 @@ The Gradle native build currently resolves NDK `27.0.12077973` and CMake
 `3.22.1`. It downloads the official OpenSSL 3.5.8 LTS source archive, verifies
 the pinned SHA-256 digest, and caches static API 31 libraries for each ABI under
 the ignored `ui/android/.native-deps/` directory. See
-`third_party/openssl/README.clambhook.md` for provenance and update steps. The
-rollback AAR has its own gomobile toolchain requirements.
+`third_party/openssl/README.clambhook.md` for provenance and update steps.
 
 ## Emulators
 
@@ -67,10 +66,9 @@ android emulator remove clambhook
 ## Build and run (default dev loop)
 
 The Android GUI is Kotlin with Jetpack Compose and supports Android 12 and
-newer (`minSdk = 31`). The production VPN uses the native C/JNI packet runtime;
-the transitional gomobile AAR remains only for the last unported Android
-operations. Build it when those legacy bridge operations change, then use the `android` CLI to build,
-deploy, and launch on a connected device or emulator:
+newer (`minSdk = 31`). The production VPN uses the native C/JNI packet runtime.
+Use the `android` CLI to build, deploy, and launch on a connected device or
+emulator:
 
 The packaged C/JNI façade already covers native configuration, dashboard
 status/profile/server/rule reads, profile selection, and compiled-rule route
@@ -79,15 +77,15 @@ and accepts raw packets through JNI, returning native stack output through the
 Kotlin packet-writer callback. The JNI runtime owns its independent packet
 timer, resolves direct, named-chain, and policy-group TCP/UDP decisions through
 the shared C protocol layer, and transactionally rebuilds those rules when the
-active profile changes. Its delayed direct-UDP round-trip test passes on API
-30. Requested-profile reads share the strict C control contract, and the JNI
-test calls all three native AEAD families in the statically linked OpenSSL
-build. The full six-test suite passes on a physical Pixel 3a XL running Android
-12/API 32. The production factory remains on the rollback AAR until encrypted
-DNS and the remaining runtime/API/VPN gates pass.
+active profile changes. Native DoT now intercepts UDP/53 and returns SERVFAIL
+when its encrypted upstream cannot be reached. DoH configuration fails closed
+until libcurl is linked into the Android native build. Requested-profile reads
+share the strict C control contract, and the JNI test calls all three native
+AEAD families in the statically linked OpenSSL build. A physical Pixel 3a XL
+running Android 12/API 32 has passed focused instrumentation, but it is optional;
+GitHub's managed API 31/33/36 devices are authoritative.
 
 ```sh
-make build-android-mobile-aar                 # gomobile bind → ui/android/app/libs/
 make build-android-native                     # NDK builds libclambhook_jni.so
 make run-android                              # cd ui/android && android run
 ```
@@ -124,7 +122,7 @@ make test-android-compatibility # Compose instrumentation on API 31, 33, and 36
 ```
 
 The managed-device target packages only `arm64-v8a` for the arm64 AOSP
-emulators. This keeps the transitional multi-ABI APK below emulator
+emulators. This keeps the test APK below emulator
 installation timeouts; normal debug and release builds retain their full ABI
 set.
 
@@ -132,9 +130,9 @@ The compatibility target uses Gradle build-managed AOSP Pixel 2 devices named
 `pixel2Api31`, plus Pixel 6 devices named `pixel6Api33` and `pixel6Api36`. It is the required Android
 cutover gate, not a substitute for unit tests or lint.
 
-The release pipeline (`scripts/release-android.sh`) builds the AAR with
-`make build-android-mobile-aar`, assembles the release APK with Gradle, then
-checksums, GPG-signs, and writes the update manifest — see
+The release pipeline (`scripts/release-android.sh`) assembles the native C/JNI
+release APK with Gradle, then checksums, GPG-signs, and writes the update
+manifest — see
 [`docs/website-release/release-runbook.md`](website-release/release-runbook.md)
 and [`docs/release-validation.md`](release-validation.md).
 

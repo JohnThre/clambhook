@@ -4,6 +4,7 @@
 #include <ctype.h>
 #include <errno.h>
 #include <limits.h>
+#include <pthread.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -13,10 +14,11 @@
 #include <sys/time.h>
 #include <unistd.h>
 
+#if !defined(CLAMBHOOK_DNS_NO_DOH)
 #include <curl/curl.h>
+#endif
 #include <openssl/err.h>
 #include <openssl/ssl.h>
-#include <uv.h>
 
 #include "internal.h"
 
@@ -49,6 +51,7 @@ struct ch_dns_proxy {
     size_t upstream_count;
 };
 
+#if !defined(CLAMBHOOK_DNS_NO_DOH)
 typedef struct ch_dns_curl_response {
     uint8_t *bytes;
     size_t length;
@@ -62,12 +65,13 @@ typedef struct ch_dns_curl_socket {
     bool failed;
 } ch_dns_curl_socket;
 
-static uv_once_t ch_dns_curl_once = UV_ONCE_INIT;
+static pthread_once_t ch_dns_curl_once = PTHREAD_ONCE_INIT;
 static CURLcode ch_dns_curl_init_status = CURLE_OK;
 
 static void ch_dns_curl_initialize(void) {
     ch_dns_curl_init_status = curl_global_init(CURL_GLOBAL_DEFAULT);
 }
+#endif
 
 static char *ch_dns_optional_string(const ch_config_table *table,
                                     const char *key) {
@@ -298,6 +302,13 @@ static ch_status ch_dns_validate_direct_bootstrap(
 static ch_status ch_dns_prepare_doh(ch_dns_proxy *proxy,
                                     ch_dns_upstream *upstream,
                                     ch_error *error) {
+#if defined(CLAMBHOOK_DNS_NO_DOH)
+    (void)proxy;
+    (void)upstream;
+    ch_error_set(error, CH_ERROR_UNSUPPORTED,
+                 "native DNS-over-HTTPS is not linked on this platform");
+    return CH_ERROR_UNSUPPORTED;
+#else
     CURLU *parsed = curl_url();
     char *scheme = NULL;
     char *host = NULL;
@@ -376,6 +387,7 @@ failure:
     curl_url_cleanup(parsed);
     return error == NULL || error->code == CH_OK ? CH_ERROR_INVALID_ARGUMENT :
                                                    error->code;
+#endif
 }
 
 static ch_status ch_dns_prepare_dot(ch_dns_proxy *proxy,
@@ -705,6 +717,17 @@ static void ch_dns_socket_timeout(int descriptor,
                      (socklen_t)sizeof(timeout));
 }
 
+static bool ch_dns_load_trust_store(SSL_CTX *context) {
+#if defined(__ANDROID__)
+    if (SSL_CTX_load_verify_locations(
+            context, NULL, "/system/etc/security/cacerts") == 1) {
+        return true;
+    }
+    ERR_clear_error();
+#endif
+    return SSL_CTX_set_default_verify_paths(context) == 1;
+}
+
 static ch_status ch_dns_exchange_dot(ch_dns_proxy *proxy,
                                      ch_dns_upstream *upstream,
                                      const uint8_t *query,
@@ -732,7 +755,7 @@ static ch_status ch_dns_exchange_dot(ch_dns_proxy *proxy,
         SSL_CTX_set_verify(context, SSL_VERIFY_NONE, NULL);
     } else {
         SSL_CTX_set_verify(context, SSL_VERIFY_PEER, NULL);
-        if (SSL_CTX_set_default_verify_paths(context) != 1) {
+        if (!ch_dns_load_trust_store(context)) {
             ch_dns_ssl_error(error, "load trust store");
             status = CH_ERROR_IO;
             goto cleanup;
@@ -806,6 +829,7 @@ cleanup:
     return status;
 }
 
+#if !defined(CLAMBHOOK_DNS_NO_DOH)
 static size_t ch_dns_curl_write(char *contents, size_t size, size_t count,
                                 void *context) {
     ch_dns_curl_response *response = context;
@@ -875,7 +899,7 @@ static ch_status ch_dns_exchange_doh(ch_dns_proxy *proxy,
                                      uint8_t **out_response,
                                      size_t *out_response_length,
                                      ch_error *error) {
-    uv_once(&ch_dns_curl_once, ch_dns_curl_initialize);
+    (void)pthread_once(&ch_dns_curl_once, ch_dns_curl_initialize);
     if (ch_dns_curl_init_status != CURLE_OK) {
         ch_error_set(error, CH_ERROR_INTERNAL, "initialize curl: %s",
                      curl_easy_strerror(ch_dns_curl_init_status));
@@ -1007,6 +1031,7 @@ static ch_status ch_dns_exchange_doh(ch_dns_proxy *proxy,
     curl_easy_cleanup(curl);
     return status;
 }
+#endif
 
 ch_dns_proxy *ch_dns_proxy_create(const ch_config *config,
                                   const char *profile_name,
@@ -1118,13 +1143,26 @@ ch_status ch_dns_proxy_exchange(ch_dns_proxy *proxy, const uint8_t *query,
     for (size_t index = 0U; index < proxy->upstream_count; ++index) {
         ch_dns_upstream *upstream = &proxy->upstreams[index];
         ch_error upstream_error;
-        ch_status status = upstream->kind == CH_DNS_UPSTREAM_DOH ?
+        ch_status status;
+#if defined(CLAMBHOOK_DNS_NO_DOH)
+        if (upstream->kind == CH_DNS_UPSTREAM_DOH) {
+            ch_error_set(&upstream_error, CH_ERROR_UNSUPPORTED,
+                         "native DNS-over-HTTPS is not linked on this platform");
+            status = CH_ERROR_UNSUPPORTED;
+        } else {
+            status = ch_dns_exchange_dot(
+                proxy, upstream, query, query_length, out_response,
+                out_response_length, &upstream_error);
+        }
+#else
+        status = upstream->kind == CH_DNS_UPSTREAM_DOH ?
             ch_dns_exchange_doh(proxy, upstream, query, query_length,
                                 out_response, out_response_length,
                                 &upstream_error) :
             ch_dns_exchange_dot(proxy, upstream, query, query_length,
                                 out_response, out_response_length,
                                 &upstream_error);
+#endif
         if (status == CH_OK) return CH_OK;
         last_status = status;
         last_error = upstream_error;

@@ -2,6 +2,7 @@
 
 #include <pthread.h>
 #include <stdatomic.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
@@ -9,6 +10,7 @@
 
 #include "clambhook/config.h"
 #include "clambhook/developer_curl.h"
+#include "clambhook/dns.h"
 #include "clambhook/ip_stack.h"
 #include "clambhook/json.h"
 #include "clambhook/protocol.h"
@@ -49,6 +51,7 @@ struct ch_runtime {
     char *config_path;
     char *active_profile;
     ch_ip_stack *ip_stack;
+    ch_dns_proxy *dns;
     ch_traffic_store *traffic;
     ch_temporary_rules *temporary_rules;
     ch_prompt_manager *prompts;
@@ -300,6 +303,106 @@ static void android_runtime_udp_close(void *opaque) {
     ch_packet_connection_close(opaque);
 }
 
+static ch_status android_runtime_dns_route(
+    const char *network, const char *target,
+    ch_dns_route_action *out_action, void *context, ch_error *error) {
+    ch_runtime *runtime = context;
+    android_route route;
+    ch_status status = android_runtime_resolve_route(
+        runtime, network, target, "", target, &route, error);
+    if (status != CH_OK) return status;
+    if (route.blocked) {
+        *out_action = strcmp(route.decision.action,
+                             CH_RULE_ACTION_REJECT) == 0 ?
+            CH_DNS_ROUTE_REJECT : CH_DNS_ROUTE_BLOCK;
+    } else {
+        *out_action = route.direct ? CH_DNS_ROUTE_DIRECT :
+                                     CH_DNS_ROUTE_CONNECT;
+    }
+    android_route_clear(&route);
+    return CH_OK;
+}
+
+static ch_status android_runtime_dns_direct_dial(
+    const char *target, const char *const *bootstrap_ips,
+    size_t bootstrap_ip_count, int *out_descriptor, ch_error *error) {
+    if (bootstrap_ip_count == 0U) {
+        return ch_protocol_connect_tcp(target, out_descriptor, error);
+    }
+    const char *separator = strrchr(target, ':');
+    if (separator == NULL || separator[1] == '\0') {
+        ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
+                     "Android DNS target must be host:port");
+        return CH_ERROR_INVALID_ARGUMENT;
+    }
+    ch_status last_status = CH_ERROR_IO;
+    ch_error last_error;
+    ch_error_clear(&last_error);
+    for (size_t index = 0U; index < bootstrap_ip_count; ++index) {
+        const char *address = bootstrap_ips[index];
+        if (address == NULL || address[0] == '\0') continue;
+        bool ipv6 = strchr(address, ':') != NULL;
+        size_t capacity = strlen(address) + strlen(separator + 1U) +
+            (ipv6 ? 4U : 2U);
+        char *bootstrap_target = malloc(capacity);
+        if (bootstrap_target == NULL) {
+            ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                         "allocate Android DNS bootstrap target");
+            return CH_ERROR_OUT_OF_MEMORY;
+        }
+        (void)snprintf(bootstrap_target, capacity,
+                       ipv6 ? "[%s]:%s" : "%s:%s", address,
+                       separator + 1U);
+        ch_error attempt_error;
+        last_status = ch_protocol_connect_tcp(
+            bootstrap_target, out_descriptor, &attempt_error);
+        free(bootstrap_target);
+        if (last_status == CH_OK) return CH_OK;
+        last_error = attempt_error;
+    }
+    if (error != NULL) *error = last_error;
+    return last_status;
+}
+
+static ch_status android_runtime_dns_dial(
+    const char *network, const char *target,
+    const char *const *bootstrap_ips, size_t bootstrap_ip_count,
+    int *out_descriptor, void *context, ch_error *error) {
+    ch_runtime *runtime = context;
+    if (network == NULL || target == NULL || out_descriptor == NULL ||
+        (bootstrap_ip_count > 0U && bootstrap_ips == NULL)) {
+        ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
+                     "invalid Android DNS dial request");
+        return CH_ERROR_INVALID_ARGUMENT;
+    }
+    *out_descriptor = -1;
+    android_route route;
+    ch_status status = android_runtime_resolve_route(
+        runtime, network, target, "", target, &route, error);
+    if (status == CH_OK && route.blocked) {
+        ch_error_set(error, CH_ERROR_INVALID_STATE,
+                     "Android DNS upstream route is %s",
+                     route.decision.action);
+        status = CH_ERROR_INVALID_STATE;
+    } else if (status == CH_OK && route.direct) {
+        status = android_runtime_dns_direct_dial(
+            target, bootstrap_ips, bootstrap_ip_count, out_descriptor, error);
+    } else if (status == CH_OK) {
+        status = ch_protocol_chain_dial(
+            route.chain, network, target, out_descriptor, error);
+    }
+    android_route_clear(&route);
+    return status;
+}
+
+static ch_status android_runtime_dns_exchange(
+    const uint8_t *query, size_t query_length, uint8_t **out_response,
+    size_t *out_response_length, void *context, ch_error *error) {
+    return ch_dns_proxy_exchange(
+        context, query, query_length, out_response, out_response_length,
+        error);
+}
+
 static void android_runtime_flow_bytes(uint64_t flow_id, uint64_t rx_delta,
                                        uint64_t tx_delta, void *context) {
     ch_runtime *runtime = context;
@@ -345,6 +448,16 @@ static ch_status android_runtime_start_ip_stack(ch_runtime *runtime,
                      "Android runtime packet writer is required");
         return CH_ERROR_INVALID_ARGUMENT;
     }
+    if (runtime->config != NULL) {
+        ch_dns_proxy_options dns_options = {
+            .route = android_runtime_dns_route,
+            .stream_dial = android_runtime_dns_dial,
+            .dial_context = runtime
+        };
+        runtime->dns = ch_dns_proxy_create(
+            runtime->config, runtime->active_profile, &dns_options, error);
+        if (runtime->dns == NULL && error->code != CH_OK) return error->code;
+    }
     ch_ip_stack_options options = {
         .packet_writer = android_runtime_write_packet,
         .packet_writer_context = runtime,
@@ -359,10 +472,18 @@ static ch_status android_runtime_start_ip_stack(ch_runtime *runtime,
         .flow_close = android_runtime_flow_close,
         .flow_observer_context = runtime
     };
+    if (runtime->dns != NULL) {
+        options.dns_exchange = android_runtime_dns_exchange;
+        options.dns_exchange_context = runtime->dns;
+    }
     pthread_mutex_lock(&runtime->ip_mutex);
     runtime->ip_stack = ch_ip_stack_create(&options, error);
     pthread_mutex_unlock(&runtime->ip_mutex);
-    if (runtime->ip_stack == NULL) return error->code;
+    if (runtime->ip_stack == NULL) {
+        ch_dns_proxy_destroy(runtime->dns);
+        runtime->dns = NULL;
+        return error->code;
+    }
     atomic_store_explicit(&runtime->tick_stop, false, memory_order_release);
     if (pthread_create(&runtime->tick_thread, NULL,
                        android_runtime_tick_main, runtime) != 0) {
@@ -370,6 +491,8 @@ static ch_status android_runtime_start_ip_stack(ch_runtime *runtime,
         ch_ip_stack_destroy(runtime->ip_stack);
         runtime->ip_stack = NULL;
         pthread_mutex_unlock(&runtime->ip_mutex);
+        ch_dns_proxy_destroy(runtime->dns);
+        runtime->dns = NULL;
         ch_error_set(error, CH_ERROR_INTERNAL,
                      "start Android packet timer");
         return CH_ERROR_INTERNAL;
@@ -389,6 +512,8 @@ static void android_runtime_stop_ip_stack(ch_runtime *runtime) {
     ch_ip_stack_destroy(runtime->ip_stack);
     runtime->ip_stack = NULL;
     pthread_mutex_unlock(&runtime->ip_mutex);
+    ch_dns_proxy_destroy(runtime->dns);
+    runtime->dns = NULL;
     ch_traffic_close_all(runtime->traffic, "tunnel stopped");
 }
 
@@ -692,6 +817,24 @@ static ch_status android_runtime_select_profile(ch_runtime *runtime,
     return CH_OK;
 }
 
+static bool android_runtime_append_dns_status(const ch_runtime *runtime,
+                                              ch_json_buffer *json) {
+    if (runtime->dns == NULL) return true;
+    if (!ch_json_append(json,
+                        ",\"dns\":{\"enabled\":true,\"upstreams\":[")) {
+        return false;
+    }
+    size_t count = ch_dns_proxy_upstream_count(runtime->dns);
+    for (size_t index = 0U; index < count; ++index) {
+        if ((index > 0U && !ch_json_append(json, ",")) ||
+            !ch_json_append_string(
+                json, ch_dns_proxy_upstream_name(runtime->dns, index))) {
+            return false;
+        }
+    }
+    return ch_json_append(json, "]}");
+}
+
 static char *android_runtime_status_json(const ch_runtime *runtime) {
     ch_json_buffer json;
     ch_json_init(&json);
@@ -699,6 +842,7 @@ static char *android_runtime_status_json(const ch_runtime *runtime) {
                                runtime->running ? "true" : "false") ||
         !ch_json_append_string(&json, runtime->active_profile) ||
         !ch_json_append(&json, ",\"network_info\":{}") ||
+        !android_runtime_append_dns_status(runtime, &json) ||
         (runtime->ip_stack != NULL &&
          !ch_json_append(&json, ",\"tunnel_mode\":\"tun\"")) ||
         !ch_json_append(&json, "}")) {

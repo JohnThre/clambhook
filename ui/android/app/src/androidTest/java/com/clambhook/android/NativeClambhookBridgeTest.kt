@@ -62,6 +62,51 @@ class NativeClambhookBridgeTest {
         return packet
     }
 
+    private fun dnsQuery(): ByteArray = byteArrayOf(
+        0x12, 0x34, 0x01, 0x00,
+        0x00, 0x01, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00,
+        0x07, 'e'.code.toByte(), 'x'.code.toByte(), 'a'.code.toByte(),
+        'm'.code.toByte(), 'p'.code.toByte(), 'l'.code.toByte(), 'e'.code.toByte(),
+        0x03, 'c'.code.toByte(), 'o'.code.toByte(), 'm'.code.toByte(), 0x00,
+        0x00, 0x01, 0x00, 0x01,
+    )
+
+    private fun encryptedDnsConfig(protocol: String): File {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val upstream = if (protocol == "dot") {
+            """
+            address = "127.0.0.1:9"
+            server_name = "localhost"
+            """.trimIndent()
+        } else {
+            """
+            url = "https://dns.example/dns-query"
+            bootstrap_ips = ["127.0.0.1"]
+            """.trimIndent()
+        }
+        return File(context.cacheDir, "native-$protocol-dns-test.toml").apply {
+            writeText(
+                """
+                active = "encrypted-dns"
+                [[profile]]
+                name = "encrypted-dns"
+                [profile.dns]
+                enabled = true
+                timeout = "50ms"
+                [[profile.dns.upstream]]
+                name = "device-$protocol"
+                protocol = "$protocol"
+                $upstream
+                [[profile.chain]]
+                name = "direct"
+                [[profile.chain.server]]
+                protocol = "direct"
+                """.trimIndent() + "\n",
+            )
+        }
+    }
+
     private fun configFile(): File {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
         return File(context.cacheDir, "native-bridge-test.toml").apply {
@@ -169,6 +214,41 @@ class NativeClambhookBridgeTest {
         assertEquals(listOf(64), settings.ipv6.map { it.prefixLen })
         assertEquals(listOf("0.0.0.0/0", "::/0"), settings.includedRoutes)
         assertTrue(settings.dnsServers.isEmpty())
+    }
+
+    @Test
+    fun routesDnsThroughNativeDotAndReturnsServfailWhenUpstreamFails() {
+        var output: ByteArray? = null
+        NativeClambhookBridge { packet -> output = packet }.use { bridge ->
+            bridge.start(encryptedDnsConfig("dot").absolutePath)
+            assertEquals(
+                "{\"running\":true,\"profile\":\"encrypted-dns\"," +
+                    "\"network_info\":{},\"dns\":{\"enabled\":true," +
+                    "\"upstreams\":[\"device-dot\"]},\"tunnel_mode\":\"tun\"}",
+                bridge.query("status"),
+            )
+            bridge.injectPacket(ipv4UdpPacket(53, dnsQuery()))
+        }
+
+        val packet = requireNotNull(output)
+        assertEquals(53, ((packet[20].toInt() and 0xff) shl 8) or
+            (packet[21].toInt() and 0xff))
+        assertEquals(42000, ((packet[22].toInt() and 0xff) shl 8) or
+            (packet[23].toInt() and 0xff))
+        assertEquals(0x12, packet[28].toInt() and 0xff)
+        assertEquals(0x34, packet[29].toInt() and 0xff)
+        assertEquals(0x80, packet[30].toInt() and 0x80)
+        assertEquals(0x02, packet[31].toInt() and 0x0f)
+    }
+
+    @Test
+    fun rejectsDohWhenAndroidNativeCurlIsNotLinked() {
+        val error = assertThrows(IllegalStateException::class.java) {
+            NativeClambhookBridge { }.use { bridge ->
+                bridge.start(encryptedDnsConfig("doh").absolutePath)
+            }
+        }
+        assertTrue(error.message.orEmpty().contains("DNS-over-HTTPS is not linked"))
     }
 
     @Test

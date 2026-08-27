@@ -212,10 +212,14 @@ the shared C protocol layer for TCP and UDP. Android builds pin and checksum
 OpenSSL 3.5.8 LTS from its official source archive, statically link it for all
 four packaged ABIs at the Android 12/API 31 floor, and package its Apache 2.0
 license without changing Clambhook's own license. A physical Pixel 3a XL/API
-32 passes the six-test JNI/Compose suite, including on-device AES-128-GCM,
-AES-256-GCM, and ChaCha20-Poly1305 self-tests and delayed direct UDP. Encrypted
-DNS and the production platform VPN lifecycle remain gated. The
-additive native DNS library now provides route-planned DoH and DoT, Control D
+32 has passed the JNI/Compose suite, including on-device AES-128-GCM,
+AES-256-GCM, and ChaCha20-Poly1305 self-tests and delayed direct UDP; physical
+hardware is optional and does not replace the API 31/33/36 managed-device
+matrix. Android's production VPN service selects the native C/JNI runtime.
+Its packet path now owns DoT interception and returns a correlated SERVFAIL
+when every encrypted upstream fails. Android DoH fails closed until libcurl is
+linked for the NDK rather than leaking queries through plaintext DNS. The
+shared native DNS library provides route-planned DoH and DoT, Control D
 expansion/bootstrap hygiene, response correlation validation, upstream
 failover, and SERVFAIL generation; it deliberately rejects DoQ rather than
 downgrading it. Runtime lifecycle/profile rollback now owns that proxy and
@@ -332,10 +336,9 @@ for Android development: SDK/NDK provisioning, emulator management, and
 build-deploy-launch on a device or Android SDK Emulator (AVD) (`android run`, or `make run-android`).
 Gradle is still used for unit tests (`make test-android`), lint
 (`make lint-android`), and release assembly (`make build-android-release`)
-because the `android` CLI has no equivalent commands. Gradle now packages the
-NDK-built C/JNI library and its pinned OpenSSL runtime; the current gomobile AAR
-remains the selected rollback runtime while `NativeClambhookBridge` advances
-through the remaining API/VPN parity gates. See
+because the `android` CLI has no equivalent commands. Gradle packages the
+NDK-built C/JNI library and its pinned OpenSSL runtime; no gomobile AAR is
+packaged or selected by the production VPN service. See
 [`docs/android-development.md`](docs/android-development.md) for the full guide.
 
 ## Repository layout

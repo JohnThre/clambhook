@@ -102,19 +102,21 @@ details. For a release, `make release-linux` builds the
 `.deb` + `.rpm`, checksums, GPG-signs, and writes the update manifest; see
 [`docs/website-release/linux-release-runbook.md`](website-release/linux-release-runbook.md).
 
-## Android lane — GitHub managed devices plus physical-device QA
+## Android lane — GitHub managed devices with optional physical-device QA
 
-Android validates in GitHub Actions and on the developer's physical Pixel. The
-GUI is Kotlin/Jetpack Compose with an Android 12 (API 31) floor. During runtime
-migration Gradle packages the
-NDK-built C/JNI runtime alongside the gomobile rollback AAR. The focused native
-configuration/dashboard/route-explanation, profile-rule rebuild, raw-packet
-callback, direct/encrypted route linkage, OpenSSL AEAD, and direct-UDP/timer
-tests must pass on API 31; GitHub runs unit tests, lint, the debug build, and
-managed Compose/JNI devices at API 31, 33, and 36. Google's `android` CLI is the
-default for the local on-device dev loop. A physical Pixel 3a XL on Android
-12/API 32 additionally passed the
-six-test instrumentation suite after OpenSSL 3.5.8 LTS was statically linked
+Android validates authoritatively in GitHub Actions; a developer's physical
+Pixel is optional supplemental QA. The GUI is Kotlin/Jetpack Compose with an
+Android 12 (API 31) floor. Gradle packages the NDK-built C/JNI runtime, the
+production VPN factory selects it, and no gomobile AAR is packaged. The focused
+native configuration/dashboard/route-explanation, profile-rule rebuild, raw-packet
+callback, direct/encrypted route linkage, OpenSSL AEAD, direct-UDP/timer, and
+encrypted-DNS DoT interception/failure-response tests must pass on API 31;
+GitHub runs unit tests, lint, the debug build, and managed Compose/JNI devices
+at API 31, 33, and 36. Android DoH configuration fails closed until libcurl is
+available to the NDK build; plaintext fallback is forbidden. Google's
+`android` CLI is the default for the local on-device dev loop. A physical Pixel
+3a XL on Android 12/API 32 additionally passed focused instrumentation after
+OpenSSL 3.5.8 LTS was statically linked
 and C rule decisions were connected to native encrypted TCP/UDP chains. The
 device run executes AES-128-GCM, AES-256-GCM, and ChaCha20-Poly1305 through JNI.
 This supplements rather than replaces the API 31/33/36 matrix. The daemon-side
@@ -155,15 +157,13 @@ conditional cache metadata. Sanitizer tests, ten license differential cases,
 and all four Android ABI builds remained green afterward. Android packages the
 portable parser/cache reader; outbound refresh remains in the app-owned Kotlin
 networking lane until native Android HTTP/TLS dependencies are selected.
-The shared runtime continues to compile for every packaged Android ABI, and the
-connected Pixel 3a XL on Android 12/API 32 again passed all six instrumentation
-tests against the rebuilt JNI library after this rule-feed checkpoint. Keep a
-physical device awake and dismiss its keyguard before the Compose run; a locked
-device stops the test host activity and produces a false `No compose
-hierarchies found` failure.
+The shared runtime continues to compile for every packaged Android ABI. When a
+physical device is used for supplemental QA, keep it awake and dismiss its
+keyguard before the Compose run; a locked device stops the test host activity
+and produces a false `No compose hierarchies found` failure. An unavailable
+physical device does not block the managed-device CI gate.
 
 ```sh
-make build-android-mobile-aar                # gomobile bind → ui/android/app/libs/
 make build-android-native                    # NDK JNI library, all packaged ABIs
 make test-android                            # ./gradlew :app:testDebugUnitTest
 make lint-android                            # ./gradlew :app:lintDebug
