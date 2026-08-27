@@ -336,6 +336,56 @@ ch_status ch_protocol_chain_dial_packet(const ch_config_table *chain,
     return CH_OK;
 }
 
+ch_status ch_protocol_chain_supports_packet(const ch_config_table *chain,
+                                            ch_error *error) {
+    ch_error_clear(error);
+    if (chain == NULL) {
+        ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
+                     "packet chain is required");
+        return CH_ERROR_INVALID_ARGUMENT;
+    }
+    const ch_config_array *servers = ch_config_table_get_array(chain,
+                                                               "server");
+    size_t count = ch_config_array_count(servers);
+    if (count == 0U) {
+        ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
+                     "native packet chain requires one server");
+        return CH_ERROR_INVALID_ARGUMENT;
+    }
+    const ch_config_table *server = ch_config_array_get_table(servers,
+                                                               count - 1U);
+    char *protocol = ch_packet_optional_string(server, "protocol");
+    if (protocol == NULL) {
+        ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
+                     "packet chain protocol is required");
+        return CH_ERROR_INVALID_ARGUMENT;
+    }
+    bool supported = strcasecmp(protocol, "direct") == 0 ||
+        strcasecmp(protocol, "shadowsocks") == 0 ||
+        strcasecmp(protocol, "trojan") == 0 ||
+        strcasecmp(protocol, "clambback") == 0 ||
+        strcasecmp(protocol, "vmess") == 0;
+    bool carrier_supported = count == 1U ||
+        strcasecmp(protocol, "trojan") == 0 ||
+        strcasecmp(protocol, "clambback") == 0 ||
+        strcasecmp(protocol, "vmess") == 0;
+    if (!supported) {
+        ch_error_set(error, CH_ERROR_UNSUPPORTED,
+                     "native packet protocol %s is not ported yet", protocol);
+        free(protocol);
+        return CH_ERROR_UNSUPPORTED;
+    }
+    if (!carrier_supported) {
+        free(protocol);
+        ch_error_set(error, CH_ERROR_UNSUPPORTED,
+                     "native datagram packet chains currently require one "
+                     "server");
+        return CH_ERROR_UNSUPPORTED;
+    }
+    free(protocol);
+    return CH_OK;
+}
+
 ch_status ch_protocol_direct_packet_dial(
     ch_packet_connection **out_connection,
     ch_error *error) {

@@ -62,7 +62,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libsodium-dev libssl-dev
       - name: Trace legacy Go sources
         if: matrix.language == 'go'
-        run: go build ./...
+        run: make build-clib && go build ./...
       - name: Trace Swift package sources without building the macOS app
         if: matrix.language == 'swift'
         run: swift build --package-path ui/apple --target ClambhookShared

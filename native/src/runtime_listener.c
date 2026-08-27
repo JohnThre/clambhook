@@ -16,6 +16,7 @@
 #include "clambhook/temporary_rules.h"
 #include "clambhook/traffic.h"
 #include "cnet.h"
+#include "policy.h"
 
 #define CH_RUNTIME_LISTENER_LIMIT 2U
 #define CH_RUNTIME_DEFAULT_MAX_CONNECTIONS 512U
@@ -36,6 +37,7 @@ struct ch_runtime_listener_set {
     ch_traffic_store *traffic;
     ch_temporary_rules *temporary_rules;
     ch_prompt_manager *prompts;
+    ch_policy_manager *policy;
     ch_runtime_listener_entry entries[CH_RUNTIME_LISTENER_LIMIT];
     size_t count;
     ch_runtime_listener_entry dns_entry;
@@ -79,57 +81,23 @@ static const ch_config_table *runtime_find_named(const ch_config_array *array,
     return NULL;
 }
 
-static char *runtime_select_group_chain(const ch_runtime_listener_entry *entry,
-                                        const char *group_name,
-                                        ch_error *error) {
-    const ch_config_array *groups = ch_config_table_get_array(entry->profile,
-                                                               "policy_group");
-    const ch_config_table *group = runtime_find_named(groups, group_name);
-    if (group == NULL) {
-        ch_error_set(error, CH_ERROR_NOT_FOUND, "policy group %s not found", group_name);
-        return NULL;
-    }
-    char *type = runtime_optional_string(group, "type");
-    char *selected = NULL;
-    if (type == NULL) {
-        ch_error_set(error, CH_ERROR_OUT_OF_MEMORY, "copy policy group type");
-        return NULL;
-    }
-    if (strcasecmp(type, "select") == 0) {
-        selected = runtime_optional_string(group, "selected");
-        if (selected != NULL && selected[0] == '\0') {
-            free(selected);
-            selected = NULL;
-        }
-    }
-    free(type);
-    if (selected == NULL) {
-        const ch_config_array *chains = ch_config_table_get_array(group, "chains");
-        if (ch_config_array_count(chains) > 0U &&
-            ch_config_array_get_string(chains, 0U, &selected, error) != CH_OK) {
-            return NULL;
-        }
-    }
-    if (selected == NULL || selected[0] == '\0') {
-        free(selected);
-        ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
-                     "policy group %s has no member chains", group_name);
-        return NULL;
-    }
-    return selected;
-}
-
 static const char *runtime_decision_chain(
     const ch_runtime_listener_entry *entry,
     const ch_rule_decision *decision,
+    const char *network,
+    const char *target,
+    const char *source,
     char **out_selected_group_chain,
     ch_error *error) {
     *out_selected_group_chain = NULL;
     const char *chain_name = decision->is_default ? entry->default_chain :
                                                      decision->chain_name;
     if (strcmp(decision->action, CH_RULE_ACTION_GROUP) == 0) {
-        *out_selected_group_chain = runtime_select_group_chain(
-            entry, decision->group_name, error);
+        if (ch_policy_manager_select(
+                entry->owner->policy, decision->group_name, network, target,
+                source, out_selected_group_chain, error) != CH_OK) {
+            return NULL;
+        }
         chain_name = *out_selected_group_chain;
     }
     if (chain_name == NULL || chain_name[0] == '\0') {
@@ -311,7 +279,8 @@ static ch_status runtime_listener_dial_targets(
         strcmp(decision.action, CH_RULE_ACTION_REJECT) != 0 &&
         strcmp(decision.action, CH_RULE_ACTION_DIRECT) != 0) {
         chain_name = runtime_decision_chain(
-            entry, &decision, &selected_group_chain, error);
+            entry, &decision, network, route_target, source,
+            &selected_group_chain, error);
         if (chain_name == NULL) {
             ch_rule_decision_clear(&decision);
             return error == NULL ? CH_ERROR_INVALID_ARGUMENT : error->code;
@@ -379,7 +348,8 @@ static ch_status runtime_listener_packet_dial_targets(
         strcmp(decision.action, CH_RULE_ACTION_REJECT) != 0 &&
         strcmp(decision.action, CH_RULE_ACTION_DIRECT) != 0) {
         chain_name = runtime_decision_chain(
-            entry, &decision, &selected_group_chain, error);
+            entry, &decision, network, route_target, source,
+            &selected_group_chain, error);
         if (chain_name == NULL) {
             ch_rule_decision_clear(&decision);
             return error == NULL ? CH_ERROR_INVALID_ARGUMENT : error->code;
@@ -730,6 +700,12 @@ ch_runtime_listener_set *ch_runtime_listener_set_start(const ch_config *config,
         ch_error_set(error, CH_ERROR_OUT_OF_MEMORY, "copy listener profile name");
         return NULL;
     }
+    set->policy = ch_policy_manager_create(config, selected_name, NULL, error);
+    if (set->policy == NULL) {
+        free(selected_name);
+        free(set);
+        return NULL;
+    }
     const ch_config_table *listen = ch_config_table_get_table(profile, "listen");
     ch_status status = runtime_dns_entry_initialize(
         set, config, profile, selected_name, error);
@@ -751,6 +727,10 @@ ch_runtime_listener_set *ch_runtime_listener_set_start(const ch_config *config,
         ch_runtime_listener_set_stop(set);
         return NULL;
     }
+    if (ch_policy_manager_start(set->policy, error) != CH_OK) {
+        ch_runtime_listener_set_stop(set);
+        return NULL;
+    }
     return set;
 }
 
@@ -761,7 +741,18 @@ void ch_runtime_listener_set_stop(ch_runtime_listener_set *set) {
     }
     runtime_listener_entry_clear(&set->dns_entry);
     runtime_listener_entry_clear(&set->tun_entry);
+    ch_policy_manager_destroy(set->policy);
     free(set);
+}
+
+char *ch_runtime_listener_set_policy_snapshot(
+    ch_runtime_listener_set *set, const char *profile_name, ch_error *error) {
+    if (set == NULL || set->policy == NULL) {
+        ch_error_set(error, CH_ERROR_INVALID_STATE,
+                     "runtime policy manager is not available");
+        return NULL;
+    }
+    return ch_policy_manager_snapshot_json(set->policy, profile_name, error);
 }
 
 int ch_runtime_listener_set_append_status(ch_runtime_listener_set *set,
@@ -879,7 +870,8 @@ ch_status ch_runtime_listener_set_dns_dial(
     } else {
         char *selected_group_chain = NULL;
         const char *chain_name = runtime_decision_chain(
-            &set->dns_entry, &decision, &selected_group_chain, error);
+            &set->dns_entry, &decision, network, target, "",
+            &selected_group_chain, error);
         if (chain_name == NULL) {
             status = error == NULL ? CH_ERROR_INVALID_ARGUMENT : error->code;
         } else {

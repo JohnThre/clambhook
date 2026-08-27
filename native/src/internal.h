@@ -49,6 +49,11 @@ ch_runtime_listener_set *ch_runtime_listener_set_start(
 void ch_runtime_listener_set_stop(ch_runtime_listener_set *set);
 int ch_runtime_listener_set_append_status(ch_runtime_listener_set *set,
                                           ch_json_buffer *json);
+char *ch_runtime_listener_set_policy_snapshot(
+    ch_runtime_listener_set *set,
+    const char *profile_name,
+    ch_error *error
+);
 ch_status ch_runtime_listener_set_dns_route(
     ch_runtime_listener_set *set,
     const char *network,

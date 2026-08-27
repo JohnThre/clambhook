@@ -96,9 +96,14 @@ The additive CMake build currently provides:
   profile/collection/backup response contract. Manual `select` group changes
   now validate group type and membership, persist transactionally, and return
   the nested Go-compatible policy snapshot. Config-derived policy reads include
-  normalized defaults, selected chain, selection mode/reason, and empty probe
-  results; active native health probes are not yet claimed. Remote rule sets
-  and subscriptions now share a portable C17 parser/cache subsystem for
+  normalized defaults, selected chain, selection mode/reason, and live probe
+  results. A C-owned policy manager runs bounded HTTP/HTTPS HEAD probes through
+  every configured chain in parallel, verifies TLS by default, and applies
+  `url-test`, `fallback`, stable-hash `load-balance`, sticky `smart`, and manual
+  `select` routing for TCP and eligible UDP members. It follows runtime start,
+  stop, reload, and profile-switch transactions on both the host daemon and
+  Android JNI runtime. Remote rule sets and subscriptions now share a portable
+  C17 parser/cache subsystem for
   `auto`, `plain`, `hosts`, and `adblock` input, normalized sorted domain/CIDR
   matchers, the 5 MiB/200,000-entry contract, and version-1 Go cache
   compatibility. The native refresh endpoints use conditional
@@ -191,8 +196,8 @@ The SOCKS5 UDP relay binds to the control connection's local interface, pins
 the first client endpoint (and any explicitly requested port), rejects
 fragmentation, re-evaluates routing for each datagram, reuses one asynchronous
 packet session per selected route, and ties teardown to the TCP control
-connection. WireGuard, OpenVPN, DoQ, prompts, traffic persistence, and
-developer inspection remain cutover blockers;
+connection. WireGuard, OpenVPN, DoQ, traffic persistence, and developer
+inspection execution remain cutover blockers;
 datagram protocols that cannot
 be represented by the native stream-carrier model fail closed.
 

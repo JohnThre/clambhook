@@ -31,6 +31,9 @@
 #define CH_PROTOCOL_DIAL_TIMEOUT_MS 30000
 #define CH_PROTOCOL_BUFFER_SIZE 32768U
 
+static _Thread_local unsigned int ch_protocol_dial_timeout_ms =
+    CH_PROTOCOL_DIAL_TIMEOUT_MS;
+
 typedef struct ch_tls_pump {
     SSL_CTX *context;
     SSL *ssl;
@@ -164,7 +167,7 @@ ch_status ch_protocol_connect_tcp(const char *target, int *out_descriptor,
             struct pollfd wait = {.fd = descriptor, .events = POLLOUT};
             int ready;
             do {
-                ready = poll(&wait, 1U, CH_PROTOCOL_DIAL_TIMEOUT_MS);
+                ready = poll(&wait, 1U, (int)ch_protocol_dial_timeout_ms);
             } while (ready < 0 && errno == EINTR);
             if (ready > 0) {
                 int socket_error = 0;
@@ -581,7 +584,7 @@ ch_status ch_protocol_tls_wrap(const ch_config_table *settings,
     *out_descriptor = -1;
     (void)pthread_once(&ch_protocol_sigpipe_once, ch_protocol_ignore_sigpipe);
     ch_protocol_socket_timeout(underlying_descriptor,
-                               CH_PROTOCOL_DIAL_TIMEOUT_MS);
+                               ch_protocol_dial_timeout_ms);
     SSL_CTX *context = SSL_CTX_new(TLS_client_method());
     if (context == NULL || SSL_CTX_set_min_proto_version(
             context, TLS1_2_VERSION) != 1) {
@@ -760,9 +763,9 @@ ch_status ch_protocol_trojan_packet_stream(
         out_descriptor, error);
 }
 
-ch_status ch_protocol_chain_dial(const ch_config_table *chain,
-                                 const char *network, const char *target,
-                                 int *out_descriptor, ch_error *error) {
+static ch_status ch_protocol_chain_dial_current(
+    const ch_config_table *chain, const char *network, const char *target,
+    int *out_descriptor, ch_error *error) {
     ch_error_clear(error);
     if (chain == NULL || network == NULL || target == NULL ||
         out_descriptor == NULL) {
@@ -860,6 +863,31 @@ ch_status ch_protocol_chain_dial(const ch_config_table *chain,
     }
     *out_descriptor = descriptor;
     return CH_OK;
+}
+
+ch_status ch_protocol_chain_dial(const ch_config_table *chain,
+                                 const char *network, const char *target,
+                                 int *out_descriptor, ch_error *error) {
+    return ch_protocol_chain_dial_current(chain, network, target,
+                                          out_descriptor, error);
+}
+
+ch_status ch_protocol_chain_dial_timeout(
+    const ch_config_table *chain, const char *network, const char *target,
+    unsigned int timeout_milliseconds, int *out_descriptor, ch_error *error) {
+    if (timeout_milliseconds == 0U ||
+        timeout_milliseconds > (unsigned int)INT_MAX) {
+        ch_error_clear(error);
+        ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
+                     "chain dial timeout must be between 1 and INT_MAX ms");
+        return CH_ERROR_INVALID_ARGUMENT;
+    }
+    unsigned int previous = ch_protocol_dial_timeout_ms;
+    ch_protocol_dial_timeout_ms = timeout_milliseconds;
+    ch_status status = ch_protocol_chain_dial_current(
+        chain, network, target, out_descriptor, error);
+    ch_protocol_dial_timeout_ms = previous;
+    return status;
 }
 
 static ch_status ch_protocol_chain_packet_prefix(

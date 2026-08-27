@@ -376,13 +376,25 @@ void ch_test_runtime_listener(void) {
         "[[profile]]\nname = \"local\"\n"
         "[profile.listen]\nsocks5 = \"127.0.0.1:0\"\n"
         "[[profile.chain]]\nname = \"default\"\n"
-        "[[profile.chain.server]]\nprotocol = \"direct\"\n",
+        "[[profile.chain.server]]\nprotocol = \"direct\"\n"
+        "[[profile.policy_group]]\nname = \"manual\"\n"
+        "type = \"select\"\nchains = [\"default\"]\n"
+        "selected = \"default\"\n"
+        "[[profile.rule]]\nname = \"route-through-policy\"\n"
+        "action = \"group:manual\"\n",
         file) >= 0);
     CH_TEST_ASSERT(fclose(file) == 0);
     ch_error error;
     ch_runtime *runtime = ch_runtime_create(NULL, &error);
     CH_TEST_ASSERT(runtime != NULL);
     CH_TEST_ASSERT(ch_runtime_start(runtime, config_path, &error) == CH_OK);
+    char *policy_json = NULL;
+    CH_TEST_ASSERT(ch_runtime_query(runtime, "policy_groups", "{}",
+                                    &policy_json, &error) == CH_OK);
+    CH_TEST_ASSERT(strstr(policy_json, "\"selected_chain\":\"default\"") !=
+                   NULL);
+    CH_TEST_ASSERT(strstr(policy_json, "\"results\":[]") != NULL);
+    ch_string_free(policy_json);
     char *status_json = NULL;
     CH_TEST_ASSERT(ch_runtime_query(runtime, "status", "{}", &status_json, &error) == CH_OK);
     ch_json_value *status = ch_json_parse(status_json, strlen(status_json), &error);

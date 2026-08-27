@@ -245,6 +245,33 @@ static char *ch_runtime_profiles_json(ch_runtime *runtime) {
     return ch_json_take(&json);
 }
 
+static char *ch_runtime_policy_groups_json(ch_runtime *runtime,
+                                           const char *request_json,
+                                           ch_error *error) {
+    char *configured = ch_config_query_payload_json(
+        runtime->config, runtime->active_profile, "policy_groups",
+        request_json, error);
+    if (configured == NULL || runtime->listeners == NULL) return configured;
+    ch_error parse_error;
+    ch_json_value *root = ch_json_parse(configured, strlen(configured),
+                                        &parse_error);
+    const char *profile = root == NULL ? NULL : ch_json_string_value(
+        ch_json_object_get(root, "profile"));
+    if (profile == NULL || strcmp(profile, runtime->active_profile) != 0) {
+        ch_json_value_destroy(root);
+        return configured;
+    }
+    char *snapshot = ch_runtime_listener_set_policy_snapshot(
+        runtime->listeners, profile, error);
+    ch_json_value_destroy(root);
+    if (snapshot == NULL) {
+        ch_error_clear(error);
+        return configured;
+    }
+    free(configured);
+    return snapshot;
+}
+
 static int ch_runtime_event_type_matches(const ch_json_value *types,
                                          const char *event_type) {
     if (types == NULL || ch_json_array_size(types) == 0U) return 1;
@@ -1636,9 +1663,11 @@ static void ch_command_process(ch_runtime *runtime, ch_command *command) {
             } else if (strcmp(command->operation, "events") == 0) {
                 command->response = ch_runtime_events_json(
                     runtime, command->payload, &command->error);
+            } else if (strcmp(command->operation, "policy_groups") == 0) {
+                command->response = ch_runtime_policy_groups_json(
+                    runtime, command->payload, &command->error);
             } else if (strcmp(command->operation, "servers") == 0 ||
                        strcmp(command->operation, "rules") == 0 ||
-                       strcmp(command->operation, "policy_groups") == 0 ||
                        strcmp(command->operation, "rule_sets") == 0 ||
                        strcmp(command->operation, "dns") == 0 ||
                        strcmp(command->operation, "config_settings") == 0 ||

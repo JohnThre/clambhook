@@ -9,6 +9,7 @@
 
 #include "clambhook/config.h"
 #include "clambhook/ip_stack.h"
+#include "clambhook/json.h"
 #include "clambhook/protocol.h"
 #include "clambhook/prompt.h"
 #include "clambhook/rules.h"
@@ -16,6 +17,7 @@
 #include "clambhook/traffic.h"
 #include "cnet.h"
 #include "internal.h"
+#include "policy.h"
 
 typedef struct android_route {
     bool direct;
@@ -28,6 +30,7 @@ typedef struct android_route {
 typedef struct android_config_state {
     ch_config *config;
     ch_rule_engine *rules;
+    ch_policy_manager *policy;
     char *config_path;
     char *active_profile;
 } android_config_state;
@@ -41,6 +44,7 @@ struct ch_runtime {
     bool running;
     ch_config *config;
     ch_rule_engine *rules;
+    ch_policy_manager *policy;
     char *config_path;
     char *active_profile;
     ch_ip_stack *ip_stack;
@@ -73,27 +77,6 @@ static const ch_config_table *android_named_table(
         if (matches) return table;
     }
     return NULL;
-}
-
-static const char *android_selected_group_chain(
-    const ch_config_table *profile, const char *group_name,
-    char **out_chain) {
-    *out_chain = NULL;
-    const ch_config_table *group = android_named_table(
-        ch_config_table_get_array(profile, "policy_group"), group_name);
-    if (group == NULL) return NULL;
-    *out_chain = android_optional_string(group, "selected");
-    if (*out_chain != NULL && (*out_chain)[0] != '\0') return *out_chain;
-    free(*out_chain);
-    *out_chain = NULL;
-    const ch_config_array *chains = ch_config_table_get_array(group, "chains");
-    if (ch_config_array_count(chains) == 0U) return NULL;
-    ch_error ignored;
-    if (ch_config_array_get_string(chains, 0U, out_chain, &ignored) != CH_OK) {
-        free(*out_chain);
-        *out_chain = NULL;
-    }
-    return *out_chain;
 }
 
 static void android_route_clear(android_route *route) {
@@ -163,15 +146,11 @@ static ch_status android_runtime_resolve_route(
         status = CH_OK;
     } else if (strcmp(out_route->decision.action,
                       CH_RULE_ACTION_GROUP) == 0) {
-        const ch_config_table *profile = ch_config_profile_named(
-            runtime->config, runtime->active_profile);
-        chain_name = android_selected_group_chain(
-            profile, out_route->decision.group_name,
-            &out_route->selected_group_chain);
-        if (chain_name == NULL) {
-            ch_error_set(error, CH_ERROR_NOT_FOUND,
-                         "Android native policy group has no selected chain");
-            status = CH_ERROR_NOT_FOUND;
+        status = ch_policy_manager_select(
+            runtime->policy, out_route->decision.group_name, network, target,
+            source, &out_route->selected_group_chain, error);
+        if (status == CH_OK) {
+            chain_name = out_route->selected_group_chain;
         }
     } else if (strcmp(out_route->decision.action,
                       CH_RULE_ACTION_CHAIN) != 0) {
@@ -414,6 +393,7 @@ static void android_runtime_stop_ip_stack(ch_runtime *runtime) {
 
 static void android_config_state_clear(android_config_state *state) {
     if (state == NULL) return;
+    ch_policy_manager_destroy(state->policy);
     ch_config_free(state->config);
     ch_rule_engine_destroy(state->rules);
     free(state->config_path);
@@ -425,11 +405,13 @@ static android_config_state android_runtime_take_config(ch_runtime *runtime) {
     android_config_state state = {
         .config = runtime->config,
         .rules = runtime->rules,
+        .policy = runtime->policy,
         .config_path = runtime->config_path,
         .active_profile = runtime->active_profile
     };
     runtime->config = NULL;
     runtime->rules = NULL;
+    runtime->policy = NULL;
     runtime->config_path = NULL;
     runtime->active_profile = NULL;
     return state;
@@ -439,6 +421,7 @@ static void android_runtime_install_config(ch_runtime *runtime,
                                            android_config_state *state) {
     runtime->config = state->config;
     runtime->rules = state->rules;
+    runtime->policy = state->policy;
     runtime->config_path = state->config_path;
     runtime->active_profile = state->active_profile;
     memset(state, 0, sizeof(*state));
@@ -481,6 +464,7 @@ static ch_status android_runtime_load_config(const char *config_path,
         return CH_ERROR_OUT_OF_MEMORY;
     }
     ch_rule_engine *rules = NULL;
+    ch_policy_manager *policy = NULL;
     if (config != NULL) {
         rules = ch_rule_engine_compile_config(config, active, error);
         if (rules == NULL) {
@@ -490,9 +474,19 @@ static ch_status android_runtime_load_config(const char *config_path,
             return error == NULL || error->code == CH_OK ?
                 CH_ERROR_INVALID_ARGUMENT : error->code;
         }
+        policy = ch_policy_manager_create(config, active, NULL, error);
+        if (policy == NULL) {
+            ch_rule_engine_destroy(rules);
+            ch_config_free(config);
+            free(path);
+            free(active);
+            return error == NULL || error->code == CH_OK ?
+                CH_ERROR_INVALID_ARGUMENT : error->code;
+        }
     }
     state->config = config;
     state->rules = rules;
+    state->policy = policy;
     state->config_path = path;
     state->active_profile = active;
     return CH_OK;
@@ -514,8 +508,13 @@ static ch_status android_runtime_replace_config(ch_runtime *runtime,
         char *selected = ch_strdup(runtime->active_profile);
         ch_rule_engine *selected_rules = selected == NULL ? NULL :
             ch_rule_engine_compile_config(next.config, selected, error);
-        if (selected == NULL || selected_rules == NULL) {
+        ch_policy_manager *selected_policy = selected_rules == NULL ? NULL :
+            ch_policy_manager_create(next.config, selected, NULL, error);
+        if (selected == NULL || selected_rules == NULL ||
+            selected_policy == NULL) {
             free(selected);
+            ch_rule_engine_destroy(selected_rules);
+            ch_policy_manager_destroy(selected_policy);
             android_config_state_clear(&next);
             if (error == NULL || error->code == CH_OK) {
                 ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
@@ -526,8 +525,10 @@ static ch_status android_runtime_replace_config(ch_runtime *runtime,
         }
         free(next.active_profile);
         ch_rule_engine_destroy(next.rules);
+        ch_policy_manager_destroy(next.policy);
         next.active_profile = selected;
         next.rules = selected_rules;
+        next.policy = selected_policy;
     }
 
     android_config_state previous = android_runtime_take_config(runtime);
@@ -585,7 +586,12 @@ static ch_status android_runtime_replace_config(ch_runtime *runtime,
         return status;
     }
     android_runtime_install_config(runtime, &next);
-    if (restart) status = android_runtime_start_ip_stack(runtime, error);
+    if (runtime->policy != NULL) {
+        status = ch_policy_manager_start(runtime->policy, error);
+    }
+    if (status == CH_OK && restart) {
+        status = android_runtime_start_ip_stack(runtime, error);
+    }
     if (status == CH_OK) {
         android_config_state_clear(&previous);
         return CH_OK;
@@ -600,8 +606,15 @@ static ch_status android_runtime_replace_config(ch_runtime *runtime,
                                       &ignored);
     android_runtime_install_config(runtime, &previous);
     ch_error rollback_error;
-    ch_status rollback_status = restart ?
-        android_runtime_start_ip_stack(runtime, &rollback_error) : CH_OK;
+    ch_status rollback_status = CH_OK;
+    if (runtime->policy != NULL) {
+        rollback_status = ch_policy_manager_start(runtime->policy,
+                                                  &rollback_error);
+    }
+    if (rollback_status == CH_OK && restart) {
+        rollback_status = android_runtime_start_ip_stack(runtime,
+                                                         &rollback_error);
+    }
     android_config_state_clear(&failed);
     if (rollback_status != CH_OK) {
         runtime->running = false;
@@ -619,13 +632,18 @@ static ch_status android_runtime_select_profile(ch_runtime *runtime,
                                                 ch_error *error) {
     ch_rule_engine *next_rules = ch_rule_engine_compile_config(
         runtime->config, name, error);
-    if (next_rules == NULL) {
+    ch_policy_manager *next_policy = next_rules == NULL ? NULL :
+        ch_policy_manager_create(runtime->config, name, NULL, error);
+    if (next_rules == NULL || next_policy == NULL) {
+        ch_rule_engine_destroy(next_rules);
+        ch_policy_manager_destroy(next_policy);
         free(name);
         return error == NULL || error->code == CH_OK ?
             CH_ERROR_INVALID_ARGUMENT : error->code;
     }
     if (strcmp(runtime->active_profile, name) == 0) {
         ch_rule_engine_destroy(next_rules);
+        ch_policy_manager_destroy(next_policy);
         free(name);
         return CH_OK;
     }
@@ -633,36 +651,42 @@ static ch_status android_runtime_select_profile(ch_runtime *runtime,
     bool running = runtime->running;
     char *previous_name = runtime->active_profile;
     ch_rule_engine *previous_rules = runtime->rules;
+    ch_policy_manager *previous_policy = runtime->policy;
     if (running) android_runtime_stop_ip_stack(runtime);
     runtime->active_profile = name;
     runtime->rules = next_rules;
+    runtime->policy = next_policy;
 
-    if (running) {
-        ch_status status = android_runtime_start_ip_stack(runtime, error);
-        if (status != CH_OK) {
-            ch_error switch_error = *error;
-            runtime->active_profile = previous_name;
-            runtime->rules = previous_rules;
-            ch_error rollback_error;
-            ch_status rollback_status = android_runtime_start_ip_stack(
-                runtime, &rollback_error);
-            if (rollback_status != CH_OK) {
-                runtime->running = false;
-                ch_error_set(error, CH_ERROR_INTERNAL,
-                             "switch Android profile failed: %s; "
-                             "rollback failed: %s",
-                             switch_error.message, rollback_error.message);
-                status = CH_ERROR_INTERNAL;
-            } else {
-                *error = switch_error;
-            }
-            ch_rule_engine_destroy(next_rules);
-            free(name);
-            return status;
+    ch_status status = ch_policy_manager_start(next_policy, error);
+    if (status == CH_OK && running) {
+        status = android_runtime_start_ip_stack(runtime, error);
+    }
+    if (status != CH_OK) {
+        ch_error switch_error = *error;
+        runtime->active_profile = previous_name;
+        runtime->rules = previous_rules;
+        runtime->policy = previous_policy;
+        ch_error rollback_error;
+        ch_status rollback_status = running ? android_runtime_start_ip_stack(
+            runtime, &rollback_error) : CH_OK;
+        if (rollback_status != CH_OK) {
+            runtime->running = false;
+            ch_error_set(error, CH_ERROR_INTERNAL,
+                         "switch Android profile failed: %s; "
+                         "rollback failed: %s",
+                         switch_error.message, rollback_error.message);
+            status = CH_ERROR_INTERNAL;
+        } else {
+            *error = switch_error;
         }
+        ch_rule_engine_destroy(next_rules);
+        ch_policy_manager_destroy(next_policy);
+        free(name);
+        return status;
     }
 
     ch_rule_engine_destroy(previous_rules);
+    ch_policy_manager_destroy(previous_policy);
     free(previous_name);
     return CH_OK;
 }
@@ -712,6 +736,33 @@ static char *android_runtime_profiles_json(const ch_runtime *runtime) {
 failure:
     ch_json_dispose(&json);
     return NULL;
+}
+
+static char *android_runtime_policy_groups_json(ch_runtime *runtime,
+                                                const char *request_json,
+                                                ch_error *error) {
+    char *configured = ch_config_query_payload_json(
+        runtime->config, runtime->active_profile, "policy_groups",
+        request_json, error);
+    if (configured == NULL || runtime->policy == NULL) return configured;
+    ch_error parse_error;
+    ch_json_value *root = ch_json_parse(configured, strlen(configured),
+                                        &parse_error);
+    const char *profile = root == NULL ? NULL : ch_json_string_value(
+        ch_json_object_get(root, "profile"));
+    if (profile == NULL || strcmp(profile, runtime->active_profile) != 0) {
+        ch_json_value_destroy(root);
+        return configured;
+    }
+    char *snapshot = ch_policy_manager_snapshot_json(runtime->policy, profile,
+                                                     error);
+    ch_json_value_destroy(root);
+    if (snapshot == NULL) {
+        ch_error_clear(error);
+        return configured;
+    }
+    free(configured);
+    return snapshot;
 }
 
 static char *android_runtime_crypto_self_test_json(ch_error *error) {
@@ -830,10 +881,12 @@ void ch_runtime_destroy(ch_runtime *runtime) {
     pthread_mutex_lock(&runtime->mutex);
     runtime->running = false;
     android_runtime_stop_ip_stack(runtime);
+    ch_policy_manager_destroy(runtime->policy);
     ch_config_free(runtime->config);
     ch_rule_engine_destroy(runtime->rules);
     runtime->config = NULL;
     runtime->rules = NULL;
+    runtime->policy = NULL;
     free(runtime->config_path);
     free(runtime->active_profile);
     pthread_mutex_unlock(&runtime->mutex);
@@ -861,7 +914,11 @@ ch_status ch_runtime_start(ch_runtime *runtime, const char *config_path, ch_erro
     status = android_runtime_replace_config(runtime, config_path, false, error);
     if (status == CH_OK) status = android_runtime_start_ip_stack(runtime,
                                                                 error);
-    if (status == CH_OK) runtime->running = true;
+    if (status == CH_OK) {
+        runtime->running = true;
+    } else {
+        ch_policy_manager_stop(runtime->policy);
+    }
     pthread_mutex_unlock(&runtime->mutex);
     return status;
 }
@@ -875,6 +932,7 @@ ch_status ch_runtime_stop(ch_runtime *runtime, ch_error *error) {
     pthread_mutex_lock(&runtime->mutex);
     runtime->running = false;
     android_runtime_stop_ip_stack(runtime);
+    ch_policy_manager_stop(runtime->policy);
     pthread_mutex_unlock(&runtime->mutex);
     return CH_OK;
 }
@@ -1096,9 +1154,12 @@ ch_status ch_runtime_query(ch_runtime *runtime, const char *operation,
     else if (strcmp(operation, "crypto_self_test") == 0) {
         response = android_runtime_crypto_self_test_json(error);
     }
+    else if (strcmp(operation, "policy_groups") == 0) {
+        response = android_runtime_policy_groups_json(runtime, request_json,
+                                                      error);
+    }
     else if (strcmp(operation, "servers") == 0 ||
              strcmp(operation, "rules") == 0 ||
-             strcmp(operation, "policy_groups") == 0 ||
              strcmp(operation, "rule_sets") == 0 ||
              strcmp(operation, "config") == 0) {
         response = ch_config_query_payload_json(
@@ -1142,7 +1203,11 @@ ch_status ch_runtime_mutate(ch_runtime *runtime, const char *operation,
     pthread_mutex_lock(&runtime->mutex);
     if (strcmp(operation, "connect") == 0) {
         if (!runtime->running) {
-            ch_status status = android_runtime_start_ip_stack(runtime, error);
+            ch_status status = runtime->policy == NULL ? CH_OK :
+                ch_policy_manager_start(runtime->policy, error);
+            if (status == CH_OK) {
+                status = android_runtime_start_ip_stack(runtime, error);
+            }
             if (status != CH_OK) {
                 pthread_mutex_unlock(&runtime->mutex);
                 return status;
@@ -1153,6 +1218,7 @@ ch_status ch_runtime_mutate(ch_runtime *runtime, const char *operation,
     else if (strcmp(operation, "disconnect") == 0) {
         runtime->running = false;
         android_runtime_stop_ip_stack(runtime);
+        ch_policy_manager_stop(runtime->policy);
     }
     else if (strcmp(operation, "set_active_profile") == 0) {
         char *name = ch_json_request_string(request_json, "name", error);

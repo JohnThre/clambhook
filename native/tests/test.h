@@ -36,6 +36,7 @@ void ch_test_license(void);
 void ch_test_listener(void);
 void ch_test_netwatch(void);
 void ch_test_procattr(void);
+void ch_test_policy(void);
 void ch_test_prompt(void);
 void ch_test_protocol(void);
 void ch_test_rule_feed(void);

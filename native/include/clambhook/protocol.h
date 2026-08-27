@@ -24,6 +24,13 @@ ch_status ch_protocol_connect_tcp(const char *target, int *out_descriptor,
 ch_status ch_protocol_chain_dial(const ch_config_table *chain,
                                  const char *network, const char *target,
                                  int *out_descriptor, ch_error *error);
+/* Same chain dial with a bounded connect and handshake timeout. */
+ch_status ch_protocol_chain_dial_timeout(const ch_config_table *chain,
+                                         const char *network,
+                                         const char *target,
+                                         unsigned int timeout_milliseconds,
+                                         int *out_descriptor,
+                                         ch_error *error);
 
 /*
  * Opens a datagram path for a native direct or single-hop Shadowsocks chain.
@@ -34,6 +41,10 @@ ch_status ch_protocol_chain_dial_packet(const ch_config_table *chain,
                                         const char *initial_target,
                                         ch_packet_connection **out_connection,
                                         ch_error *error);
+/* Performs the same structural UDP support check as packet dialing without
+ * opening a socket. This is used by policy groups before choosing a member. */
+ch_status ch_protocol_chain_supports_packet(const ch_config_table *chain,
+                                            ch_error *error);
 ch_status ch_protocol_direct_packet_dial(
     ch_packet_connection **out_connection,
     ch_error *error);

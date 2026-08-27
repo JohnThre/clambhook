@@ -102,6 +102,7 @@ add_library(clambhook_jni SHARED
     "${CLAMBHOOK_ROOT}/native/src/json.c"
     "${CLAMBHOOK_ROOT}/native/src/license.c"
     "${CLAMBHOOK_ROOT}/native/src/license_json.c"
+    "${CLAMBHOOK_ROOT}/native/src/policy.c"
     "${CLAMBHOOK_ROOT}/native/src/protocol.c"
     "${CLAMBHOOK_ROOT}/native/src/protocol_packet.c"
     "${CLAMBHOOK_ROOT}/native/src/protocol_shadowtls.c"
