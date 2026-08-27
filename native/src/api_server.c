@@ -11,6 +11,7 @@
 #include <llhttp.h>
 #include <sodium.h>
 
+#include "clambhook/json.h"
 #include "internal.h"
 
 #define CH_API_MAX_REQUEST_BYTES (1024U * 1024U)
@@ -249,6 +250,67 @@ static char *ch_api_path_id_request_json(const char *path,
     if (result == NULL) {
         ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
                      "encode resource id");
+    }
+    return result;
+}
+
+static char *ch_api_path_action_request_json(const char *path,
+                                             const char *prefix,
+                                             const char *suffix,
+                                             const char *body,
+                                             ch_error *error) {
+    size_t prefix_length = strlen(prefix);
+    size_t suffix_length = strlen(suffix);
+    size_t path_length = strlen(path);
+    if (path_length <= prefix_length + suffix_length ||
+        strncmp(path, prefix, prefix_length) != 0 ||
+        strcmp(path + path_length - suffix_length, suffix) != 0) {
+        ch_error_set(error, CH_ERROR_NOT_FOUND,
+                     "resource path not found");
+        return NULL;
+    }
+    size_t id_length = path_length - prefix_length - suffix_length;
+    if (memchr(path + prefix_length, '/', id_length) != NULL) {
+        ch_error_set(error, CH_ERROR_NOT_FOUND,
+                     "resource path not found");
+        return NULL;
+    }
+    char *id = ch_api_path_decode(path + prefix_length, id_length, error);
+    if (id == NULL) return NULL;
+    const char *document = body == NULL || body[0] == '\0' ? "{}" : body;
+    ch_json_value *request = ch_json_parse(document, strlen(document), error);
+    if (request == NULL) {
+        free(id);
+        return NULL;
+    }
+    if (ch_json_value_type(request) != CH_JSON_OBJECT) {
+        ch_json_value_destroy(request);
+        free(id);
+        ch_error_set(error, CH_ERROR_PARSE,
+                     "request body must be a JSON object");
+        return NULL;
+    }
+    ch_json_value *id_value = ch_json_value_new_string(id);
+    free(id);
+    ch_status status = id_value == NULL ? CH_ERROR_OUT_OF_MEMORY :
+        ch_json_object_set(request, "id", id_value, error);
+    if (status != CH_OK) {
+        ch_json_value_destroy(id_value);
+        ch_json_value_destroy(request);
+        if (status == CH_ERROR_OUT_OF_MEMORY) {
+            ch_error_set(error, status, "encode resource identifier");
+        }
+        return NULL;
+    }
+    ch_json_buffer encoded;
+    ch_json_init(&encoded);
+    int okay = ch_json_append_value(&encoded, request);
+    ch_json_value_destroy(request);
+    char *result = okay ? ch_json_take(&encoded) : NULL;
+    ch_json_dispose(&encoded);
+    if (result == NULL) {
+        ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                     "encode resource request");
     }
     return result;
 }
@@ -579,6 +641,11 @@ static void ch_api_route(ch_api_client *client) {
         status = ch_runtime_query(
             client->server->runtime, "traffic_filter", traffic_request,
             &json, &error);
+    } else if (strcmp(method, "GET") == 0 &&
+               strcmp(path, "/api/v1/rules/temporary") == 0) {
+        status = ch_runtime_query(client->server->runtime,
+                                  "temporary_rules", profile_request,
+                                  &json, &error);
     } else if (strcmp(method, "GET") == 0 && strcmp(path, "/api/v1/policy-groups") == 0) {
         status = ch_runtime_query(client->server->runtime, "policy_groups", profile_request, &json, &error);
     } else if (strcmp(method, "GET") == 0 && strcmp(path, "/api/v1/rule-sets") == 0) {
@@ -599,6 +666,14 @@ static void ch_api_route(ch_api_client *client) {
         status = ch_runtime_query(client->server->runtime, "developer_rewrite_rules", "{}", &json, &error);
     } else if (strcmp(method, "GET") == 0 && strcmp(path, "/api/v1/rule-subscriptions") == 0) {
         status = ch_runtime_query(client->server->runtime, "rule_subscriptions", profile_request, &json, &error);
+    } else if (strcmp(method, "GET") == 0 &&
+               strcmp(path, "/api/v1/prompts/pending") == 0) {
+        status = ch_runtime_query(client->server->runtime,
+                                  "pending_prompts", "{}", &json, &error);
+    } else if (strcmp(method, "GET") == 0 &&
+               strcmp(path, "/api/v1/prompts/decisions") == 0) {
+        status = ch_runtime_query(client->server->runtime,
+                                  "silent_decisions", "{}", &json, &error);
     } else if (strcmp(method, "PUT") == 0 && strcmp(path, "/api/v1/dns") == 0) {
         persistence_required = 1;
         status = ch_runtime_mutate(
@@ -739,6 +814,42 @@ static void ch_api_route(ch_api_client *client) {
             client->body.data == NULL ? "{}" : client->body.data,
             &json, &error);
     } else if (strcmp(method, "POST") == 0 &&
+               strncmp(path, "/api/v1/prompts/decisions/", 26U) == 0) {
+        char *request = ch_api_path_action_request_json(
+            path, "/api/v1/prompts/decisions/", "/promote",
+            client->body.data, &error);
+        if (request == NULL) {
+            ch_api_runtime_error(client, error.code, &error);
+            free(traffic_request);
+            free(profile_request);
+            free(path);
+            return;
+        }
+        persistence_required = strstr(request, "\"scope\":\"forever\"") !=
+            NULL;
+        status = ch_runtime_mutate(client->server->runtime,
+                                   "promote_silent_decision", request,
+                                   &json, &error);
+        free(request);
+    } else if (strcmp(method, "POST") == 0 &&
+               strncmp(path, "/api/v1/prompts/", 16U) == 0) {
+        char *request = ch_api_path_action_request_json(
+            path, "/api/v1/prompts/", "/resolve", client->body.data,
+            &error);
+        if (request == NULL) {
+            ch_api_runtime_error(client, error.code, &error);
+            free(traffic_request);
+            free(profile_request);
+            free(path);
+            return;
+        }
+        persistence_required = strstr(request, "\"scope\":\"forever\"") !=
+            NULL;
+        status = ch_runtime_mutate(client->server->runtime,
+                                   "resolve_prompt", request, &json,
+                                   &error);
+        free(request);
+    } else if (strcmp(method, "POST") == 0 &&
                strcmp(path, "/api/v1/rules/cleanup") == 0) {
         persistence_required = 1;
         status = ch_runtime_mutate(
@@ -793,6 +904,9 @@ static void ch_api_route(ch_api_client *client) {
             strcmp(path, "/api/v1/config/settings") == 0 ||
             strcmp(path, "/api/v1/conditioner") == 0 ||
             strcmp(path, "/api/v1/rule-subscriptions") == 0 ||
+            strcmp(path, "/api/v1/prompts/pending") == 0 ||
+            strcmp(path, "/api/v1/prompts/decisions") == 0 ||
+            strncmp(path, "/api/v1/prompts/", 16U) == 0 ||
             strcmp(path, "/api/v1/policy-groups/selection") == 0 ||
             strcmp(path, "/api/v1/developer/settings") == 0 ||
             strcmp(path, "/api/v1/developer/map-rules") == 0 ||
@@ -802,6 +916,7 @@ static void ch_api_route(ch_api_client *client) {
             strcmp(path, "/api/v1/rule-subscriptions/refresh") == 0 ||
             strcmp(path, "/api/v1/rules/test") == 0 || strcmp(path, "/api/v1/routes/explain") == 0 ||
             strcmp(path, "/api/v1/rules/from-connection") == 0 ||
+            strcmp(path, "/api/v1/rules/temporary") == 0 ||
             strcmp(path, "/api/v1/rules/temporary/from-connection") == 0 ||
             strcmp(path, "/api/v1/rules/cleanup") == 0 ||
             strncmp(path, "/api/v1/rules/temporary/", 24U) == 0 ||

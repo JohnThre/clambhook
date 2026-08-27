@@ -293,6 +293,62 @@ class NativeClambhookBridgeTest {
     }
 
     @Test
+    fun resolvesNativePromptWhilePacketInjectionIsPaused() {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val config = File(context.cacheDir, "native-prompt-test.toml").apply {
+            writeText(
+                """
+                active = "prompt"
+                [prompt]
+                enabled = true
+                timeout_seconds = 5
+                default_allow = false
+                [[profile]]
+                name = "prompt"
+                [[profile.chain]]
+                name = "default"
+                [[profile.chain.server]]
+                protocol = "direct"
+                """.trimIndent() + "\n",
+            )
+        }
+        NativeClambhookBridge { }.use { bridge ->
+            bridge.start(config.absolutePath)
+            val injectionFailure = AtomicReference<Throwable?>()
+            val injection = Thread {
+                try {
+                    bridge.injectPacket(ipv4UdpPacket(9, "prompt".encodeToByteArray()))
+                } catch (error: Throwable) {
+                    injectionFailure.set(error)
+                }
+            }.apply { start() }
+            var prompt: PendingPromptPayload? = null
+            for (attempt in 0 until 100) {
+                prompt = ApiJson.decodeFromString<PromptsPayload>(
+                    bridge.query("pending_prompts"),
+                ).prompts.singleOrNull()
+                if (prompt != null) break
+                Thread.sleep(10)
+            }
+            val pending = requireNotNull(prompt)
+            assertEquals("udp", pending.network)
+            assertEquals("127.0.0.1:9", pending.target)
+            assertEquals(
+                "{\"resolved\":true,\"id\":\"${pending.id}\","
+                    + "\"action\":\"block\",\"scope\":\"once\"}",
+                bridge.mutate(
+                    "resolve_prompt",
+                    """{"id":"${pending.id}","action":"block","scope":"once"}""",
+                ),
+            )
+            injection.join(2_000)
+            assertFalse(injection.isAlive)
+            assertTrue(injectionFailure.get() is IllegalStateException)
+            assertEquals("{\"prompts\":[]}", bridge.query("pending_prompts"))
+        }
+    }
+
+    @Test
     fun forwardsDirectUdpAndTicksRemoteResponseInNativeCode() {
         val server = DatagramSocket(0, InetAddress.getByName("127.0.0.1"))
         val responseReady = CountDownLatch(1)

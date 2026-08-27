@@ -388,6 +388,28 @@ static void test_structured_document_mutations(void) {
     toml = NULL;
 
     CH_TEST_ASSERT(ch_config_mutate_document_json(
+        config, "default", "create_rule",
+        "{\"position\":\"prepend\",\"rule\":{\"name\":\"first\","
+        "\"action\":\"block\",\"domains\":[\"first.example\"]}}",
+        &toml, &error) == CH_OK);
+    CH_TEST_ASSERT(ch_config_parse(toml, "/tmp/config.toml", &updated,
+                                   &error) == CH_OK);
+    const ch_config_array *ordered_rules = ch_config_table_get_array(
+        ch_config_active_profile(updated), "rule");
+    CH_TEST_ASSERT(ch_config_array_count(ordered_rules) == 3U);
+    value = NULL;
+    CH_TEST_ASSERT(ch_config_table_get_string(
+        ch_config_array_get_table(ordered_rules, 0U), "name", &value,
+        &error) == CH_OK);
+    CH_TEST_ASSERT_STRING("first", value);
+    free(value);
+    ch_config_free(config);
+    config = updated;
+    updated = NULL;
+    free(toml);
+    toml = NULL;
+
+    CH_TEST_ASSERT(ch_config_mutate_document_json(
         config, "default", "replace_rule_subscriptions",
         "{\"subscriptions\":[{\"name\":\"ads\","
         "\"url\":\"https://lists.example/ads.txt\","

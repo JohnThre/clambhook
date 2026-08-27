@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 
 #include <uv.h>
 
@@ -14,6 +15,7 @@
 #include "clambhook/ip_stack.h"
 #include "clambhook/netwatch.h"
 #include "clambhook/protocol.h"
+#include "clambhook/prompt.h"
 #include "clambhook/temporary_rules.h"
 #include "clambhook/traffic.h"
 #include "internal.h"
@@ -67,6 +69,7 @@ struct ch_runtime {
     ch_netwatch *network_watcher;
     ch_traffic_store *traffic;
     ch_temporary_rules *temporary_rules;
+    ch_prompt_manager *prompts;
     ch_network_info network_info;
     ch_config *config;
     char *config_path;
@@ -264,6 +267,7 @@ static void ch_command_fail(ch_command *command, ch_status status, const char *m
 }
 
 static void ch_runtime_stop_listeners(ch_runtime *runtime) {
+    ch_prompt_manager_cancel_all(runtime->prompts);
     ch_ip_stack_destroy(runtime->ip_stack);
     runtime->ip_stack = NULL;
     ch_dns_proxy_destroy(runtime->dns);
@@ -574,6 +578,7 @@ static bool ch_runtime_build_services(
     ch_error listener_error;
     ch_runtime_listener_set *listeners = ch_runtime_listener_set_start(
         config, profile_name, runtime->traffic, runtime->temporary_rules,
+        runtime->prompts,
         &listener_error
     );
     if (listeners == NULL) {
@@ -848,6 +853,29 @@ static bool ch_runtime_apply_config(ch_runtime *runtime, ch_command *command,
         command->error = traffic_error;
         return false;
     }
+    ch_error prompt_error;
+    ch_status prompt_status = ch_prompt_manager_configure(
+        runtime->prompts, next_config, &prompt_error);
+    if (prompt_status != CH_OK) {
+        ch_error ignored;
+        (void)ch_traffic_store_configure(runtime->traffic, runtime->config,
+                                         &ignored);
+        (void)ch_prompt_manager_configure(runtime->prompts, runtime->config,
+                                          &ignored);
+        if (start_listeners) {
+            ch_command rollback_command;
+            memset(&rollback_command, 0, sizeof(rollback_command));
+            (void)ch_runtime_start_listeners(
+                runtime, runtime->config, runtime->active_profile,
+                &rollback_command);
+        }
+        ch_config_free(next_config);
+        free(next_path);
+        free(next_profile);
+        command->status = prompt_status;
+        command->error = prompt_error;
+        return false;
+    }
     ch_runtime_listener_set *next_listeners = NULL;
     ch_dns_proxy *next_dns = NULL;
     ch_ip_stack *next_ip_stack = NULL;
@@ -862,6 +890,8 @@ static bool ch_runtime_apply_config(ch_runtime *runtime, ch_command *command,
             ch_error ignored;
             (void)ch_traffic_store_configure(runtime->traffic,
                                              runtime->config, &ignored);
+            (void)ch_prompt_manager_configure(runtime->prompts,
+                                              runtime->config, &ignored);
             (void)ch_runtime_start_listeners(
                 runtime, runtime->config, runtime->active_profile,
                 &rollback_command);
@@ -1198,6 +1228,101 @@ static bool ch_runtime_refresh_rule_feeds(
     return command->status == CH_OK;
 }
 
+static bool ch_runtime_prompt_action(ch_runtime *runtime,
+                                     ch_command *command,
+                                     bool promote_silent) {
+    ch_prompt_action_options options;
+    ch_status status = ch_prompt_action_options_parse(
+        command->payload, !promote_silent, &options, &command->error);
+    if (status != CH_OK) {
+        command->status = status;
+        return false;
+    }
+    ch_prompt_snapshot snapshot;
+    bool allow = options.allow;
+    if (promote_silent) {
+        status = ch_prompt_manager_silent_decision(
+            runtime->prompts, options.id, &snapshot, &allow,
+            &command->error);
+        if (status == CH_OK && strcasecmp(options.scope, "once") == 0) {
+            status = CH_ERROR_INVALID_ARGUMENT;
+            ch_error_set(&command->error, status,
+                         "silent decisions require session, until_quit, or "
+                         "forever scope");
+        }
+    } else {
+        status = ch_prompt_manager_resolve(
+            runtime->prompts, options.id, options.allow, &snapshot,
+            &command->error);
+    }
+    if (status != CH_OK) {
+        command->status = status;
+        ch_prompt_action_options_clear(&options);
+        return false;
+    }
+    if (strcasecmp(options.scope, "once") == 0) {
+        ch_json_buffer response;
+        ch_json_init(&response);
+        int okay = ch_json_append(&response, "{\"resolved\":true,\"id\":") &&
+            ch_json_append_string(&response, options.id) &&
+            ch_json_append(&response, ",\"action\":") &&
+            ch_json_append_string(&response, allow ? "allow" : "block") &&
+            ch_json_append(&response, ",\"scope\":\"once\"}");
+        command->response = okay ? ch_json_take(&response) : NULL;
+        ch_json_dispose(&response);
+        if (command->response == NULL) {
+            command->status = CH_ERROR_OUT_OF_MEMORY;
+            ch_error_set(&command->error, command->status,
+                         "encode prompt resolution");
+        }
+        ch_prompt_snapshot_clear(&snapshot);
+        ch_prompt_action_options_clear(&options);
+        return command->response != NULL;
+    }
+    if (strcasecmp(options.scope, "until_quit") == 0 &&
+        snapshot.process_pid <= 0) {
+        command->status = CH_ERROR_INVALID_ARGUMENT;
+        ch_error_set(&command->error, command->status,
+                     "until_quit requires an attributed process");
+        ch_prompt_snapshot_clear(&snapshot);
+        ch_prompt_action_options_clear(&options);
+        return false;
+    }
+    char *rule_request = ch_prompt_rule_request_json(
+        &snapshot, runtime->config, allow, options.match_host,
+        options.match_port, options.match_protocol, &command->error);
+    if (rule_request == NULL) {
+        command->status = command->error.code;
+        ch_prompt_snapshot_clear(&snapshot);
+        ch_prompt_action_options_clear(&options);
+        return false;
+    }
+    if (strcasecmp(options.scope, "forever") == 0) {
+        bool persisted = ch_runtime_persist_config_mutation(
+            runtime, "create_rule", "rules_persistence", rule_request,
+            true, command);
+        free(rule_request);
+        ch_prompt_snapshot_clear(&snapshot);
+        ch_prompt_action_options_clear(&options);
+        return persisted;
+    }
+    command->response = ch_temporary_rules_create_from_rule_json(
+        runtime->temporary_rules, rule_request, options.ttl_seconds,
+        strcasecmp(options.scope, "until_quit") == 0 ?
+            snapshot.process_pid : 0,
+        snapshot.conn_id, snapshot.target, snapshot.target_host,
+        &command->error);
+    free(rule_request);
+    ch_prompt_snapshot_clear(&snapshot);
+    ch_prompt_action_options_clear(&options);
+    if (command->response == NULL) {
+        command->status = command->error.code == CH_OK ?
+            CH_ERROR_OUT_OF_MEMORY : command->error.code;
+        return false;
+    }
+    return true;
+}
+
 static void ch_command_process(ch_runtime *runtime, ch_command *command) {
     command->status = CH_OK;
     ch_error_clear(&command->error);
@@ -1279,6 +1404,19 @@ static void ch_command_process(ch_runtime *runtime, ch_command *command) {
                     runtime->traffic, runtime->config,
                     runtime->active_profile, command->payload,
                     &command->error);
+            } else if (strcmp(command->operation,
+                              "temporary_rules") == 0) {
+                command->response = ch_temporary_rules_payload_json(
+                    runtime->temporary_rules, runtime->active_profile,
+                    &command->error);
+            } else if (strcmp(command->operation,
+                              "pending_prompts") == 0) {
+                command->response = ch_prompt_manager_pending_json(
+                    runtime->prompts, &command->error);
+            } else if (strcmp(command->operation,
+                              "silent_decisions") == 0) {
+                command->response = ch_prompt_manager_silent_json(
+                    runtime->prompts, &command->error);
             } else if (strcmp(command->operation, "servers") == 0 ||
                        strcmp(command->operation, "rules") == 0 ||
                        strcmp(command->operation, "policy_groups") == 0 ||
@@ -1422,6 +1560,15 @@ static void ch_command_process(ch_runtime *runtime, ch_command *command) {
                     &command->error);
                 if (command->response == NULL) {
                     command->status = command->error.code;
+                    break;
+                }
+            } else if (strcmp(command->operation, "resolve_prompt") == 0) {
+                if (!ch_runtime_prompt_action(runtime, command, false)) {
+                    break;
+                }
+            } else if (strcmp(command->operation,
+                              "promote_silent_decision") == 0) {
+                if (!ch_runtime_prompt_action(runtime, command, true)) {
                     break;
                 }
             } else if (strcmp(command->operation,
@@ -1711,8 +1858,17 @@ ch_runtime *ch_runtime_create(const ch_runtime_options *options, ch_error *error
         free(runtime);
         return NULL;
     }
+    runtime->prompts = ch_prompt_manager_create(error);
+    if (runtime->prompts == NULL) {
+        ch_temporary_rules_destroy(runtime->temporary_rules);
+        ch_traffic_store_destroy(runtime->traffic);
+        free(runtime->active_profile);
+        free(runtime);
+        return NULL;
+    }
     atomic_init(&runtime->running, false);
     if (uv_loop_init(&runtime->loop) != 0 || uv_mutex_init(&runtime->queue_mutex) != 0) {
+        ch_prompt_manager_destroy(runtime->prompts);
         ch_temporary_rules_destroy(runtime->temporary_rules);
         ch_traffic_store_destroy(runtime->traffic);
         free(runtime->active_profile);
@@ -1724,6 +1880,7 @@ ch_runtime *ch_runtime_create(const ch_runtime_options *options, ch_error *error
                       ch_runtime_drain_commands) != 0) {
         uv_mutex_destroy(&runtime->queue_mutex);
         (void)uv_loop_close(&runtime->loop);
+        ch_prompt_manager_destroy(runtime->prompts);
         ch_temporary_rules_destroy(runtime->temporary_rules);
         ch_traffic_store_destroy(runtime->traffic);
         free(runtime->active_profile);
@@ -1737,6 +1894,7 @@ ch_runtime *ch_runtime_create(const ch_runtime_options *options, ch_error *error
         (void)uv_run(&runtime->loop, UV_RUN_DEFAULT);
         uv_mutex_destroy(&runtime->queue_mutex);
         (void)uv_loop_close(&runtime->loop);
+        ch_prompt_manager_destroy(runtime->prompts);
         ch_temporary_rules_destroy(runtime->temporary_rules);
         ch_traffic_store_destroy(runtime->traffic);
         free(runtime->active_profile);
@@ -1753,6 +1911,7 @@ ch_runtime *ch_runtime_create(const ch_runtime_options *options, ch_error *error
         (void)uv_run(&runtime->loop, UV_RUN_DEFAULT);
         uv_mutex_destroy(&runtime->queue_mutex);
         (void)uv_loop_close(&runtime->loop);
+        ch_prompt_manager_destroy(runtime->prompts);
         ch_temporary_rules_destroy(runtime->temporary_rules);
         ch_traffic_store_destroy(runtime->traffic);
         free(runtime->active_profile);
@@ -1769,6 +1928,7 @@ ch_runtime *ch_runtime_create(const ch_runtime_options *options, ch_error *error
         (void)uv_run(&runtime->loop, UV_RUN_DEFAULT);
         uv_mutex_destroy(&runtime->queue_mutex);
         (void)uv_loop_close(&runtime->loop);
+        ch_prompt_manager_destroy(runtime->prompts);
         ch_temporary_rules_destroy(runtime->temporary_rules);
         ch_traffic_store_destroy(runtime->traffic);
         free(runtime->active_profile);
@@ -1791,6 +1951,7 @@ void ch_runtime_destroy(ch_runtime *runtime) {
     free(runtime->config_path);
     ch_config_free(runtime->config);
     free(runtime->active_profile);
+    ch_prompt_manager_destroy(runtime->prompts);
     ch_temporary_rules_destroy(runtime->temporary_rules);
     ch_traffic_store_destroy(runtime->traffic);
     free(runtime);

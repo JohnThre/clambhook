@@ -11,6 +11,7 @@
 #include "clambhook/listener.h"
 #include "clambhook/procattr.h"
 #include "clambhook/protocol.h"
+#include "clambhook/prompt.h"
 #include "clambhook/rules.h"
 #include "clambhook/temporary_rules.h"
 #include "clambhook/traffic.h"
@@ -34,6 +35,7 @@ typedef struct ch_runtime_listener_entry {
 struct ch_runtime_listener_set {
     ch_traffic_store *traffic;
     ch_temporary_rules *temporary_rules;
+    ch_prompt_manager *prompts;
     ch_runtime_listener_entry entries[CH_RUNTIME_LISTENER_LIMIT];
     size_t count;
     ch_runtime_listener_entry dns_entry;
@@ -185,18 +187,74 @@ static ch_status runtime_listener_decide(
         .process_name = "",
         .process_path = ""
     };
+    ch_process_info process = {0};
+    int attributed = (ch_rule_engine_needs_process(entry->rules) ||
+                      ch_temporary_rules_needs_process(
+                          entry->owner->temporary_rules) ||
+                      ch_prompt_manager_enabled(entry->owner->prompts)) &&
+        ch_procattr_lookup(network, source, &process);
+    match.process_name = attributed ? process.name : "";
+    match.process_path = attributed ? process.path : "";
     bool temporary_match = false;
     ch_status status = ch_temporary_rules_decide(
         entry->owner->temporary_rules, entry->profile_name, &match, decision,
         &temporary_match, error);
     if (status != CH_OK || temporary_match) return status;
 
-    ch_process_info process = {0};
-    int attributed = ch_rule_engine_needs_process(entry->rules) &&
-        ch_procattr_lookup(network, source, &process);
-    match.process_name = attributed ? process.name : "";
-    match.process_path = attributed ? process.path : "";
     status = ch_rule_engine_decide(entry->rules, &match, decision, error);
+    if (status == CH_OK && decision->is_default &&
+        ch_prompt_manager_enabled(entry->owner->prompts)) {
+        ch_prompt_request request = {
+            .conn_id = "",
+            .profile = entry->profile_name,
+            .network = decision->network,
+            .target = decision->target,
+            .target_host = decision->host,
+            .target_port = decision->port,
+            .process_pid = attributed ? process.pid : 0,
+            .process_name = attributed ? process.name : "",
+            .process_path = attributed ? process.path : "",
+            .code_sign_id = attributed ? process.code_sign_id : "",
+            .code_sign_status = attributed ? process.code_sign_status : "",
+            .would_use_chain = decision->chain_name,
+            .would_use_group = decision->group_name,
+            .source = source
+        };
+        bool allow = false;
+        bool gated = false;
+        status = ch_prompt_manager_await(entry->owner->prompts, &request,
+                                         &allow, &gated, error);
+        if (status == CH_OK && gated && !allow) {
+            char *action = ch_strdup(CH_RULE_ACTION_BLOCK);
+            char *name = ch_strdup("interactive prompt");
+            char *summary = ch_strdup("blocked by interactive prompt");
+            if (action == NULL || name == NULL || summary == NULL) {
+                free(action);
+                free(name);
+                free(summary);
+                ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                             "apply prompt decision");
+                status = CH_ERROR_OUT_OF_MEMORY;
+            } else {
+                free(decision->action);
+                free(decision->rule_name);
+                free(decision->chain_name);
+                free(decision->group_name);
+                free(decision->summary);
+                decision->action = action;
+                decision->rule_name = name;
+                decision->chain_name = ch_strdup("");
+                decision->group_name = ch_strdup("");
+                decision->summary = summary;
+                if (decision->chain_name == NULL ||
+                    decision->group_name == NULL) {
+                    ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                                 "apply prompt route");
+                    status = CH_ERROR_OUT_OF_MEMORY;
+                }
+            }
+        }
+    }
     ch_process_info_clear(&process);
     return status;
 }
@@ -641,6 +699,7 @@ ch_runtime_listener_set *ch_runtime_listener_set_start(const ch_config *config,
                                                         const char *profile_name,
                                                         ch_traffic_store *traffic,
                                                         ch_temporary_rules *temporary_rules,
+                                                        ch_prompt_manager *prompts,
                                                         ch_error *error) {
     ch_error_clear(error);
     ch_runtime_listener_set *set = calloc(1U, sizeof(*set));
@@ -650,10 +709,11 @@ ch_runtime_listener_set *ch_runtime_listener_set_start(const ch_config *config,
     }
     set->traffic = traffic;
     set->temporary_rules = temporary_rules;
-    if (traffic == NULL || temporary_rules == NULL) {
+    set->prompts = prompts;
+    if (traffic == NULL || temporary_rules == NULL || prompts == NULL) {
         free(set);
         ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
-                     "traffic and temporary-rule stores are required");
+                     "traffic, temporary-rule, and prompt stores are required");
         return NULL;
     }
     if (config == NULL) return set;

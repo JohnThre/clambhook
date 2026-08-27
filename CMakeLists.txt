@@ -87,6 +87,7 @@ add_library(clambhook_core STATIC
   native/src/listener.c
   native/src/netwatch.c
   native/src/procattr.c
+  native/src/prompt.c
   native/src/protocol.c
   native/src/protocol_packet.c
   native/src/protocol_shadowtls.c
@@ -211,6 +212,7 @@ if(CLAMBHOOK_BUILD_TESTS)
     native/tests/test_listener.c
     native/tests/test_netwatch.c
     native/tests/test_procattr.c
+    native/tests/test_prompt.c
     native/tests/test_protocol.c
     native/tests/test_rule_feed.c
     native/tests/test_rules.c

@@ -37,11 +37,13 @@ typedef struct ch_runtime_listener_set ch_runtime_listener_set;
 struct ch_config;
 struct ch_traffic_store;
 struct ch_temporary_rules;
+struct ch_prompt_manager;
 ch_runtime_listener_set *ch_runtime_listener_set_start(
     const struct ch_config *config,
     const char *profile_name,
     struct ch_traffic_store *traffic,
     struct ch_temporary_rules *temporary_rules,
+    struct ch_prompt_manager *prompts,
     ch_error *error
 );
 void ch_runtime_listener_set_stop(ch_runtime_listener_set *set);

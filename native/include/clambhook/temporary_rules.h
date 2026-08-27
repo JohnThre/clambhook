@@ -28,6 +28,22 @@ char *ch_temporary_rules_create_from_connection_json(
     ch_error *error
 );
 
+/* Installs a rule mutation produced by the prompt rule builder. A zero
+ * until_quit_pid creates a normal TTL-bound session rule. */
+char *ch_temporary_rules_create_from_rule_json(
+    ch_temporary_rules *rules,
+    const char *rule_request_json,
+    long long ttl_seconds,
+    int until_quit_pid,
+    const char *source_conn_id,
+    const char *source_target,
+    const char *source_target_host,
+    ch_error *error
+);
+
+/* True when live temporary rules require process attribution to match. */
+bool ch_temporary_rules_needs_process(ch_temporary_rules *rules);
+
 /* Removes one live rule by JSON {"id":"..."}. */
 char *ch_temporary_rules_remove_json(ch_temporary_rules *rules,
                                      const char *request_json,
@@ -47,6 +63,9 @@ ch_status ch_temporary_rules_decide(
 char *ch_temporary_rules_snapshot_json(ch_temporary_rules *rules,
                                        const char *profile,
                                        ch_error *error);
+char *ch_temporary_rules_payload_json(ch_temporary_rules *rules,
+                                      const char *profile,
+                                      ch_error *error);
 
 #ifdef __cplusplus
 }

@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "clambhook/config.h"
 #include "clambhook/json.h"
@@ -104,6 +105,32 @@ void ch_test_temporary_rules(void) {
     CH_TEST_ASSERT(error.code == CH_ERROR_NOT_FOUND);
     free(remove_request);
     free(temporary_id_copy);
+
+    response = ch_temporary_rules_create_from_rule_json(
+        rules,
+        "{\"profile\":\"work\",\"rule\":{\"name\":\"prompt block curl\","
+        "\"action\":\"block\",\"processes\":[\"/usr/bin/curl\"],"
+        "\"domains\":[\"api.example\"],\"ports\":[443],"
+        "\"networks\":[\"tcp\"]},\"position\":\"prepend\"}",
+        60, (int)getpid(), "native-2", "api.example:443", "api.example",
+        &error);
+    CH_TEST_ASSERT(response != NULL);
+    CH_TEST_ASSERT(strstr(response, "\"until_quit_pid\":") != NULL);
+    free(response);
+    CH_TEST_ASSERT(ch_temporary_rules_needs_process(rules));
+    context.target = "api.example:443";
+    context.process_name = "curl";
+    context.process_path = "/usr/bin/curl";
+    CH_TEST_ASSERT(ch_temporary_rules_decide(
+        rules, "work", &context, &decision, &matched, &error) == CH_OK);
+    CH_TEST_ASSERT(matched);
+    CH_TEST_ASSERT_STRING("prompt block curl", decision.rule_name);
+    ch_rule_decision_clear(&decision);
+    context.process_path = "/usr/bin/wget";
+    context.process_name = "wget";
+    CH_TEST_ASSERT(ch_temporary_rules_decide(
+        rules, "work", &context, &decision, &matched, &error) == CH_OK);
+    CH_TEST_ASSERT(!matched);
 
     ch_temporary_rules_destroy(rules);
     ch_traffic_store_destroy(traffic);

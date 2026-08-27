@@ -13,6 +13,7 @@
 #include "clambhook/config.h"
 #include "clambhook/json.h"
 #include "clambhook/protocol.h"
+#include "clambhook/prompt.h"
 #include "clambhook/runtime.h"
 #include "clambhook/temporary_rules.h"
 #include "clambhook/traffic.h"
@@ -207,9 +208,10 @@ static void runtime_test_dns_routing(void) {
     CH_TEST_ASSERT(ch_config_parse(document, NULL, &config, &error) == CH_OK);
     ch_traffic_store *traffic = ch_traffic_store_create(32U, &error);
     ch_temporary_rules *temporary = ch_temporary_rules_create(8U, &error);
-    CH_TEST_ASSERT(traffic != NULL && temporary != NULL);
+    ch_prompt_manager *prompts = ch_prompt_manager_create(&error);
+    CH_TEST_ASSERT(traffic != NULL && temporary != NULL && prompts != NULL);
     ch_runtime_listener_set *set = ch_runtime_listener_set_start(
-        config, "default", traffic, temporary, &error);
+        config, "default", traffic, temporary, prompts, &error);
     CH_TEST_ASSERT(set != NULL);
     char target[96];
     (void)snprintf(target, sizeof(target), "resolver.invalid:%u",
@@ -237,6 +239,7 @@ static void runtime_test_dns_routing(void) {
         &descriptor, &flow_id, &error) == CH_ERROR_INVALID_STATE);
     CH_TEST_ASSERT(descriptor == -1);
     ch_runtime_listener_set_stop(set);
+    ch_prompt_manager_destroy(prompts);
     ch_temporary_rules_destroy(temporary);
     ch_traffic_store_destroy(traffic);
     ch_config_free(config);
@@ -265,9 +268,10 @@ static void runtime_test_tun_tcp_routing(void) {
     CH_TEST_ASSERT(ch_config_parse(document, NULL, &config, &error) == CH_OK);
     ch_traffic_store *traffic = ch_traffic_store_create(32U, &error);
     ch_temporary_rules *temporary = ch_temporary_rules_create(8U, &error);
-    CH_TEST_ASSERT(traffic != NULL && temporary != NULL);
+    ch_prompt_manager *prompts = ch_prompt_manager_create(&error);
+    CH_TEST_ASSERT(traffic != NULL && temporary != NULL && prompts != NULL);
     ch_runtime_listener_set *set = ch_runtime_listener_set_start(
-        config, "default", traffic, temporary, &error);
+        config, "default", traffic, temporary, prompts, &error);
     CH_TEST_ASSERT(set != NULL);
     char target[96];
     (void)snprintf(target, sizeof(target), "127.0.0.1:%u",
@@ -288,6 +292,7 @@ static void runtime_test_tun_tcp_routing(void) {
     (void)close(descriptor);
     ch_traffic_close(traffic, flow_id, "test closed");
     ch_runtime_listener_set_stop(set);
+    ch_prompt_manager_destroy(prompts);
     ch_temporary_rules_destroy(temporary);
     ch_traffic_store_destroy(traffic);
     ch_config_free(config);
@@ -316,9 +321,10 @@ static void runtime_test_tun_udp_routing(void) {
     CH_TEST_ASSERT(ch_config_parse(document, NULL, &config, &error) == CH_OK);
     ch_traffic_store *traffic = ch_traffic_store_create(32U, &error);
     ch_temporary_rules *temporary = ch_temporary_rules_create(8U, &error);
-    CH_TEST_ASSERT(traffic != NULL && temporary != NULL);
+    ch_prompt_manager *prompts = ch_prompt_manager_create(&error);
+    CH_TEST_ASSERT(traffic != NULL && temporary != NULL && prompts != NULL);
     ch_runtime_listener_set *set = ch_runtime_listener_set_start(
-        config, "default", traffic, temporary, &error);
+        config, "default", traffic, temporary, prompts, &error);
     CH_TEST_ASSERT(set != NULL);
     char target[96];
     (void)snprintf(target, sizeof(target), "127.0.0.1:%u",
@@ -346,6 +352,7 @@ static void runtime_test_tun_udp_routing(void) {
     ch_packet_connection_close(connection);
     ch_traffic_close(traffic, flow_id, "test closed");
     ch_runtime_listener_set_stop(set);
+    ch_prompt_manager_destroy(prompts);
     ch_temporary_rules_destroy(temporary);
     ch_traffic_store_destroy(traffic);
     ch_config_free(config);

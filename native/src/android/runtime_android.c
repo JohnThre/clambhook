@@ -4,11 +4,13 @@
 #include <stdatomic.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <time.h>
 
 #include "clambhook/config.h"
 #include "clambhook/ip_stack.h"
 #include "clambhook/protocol.h"
+#include "clambhook/prompt.h"
 #include "clambhook/rules.h"
 #include "clambhook/temporary_rules.h"
 #include "clambhook/traffic.h"
@@ -44,6 +46,7 @@ struct ch_runtime {
     ch_ip_stack *ip_stack;
     ch_traffic_store *traffic;
     ch_temporary_rules *temporary_rules;
+    ch_prompt_manager *prompts;
     ch_runtime_options options;
 };
 
@@ -121,6 +124,32 @@ static ch_status android_runtime_resolve_route(
     if (status == CH_OK && !temporary_match && runtime->rules != NULL) {
         status = ch_rule_engine_decide(runtime->rules, &context,
                                        &out_route->decision, error);
+    }
+    if (status == CH_OK && !temporary_match && runtime->rules != NULL &&
+        out_route->decision.is_default &&
+        ch_prompt_manager_enabled(runtime->prompts)) {
+        ch_prompt_request request = {
+            .conn_id = "",
+            .profile = runtime->active_profile,
+            .network = out_route->decision.network,
+            .target = out_route->decision.target,
+            .target_host = out_route->decision.host,
+            .target_port = out_route->decision.port,
+            .process_name = "",
+            .process_path = "",
+            .code_sign_id = "",
+            .code_sign_status = "",
+            .would_use_chain = out_route->decision.chain_name,
+            .would_use_group = out_route->decision.group_name,
+            .source = source
+        };
+        bool allow = false;
+        bool gated = false;
+        status = ch_prompt_manager_await(runtime->prompts, &request, &allow,
+                                         &gated, error);
+        if (status == CH_OK && gated && !allow) {
+            out_route->blocked = true;
+        }
     }
     if (status != CH_OK) return status;
     if (!temporary_match && runtime->rules == NULL) return CH_OK;
@@ -370,6 +399,7 @@ static ch_status android_runtime_start_ip_stack(ch_runtime *runtime,
 }
 
 static void android_runtime_stop_ip_stack(ch_runtime *runtime) {
+    ch_prompt_manager_cancel_all(runtime->prompts);
     atomic_store_explicit(&runtime->tick_stop, true, memory_order_release);
     if (runtime->tick_started) {
         (void)pthread_join(runtime->tick_thread, NULL);
@@ -527,6 +557,33 @@ static ch_status android_runtime_replace_config(ch_runtime *runtime,
         *error = replacement_error;
         return status;
     }
+    status = ch_prompt_manager_configure(runtime->prompts, next.config, error);
+    if (status != CH_OK) {
+        ch_error replacement_error = *error;
+        ch_error ignored;
+        (void)ch_traffic_store_configure(runtime->traffic, previous.config,
+                                         &ignored);
+        (void)ch_prompt_manager_configure(runtime->prompts, previous.config,
+                                          &ignored);
+        android_runtime_install_config(runtime, &previous);
+        if (restart) {
+            ch_error rollback_error;
+            if (android_runtime_start_ip_stack(runtime, &rollback_error) !=
+                CH_OK) {
+                runtime->running = false;
+                ch_error_set(error, CH_ERROR_INTERNAL,
+                             "configure Android prompts failed: %s; "
+                             "rollback failed: %s",
+                             replacement_error.message,
+                             rollback_error.message);
+                android_config_state_clear(&next);
+                return CH_ERROR_INTERNAL;
+            }
+        }
+        android_config_state_clear(&next);
+        *error = replacement_error;
+        return status;
+    }
     android_runtime_install_config(runtime, &next);
     if (restart) status = android_runtime_start_ip_stack(runtime, error);
     if (status == CH_OK) {
@@ -539,6 +596,8 @@ static ch_status android_runtime_replace_config(ch_runtime *runtime,
     ch_error ignored;
     (void)ch_traffic_store_configure(runtime->traffic, previous.config,
                                      &ignored);
+    (void)ch_prompt_manager_configure(runtime->prompts, previous.config,
+                                      &ignored);
     android_runtime_install_config(runtime, &previous);
     ch_error rollback_error;
     ch_status rollback_status = restart ?
@@ -742,8 +801,18 @@ ch_runtime *ch_runtime_create(const ch_runtime_options *options, ch_error *error
         free(runtime);
         return NULL;
     }
+    runtime->prompts = ch_prompt_manager_create(error);
+    if (runtime->prompts == NULL) {
+        ch_temporary_rules_destroy(runtime->temporary_rules);
+        ch_traffic_store_destroy(runtime->traffic);
+        pthread_mutex_destroy(&runtime->mutex);
+        pthread_mutex_destroy(&runtime->ip_mutex);
+        free(runtime);
+        return NULL;
+    }
     runtime->active_profile = ch_strdup("default");
     if (runtime->active_profile == NULL) {
+        ch_prompt_manager_destroy(runtime->prompts);
         ch_temporary_rules_destroy(runtime->temporary_rules);
         ch_traffic_store_destroy(runtime->traffic);
         pthread_mutex_destroy(&runtime->mutex);
@@ -770,6 +839,7 @@ void ch_runtime_destroy(ch_runtime *runtime) {
     pthread_mutex_unlock(&runtime->mutex);
     pthread_mutex_destroy(&runtime->mutex);
     pthread_mutex_destroy(&runtime->ip_mutex);
+    ch_prompt_manager_destroy(runtime->prompts);
     ch_temporary_rules_destroy(runtime->temporary_rules);
     ch_traffic_store_destroy(runtime->traffic);
     free(runtime);
@@ -843,8 +913,10 @@ ch_status ch_runtime_inject_packet(ch_runtime *runtime, const uint8_t *packet,
         status = CH_ERROR_INVALID_STATE;
     } else {
         pthread_mutex_lock(&runtime->ip_mutex);
+        pthread_mutex_unlock(&runtime->mutex);
         status = ch_ip_stack_inject(runtime->ip_stack, packet, length, error);
         pthread_mutex_unlock(&runtime->ip_mutex);
+        return status;
     }
     pthread_mutex_unlock(&runtime->mutex);
     return status;
@@ -857,6 +929,101 @@ bool ch_runtime_is_running(ch_runtime *runtime) {
     running = runtime->running;
     pthread_mutex_unlock(&runtime->mutex);
     return running;
+}
+
+static ch_status android_runtime_prompt_action(
+    ch_runtime *runtime, const char *request_json, bool promote_silent,
+    char **response_json, ch_error *error) {
+    ch_prompt_action_options options;
+    ch_status status = ch_prompt_action_options_parse(
+        request_json, !promote_silent, &options, error);
+    if (status != CH_OK) return status;
+    ch_prompt_snapshot snapshot;
+    bool allow = options.allow;
+    if (promote_silent) {
+        status = ch_prompt_manager_silent_decision(
+            runtime->prompts, options.id, &snapshot, &allow, error);
+        if (status == CH_OK && strcasecmp(options.scope, "once") == 0) {
+            status = CH_ERROR_INVALID_ARGUMENT;
+            ch_error_set(error, status,
+                         "silent decisions require session, until_quit, or "
+                         "forever scope");
+        }
+    } else {
+        status = ch_prompt_manager_resolve(
+            runtime->prompts, options.id, options.allow, &snapshot, error);
+    }
+    if (status != CH_OK) {
+        ch_prompt_action_options_clear(&options);
+        return status;
+    }
+    if (strcasecmp(options.scope, "once") == 0) {
+        ch_json_buffer response;
+        ch_json_init(&response);
+        int okay = ch_json_append(&response, "{\"resolved\":true,\"id\":") &&
+            ch_json_append_string(&response, options.id) &&
+            ch_json_append(&response, ",\"action\":") &&
+            ch_json_append_string(&response, allow ? "allow" : "block") &&
+            ch_json_append(&response, ",\"scope\":\"once\"}");
+        *response_json = okay ? ch_json_take(&response) : NULL;
+        ch_json_dispose(&response);
+        ch_prompt_snapshot_clear(&snapshot);
+        ch_prompt_action_options_clear(&options);
+        if (*response_json == NULL) {
+            ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                         "encode Android prompt resolution");
+            return CH_ERROR_OUT_OF_MEMORY;
+        }
+        return CH_OK;
+    }
+    if (strcasecmp(options.scope, "until_quit") == 0 &&
+        snapshot.process_pid <= 0) {
+        ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
+                     "until_quit requires an attributed process");
+        ch_prompt_snapshot_clear(&snapshot);
+        ch_prompt_action_options_clear(&options);
+        return CH_ERROR_INVALID_ARGUMENT;
+    }
+    char *rule_request = ch_prompt_rule_request_json(
+        &snapshot, runtime->config, allow, options.match_host,
+        options.match_port, options.match_protocol, error);
+    if (rule_request == NULL) {
+        ch_prompt_snapshot_clear(&snapshot);
+        ch_prompt_action_options_clear(&options);
+        return error == NULL ? CH_ERROR_INVALID_ARGUMENT : error->code;
+    }
+    if (strcasecmp(options.scope, "forever") == 0) {
+        if (runtime->config_path == NULL || runtime->config_path[0] == '\0') {
+            status = CH_ERROR_INVALID_STATE;
+            ch_error_set(error, status,
+                         "persistent rules require an Android config path");
+        } else {
+            status = ch_runtime_config_mutate_file(
+                runtime->config_path, "create_rule", "rules_persistence",
+                rule_request, response_json, error);
+            if (status == CH_OK) {
+                status = android_runtime_replace_config(
+                    runtime, runtime->config_path, runtime->running, error);
+                if (status != CH_OK) {
+                    free(*response_json);
+                    *response_json = NULL;
+                }
+            }
+        }
+    } else {
+        *response_json = ch_temporary_rules_create_from_rule_json(
+            runtime->temporary_rules, rule_request, options.ttl_seconds,
+            strcasecmp(options.scope, "until_quit") == 0 ?
+                snapshot.process_pid : 0,
+            snapshot.conn_id, snapshot.target, snapshot.target_host, error);
+        status = *response_json == NULL ?
+            (error == NULL || error->code == CH_OK ? CH_ERROR_OUT_OF_MEMORY :
+                                                     error->code) : CH_OK;
+    }
+    free(rule_request);
+    ch_prompt_snapshot_clear(&snapshot);
+    ch_prompt_action_options_clear(&options);
+    return status;
 }
 
 ch_status ch_runtime_query(ch_runtime *runtime, const char *operation,
@@ -896,11 +1063,15 @@ ch_status ch_runtime_query(ch_runtime *runtime, const char *operation,
             runtime->traffic, runtime->config, runtime->active_profile,
             request_json, error);
     }
+    else if (strcmp(operation, "temporary_rules") == 0) {
+        response = ch_temporary_rules_payload_json(
+            runtime->temporary_rules, runtime->active_profile, error);
+    }
     else if (strcmp(operation, "pending_prompts") == 0) {
-        response = ch_strdup("{\"prompts\":[]}");
+        response = ch_prompt_manager_pending_json(runtime->prompts, error);
     }
     else if (strcmp(operation, "silent_decisions") == 0) {
-        response = ch_strdup("{\"decisions\":[]}");
+        response = ch_prompt_manager_silent_json(runtime->prompts, error);
     }
     else if (strcmp(operation, "developer_status") == 0) {
         response = ch_strdup("{\"enabled\":false}");
@@ -1023,15 +1194,16 @@ ch_status ch_runtime_mutate(ch_runtime *runtime, const char *operation,
         return CH_OK;
     }
     else if (strcmp(operation, "resolve_prompt") == 0) {
+        ch_status status = android_runtime_prompt_action(
+            runtime, request_json, false, response_json, error);
         pthread_mutex_unlock(&runtime->mutex);
-        ch_error_set(error, CH_ERROR_NOT_FOUND, "prompt not found");
-        return CH_ERROR_NOT_FOUND;
+        return status;
     }
     else if (strcmp(operation, "promote_silent_decision") == 0) {
+        ch_status status = android_runtime_prompt_action(
+            runtime, request_json, true, response_json, error);
         pthread_mutex_unlock(&runtime->mutex);
-        ch_error_set(error, CH_ERROR_NOT_FOUND,
-                     "silent decision not found");
-        return CH_ERROR_NOT_FOUND;
+        return status;
     }
     else {
         pthread_mutex_unlock(&runtime->mutex);

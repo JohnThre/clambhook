@@ -108,6 +108,7 @@ add_library(clambhook_jni SHARED
     "${CLAMBHOOK_ROOT}/native/src/protocol_shadowsocks.c"
     "${CLAMBHOOK_ROOT}/native/src/protocol_tor.c"
     "${CLAMBHOOK_ROOT}/native/src/protocol_vmess.c"
+    "${CLAMBHOOK_ROOT}/native/src/prompt.c"
     "${CLAMBHOOK_ROOT}/native/src/rule_feed.c"
     "${CLAMBHOOK_ROOT}/native/src/rule_feed_config.c"
     "${CLAMBHOOK_ROOT}/native/src/rules.c"

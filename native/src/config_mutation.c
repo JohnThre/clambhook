@@ -418,6 +418,7 @@ static ch_status mutation_create_rule(ch_json_value *profile,
                                       const ch_json_value *request,
                                       ch_error *error) {
     const ch_json_value *position = ch_json_object_get(request, "position");
+    bool prepend = false;
     if (position != NULL && ch_json_value_type(position) != CH_JSON_NULL) {
         const char *text = ch_json_string_value(position);
         char *trimmed = text == NULL ? NULL : mutation_trimmed_copy(text);
@@ -429,11 +430,13 @@ static ch_status mutation_create_rule(ch_json_value *profile,
                          "copy rule position");
             return CH_ERROR_OUT_OF_MEMORY;
         }
-        bool valid = trimmed[0] == '\0' || strcmp(trimmed, "append") == 0;
+        bool valid = trimmed[0] == '\0' || strcmp(trimmed, "append") == 0 ||
+            strcmp(trimmed, "prepend") == 0;
+        prepend = strcmp(trimmed, "prepend") == 0;
         free(trimmed);
         if (!valid) {
             ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
-                         "position must be append");
+                         "position must be append or prepend");
             return CH_ERROR_INVALID_ARGUMENT;
         }
     }
@@ -461,6 +464,38 @@ static ch_status mutation_create_rule(ch_json_value *profile,
     if (copy == NULL) {
         ch_error_set(error, CH_ERROR_OUT_OF_MEMORY, "copy rule");
         return CH_ERROR_OUT_OF_MEMORY;
+    }
+    if (prepend && ch_json_array_size(rules) > 0U) {
+        ch_json_value *ordered = ch_json_value_new_array();
+        if (ordered == NULL) {
+            ch_json_value_destroy(copy);
+            ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                         "allocate prepended rule collection");
+            return CH_ERROR_OUT_OF_MEMORY;
+        }
+        ch_status status = ch_json_array_append(ordered, copy, error);
+        if (status != CH_OK) {
+            ch_json_value_destroy(copy);
+            ch_json_value_destroy(ordered);
+            return status;
+        }
+        for (size_t index = 0U; index < ch_json_array_size(rules); ++index) {
+            ch_json_value *existing = ch_json_value_clone(
+                ch_json_array_get(rules, index));
+            if (existing == NULL || ch_json_array_append(
+                    ordered, existing, error) != CH_OK) {
+                ch_json_value_destroy(existing);
+                ch_json_value_destroy(ordered);
+                if (error == NULL || error->code == CH_OK) {
+                    ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                                 "copy prepended rule collection");
+                }
+                return error == NULL ? CH_ERROR_OUT_OF_MEMORY : error->code;
+            }
+        }
+        status = ch_json_object_set(profile, "rule", ordered, error);
+        if (status != CH_OK) ch_json_value_destroy(ordered);
+        return status;
     }
     ch_status status = ch_json_array_append(rules, copy, error);
     if (status != CH_OK) ch_json_value_destroy(copy);
