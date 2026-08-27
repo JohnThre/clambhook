@@ -25,8 +25,11 @@ listeners/servers, license information, and API settings. It can connect or
 disconnect the daemon, switch active profiles, refresh the dashboard, and run
 policy-group latency tests. Manual policy groups can switch chains; pending
 prompts expose allow-once/session/until-quit/forever and block-forever actions
-with optional host/port/protocol matching. Capture can be enabled or disabled,
-and clearing all entries requires a destructive-action confirmation. Bearer tokens are read from
+with optional host/port/protocol matching. Recent Silent Mode decisions appear
+in a separate review list and can be promoted to session, until-quit, or
+persisted forever rules with the same matching controls. Capture can be enabled
+or disabled, and clearing all entries requires a destructive-action
+confirmation. Bearer tokens are read from
 `CLAMBHOOK_API_TOKEN` and are sent only in request headers.
 
 Encrypted DNS and the network conditioner are editable. DNS changes preserve
@@ -39,11 +42,12 @@ Capture rows support daemon-side text/method/error filtering and open a
 redacted request/response detail window. Detail views expose bounded header and
 body previews, truncation/encoding metadata, status/profile/chain context, and
 safe cURL export to the desktop clipboard. Identifiers and filter values are
-percent-escaped before they enter request paths.
+percent-escaped before they enter request paths. The non-executing cURL importer
+rejects `@file` inputs and presents only a parsed preview. HAR 1.2 export writes
+the bounded, redacted archive through a native desktop save dialog.
 
 The JSON-to-view models are kept outside GTK widgets so daemon-contract
 fixtures can run without a display. This remains an additive target: remaining
-configuration/rule editors, accessibility parity, silent-mode decision
-promotion, capture cURL import, HAR export/repeat/composition, licensing
-actions, and package cutover are still required before the existing Compose
-Desktop client can be removed.
+configuration/rule editors, accessibility parity, capture repeat/composition,
+licensing actions, and package cutover are still required before the existing
+Compose Desktop client can be removed.

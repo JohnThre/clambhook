@@ -67,10 +67,18 @@ typedef struct ch_gtk_dns_model {
     char *upstreams_json;
 } ch_gtk_dns_model;
 
+typedef struct ch_gtk_curl_import {
+    char *method;
+    char *url;
+    char *headers;
+    char *body;
+} ch_gtk_curl_import;
+
 typedef enum ch_gtk_page_model_kind {
     CH_GTK_PAGE_SERVERS,
     CH_GTK_PAGE_POLICIES,
     CH_GTK_PAGE_PROMPTS,
+    CH_GTK_PAGE_SILENT_DECISIONS,
     CH_GTK_PAGE_DNS,
     CH_GTK_PAGE_CAPTURES,
     CH_GTK_PAGE_CONDITIONER
@@ -83,6 +91,7 @@ void ch_gtk_traffic_model_clear(ch_gtk_traffic_model *model);
 void ch_gtk_capture_detail_clear(ch_gtk_capture_detail *detail);
 void ch_gtk_conditioner_model_clear(ch_gtk_conditioner_model *model);
 void ch_gtk_dns_model_clear(ch_gtk_dns_model *model);
+void ch_gtk_curl_import_clear(ch_gtk_curl_import *model);
 
 gboolean ch_gtk_parse_status(const guint8 *data, gsize length,
                              ch_gtk_status_model *out, GError **error);
@@ -104,6 +113,9 @@ gboolean ch_gtk_parse_conditioner(const guint8 *data, gsize length,
                                   GError **error);
 gboolean ch_gtk_parse_dns(const guint8 *data, gsize length,
                           ch_gtk_dns_model *out, GError **error);
+gboolean ch_gtk_parse_curl_import(const guint8 *data, gsize length,
+                                  ch_gtk_curl_import *out,
+                                  GError **error);
 
 char *ch_gtk_format_bytes(guint64 value);
 char *ch_gtk_format_rate(double value);
@@ -113,8 +125,13 @@ char *ch_gtk_prompt_resolution_body(const char *action, const char *scope,
                                     gboolean match_host,
                                     gboolean match_port,
                                     gboolean match_protocol);
+char *ch_gtk_silent_promotion_body(const char *scope,
+                                   gboolean match_host,
+                                   gboolean match_port,
+                                   gboolean match_protocol);
 char *ch_gtk_capture_enabled_body(gboolean enabled);
 char *ch_gtk_prompt_resolution_path(const char *identifier);
+char *ch_gtk_silent_promotion_path(const char *identifier);
 char *ch_gtk_capture_entries_path(const char *query, const char *method,
                                   gboolean error_only, guint limit);
 char *ch_gtk_capture_detail_path(const char *identifier);
@@ -127,5 +144,6 @@ char *ch_gtk_conditioner_body(const char *profile, gboolean enabled,
 char *ch_gtk_dns_body(const char *profile, gboolean enabled,
                       const char *timeout, const char *upstreams_json,
                       GError **error);
+char *ch_gtk_curl_import_body(const char *command);
 
 #endif

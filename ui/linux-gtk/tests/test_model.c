@@ -84,6 +84,10 @@ static void test_page_rows(void) {
         "{\"prompts\":[{\"id\":\"prompt-1\","
         "\"process_name\":\"Browser\",\"target\":\"example.com:443\","
         "\"network\":\"tcp\"}]}", "Browser");
+    assert_page(CH_GTK_PAGE_SILENT_DECISIONS,
+        "{\"decisions\":[{\"id\":\"silent-1\",\"action\":\"deny\","
+        "\"process_name\":\"Updater\",\"target\":\"example.com:443\","
+        "\"network\":\"tcp\",\"profile\":\"work\"}]}", "Denied");
     assert_page(CH_GTK_PAGE_DNS,
         "{\"upstreams\":[{\"name\":\"Control D\","
         "\"protocol\":\"doh\",\"url\":\"https://dns.example/dns-query\"}]}",
@@ -161,6 +165,16 @@ static void test_action_contracts(void) {
     g_autofree char *path = ch_gtk_prompt_resolution_path("id /?#");
     g_assert_cmpstr(path, ==,
                     "/api/v1/prompts/id%20%2F%3F%23/resolve");
+    g_autofree char *promotion = ch_gtk_silent_promotion_body(
+        "forever", TRUE, FALSE, TRUE);
+    g_assert_cmpstr(
+        promotion, ==,
+        "{\"scope\":\"forever\",\"match_host\":true,"
+        "\"match_port\":false,\"match_protocol\":true}");
+    g_autofree char *promotion_path = ch_gtk_silent_promotion_path("id /?#");
+    g_assert_cmpstr(
+        promotion_path, ==,
+        "/api/v1/prompts/decisions/id%20%2F%3F%23/promote");
 
     g_autofree char *entries = ch_gtk_capture_entries_path(
         "hello world", "GET,post", TRUE, 100U);
@@ -211,6 +225,24 @@ static void test_capture_detail(void) {
     g_autofree char *curl = ch_gtk_parse_curl_export(
         curl_json, sizeof(curl_json) - 1U, &error);
     g_assert_cmpstr(curl, ==, "curl 'http://example.test/'");
+
+    g_autofree char *import_body = ch_gtk_curl_import_body(
+        "curl 'https://example.test/' -H 'X-Test: yes'");
+    g_assert_cmpstr(
+        import_body, ==,
+        "{\"curl\":\"curl 'https://example.test/' -H 'X-Test: yes'\"}");
+    static const guint8 imported_json[] =
+        "{\"method\":\"POST\",\"url\":\"https://example.test/\","
+        "\"headers\":[{\"name\":\"X-Test\",\"value\":\"yes\"}],"
+        "\"body\":\"hello\"}";
+    ch_gtk_curl_import imported;
+    g_assert_true(ch_gtk_parse_curl_import(
+        imported_json, sizeof(imported_json) - 1U, &imported, &error));
+    g_assert_cmpstr(imported.method, ==, "POST");
+    g_assert_cmpstr(imported.url, ==, "https://example.test/");
+    g_assert_nonnull(strstr(imported.headers, "X-Test: yes"));
+    g_assert_cmpstr(imported.body, ==, "hello");
+    ch_gtk_curl_import_clear(&imported);
 }
 
 static void test_conditioner_contract(void) {

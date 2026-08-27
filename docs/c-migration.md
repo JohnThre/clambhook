@@ -156,9 +156,13 @@ The additive CMake build currently provides:
   JSON payloads before the daemon validates, persists, and applies them
   transactionally. A reconnecting libsoup WebSocket subscriber listens to the
   native `connection.*` and `rule.*` feed and coalesces bursty updates into
-  bounded traffic/status refreshes. Remaining configuration/rule editors,
-  silent-decision promotion, capture cURL import/HAR export/repeat/composition,
-  accessibility QA, license actions, and production packaging remain open;
+  bounded traffic/status refreshes. Silent Mode review rows promote the
+  daemon-recorded action to session, until-quit, or persisted rules without
+  letting the UI alter the recorded allow/deny result. The non-executing cURL
+  importer exposes only a parsed preview and rejects file reads; HAR 1.2 export
+  writes the bounded redacted archive through a native save dialog. Remaining
+  configuration/rule editors, capture repeat/composition, accessibility QA,
+  license actions, and production packaging remain open;
 - `clambhook_jni`: the thin JNI ownership/callback boundary used by the Kotlin
   bridge during Android cutover. Gradle now builds and packages it with the NDK
   for arm64-v8a, armeabi-v7a, x86, and x86_64. The JNI runtime now accepts raw

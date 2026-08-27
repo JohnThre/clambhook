@@ -161,6 +161,15 @@ void ch_gtk_dns_model_clear(ch_gtk_dns_model *model) {
     memset(model, 0, sizeof(*model));
 }
 
+void ch_gtk_curl_import_clear(ch_gtk_curl_import *model) {
+    if (model == NULL) return;
+    g_free(model->method);
+    g_free(model->url);
+    g_free(model->headers);
+    g_free(model->body);
+    memset(model, 0, sizeof(*model));
+}
+
 char *ch_gtk_format_bytes(guint64 value) {
     static const char *const units[] = {"B", "KiB", "MiB", "GiB", "TiB"};
     double scaled = (double)value;
@@ -215,6 +224,24 @@ char *ch_gtk_prompt_resolution_body(const char *action, const char *scope,
     json_builder_begin_object(builder);
     json_builder_set_member_name(builder, "action");
     json_builder_add_string_value(builder, action);
+    json_builder_set_member_name(builder, "scope");
+    json_builder_add_string_value(builder, scope);
+    json_builder_set_member_name(builder, "match_host");
+    json_builder_add_boolean_value(builder, match_host);
+    json_builder_set_member_name(builder, "match_port");
+    json_builder_add_boolean_value(builder, match_port);
+    json_builder_set_member_name(builder, "match_protocol");
+    json_builder_add_boolean_value(builder, match_protocol);
+    json_builder_end_object(builder);
+    return builder_json(builder);
+}
+
+char *ch_gtk_silent_promotion_body(const char *scope,
+                                   gboolean match_host,
+                                   gboolean match_port,
+                                   gboolean match_protocol) {
+    g_autoptr(JsonBuilder) builder = json_builder_new();
+    json_builder_begin_object(builder);
     json_builder_set_member_name(builder, "scope");
     json_builder_add_string_value(builder, scope);
     json_builder_set_member_name(builder, "match_host");
@@ -352,9 +379,24 @@ char *ch_gtk_dns_body(const char *profile, gboolean enabled,
     return builder_json(builder);
 }
 
+char *ch_gtk_curl_import_body(const char *command) {
+    g_autoptr(JsonBuilder) builder = json_builder_new();
+    json_builder_begin_object(builder);
+    json_builder_set_member_name(builder, "curl");
+    json_builder_add_string_value(builder, command == NULL ? "" : command);
+    json_builder_end_object(builder);
+    return builder_json(builder);
+}
+
 char *ch_gtk_prompt_resolution_path(const char *identifier) {
     g_autofree char *escaped = g_uri_escape_string(identifier, NULL, FALSE);
     return g_strdup_printf("/api/v1/prompts/%s/resolve", escaped);
+}
+
+char *ch_gtk_silent_promotion_path(const char *identifier) {
+    g_autofree char *escaped = g_uri_escape_string(identifier, NULL, FALSE);
+    return g_strdup_printf(
+        "/api/v1/prompts/decisions/%s/promote", escaped);
 }
 
 char *ch_gtk_capture_entries_path(const char *query, const char *method,
@@ -564,6 +606,27 @@ static void append_prompt_rows(JsonObject *root, GPtrArray *rows) {
     }
 }
 
+static void append_silent_decision_rows(JsonObject *root, GPtrArray *rows) {
+    JsonArray *decisions = object_array(root, "decisions");
+    for (guint index = 0U; index < array_length(decisions); ++index) {
+        JsonObject *decision = array_object(decisions, index);
+        const char *process = object_string(decision, "process_name",
+                                            "Unknown process");
+        const char *target = object_string(decision, "target", "");
+        const char *network = object_string(decision, "network", "tcp");
+        const char *action = object_string(decision, "action", "deny");
+        const char *profile = object_string(decision, "profile", "");
+        g_autofree char *title = g_strdup_printf(
+            "%s %s → %s", g_ascii_strcasecmp(action, "allow") == 0 ?
+                "Allowed" : "Denied", process, target);
+        g_autofree char *detail = g_strdup_printf(
+            "%s%s%s", network, profile[0] == '\0' ? "" : " · profile ",
+            profile);
+        g_ptr_array_add(rows, row_new(
+            title, detail, object_string(decision, "id", "")));
+    }
+}
+
 static void append_dns_rows(JsonObject *root, GPtrArray *rows) {
     JsonArray *upstreams = object_array(root, "upstreams");
     for (guint index = 0U; index < array_length(upstreams); ++index) {
@@ -733,6 +796,21 @@ gboolean ch_gtk_parse_dns(const guint8 *data, gsize length,
     return TRUE;
 }
 
+gboolean ch_gtk_parse_curl_import(const guint8 *data, gsize length,
+                                  ch_gtk_curl_import *out,
+                                  GError **error) {
+    memset(out, 0, sizeof(*out));
+    JsonParser *parser = NULL;
+    JsonObject *root = parse_root(data, length, &parser, error);
+    if (root == NULL) return FALSE;
+    out->method = g_strdup(object_string(root, "method", "GET"));
+    out->url = g_strdup(object_string(root, "url", ""));
+    out->body = g_strdup(object_string(root, "body", ""));
+    out->headers = capture_headers_text(root);
+    g_object_unref(parser);
+    return TRUE;
+}
+
 gboolean ch_gtk_parse_page_rows(ch_gtk_page_model_kind kind,
                                 const guint8 *data, gsize length,
                                 GPtrArray **out_rows, char **out_summary,
@@ -756,6 +834,11 @@ gboolean ch_gtk_parse_page_rows(ch_gtk_page_model_kind kind,
         case CH_GTK_PAGE_PROMPTS:
             append_prompt_rows(root, rows);
             *out_summary = g_strdup("Pending connection decisions");
+            break;
+        case CH_GTK_PAGE_SILENT_DECISIONS:
+            append_silent_decision_rows(root, rows);
+            *out_summary = g_strdup(
+                "Recent Silent Mode decisions available for promotion");
             break;
         case CH_GTK_PAGE_DNS:
             append_dns_rows(root, rows);
