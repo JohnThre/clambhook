@@ -280,7 +280,7 @@ authorized parties, not a general contribution or redistribution grant.
 | `make test` | Builds `clib/libcnet.a`, then runs `go test ./...`. |
 | `make build-native` | Builds the additive C17 runtime, daemon, helper, and native tests. |
 | `make test-native` | Runs sanitizer-backed C tests and license differential parity. |
-| `make build-linux-gtk` | Builds the additive C/GTK 4 GNU/Linux client. |
+| `make build-linux-gtk` | Builds the additive C/GTK 4 GNU/Linux client and runs its display-independent model/executable tests. |
 | `make build-android-native` | Builds the C/JNI runtime for the Android NDK ABIs. |
 | `make test-android-compatibility` | Runs Compose instrumentation on managed API 31/33/36 devices. |
 | `make lint` | Runs `go vet ./...` (and `staticcheck` when installed). |

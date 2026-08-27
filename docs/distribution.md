@@ -71,8 +71,9 @@ development is discontinued with no planned resumption date.
 ## CI Validation Before Release
 
 Every installer is validated before manual QA, signing, or upload to an
-approved channel — never on GitHub Releases. GitHub Actions runs Apple builds,
-native C sanitizers, Android unit/lint/build plus managed-device Compose/JNI
+approved channel — never on GitHub Releases. The macOS app is built and tested
+locally; ordinary GitHub CI runs only native-C portability on macOS. GitHub
+Actions runs native C sanitizers, Android unit/lint/build plus managed-device Compose/JNI
 tests on API 31/33/36, and the only GNU/Linux matrix: Trisquel 12, Rocky Linux
 9, and AlmaLinux 9. CodeQL, dependency review, and Dependabot cover the source
 and dependency surfaces. Protected GitHub CD signs/notarizes and deploys

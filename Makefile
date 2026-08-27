@@ -63,7 +63,8 @@ test-native:
 
 build-linux-gtk:
 	cmake -S . -B "$(NATIVE_BUILD_DIR)" -G Ninja -DCLAMBHOOK_BUILD_GTK=ON
-	cmake --build "$(NATIVE_BUILD_DIR)" --target clambhook-linux-c
+	cmake --build "$(NATIVE_BUILD_DIR)" --target clambhook-linux-c clambhook-linux-model-tests
+	ctest --test-dir "$(NATIVE_BUILD_DIR)" --output-on-failure -R '^linux-gtk-'
 
 install: build
 	install -d "$(DESTDIR)$(PREFIX)/bin"

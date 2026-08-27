@@ -189,14 +189,39 @@ if(CLAMBHOOK_BUILD_GTK)
   pkg_check_modules(GTK4 REQUIRED IMPORTED_TARGET gtk4)
   pkg_check_modules(LIBSOUP REQUIRED IMPORTED_TARGET libsoup-3.0)
   pkg_check_modules(JSON_GLIB REQUIRED IMPORTED_TARGET json-glib-1.0)
+  add_library(clambhook-linux-model STATIC ui/linux-gtk/src/model.c)
+  target_include_directories(clambhook-linux-model PUBLIC ui/linux-gtk/src)
+  target_link_libraries(clambhook-linux-model PUBLIC PkgConfig::JSON_GLIB)
+  target_compile_options(clambhook-linux-model PRIVATE
+    $<$<C_COMPILER_ID:AppleClang,Clang,GNU>:-Wall;-Wextra;-Wpedantic;-Wconversion;-Wshadow>
+  )
   add_executable(clambhook-linux-c ui/linux-gtk/src/main.c)
   target_link_libraries(clambhook-linux-c PRIVATE
-    PkgConfig::GTK4 PkgConfig::LIBSOUP PkgConfig::JSON_GLIB
+    clambhook-linux-model PkgConfig::GTK4 PkgConfig::LIBSOUP
   )
   target_compile_options(clambhook-linux-c PRIVATE
     $<$<C_COMPILER_ID:AppleClang,Clang,GNU>:-Wall;-Wextra;-Wpedantic;-Wconversion;-Wshadow>
   )
-  target_compile_definitions(clambhook-linux-c PRIVATE _POSIX_C_SOURCE=200809L)
+  target_compile_definitions(clambhook-linux-c PRIVATE
+    _POSIX_C_SOURCE=200809L
+    CLAMBHOOK_VERSION="${PROJECT_VERSION}"
+  )
+  if(CLAMBHOOK_BUILD_TESTS)
+    add_executable(clambhook-linux-model-tests
+      ui/linux-gtk/tests/test_model.c
+    )
+    target_link_libraries(clambhook-linux-model-tests PRIVATE
+      clambhook-linux-model
+    )
+    target_compile_options(clambhook-linux-model-tests PRIVATE
+      $<$<C_COMPILER_ID:AppleClang,Clang,GNU>:-Wall;-Wextra;-Wpedantic;-Wconversion;-Wshadow>
+    )
+    add_test(NAME linux-gtk-model COMMAND clambhook-linux-model-tests)
+    add_test(NAME linux-gtk-version COMMAND clambhook-linux-c --version)
+    set_tests_properties(linux-gtk-version PROPERTIES
+      PASS_REGULAR_EXPRESSION "^clambhook-linux ${PROJECT_VERSION}"
+    )
+  endif()
 endif()
 
 if(CLAMBHOOK_BUILD_JNI)

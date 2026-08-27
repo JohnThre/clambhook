@@ -7,12 +7,26 @@ built as `clambhook-linux-c`; packaging continues to ship the existing client.
 Build and run the current migration slice with:
 
 ```sh
-cmake -S . -B build-native -G Ninja -DCLAMBHOOK_BUILD_GTK=ON
-cmake --build build-native --target clambhook-linux-c
+make build-linux-gtk
 CLAMBHOOK_API_URL=http://127.0.0.1:9090 build-native/clambhook-linux-c
 ```
 
-The controller already uses `GtkApplication`, asynchronous libsoup requests,
-and the existing `/api/v1/status`, `/connect`, and `/disconnect` contracts. New
-dashboard sections will replace the Compose client incrementally while the old
-client remains the visual and behavioral parity oracle.
+`make build-linux-gtk` builds the application and runs display-independent
+GLib model fixtures plus a `--version` executable smoke. The supported
+GNU/Linux GitHub matrix repeats those checks only on Trisquel 12, Rocky Linux
+9, and AlmaLinux 9.
+
+The controller uses `GtkApplication`, asynchronous libsoup requests, and the
+native daemon API. Its navigation exposes current status, traffic, policy
+groups, prompts, encrypted DNS, opt-in HTTP capture, network conditioning,
+listeners/servers, license information, and API settings. It can connect or
+disconnect the daemon, switch active profiles, refresh the dashboard, and run
+policy-group latency tests. Bearer tokens are read from
+`CLAMBHOOK_API_TOKEN` and are sent only in request headers.
+
+The JSON-to-view models are kept outside GTK widgets so daemon-contract
+fixtures can run without a display. This remains an additive target: editing
+and accessibility parity, interactive prompt resolution, capture controls and
+details, policy selection, conditioner/DNS editing, event-stream updates,
+licensing actions, and package cutover are still required before the existing
+Compose Desktop client can be removed.

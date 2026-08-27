@@ -144,6 +144,7 @@ export PATH=/usr/local/go/bin:$PATH
 make test-native
 make build-linux-gtk
 test -x build-native/clambhook-linux-c
+./build-native/clambhook-linux-c --version | grep -q "^clambhook-linux "
 make test
 make build
 make test-linux

@@ -141,7 +141,14 @@ The additive CMake build currently provides:
   non-interactive use it prints one plain-text snapshot and exits, which also
   provides a scriptable API smoke check;
 - `clambhook-linux-c`: an additive `GtkApplication` dashboard using GTK 4,
-  libsoup 3, and json-glib;
+  libsoup 3, and json-glib. Its asynchronous native-API client now renders
+  status/listeners, profile selection, traffic, servers, policy groups,
+  prompts, encrypted DNS, developer capture state/entries, and network
+  conditioning. It provides connect/disconnect, refresh, active-profile
+  switching, and policy latency-test actions. Display-independent GLib model
+  fixtures and a `--version` executable smoke run in the Trisquel/Rocky/Alma
+  lanes. Editing, prompt/capture/policy interactions, event streaming,
+  accessibility QA, license actions, and production packaging remain open;
 - `clambhook_jni`: the thin JNI ownership/callback boundary used by the Kotlin
   bridge during Android cutover. Gradle now builds and packages it with the NDK
   for arm64-v8a, armeabi-v7a, x86, and x86_64. The JNI runtime now accepts raw
@@ -287,7 +294,8 @@ automatic switch remains part of the full control-API gate.
 
 The native host build requires CMake, Ninja, pkg-config, libuv, libsodium,
 OpenSSL 3.0 or newer, libcurl, and llhttp. The optional Linux client
-additionally requires GTK 4, libsoup 3, and json-glib.
+additionally requires GTK 4, libsoup 3, and json-glib. `make build-linux-gtk`
+also runs the display-independent model and executable tests.
 
 ```sh
 make build-native
