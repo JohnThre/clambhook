@@ -27,9 +27,15 @@ with optional host/port/protocol matching. Capture can be enabled or disabled,
 and clearing all entries requires a destructive-action confirmation. Bearer tokens are read from
 `CLAMBHOOK_API_TOKEN` and are sent only in request headers.
 
+Capture rows support daemon-side text/method/error filtering and open a
+redacted request/response detail window. Detail views expose bounded header and
+body previews, truncation/encoding metadata, status/profile/chain context, and
+safe cURL export to the desktop clipboard. Identifiers and filter values are
+percent-escaped before they enter request paths.
+
 The JSON-to-view models are kept outside GTK widgets so daemon-contract
 fixtures can run without a display. This remains an additive target: editing
-and accessibility parity, silent-mode decision promotion, capture filtering,
-details/cURL import/export/repeat/composition, conditioner/DNS editing,
+and accessibility parity, silent-mode decision promotion, capture cURL import,
+HAR export/repeat/composition, conditioner/DNS editing,
 event-stream updates, licensing actions, and package cutover are still required
 before the existing Compose Desktop client can be removed.

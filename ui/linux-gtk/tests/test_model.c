@@ -161,6 +161,56 @@ static void test_action_contracts(void) {
     g_autofree char *path = ch_gtk_prompt_resolution_path("id /?#");
     g_assert_cmpstr(path, ==,
                     "/api/v1/prompts/id%20%2F%3F%23/resolve");
+
+    g_autofree char *entries = ch_gtk_capture_entries_path(
+        "hello world", "GET,post", TRUE, 100U);
+    g_assert_cmpstr(
+        entries, ==,
+        "/api/v1/developer/entries?limit=100&method=GET%2Cpost&"
+        "q=hello%20world&error_only=1");
+    g_autofree char *detail_path = ch_gtk_capture_detail_path("capture /1");
+    g_assert_cmpstr(detail_path, ==,
+                    "/api/v1/developer/entries/capture%20%2F1");
+    g_autofree char *curl_path = ch_gtk_capture_curl_path("capture /1");
+    g_assert_cmpstr(curl_path, ==,
+                    "/api/v1/developer/entries/capture%20%2F1/curl");
+}
+
+static void test_capture_detail(void) {
+    static const guint8 json[] =
+        "{\"id\":\"dev-1\",\"method\":\"POST\","
+        "\"url\":\"http://example.test/\",\"host\":\"example.test\","
+        "\"profile\":\"work\",\"chain_name\":\"secure\","
+        "\"started_at\":\"2026-08-27T00:00:00Z\",\"status\":201,"
+        "\"request\":{\"headers\":[{\"name\":\"Authorization\","
+        "\"value\":\"[redacted]\",\"redacted\":true}],\"body\":{"
+        "\"size\":11,\"preview\":\"hello world\","
+        "\"preview_bytes\":11,\"truncated\":false,"
+        "\"truncated_after\":4096,\"encoding\":\"utf8\"}},"
+        "\"response\":{\"headers\":[],\"body\":{\"size\":10,"
+        "\"preview_base64\":\"AAEC\",\"preview_bytes\":3,"
+        "\"truncated\":true,\"truncated_after\":3,"
+        "\"mime_type\":\"application/octet-stream\","
+        "\"encoding\":\"base64\"}},\"error\":\"\"}";
+    ch_gtk_capture_detail detail;
+    g_autoptr(GError) error = NULL;
+    g_assert_true(ch_gtk_parse_capture_detail(
+        json, sizeof(json) - 1U, &detail, &error));
+    g_assert_cmpstr(detail.identifier, ==, "dev-1");
+    g_assert_cmpstr(detail.method, ==, "POST");
+    g_assert_cmpint(detail.status, ==, 201);
+    g_assert_nonnull(strstr(detail.request_headers,
+                            "Authorization: [redacted]"));
+    g_assert_nonnull(strstr(detail.request_body, "hello world"));
+    g_assert_nonnull(strstr(detail.response_body, "AAEC"));
+    g_assert_nonnull(strstr(detail.response_body, "preview truncated"));
+    ch_gtk_capture_detail_clear(&detail);
+
+    static const guint8 curl_json[] =
+        "{\"curl\":\"curl 'http://example.test/'\"}";
+    g_autofree char *curl = ch_gtk_parse_curl_export(
+        curl_json, sizeof(curl_json) - 1U, &error);
+    g_assert_cmpstr(curl, ==, "curl 'http://example.test/'");
 }
 
 int main(int argc, char **argv) {
@@ -170,5 +220,6 @@ int main(int argc, char **argv) {
     g_test_add_func("/gtk-model/pages", test_page_rows);
     g_test_add_func("/gtk-model/invalid", test_invalid_payload);
     g_test_add_func("/gtk-model/action-contracts", test_action_contracts);
+    g_test_add_func("/gtk-model/capture-detail", test_capture_detail);
     return g_test_run();
 }

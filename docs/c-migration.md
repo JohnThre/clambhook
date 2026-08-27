@@ -150,8 +150,10 @@ The additive CMake build currently provides:
   enable/disable, and confirmation-gated capture clearing. Mutation payloads
   and identifier escaping are covered by display-independent GLib model
   fixtures and a `--version` executable smoke run in the Trisquel/Rocky/Alma
-  lanes. Remaining editors, silent-decision promotion, capture detail/filter/
-  import/export/repeat/composition, event streaming, accessibility QA, license
+  lanes. Capture text/method/error filters, request/response detail previews,
+  and clipboard cURL export use only native C routes and have model fixtures.
+  Remaining editors, silent-decision promotion, capture cURL import/HAR export/
+  repeat/composition, event streaming, accessibility QA, license
   actions, and production packaging remain open;
 - `clambhook_jni`: the thin JNI ownership/callback boundary used by the Kotlin
   bridge during Android cutover. Gradle now builds and packages it with the NDK

@@ -65,6 +65,13 @@ static JsonObject *array_object(JsonArray *array, guint index) {
         json_node_get_object(node) : NULL;
 }
 
+static JsonObject *object_object(JsonObject *object, const char *name) {
+    if (object == NULL || !json_object_has_member(object, name)) return NULL;
+    JsonNode *node = json_object_get_member(object, name);
+    return node != NULL && JSON_NODE_HOLDS_OBJECT(node) ?
+        json_node_get_object(node) : NULL;
+}
+
 static guint array_length(JsonArray *array) {
     return array == NULL ? 0U : json_array_get_length(array);
 }
@@ -117,6 +124,24 @@ void ch_gtk_traffic_model_clear(ch_gtk_traffic_model *model) {
     if (model == NULL) return;
     g_clear_pointer(&model->rows, g_ptr_array_unref);
     memset(model, 0, sizeof(*model));
+}
+
+void ch_gtk_capture_detail_clear(ch_gtk_capture_detail *detail) {
+    if (detail == NULL) return;
+    g_free(detail->identifier);
+    g_free(detail->method);
+    g_free(detail->url);
+    g_free(detail->host);
+    g_free(detail->profile);
+    g_free(detail->chain);
+    g_free(detail->started_at);
+    g_free(detail->finished_at);
+    g_free(detail->error_message);
+    g_free(detail->request_headers);
+    g_free(detail->request_body);
+    g_free(detail->response_headers);
+    g_free(detail->response_body);
+    memset(detail, 0, sizeof(*detail));
 }
 
 char *ch_gtk_format_bytes(guint64 value) {
@@ -197,6 +222,34 @@ char *ch_gtk_capture_enabled_body(gboolean enabled) {
 char *ch_gtk_prompt_resolution_path(const char *identifier) {
     g_autofree char *escaped = g_uri_escape_string(identifier, NULL, FALSE);
     return g_strdup_printf("/api/v1/prompts/%s/resolve", escaped);
+}
+
+char *ch_gtk_capture_entries_path(const char *query, const char *method,
+                                  gboolean error_only, guint limit) {
+    g_autofree char *escaped_query = g_uri_escape_string(
+        query == NULL ? "" : query, NULL, FALSE);
+    g_autofree char *escaped_method = g_uri_escape_string(
+        method == NULL ? "" : method, NULL, FALSE);
+    GString *path = g_string_new("/api/v1/developer/entries?limit=");
+    g_string_append_printf(path, "%u", limit);
+    if (escaped_method[0] != '\0') {
+        g_string_append_printf(path, "&method=%s", escaped_method);
+    }
+    if (escaped_query[0] != '\0') {
+        g_string_append_printf(path, "&q=%s", escaped_query);
+    }
+    if (error_only) g_string_append(path, "&error_only=1");
+    return g_string_free(path, FALSE);
+}
+
+char *ch_gtk_capture_detail_path(const char *identifier) {
+    g_autofree char *escaped = g_uri_escape_string(identifier, NULL, FALSE);
+    return g_strdup_printf("/api/v1/developer/entries/%s", escaped);
+}
+
+char *ch_gtk_capture_curl_path(const char *identifier) {
+    g_autofree char *escaped = g_uri_escape_string(identifier, NULL, FALSE);
+    return g_strdup_printf("/api/v1/developer/entries/%s/curl", escaped);
 }
 
 static ch_gtk_row *row_new(const char *title, const char *detail,
@@ -420,6 +473,82 @@ static void append_conditioner_rows(JsonObject *root, GPtrArray *rows) {
         latency, jitter, loss, download, upload);
     g_ptr_array_add(rows, row_new(enabled ? "Enabled" : "Disabled",
                                   detail, "conditioner"));
+}
+
+static char *capture_headers_text(JsonObject *message) {
+    JsonArray *headers = object_array(message, "headers");
+    if (array_length(headers) == 0U) return g_strdup("No headers");
+    GString *text = g_string_new("");
+    for (guint index = 0U; index < array_length(headers); ++index) {
+        JsonObject *header = array_object(headers, index);
+        const char *name = object_string(header, "name", "");
+        const char *value = object_string(header, "value", "");
+        if (index > 0U) g_string_append_c(text, '\n');
+        g_string_append_printf(text, "%s: %s", name, value);
+        if (object_boolean(header, "truncated", FALSE)) {
+            g_string_append(text, " [truncated]");
+        }
+    }
+    return g_string_free(text, FALSE);
+}
+
+static char *capture_body_text(JsonObject *message) {
+    JsonObject *body = object_object(message, "body");
+    const char *preview = object_string(body, "preview", "");
+    const char *base64 = object_string(body, "preview_base64", "");
+    const char *content = preview[0] != '\0' ? preview : base64;
+    guint64 size = object_uint64(body, "size");
+    const char *mime = object_string(body, "mime_type", "");
+    const char *encoding = object_string(body, "encoding", "");
+    gboolean truncated = object_boolean(body, "truncated", FALSE);
+    GString *text = g_string_new(
+        content[0] == '\0' ? "No body preview" : content);
+    g_string_append_printf(text, "\n\n%" G_GUINT64_FORMAT " bytes", size);
+    if (mime[0] != '\0') g_string_append_printf(text, " · %s", mime);
+    if (encoding[0] != '\0') {
+        g_string_append_printf(text, " · %s", encoding);
+    }
+    if (truncated) g_string_append(text, " · preview truncated");
+    return g_string_free(text, FALSE);
+}
+
+gboolean ch_gtk_parse_capture_detail(const guint8 *data, gsize length,
+                                     ch_gtk_capture_detail *out,
+                                     GError **error) {
+    memset(out, 0, sizeof(*out));
+    JsonParser *parser = NULL;
+    JsonObject *root = parse_root(data, length, &parser, error);
+    if (root == NULL) return FALSE;
+    out->identifier = g_strdup(object_string(root, "id", ""));
+    out->method = g_strdup(object_string(root, "method", "GET"));
+    out->url = g_strdup(object_string(root, "url", ""));
+    out->host = g_strdup(object_string(root, "host", ""));
+    out->profile = g_strdup(object_string(root, "profile", ""));
+    out->chain = g_strdup(object_string(root, "chain_name", ""));
+    out->started_at = g_strdup(object_string(root, "started_at", ""));
+    out->finished_at = g_strdup(object_string(root, "finished_at", ""));
+    out->error_message = g_strdup(object_string(root, "error", ""));
+    double status = object_number(root, "status", 0.0);
+    out->status = status <= 0.0 ? 0 :
+        (status >= (double)G_MAXINT ? G_MAXINT : (gint)status);
+    JsonObject *request = object_object(root, "request");
+    JsonObject *response = object_object(root, "response");
+    out->request_headers = capture_headers_text(request);
+    out->request_body = capture_body_text(request);
+    out->response_headers = capture_headers_text(response);
+    out->response_body = capture_body_text(response);
+    g_object_unref(parser);
+    return TRUE;
+}
+
+char *ch_gtk_parse_curl_export(const guint8 *data, gsize length,
+                               GError **error) {
+    JsonParser *parser = NULL;
+    JsonObject *root = parse_root(data, length, &parser, error);
+    if (root == NULL) return NULL;
+    char *result = g_strdup(object_string(root, "curl", ""));
+    g_object_unref(parser);
+    return result;
 }
 
 gboolean ch_gtk_parse_page_rows(ch_gtk_page_model_kind kind,

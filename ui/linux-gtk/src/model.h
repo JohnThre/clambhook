@@ -33,6 +33,23 @@ typedef struct ch_gtk_traffic_model {
     GPtrArray *rows;
 } ch_gtk_traffic_model;
 
+typedef struct ch_gtk_capture_detail {
+    char *identifier;
+    char *method;
+    char *url;
+    char *host;
+    char *profile;
+    char *chain;
+    char *started_at;
+    char *finished_at;
+    char *error_message;
+    gint status;
+    char *request_headers;
+    char *request_body;
+    char *response_headers;
+    char *response_body;
+} ch_gtk_capture_detail;
+
 typedef enum ch_gtk_page_model_kind {
     CH_GTK_PAGE_SERVERS,
     CH_GTK_PAGE_POLICIES,
@@ -46,6 +63,7 @@ void ch_gtk_row_free(ch_gtk_row *row);
 void ch_gtk_status_model_clear(ch_gtk_status_model *model);
 void ch_gtk_profiles_model_clear(ch_gtk_profiles_model *model);
 void ch_gtk_traffic_model_clear(ch_gtk_traffic_model *model);
+void ch_gtk_capture_detail_clear(ch_gtk_capture_detail *detail);
 
 gboolean ch_gtk_parse_status(const guint8 *data, gsize length,
                              ch_gtk_status_model *out, GError **error);
@@ -57,6 +75,11 @@ gboolean ch_gtk_parse_page_rows(ch_gtk_page_model_kind kind,
                                 const guint8 *data, gsize length,
                                 GPtrArray **out_rows, char **out_summary,
                                 GError **error);
+gboolean ch_gtk_parse_capture_detail(const guint8 *data, gsize length,
+                                     ch_gtk_capture_detail *out,
+                                     GError **error);
+char *ch_gtk_parse_curl_export(const guint8 *data, gsize length,
+                               GError **error);
 
 char *ch_gtk_format_bytes(guint64 value);
 char *ch_gtk_format_rate(double value);
@@ -68,5 +91,9 @@ char *ch_gtk_prompt_resolution_body(const char *action, const char *scope,
                                     gboolean match_protocol);
 char *ch_gtk_capture_enabled_body(gboolean enabled);
 char *ch_gtk_prompt_resolution_path(const char *identifier);
+char *ch_gtk_capture_entries_path(const char *query, const char *method,
+                                  gboolean error_only, guint limit);
+char *ch_gtk_capture_detail_path(const char *identifier);
+char *ch_gtk_capture_curl_path(const char *identifier);
 
 #endif

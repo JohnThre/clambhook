@@ -28,7 +28,9 @@ typedef enum request_kind {
     REQUEST_POLICY_SELECT,
     REQUEST_PROMPT_RESOLVE,
     REQUEST_CAPTURE_TOGGLE,
-    REQUEST_CAPTURE_CLEAR
+    REQUEST_CAPTURE_CLEAR,
+    REQUEST_CAPTURE_DETAIL,
+    REQUEST_CAPTURE_CURL
 } RequestKind;
 
 typedef enum page_slot {
@@ -63,6 +65,10 @@ typedef struct clambhook_linux_app {
     GtkWidget *capture_state_label;
     GtkWidget *capture_toggle_button;
     GtkWidget *capture_clear_button;
+    GtkWidget *capture_query;
+    GtkWidget *capture_method;
+    GtkWidget *capture_error_only;
+    GtkWidget *capture_filter_button;
     GtkWidget *policy_test_button;
     GtkWidget *prompt_match_host;
     GtkWidget *prompt_match_port;
@@ -101,6 +107,7 @@ static void send_request(ClambhookLinuxApp *app, RequestKind kind,
                          const char *body);
 static void populate_policy_rows(ClambhookLinuxApp *app, GPtrArray *rows);
 static void populate_prompt_rows(ClambhookLinuxApp *app, GPtrArray *rows);
+static void populate_capture_rows(ClambhookLinuxApp *app, GPtrArray *rows);
 
 static char *join_url(const char *base, const char *path) {
     gsize base_length = strlen(base);
@@ -123,8 +130,10 @@ static void set_request_activity(ClambhookLinuxApp *app, int delta) {
     gtk_widget_set_sensitive(app->capture_toggle_button, !active);
     gtk_widget_set_sensitive(app->capture_clear_button,
                              !active && app->capture_enabled);
+    gtk_widget_set_sensitive(app->capture_filter_button, !active);
     gtk_widget_set_sensitive(app->page_lists[PAGE_POLICIES], !active);
     gtk_widget_set_sensitive(app->page_lists[PAGE_PROMPTS], !active);
+    gtk_widget_set_sensitive(app->page_lists[PAGE_CAPTURES], !active);
     gtk_widget_set_visible(app->spinner, active);
     if (active) gtk_spinner_start(GTK_SPINNER(app->spinner));
     else gtk_spinner_stop(GTK_SPINNER(app->spinner));
@@ -341,6 +350,8 @@ static void apply_page(ClambhookLinuxApp *app, RequestKind kind,
         populate_policy_rows(app, rows);
     } else if (slot == PAGE_PROMPTS) {
         populate_prompt_rows(app, rows);
+    } else if (slot == PAGE_CAPTURES) {
+        populate_capture_rows(app, rows);
     } else {
         populate_rows(app->page_lists[slot], rows, empty_messages[slot]);
     }
@@ -375,6 +386,149 @@ static void apply_capture_status(ClambhookLinuxApp *app, const guint8 *data,
                              enabled && app->active_requests == 0U);
 }
 
+static GtkWidget *capture_detail_section(const char *title,
+                                         const char *text) {
+    GtkWidget *section = gtk_box_new(GTK_ORIENTATION_VERTICAL, 5);
+    GtkWidget *heading = gtk_label_new(title);
+    gtk_label_set_xalign(GTK_LABEL(heading), 0.0F);
+    gtk_widget_add_css_class(heading, "heading");
+    gtk_box_append(GTK_BOX(section), heading);
+    GtkWidget *content = gtk_label_new(text);
+    gtk_label_set_xalign(GTK_LABEL(content), 0.0F);
+    gtk_label_set_yalign(GTK_LABEL(content), 0.0F);
+    gtk_label_set_wrap(GTK_LABEL(content), TRUE);
+    gtk_label_set_selectable(GTK_LABEL(content), TRUE);
+    gtk_widget_add_css_class(content, "monospace");
+    gtk_box_append(GTK_BOX(section), content);
+    return section;
+}
+
+static void capture_detail_close(GtkButton *button, gpointer user_data) {
+    (void)user_data;
+    GtkRoot *root = gtk_widget_get_root(GTK_WIDGET(button));
+    if (GTK_IS_WINDOW(root)) gtk_window_destroy(GTK_WINDOW(root));
+}
+
+static void capture_copy_curl_clicked(GtkButton *button, gpointer user_data) {
+    ClambhookLinuxApp *app = user_data;
+    const char *identifier = g_object_get_data(
+        G_OBJECT(button), "clambhook-capture-id");
+    if (identifier == NULL || identifier[0] == '\0') return;
+    g_autofree char *path = ch_gtk_capture_curl_path(identifier);
+    send_request(app, REQUEST_CAPTURE_CURL, "GET", path, NULL);
+}
+
+static void show_capture_detail(ClambhookLinuxApp *app, const guint8 *data,
+                                gsize length) {
+    ch_gtk_capture_detail detail;
+    g_autoptr(GError) error = NULL;
+    if (!ch_gtk_parse_capture_detail(data, length, &detail, &error)) {
+        set_error(app, error->message);
+        return;
+    }
+    GtkWidget *dialog = gtk_window_new();
+    g_autofree char *window_title = g_strdup_printf(
+        "%s capture", detail.method);
+    gtk_window_set_title(GTK_WINDOW(dialog), window_title);
+    gtk_window_set_transient_for(GTK_WINDOW(dialog), GTK_WINDOW(app->window));
+    gtk_window_set_modal(GTK_WINDOW(dialog), TRUE);
+    gtk_window_set_default_size(GTK_WINDOW(dialog), 760, 680);
+
+    GtkWidget *root = gtk_box_new(GTK_ORIENTATION_VERTICAL, 14);
+    gtk_widget_set_margin_top(root, 22);
+    gtk_widget_set_margin_bottom(root, 22);
+    gtk_widget_set_margin_start(root, 22);
+    gtk_widget_set_margin_end(root, 22);
+    GtkWidget *title = gtk_label_new(
+        detail.url[0] == '\0' ? detail.host : detail.url);
+    gtk_label_set_xalign(GTK_LABEL(title), 0.0F);
+    gtk_label_set_wrap(GTK_LABEL(title), TRUE);
+    gtk_label_set_selectable(GTK_LABEL(title), TRUE);
+    gtk_widget_add_css_class(title, "title-2");
+    gtk_box_append(GTK_BOX(root), title);
+    g_autofree char *status_code = detail.status == 0 ?
+        g_strdup("pending") : g_strdup_printf("HTTP %d", detail.status);
+    g_autofree char *status = g_strdup_printf(
+        "%s · %s · %s%s%s%s%s%s",
+        detail.profile[0] == '\0' ? "default profile" : detail.profile,
+        detail.chain[0] == '\0' ? "direct" : detail.chain,
+        status_code,
+        detail.started_at[0] == '\0' ? "" : " · started ",
+        detail.started_at,
+        detail.finished_at[0] == '\0' ? "" : " · finished ",
+        detail.finished_at,
+        detail.error_message[0] == '\0' ? "" : " · request failed");
+    GtkWidget *metadata = gtk_label_new(status);
+    gtk_label_set_xalign(GTK_LABEL(metadata), 0.0F);
+    gtk_label_set_wrap(GTK_LABEL(metadata), TRUE);
+    gtk_widget_add_css_class(metadata, "dim-label");
+    gtk_box_append(GTK_BOX(root), metadata);
+    if (detail.error_message[0] != '\0') {
+        GtkWidget *failure = gtk_label_new(detail.error_message);
+        gtk_label_set_xalign(GTK_LABEL(failure), 0.0F);
+        gtk_label_set_wrap(GTK_LABEL(failure), TRUE);
+        gtk_widget_add_css_class(failure, "error");
+        gtk_box_append(GTK_BOX(root), failure);
+    }
+
+    GtkWidget *scroll = gtk_scrolled_window_new();
+    gtk_widget_set_vexpand(scroll, TRUE);
+    GtkWidget *sections = gtk_box_new(GTK_ORIENTATION_VERTICAL, 18);
+    gtk_box_append(GTK_BOX(sections), capture_detail_section(
+        "Request headers", detail.request_headers));
+    gtk_box_append(GTK_BOX(sections), capture_detail_section(
+        "Request body", detail.request_body));
+    gtk_box_append(GTK_BOX(sections), capture_detail_section(
+        "Response headers", detail.response_headers));
+    gtk_box_append(GTK_BOX(sections), capture_detail_section(
+        "Response body", detail.response_body));
+    gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scroll), sections);
+    gtk_box_append(GTK_BOX(root), scroll);
+
+    GtkWidget *actions = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+    gtk_widget_set_halign(actions, GTK_ALIGN_END);
+    GtkWidget *copy = gtk_button_new_with_label("Copy cURL");
+    g_object_set_data_full(G_OBJECT(copy), "clambhook-capture-id",
+                           g_strdup(detail.identifier), g_free);
+    g_signal_connect(copy, "clicked",
+                     G_CALLBACK(capture_copy_curl_clicked), app);
+    gtk_box_append(GTK_BOX(actions), copy);
+    GtkWidget *close = gtk_button_new_with_label("Close");
+    g_signal_connect(close, "clicked", G_CALLBACK(capture_detail_close), NULL);
+    gtk_box_append(GTK_BOX(actions), close);
+    gtk_box_append(GTK_BOX(root), actions);
+    gtk_window_set_child(GTK_WINDOW(dialog), root);
+    gtk_window_present(GTK_WINDOW(dialog));
+    ch_gtk_capture_detail_clear(&detail);
+}
+
+static void copy_curl_export(ClambhookLinuxApp *app, const guint8 *data,
+                             gsize length) {
+    g_autoptr(GError) error = NULL;
+    g_autofree char *curl = ch_gtk_parse_curl_export(
+        data, length, &error);
+    if (curl == NULL || curl[0] == '\0') {
+        set_error(app, error == NULL ?
+                  "The daemon returned an empty cURL command." :
+                  error->message);
+        return;
+    }
+    GdkClipboard *clipboard = gdk_display_get_clipboard(
+        gtk_widget_get_display(app->window));
+    gdk_clipboard_set_text(clipboard, curl);
+    gtk_label_set_text(GTK_LABEL(app->capture_state_label),
+                       "cURL command copied to the clipboard");
+}
+
+static char *capture_entries_path(ClambhookLinuxApp *app) {
+    return ch_gtk_capture_entries_path(
+        gtk_editable_get_text(GTK_EDITABLE(app->capture_query)),
+        gtk_editable_get_text(GTK_EDITABLE(app->capture_method)),
+        gtk_check_button_get_active(
+            GTK_CHECK_BUTTON(app->capture_error_only)),
+        100U);
+}
+
 static void reconcile_failed_mutation(ClambhookLinuxApp *app,
                                       RequestKind kind) {
     switch (kind) {
@@ -398,8 +552,10 @@ static void reconcile_failed_mutation(ClambhookLinuxApp *app,
                          "/api/v1/developer/status", NULL);
             break;
         case REQUEST_CAPTURE_CLEAR:
-            send_request(app, REQUEST_CAPTURES, "GET",
-                         "/api/v1/developer/entries?limit=100", NULL);
+            {
+                g_autofree char *path = capture_entries_path(app);
+                send_request(app, REQUEST_CAPTURES, "GET", path, NULL);
+            }
             break;
         default:
             break;
@@ -431,6 +587,10 @@ static void request_finished(GObject *source, GAsyncResult *result,
                 case REQUEST_TRAFFIC: apply_traffic(app, data, length); break;
                 case REQUEST_CAPTURE_STATUS:
                     apply_capture_status(app, data, length); break;
+                case REQUEST_CAPTURE_DETAIL:
+                    show_capture_detail(app, data, length); break;
+                case REQUEST_CAPTURE_CURL:
+                    copy_curl_export(app, data, length); break;
                 case REQUEST_CONNECT:
                     apply_status(app, data, length);
                     refresh_all(app);
@@ -510,8 +670,8 @@ static void refresh_all(ClambhookLinuxApp *app) {
     send_request(app, REQUEST_DNS, "GET", "/api/v1/dns", NULL);
     send_request(app, REQUEST_CAPTURE_STATUS, "GET",
                  "/api/v1/developer/status", NULL);
-    send_request(app, REQUEST_CAPTURES, "GET",
-                 "/api/v1/developer/entries?limit=100", NULL);
+    g_autofree char *captures = capture_entries_path(app);
+    send_request(app, REQUEST_CAPTURES, "GET", captures, NULL);
     send_request(app, REQUEST_CONDITIONER, "GET",
                  "/api/v1/conditioner", NULL);
 }
@@ -695,6 +855,44 @@ static void populate_prompt_rows(ClambhookLinuxApp *app, GPtrArray *rows) {
         gtk_list_box_row_set_child(GTK_LIST_BOX_ROW(list_item), content);
         gtk_list_box_append(GTK_LIST_BOX(list), list_item);
     }
+}
+
+static void populate_capture_rows(ClambhookLinuxApp *app, GPtrArray *rows) {
+    GtkWidget *list = app->page_lists[PAGE_CAPTURES];
+    clear_list(list);
+    if (rows == NULL || rows->len == 0U) {
+        gtk_list_box_append(GTK_LIST_BOX(list),
+                            list_row("No captured transactions", ""));
+        return;
+    }
+    for (guint index = 0U; index < rows->len; ++index) {
+        ch_gtk_row *row = g_ptr_array_index(rows, index);
+        GtkWidget *list_item = list_row(row->title, row->detail);
+        gtk_list_box_row_set_activatable(GTK_LIST_BOX_ROW(list_item), TRUE);
+        gtk_widget_set_tooltip_text(
+            list_item, "Open redacted request and response details");
+        g_object_set_data_full(G_OBJECT(list_item), "clambhook-capture-id",
+                               g_strdup(row->identifier), g_free);
+        gtk_list_box_append(GTK_LIST_BOX(list), list_item);
+    }
+}
+
+static void capture_row_activated(GtkListBox *list, GtkListBoxRow *row,
+                                  gpointer user_data) {
+    (void)list;
+    const char *identifier = g_object_get_data(
+        G_OBJECT(row), "clambhook-capture-id");
+    if (identifier == NULL || identifier[0] == '\0') return;
+    g_autofree char *path = ch_gtk_capture_detail_path(identifier);
+    send_request(user_data, REQUEST_CAPTURE_DETAIL, "GET", path, NULL);
+}
+
+static void capture_filter_clicked(GtkButton *button, gpointer user_data) {
+    (void)button;
+    ClambhookLinuxApp *app = user_data;
+    set_error(app, "");
+    g_autofree char *path = capture_entries_path(app);
+    send_request(app, REQUEST_CAPTURES, "GET", path, NULL);
 }
 
 static void capture_toggle_clicked(GtkButton *button, gpointer user_data) {
@@ -941,6 +1139,30 @@ static GtkWidget *create_capture_page(ClambhookLinuxApp *app) {
     GtkWidget *title = gtk_widget_get_first_child(page);
     GtkWidget *description = gtk_widget_get_next_sibling(title);
     gtk_box_insert_child_after(GTK_BOX(page), bar, description);
+
+    GtkWidget *filters = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+    app->capture_query = gtk_search_entry_new();
+    gtk_editable_set_text(GTK_EDITABLE(app->capture_query), "");
+    gtk_widget_set_hexpand(app->capture_query, TRUE);
+    gtk_widget_set_tooltip_text(
+        app->capture_query, "Search method, URL, host, headers, and previews");
+    gtk_box_append(GTK_BOX(filters), app->capture_query);
+    app->capture_method = gtk_entry_new();
+    gtk_entry_set_placeholder_text(GTK_ENTRY(app->capture_method),
+                                   "GET,POST");
+    gtk_widget_set_size_request(app->capture_method, 110, -1);
+    gtk_widget_set_tooltip_text(
+        app->capture_method, "Comma-separated HTTP methods");
+    gtk_box_append(GTK_BOX(filters), app->capture_method);
+    app->capture_error_only = gtk_check_button_new_with_label("Errors only");
+    gtk_box_append(GTK_BOX(filters), app->capture_error_only);
+    app->capture_filter_button = gtk_button_new_with_label("Filter");
+    g_signal_connect(app->capture_filter_button, "clicked",
+                     G_CALLBACK(capture_filter_clicked), app);
+    gtk_box_append(GTK_BOX(filters), app->capture_filter_button);
+    gtk_box_insert_child_after(GTK_BOX(page), filters, bar);
+    g_signal_connect(app->page_lists[PAGE_CAPTURES], "row-activated",
+                     G_CALLBACK(capture_row_activated), app);
     return page;
 }
 
