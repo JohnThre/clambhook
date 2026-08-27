@@ -127,10 +127,11 @@ The additive CMake build currently provides:
   bounded request and response bodies directly in the C proxy, applies the
   configured header and query-parameter redaction lists, and exposes native
   status, filtered entry lists, entry detail, cURL export, HAR 1.2 export, and
-  clear operations. Fragmented response headers and concurrent capture/API
-  access have native integration coverage. HTTPS MITM, CA management, replay,
-  cURL import, standalone send, breakpoint, map, and rewrite execution remain
-  guarded.
+  clear operations. A bounded, non-executing C cURL importer is shared by the
+  daemon API and Android JNI runtime. Fragmented response headers and
+  concurrent capture/API access have native integration coverage. HTTPS MITM,
+  CA management, replay, standalone send, breakpoint, map, and rewrite
+  execution remain guarded.
   Configured proxy listeners participate in runtime start, stop, reload,
   profile switching, and status reporting;
 - `clambhook-tui-c`: a native terminal client with bounded libcurl requests,

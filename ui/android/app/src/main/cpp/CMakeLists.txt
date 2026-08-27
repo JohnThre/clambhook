@@ -97,6 +97,7 @@ add_library(clambhook_jni SHARED
     "${CLAMBHOOK_ROOT}/native/src/config_import.c"
     "${CLAMBHOOK_ROOT}/native/src/config_mutation.c"
     "${CLAMBHOOK_ROOT}/native/src/config_payload.c"
+    "${CLAMBHOOK_ROOT}/native/src/developer_curl.c"
     "${CLAMBHOOK_ROOT}/native/src/error.c"
     "${CLAMBHOOK_ROOT}/native/src/ip_stack.c"
     "${CLAMBHOOK_ROOT}/native/src/json.c"

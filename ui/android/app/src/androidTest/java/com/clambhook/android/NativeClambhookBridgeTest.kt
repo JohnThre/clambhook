@@ -118,6 +118,16 @@ class NativeClambhookBridgeTest {
                     "\"aes_256_gcm\":true,\"chacha20_poly1305\":true}",
                 bridge.query("crypto_self_test"),
             )
+            assertEquals(
+                "{\"method\":\"POST\",\"url\":\"https://api.example.com\"," +
+                    "\"headers\":[{\"name\":\"X-Test\",\"value\":\"yes\"}]," +
+                    "\"body\":\"{\\\"ok\\\":true}\"}",
+                bridge.query(
+                    "developer_curl_import",
+                    "{\"curl\":\"curl https://api.example.com " +
+                        "-H 'X-Test: yes' -d '{\\\"ok\\\":true}'\"}",
+                ),
+            )
             bridge.injectPacket(
                 byteArrayOf(
                     0x45, 0x00, 0x00, 0x20, 0x12, 0x34, 0x00, 0x00,

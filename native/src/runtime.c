@@ -15,6 +15,7 @@
 #include "clambhook/config.h"
 #include "clambhook/dns.h"
 #include "clambhook/developer.h"
+#include "clambhook/developer_curl.h"
 #include "clambhook/events.h"
 #include "clambhook/ip_stack.h"
 #include "clambhook/json.h"
@@ -1727,6 +1728,10 @@ static void ch_command_process(ch_runtime *runtime, ch_command *command) {
                               "developer_status") == 0) {
                 command->response = ch_developer_status_json(
                     runtime->developer, &command->error);
+            } else if (strcmp(command->operation,
+                              "developer_curl_import") == 0) {
+                command->response = ch_developer_curl_import_json(
+                    command->payload, &command->error);
             } else if (strcmp(command->operation,
                               "developer_entries") == 0) {
                 command->response = ch_developer_entries_json(

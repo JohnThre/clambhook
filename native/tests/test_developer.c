@@ -5,8 +5,51 @@
 
 #include "clambhook/config.h"
 #include "clambhook/developer.h"
+#include "clambhook/developer_curl.h"
 
 void ch_test_developer(void) {
+    ch_error error;
+    char *json = ch_developer_curl_import_json(
+        "{\"curl\":\"curl https://api.example.com -H 'X-Test: yes' "
+        "-A 'ClambHook Test' -e https://ref.example -d '{\\\"a\\\":1}' "
+        "--data-raw second\"}",
+        &error);
+    CH_TEST_ASSERT(json != NULL);
+    CH_TEST_ASSERT_STRING(
+        "{\"method\":\"POST\",\"url\":\"https://api.example.com\","
+        "\"headers\":[{\"name\":\"X-Test\",\"value\":\"yes\"},"
+        "{\"name\":\"User-Agent\",\"value\":\"ClambHook Test\"},"
+        "{\"name\":\"Referer\",\"value\":\"https://ref.example\"}],"
+        "\"body\":\"{\\\"a\\\":1}&second\"}",
+        json);
+    free(json);
+    json = ch_developer_curl_import_json(
+        "{\"curl\":\"/usr/bin/curl -X patch --url "
+        "https://api.example.com --connect-timeout 2 --compressed\"}",
+        &error);
+    CH_TEST_ASSERT_STRING(
+        "{\"method\":\"PATCH\",\"url\":\"https://api.example.com\","
+        "\"headers\":[],\"body\":\"\"}",
+        json);
+    free(json);
+    json = ch_developer_curl_import_json(
+        "{\"curl\":\"curl https://api.example.com -d '' -d second\"}",
+        &error);
+    CH_TEST_ASSERT(json != NULL);
+    CH_TEST_ASSERT(strstr(json, "\"method\":\"POST\"") != NULL);
+    CH_TEST_ASSERT(strstr(json, "\"body\":\"&second\"") != NULL);
+    free(json);
+    CH_TEST_ASSERT(ch_developer_curl_import_json(
+        "{\"curl\":\"curl -H 'X: y\"}", &error) == NULL);
+    CH_TEST_ASSERT(error.code == CH_ERROR_INVALID_ARGUMENT);
+    CH_TEST_ASSERT(ch_developer_curl_import_json(
+        "{\"curl\":\"curl https://example.com -d @secret.txt\"}",
+        &error) == NULL);
+    CH_TEST_ASSERT(error.code == CH_ERROR_INVALID_ARGUMENT);
+    CH_TEST_ASSERT(ch_developer_curl_import_json(
+        "{\"curl\":\"curl -H\"}", &error) == NULL);
+    CH_TEST_ASSERT(error.code == CH_ERROR_INVALID_ARGUMENT);
+
     static const char document[] =
         "active = \"default\"\n"
         "[developer]\n"
@@ -19,7 +62,6 @@ void ch_test_developer(void) {
         "redact_query_params = [\"token\"]\n"
         "[[profile]]\n"
         "name = \"default\"\n";
-    ch_error error;
     ch_config *config = NULL;
     CH_TEST_ASSERT(ch_config_parse(document, "/tmp/developer.toml", &config,
                                    &error) == CH_OK);
@@ -60,7 +102,7 @@ void ch_test_developer(void) {
                                   sizeof(response_b) - 1U);
     ch_developer_capture_finish(capture, NULL);
 
-    char *json = ch_developer_status_json(manager, &error);
+    json = ch_developer_status_json(manager, &error);
     CH_TEST_ASSERT(json != NULL);
     CH_TEST_ASSERT(strstr(json, "\"enabled\":true") != NULL);
     CH_TEST_ASSERT(strstr(json, "\"mitm_enabled\":false") != NULL);

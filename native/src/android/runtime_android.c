@@ -8,6 +8,7 @@
 #include <time.h>
 
 #include "clambhook/config.h"
+#include "clambhook/developer_curl.h"
 #include "clambhook/ip_stack.h"
 #include "clambhook/json.h"
 #include "clambhook/protocol.h"
@@ -1142,9 +1143,11 @@ ch_status ch_runtime_query(ch_runtime *runtime, const char *operation,
         response = ch_strdup(
             "{\"log\":{\"version\":\"1.2\",\"entries\":[]}}");
     }
+    else if (strcmp(operation, "developer_curl_import") == 0) {
+        response = ch_developer_curl_import_json(request_json, error);
+    }
     else if (strcmp(operation, "developer_ca") == 0 ||
              strcmp(operation, "developer_entry_curl") == 0 ||
-             strcmp(operation, "developer_curl_import") == 0 ||
              strcmp(operation, "developer_send") == 0) {
         pthread_mutex_unlock(&runtime->mutex);
         ch_error_set(error, CH_ERROR_INVALID_STATE,

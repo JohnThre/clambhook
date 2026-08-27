@@ -78,6 +78,7 @@ add_library(clambhook_core STATIC
   native/src/config_mutation.c
   native/src/config_payload.c
   native/src/developer.c
+  native/src/developer_curl.c
   native/src/dns.c
   native/src/error.c
   native/src/events.c

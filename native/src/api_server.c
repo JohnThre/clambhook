@@ -1379,6 +1379,12 @@ static void ch_api_route(ch_api_client *client) {
         status = ch_runtime_mutate(client->server->runtime,
                                    "clear_developer_entries", "{}", &json,
                                    &error);
+    } else if (strcmp(method, "POST") == 0 &&
+               strcmp(path, "/api/v1/developer/curl/import") == 0) {
+        status = ch_runtime_query(
+            client->server->runtime, "developer_curl_import",
+            client->body.data == NULL ? "{}" : client->body.data,
+            &json, &error);
     } else if ((strcmp(method, "PUT") == 0 ||
                 strcmp(method, "POST") == 0) &&
                strcmp(path, "/api/v1/rules") == 0) {
@@ -1597,6 +1603,7 @@ static void ch_api_route(ch_api_client *client) {
             strcmp(path, "/api/v1/developer/entries") == 0 ||
             strncmp(path, "/api/v1/developer/entries/", 26U) == 0 ||
             strcmp(path, "/api/v1/developer/har") == 0 ||
+            strcmp(path, "/api/v1/developer/curl/import") == 0 ||
             strcmp(path, "/api/v1/rule-subscriptions") == 0 ||
             strcmp(path, "/api/v1/prompts/pending") == 0 ||
             strcmp(path, "/api/v1/prompts/decisions") == 0 ||
