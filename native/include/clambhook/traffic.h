@@ -50,6 +50,12 @@ typedef struct ch_traffic_connection {
 /* A bounded metadata-only store. Payload bytes are counted but never retained. */
 ch_traffic_store *ch_traffic_store_create(size_t history_limit,
                                           ch_error *error);
+/* Applies root-level [traffic] settings and loads compatible version-1 history. */
+ch_status ch_traffic_store_configure(ch_traffic_store *store,
+                                     const struct ch_config *config,
+                                     ch_error *error);
+/* Atomically persists closed metadata history when a history path is set. */
+ch_status ch_traffic_store_flush(ch_traffic_store *store, ch_error *error);
 void ch_traffic_store_destroy(ch_traffic_store *store);
 
 /* Returns a non-zero flow identifier on success. */

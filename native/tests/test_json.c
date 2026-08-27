@@ -1,6 +1,8 @@
 #include "test.h"
 
+#include <inttypes.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "clambhook/json.h"
 #include "internal.h"
@@ -32,6 +34,21 @@ void ch_test_json(void) {
     const ch_json_value *numbers = ch_json_object_get(root, "numbers");
     CH_TEST_ASSERT(ch_json_array_size(numbers) == 3U);
     CH_TEST_ASSERT(ch_json_number_value(ch_json_array_get(numbers, 1U), 0.0) == -12.5);
+    const char exact_document[] = "{\"timestamp\":1787793200754630700}";
+    ch_json_value *exact = ch_json_parse(
+        exact_document, sizeof(exact_document) - 1U, &error);
+    CH_TEST_ASSERT(exact != NULL);
+    int64_t timestamp = 0;
+    CH_TEST_ASSERT(ch_json_int64_value(
+        ch_json_object_get(exact, "timestamp"), &timestamp));
+    CH_TEST_ASSERT(timestamp == INT64_C(1787793200754630700));
+    ch_json_buffer encoded;
+    ch_json_init(&encoded);
+    CH_TEST_ASSERT(ch_json_append_value(&encoded, exact));
+    char *exact_round_trip = ch_json_take(&encoded);
+    CH_TEST_ASSERT_STRING(exact_document, exact_round_trip);
+    free(exact_round_trip);
+    ch_json_value_destroy(exact);
     ch_json_value *copy = ch_json_value_clone(root);
     CH_TEST_ASSERT(copy != NULL);
     CH_TEST_ASSERT(ch_json_object_set(

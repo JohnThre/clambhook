@@ -33,6 +33,12 @@ class AndroidConfigStore(context: Context) {
 
 const val defaultAndroidConfigToml = """active = "default"
 
+[traffic]
+enabled = true
+history_limit = 500
+history_max_age = "168h"
+history_path = "traffic-history.json"
+
 [[profile]]
 name = "default"
 

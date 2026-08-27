@@ -261,7 +261,7 @@ static ch_status runtime_listener_dial_targets(
     }
     route->flow_id = runtime_listener_open_traffic(
         entry, &decision, network, dial_target, source, chain_name, error);
-    if (route->flow_id == 0U) {
+    if (route->flow_id == 0U && error != NULL && error->code != CH_OK) {
         free(selected_group_chain);
         ch_rule_decision_clear(&decision);
         return error == NULL ? CH_ERROR_OUT_OF_MEMORY : error->code;
@@ -329,7 +329,7 @@ static ch_status runtime_listener_packet_dial_targets(
     }
     route->flow_id = runtime_listener_open_traffic(
         entry, &decision, network, dial_target, source, chain_name, error);
-    if (route->flow_id == 0U) {
+    if (route->flow_id == 0U && error != NULL && error->code != CH_OK) {
         free(selected_group_chain);
         ch_rule_decision_clear(&decision);
         return error == NULL ? CH_ERROR_OUT_OF_MEMORY : error->code;

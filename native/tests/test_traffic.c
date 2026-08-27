@@ -1,7 +1,10 @@
 #include "test.h"
 
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
 #include "clambhook/config.h"
 #include "clambhook/json.h"
@@ -150,4 +153,74 @@ void ch_test_traffic(void) {
     ch_json_value_destroy(root);
     free(json);
     ch_traffic_store_destroy(store);
+
+    char history_path[160];
+    (void)snprintf(history_path, sizeof(history_path),
+                   "/tmp/clambhook-native-traffic-%ld.json", (long)getpid());
+    (void)unlink(history_path);
+    char persistence_toml[1024];
+    (void)snprintf(
+        persistence_toml, sizeof(persistence_toml),
+        "active = \"Work\"\n"
+        "[traffic]\nenabled = true\nhistory_limit = 2\n"
+        "history_max_age = \"168h\"\nhistory_path = \"%s\"\n"
+        "[[profile]]\nname = \"Work\"\n",
+        history_path);
+    config = NULL;
+    CH_TEST_ASSERT(ch_config_parse(persistence_toml, NULL, &config, &error) ==
+                   CH_OK);
+    store = ch_traffic_store_create(4U, &error);
+    CH_TEST_ASSERT(store != NULL);
+    CH_TEST_ASSERT(ch_traffic_store_configure(store, config, &error) == CH_OK);
+    uint64_t persisted_id = ch_traffic_open(store, &direct, &error);
+    CH_TEST_ASSERT(persisted_id != 0U);
+    ch_traffic_bytes(store, persisted_id, 101U, 202U);
+    ch_traffic_close(store, persisted_id, "persisted close");
+    json = ch_traffic_snapshot_json(store, config, "Work", "{}", "[]",
+                                    &error);
+    CH_TEST_ASSERT(json != NULL);
+    root = ch_json_parse(json, strlen(json), &error);
+    CH_TEST_ASSERT(root != NULL);
+    const ch_json_value *persisted_connections = traffic_test_member(
+        root, "connections");
+    CH_TEST_ASSERT(ch_json_array_size(persisted_connections) == 1U);
+    int64_t original_start = 0;
+    CH_TEST_ASSERT(ch_json_int64_value(traffic_test_member(
+        ch_json_array_get(persisted_connections, 0U), "start_ts_ns"),
+        &original_start));
+    const ch_json_value *summary = traffic_test_member(root, "summary");
+    CH_TEST_ASSERT(ch_json_bool_value(
+        traffic_test_member(summary, "history_persisted"), false));
+    CH_TEST_ASSERT_STRING(history_path, ch_json_string_value(
+        traffic_test_member(summary, "history_path")));
+    ch_json_value_destroy(root);
+    free(json);
+    ch_traffic_store_destroy(store);
+
+    struct stat history_stat;
+    CH_TEST_ASSERT(stat(history_path, &history_stat) == 0);
+    CH_TEST_ASSERT((history_stat.st_mode & 0777) == 0600);
+    store = ch_traffic_store_create(4U, &error);
+    CH_TEST_ASSERT(store != NULL);
+    CH_TEST_ASSERT(ch_traffic_store_configure(store, config, &error) == CH_OK);
+    json = ch_traffic_snapshot_json(store, config, "Work", "{}", "[]",
+                                    &error);
+    CH_TEST_ASSERT(json != NULL);
+    root = ch_json_parse(json, strlen(json), &error);
+    CH_TEST_ASSERT(root != NULL);
+    persisted_connections = traffic_test_member(root, "connections");
+    CH_TEST_ASSERT(ch_json_array_size(persisted_connections) == 1U);
+    int64_t loaded_start = 0;
+    CH_TEST_ASSERT(ch_json_int64_value(traffic_test_member(
+        ch_json_array_get(persisted_connections, 0U), "start_ts_ns"),
+        &loaded_start));
+    CH_TEST_ASSERT(loaded_start == original_start);
+    CH_TEST_ASSERT(ch_json_number_value(traffic_test_member(
+        ch_json_array_get(persisted_connections, 0U), "rx_total"), 0.0) ==
+        101.0);
+    ch_json_value_destroy(root);
+    free(json);
+    ch_traffic_store_destroy(store);
+    ch_config_free(config);
+    CH_TEST_ASSERT(unlink(history_path) == 0);
 }

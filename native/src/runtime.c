@@ -826,11 +826,32 @@ static bool ch_runtime_apply_config(ch_runtime *runtime, ch_command *command,
             return false;
         }
     }
+    if (start_listeners) ch_runtime_stop_listeners(runtime);
+    ch_error traffic_error;
+    ch_status traffic_status = ch_traffic_store_configure(
+        runtime->traffic, next_config, &traffic_error);
+    if (traffic_status != CH_OK) {
+        if (start_listeners) {
+            ch_error ignored;
+            (void)ch_traffic_store_configure(runtime->traffic,
+                                             runtime->config, &ignored);
+            ch_command rollback_command;
+            memset(&rollback_command, 0, sizeof(rollback_command));
+            (void)ch_runtime_start_listeners(
+                runtime, runtime->config, runtime->active_profile,
+                &rollback_command);
+        }
+        ch_config_free(next_config);
+        free(next_path);
+        free(next_profile);
+        command->status = traffic_status;
+        command->error = traffic_error;
+        return false;
+    }
     ch_runtime_listener_set *next_listeners = NULL;
     ch_dns_proxy *next_dns = NULL;
     ch_ip_stack *next_ip_stack = NULL;
     if (start_listeners) {
-        ch_runtime_stop_listeners(runtime);
         if (!ch_runtime_build_services(
                 runtime, next_config, next_profile, &next_listeners,
                 &next_dns, &next_ip_stack, command)) {
@@ -838,6 +859,9 @@ static bool ch_runtime_apply_config(ch_runtime *runtime, ch_command *command,
             ch_error next_error = command->error;
             ch_command rollback_command;
             memset(&rollback_command, 0, sizeof(rollback_command));
+            ch_error ignored;
+            (void)ch_traffic_store_configure(runtime->traffic,
+                                             runtime->config, &ignored);
             (void)ch_runtime_start_listeners(
                 runtime, runtime->config, runtime->active_profile,
                 &rollback_command);

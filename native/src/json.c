@@ -2,6 +2,7 @@
 
 #include <ctype.h>
 #include <errno.h>
+#include <inttypes.h>
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -156,7 +157,11 @@ struct ch_json_value {
     ch_json_type type;
     union {
         bool boolean;
-        double number;
+        struct {
+            double value;
+            int64_t integer;
+            bool is_integer;
+        } number;
         char *string;
         struct {
             ch_json_value **items;
@@ -454,6 +459,8 @@ static ch_json_value *ch_json_parse_object(ch_json_parser *parser) {
 
 static ch_json_value *ch_json_parse_number(ch_json_parser *parser) {
     const char *start = parser->cursor;
+    int integer_token = 1;
+    char *text = NULL;
     if (*parser->cursor == '-') ++parser->cursor;
     if (parser->cursor >= parser->end) goto invalid;
     if (*parser->cursor == '0') {
@@ -462,30 +469,47 @@ static ch_json_value *ch_json_parse_number(ch_json_parser *parser) {
         while (parser->cursor < parser->end && isdigit((unsigned char)*parser->cursor)) ++parser->cursor;
     } else goto invalid;
     if (parser->cursor < parser->end && *parser->cursor == '.') {
+        integer_token = 0;
         ++parser->cursor;
         if (parser->cursor >= parser->end || !isdigit((unsigned char)*parser->cursor)) goto invalid;
         while (parser->cursor < parser->end && isdigit((unsigned char)*parser->cursor)) ++parser->cursor;
     }
     if (parser->cursor < parser->end && (*parser->cursor == 'e' || *parser->cursor == 'E')) {
+        integer_token = 0;
         ++parser->cursor;
         if (parser->cursor < parser->end && (*parser->cursor == '+' || *parser->cursor == '-')) ++parser->cursor;
         if (parser->cursor >= parser->end || !isdigit((unsigned char)*parser->cursor)) goto invalid;
         while (parser->cursor < parser->end && isdigit((unsigned char)*parser->cursor)) ++parser->cursor;
     }
     size_t length = (size_t)(parser->cursor - start);
-    char *text = strndup(start, length);
+    text = strndup(start, length);
     if (text == NULL) { ch_error_set(parser->error, CH_ERROR_OUT_OF_MEMORY, "copy JSON number"); return NULL; }
     errno = 0;
     char *number_end = NULL;
     double number = strtod(text, &number_end);
     int valid = errno == 0 && number_end != text && *number_end == '\0' && isfinite(number);
-    free(text);
     if (!valid) goto invalid;
+    int64_t integer = 0;
+    int exact_integer = 0;
+    if (integer_token) {
+        errno = 0;
+        char *integer_end = NULL;
+        intmax_t parsed = strtoimax(text, &integer_end, 10);
+        exact_integer = errno == 0 && integer_end != text &&
+            *integer_end == '\0' && parsed >= INT64_MIN && parsed <= INT64_MAX;
+        if (exact_integer) integer = (int64_t)parsed;
+    }
+    free(text);
     ch_json_value *value = ch_json_new_value(parser, CH_JSON_NUMBER);
-    if (value != NULL) value->as.number = number;
+    if (value != NULL) {
+        value->as.number.value = number;
+        value->as.number.integer = integer;
+        value->as.number.is_integer = exact_integer != 0;
+    }
     return value;
 
 invalid:
+    free(text);
     ch_json_parse_error(parser, "invalid number");
     return NULL;
 }
@@ -554,7 +578,15 @@ bool ch_json_bool_value(const ch_json_value *value, bool fallback) {
 }
 
 double ch_json_number_value(const ch_json_value *value, double fallback) {
-    return value != NULL && value->type == CH_JSON_NUMBER ? value->as.number : fallback;
+    return value != NULL && value->type == CH_JSON_NUMBER ?
+        value->as.number.value : fallback;
+}
+
+bool ch_json_int64_value(const ch_json_value *value, int64_t *out_value) {
+    if (value == NULL || value->type != CH_JSON_NUMBER ||
+        !value->as.number.is_integer || out_value == NULL) return false;
+    *out_value = value->as.number.integer;
+    return true;
 }
 
 const char *ch_json_string_value(const ch_json_value *value) {
@@ -608,7 +640,18 @@ ch_json_value *ch_json_value_new_number(double value) {
     ch_json_value *result = calloc(1U, sizeof(*result));
     if (result != NULL) {
         result->type = CH_JSON_NUMBER;
-        result->as.number = value;
+        result->as.number.value = value;
+    }
+    return result;
+}
+
+ch_json_value *ch_json_value_new_int64(int64_t value) {
+    ch_json_value *result = calloc(1U, sizeof(*result));
+    if (result != NULL) {
+        result->type = CH_JSON_NUMBER;
+        result->as.number.value = (double)value;
+        result->as.number.integer = value;
+        result->as.number.is_integer = true;
     }
     return result;
 }
@@ -806,7 +849,12 @@ int ch_json_append_value(ch_json_buffer *buffer, const ch_json_value *value) {
         case CH_JSON_BOOL:
             return ch_json_append(buffer, ch_json_bool_value(value, false) ? "true" : "false");
         case CH_JSON_NUMBER:
-            return ch_json_append_format(buffer, "%.17g", ch_json_number_value(value, 0.0));
+            if (value->as.number.is_integer) {
+                return ch_json_append_format(buffer, "%" PRId64,
+                                             value->as.number.integer);
+            }
+            return ch_json_append_format(buffer, "%.17g",
+                                         value->as.number.value);
         case CH_JSON_STRING:
             return ch_json_append_string(buffer, ch_json_string_value(value));
         case CH_JSON_ARRAY:

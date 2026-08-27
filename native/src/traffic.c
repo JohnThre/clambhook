@@ -1,15 +1,20 @@
 #include "clambhook/traffic.h"
 
-#include <ctype.h>
-#include <inttypes.h>
 #include <arpa/inet.h>
+#include <ctype.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <inttypes.h>
 #include <limits.h>
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
+#include <sys/stat.h>
+#include <sys/types.h>
 #include <time.h>
+#include <unistd.h>
 
 #include "clambhook/config.h"
 #include "clambhook/json.h"
@@ -17,7 +22,11 @@
 
 #define CH_TRAFFIC_DEFAULT_LIMIT 512U
 #define CH_TRAFFIC_MAX_LIMIT 4096U
+#define CH_TRAFFIC_ACTIVE_RESERVE 1024U
 #define CH_TRAFFIC_QUERY_LIMIT 1000U
+#define CH_TRAFFIC_HISTORY_VERSION 1
+#define CH_TRAFFIC_DEFAULT_MAX_AGE_NS INT64_C(604800000000000)
+#define CH_TRAFFIC_MAX_FILE_BYTES (32U * 1024U * 1024U)
 
 typedef struct ch_traffic_entry {
     uint64_t flow_id;
@@ -51,10 +60,17 @@ typedef struct ch_traffic_entry {
 
 struct ch_traffic_store {
     pthread_mutex_t mutex;
+    pthread_mutex_t persist_mutex;
     ch_traffic_entry *entries;
     size_t count;
     size_t limit;
+    size_t capacity;
     uint64_t sequence;
+    bool enabled;
+    bool history_loaded;
+    int64_t history_max_age_ns;
+    char *history_path;
+    char *persist_error;
 };
 
 typedef struct ch_traffic_filter {
@@ -75,6 +91,42 @@ static int64_t traffic_now_ns(void) {
     if (clock_gettime(CLOCK_REALTIME, &now) != 0) return 0;
     return (int64_t)now.tv_sec * INT64_C(1000000000) +
         (int64_t)now.tv_nsec;
+}
+
+static void traffic_entry_clear(ch_traffic_entry *entry);
+
+static void traffic_set_persist_error_locked(ch_traffic_store *store,
+                                             const char *message) {
+    char *copy = ch_strdup(message == NULL ? "" : message);
+    if (copy == NULL) return;
+    free(store->persist_error);
+    store->persist_error = copy;
+}
+
+static void traffic_prune_locked(ch_traffic_store *store, int64_t now) {
+    int64_t cutoff = store->history_max_age_ns > 0 &&
+        now > store->history_max_age_ns ? now - store->history_max_age_ns : 0;
+    size_t closed = 0U;
+    size_t write = 0U;
+    for (size_t read = 0U; read < store->count; ++read) {
+        ch_traffic_entry *entry = &store->entries[read];
+        bool keep = entry->active;
+        if (!entry->active) {
+            keep = closed < store->limit &&
+                (cutoff == 0 || entry->end_ns == 0 || entry->end_ns >= cutoff);
+            if (keep) ++closed;
+        }
+        if (!keep) {
+            traffic_entry_clear(entry);
+            continue;
+        }
+        if (write != read) {
+            store->entries[write] = *entry;
+            memset(entry, 0, sizeof(*entry));
+        }
+        ++write;
+    }
+    store->count = write;
 }
 
 static void traffic_entry_clear(ch_traffic_entry *entry) {
@@ -156,21 +208,46 @@ ch_traffic_store *ch_traffic_store_create(size_t history_limit,
                      "allocate traffic store");
         return NULL;
     }
-    store->entries = calloc(limit, sizeof(*store->entries));
-    if (store->entries == NULL ||
-        pthread_mutex_init(&store->mutex, NULL) != 0) {
+    store->capacity = CH_TRAFFIC_MAX_LIMIT + CH_TRAFFIC_ACTIVE_RESERVE;
+    store->entries = calloc(store->capacity, sizeof(*store->entries));
+    if (store->entries == NULL || pthread_mutex_init(&store->mutex, NULL) != 0) {
         free(store->entries);
         free(store);
         ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
                      "initialize traffic store");
         return NULL;
     }
+    if (pthread_mutex_init(&store->persist_mutex, NULL) != 0) {
+        pthread_mutex_destroy(&store->mutex);
+        free(store->entries);
+        free(store);
+        ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                     "initialize traffic persistence lock");
+        return NULL;
+    }
     store->limit = limit;
+    store->enabled = true;
+    store->history_max_age_ns = CH_TRAFFIC_DEFAULT_MAX_AGE_NS;
+    store->history_path = ch_strdup("");
+    store->persist_error = ch_strdup("");
+    if (store->history_path == NULL || store->persist_error == NULL) {
+        free(store->history_path);
+        free(store->persist_error);
+        pthread_mutex_destroy(&store->persist_mutex);
+        pthread_mutex_destroy(&store->mutex);
+        free(store->entries);
+        free(store);
+        ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                     "initialize traffic persistence");
+        return NULL;
+    }
     return store;
 }
 
 void ch_traffic_store_destroy(ch_traffic_store *store) {
     if (store == NULL) return;
+    ch_error ignored;
+    (void)ch_traffic_store_flush(store, &ignored);
     pthread_mutex_lock(&store->mutex);
     for (size_t index = 0U; index < store->count; ++index) {
         traffic_entry_clear(&store->entries[index]);
@@ -178,7 +255,10 @@ void ch_traffic_store_destroy(ch_traffic_store *store) {
     free(store->entries);
     store->entries = NULL;
     store->count = 0U;
+    free(store->history_path);
+    free(store->persist_error);
     pthread_mutex_unlock(&store->mutex);
+    pthread_mutex_destroy(&store->persist_mutex);
     pthread_mutex_destroy(&store->mutex);
     free(store);
 }
@@ -193,6 +273,17 @@ uint64_t ch_traffic_open(ch_traffic_store *store,
         return 0U;
     }
     pthread_mutex_lock(&store->mutex);
+    if (!store->enabled) {
+        pthread_mutex_unlock(&store->mutex);
+        return 0U;
+    }
+    traffic_prune_locked(store, traffic_now_ns());
+    if (store->count == store->capacity) {
+        pthread_mutex_unlock(&store->mutex);
+        ch_error_set(error, CH_ERROR_INVALID_STATE,
+                     "traffic active connection capacity reached");
+        return 0U;
+    }
     uint64_t flow_id = ++store->sequence;
     if (flow_id == 0U) flow_id = ++store->sequence;
     ch_traffic_entry next;
@@ -201,10 +292,6 @@ uint64_t ch_traffic_open(ch_traffic_store *store,
         ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
                      "copy traffic connection");
         return 0U;
-    }
-    if (store->count == store->limit) {
-        traffic_entry_clear(&store->entries[store->count - 1U]);
-        --store->count;
     }
     if (store->count > 0U) {
         memmove(store->entries + 1U, store->entries,
@@ -269,7 +356,10 @@ void ch_traffic_close(ch_traffic_store *store, uint64_t flow_id,
     pthread_mutex_lock(&store->mutex);
     traffic_close_entry(traffic_find_flow(store, flow_id), reason,
                         traffic_now_ns());
+    traffic_prune_locked(store, traffic_now_ns());
     pthread_mutex_unlock(&store->mutex);
+    ch_error ignored;
+    (void)ch_traffic_store_flush(store, &ignored);
 }
 
 void ch_traffic_close_all(ch_traffic_store *store, const char *reason) {
@@ -279,7 +369,10 @@ void ch_traffic_close_all(ch_traffic_store *store, const char *reason) {
     for (size_t index = 0U; index < store->count; ++index) {
         traffic_close_entry(&store->entries[index], reason, now);
     }
+    traffic_prune_locked(store, now);
     pthread_mutex_unlock(&store->mutex);
+    ch_error ignored;
+    (void)ch_traffic_store_flush(store, &ignored);
 }
 
 void ch_traffic_connection_clear(ch_traffic_connection *connection) {
@@ -528,6 +621,561 @@ static int traffic_append_connection(ch_json_buffer *json,
         !ch_json_append_string(json, entry->close_reason) ||
         !ch_json_append(json, "}")) return 0;
     return 1;
+}
+
+static int traffic_history_entry_string(char **out,
+                                        const ch_json_value *object,
+                                        const char *key) {
+    const char *value = ch_json_string_value(ch_json_object_get(object, key));
+    return traffic_copy(out, value == NULL ? "" : value);
+}
+
+static int64_t traffic_history_int64(const ch_json_value *object,
+                                     const char *key) {
+    const ch_json_value *value = ch_json_object_get(object, key);
+    int64_t exact = 0;
+    if (ch_json_int64_value(value, &exact)) return exact;
+    double number = ch_json_number_value(value, 0.0);
+    if (number < (double)INT64_MIN || number > (double)INT64_MAX) return 0;
+    return (int64_t)number;
+}
+
+static uint64_t traffic_history_uint64(const ch_json_value *object,
+                                       const char *key) {
+    const ch_json_value *value = ch_json_object_get(object, key);
+    int64_t exact = 0;
+    if (ch_json_int64_value(value, &exact)) {
+        return exact < 0 ? 0U : (uint64_t)exact;
+    }
+    double number = ch_json_number_value(value, 0.0);
+    if (number < 0.0 || number > (double)UINT64_MAX) return 0U;
+    return (uint64_t)number;
+}
+
+#if !defined(__ANDROID__)
+static char *traffic_join_path(const char *directory, const char *suffix) {
+    size_t directory_length = strlen(directory);
+    size_t suffix_length = strlen(suffix);
+    bool needs_slash = directory_length > 0U &&
+        directory[directory_length - 1U] != '/';
+    char *path = malloc(directory_length + (needs_slash ? 1U : 0U) +
+                        suffix_length + 1U);
+    if (path == NULL) return NULL;
+    memcpy(path, directory, directory_length);
+    size_t offset = directory_length;
+    if (needs_slash) path[offset++] = '/';
+    memcpy(path + offset, suffix, suffix_length + 1U);
+    return path;
+}
+#endif
+
+static char *traffic_default_history_path(const ch_config *config,
+                                          bool has_traffic_table,
+                                          ch_error *error) {
+#if defined(__ANDROID__)
+    (void)has_traffic_table;
+    if (config != NULL) {
+        char *resolved = NULL;
+        if (ch_config_resolve_path(config, "traffic-history.json", &resolved,
+                                   error) != CH_OK) return NULL;
+        return resolved;
+    }
+#else
+    (void)config;
+    (void)error;
+    if (has_traffic_table) {
+        const char *cache = getenv("XDG_CACHE_HOME");
+        if (cache != NULL && cache[0] != '\0') {
+            char *path = traffic_join_path(cache,
+                                           "clambhook/traffic-history.json");
+            if (path != NULL) return path;
+        }
+        const char *home = getenv("HOME");
+        if (home != NULL && home[0] != '\0') {
+            char *path = traffic_join_path(
+                home, ".cache/clambhook/traffic-history.json");
+            if (path != NULL) return path;
+        }
+        return ch_strdup("/tmp/clambhook/traffic-history.json");
+    }
+#endif
+    return ch_strdup("");
+}
+
+static int traffic_history_entry_load(ch_traffic_entry *entry,
+                                      const ch_json_value *object) {
+    memset(entry, 0, sizeof(*entry));
+    const ch_json_value *listener = ch_json_object_get(object, "listener");
+    if (ch_json_value_type(object) != CH_JSON_OBJECT ||
+        !traffic_history_entry_string(&entry->conn_id, object, "conn_id") ||
+        !traffic_history_entry_string(&entry->profile, object, "profile") ||
+        !traffic_history_entry_string(&entry->listener_protocol, listener,
+                                      "protocol") ||
+        !traffic_history_entry_string(&entry->listener_address, listener,
+                                      "addr") ||
+        !traffic_history_entry_string(&entry->client_address, object,
+                                      "client_addr") ||
+        !traffic_history_entry_string(&entry->chain_name, object,
+                                      "chain_name") ||
+        !traffic_history_entry_string(&entry->group_name, object,
+                                      "group_name") ||
+        !traffic_history_entry_string(&entry->rule_name, object,
+                                      "rule_name") ||
+        !traffic_history_entry_string(&entry->rule_action, object,
+                                      "rule_action") ||
+        !traffic_history_entry_string(&entry->target, object, "target") ||
+        !traffic_history_entry_string(&entry->target_host, object,
+                                      "target_host") ||
+        !traffic_history_entry_string(&entry->target_port, object,
+                                      "target_port") ||
+        !traffic_history_entry_string(&entry->network, object, "network") ||
+        !traffic_history_entry_string(&entry->source, object, "source") ||
+        !traffic_history_entry_string(&entry->close_reason, object,
+                                      "close_reason")) {
+        traffic_entry_clear(entry);
+        return 0;
+    }
+    entry->is_default = ch_json_bool_value(
+        ch_json_object_get(object, "default"), false);
+    entry->decision_ns = traffic_history_int64(object, "decision_ns");
+    entry->start_ns = traffic_history_int64(object, "start_ts_ns");
+    entry->updated_ns = traffic_history_int64(object, "updated_ts_ns");
+    entry->end_ns = traffic_history_int64(object, "end_ts_ns");
+    entry->rate_sample_ns = entry->updated_ns;
+    entry->rx_total = traffic_history_uint64(object, "rx_total");
+    entry->tx_total = traffic_history_uint64(object, "tx_total");
+    entry->rx_bps = 0.0;
+    entry->tx_bps = 0.0;
+    entry->active = false;
+    if (strncmp(entry->conn_id, "native-", 7U) == 0) {
+        char *end = NULL;
+        errno = 0;
+        unsigned long long identifier = strtoull(entry->conn_id + 7U, &end, 10);
+        if (errno == 0 && end != entry->conn_id + 7U && *end == '\0') {
+            entry->flow_id = (uint64_t)identifier;
+        }
+    }
+    return 1;
+}
+
+static ch_status traffic_read_file(const char *path, char **out_document,
+                                   ch_error *error) {
+    *out_document = NULL;
+    FILE *file = fopen(path, "rb");
+    if (file == NULL) {
+        if (errno == ENOENT) return CH_OK;
+        ch_error_set(error, CH_ERROR_IO, "read traffic history: %s",
+                     strerror(errno));
+        return CH_ERROR_IO;
+    }
+    if (fseek(file, 0L, SEEK_END) != 0) goto io_failure;
+    long length = ftell(file);
+    if (length < 0) goto io_failure;
+    if ((unsigned long)length > CH_TRAFFIC_MAX_FILE_BYTES) {
+        fclose(file);
+        ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
+                     "traffic history exceeds %u bytes",
+                     (unsigned int)CH_TRAFFIC_MAX_FILE_BYTES);
+        return CH_ERROR_INVALID_ARGUMENT;
+    }
+    if (fseek(file, 0L, SEEK_SET) != 0) goto io_failure;
+    char *document = calloc((size_t)length + 1U, 1U);
+    if (document == NULL) {
+        fclose(file);
+        ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                     "allocate traffic history");
+        return CH_ERROR_OUT_OF_MEMORY;
+    }
+    size_t read_count = fread(document, 1U, (size_t)length, file);
+    if (read_count != (size_t)length || fclose(file) != 0) {
+        free(document);
+        ch_error_set(error, CH_ERROR_IO, "read traffic history: %s",
+                     strerror(errno));
+        return CH_ERROR_IO;
+    }
+    *out_document = document;
+    return CH_OK;
+
+io_failure:
+    {
+        int saved_errno = errno;
+        fclose(file);
+        ch_error_set(error, CH_ERROR_IO, "read traffic history: %s",
+                     strerror(saved_errno));
+        return CH_ERROR_IO;
+    }
+}
+
+static ch_status traffic_history_load(const char *path, size_t limit,
+                                      ch_traffic_entry **out_entries,
+                                      size_t *out_count, uint64_t *out_sequence,
+                                      ch_error *error) {
+    *out_entries = NULL;
+    *out_count = 0U;
+    *out_sequence = 0U;
+    char *document = NULL;
+    ch_status status = traffic_read_file(path, &document, error);
+    if (status != CH_OK || document == NULL) return status;
+    ch_json_value *root = ch_json_parse(document, strlen(document), error);
+    free(document);
+    if (root == NULL || ch_json_value_type(root) != CH_JSON_OBJECT) {
+        ch_json_value_destroy(root);
+        if (error == NULL || error->code == CH_OK) {
+            ch_error_set(error, CH_ERROR_PARSE,
+                         "traffic history must be a JSON object");
+        }
+        return CH_ERROR_PARSE;
+    }
+    int64_t version = 0;
+    if (!ch_json_int64_value(ch_json_object_get(root, "version"), &version) ||
+        version != CH_TRAFFIC_HISTORY_VERSION) {
+        ch_json_value_destroy(root);
+        ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
+                     "traffic history version is not supported");
+        return CH_ERROR_INVALID_ARGUMENT;
+    }
+    const ch_json_value *closed = ch_json_object_get(root, "closed");
+    if (closed != NULL && ch_json_value_type(closed) != CH_JSON_ARRAY) {
+        ch_json_value_destroy(root);
+        ch_error_set(error, CH_ERROR_PARSE,
+                     "traffic history closed field must be an array");
+        return CH_ERROR_PARSE;
+    }
+    size_t available = ch_json_array_size(closed);
+    size_t wanted = available < limit ? available : limit;
+    ch_traffic_entry *entries = wanted == 0U ? NULL :
+        calloc(wanted, sizeof(*entries));
+    if (wanted > 0U && entries == NULL) {
+        ch_json_value_destroy(root);
+        ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                     "allocate loaded traffic history");
+        return CH_ERROR_OUT_OF_MEMORY;
+    }
+    for (size_t index = 0U; index < wanted; ++index) {
+        if (!traffic_history_entry_load(&entries[index],
+                                        ch_json_array_get(closed, index))) {
+            for (size_t clear = 0U; clear <= index; ++clear) {
+                traffic_entry_clear(&entries[clear]);
+            }
+            free(entries);
+            ch_json_value_destroy(root);
+            ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                         "decode traffic history entry");
+            return CH_ERROR_OUT_OF_MEMORY;
+        }
+        if (entries[index].flow_id > *out_sequence) {
+            *out_sequence = entries[index].flow_id;
+        }
+    }
+    ch_json_value_destroy(root);
+    *out_entries = entries;
+    *out_count = wanted;
+    return CH_OK;
+}
+
+static ch_status traffic_mkdir_all(const char *directory, ch_error *error) {
+    if (directory == NULL || directory[0] == '\0' ||
+        strcmp(directory, ".") == 0 || strcmp(directory, "/") == 0) {
+        return CH_OK;
+    }
+    char *copy = ch_strdup(directory);
+    if (copy == NULL) {
+        ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                     "copy traffic history directory");
+        return CH_ERROR_OUT_OF_MEMORY;
+    }
+    for (char *cursor = copy + 1U; ; ++cursor) {
+        if (*cursor != '/' && *cursor != '\0') continue;
+        char saved = *cursor;
+        *cursor = '\0';
+        if (copy[0] != '\0' && mkdir(copy, S_IRWXU) != 0 && errno != EEXIST) {
+            ch_error_set(error, CH_ERROR_IO,
+                         "create traffic history directory: %s",
+                         strerror(errno));
+            free(copy);
+            return CH_ERROR_IO;
+        }
+        *cursor = saved;
+        if (saved == '\0') break;
+    }
+    free(copy);
+    return CH_OK;
+}
+
+static ch_status traffic_write_atomic(const char *path, const char *document,
+                                      ch_error *error) {
+    char *directory = ch_strdup(path);
+    if (directory == NULL) {
+        ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                     "copy traffic history path");
+        return CH_ERROR_OUT_OF_MEMORY;
+    }
+    char *slash = strrchr(directory, '/');
+    if (slash == NULL) {
+        free(directory);
+        directory = ch_strdup(".");
+    } else if (slash == directory) {
+        slash[1] = '\0';
+    } else {
+        *slash = '\0';
+    }
+    if (directory == NULL) {
+        ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                     "copy traffic history directory");
+        return CH_ERROR_OUT_OF_MEMORY;
+    }
+    ch_status status = traffic_mkdir_all(directory, error);
+    free(directory);
+    if (status != CH_OK) return status;
+
+    size_t template_length = strlen(path) + sizeof(".traffic-XXXXXX");
+    char *temporary = malloc(template_length);
+    if (temporary == NULL) {
+        ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                     "allocate traffic history temporary path");
+        return CH_ERROR_OUT_OF_MEMORY;
+    }
+    (void)snprintf(temporary, template_length, "%s.traffic-XXXXXX", path);
+    int descriptor = mkstemp(temporary);
+    if (descriptor < 0 || fchmod(descriptor, S_IRUSR | S_IWUSR) != 0) {
+        int saved_errno = errno;
+        if (descriptor >= 0) close(descriptor);
+        unlink(temporary);
+        free(temporary);
+        ch_error_set(error, CH_ERROR_IO,
+                     "create traffic history temporary file: %s",
+                     strerror(saved_errno));
+        return CH_ERROR_IO;
+    }
+    const char *cursor = document;
+    size_t remaining = strlen(document);
+    while (remaining > 0U) {
+        ssize_t written = write(descriptor, cursor, remaining);
+        if (written < 0 && errno == EINTR) continue;
+        if (written <= 0) {
+            status = CH_ERROR_IO;
+            ch_error_set(error, status, "write traffic history: %s",
+                         strerror(errno));
+            break;
+        }
+        cursor += (size_t)written;
+        remaining -= (size_t)written;
+    }
+    if (status == CH_OK && fsync(descriptor) != 0) {
+        status = CH_ERROR_IO;
+        ch_error_set(error, status, "sync traffic history: %s",
+                     strerror(errno));
+    }
+    if (close(descriptor) != 0 && status == CH_OK) {
+        status = CH_ERROR_IO;
+        ch_error_set(error, status, "close traffic history: %s",
+                     strerror(errno));
+    }
+    if (status == CH_OK && rename(temporary, path) != 0) {
+        status = CH_ERROR_IO;
+        ch_error_set(error, status, "replace traffic history: %s",
+                     strerror(errno));
+    }
+    if (status != CH_OK) unlink(temporary);
+    free(temporary);
+    return status;
+}
+
+ch_status ch_traffic_store_flush(ch_traffic_store *store, ch_error *error) {
+    ch_error_clear(error);
+    if (store == NULL) {
+        ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
+                     "traffic store is required");
+        return CH_ERROR_INVALID_ARGUMENT;
+    }
+    pthread_mutex_lock(&store->persist_mutex);
+    pthread_mutex_lock(&store->mutex);
+    traffic_prune_locked(store, traffic_now_ns());
+    if (!store->enabled || store->history_path[0] == '\0') {
+        pthread_mutex_unlock(&store->mutex);
+        pthread_mutex_unlock(&store->persist_mutex);
+        return CH_OK;
+    }
+    char *path = ch_strdup(store->history_path);
+    ch_json_buffer json;
+    ch_json_init(&json);
+    int okay = path != NULL && ch_json_append_format(
+        &json, "{\"version\":%d,\"saved_ts_ns\":%" PRId64
+        ",\"closed\":[", CH_TRAFFIC_HISTORY_VERSION, traffic_now_ns());
+    size_t written = 0U;
+    int64_t now = traffic_now_ns();
+    for (size_t index = 0U; okay && index < store->count; ++index) {
+        const ch_traffic_entry *entry = &store->entries[index];
+        if (entry->active) continue;
+        if (written > 0U) okay = ch_json_append(&json, ",");
+        if (okay) okay = traffic_append_connection(&json, entry, now);
+        ++written;
+    }
+    if (okay) okay = ch_json_append(&json, "]}\n");
+    char *document = okay ? ch_json_take(&json) : NULL;
+    ch_json_dispose(&json);
+    pthread_mutex_unlock(&store->mutex);
+    if (document == NULL) {
+        free(path);
+        pthread_mutex_unlock(&store->persist_mutex);
+        ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                     "encode traffic history");
+        return CH_ERROR_OUT_OF_MEMORY;
+    }
+    ch_status status = traffic_write_atomic(path, document, error);
+    free(document);
+    free(path);
+    pthread_mutex_lock(&store->mutex);
+    traffic_set_persist_error_locked(
+        store, status == CH_OK ? "" : (error == NULL ?
+            "persist traffic history" : error->message));
+    pthread_mutex_unlock(&store->mutex);
+    pthread_mutex_unlock(&store->persist_mutex);
+    return status;
+}
+
+ch_status ch_traffic_store_configure(ch_traffic_store *store,
+                                     const ch_config *config,
+                                     ch_error *error) {
+    ch_error_clear(error);
+    if (store == NULL) {
+        ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
+                     "traffic store is required");
+        return CH_ERROR_INVALID_ARGUMENT;
+    }
+    bool enabled = true;
+    size_t limit = CH_CONFIG_DEFAULT_TRAFFIC_HISTORY_LIMIT;
+    int64_t max_age_ns = CH_TRAFFIC_DEFAULT_MAX_AGE_NS;
+    const ch_config_table *traffic = config == NULL ? NULL :
+        ch_config_table_get_table(ch_config_root(config), "traffic");
+    ch_error field_error;
+    char *path = traffic_default_history_path(config, traffic != NULL,
+                                              &field_error);
+    if (path == NULL) goto out_of_memory;
+    if (traffic != NULL && ch_config_table_has(traffic, "enabled") &&
+        ch_config_table_get_bool(traffic, "enabled", &enabled,
+                                 &field_error) != CH_OK) {
+        *error = field_error;
+        free(path);
+        return field_error.code;
+    }
+    if (traffic != NULL && ch_config_table_has(traffic, "history_limit")) {
+        int64_t configured_limit = 0;
+        if (ch_config_table_get_int(traffic, "history_limit",
+                                    &configured_limit, &field_error) != CH_OK) {
+            *error = field_error;
+            free(path);
+            return field_error.code;
+        }
+        if (configured_limit > 0) limit = (size_t)configured_limit;
+    }
+    if (limit > CH_TRAFFIC_MAX_LIMIT) {
+        free(path);
+        ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
+                     "traffic history limit exceeds %u",
+                     (unsigned int)CH_TRAFFIC_MAX_LIMIT);
+        return CH_ERROR_INVALID_ARGUMENT;
+    }
+    if (traffic != NULL && ch_config_table_has(traffic, "history_max_age")) {
+        char *duration = NULL;
+        if (ch_config_table_get_string(traffic, "history_max_age", &duration,
+                                       &field_error) != CH_OK ||
+            ch_config_parse_duration_ns(duration, &max_age_ns,
+                                        &field_error) != CH_OK) {
+            free(duration);
+            free(path);
+            *error = field_error;
+            return field_error.code;
+        }
+        free(duration);
+    }
+    if (traffic != NULL && ch_config_table_has(traffic, "history_path")) {
+        char *configured_path = NULL;
+        char *resolved_path = NULL;
+        if (ch_config_table_get_string(traffic, "history_path",
+                                       &configured_path, &field_error) != CH_OK ||
+            ch_config_resolve_path(config, configured_path, &resolved_path,
+                                   &field_error) != CH_OK) {
+            free(configured_path);
+            free(resolved_path);
+            free(path);
+            *error = field_error;
+            return field_error.code;
+        }
+        free(configured_path);
+        free(path);
+        path = resolved_path;
+    }
+
+    ch_error ignored;
+    (void)ch_traffic_store_flush(store, &ignored);
+    pthread_mutex_lock(&store->mutex);
+    bool path_changed = strcmp(store->history_path, path) != 0;
+    if (path_changed) {
+        for (size_t index = 0U; index < store->count; ++index) {
+            traffic_entry_clear(&store->entries[index]);
+        }
+        store->count = 0U;
+        store->history_loaded = false;
+    }
+    free(store->history_path);
+    store->history_path = path;
+    store->enabled = enabled;
+    store->limit = limit;
+    store->history_max_age_ns = max_age_ns;
+    if (!enabled) {
+        for (size_t index = 0U; index < store->count; ++index) {
+            traffic_entry_clear(&store->entries[index]);
+        }
+        store->count = 0U;
+    }
+    bool should_load = enabled && store->history_path[0] != '\0' &&
+        !store->history_loaded;
+    char *load_path = should_load ? ch_strdup(store->history_path) : NULL;
+    traffic_prune_locked(store, traffic_now_ns());
+    pthread_mutex_unlock(&store->mutex);
+    if (should_load && load_path == NULL) goto out_of_memory_no_path;
+
+    if (should_load) {
+        ch_traffic_entry *loaded = NULL;
+        size_t loaded_count = 0U;
+        uint64_t loaded_sequence = 0U;
+        ch_error load_error;
+        ch_status load_status = traffic_history_load(
+            load_path, limit, &loaded, &loaded_count, &loaded_sequence,
+            &load_error);
+        pthread_mutex_lock(&store->mutex);
+        store->history_loaded = true;
+        if (load_status == CH_OK) {
+            size_t available = store->capacity - store->count;
+            if (loaded_count > available) loaded_count = available;
+            for (size_t index = 0U; index < loaded_count; ++index) {
+                store->entries[store->count++] = loaded[index];
+                memset(&loaded[index], 0, sizeof(loaded[index]));
+            }
+            if (loaded_sequence > store->sequence) {
+                store->sequence = loaded_sequence;
+            }
+            traffic_prune_locked(store, traffic_now_ns());
+            traffic_set_persist_error_locked(store, "");
+        } else {
+            traffic_set_persist_error_locked(store, load_error.message);
+        }
+        pthread_mutex_unlock(&store->mutex);
+        for (size_t index = 0U; index < loaded_count; ++index) {
+            traffic_entry_clear(&loaded[index]);
+        }
+        free(loaded);
+        free(load_path);
+    }
+    return CH_OK;
+
+out_of_memory:
+    free(path);
+out_of_memory_no_path:
+    ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                 "configure traffic history");
+    return CH_ERROR_OUT_OF_MEMORY;
 }
 
 static int traffic_append_profiles(ch_json_buffer *json,
@@ -807,6 +1455,7 @@ char *ch_traffic_snapshot_json(ch_traffic_store *store,
     temporary_rules = NULL;
     pthread_mutex_lock(&store->mutex);
     int64_t now = traffic_now_ns();
+    traffic_prune_locked(store, now);
     size_t matched = 0U, emitted = 0U;
     size_t active = 0U;
     uint64_t rx_total = 0U, tx_total = 0U;
@@ -828,10 +1477,15 @@ char *ch_traffic_snapshot_json(ch_traffic_store *store,
         "{\"updated_ts_ns\":%" PRId64 ",\"summary\":{"
         "\"active_connections\":%zu,\"rx_bps\":%.3f,\"tx_bps\":%.3f,"
         "\"rx_total\":%" PRIu64 ",\"tx_total\":%" PRIu64 ","
-        "\"history_limit\":%zu,\"history_path\":\"\","
-        "\"history_persisted\":false,\"persist_error\":\"\"},"
-        "\"connections\":[",
+        "\"history_limit\":%zu,\"history_path\":",
         now, active, rx_bps, tx_bps, rx_total, tx_total, store->limit);
+    if (okay) okay = ch_json_append_string(&json, store->history_path);
+    if (okay) okay = ch_json_append_format(
+        &json, ",\"history_persisted\":%s,\"persist_error\":",
+        store->enabled && store->history_path[0] != '\0' ? "true" : "false");
+    if (okay) okay = ch_json_append_string(&json, store->persist_error);
+    if (okay) okay = ch_json_append(
+        &json, "},\"connections\":[");
     size_t skipped = 0U;
     for (size_t index = 0U; okay && index < store->count; ++index) {
         const ch_traffic_entry *entry = &store->entries[index];

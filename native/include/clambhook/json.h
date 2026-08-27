@@ -3,6 +3,7 @@
 
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdint.h>
 
 #include "clambhook/error.h"
 
@@ -27,6 +28,8 @@ ch_json_type ch_json_value_type(const ch_json_value *value);
 
 bool ch_json_bool_value(const ch_json_value *value, bool fallback);
 double ch_json_number_value(const ch_json_value *value, double fallback);
+/* Returns true only when the source token was an exact signed 64-bit integer. */
+bool ch_json_int64_value(const ch_json_value *value, int64_t *out_value);
 const char *ch_json_string_value(const ch_json_value *value);
 
 size_t ch_json_array_size(const ch_json_value *value);
@@ -40,6 +43,7 @@ const ch_json_value *ch_json_object_get(const ch_json_value *value, const char *
 ch_json_value *ch_json_value_clone(const ch_json_value *value);
 ch_json_value *ch_json_value_new_bool(bool value);
 ch_json_value *ch_json_value_new_number(double value);
+ch_json_value *ch_json_value_new_int64(int64_t value);
 ch_json_value *ch_json_value_new_string(const char *value);
 ch_json_value *ch_json_value_new_array(void);
 ch_json_value *ch_json_value_new_object(void);

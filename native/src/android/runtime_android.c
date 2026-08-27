@@ -211,8 +211,8 @@ static ch_status android_runtime_tcp_dial(
     if (status == CH_OK) {
         uint64_t flow_id = android_runtime_open_traffic(
             runtime, &route, "tcp", target, source, error);
-        if (flow_id == 0U) {
-            status = error == NULL ? CH_ERROR_OUT_OF_MEMORY : error->code;
+        if (flow_id == 0U && error != NULL && error->code != CH_OK) {
+            status = error->code;
         } else if (route.blocked) {
             ch_traffic_close(runtime->traffic, flow_id, "blocked by rule");
             ch_error_set(error, CH_ERROR_INVALID_STATE,
@@ -246,8 +246,8 @@ static ch_status android_runtime_udp_dial(
     if (status == CH_OK) {
         uint64_t flow_id = android_runtime_open_traffic(
             runtime, &route, "udp", target, source, error);
-        if (flow_id == 0U) {
-            status = error == NULL ? CH_ERROR_OUT_OF_MEMORY : error->code;
+        if (flow_id == 0U && error != NULL && error->code != CH_OK) {
+            status = error->code;
         } else if (route.blocked) {
             ch_traffic_close(runtime->traffic, flow_id, "blocked by rule");
             ch_error_set(error, CH_ERROR_INVALID_STATE,
@@ -502,6 +502,31 @@ static ch_status android_runtime_replace_config(ch_runtime *runtime,
 
     android_config_state previous = android_runtime_take_config(runtime);
     if (restart) android_runtime_stop_ip_stack(runtime);
+    status = ch_traffic_store_configure(runtime->traffic, next.config, error);
+    if (status != CH_OK) {
+        ch_error replacement_error = *error;
+        ch_error ignored;
+        (void)ch_traffic_store_configure(runtime->traffic, previous.config,
+                                         &ignored);
+        android_runtime_install_config(runtime, &previous);
+        if (restart) {
+            ch_error rollback_error;
+            if (android_runtime_start_ip_stack(runtime, &rollback_error) !=
+                CH_OK) {
+                runtime->running = false;
+                ch_error_set(error, CH_ERROR_INTERNAL,
+                             "configure Android traffic failed: %s; "
+                             "rollback failed: %s",
+                             replacement_error.message,
+                             rollback_error.message);
+                android_config_state_clear(&next);
+                return CH_ERROR_INTERNAL;
+            }
+        }
+        android_config_state_clear(&next);
+        *error = replacement_error;
+        return status;
+    }
     android_runtime_install_config(runtime, &next);
     if (restart) status = android_runtime_start_ip_stack(runtime, error);
     if (status == CH_OK) {
@@ -511,6 +536,9 @@ static ch_status android_runtime_replace_config(ch_runtime *runtime,
 
     ch_error replacement_error = *error;
     android_config_state failed = android_runtime_take_config(runtime);
+    ch_error ignored;
+    (void)ch_traffic_store_configure(runtime->traffic, previous.config,
+                                     &ignored);
     android_runtime_install_config(runtime, &previous);
     ch_error rollback_error;
     ch_status rollback_status = restart ?
