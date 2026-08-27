@@ -361,6 +361,68 @@ char *ch_temporary_rules_create_from_connection_json(
     return result;
 }
 
+char *ch_temporary_rules_remove_json(ch_temporary_rules *rules,
+                                     const char *request_json,
+                                     ch_error *error) {
+    ch_error_clear(error);
+    if (rules == NULL || request_json == NULL) {
+        ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
+                     "temporary rule manager and request are required");
+        return NULL;
+    }
+    ch_json_value *request = ch_json_parse(
+        request_json, strlen(request_json), error);
+    if (request == NULL) return NULL;
+    char *id = temporary_request_string(request, "id");
+    ch_json_value_destroy(request);
+    if (id == NULL || id[0] == '\0') {
+        free(id);
+        ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
+                     "temporary rule identifier is required");
+        return NULL;
+    }
+    pthread_mutex_lock(&rules->mutex);
+    temporary_prune_locked(rules, temporary_now_ns());
+    size_t index = 0U;
+    while (index < rules->count &&
+           strcmp(rules->items[index].id, id) != 0) ++index;
+    free(id);
+    if (index == rules->count) {
+        pthread_mutex_unlock(&rules->mutex);
+        ch_error_set(error, CH_ERROR_NOT_FOUND,
+                     "temporary rule not found");
+        return NULL;
+    }
+    char *profile = ch_strdup(rules->items[index].profile);
+    if (profile == NULL) {
+        pthread_mutex_unlock(&rules->mutex);
+        ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                     "copy temporary rule profile");
+        return NULL;
+    }
+    temporary_rule_clear(&rules->items[index]);
+    if (index + 1U < rules->count) {
+        memmove(&rules->items[index], &rules->items[index + 1U],
+                (rules->count - index - 1U) * sizeof(*rules->items));
+    }
+    --rules->count;
+    memset(&rules->items[rules->count], 0, sizeof(*rules->items));
+    ch_json_buffer json;
+    ch_json_init(&json);
+    int okay = ch_json_append(&json, "{\"temporary_rules\":") &&
+        temporary_append_snapshot_locked(&json, rules, profile) &&
+        ch_json_append(&json, "}");
+    pthread_mutex_unlock(&rules->mutex);
+    free(profile);
+    char *result = okay ? ch_json_take(&json) : NULL;
+    ch_json_dispose(&json);
+    if (result == NULL) {
+        ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                     "encode temporary rule removal");
+    }
+    return result;
+}
+
 static void temporary_split_target(const char *target, char **host,
                                    char **port) {
     *host = NULL;

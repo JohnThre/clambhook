@@ -392,15 +392,27 @@ static ch_status traffic_filter_parse(const char *json,
                      "traffic filter must be a JSON object");
         return CH_ERROR_INVALID_ARGUMENT;
     }
-    double limit = ch_json_number_value(ch_json_object_get(root, "limit"),
-                                        200.0);
-    double offset = ch_json_number_value(ch_json_object_get(root, "offset"),
-                                         0.0);
-    if (limit > 0.0) {
+    const ch_json_value *limit_value = ch_json_object_get(root, "limit");
+    const ch_json_value *offset_value = ch_json_object_get(root, "offset");
+    double limit = ch_json_number_value(limit_value, 200.0);
+    double offset = ch_json_number_value(offset_value, 0.0);
+    if ((limit_value != NULL &&
+         (limit < 0.0 || limit > (double)SIZE_MAX ||
+          limit != (double)(size_t)limit)) ||
+        (offset_value != NULL &&
+         (offset < 0.0 || offset > (double)SIZE_MAX ||
+          offset != (double)(size_t)offset))) {
+        ch_json_value_destroy(root);
+        traffic_filter_clear(filter);
+        ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
+                     "traffic limit and offset must be non-negative integers");
+        return CH_ERROR_INVALID_ARGUMENT;
+    }
+    if (limit_value != NULL) {
         filter->limit = limit > (double)CH_TRAFFIC_QUERY_LIMIT ?
             CH_TRAFFIC_QUERY_LIMIT : (size_t)limit;
     }
-    if (offset > 0.0) filter->offset = (size_t)offset;
+    if (offset_value != NULL) filter->offset = (size_t)offset;
     ch_json_value_destroy(root);
     return CH_OK;
 }

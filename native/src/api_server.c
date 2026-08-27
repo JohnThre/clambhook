@@ -233,7 +233,7 @@ static char *ch_api_path_id_request_json(const char *path,
         path[prefix_length] == '\0' || strchr(path + prefix_length, '/') !=
         NULL) {
         ch_error_set(error, CH_ERROR_NOT_FOUND,
-                     "developer rule path not found");
+                     "resource path not found");
         return NULL;
     }
     char *id = ch_api_path_decode(path + prefix_length,
@@ -248,7 +248,7 @@ static char *ch_api_path_id_request_json(const char *path,
     ch_json_dispose(&request);
     if (result == NULL) {
         ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
-                     "encode developer rule id");
+                     "encode resource id");
     }
     return result;
 }
@@ -293,6 +293,86 @@ char *ch_api_profile_request_json(const char *url, ch_error *error) {
     if (result == NULL) {
         ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
                      "encode profile query");
+    }
+    return result;
+}
+
+static int ch_api_traffic_query_key(const char *key) {
+    static const char *const keys[] = {
+        "state", "action", "profile", "rule", "country", "port",
+        "query", "app", "domain", "process", "network", "limit",
+        "offset"
+    };
+    for (size_t index = 0U; index < sizeof(keys) / sizeof(keys[0]); ++index) {
+        if (strcmp(key, keys[index]) == 0) return (int)index;
+    }
+    return -1;
+}
+
+static int ch_api_nonnegative_integer(const char *value) {
+    if (value == NULL || value[0] == '\0') return 0;
+    for (const unsigned char *cursor = (const unsigned char *)value;
+         *cursor != 0U; ++cursor) {
+        if (!isdigit(*cursor)) return 0;
+    }
+    return 1;
+}
+
+char *ch_api_traffic_request_json(const char *url, ch_error *error) {
+    ch_error_clear(error);
+    ch_json_buffer request;
+    ch_json_init(&request);
+    int okay = ch_json_append(&request, "{");
+    unsigned int seen = 0U;
+    size_t written = 0U;
+    const char *query = url == NULL ? NULL : strchr(url, '?');
+    if (query != NULL) {
+        ++query;
+        while (okay && *query != '\0' && *query != '#') {
+            const char *end = query + strcspn(query, "&#");
+            const char *separator = memchr(query, '=', (size_t)(end - query));
+            const char *key_end = separator == NULL ? end : separator;
+            char *key = ch_api_query_decode(
+                query, (size_t)(key_end - query), error);
+            const char *value_start = separator == NULL ? end : separator + 1U;
+            char *value = key == NULL ? NULL : ch_api_query_decode(
+                value_start, (size_t)(end - value_start), error);
+            if (key == NULL || value == NULL) {
+                free(key);
+                free(value);
+                okay = 0;
+                break;
+            }
+            int key_index = ch_api_traffic_query_key(key);
+            unsigned int bit = key_index < 0 ? 0U : 1U << (unsigned int)key_index;
+            if (key_index >= 0 && (seen & bit) == 0U) {
+                int numeric = strcmp(key, "limit") == 0 ||
+                    strcmp(key, "offset") == 0;
+                if (numeric && !ch_api_nonnegative_integer(value)) {
+                    ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
+                                 "invalid %s", key);
+                    okay = 0;
+                } else {
+                    okay = (written == 0U || ch_json_append(&request, ",")) &&
+                        ch_json_append_string(&request, key) &&
+                        ch_json_append(&request, ":") &&
+                        (numeric ? ch_json_append(&request, value) :
+                                   ch_json_append_string(&request, value));
+                    ++written;
+                    seen |= bit;
+                }
+            }
+            free(key);
+            free(value);
+            query = *end == '&' ? end + 1U : end;
+        }
+    }
+    if (okay) okay = ch_json_append(&request, "}");
+    char *result = okay ? ch_json_take(&request) : NULL;
+    ch_json_dispose(&request);
+    if (result == NULL && (error == NULL || error->code == CH_OK)) {
+        ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                     "encode traffic query");
     }
     return result;
 }
@@ -476,6 +556,16 @@ static void ch_api_route(ch_api_client *client) {
         free(path);
         return;
     }
+    char *traffic_request = NULL;
+    if (strcmp(path, "/api/v1/traffic") == 0) {
+        traffic_request = ch_api_traffic_request_json(url, &error);
+        if (traffic_request == NULL) {
+            ch_api_runtime_error(client, error.code, &error);
+            free(profile_request);
+            free(path);
+            return;
+        }
+    }
     if (strcmp(method, "GET") == 0 && strcmp(path, "/api/v1/status") == 0) {
         status = ch_runtime_query(client->server->runtime, "status", "{}", &json, &error);
     } else if (strcmp(method, "GET") == 0 && strcmp(path, "/api/v1/profiles") == 0) {
@@ -484,6 +574,11 @@ static void ch_api_route(ch_api_client *client) {
         status = ch_runtime_query(client->server->runtime, "servers", profile_request, &json, &error);
     } else if (strcmp(method, "GET") == 0 && strcmp(path, "/api/v1/rules") == 0) {
         status = ch_runtime_query(client->server->runtime, "rules", profile_request, &json, &error);
+    } else if (strcmp(method, "GET") == 0 &&
+               strcmp(path, "/api/v1/traffic") == 0) {
+        status = ch_runtime_query(
+            client->server->runtime, "traffic_filter", traffic_request,
+            &json, &error);
     } else if (strcmp(method, "GET") == 0 && strcmp(path, "/api/v1/policy-groups") == 0) {
         status = ch_runtime_query(client->server->runtime, "policy_groups", profile_request, &json, &error);
     } else if (strcmp(method, "GET") == 0 && strcmp(path, "/api/v1/rule-sets") == 0) {
@@ -628,6 +723,43 @@ static void ch_api_route(ch_api_client *client) {
         status = ch_runtime_query(client->server->runtime, "test_rule",
                                   client->body.data == NULL ? "{}" : client->body.data,
                                   &json, &error);
+    } else if (strcmp(method, "POST") == 0 &&
+               strcmp(path, "/api/v1/rules/from-connection") == 0) {
+        persistence_required = 1;
+        status = ch_runtime_mutate(
+            client->server->runtime, "create_rule_from_connection",
+            client->body.data == NULL ? "{}" : client->body.data,
+            &json, &error);
+    } else if (strcmp(method, "POST") == 0 &&
+               strcmp(path,
+                      "/api/v1/rules/temporary/from-connection") == 0) {
+        status = ch_runtime_mutate(
+            client->server->runtime,
+            "create_temporary_rule_from_connection",
+            client->body.data == NULL ? "{}" : client->body.data,
+            &json, &error);
+    } else if (strcmp(method, "POST") == 0 &&
+               strcmp(path, "/api/v1/rules/cleanup") == 0) {
+        persistence_required = 1;
+        status = ch_runtime_mutate(
+            client->server->runtime, "cleanup_rule_from_traffic",
+            client->body.data == NULL ? "{}" : client->body.data,
+            &json, &error);
+    } else if (strcmp(method, "DELETE") == 0 &&
+               strncmp(path, "/api/v1/rules/temporary/", 24U) == 0) {
+        static const char prefix[] = "/api/v1/rules/temporary/";
+        char *request = ch_api_path_id_request_json(path, prefix, &error);
+        if (request == NULL) {
+            ch_api_runtime_error(client, error.code, &error);
+            free(traffic_request);
+            free(profile_request);
+            free(path);
+            return;
+        }
+        status = ch_runtime_mutate(
+            client->server->runtime, "remove_temporary_rule", request,
+            &json, &error);
+        free(request);
     } else if (strcmp(method, "GET") == 0 &&
                strcmp(path, "/api/v1/config/export") == 0) {
         config_transfer = 1;
@@ -655,6 +787,7 @@ static void ch_api_route(ch_api_client *client) {
     } else {
         int known = strcmp(path, "/api/v1/status") == 0 || strcmp(path, "/api/v1/profiles") == 0 ||
             strcmp(path, "/api/v1/servers") == 0 || strcmp(path, "/api/v1/rules") == 0 ||
+            strcmp(path, "/api/v1/traffic") == 0 ||
             strcmp(path, "/api/v1/policy-groups") == 0 || strcmp(path, "/api/v1/rule-sets") == 0 ||
             strcmp(path, "/api/v1/dns") == 0 ||
             strcmp(path, "/api/v1/config/settings") == 0 ||
@@ -668,15 +801,21 @@ static void ch_api_route(ch_api_client *client) {
             strcmp(path, "/api/v1/rule-sets/refresh") == 0 ||
             strcmp(path, "/api/v1/rule-subscriptions/refresh") == 0 ||
             strcmp(path, "/api/v1/rules/test") == 0 || strcmp(path, "/api/v1/routes/explain") == 0 ||
+            strcmp(path, "/api/v1/rules/from-connection") == 0 ||
+            strcmp(path, "/api/v1/rules/temporary/from-connection") == 0 ||
+            strcmp(path, "/api/v1/rules/cleanup") == 0 ||
+            strncmp(path, "/api/v1/rules/temporary/", 24U) == 0 ||
             strcmp(path, "/api/v1/config/export") == 0 ||
             strcmp(path, "/api/v1/config/import") == 0 ||
             strcmp(path, "/api/v1/profiles/active") == 0 ||
             strcmp(path, "/api/v1/connect") == 0 || strcmp(path, "/api/v1/disconnect") == 0;
         ch_api_respond(client, known ? 405 : 404, NULL, known ? "method not allowed\n" : "not found\n");
+        free(traffic_request);
         free(profile_request);
         free(path);
         return;
     }
+    free(traffic_request);
     free(profile_request);
     free(path);
     if (status != CH_OK) {

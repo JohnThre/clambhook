@@ -42,6 +42,9 @@ struct ch_proxy_listener {
     ch_proxy_dial_callback dial;
     ch_proxy_packet_dial_callback packet_dial;
     void *dial_context;
+    ch_proxy_flow_bytes_callback flow_bytes;
+    ch_proxy_flow_close_callback flow_close;
+    void *flow_context;
     int descriptor;
     pthread_t accept_thread;
     int accept_thread_started;
@@ -56,12 +59,16 @@ struct ch_listener_connection {
     ch_proxy_listener *listener;
     int client_descriptor;
     int remote_descriptor;
+    uint64_t flow_id;
     ch_listener_connection *next;
 };
 
 typedef struct ch_relay_direction {
     int source;
     int destination;
+    ch_proxy_listener *listener;
+    uint64_t flow_id;
+    int incoming;
 } ch_relay_direction;
 
 typedef struct ch_socks_udp_association ch_socks_udp_association;
@@ -69,6 +76,7 @@ typedef struct ch_socks_udp_association ch_socks_udp_association;
 typedef struct ch_socks_udp_session {
     ch_socks_udp_association *association;
     ch_packet_connection *packet;
+    uint64_t flow_id;
     char key[CH_PROXY_ROUTE_SESSION_KEY_SIZE];
     pthread_t reader_thread;
     int reader_started;
@@ -76,6 +84,7 @@ typedef struct ch_socks_udp_session {
 } ch_socks_udp_session;
 
 struct ch_socks_udp_association {
+    ch_proxy_listener *listener;
     int relay;
     pthread_mutex_t mutex;
     int stopping;
@@ -303,15 +312,37 @@ static void *ch_listener_relay_direction(void *context) {
         ssize_t received = recv(direction->source, buffer, sizeof(buffer), 0);
         if (received < 0 && errno == EINTR) continue;
         if (received <= 0 ||
-            !ch_listener_send_all(direction->destination, buffer, (size_t)received)) break;
+            !ch_listener_send_all(direction->destination, buffer,
+                                  (size_t)received)) break;
+        if (direction->listener->flow_bytes != NULL &&
+            direction->flow_id != 0U) {
+            direction->listener->flow_bytes(
+                direction->flow_id,
+                direction->incoming ? (uint64_t)received : 0U,
+                direction->incoming ? 0U : (uint64_t)received,
+                direction->listener->flow_context);
+        }
     }
     (void)shutdown(direction->destination, SHUT_WR);
     return NULL;
 }
 
-static void ch_listener_relay(int client, int remote) {
-    ch_relay_direction outgoing = {.source = client, .destination = remote};
-    ch_relay_direction incoming = {.source = remote, .destination = client};
+static void ch_listener_relay(ch_listener_connection *connection) {
+    int client = connection->client_descriptor;
+    int remote = connection->remote_descriptor;
+    ch_relay_direction outgoing = {
+        .source = client,
+        .destination = remote,
+        .listener = connection->listener,
+        .flow_id = connection->flow_id
+    };
+    ch_relay_direction incoming = {
+        .source = remote,
+        .destination = client,
+        .listener = connection->listener,
+        .flow_id = connection->flow_id,
+        .incoming = 1
+    };
     pthread_t incoming_thread;
     int incoming_started = pthread_create(&incoming_thread, NULL,
                                            ch_listener_relay_direction, &incoming) == 0;
@@ -338,6 +369,7 @@ static ch_status ch_listener_dial(ch_listener_connection *connection,
     ch_status status = listener->dial("tcp", target, source, route, &remote,
                                       listener->dial_context, error);
     free(source);
+    if (route->flow_id != 0U) connection->flow_id = route->flow_id;
     if (status != CH_OK) {
         ch_listener_close_descriptor(&remote);
         return status;
@@ -620,9 +652,15 @@ static void *ch_socks_udp_session_reader(void *opaque) {
         }
         pthread_mutex_unlock(&association->mutex);
         if (!stopping && client_length > 0U) {
-            (void)ch_socks_udp_send_response(
+            int delivered = ch_socks_udp_send_response(
                 association->relay, (const struct sockaddr *)&client,
                 client_length, source, response, response_length);
+            if (delivered && association->listener->flow_bytes != NULL &&
+                session->flow_id != 0U) {
+                association->listener->flow_bytes(
+                    session->flow_id, (uint64_t)response_length, 0U,
+                    association->listener->flow_context);
+            }
         }
         free(source);
     }
@@ -632,21 +670,33 @@ static void *ch_socks_udp_session_reader(void *opaque) {
 static ch_socks_udp_session *ch_socks_udp_session_get(
     ch_socks_udp_association *association,
     const char *key,
-    ch_packet_connection *packet) {
+    ch_packet_connection *packet,
+    uint64_t flow_id) {
     for (ch_socks_udp_session *session = association->sessions;
          session != NULL; session = session->next) {
         if (strcmp(session->key, key) == 0) {
             ch_packet_connection_close(packet);
+            if (association->listener->flow_close != NULL && flow_id != 0U) {
+                association->listener->flow_close(
+                    flow_id, "UDP session reused",
+                    association->listener->flow_context);
+            }
             return session;
         }
     }
     ch_socks_udp_session *session = calloc(1U, sizeof(*session));
     if (session == NULL) {
         ch_packet_connection_close(packet);
+        if (association->listener->flow_close != NULL && flow_id != 0U) {
+            association->listener->flow_close(
+                flow_id, "UDP session allocation failed",
+                association->listener->flow_context);
+        }
         return NULL;
     }
     session->association = association;
     session->packet = packet;
+    session->flow_id = flow_id;
     (void)snprintf(session->key, sizeof(session->key), "%s", key);
     session->next = association->sessions;
     association->sessions = session;
@@ -675,6 +725,12 @@ static void ch_socks_udp_association_clear(
             (void)pthread_join(session->reader_thread, NULL);
         }
         ch_packet_connection_close(session->packet);
+        if (association->listener->flow_close != NULL &&
+            session->flow_id != 0U) {
+            association->listener->flow_close(
+                session->flow_id, "closed",
+                association->listener->flow_context);
+        }
         free(session);
         session = next;
     }
@@ -700,6 +756,7 @@ static void ch_socks_udp_associate(ch_listener_connection *connection,
     pthread_mutex_unlock(&listener->mutex);
     ch_socks_udp_association association;
     memset(&association, 0, sizeof(association));
+    association.listener = listener;
     association.relay = relay;
     if (pthread_mutex_init(&association.mutex, NULL) != 0) {
         (void)ch_socks_write_reply(client, 0x01U);
@@ -811,14 +868,22 @@ static void ch_socks_udp_associate(ch_listener_connection *connection,
                                "target:%s", target);
             }
             session = ch_socks_udp_session_get(&association,
-                                                route.session_key, packet);
+                                                route.session_key, packet,
+                                                route.flow_id);
             packet = NULL;
             if (session == NULL) status = CH_ERROR_OUT_OF_MEMORY;
         }
         if (status == CH_OK && session != NULL) {
+            size_t payload_length = (size_t)request_length - payload_offset;
             status = ch_packet_connection_send(
                 session->packet, target, request + payload_offset,
-                (size_t)request_length - payload_offset, &error);
+                payload_length, &error);
+            if (status == CH_OK && listener->flow_bytes != NULL &&
+                session->flow_id != 0U) {
+                listener->flow_bytes(session->flow_id, 0U,
+                                     (uint64_t)payload_length,
+                                     listener->flow_context);
+            }
             if (status == CH_OK && !ch_socks_udp_session_start(session)) {
                 status = CH_ERROR_INTERNAL;
             }
@@ -863,7 +928,7 @@ static void ch_socks_handle(ch_listener_connection *connection) {
     }
     if (!ch_socks_write_reply(client, 0x00U)) return;
     ch_listener_clear_timeout(client);
-    ch_listener_relay(client, connection->remote_descriptor);
+    ch_listener_relay(connection);
 }
 
 static const char *ch_http_header_value(const char *headers,
@@ -1112,7 +1177,7 @@ static void ch_http_handle(ch_listener_connection *connection) {
         free(forward_header);
     }
     free(request);
-    ch_listener_relay(client, connection->remote_descriptor);
+    ch_listener_relay(connection);
     return;
 
 bad_request:
@@ -1150,6 +1215,12 @@ static void *ch_listener_connection_main(void *context) {
     pthread_mutex_unlock(&connection->listener->mutex);
     ch_listener_close_descriptor(&remote);
     ch_listener_close_descriptor(&client);
+    if (connection->listener->flow_close != NULL &&
+        connection->flow_id != 0U) {
+        connection->listener->flow_close(
+            connection->flow_id, "closed",
+            connection->listener->flow_context);
+    }
     ch_listener_connection_remove(connection);
     free(connection);
     return NULL;
@@ -1241,6 +1312,9 @@ ch_proxy_listener *ch_proxy_listener_start(const ch_proxy_listener_options *opti
     listener->dial = options->dial;
     listener->packet_dial = options->packet_dial;
     listener->dial_context = options->dial_context;
+    listener->flow_bytes = options->flow_bytes;
+    listener->flow_close = options->flow_close;
+    listener->flow_context = options->flow_context;
     if (listener->configured_address == NULL || listener->username == NULL ||
         listener->password == NULL || pthread_mutex_init(&listener->mutex, NULL) != 0) {
         ch_error_set(error, CH_ERROR_OUT_OF_MEMORY, "initialize proxy listener");

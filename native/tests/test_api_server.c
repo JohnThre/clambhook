@@ -41,4 +41,24 @@ void ch_test_api_server(void) {
     CH_TEST_ASSERT(ch_api_profile_request_json(
         "/api/v1/rules?profile=bad%2", &error) == NULL);
     CH_TEST_ASSERT(error.code == CH_ERROR_PARSE);
+
+    request = ch_api_traffic_request_json(
+        "/api/v1/traffic?action=block&domain=ads.example&limit=0&offset=2",
+        &error);
+    CH_TEST_ASSERT(request != NULL);
+    CH_TEST_ASSERT_STRING(
+        "{\"action\":\"block\",\"domain\":\"ads.example\","
+        "\"limit\":0,\"offset\":2}", request);
+    free(request);
+    request = ch_api_traffic_request_json(
+        "/api/v1/traffic?query=hello+world&network=udp&unknown=ignored",
+        &error);
+    CH_TEST_ASSERT(request != NULL);
+    CH_TEST_ASSERT_STRING(
+        "{\"query\":\"hello world\",\"network\":\"udp\"}",
+        request);
+    free(request);
+    CH_TEST_ASSERT(ch_api_traffic_request_json(
+        "/api/v1/traffic?limit=-1", &error) == NULL);
+    CH_TEST_ASSERT(error.code == CH_ERROR_INVALID_ARGUMENT);
 }

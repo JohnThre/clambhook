@@ -24,4 +24,7 @@ int ch_api_is_loopback_host(const char *host);
 /* Decodes the optional profile query into the runtime bridge JSON contract. */
 char *ch_api_profile_request_json(const char *url, ch_error *error);
 
+/* Decodes and validates traffic monitor query parameters. */
+char *ch_api_traffic_request_json(const char *url, ch_error *error);
+
 #endif

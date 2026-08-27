@@ -14,6 +14,8 @@
 #include "clambhook/json.h"
 #include "clambhook/protocol.h"
 #include "clambhook/runtime.h"
+#include "clambhook/temporary_rules.h"
+#include "clambhook/traffic.h"
 #include "internal.h"
 
 typedef struct runtime_echo_server {
@@ -203,8 +205,11 @@ static void runtime_test_dns_routing(void) {
     ch_config *config = NULL;
     ch_error error;
     CH_TEST_ASSERT(ch_config_parse(document, NULL, &config, &error) == CH_OK);
+    ch_traffic_store *traffic = ch_traffic_store_create(32U, &error);
+    ch_temporary_rules *temporary = ch_temporary_rules_create(8U, &error);
+    CH_TEST_ASSERT(traffic != NULL && temporary != NULL);
     ch_runtime_listener_set *set = ch_runtime_listener_set_start(
-        config, "default", &error);
+        config, "default", traffic, temporary, &error);
     CH_TEST_ASSERT(set != NULL);
     char target[96];
     (void)snprintf(target, sizeof(target), "resolver.invalid:%u",
@@ -226,11 +231,14 @@ static void runtime_test_dns_routing(void) {
     CH_TEST_ASSERT(memcmp(payload, echoed, sizeof(payload)) == 0);
     (void)close(descriptor);
     descriptor = -1;
+    uint64_t flow_id = 0U;
     CH_TEST_ASSERT(ch_runtime_listener_set_tun_tcp_dial(
         set, target, "198.18.0.2:40001", "blocked.example:443",
-        &descriptor, &error) == CH_ERROR_INVALID_STATE);
+        &descriptor, &flow_id, &error) == CH_ERROR_INVALID_STATE);
     CH_TEST_ASSERT(descriptor == -1);
     ch_runtime_listener_set_stop(set);
+    ch_temporary_rules_destroy(temporary);
+    ch_traffic_store_destroy(traffic);
     ch_config_free(config);
     runtime_echo_stop(&echo);
 }
@@ -255,15 +263,21 @@ static void runtime_test_tun_tcp_routing(void) {
     ch_config *config = NULL;
     ch_error error;
     CH_TEST_ASSERT(ch_config_parse(document, NULL, &config, &error) == CH_OK);
+    ch_traffic_store *traffic = ch_traffic_store_create(32U, &error);
+    ch_temporary_rules *temporary = ch_temporary_rules_create(8U, &error);
+    CH_TEST_ASSERT(traffic != NULL && temporary != NULL);
     ch_runtime_listener_set *set = ch_runtime_listener_set_start(
-        config, "default", &error);
+        config, "default", traffic, temporary, &error);
     CH_TEST_ASSERT(set != NULL);
     char target[96];
     (void)snprintf(target, sizeof(target), "127.0.0.1:%u",
                    (unsigned int)echo.port);
     int descriptor = -1;
+    uint64_t flow_id = 0U;
     CH_TEST_ASSERT(ch_runtime_listener_set_tun_tcp_dial(
-        set, target, "198.18.0.2:40000", "", &descriptor, &error) == CH_OK);
+        set, target, "198.18.0.2:40000", "", &descriptor, &flow_id,
+        &error) == CH_OK);
+    CH_TEST_ASSERT(flow_id != 0U);
     static const char payload[] = "tun-direct-route";
     char echoed[sizeof(payload)];
     CH_TEST_ASSERT(runtime_test_send_all(descriptor, payload,
@@ -272,7 +286,10 @@ static void runtime_test_tun_tcp_routing(void) {
                                                sizeof(echoed)));
     CH_TEST_ASSERT(memcmp(payload, echoed, sizeof(payload)) == 0);
     (void)close(descriptor);
+    ch_traffic_close(traffic, flow_id, "test closed");
     ch_runtime_listener_set_stop(set);
+    ch_temporary_rules_destroy(temporary);
+    ch_traffic_store_destroy(traffic);
     ch_config_free(config);
     runtime_echo_stop(&echo);
 }
@@ -297,15 +314,21 @@ static void runtime_test_tun_udp_routing(void) {
     ch_config *config = NULL;
     ch_error error;
     CH_TEST_ASSERT(ch_config_parse(document, NULL, &config, &error) == CH_OK);
+    ch_traffic_store *traffic = ch_traffic_store_create(32U, &error);
+    ch_temporary_rules *temporary = ch_temporary_rules_create(8U, &error);
+    CH_TEST_ASSERT(traffic != NULL && temporary != NULL);
     ch_runtime_listener_set *set = ch_runtime_listener_set_start(
-        config, "default", &error);
+        config, "default", traffic, temporary, &error);
     CH_TEST_ASSERT(set != NULL);
     char target[96];
     (void)snprintf(target, sizeof(target), "127.0.0.1:%u",
                    (unsigned int)echo.port);
     void *opaque = NULL;
+    uint64_t flow_id = 0U;
     CH_TEST_ASSERT(ch_runtime_listener_set_tun_udp_dial(
-        set, target, "198.18.0.2:42000", "", &opaque, &error) == CH_OK);
+        set, target, "198.18.0.2:42000", "", &opaque, &flow_id,
+        &error) == CH_OK);
+    CH_TEST_ASSERT(flow_id != 0U);
     ch_packet_connection *connection = opaque;
     static const uint8_t payload[] = "tun-direct-udp-route";
     CH_TEST_ASSERT(ch_packet_connection_send(
@@ -321,7 +344,10 @@ static void runtime_test_tun_udp_routing(void) {
     CH_TEST_ASSERT(source != NULL);
     free(source);
     ch_packet_connection_close(connection);
+    ch_traffic_close(traffic, flow_id, "test closed");
     ch_runtime_listener_set_stop(set);
+    ch_temporary_rules_destroy(temporary);
+    ch_traffic_store_destroy(traffic);
     ch_config_free(config);
     runtime_udp_echo_stop(&echo);
     CH_TEST_ASSERT(echo.success == 1);
@@ -442,6 +468,53 @@ void ch_test_runtime_listener(void) {
     (void)close(control);
     runtime_udp_echo_stop(&udp_echo);
     CH_TEST_ASSERT(udp_echo.success == 1);
+
+    char *traffic_json = NULL;
+    CH_TEST_ASSERT(ch_runtime_query(
+        runtime, "traffic_filter", "{\"limit\":200}", &traffic_json,
+        &error) == CH_OK);
+    ch_json_value *traffic = ch_json_parse(
+        traffic_json, strlen(traffic_json), &error);
+    CH_TEST_ASSERT(traffic != NULL);
+    const ch_json_value *connections = ch_json_object_get(
+        traffic, "connections");
+    CH_TEST_ASSERT(ch_json_array_size(connections) >= 2U);
+    const ch_json_value *summary = ch_json_object_get(traffic, "summary");
+    CH_TEST_ASSERT(ch_json_number_value(
+        ch_json_object_get(summary, "rx_total"), 0.0) > 0.0);
+    CH_TEST_ASSERT(ch_json_number_value(
+        ch_json_object_get(summary, "tx_total"), 0.0) > 0.0);
+    const char *conn_id = ch_json_string_value(ch_json_object_get(
+        ch_json_array_get(connections, 0U), "conn_id"));
+    CH_TEST_ASSERT(conn_id != NULL && conn_id[0] != '\0');
+    char temporary_request[512];
+    (void)snprintf(
+        temporary_request, sizeof(temporary_request),
+        "{\"conn_id\":\"%s\",\"profile\":\"local\","
+        "\"name\":\"runtime-temporary\",\"action\":\"direct\","
+        "\"scope\":\"auto\",\"ttl_seconds\":60}", conn_id);
+    ch_json_value_destroy(traffic);
+    ch_string_free(traffic_json);
+    char *temporary_json = NULL;
+    CH_TEST_ASSERT(ch_runtime_mutate(
+        runtime, "create_temporary_rule_from_connection",
+        temporary_request, &temporary_json, &error) == CH_OK);
+    ch_json_value *temporary = ch_json_parse(
+        temporary_json, strlen(temporary_json), &error);
+    CH_TEST_ASSERT(temporary != NULL);
+    const char *temporary_id = ch_json_string_value(ch_json_object_get(
+        ch_json_object_get(temporary, "temporary_rule"), "id"));
+    CH_TEST_ASSERT(temporary_id != NULL && temporary_id[0] != '\0');
+    char remove_request[256];
+    (void)snprintf(remove_request, sizeof(remove_request),
+                   "{\"id\":\"%s\"}", temporary_id);
+    ch_json_value_destroy(temporary);
+    ch_string_free(temporary_json);
+    char *removed_json = NULL;
+    CH_TEST_ASSERT(ch_runtime_mutate(
+        runtime, "remove_temporary_rule", remove_request, &removed_json,
+        &error) == CH_OK);
+    ch_string_free(removed_json);
     free(listener_address_copy);
     CH_TEST_ASSERT(ch_runtime_stop(runtime, &error) == CH_OK);
 

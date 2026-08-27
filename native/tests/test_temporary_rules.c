@@ -1,6 +1,7 @@
 #include "test.h"
 
 #include <stdlib.h>
+#include <stdio.h>
 #include <string.h>
 
 #include "clambhook/config.h"
@@ -45,6 +46,14 @@ void ch_test_temporary_rules(void) {
     CH_TEST_ASSERT(json != NULL);
     CH_TEST_ASSERT(ch_json_array_size(ch_json_object_get(
         json, "temporary_rules")) == 1U);
+    const ch_json_value *temporary_rule = ch_json_object_get(
+        json, "temporary_rule");
+    const char *temporary_id = ch_json_string_value(
+        ch_json_object_get(temporary_rule, "id"));
+    CH_TEST_ASSERT(temporary_id != NULL && temporary_id[0] != '\0');
+    char *temporary_id_copy = malloc(strlen(temporary_id) + 1U);
+    CH_TEST_ASSERT(temporary_id_copy != NULL);
+    strcpy(temporary_id_copy, temporary_id);
     ch_json_value_destroy(json);
     free(response);
 
@@ -75,6 +84,26 @@ void ch_test_temporary_rules(void) {
     CH_TEST_ASSERT(json != NULL && ch_json_array_size(json) == 1U);
     ch_json_value_destroy(json);
     free(snapshot);
+
+    size_t remove_capacity = strlen(temporary_id_copy) + 16U;
+    char *remove_request = malloc(remove_capacity);
+    CH_TEST_ASSERT(remove_request != NULL);
+    (void)snprintf(remove_request, remove_capacity, "{\"id\":\"%s\"}",
+                   temporary_id_copy);
+    char *removed = ch_temporary_rules_remove_json(
+        rules, remove_request, &error);
+    CH_TEST_ASSERT(removed != NULL);
+    json = ch_json_parse(removed, strlen(removed), &error);
+    CH_TEST_ASSERT(json != NULL);
+    CH_TEST_ASSERT(ch_json_array_size(ch_json_object_get(
+        json, "temporary_rules")) == 0U);
+    ch_json_value_destroy(json);
+    free(removed);
+    CH_TEST_ASSERT(ch_temporary_rules_remove_json(
+        rules, remove_request, &error) == NULL);
+    CH_TEST_ASSERT(error.code == CH_ERROR_NOT_FOUND);
+    free(remove_request);
+    free(temporary_id_copy);
 
     ch_temporary_rules_destroy(rules);
     ch_traffic_store_destroy(traffic);

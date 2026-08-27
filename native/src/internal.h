@@ -3,6 +3,7 @@
 
 #include <stdarg.h>
 #include <stddef.h>
+#include <stdint.h>
 
 #include "clambhook/dns.h"
 #include "clambhook/error.h"
@@ -34,9 +35,13 @@ char *ch_json_take(ch_json_buffer *buffer);
 struct ch_runtime_listener_set;
 typedef struct ch_runtime_listener_set ch_runtime_listener_set;
 struct ch_config;
+struct ch_traffic_store;
+struct ch_temporary_rules;
 ch_runtime_listener_set *ch_runtime_listener_set_start(
     const struct ch_config *config,
     const char *profile_name,
+    struct ch_traffic_store *traffic,
+    struct ch_temporary_rules *temporary_rules,
     ch_error *error
 );
 void ch_runtime_listener_set_stop(ch_runtime_listener_set *set);
@@ -64,6 +69,7 @@ ch_status ch_runtime_listener_set_tun_tcp_dial(
     const char *source,
     const char *domain_hint,
     int *out_descriptor,
+    uint64_t *out_flow_id,
     ch_error *error
 );
 ch_status ch_runtime_listener_set_tun_udp_dial(
@@ -72,6 +78,7 @@ ch_status ch_runtime_listener_set_tun_udp_dial(
     const char *source,
     const char *domain_hint,
     void **out_connection,
+    uint64_t *out_flow_id,
     ch_error *error
 );
 

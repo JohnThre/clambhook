@@ -14,6 +14,8 @@
 #include "clambhook/ip_stack.h"
 #include "clambhook/netwatch.h"
 #include "clambhook/protocol.h"
+#include "clambhook/temporary_rules.h"
+#include "clambhook/traffic.h"
 #include "internal.h"
 
 #define CH_RUNTIME_MAX_CONFIG_TRANSFER_BYTES (4U * 1024U * 1024U)
@@ -63,6 +65,8 @@ struct ch_runtime {
     ch_dns_proxy *dns;
     ch_ip_stack *ip_stack;
     ch_netwatch *network_watcher;
+    ch_traffic_store *traffic;
+    ch_temporary_rules *temporary_rules;
     ch_network_info network_info;
     ch_config *config;
     char *config_path;
@@ -266,6 +270,7 @@ static void ch_runtime_stop_listeners(ch_runtime *runtime) {
     runtime->dns = NULL;
     ch_runtime_listener_set_stop(runtime->listeners);
     runtime->listeners = NULL;
+    ch_traffic_close_all(runtime->traffic, "runtime stopped");
 }
 
 static void ch_runtime_write_packet(const uint8_t *packet, size_t length,
@@ -283,7 +288,7 @@ static ch_status ch_runtime_tun_tcp_dial(
     *out_flow_id = 0U;
     return ch_runtime_listener_set_tun_tcp_dial(
         runtime->listeners, target, source, domain_hint, out_descriptor,
-        error);
+        out_flow_id, error);
 }
 
 static ch_status ch_runtime_tun_udp_dial(
@@ -294,7 +299,7 @@ static ch_status ch_runtime_tun_udp_dial(
     *out_flow_id = 0U;
     return ch_runtime_listener_set_tun_udp_dial(
         runtime->listeners, target, source, domain_hint, out_connection,
-        error);
+        out_flow_id, error);
 }
 
 static ch_status ch_runtime_tun_udp_send(
@@ -314,6 +319,16 @@ static ch_status ch_runtime_tun_udp_receive(
 
 static void ch_runtime_tun_udp_close(void *connection) {
     ch_packet_connection_close(connection);
+}
+
+static void ch_runtime_tun_flow_bytes(uint64_t flow_id, uint64_t rx_delta,
+                                      uint64_t tx_delta, void *context) {
+    ch_traffic_bytes(context, flow_id, rx_delta, tx_delta);
+}
+
+static void ch_runtime_tun_flow_close(uint64_t flow_id, const char *reason,
+                                      void *context) {
+    ch_traffic_close(context, flow_id, reason);
 }
 
 static ch_status ch_runtime_tun_dns_exchange(
@@ -558,7 +573,8 @@ static bool ch_runtime_build_services(
     *out_ip_stack = NULL;
     ch_error listener_error;
     ch_runtime_listener_set *listeners = ch_runtime_listener_set_start(
-        config, profile_name, &listener_error
+        config, profile_name, runtime->traffic, runtime->temporary_rules,
+        &listener_error
     );
     if (listeners == NULL) {
         command->status = listener_error.code;
@@ -607,6 +623,9 @@ static bool ch_runtime_build_services(
         tun_config.options.udp_sender = ch_runtime_tun_udp_send;
         tun_config.options.udp_receiver = ch_runtime_tun_udp_receive;
         tun_config.options.udp_closer = ch_runtime_tun_udp_close;
+        tun_config.options.flow_bytes = ch_runtime_tun_flow_bytes;
+        tun_config.options.flow_close = ch_runtime_tun_flow_close;
+        tun_config.options.flow_observer_context = runtime->traffic;
         if (dns != NULL) {
             tun_config.options.dns_exchange = ch_runtime_tun_dns_exchange;
             tun_config.options.dns_exchange_context = dns;
@@ -1210,6 +1229,32 @@ static void ch_command_process(ch_runtime *runtime, ch_command *command) {
                 command->response = ch_runtime_status_json(runtime);
             } else if (strcmp(command->operation, "profiles") == 0) {
                 command->response = ch_runtime_profiles_json(runtime);
+            } else if (strcmp(command->operation, "traffic") == 0 ||
+                       strcmp(command->operation, "traffic_filter") == 0) {
+                char *temporary = ch_temporary_rules_snapshot_json(
+                    runtime->temporary_rules, runtime->active_profile,
+                    &command->error);
+                if (temporary == NULL) {
+                    command->status = command->error.code;
+                    break;
+                }
+                command->response = ch_traffic_snapshot_json(
+                    runtime->traffic, runtime->config,
+                    runtime->active_profile, command->payload, temporary,
+                    &command->error);
+                free(temporary);
+            } else if (strcmp(command->operation,
+                              "rule_from_connection") == 0) {
+                command->response = ch_traffic_rule_request_json(
+                    runtime->traffic, runtime->config,
+                    runtime->active_profile, command->payload,
+                    &command->error);
+            } else if (strcmp(command->operation,
+                              "cleanup_rule_request") == 0) {
+                command->response = ch_traffic_cleanup_request_json(
+                    runtime->traffic, runtime->config,
+                    runtime->active_profile, command->payload,
+                    &command->error);
             } else if (strcmp(command->operation, "servers") == 0 ||
                        strcmp(command->operation, "rules") == 0 ||
                        strcmp(command->operation, "policy_groups") == 0 ||
@@ -1335,6 +1380,56 @@ static void ch_command_process(ch_runtime *runtime, ch_command *command) {
                                               command)) {
                     break;
                 }
+            } else if (strcmp(command->operation,
+                              "create_temporary_rule_from_connection") == 0) {
+                command->response =
+                    ch_temporary_rules_create_from_connection_json(
+                        runtime->temporary_rules, runtime->traffic,
+                        runtime->config, runtime->active_profile,
+                        command->payload, &command->error);
+                if (command->response == NULL) {
+                    command->status = command->error.code;
+                    break;
+                }
+            } else if (strcmp(command->operation,
+                              "remove_temporary_rule") == 0) {
+                command->response = ch_temporary_rules_remove_json(
+                    runtime->temporary_rules, command->payload,
+                    &command->error);
+                if (command->response == NULL) {
+                    command->status = command->error.code;
+                    break;
+                }
+            } else if (strcmp(command->operation,
+                              "create_rule_from_connection") == 0) {
+                char *request = ch_traffic_rule_request_json(
+                    runtime->traffic, runtime->config,
+                    runtime->active_profile, command->payload,
+                    &command->error);
+                if (request == NULL) {
+                    command->status = command->error.code;
+                    break;
+                }
+                bool persisted = ch_runtime_persist_config_mutation(
+                    runtime, "create_rule", "rules_persistence", request,
+                    true, command);
+                free(request);
+                if (!persisted) break;
+            } else if (strcmp(command->operation,
+                              "cleanup_rule_from_traffic") == 0) {
+                char *request = ch_traffic_cleanup_request_json(
+                    runtime->traffic, runtime->config,
+                    runtime->active_profile, command->payload,
+                    &command->error);
+                if (request == NULL) {
+                    command->status = command->error.code;
+                    break;
+                }
+                bool persisted = ch_runtime_persist_config_mutation(
+                    runtime, "replace_rules", "rules_persistence", request,
+                    true, command);
+                free(request);
+                if (!persisted) break;
             } else if (strcmp(command->operation, "update_dns") == 0) {
                 if (!ch_runtime_persist_config_mutation(
                         runtime, "update_dns", "dns", command->payload,
@@ -1579,8 +1674,23 @@ ch_runtime *ch_runtime_create(const ch_runtime_options *options, ch_error *error
     if (options != NULL) {
         runtime->options = *options;
     }
+    runtime->traffic = ch_traffic_store_create(512U, error);
+    if (runtime->traffic == NULL) {
+        free(runtime->active_profile);
+        free(runtime);
+        return NULL;
+    }
+    runtime->temporary_rules = ch_temporary_rules_create(128U, error);
+    if (runtime->temporary_rules == NULL) {
+        ch_traffic_store_destroy(runtime->traffic);
+        free(runtime->active_profile);
+        free(runtime);
+        return NULL;
+    }
     atomic_init(&runtime->running, false);
     if (uv_loop_init(&runtime->loop) != 0 || uv_mutex_init(&runtime->queue_mutex) != 0) {
+        ch_temporary_rules_destroy(runtime->temporary_rules);
+        ch_traffic_store_destroy(runtime->traffic);
         free(runtime->active_profile);
         free(runtime);
         ch_error_set(error, CH_ERROR_INTERNAL, "initialize runtime loop");
@@ -1590,6 +1700,8 @@ ch_runtime *ch_runtime_create(const ch_runtime_options *options, ch_error *error
                       ch_runtime_drain_commands) != 0) {
         uv_mutex_destroy(&runtime->queue_mutex);
         (void)uv_loop_close(&runtime->loop);
+        ch_temporary_rules_destroy(runtime->temporary_rules);
+        ch_traffic_store_destroy(runtime->traffic);
         free(runtime->active_profile);
         free(runtime);
         ch_error_set(error, CH_ERROR_INTERNAL, "initialize runtime command queue");
@@ -1601,6 +1713,8 @@ ch_runtime *ch_runtime_create(const ch_runtime_options *options, ch_error *error
         (void)uv_run(&runtime->loop, UV_RUN_DEFAULT);
         uv_mutex_destroy(&runtime->queue_mutex);
         (void)uv_loop_close(&runtime->loop);
+        ch_temporary_rules_destroy(runtime->temporary_rules);
+        ch_traffic_store_destroy(runtime->traffic);
         free(runtime->active_profile);
         free(runtime);
         ch_error_set(error, CH_ERROR_INTERNAL,
@@ -1615,6 +1729,8 @@ ch_runtime *ch_runtime_create(const ch_runtime_options *options, ch_error *error
         (void)uv_run(&runtime->loop, UV_RUN_DEFAULT);
         uv_mutex_destroy(&runtime->queue_mutex);
         (void)uv_loop_close(&runtime->loop);
+        ch_temporary_rules_destroy(runtime->temporary_rules);
+        ch_traffic_store_destroy(runtime->traffic);
         free(runtime->active_profile);
         free(runtime);
         ch_error_set(error, CH_ERROR_INTERNAL,
@@ -1629,6 +1745,8 @@ ch_runtime *ch_runtime_create(const ch_runtime_options *options, ch_error *error
         (void)uv_run(&runtime->loop, UV_RUN_DEFAULT);
         uv_mutex_destroy(&runtime->queue_mutex);
         (void)uv_loop_close(&runtime->loop);
+        ch_temporary_rules_destroy(runtime->temporary_rules);
+        ch_traffic_store_destroy(runtime->traffic);
         free(runtime->active_profile);
         free(runtime);
         ch_error_set(error, CH_ERROR_INTERNAL, "start runtime thread");
@@ -1649,6 +1767,8 @@ void ch_runtime_destroy(ch_runtime *runtime) {
     free(runtime->config_path);
     ch_config_free(runtime->config);
     free(runtime->active_profile);
+    ch_temporary_rules_destroy(runtime->temporary_rules);
+    ch_traffic_store_destroy(runtime->traffic);
     free(runtime);
 }
 

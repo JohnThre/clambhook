@@ -28,6 +28,11 @@ char *ch_temporary_rules_create_from_connection_json(
     ch_error *error
 );
 
+/* Removes one live rule by JSON {"id":"..."}. */
+char *ch_temporary_rules_remove_json(ch_temporary_rules *rules,
+                                     const char *request_json,
+                                     ch_error *error);
+
 /* Newest matching rule wins. The caller clears a successful decision. */
 ch_status ch_temporary_rules_decide(
     ch_temporary_rules *rules,

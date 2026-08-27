@@ -25,8 +25,23 @@ typedef enum ch_proxy_route_action {
 
 typedef struct ch_proxy_route {
     ch_proxy_route_action action;
+    uint64_t flow_id;
     char session_key[CH_PROXY_ROUTE_SESSION_KEY_SIZE];
 } ch_proxy_route;
+
+/* Metadata-only flow callbacks. Payload contents are never exposed. */
+typedef void (*ch_proxy_flow_bytes_callback)(
+    uint64_t flow_id,
+    uint64_t rx_delta,
+    uint64_t tx_delta,
+    void *context
+);
+
+typedef void (*ch_proxy_flow_close_callback)(
+    uint64_t flow_id,
+    const char *reason,
+    void *context
+);
 
 /*
  * On CH_OK + CONNECT, callback transfers one connected stream descriptor to
@@ -66,6 +81,9 @@ typedef struct ch_proxy_listener_options {
     ch_proxy_dial_callback dial;
     ch_proxy_packet_dial_callback packet_dial;
     void *dial_context;
+    ch_proxy_flow_bytes_callback flow_bytes;
+    ch_proxy_flow_close_callback flow_close;
+    void *flow_context;
 } ch_proxy_listener_options;
 
 typedef struct ch_proxy_listener ch_proxy_listener;

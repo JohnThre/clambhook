@@ -12,21 +12,28 @@
 #include "clambhook/procattr.h"
 #include "clambhook/protocol.h"
 #include "clambhook/rules.h"
+#include "clambhook/temporary_rules.h"
+#include "clambhook/traffic.h"
 #include "cnet.h"
 
 #define CH_RUNTIME_LISTENER_LIMIT 2U
 #define CH_RUNTIME_DEFAULT_MAX_CONNECTIONS 512U
 
 typedef struct ch_runtime_listener_entry {
+    ch_runtime_listener_set *owner;
     const ch_config *config;
     const ch_config_table *profile;
     char *profile_name;
     char *default_chain;
+    char *listener_protocol;
+    char *listener_address;
     ch_rule_engine *rules;
     ch_proxy_listener *listener;
 } ch_runtime_listener_entry;
 
 struct ch_runtime_listener_set {
+    ch_traffic_store *traffic;
+    ch_temporary_rules *temporary_rules;
     ch_runtime_listener_entry entries[CH_RUNTIME_LISTENER_LIMIT];
     size_t count;
     ch_runtime_listener_entry dns_entry;
@@ -171,20 +178,61 @@ static ch_status runtime_listener_decide(
     const char *source,
     ch_rule_decision *decision,
     ch_error *error) {
-    ch_process_info process = {0};
-    int attributed = ch_rule_engine_needs_process(entry->rules) &&
-        ch_procattr_lookup(network, source, &process);
     ch_rule_match_context match = {
         .network = network,
         .target = target,
         .source = source,
-        .process_name = attributed ? process.name : "",
-        .process_path = attributed ? process.path : ""
+        .process_name = "",
+        .process_path = ""
     };
-    ch_status status = ch_rule_engine_decide(entry->rules, &match, decision,
-                                             error);
+    bool temporary_match = false;
+    ch_status status = ch_temporary_rules_decide(
+        entry->owner->temporary_rules, entry->profile_name, &match, decision,
+        &temporary_match, error);
+    if (status != CH_OK || temporary_match) return status;
+
+    ch_process_info process = {0};
+    int attributed = ch_rule_engine_needs_process(entry->rules) &&
+        ch_procattr_lookup(network, source, &process);
+    match.process_name = attributed ? process.name : "";
+    match.process_path = attributed ? process.path : "";
+    status = ch_rule_engine_decide(entry->rules, &match, decision, error);
     ch_process_info_clear(&process);
     return status;
+}
+
+static uint64_t runtime_listener_open_traffic(
+    ch_runtime_listener_entry *entry, const ch_rule_decision *decision,
+    const char *network, const char *target, const char *source,
+    const char *chain_name, ch_error *error) {
+    ch_traffic_open_info info = {
+        .profile = entry->profile_name,
+        .listener_protocol = entry->listener_protocol,
+        .listener_address = entry->listener_address,
+        .client_address = source,
+        .chain_name = chain_name,
+        .group_name = decision->group_name,
+        .rule_name = decision->rule_name,
+        .rule_action = decision->action,
+        .is_default = decision->is_default,
+        .decision_ns = decision->elapsed_ns,
+        .target = target,
+        .target_host = decision->host,
+        .target_port = decision->port,
+        .network = network,
+        .source = source
+    };
+    return ch_traffic_open(entry->owner->traffic, &info, error);
+}
+
+static void runtime_listener_flow_bytes(uint64_t flow_id, uint64_t rx_delta,
+                                        uint64_t tx_delta, void *context) {
+    ch_traffic_bytes(context, flow_id, rx_delta, tx_delta);
+}
+
+static void runtime_listener_flow_close(uint64_t flow_id, const char *reason,
+                                        void *context) {
+    ch_traffic_close(context, flow_id, reason);
 }
 
 static ch_status runtime_listener_dial_targets(
@@ -197,25 +245,46 @@ static ch_status runtime_listener_dial_targets(
         entry, network, route_target, source, &decision, error);
     if (status != CH_OK) return status;
     route->action = CH_PROXY_ROUTE_CONNECT;
+    route->flow_id = 0U;
     *out_descriptor = -1;
+    char *selected_group_chain = NULL;
+    const char *chain_name = "";
+    if (strcmp(decision.action, CH_RULE_ACTION_BLOCK) != 0 &&
+        strcmp(decision.action, CH_RULE_ACTION_REJECT) != 0 &&
+        strcmp(decision.action, CH_RULE_ACTION_DIRECT) != 0) {
+        chain_name = runtime_decision_chain(
+            entry, &decision, &selected_group_chain, error);
+        if (chain_name == NULL) {
+            ch_rule_decision_clear(&decision);
+            return error == NULL ? CH_ERROR_INVALID_ARGUMENT : error->code;
+        }
+    }
+    route->flow_id = runtime_listener_open_traffic(
+        entry, &decision, network, dial_target, source, chain_name, error);
+    if (route->flow_id == 0U) {
+        free(selected_group_chain);
+        ch_rule_decision_clear(&decision);
+        return error == NULL ? CH_ERROR_OUT_OF_MEMORY : error->code;
+    }
     if (strcmp(decision.action, CH_RULE_ACTION_BLOCK) == 0) {
         route->action = CH_PROXY_ROUTE_BLOCK;
+        ch_traffic_close(entry->owner->traffic, route->flow_id,
+                         "blocked by rule");
     } else if (strcmp(decision.action, CH_RULE_ACTION_REJECT) == 0) {
         route->action = CH_PROXY_ROUTE_REJECT;
+        ch_traffic_close(entry->owner->traffic, route->flow_id,
+                         "rejected by rule");
     } else if (strcmp(decision.action, CH_RULE_ACTION_DIRECT) == 0) {
         status = ch_protocol_connect_tcp(dial_target, out_descriptor, error);
     } else {
-        char *selected_group_chain = NULL;
-        const char *chain_name = runtime_decision_chain(
-            entry, &decision, &selected_group_chain, error);
-        if (chain_name == NULL) {
-            status = error == NULL ? CH_ERROR_INVALID_ARGUMENT : error->code;
-        } else {
-            status = runtime_dial_chain(entry, chain_name, dial_target,
-                                        out_descriptor, error);
-        }
-        free(selected_group_chain);
+        status = runtime_dial_chain(entry, chain_name, dial_target,
+                                    out_descriptor, error);
     }
+    if (status != CH_OK) {
+        ch_traffic_close(entry->owner->traffic, route->flow_id,
+                         error == NULL ? "dial failed" : error->message);
+    }
+    free(selected_group_chain);
     ch_rule_decision_clear(&decision);
     return status;
 }
@@ -244,41 +313,61 @@ static ch_status runtime_listener_packet_dial_targets(
         entry, network, route_target, source, &decision, error);
     if (status != CH_OK) return status;
     route->action = CH_PROXY_ROUTE_CONNECT;
+    route->flow_id = 0U;
     *out_connection = NULL;
-    if (strcmp(decision.action, CH_RULE_ACTION_BLOCK) == 0) {
-        route->action = CH_PROXY_ROUTE_BLOCK;
-    } else if (strcmp(decision.action, CH_RULE_ACTION_REJECT) == 0) {
-        route->action = CH_PROXY_ROUTE_REJECT;
-    } else if (strcmp(decision.action, CH_RULE_ACTION_DIRECT) == 0) {
-        (void)snprintf(route->session_key, sizeof(route->session_key),
-                       "direct");
-        status = ch_protocol_direct_packet_dial(out_connection, error);
-    } else {
-        char *selected_group_chain = NULL;
-        const char *chain_name = runtime_decision_chain(
+    char *selected_group_chain = NULL;
+    const char *chain_name = "";
+    if (strcmp(decision.action, CH_RULE_ACTION_BLOCK) != 0 &&
+        strcmp(decision.action, CH_RULE_ACTION_REJECT) != 0 &&
+        strcmp(decision.action, CH_RULE_ACTION_DIRECT) != 0) {
+        chain_name = runtime_decision_chain(
             entry, &decision, &selected_group_chain, error);
         if (chain_name == NULL) {
-            status = error == NULL ? CH_ERROR_INVALID_ARGUMENT : error->code;
-        } else {
-            uint8_t digest[28];
-            static const char hex[] = "0123456789abcdef";
-            char chain_hash[57];
-            cnet_sha224((const uint8_t *)chain_name, strlen(chain_name),
-                        digest);
-            for (size_t index = 0U; index < sizeof(digest); ++index) {
-                chain_hash[index * 2U] = hex[digest[index] >> 4U];
-                chain_hash[index * 2U + 1U] =
-                    hex[digest[index] & 0x0fU];
-            }
-            chain_hash[56] = '\0';
-            (void)snprintf(route->session_key, sizeof(route->session_key),
-                           "chain:%s|target:%s", chain_hash, dial_target);
-            status = runtime_dial_packet_chain(entry, chain_name,
-                                               dial_target, out_connection,
-                                               error);
+            ch_rule_decision_clear(&decision);
+            return error == NULL ? CH_ERROR_INVALID_ARGUMENT : error->code;
         }
-        free(selected_group_chain);
     }
+    route->flow_id = runtime_listener_open_traffic(
+        entry, &decision, network, dial_target, source, chain_name, error);
+    if (route->flow_id == 0U) {
+        free(selected_group_chain);
+        ch_rule_decision_clear(&decision);
+        return error == NULL ? CH_ERROR_OUT_OF_MEMORY : error->code;
+    }
+    if (strcmp(decision.action, CH_RULE_ACTION_BLOCK) == 0) {
+        route->action = CH_PROXY_ROUTE_BLOCK;
+        ch_traffic_close(entry->owner->traffic, route->flow_id,
+                         "blocked by rule");
+    } else if (strcmp(decision.action, CH_RULE_ACTION_REJECT) == 0) {
+        route->action = CH_PROXY_ROUTE_REJECT;
+        ch_traffic_close(entry->owner->traffic, route->flow_id,
+                         "rejected by rule");
+    } else if (strcmp(decision.action, CH_RULE_ACTION_DIRECT) == 0) {
+        (void)snprintf(route->session_key, sizeof(route->session_key),
+                       "direct|target:%s", dial_target);
+        status = ch_protocol_direct_packet_dial(out_connection, error);
+    } else {
+        uint8_t digest[28];
+        static const char hex[] = "0123456789abcdef";
+        char chain_hash[57];
+        cnet_sha224((const uint8_t *)chain_name, strlen(chain_name), digest);
+        for (size_t index = 0U; index < sizeof(digest); ++index) {
+            chain_hash[index * 2U] = hex[digest[index] >> 4U];
+            chain_hash[index * 2U + 1U] =
+                hex[digest[index] & 0x0fU];
+        }
+        chain_hash[56] = '\0';
+        (void)snprintf(route->session_key, sizeof(route->session_key),
+                       "chain:%s|target:%s", chain_hash, dial_target);
+        status = runtime_dial_packet_chain(entry, chain_name, dial_target,
+                                           out_connection, error);
+    }
+    if (status != CH_OK) {
+        ch_traffic_close(entry->owner->traffic, route->flow_id,
+                         error == NULL ? "packet dial failed" :
+                                         error->message);
+    }
+    free(selected_group_chain);
     ch_rule_decision_clear(&decision);
     return status;
 }
@@ -298,6 +387,8 @@ static void runtime_listener_entry_clear(ch_runtime_listener_entry *entry) {
     ch_rule_engine_destroy(entry->rules);
     free(entry->profile_name);
     free(entry->default_chain);
+    free(entry->listener_protocol);
+    free(entry->listener_address);
     memset(entry, 0, sizeof(*entry));
 }
 
@@ -339,14 +430,18 @@ static ch_status runtime_dns_entry_initialize(
     const ch_config_table *first = ch_config_array_get_table(chains, 0U);
     if (first == NULL) return CH_OK;
     ch_runtime_listener_entry *entry = &set->dns_entry;
+    entry->owner = set;
     entry->config = config;
     entry->profile = profile;
     entry->profile_name = ch_strdup(profile_name);
+    entry->listener_protocol = ch_strdup("dns");
+    entry->listener_address = ch_strdup("");
     const ch_config_table *listen = ch_config_table_get_table(profile,
                                                                "listen");
     const ch_config_table *tun = ch_config_table_get_table(listen, "tun");
     entry->default_chain = runtime_optional_string(tun, "chain");
-    if (entry->profile_name == NULL || entry->default_chain == NULL) {
+    if (entry->profile_name == NULL || entry->default_chain == NULL ||
+        entry->listener_protocol == NULL || entry->listener_address == NULL) {
         runtime_listener_entry_clear(entry);
         ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
                      "copy DNS route defaults");
@@ -382,10 +477,14 @@ static ch_status runtime_tun_entry_initialize(
     const ch_config_table *tun = ch_config_table_get_table(listen, "tun");
     if (!runtime_optional_bool(tun, "enabled", 0)) return CH_OK;
     ch_runtime_listener_entry *entry = &set->tun_entry;
+    entry->owner = set;
     entry->config = config;
     entry->profile = profile;
     entry->profile_name = ch_strdup(profile_name);
-    if (entry->profile_name == NULL) {
+    entry->listener_protocol = ch_strdup("tun");
+    entry->listener_address = ch_strdup("");
+    if (entry->profile_name == NULL || entry->listener_protocol == NULL ||
+        entry->listener_address == NULL) {
         runtime_listener_entry_clear(entry);
         ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
                      "copy TUN route profile");
@@ -437,10 +536,15 @@ static ch_status runtime_listener_add(ch_runtime_listener_set *set,
         return CH_ERROR_INTERNAL;
     }
     ch_runtime_listener_entry *entry = &set->entries[set->count];
+    entry->owner = set;
     entry->config = config;
     entry->profile = profile;
     entry->profile_name = ch_strdup(profile_name);
+    entry->listener_protocol = ch_strdup(
+        protocol == CH_PROXY_LISTENER_SOCKS5 ? "socks5" : "http");
+    entry->listener_address = ch_strdup(address);
     if (entry->profile_name == NULL ||
+        entry->listener_protocol == NULL || entry->listener_address == NULL ||
         runtime_listener_default_chain(profile, listen, chain_key,
                                        &entry->default_chain, error) != CH_OK) {
         free(address);
@@ -507,7 +611,10 @@ static ch_status runtime_listener_add(ch_runtime_listener_set *set,
         .dial = runtime_listener_dial,
         .packet_dial = protocol == CH_PROXY_LISTENER_SOCKS5 ?
             runtime_listener_packet_dial : NULL,
-        .dial_context = entry
+        .dial_context = entry,
+        .flow_bytes = runtime_listener_flow_bytes,
+        .flow_close = runtime_listener_flow_close,
+        .flow_context = set->traffic
     };
     entry->listener = ch_proxy_listener_start(&options, error);
     free(username);
@@ -517,17 +624,36 @@ static ch_status runtime_listener_add(ch_runtime_listener_set *set,
         runtime_listener_entry_clear(entry);
         return error == NULL ? CH_ERROR_INTERNAL : error->code;
     }
+    free(entry->listener_address);
+    entry->listener_address = ch_strdup(
+        ch_proxy_listener_address(entry->listener));
+    if (entry->listener_address == NULL) {
+        runtime_listener_entry_clear(entry);
+        ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                     "copy bound listener address");
+        return CH_ERROR_OUT_OF_MEMORY;
+    }
     ++set->count;
     return CH_OK;
 }
 
 ch_runtime_listener_set *ch_runtime_listener_set_start(const ch_config *config,
                                                         const char *profile_name,
+                                                        ch_traffic_store *traffic,
+                                                        ch_temporary_rules *temporary_rules,
                                                         ch_error *error) {
     ch_error_clear(error);
     ch_runtime_listener_set *set = calloc(1U, sizeof(*set));
     if (set == NULL) {
         ch_error_set(error, CH_ERROR_OUT_OF_MEMORY, "allocate runtime listeners");
+        return NULL;
+    }
+    set->traffic = traffic;
+    set->temporary_rules = temporary_rules;
+    if (traffic == NULL || temporary_rules == NULL) {
+        free(set);
+        ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
+                     "traffic and temporary-rule stores are required");
         return NULL;
     }
     if (config == NULL) return set;
@@ -708,14 +834,16 @@ ch_status ch_runtime_listener_set_dns_dial(
 
 ch_status ch_runtime_listener_set_tun_tcp_dial(
     ch_runtime_listener_set *set, const char *target, const char *source,
-    const char *domain_hint, int *out_descriptor, ch_error *error) {
+    const char *domain_hint, int *out_descriptor, uint64_t *out_flow_id,
+    ch_error *error) {
     ch_error_clear(error);
     if (set == NULL || !set->tun_ready || target == NULL || source == NULL ||
-        out_descriptor == NULL) {
+        out_descriptor == NULL || out_flow_id == NULL) {
         ch_error_set(error, CH_ERROR_INVALID_STATE,
                      "native TUN route planner is not available");
         return CH_ERROR_INVALID_STATE;
     }
+    *out_flow_id = 0U;
     ch_proxy_route route;
     memset(&route, 0, sizeof(route));
     const char *route_target = domain_hint != NULL && domain_hint[0] != '\0' ?
@@ -729,20 +857,23 @@ ch_status ch_runtime_listener_set_tun_tcp_dial(
                      "TUN route rejected TCP flow");
         return CH_ERROR_INVALID_STATE;
     }
+    *out_flow_id = route.flow_id;
     return CH_OK;
 }
 
 ch_status ch_runtime_listener_set_tun_udp_dial(
     ch_runtime_listener_set *set, const char *target, const char *source,
-    const char *domain_hint, void **out_connection, ch_error *error) {
+    const char *domain_hint, void **out_connection, uint64_t *out_flow_id,
+    ch_error *error) {
     ch_error_clear(error);
     if (set == NULL || !set->tun_ready || target == NULL || source == NULL ||
-        out_connection == NULL) {
+        out_connection == NULL || out_flow_id == NULL) {
         ch_error_set(error, CH_ERROR_INVALID_STATE,
                      "native TUN route planner is not available");
         return CH_ERROR_INVALID_STATE;
     }
     *out_connection = NULL;
+    *out_flow_id = 0U;
     ch_proxy_route route;
     memset(&route, 0, sizeof(route));
     ch_packet_connection *connection = NULL;
@@ -759,5 +890,6 @@ ch_status ch_runtime_listener_set_tun_udp_dial(
         return CH_ERROR_INVALID_STATE;
     }
     *out_connection = connection;
+    *out_flow_id = route.flow_id;
     return CH_OK;
 }
