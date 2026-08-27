@@ -272,6 +272,37 @@ static char *ch_runtime_policy_groups_json(ch_runtime *runtime,
     return snapshot;
 }
 
+static char *ch_runtime_optional_request_string(const char *request_json,
+                                                const char *key,
+                                                ch_error *error) {
+    ch_error_clear(error);
+    ch_json_value *root = ch_json_parse(
+        request_json == NULL ? "{}" : request_json,
+        strlen(request_json == NULL ? "{}" : request_json), error);
+    if (root == NULL) return NULL;
+    if (ch_json_value_type(root) != CH_JSON_OBJECT) {
+        ch_json_value_destroy(root);
+        ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
+                     "request must be a JSON object");
+        return NULL;
+    }
+    const ch_json_value *value = ch_json_object_get(root, key);
+    const char *text = value == NULL ? "" : ch_json_string_value(value);
+    if (text == NULL) {
+        ch_json_value_destroy(root);
+        ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
+                     "%s must be a string", key);
+        return NULL;
+    }
+    char *copy = ch_strdup(text);
+    ch_json_value_destroy(root);
+    if (copy == NULL) {
+        ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                     "copy request %s", key);
+    }
+    return copy;
+}
+
 static int ch_runtime_event_type_matches(const ch_json_value *types,
                                          const char *event_type) {
     if (types == NULL || ch_json_array_size(types) == 0U) return 1;
@@ -1741,6 +1772,30 @@ static void ch_command_process(ch_runtime *runtime, ch_command *command) {
                 ch_runtime_refresh_network_watcher(runtime);
                 ch_runtime_stop_listeners(runtime);
                 command->response = ch_runtime_status_json(runtime);
+            } else if (strcmp(command->operation,
+                              "test_policy_groups") == 0) {
+                if (!atomic_load_explicit(&runtime->running,
+                                          memory_order_acquire) ||
+                    runtime->listeners == NULL) {
+                    ch_command_fail(
+                        command, CH_ERROR_INVALID_STATE,
+                        "policy group tests require a running engine");
+                    break;
+                }
+                char *group = ch_runtime_optional_request_string(
+                    command->payload, "group", &command->error);
+                if (group == NULL) {
+                    command->status = command->error.code;
+                    break;
+                }
+                ch_runtime_trim_in_place(group);
+                command->response = ch_runtime_listener_set_policy_refresh(
+                    runtime->listeners, runtime->active_profile, group,
+                    &command->error);
+                free(group);
+                if (command->response == NULL) {
+                    command->status = command->error.code;
+                }
             } else if (strcmp(command->operation, "set_active_profile") == 0) {
                 char *name = ch_json_request_string(command->payload, "name", &command->error);
                 if (name == NULL) {

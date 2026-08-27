@@ -1120,6 +1120,7 @@ static void ch_api_route(ch_api_client *client) {
     const char *content_disposition = NULL;
     int config_transfer = 0;
     int persistence_required = 0;
+    int conflict_on_invalid_state = 0;
     ch_error error;
     ch_status status;
     char *profile_request = ch_api_profile_request_json(url, &error);
@@ -1163,6 +1164,13 @@ static void ch_api_route(ch_api_client *client) {
                                   &json, &error);
     } else if (strcmp(method, "GET") == 0 && strcmp(path, "/api/v1/policy-groups") == 0) {
         status = ch_runtime_query(client->server->runtime, "policy_groups", profile_request, &json, &error);
+    } else if (strcmp(method, "POST") == 0 &&
+               strcmp(path, "/api/v1/policy-groups/test") == 0) {
+        conflict_on_invalid_state = 1;
+        status = ch_runtime_mutate(
+            client->server->runtime, "test_policy_groups",
+            client->body.data == NULL ? "{}" : client->body.data,
+            &json, &error);
     } else if (strcmp(method, "GET") == 0 && strcmp(path, "/api/v1/rule-sets") == 0) {
         status = ch_runtime_query(client->server->runtime, "rule_sets", profile_request, &json, &error);
     } else if (strcmp(method, "GET") == 0 && strcmp(path, "/api/v1/dns") == 0) {
@@ -1417,6 +1425,7 @@ static void ch_api_route(ch_api_client *client) {
             strcmp(path, "/api/v1/decisions") == 0 ||
             strcmp(path, "/api/v1/events") == 0 ||
             strcmp(path, "/api/v1/policy-groups") == 0 || strcmp(path, "/api/v1/rule-sets") == 0 ||
+            strcmp(path, "/api/v1/policy-groups/test") == 0 ||
             strcmp(path, "/api/v1/dns") == 0 ||
             strcmp(path, "/api/v1/config/settings") == 0 ||
             strcmp(path, "/api/v1/conditioner") == 0 ||
@@ -1451,7 +1460,8 @@ static void ch_api_route(ch_api_client *client) {
     free(profile_request);
     free(path);
     if (status != CH_OK) {
-        if ((config_transfer || persistence_required) &&
+        if ((config_transfer || persistence_required ||
+             conflict_on_invalid_state) &&
             status == CH_ERROR_INVALID_STATE) {
             ch_json_buffer body;
             ch_json_init(&body);

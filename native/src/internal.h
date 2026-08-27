@@ -54,6 +54,12 @@ char *ch_runtime_listener_set_policy_snapshot(
     const char *profile_name,
     ch_error *error
 );
+char *ch_runtime_listener_set_policy_refresh(
+    ch_runtime_listener_set *set,
+    const char *profile_name,
+    const char *group_name,
+    ch_error *error
+);
 ch_status ch_runtime_listener_set_dns_route(
     ch_runtime_listener_set *set,
     const char *network,

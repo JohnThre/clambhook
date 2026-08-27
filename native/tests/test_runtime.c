@@ -156,6 +156,12 @@ void ch_test_runtime(void) {
     CH_TEST_ASSERT(ch_runtime_is_running(runtime));
     CH_TEST_ASSERT(ch_runtime_start(runtime, "", &error) == CH_ERROR_INVALID_STATE);
     CH_TEST_ASSERT_STRING("engine already running", error.message);
+    CH_TEST_ASSERT(ch_runtime_mutate(
+        runtime, "test_policy_groups", "{\"group\":7}",
+        &json, &error) == CH_ERROR_INVALID_ARGUMENT);
+    CH_TEST_ASSERT(ch_runtime_mutate(
+        runtime, "test_policy_groups", "[]", &json,
+        &error) == CH_ERROR_INVALID_ARGUMENT);
 
     uint8_t packet[] = {0x45U, 0x00U};
     CH_TEST_ASSERT(
@@ -170,6 +176,9 @@ void ch_test_runtime(void) {
     );
     ch_string_free(json);
     CH_TEST_ASSERT(!ch_runtime_is_running(runtime));
+    CH_TEST_ASSERT(ch_runtime_mutate(
+        runtime, "test_policy_groups", "{}", &json,
+        &error) == CH_ERROR_INVALID_STATE);
 
     CH_TEST_ASSERT(ch_runtime_query(runtime, "profiles", NULL, &json, &error) == CH_OK);
     CH_TEST_ASSERT_STRING("{\"profiles\":[\"default\"],\"active\":\"default\"}", json);

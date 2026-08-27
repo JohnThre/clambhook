@@ -100,9 +100,12 @@ The additive CMake build currently provides:
   results. A C-owned policy manager runs bounded HTTP/HTTPS HEAD probes through
   every configured chain in parallel, verifies TLS by default, and applies
   `url-test`, `fallback`, stable-hash `load-balance`, sticky `smart`, and manual
-  `select` routing for TCP and eligible UDP members. It follows runtime start,
-  stop, reload, and profile-switch transactions on both the host daemon and
-  Android JNI runtime. Remote rule sets and subscriptions now share a portable
+  `select` routing for TCP and eligible UDP members. The Go-compatible
+  `POST /api/v1/policy-groups/test` endpoint validates its optional group name,
+  refreshes either one group or every group in the running native engine, and
+  returns the updated policy snapshot. The manager follows runtime start, stop,
+  reload, and profile-switch transactions on both the host daemon and Android
+  JNI runtime. Remote rule sets and subscriptions now share a portable
   C17 parser/cache subsystem for
   `auto`, `plain`, `hosts`, and `adblock` input, normalized sorted domain/CIDR
   matchers, the 5 MiB/200,000-entry contract, and version-1 Go cache

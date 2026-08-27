@@ -395,6 +395,15 @@ void ch_test_runtime_listener(void) {
                    NULL);
     CH_TEST_ASSERT(strstr(policy_json, "\"results\":[]") != NULL);
     ch_string_free(policy_json);
+    CH_TEST_ASSERT(ch_runtime_mutate(
+        runtime, "test_policy_groups", "{\"group\":\" manual \"}",
+        &policy_json, &error) == CH_OK);
+    CH_TEST_ASSERT(strstr(policy_json, "\"profile\":\"local\"") != NULL);
+    CH_TEST_ASSERT(strstr(policy_json, "\"updated_ts_ns\":") != NULL);
+    ch_string_free(policy_json);
+    CH_TEST_ASSERT(ch_runtime_mutate(
+        runtime, "test_policy_groups", "{\"group\":\"missing\"}",
+        &policy_json, &error) == CH_ERROR_NOT_FOUND);
     char *status_json = NULL;
     CH_TEST_ASSERT(ch_runtime_query(runtime, "status", "{}", &status_json, &error) == CH_OK);
     ch_json_value *status = ch_json_parse(status_json, strlen(status_json), &error);

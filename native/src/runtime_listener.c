@@ -755,6 +755,20 @@ char *ch_runtime_listener_set_policy_snapshot(
     return ch_policy_manager_snapshot_json(set->policy, profile_name, error);
 }
 
+char *ch_runtime_listener_set_policy_refresh(
+    ch_runtime_listener_set *set, const char *profile_name,
+    const char *group_name, ch_error *error) {
+    if (set == NULL || set->policy == NULL) {
+        ch_error_set(error, CH_ERROR_INVALID_STATE,
+                     "policy group tests require a running engine");
+        return NULL;
+    }
+    if (ch_policy_manager_refresh(set->policy, group_name, error) != CH_OK) {
+        return NULL;
+    }
+    return ch_policy_manager_snapshot_json(set->policy, profile_name, error);
+}
+
 int ch_runtime_listener_set_append_status(ch_runtime_listener_set *set,
                                           ch_json_buffer *json) {
     if (set == NULL || set->count == 0U) return 1;
