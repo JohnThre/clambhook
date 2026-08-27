@@ -141,7 +141,7 @@ make release-macos
 
 1. Build the currently selected daemon runtime for darwin/arm64 and prepare the
    macOS runtime. This remains the legacy daemon until the C parity gate passes.
-2. Developer ID-sign `libsodium.26.dylib` and the daemon.
+2. Developer ID-sign the bundled libsodium/OpenSSL dylibs, daemon, and TUI.
 3. Archive + export the app with automatic provisioning.
 4. Verify signing/layout (`check-macos-signing.sh`).
 5. Notarize the app zip with `notarytool ... --wait`, staple, and validate.

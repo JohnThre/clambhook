@@ -16,10 +16,33 @@ static const ch_json_value *traffic_test_member(const ch_json_value *object,
     return value;
 }
 
+typedef struct traffic_test_events {
+    unsigned int count;
+    uint64_t shard_id;
+    uint64_t lamport;
+    char type[48];
+    char data[512];
+} traffic_test_events;
+
+static void traffic_test_event_writer(uint64_t shard_id, uint64_t lamport,
+                                      const char *event_type,
+                                      const char *data_json,
+                                      void *context) {
+    traffic_test_events *events = context;
+    ++events->count;
+    events->shard_id = shard_id;
+    events->lamport = lamport;
+    (void)snprintf(events->type, sizeof(events->type), "%s", event_type);
+    (void)snprintf(events->data, sizeof(events->data), "%s", data_json);
+}
+
 void ch_test_traffic(void) {
     ch_error error;
     ch_traffic_store *store = ch_traffic_store_create(4U, &error);
     CH_TEST_ASSERT(store != NULL);
+    traffic_test_events events = {0};
+    ch_traffic_store_set_event_writer(store, traffic_test_event_writer,
+                                      &events);
     ch_traffic_open_info direct = {
         .profile = "Work",
         .listener_protocol = "tun",
@@ -34,7 +57,14 @@ void ch_test_traffic(void) {
     };
     uint64_t direct_id = ch_traffic_open(store, &direct, &error);
     CH_TEST_ASSERT(direct_id != 0U);
+    CH_TEST_ASSERT(events.count == 2U);
+    CH_TEST_ASSERT(events.shard_id == direct_id && events.lamport == 2U);
+    CH_TEST_ASSERT_STRING("rule.direct", events.type);
+    CH_TEST_ASSERT(strstr(events.data, "\"conn_id\":\"native-1\"") !=
+                   NULL);
     ch_traffic_bytes(store, direct_id, 12U, 34U);
+    CH_TEST_ASSERT(events.count == 3U);
+    CH_TEST_ASSERT_STRING("connection.bytes", events.type);
 
     ch_traffic_open_info blocked = direct;
     blocked.rule_name = "Deny ads";
@@ -46,6 +76,9 @@ void ch_test_traffic(void) {
     uint64_t blocked_id = ch_traffic_open(store, &blocked, &error);
     CH_TEST_ASSERT(blocked_id != 0U);
     ch_traffic_close(store, blocked_id, "blocked by rule");
+    CH_TEST_ASSERT(events.count == 6U);
+    CH_TEST_ASSERT(events.shard_id == blocked_id && events.lamport == 3U);
+    CH_TEST_ASSERT_STRING("connection.closed", events.type);
 
     char *json = ch_traffic_snapshot_json(
         store, NULL, "Work", "{\"action\":\"block\",\"limit\":10}",
@@ -68,6 +101,21 @@ void ch_test_traffic(void) {
     CH_TEST_ASSERT(ch_json_array_size(blocks) == 1U);
     ch_json_value_destroy(root);
     free(json);
+
+    json = ch_traffic_decisions_json(store, "{\"limit\":1}", &error);
+    CH_TEST_ASSERT(json != NULL);
+    root = ch_json_parse(json, strlen(json), &error);
+    CH_TEST_ASSERT(root != NULL);
+    const ch_json_value *decisions = traffic_test_member(root, "decisions");
+    CH_TEST_ASSERT(ch_json_array_size(decisions) == 1U);
+    CH_TEST_ASSERT_STRING("ads.example", ch_json_string_value(
+        traffic_test_member(ch_json_array_get(decisions, 0U),
+                            "target_host")));
+    ch_json_value_destroy(root);
+    free(json);
+    CH_TEST_ASSERT(ch_traffic_decisions_json(
+        store, "{\"limit\":-1}", &error) == NULL);
+    CH_TEST_ASSERT(error.code == CH_ERROR_INVALID_ARGUMENT);
 
     ch_traffic_connection copy;
     CH_TEST_ASSERT(ch_traffic_connection_copy(

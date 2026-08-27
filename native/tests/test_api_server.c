@@ -61,4 +61,18 @@ void ch_test_api_server(void) {
     CH_TEST_ASSERT(ch_api_traffic_request_json(
         "/api/v1/traffic?limit=-1", &error) == NULL);
     CH_TEST_ASSERT(error.code == CH_ERROR_INVALID_ARGUMENT);
+
+    request = ch_api_events_request_json(
+        "/api/v1/events?types=connection.*,hop.connected&conn_id=a&"
+        "conn_id=b,c&since=1:42,3:7&ignored=yes", &error);
+    CH_TEST_ASSERT(request != NULL);
+    CH_TEST_ASSERT_STRING(
+        "{\"types\":[\"connection.*\",\"hop.connected\"],"
+        "\"conn_ids\":[\"a\",\"b\",\"c\"],\"since\":["
+        "{\"shard_id\":1,\"lamport\":42},"
+        "{\"shard_id\":3,\"lamport\":7}]}", request);
+    free(request);
+    CH_TEST_ASSERT(ch_api_events_request_json(
+        "/api/v1/events?since=bad", &error) == NULL);
+    CH_TEST_ASSERT(error.code == CH_ERROR_INVALID_ARGUMENT);
 }

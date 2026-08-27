@@ -28,6 +28,8 @@ APPCAST_DOWNLOAD_URL="${CLAMBHOOK_APPCAST_DOWNLOAD_URL:-https://store.clamberclo
 DAEMON="$ROOT_DIR/bin/clambhook"
 TUI="$ROOT_DIR/bin/clambhook-tui"
 SODIUM="$ROOT_DIR/bin/libsodium.26.dylib"
+SSL="$ROOT_DIR/bin/libssl.3.dylib"
+CRYPTO="$ROOT_DIR/bin/libcrypto.3.dylib"
 XCODE_AUTH_ARGS=()
 
 if [[ -n "${XCODE_AUTHENTICATION_KEY_PATH:-}" || \
@@ -75,9 +77,13 @@ GOOS=darwin GOARCH=arm64 CGO_ENABLED=1 make -C "$ROOT_DIR" build-tui
 "$ROOT_DIR/scripts/prepare-macos-runtime.sh"
 
 codesign --force --timestamp --options runtime --sign "$IDENTITY" "$SODIUM"
+codesign --force --timestamp --options runtime --sign "$IDENTITY" "$CRYPTO"
+codesign --force --timestamp --options runtime --sign "$IDENTITY" "$SSL"
 codesign --force --timestamp --options runtime --sign "$IDENTITY" "$DAEMON"
 codesign --force --timestamp --options runtime --sign "$IDENTITY" "$TUI"
 codesign --verify --strict --verbose=4 "$SODIUM"
+codesign --verify --strict --verbose=4 "$CRYPTO"
+codesign --verify --strict --verbose=4 "$SSL"
 codesign --verify --strict --verbose=4 "$DAEMON"
 codesign --verify --strict --verbose=4 "$TUI"
 

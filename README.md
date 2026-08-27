@@ -286,7 +286,7 @@ See the [Repository layout](#repository-layout) section below and the
 ## CI/CD and testing
 
 GitHub Actions is the primary CI orchestrator. [`.github/workflows/ci.yml`](.github/workflows/ci.yml)
-runs source/workflow policy checks, native C sanitizers, Apple builds/tests,
+runs source/workflow policy checks, native C sanitizers and macOS portability,
 Android unit/lint/build gates, Compose/JNI instrumentation on API 31/33/36, and
 the only supported GNU/Linux test matrix: Trisquel 12, Rocky Linux 9, and
 AlmaLinux 9. [`.github/workflows/security.yml`](.github/workflows/security.yml)
@@ -310,7 +310,8 @@ scripts/validate-linux-distros.sh            # Trisquel 12 + Rocky Linux 9 + Alm
 
 `scripts/ci-local.sh` runs the corresponding local gate across all platforms in sections
 (`go`, `apple`, `android`, `linux`, `e2e`, `smoke`; default `all`), skipping any
-section whose tooling is absent. Apple builds can also validate locally with
+section whose tooling is absent. The macOS app is built and tested locally, not
+in the ordinary GitHub CI workflow, with
 `make build-apple` and `make test-apple` (`swift test`); Android with
 `make test-android`, `make lint-android`, and `make build-android` (plus an on-device AVD smoke when `CI_LOCAL_ANDROID_AVD=<name>` is set); the Go core
 with `make test`, `make test-race`, and `make lint`. See

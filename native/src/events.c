@@ -28,6 +28,7 @@ static void ch_event_clear(ch_event *event) {
 
 static int ch_event_copy(ch_event *destination, const ch_event *source) {
     memset(destination, 0, sizeof(*destination));
+    destination->sequence = source->sequence;
     destination->shard_id = source->shard_id;
     destination->lamport = source->lamport;
     destination->timestamp_ns = source->timestamp_ns;
@@ -94,13 +95,14 @@ ch_status ch_event_ring_append(ch_event_ring *ring, const ch_event *event, ch_er
         return CH_ERROR_OUT_OF_MEMORY;
     }
     uv_mutex_lock(&ring->mutex);
+    ++ring->total;
+    copy.sequence = ring->total;
     ch_event_clear(&ring->events[ring->head]);
     ring->events[ring->head] = copy;
     ring->head = (ring->head + 1U) % ring->capacity;
     if (ring->size < ring->capacity) {
         ++ring->size;
     }
-    ++ring->total;
     uv_mutex_unlock(&ring->mutex);
     return CH_OK;
 }
@@ -168,6 +170,48 @@ ch_status ch_event_ring_since(
     return CH_OK;
 }
 
+ch_status ch_event_ring_snapshot(ch_event_ring *ring,
+                                 ch_event **events,
+                                 size_t *event_count,
+                                 ch_error *error) {
+    ch_error_clear(error);
+    if (ring == NULL || events == NULL || event_count == NULL) {
+        ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
+                     "ring and output pointers are required");
+        return CH_ERROR_INVALID_ARGUMENT;
+    }
+    *events = NULL;
+    *event_count = 0U;
+    uv_mutex_lock(&ring->mutex);
+    if (ring->size == 0U) {
+        uv_mutex_unlock(&ring->mutex);
+        return CH_OK;
+    }
+    ch_event *snapshot = calloc(ring->size, sizeof(*snapshot));
+    if (snapshot == NULL) {
+        uv_mutex_unlock(&ring->mutex);
+        ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                     "allocate event snapshot");
+        return CH_ERROR_OUT_OF_MEMORY;
+    }
+    size_t oldest = (ring->head + ring->capacity - ring->size) %
+        ring->capacity;
+    for (size_t offset = 0U; offset < ring->size; ++offset) {
+        size_t index = (oldest + offset) % ring->capacity;
+        if (!ch_event_copy(&snapshot[offset], &ring->events[index])) {
+            uv_mutex_unlock(&ring->mutex);
+            ch_events_free(snapshot, offset);
+            ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                         "copy event snapshot");
+            return CH_ERROR_OUT_OF_MEMORY;
+        }
+    }
+    *events = snapshot;
+    *event_count = ring->size;
+    uv_mutex_unlock(&ring->mutex);
+    return CH_OK;
+}
+
 uint64_t ch_event_ring_oldest_lamport(ch_event_ring *ring) {
     if (ring == NULL) {
         return 0U;
@@ -190,6 +234,14 @@ size_t ch_event_ring_length(ch_event_ring *ring) {
     size_t length = ring->size;
     uv_mutex_unlock(&ring->mutex);
     return length;
+}
+
+uint64_t ch_event_ring_total(ch_event_ring *ring) {
+    if (ring == NULL) return 0U;
+    uv_mutex_lock(&ring->mutex);
+    uint64_t total = ring->total;
+    uv_mutex_unlock(&ring->mutex);
+    return total;
 }
 
 void ch_events_free(ch_event *events, size_t event_count) {

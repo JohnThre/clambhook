@@ -11,7 +11,7 @@ publish directly to the private Cloudflare R2 distribution bucket used by
 
 | Workflow | Trigger | Responsibility |
 | --- | --- | --- |
-| `ci.yml` | `master`, pull requests, tags, manual | Source/workflow policy, C sanitizers, Apple build/test, Android unit/lint/build, API 31/33/36 Compose/JNI tests, and only Trisquel 12, Rocky Linux 9, and AlmaLinux 9 for GNU/Linux |
+| `ci.yml` | `master`, pull requests, tags, manual | Source/workflow policy, C sanitizers and macOS portability, Android unit/lint/build, API 31/33/36 Compose/JNI tests, and only Trisquel 12, Rocky Linux 9, and AlmaLinux 9 for GNU/Linux; the macOS app is tested locally |
 | `security.yml` | `master`, pull requests, weekly, manual | CodeQL for C/C++, Go, Kotlin/Java, and Swift; dependency review |
 | `release.yml` | signed `v*` tag or manual | Protected signing, notarization, checksums/manifests, and direct R2 deployment for Android, GNU/Linux, and macOS |
 | `dependabot.yml` | GitHub schedule | GitHub Actions, Go modules, Android/Linux Gradle, and Swift dependency updates |
@@ -79,6 +79,11 @@ Apple:
 - `APPLE_API_KEY_ID`
 - `APPLE_API_ISSUER_ID`
 - `SPARKLE_PRIVATE_KEY_BASE64`
+
+The ordinary CI workflow does not build or test the macOS app. Run
+`make test-apple` and `make build-apple` on the developer Mac before release;
+the protected release workflow builds the signed/notarized artifact only when
+publishing an approved release.
 
 Encode binary/key files as one-line base64 values, for example:
 

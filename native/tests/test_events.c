@@ -25,6 +25,17 @@ void ch_test_events(void) {
         CH_TEST_ASSERT(ch_event_ring_append(ring, &event, &error) == CH_OK);
     }
     CH_TEST_ASSERT(ch_event_ring_length(ring) == 3U);
+
+    ch_event *snapshot = NULL;
+    size_t snapshot_count = 0U;
+    CH_TEST_ASSERT(ch_event_ring_snapshot(
+        ring, &snapshot, &snapshot_count, &error) == CH_OK);
+    CH_TEST_ASSERT(snapshot_count == 3U);
+    CH_TEST_ASSERT(snapshot[0].lamport == 3U);
+    CH_TEST_ASSERT(snapshot[2].lamport == 5U);
+    CH_TEST_ASSERT(snapshot[0].sequence == 3U);
+    CH_TEST_ASSERT(ch_event_ring_total(ring) == 5U);
+    ch_events_free(snapshot, snapshot_count);
     CH_TEST_ASSERT(ch_event_ring_oldest_lamport(ring) == 3U);
 
     ch_event *events = NULL;

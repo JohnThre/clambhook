@@ -239,8 +239,15 @@ class NativeClambhookBridgeTest {
             assertThrows(IllegalStateException::class.java) {
                 runtime.injectPacket(ipv4UdpPacket(9, "blocked".encodeToByteArray()))
             }
-            val traffic = ApiJson.decodeFromString<TrafficSnapshotPayload>(runtime.trafficJson())
-            val blocked = traffic.connections.single()
+            val trafficJson = runtime.trafficJson()
+            val traffic = ApiJson.decodeFromString<TrafficSnapshotPayload>(trafficJson)
+            val blockedConnections = traffic.connections.filter {
+                it.ruleName == "block-discard" &&
+                    it.ruleAction == "block" &&
+                    it.targetPort == "9"
+            }
+            assertEquals(trafficJson, 1, blockedConnections.size)
+            val blocked = blockedConnections.single()
             assertEquals("block-discard", blocked.ruleName)
             assertEquals("block", blocked.ruleAction)
             assertEquals("closed", blocked.state)

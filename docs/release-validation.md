@@ -6,8 +6,8 @@ local mirror for physical-device and desktop QA. Nothing is attached to GitHub
 Releases: workflow reports remain short-lived Actions artifacts and production
 installers use only the approved R2-backed store channel.
 
-`.github/workflows/ci.yml` runs source policy, Apple, Android, and GNU/Linux
-jobs. Android instrumentation covers API 31, 33, and 36; GNU/Linux is limited
+`.github/workflows/ci.yml` runs source policy, native C portability, Android,
+and GNU/Linux jobs. Android instrumentation covers API 31, 33, and 36; GNU/Linux is limited
 to Trisquel 12, Rocky Linux 9, and AlmaLinux 9. `.github/workflows/security.yml`
 runs CodeQL and dependency review. After these gates and owner QA,
 `.github/workflows/release.yml` uses a protected GitHub environment to sign,
@@ -24,7 +24,7 @@ publishes end-user installers. Distribution stays on the approved channels only
 ```mermaid
 flowchart LR
     commit["Commit / release tag"] --> gate{Platform family}
-    gate -->|Apple| apple["GitHub macOS + local QA<br/>native C · Swift · Xcode"]
+    gate -->|Apple| apple["Local macOS QA<br/>Swift · Xcode<br/>GitHub tests native C portability only"]
     gate -->|"GNU/Linux"| linux["GitHub + local containers<br/>Trisquel · Rocky · Alma<br/>C/GTK + package recipes"]
     gate -->|Android| android["GitHub API 31 · 33 · 36<br/>unit · lint · build · Compose/JNI<br/>+ optional physical Pixel QA"]
     apple --> qa["Manual QA + sign + notarize"]
@@ -37,17 +37,19 @@ flowchart LR
 
 | Platform | Where | Build target | Validation | ClambHook status |
 | --- | --- | --- | --- | --- |
-| macOS | GitHub macOS + local | `ClambhookMac` (`ui/apple`) | native C sanitizers + `make build-apple` + `swift test` + notarized installer smoke | Shipping (public) |
+| macOS | Local app QA; GitHub native-C portability | `ClambhookMac` (`ui/apple`) | local `make build-apple` + `swift test` + notarized installer smoke; GitHub native C sanitizers | Shipping (public) |
 | GNU/Linux | GitHub + local containers | Debian/RPM recipes | Trisquel 12, Rocky Linux 9, AlmaLinux 9; native sanitizers + C/GTK + package smoke | Shipping (public) |
 | Android 12+ | GitHub + optional physical device | sideload build | unit/lint/build + Compose/JNI instrumentation on API 31/33/36 + optional Pixel 3a XL QA | Internal developer QA |
 
 ClambHook's Apple surface is currently macOS only. Windows development is
 discontinued with no planned resumption date.
 
-## Apple lane — GitHub macOS plus local QA
+## Apple lane — local app QA
 
-Apple builds validate on the GitHub macOS runner and the developer's Mac. The
-Apple project is generated with XcodeGen; the current release still embeds the
+The macOS app is built and tested only on the developer's Mac; the ordinary
+GitHub CI macOS runner validates the portable native C runtime, not the app.
+The protected release workflow may build, sign, notarize, and publish the app
+after local validation. The Apple project is generated with XcodeGen; the current release still embeds the
 legacy daemon while the C runtime follows the cross-platform parity gates.
 
 ```sh

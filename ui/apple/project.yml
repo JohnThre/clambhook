@@ -42,6 +42,14 @@ targets:
         buildPhase:
           copyFiles:
             destination: frameworks
+      - path: ../../bin/libssl.3.dylib
+        buildPhase:
+          copyFiles:
+            destination: frameworks
+      - path: ../../bin/libcrypto.3.dylib
+        buildPhase:
+          copyFiles:
+            destination: frameworks
     dependencies:
       - package: ClambhookShared
       - package: Sparkle

@@ -14,6 +14,12 @@ extern "C" {
 typedef struct ch_traffic_store ch_traffic_store;
 struct ch_config;
 
+typedef void (*ch_traffic_event_writer)(uint64_t shard_id,
+                                        uint64_t lamport,
+                                        const char *event_type,
+                                        const char *data_json,
+                                        void *context);
+
 typedef struct ch_traffic_open_info {
     const char *profile;
     const char *listener_protocol;
@@ -50,6 +56,9 @@ typedef struct ch_traffic_connection {
 /* A bounded metadata-only store. Payload bytes are counted but never retained. */
 ch_traffic_store *ch_traffic_store_create(size_t history_limit,
                                           ch_error *error);
+void ch_traffic_store_set_event_writer(ch_traffic_store *store,
+                                       ch_traffic_event_writer writer,
+                                       void *context);
 /* Applies root-level [traffic] settings and loads compatible version-1 history. */
 ch_status ch_traffic_store_configure(ch_traffic_store *store,
                                      const struct ch_config *config,
@@ -84,6 +93,11 @@ char *ch_traffic_snapshot_json(ch_traffic_store *store,
                                const char *filter_json,
                                const char *temporary_rules_json,
                                ch_error *error);
+
+/* Encodes the legacy decision-feed contract from routed connections. */
+char *ch_traffic_decisions_json(ch_traffic_store *store,
+                                const char *request_json,
+                                ch_error *error);
 
 /* Builds the validated create_rule mutation request for one stored flow. */
 char *ch_traffic_rule_request_json(ch_traffic_store *store,

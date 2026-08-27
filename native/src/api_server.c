@@ -9,6 +9,7 @@
 #include <strings.h>
 
 #include <llhttp.h>
+#include <openssl/evp.h>
 #include <sodium.h>
 
 #include "clambhook/json.h"
@@ -46,13 +47,29 @@ struct ch_api_client {
     char *authorization;
     char *host;
     char *origin;
+    char *connection;
+    char *upgrade;
+    char *websocket_key;
+    char *websocket_version;
     int responded;
+    int websocket;
+    int websocket_initialized;
+    int websocket_write_pending;
+    uint64_t websocket_next_sequence;
+    uint64_t websocket_ticks;
+    char *websocket_filters;
+    uv_timer_t websocket_timer;
+    int websocket_timer_initialized;
+    int websocket_timer_closed;
+    int stream_closed;
+    int unlinked;
     ch_api_client *next;
 };
 
 typedef struct ch_api_write {
     uv_write_t request;
     char *bytes;
+    int close_after;
 } ch_api_write;
 
 static int ch_ascii_equal(const char *left, const char *right) {
@@ -439,6 +456,177 @@ char *ch_api_traffic_request_json(const char *url, ch_error *error) {
     return result;
 }
 
+static char *ch_api_trim(char *text) {
+    if (text == NULL) return NULL;
+    char *start = text;
+    while (*start != '\0' && isspace((unsigned char)*start)) ++start;
+    char *end = start + strlen(start);
+    while (end > start && isspace((unsigned char)end[-1])) --end;
+    *end = '\0';
+    return start;
+}
+
+static int ch_api_events_append_strings(ch_json_value *array, char *value,
+                                        ch_error *error) {
+    char *cursor = value;
+    while (cursor != NULL) {
+        char *comma = strchr(cursor, ',');
+        if (comma != NULL) *comma = '\0';
+        char *item = ch_api_trim(cursor);
+        if (item[0] != '\0') {
+            ch_json_value *string = ch_json_value_new_string(item);
+            if (string == NULL ||
+                ch_json_array_append(array, string, error) != CH_OK) {
+                ch_json_value_destroy(string);
+                if (error == NULL || error->code == CH_OK) {
+                    ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                                 "append event filter");
+                }
+                return 0;
+            }
+        }
+        cursor = comma == NULL ? NULL : comma + 1U;
+    }
+    return 1;
+}
+
+static int ch_api_events_append_cursors(ch_json_value *array, char *value,
+                                        ch_error *error) {
+    char *cursor = value;
+    while (cursor != NULL) {
+        char *comma = strchr(cursor, ',');
+        if (comma != NULL) *comma = '\0';
+        char *item = ch_api_trim(cursor);
+        if (item[0] != '\0') {
+            char *separator = strchr(item, ':');
+            if (separator == NULL || strchr(separator + 1U, ':') != NULL) {
+                ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
+                             "invalid since value %s: expected shard:lamport",
+                             item);
+                return 0;
+            }
+            *separator = '\0';
+            char *shard_text = ch_api_trim(item);
+            char *lamport_text = ch_api_trim(separator + 1U);
+            char *shard_end = NULL;
+            char *lamport_end = NULL;
+            unsigned long long shard = strtoull(shard_text, &shard_end, 10);
+            unsigned long long lamport = strtoull(
+                lamport_text, &lamport_end, 10);
+            if (shard_text[0] == '\0' || lamport_text[0] == '\0' ||
+                shard_end == shard_text || *shard_end != '\0' ||
+                lamport_end == lamport_text || *lamport_end != '\0' ||
+                shard > (unsigned long long)INT64_MAX ||
+                lamport > (unsigned long long)INT64_MAX) {
+                ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
+                             "invalid since cursor");
+                return 0;
+            }
+            ch_json_value *object = ch_json_value_new_object();
+            ch_json_value *shard_value = ch_json_value_new_int64(
+                (int64_t)shard);
+            ch_json_value *lamport_value = ch_json_value_new_int64(
+                (int64_t)lamport);
+            int cursor_okay = object != NULL && shard_value != NULL &&
+                lamport_value != NULL;
+            if (cursor_okay) {
+                cursor_okay = ch_json_object_set(
+                    object, "shard_id", shard_value, error) == CH_OK;
+                if (cursor_okay) shard_value = NULL;
+            }
+            if (cursor_okay) {
+                cursor_okay = ch_json_object_set(
+                    object, "lamport", lamport_value, error) == CH_OK;
+                if (cursor_okay) lamport_value = NULL;
+            }
+            if (cursor_okay) {
+                cursor_okay = ch_json_array_append(array, object, error) ==
+                    CH_OK;
+                if (cursor_okay) object = NULL;
+            }
+            if (!cursor_okay) {
+                ch_json_value_destroy(shard_value);
+                ch_json_value_destroy(lamport_value);
+                ch_json_value_destroy(object);
+                if (error == NULL || error->code == CH_OK) {
+                    ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                                 "append event cursor");
+                }
+                return 0;
+            }
+        }
+        cursor = comma == NULL ? NULL : comma + 1U;
+    }
+    return 1;
+}
+
+char *ch_api_events_request_json(const char *url, ch_error *error) {
+    ch_error_clear(error);
+    ch_json_value *root = ch_json_value_new_object();
+    ch_json_value *types = ch_json_value_new_array();
+    ch_json_value *conn_ids = ch_json_value_new_array();
+    ch_json_value *since = ch_json_value_new_array();
+    if (root == NULL || types == NULL || conn_ids == NULL || since == NULL) {
+        ch_json_value_destroy(root); ch_json_value_destroy(types);
+        ch_json_value_destroy(conn_ids); ch_json_value_destroy(since);
+        ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                     "allocate event filters");
+        return NULL;
+    }
+    const char *query = url == NULL ? NULL : strchr(url, '?');
+    int okay = 1;
+    if (query != NULL) {
+        ++query;
+        while (okay && *query != '\0' && *query != '#') {
+            const char *end = query + strcspn(query, "&#");
+            const char *separator = memchr(query, '=', (size_t)(end - query));
+            const char *key_end = separator == NULL ? end : separator;
+            char *key = ch_api_query_decode(
+                query, (size_t)(key_end - query), error);
+            const char *value_start = separator == NULL ? end : separator + 1U;
+            char *value = key == NULL ? NULL : ch_api_query_decode(
+                value_start, (size_t)(end - value_start), error);
+            if (key == NULL || value == NULL) {
+                free(key); free(value); okay = 0; break;
+            }
+            if (strcmp(key, "types") == 0) {
+                okay = ch_api_events_append_strings(types, value, error);
+            } else if (strcmp(key, "conn_id") == 0) {
+                okay = ch_api_events_append_strings(conn_ids, value, error);
+            } else if (strcmp(key, "since") == 0) {
+                okay = ch_api_events_append_cursors(since, value, error);
+            }
+            free(key); free(value);
+            query = *end == '&' ? end + 1U : end;
+        }
+    }
+    if (okay && ch_json_array_size(types) > 0U) {
+        okay = ch_json_object_set(root, "types", types, error) == CH_OK;
+        if (okay) types = NULL;
+    }
+    if (okay && ch_json_array_size(conn_ids) > 0U) {
+        okay = ch_json_object_set(root, "conn_ids", conn_ids, error) ==
+            CH_OK;
+        if (okay) conn_ids = NULL;
+    }
+    if (okay && ch_json_array_size(since) > 0U) {
+        okay = ch_json_object_set(root, "since", since, error) == CH_OK;
+        if (okay) since = NULL;
+    }
+    ch_json_buffer encoded;
+    ch_json_init(&encoded);
+    if (okay) okay = ch_json_append_value(&encoded, root);
+    char *result = okay ? ch_json_take(&encoded) : NULL;
+    ch_json_dispose(&encoded);
+    ch_json_value_destroy(root); ch_json_value_destroy(types);
+    ch_json_value_destroy(conn_ids); ch_json_value_destroy(since);
+    if (result == NULL && (error == NULL || error->code == CH_OK)) {
+        ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                     "encode event filters");
+    }
+    return result;
+}
+
 static int ch_token_equal(const char *configured, const char *authorization) {
     if (configured == NULL || configured[0] == '\0') return 1;
     static const char prefix[] = "Bearer ";
@@ -458,19 +646,23 @@ static void ch_api_server_maybe_free(ch_api_server *server) {
 }
 
 static void ch_api_client_unlink(ch_api_client *client) {
+    if (client->unlinked) return;
     ch_api_client **cursor = &client->server->clients;
     while (*cursor != NULL) {
         if (*cursor == client) {
             *cursor = client->next;
             --client->server->client_count;
+            client->unlinked = 1;
             return;
         }
         cursor = &(*cursor)->next;
     }
 }
 
-static void ch_api_client_closed(uv_handle_t *handle) {
-    ch_api_client *client = handle->data;
+static void ch_api_client_maybe_free(ch_api_client *client) {
+    if (!client->stream_closed ||
+        (client->websocket_timer_initialized &&
+         !client->websocket_timer_closed)) return;
     ch_api_server *server = client->server;
     ch_api_client_unlink(client);
     ch_json_dispose(&client->url);
@@ -480,11 +672,34 @@ static void ch_api_client_closed(uv_handle_t *handle) {
     free(client->authorization);
     free(client->host);
     free(client->origin);
+    free(client->connection);
+    free(client->upgrade);
+    free(client->websocket_key);
+    free(client->websocket_version);
+    free(client->websocket_filters);
     free(client);
     ch_api_server_maybe_free(server);
 }
 
+static void ch_api_client_closed(uv_handle_t *handle) {
+    ch_api_client *client = handle->data;
+    client->stream_closed = 1;
+    ch_api_client_maybe_free(client);
+}
+
+static void ch_api_websocket_timer_closed(uv_handle_t *handle) {
+    ch_api_client *client = handle->data;
+    client->websocket_timer_closed = 1;
+    ch_api_client_maybe_free(client);
+}
+
 static void ch_api_close_client(ch_api_client *client) {
+    if (client->websocket_timer_initialized &&
+        !uv_is_closing((uv_handle_t *)&client->websocket_timer)) {
+        (void)uv_timer_stop(&client->websocket_timer);
+        uv_close((uv_handle_t *)&client->websocket_timer,
+                 ch_api_websocket_timer_closed);
+    }
     if (!uv_is_closing((uv_handle_t *)&client->stream)) {
         (void)uv_read_stop((uv_stream_t *)&client->stream);
         uv_close((uv_handle_t *)&client->stream, ch_api_client_closed);
@@ -492,12 +707,13 @@ static void ch_api_close_client(ch_api_client *client) {
 }
 
 static void ch_api_write_finished(uv_write_t *request, int status) {
-    (void)status;
     ch_api_write *write = request->data;
     ch_api_client *client = request->handle->data;
+    int close_after = write->close_after;
     free(write->bytes);
     free(write);
-    ch_api_close_client(client);
+    client->websocket_write_pending = 0;
+    if (status < 0 || close_after) ch_api_close_client(client);
 }
 
 static const char *ch_api_reason(int status) {
@@ -546,6 +762,7 @@ static void ch_api_respond_with_headers(ch_api_client *client, int status,
         ch_api_close_client(client);
         return;
     }
+    write->close_after = 1;
     (void)snprintf(
         write->bytes, (size_t)header_length + 1U,
         "HTTP/1.1 %d %s\r\nContent-Type: %s\r\n%s%s%s"
@@ -588,6 +805,286 @@ static void ch_api_runtime_error(ch_api_client *client, ch_status status, const 
     free(body);
 }
 
+static int ch_api_header_has_token(const char *header, const char *token) {
+    if (header == NULL || token == NULL) return 0;
+    const char *cursor = header;
+    while (*cursor != '\0') {
+        while (*cursor == ',' || isspace((unsigned char)*cursor)) ++cursor;
+        const char *end = cursor;
+        while (*end != '\0' && *end != ',') ++end;
+        const char *trimmed = end;
+        while (trimmed > cursor && isspace((unsigned char)trimmed[-1])) {
+            --trimmed;
+        }
+        size_t length = (size_t)(trimmed - cursor);
+        if (strlen(token) == length && strncasecmp(cursor, token, length) ==
+            0) return 1;
+        cursor = *end == ',' ? end + 1U : end;
+    }
+    return 0;
+}
+
+static int ch_api_websocket_frame(ch_json_buffer *output, uint8_t opcode,
+                                  const char *payload, size_t length) {
+    uint8_t header[10];
+    size_t header_length = 2U;
+    header[0] = (uint8_t)(0x80U | (opcode & 0x0fU));
+    if (length <= 125U) {
+        header[1] = (uint8_t)length;
+    } else if (length <= UINT16_MAX) {
+        header[1] = 126U;
+        header[2] = (uint8_t)(length >> 8U);
+        header[3] = (uint8_t)length;
+        header_length = 4U;
+    } else {
+        header[1] = 127U;
+        uint64_t encoded = (uint64_t)length;
+        for (size_t index = 0U; index < 8U; ++index) {
+            header[2U + index] = (uint8_t)(encoded >>
+                (unsigned int)((7U - index) * 8U));
+        }
+        header_length = 10U;
+    }
+    return ch_json_append_bytes(output, (const char *)header,
+                                header_length) &&
+        (length == 0U || ch_json_append_bytes(output, payload, length));
+}
+
+static int ch_api_websocket_write(ch_api_client *client, char *bytes,
+                                  size_t length) {
+    ch_api_write *write = calloc(1U, sizeof(*write));
+    if (write == NULL) {
+        free(bytes);
+        ch_api_close_client(client);
+        return 0;
+    }
+    write->bytes = bytes;
+    write->close_after = 0;
+    write->request.data = write;
+    uv_buf_t buffer = uv_buf_init(bytes, (unsigned int)length);
+    client->websocket_write_pending = 1;
+    if (uv_write(&write->request, (uv_stream_t *)&client->stream, &buffer,
+                 1U, ch_api_write_finished) != 0) {
+        client->websocket_write_pending = 0;
+        free(write->bytes);
+        free(write);
+        ch_api_close_client(client);
+        return 0;
+    }
+    return 1;
+}
+
+static char *ch_api_websocket_poll_request(ch_api_client *client,
+                                           ch_error *error) {
+    ch_json_value *request = ch_json_parse(
+        client->websocket_filters, strlen(client->websocket_filters), error);
+    if (request == NULL) return NULL;
+    if (client->websocket_initialized) {
+        (void)ch_json_object_remove(request, "since");
+    }
+    ch_json_value *sequence = ch_json_value_new_int64(
+        (int64_t)client->websocket_next_sequence);
+    if (sequence == NULL || ch_json_object_set(
+            request, "after_sequence", sequence, error) != CH_OK) {
+        ch_json_value_destroy(sequence);
+        ch_json_value_destroy(request);
+        return NULL;
+    }
+    ch_json_buffer encoded;
+    ch_json_init(&encoded);
+    int okay = ch_json_append_value(&encoded, request);
+    ch_json_value_destroy(request);
+    char *result = okay ? ch_json_take(&encoded) : NULL;
+    ch_json_dispose(&encoded);
+    if (result == NULL && (error == NULL || error->code == CH_OK)) {
+        ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                     "encode WebSocket event request");
+    }
+    return result;
+}
+
+static void ch_api_websocket_poll(uv_timer_t *timer) {
+    ch_api_client *client = timer->data;
+    if (!client->websocket || client->websocket_write_pending ||
+        uv_is_closing((uv_handle_t *)&client->stream)) return;
+    ++client->websocket_ticks;
+    ch_error error;
+    char *request = ch_api_websocket_poll_request(client, &error);
+    char *response = NULL;
+    ch_status status = request == NULL ? error.code : ch_runtime_query(
+        client->server->runtime, "events", request, &response, &error);
+    free(request);
+    if (status != CH_OK || response == NULL) {
+        free(response);
+        ch_api_close_client(client);
+        return;
+    }
+    ch_json_value *root = ch_json_parse(response, strlen(response), &error);
+    free(response);
+    if (root == NULL || ch_json_value_type(root) != CH_JSON_OBJECT) {
+        ch_json_value_destroy(root);
+        ch_api_close_client(client);
+        return;
+    }
+    int64_t next = -1;
+    const ch_json_value *next_value = ch_json_object_get(
+        root, "next_sequence");
+    const ch_json_value *events = ch_json_object_get(root, "events");
+    if (!ch_json_int64_value(next_value, &next) || next < 0 ||
+        events == NULL || ch_json_value_type(events) != CH_JSON_ARRAY) {
+        ch_json_value_destroy(root);
+        ch_api_close_client(client);
+        return;
+    }
+    client->websocket_next_sequence = (uint64_t)next;
+    client->websocket_initialized = 1;
+    ch_json_buffer frames;
+    ch_json_init(&frames);
+    int okay = 1;
+    if (!ch_json_bool_value(ch_json_object_get(root, "complete"), true)) {
+        static const char gap[] =
+            "{\"shard_id\":0,\"lamport\":0,\"ts_ns\":0,"
+            "\"type\":\"replay.gap\",\"data\":{}}";
+        okay = ch_api_websocket_frame(&frames, 0x1U, gap,
+                                      sizeof(gap) - 1U);
+    }
+    size_t count = ch_json_array_size(events);
+    for (size_t index = 0U; okay && index < count; ++index) {
+        ch_json_buffer event;
+        ch_json_init(&event);
+        okay = ch_json_append_value(&event, ch_json_array_get(events,
+                                                              index));
+        char *event_json = okay ? ch_json_take(&event) : NULL;
+        ch_json_dispose(&event);
+        if (event_json == NULL) {
+            okay = 0;
+        } else {
+            okay = ch_api_websocket_frame(&frames, 0x1U, event_json,
+                                           strlen(event_json));
+        }
+        free(event_json);
+    }
+    if (okay && client->websocket_ticks % 300U == 0U) {
+        okay = ch_api_websocket_frame(&frames, 0x9U, "", 0U);
+    }
+    ch_json_value_destroy(root);
+    size_t frame_length = frames.length;
+    char *frame_bytes = okay && frame_length > 0U ? ch_json_take(&frames) :
+        NULL;
+    ch_json_dispose(&frames);
+    if (!okay) {
+        free(frame_bytes);
+        ch_api_close_client(client);
+    } else if (frame_bytes != NULL) {
+        (void)ch_api_websocket_write(client, frame_bytes, frame_length);
+    }
+}
+
+static int ch_api_websocket_accept(ch_api_client *client,
+                                   const char *filters) {
+    if (!ch_api_header_has_token(client->connection, "upgrade") ||
+        !ch_ascii_equal(client->upgrade, "websocket") ||
+        !ch_ascii_equal(client->websocket_version, "13") ||
+        client->websocket_key == NULL ||
+        strlen(client->websocket_key) > 128U) {
+        ch_api_respond(client, 400, NULL,
+                       "invalid WebSocket upgrade\n");
+        return 0;
+    }
+    unsigned char decoded[32];
+    int decoded_length = EVP_DecodeBlock(
+        decoded, (const unsigned char *)client->websocket_key,
+        (int)strlen(client->websocket_key));
+    size_t key_length = strlen(client->websocket_key);
+    while (key_length > 0U && client->websocket_key[key_length - 1U] == '=') {
+        --decoded_length;
+        --key_length;
+    }
+    if (decoded_length != 16) {
+        ch_api_respond(client, 400, NULL, "invalid WebSocket key\n");
+        return 0;
+    }
+    static const char guid[] = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
+    size_t source_length = strlen(client->websocket_key) + sizeof(guid) - 1U;
+    char *source = malloc(source_length + 1U);
+    unsigned char digest[EVP_MAX_MD_SIZE];
+    size_t digest_length = 0U;
+    if (source == NULL) {
+        ch_api_respond(client, 500, NULL, "internal error\n");
+        return 0;
+    }
+    (void)snprintf(source, source_length + 1U, "%s%s",
+                   client->websocket_key, guid);
+    int digested = EVP_Q_digest(NULL, "SHA1", NULL, source, source_length,
+                                digest, &digest_length);
+    free(source);
+    unsigned char accept[64];
+    int accept_length = digested && digest_length == 20U ?
+        EVP_EncodeBlock(accept, digest, (int)digest_length) : -1;
+    if (accept_length <= 0) {
+        ch_api_respond(client, 500, NULL, "internal error\n");
+        return 0;
+    }
+    accept[accept_length] = '\0';
+    char *baseline_json = NULL;
+    ch_error baseline_error;
+    ch_status baseline_status = ch_runtime_query(
+        client->server->runtime, "events", "{}", &baseline_json,
+        &baseline_error);
+    ch_json_value *baseline = baseline_status == CH_OK ? ch_json_parse(
+        baseline_json, strlen(baseline_json), &baseline_error) : NULL;
+    int64_t baseline_sequence = -1;
+    free(baseline_json);
+    if (baseline == NULL || !ch_json_int64_value(
+            ch_json_object_get(baseline, "next_sequence"),
+            &baseline_sequence) || baseline_sequence < 0) {
+        ch_json_value_destroy(baseline);
+        ch_api_respond(client, 500, NULL, "internal error\n");
+        return 0;
+    }
+    ch_json_value_destroy(baseline);
+    int response_length = snprintf(
+        NULL, 0,
+        "HTTP/1.1 101 Switching Protocols\r\n"
+        "Upgrade: websocket\r\nConnection: Upgrade\r\n"
+        "Sec-WebSocket-Accept: %s\r\nCache-Control: no-store\r\n\r\n",
+        (const char *)accept);
+    char *response = response_length < 0 ? NULL :
+        malloc((size_t)response_length + 1U);
+    char *filter_copy = ch_strdup(filters);
+    if (response == NULL || filter_copy == NULL ||
+        uv_timer_init(client->server->loop, &client->websocket_timer) != 0) {
+        free(response); free(filter_copy);
+        ch_api_respond(client, 500, NULL, "internal error\n");
+        return 0;
+    }
+    client->websocket_timer_initialized = 1;
+    client->websocket_timer.data = client;
+    (void)snprintf(
+        response, (size_t)response_length + 1U,
+        "HTTP/1.1 101 Switching Protocols\r\n"
+        "Upgrade: websocket\r\nConnection: Upgrade\r\n"
+        "Sec-WebSocket-Accept: %s\r\nCache-Control: no-store\r\n\r\n",
+        (const char *)accept);
+    client->responded = 1;
+    client->websocket = 1;
+    client->websocket_next_sequence = (uint64_t)baseline_sequence;
+    client->websocket_filters = filter_copy;
+    (void)uv_read_stop((uv_stream_t *)&client->stream);
+    if (uv_timer_start(&client->websocket_timer, ch_api_websocket_poll,
+                       100U, 100U) != 0) {
+        free(response);
+        ch_api_close_client(client);
+        return 0;
+    }
+    if (!ch_api_websocket_write(client, response,
+                                (size_t)response_length)) {
+        ch_api_close_client(client);
+        return 0;
+    }
+    return 1;
+}
+
 static void ch_api_route(ch_api_client *client) {
     if (!ch_api_host_allowed(client->server, client->host) ||
         !ch_api_origin_allowed(client->server, client->origin)) {
@@ -605,6 +1102,19 @@ static void ch_api_route(ch_api_client *client) {
         ch_api_respond(client, 500, NULL, "internal error\n");
         return;
     }
+    if (strcmp(method, "GET") == 0 &&
+        strcmp(path, "/api/v1/events") == 0) {
+        ch_error event_error;
+        char *filters = ch_api_events_request_json(url, &event_error);
+        if (filters == NULL) {
+            ch_api_runtime_error(client, event_error.code, &event_error);
+        } else {
+            (void)ch_api_websocket_accept(client, filters);
+        }
+        free(filters);
+        free(path);
+        return;
+    }
     char *json = NULL;
     const char *response_type = "application/json";
     const char *content_disposition = NULL;
@@ -619,7 +1129,8 @@ static void ch_api_route(ch_api_client *client) {
         return;
     }
     char *traffic_request = NULL;
-    if (strcmp(path, "/api/v1/traffic") == 0) {
+    if (strcmp(path, "/api/v1/traffic") == 0 ||
+        strcmp(path, "/api/v1/decisions") == 0) {
         traffic_request = ch_api_traffic_request_json(url, &error);
         if (traffic_request == NULL) {
             ch_api_runtime_error(client, error.code, &error);
@@ -641,6 +1152,10 @@ static void ch_api_route(ch_api_client *client) {
         status = ch_runtime_query(
             client->server->runtime, "traffic_filter", traffic_request,
             &json, &error);
+    } else if (strcmp(method, "GET") == 0 &&
+               strcmp(path, "/api/v1/decisions") == 0) {
+        status = ch_runtime_query(client->server->runtime, "decisions",
+                                  traffic_request, &json, &error);
     } else if (strcmp(method, "GET") == 0 &&
                strcmp(path, "/api/v1/rules/temporary") == 0) {
         status = ch_runtime_query(client->server->runtime,
@@ -899,6 +1414,8 @@ static void ch_api_route(ch_api_client *client) {
         int known = strcmp(path, "/api/v1/status") == 0 || strcmp(path, "/api/v1/profiles") == 0 ||
             strcmp(path, "/api/v1/servers") == 0 || strcmp(path, "/api/v1/rules") == 0 ||
             strcmp(path, "/api/v1/traffic") == 0 ||
+            strcmp(path, "/api/v1/decisions") == 0 ||
+            strcmp(path, "/api/v1/events") == 0 ||
             strcmp(path, "/api/v1/policy-groups") == 0 || strcmp(path, "/api/v1/rule-sets") == 0 ||
             strcmp(path, "/api/v1/dns") == 0 ||
             strcmp(path, "/api/v1/config/settings") == 0 ||
@@ -982,6 +1499,10 @@ static int ch_api_on_value_complete(llhttp_t *parser) {
     if (ch_ascii_equal(field, "authorization")) destination = &client->authorization;
     else if (ch_ascii_equal(field, "host")) destination = &client->host;
     else if (ch_ascii_equal(field, "origin")) destination = &client->origin;
+    else if (ch_ascii_equal(field, "connection")) destination = &client->connection;
+    else if (ch_ascii_equal(field, "upgrade")) destination = &client->upgrade;
+    else if (ch_ascii_equal(field, "sec-websocket-key")) destination = &client->websocket_key;
+    else if (ch_ascii_equal(field, "sec-websocket-version")) destination = &client->websocket_version;
     if (destination != NULL) {
         free(*destination);
         *destination = ch_strdup(value);

@@ -78,7 +78,7 @@ jobs:
         run: scripts/validate-linux-distros.sh "${{ matrix.target }}"
 
   apple:
-    name: Apple and native C
+    name: Native C portability - macOS
     needs: policy
     runs-on: macos-15
     timeout-minutes: 75
@@ -96,16 +96,12 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
-      - name: Install native and Apple build dependencies
-        run: brew install cmake ninja pkg-config libuv libsodium llhttp openssl@3 curl xcodegen
+      - name: Install native build dependencies
+        run: brew install cmake ninja pkg-config libuv libsodium llhttp openssl@3 curl
       - name: Export Homebrew pkg-config paths
         run: echo "PKG_CONFIG_PATH=$(brew --prefix openssl@3)/lib/pkgconfig:$(brew --prefix curl)/lib/pkgconfig:${PKG_CONFIG_PATH:-}" >> "$GITHUB_ENV"
       - name: Test native C runtime
         run: make test-native
-      - name: Test Swift package
-        run: make test-apple
-      - name: Build unsigned macOS application
-        run: make build-apple
 
   android:
     name: Android build, unit tests, and lint

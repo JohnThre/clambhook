@@ -27,4 +27,7 @@ char *ch_api_profile_request_json(const char *url, ch_error *error);
 /* Decodes and validates traffic monitor query parameters. */
 char *ch_api_traffic_request_json(const char *url, ch_error *error);
 
+/* Decodes WebSocket event types, connection IDs, and replay cursors. */
+char *ch_api_events_request_json(const char *url, ch_error *error);
+
 #endif

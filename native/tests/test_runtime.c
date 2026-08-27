@@ -175,6 +175,16 @@ void ch_test_runtime(void) {
     CH_TEST_ASSERT_STRING("{\"profiles\":[\"default\"],\"active\":\"default\"}", json);
     ch_string_free(json);
 
+    CH_TEST_ASSERT(ch_runtime_query(
+        runtime, "events", "{}", &json, &error) == CH_OK);
+    CH_TEST_ASSERT_STRING(
+        "{\"events\":[],\"complete\":true,\"next_sequence\":0}",
+        json);
+    ch_string_free(json);
+    CH_TEST_ASSERT(ch_runtime_query(
+        runtime, "events", "{\"after_sequence\":-1}", &json,
+        &error) == CH_ERROR_INVALID_ARGUMENT);
+
     CH_TEST_ASSERT(ch_runtime_mutate(
         runtime, "persist_active_profile", "{\"name\":\" default \"}",
         &json, &error) == CH_OK);

@@ -12,6 +12,8 @@ extern "C" {
 #endif
 
 typedef struct ch_event {
+    /* Process-local insertion order used by live subscribers. */
+    uint64_t sequence;
     uint64_t shard_id;
     uint64_t lamport;
     int64_t timestamp_ns;
@@ -35,8 +37,15 @@ ch_status ch_event_ring_since(
     ch_error *error
 );
 
+/* Returns an owned chronological copy of the ring's retained events. */
+ch_status ch_event_ring_snapshot(ch_event_ring *ring,
+                                 ch_event **events,
+                                 size_t *event_count,
+                                 ch_error *error);
+
 uint64_t ch_event_ring_oldest_lamport(ch_event_ring *ring);
 size_t ch_event_ring_length(ch_event_ring *ring);
+uint64_t ch_event_ring_total(ch_event_ring *ring);
 void ch_events_free(ch_event *events, size_t event_count);
 
 #ifdef __cplusplus

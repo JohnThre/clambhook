@@ -2,17 +2,21 @@
 
 #include <arpa/inet.h>
 #include <ctype.h>
+#include <inttypes.h>
 #include <stdatomic.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
+#include <time.h>
 
 #include <uv.h>
 
 #include "clambhook/config.h"
 #include "clambhook/dns.h"
+#include "clambhook/events.h"
 #include "clambhook/ip_stack.h"
+#include "clambhook/json.h"
 #include "clambhook/netwatch.h"
 #include "clambhook/protocol.h"
 #include "clambhook/prompt.h"
@@ -70,12 +74,36 @@ struct ch_runtime {
     ch_traffic_store *traffic;
     ch_temporary_rules *temporary_rules;
     ch_prompt_manager *prompts;
+    ch_event_ring *events;
     ch_network_info network_info;
     ch_config *config;
     char *config_path;
     char *active_profile;
     ch_runtime_options options;
 };
+
+static int64_t ch_runtime_now_ns(void) {
+    struct timespec now;
+    if (clock_gettime(CLOCK_REALTIME, &now) != 0) return 0;
+    return (int64_t)now.tv_sec * INT64_C(1000000000) +
+        (int64_t)now.tv_nsec;
+}
+
+static void ch_runtime_traffic_event(uint64_t shard_id, uint64_t lamport,
+                                     const char *event_type,
+                                     const char *data_json,
+                                     void *context) {
+    ch_runtime *runtime = context;
+    ch_event event = {
+        .shard_id = shard_id,
+        .lamport = lamport,
+        .timestamp_ns = ch_runtime_now_ns(),
+        .type = (char *)event_type,
+        .data_json = (char *)data_json
+    };
+    ch_error ignored;
+    (void)ch_event_ring_append(runtime->events, &event, &ignored);
+}
 
 static void ch_runtime_log(ch_runtime *runtime, int level, const char *message) {
     if (runtime->options.log_writer != NULL) {
@@ -215,6 +243,191 @@ static char *ch_runtime_profiles_json(ch_runtime *runtime) {
         return NULL;
     }
     return ch_json_take(&json);
+}
+
+static int ch_runtime_event_type_matches(const ch_json_value *types,
+                                         const char *event_type) {
+    if (types == NULL || ch_json_array_size(types) == 0U) return 1;
+    size_t count = ch_json_array_size(types);
+    for (size_t index = 0U; index < count; ++index) {
+        const char *pattern = ch_json_string_value(
+            ch_json_array_get(types, index));
+        if (pattern == NULL) return 0;
+        size_t length = strlen(pattern);
+        if (length > 0U && pattern[length - 1U] == '*') {
+            if (strncmp(event_type, pattern, length - 1U) == 0) return 1;
+        } else if (strcmp(event_type, pattern) == 0) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static int ch_runtime_event_conn_matches(const ch_json_value *conn_ids,
+                                         const char *data_json) {
+    if (conn_ids == NULL || ch_json_array_size(conn_ids) == 0U) return 1;
+    ch_error ignored;
+    ch_json_value *data = ch_json_parse(
+        data_json == NULL ? "{}" : data_json,
+        strlen(data_json == NULL ? "{}" : data_json), &ignored);
+    const char *conn_id = data == NULL ? NULL : ch_json_string_value(
+        ch_json_object_get(data, "conn_id"));
+    int matches = 0;
+    size_t count = ch_json_array_size(conn_ids);
+    for (size_t index = 0U; conn_id != NULL && index < count; ++index) {
+        const char *candidate = ch_json_string_value(
+            ch_json_array_get(conn_ids, index));
+        if (candidate != NULL && strcmp(candidate, conn_id) == 0) {
+            matches = 1;
+            break;
+        }
+    }
+    ch_json_value_destroy(data);
+    return matches;
+}
+
+static int ch_runtime_event_cursor(const ch_json_value *cursors,
+                                   uint64_t shard_id,
+                                   uint64_t *out_lamport) {
+    size_t count = ch_json_array_size(cursors);
+    for (size_t index = 0U; index < count; ++index) {
+        const ch_json_value *cursor = ch_json_array_get(cursors, index);
+        int64_t shard = -1;
+        int64_t lamport = -1;
+        if (cursor == NULL ||
+            !ch_json_int64_value(ch_json_object_get(cursor, "shard_id"),
+                                 &shard) ||
+            !ch_json_int64_value(ch_json_object_get(cursor, "lamport"),
+                                 &lamport) ||
+            shard < 0 || lamport < 0) {
+            continue;
+        }
+        if ((uint64_t)shard == shard_id) {
+            *out_lamport = (uint64_t)lamport;
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static char *ch_runtime_events_json(ch_runtime *runtime,
+                                    const char *request_json,
+                                    ch_error *error) {
+    const char *document = request_json == NULL || request_json[0] == '\0' ?
+        "{}" : request_json;
+    ch_json_value *request = ch_json_parse(document, strlen(document), error);
+    if (request == NULL) return NULL;
+    if (ch_json_value_type(request) != CH_JSON_OBJECT) {
+        ch_json_value_destroy(request);
+        ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
+                     "event request must be a JSON object");
+        return NULL;
+    }
+    const ch_json_value *types = ch_json_object_get(request, "types");
+    const ch_json_value *conn_ids = ch_json_object_get(request, "conn_ids");
+    const ch_json_value *cursors = ch_json_object_get(request, "since");
+    if ((types != NULL && ch_json_value_type(types) != CH_JSON_ARRAY) ||
+        (conn_ids != NULL && ch_json_value_type(conn_ids) != CH_JSON_ARRAY) ||
+        (cursors != NULL && ch_json_value_type(cursors) != CH_JSON_ARRAY)) {
+        ch_json_value_destroy(request);
+        ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
+                     "event filters must be arrays");
+        return NULL;
+    }
+    int64_t after_signed = -1;
+    const ch_json_value *after_value = ch_json_object_get(
+        request, "after_sequence");
+    int has_after = after_value != NULL &&
+        ch_json_int64_value(after_value, &after_signed) && after_signed >= 0;
+    if (after_value != NULL && !has_after) {
+        ch_json_value_destroy(request);
+        ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
+                     "after_sequence must be a non-negative integer");
+        return NULL;
+    }
+    uint64_t after = has_after ? (uint64_t)after_signed : 0U;
+    ch_event *events = NULL;
+    size_t count = 0U;
+    if (ch_event_ring_snapshot(runtime->events, &events, &count, error) !=
+        CH_OK) {
+        ch_json_value_destroy(request);
+        return NULL;
+    }
+    uint64_t next_sequence = ch_event_ring_total(runtime->events);
+    int complete = 1;
+    if (has_after && count > 0U && events[0].sequence > after + 1U) {
+        complete = 0;
+    }
+    size_t cursor_count = ch_json_array_size(cursors);
+    for (size_t cursor_index = 0U; cursor_index < cursor_count;
+         ++cursor_index) {
+        const ch_json_value *cursor = ch_json_array_get(cursors,
+                                                        cursor_index);
+        int64_t shard = -1, lamport = -1;
+        if (cursor == NULL ||
+            !ch_json_int64_value(ch_json_object_get(cursor, "shard_id"),
+                                 &shard) ||
+            !ch_json_int64_value(ch_json_object_get(cursor, "lamport"),
+                                 &lamport) || shard < 0 || lamport < 0) {
+            complete = 0;
+            continue;
+        }
+        uint64_t oldest = UINT64_MAX;
+        for (size_t event_index = 0U; event_index < count; ++event_index) {
+            if (events[event_index].shard_id == (uint64_t)shard &&
+                events[event_index].lamport < oldest) {
+                oldest = events[event_index].lamport;
+            }
+        }
+        if (oldest == UINT64_MAX ||
+            (oldest > 0U && oldest > (uint64_t)lamport + 1U)) {
+            complete = 0;
+        }
+    }
+    ch_json_buffer json;
+    ch_json_init(&json);
+    int okay = ch_json_append(&json, "{\"events\":[");
+    size_t emitted = 0U;
+    for (size_t index = 0U; okay && index < count; ++index) {
+        const ch_event *event = &events[index];
+        uint64_t cursor = 0U;
+        int has_cursor = ch_runtime_event_cursor(cursors, event->shard_id,
+                                                 &cursor);
+        int eligible = (has_after && event->sequence > after) ||
+            (has_cursor && event->lamport > cursor);
+        if (!eligible ||
+            !ch_runtime_event_type_matches(types, event->type) ||
+            !ch_runtime_event_conn_matches(conn_ids, event->data_json)) {
+            continue;
+        }
+        if (emitted > 0U) okay = ch_json_append(&json, ",");
+        if (okay) {
+            okay = ch_json_append_format(
+                &json,
+                "{\"shard_id\":%" PRIu64 ",\"lamport\":%" PRIu64
+                ",\"ts_ns\":%" PRId64 ",\"type\":",
+                event->shard_id, event->lamport, event->timestamp_ns) &&
+                ch_json_append_string(&json, event->type) &&
+                ch_json_append(&json, ",\"data\":") &&
+                ch_json_append(&json, event->data_json) &&
+                ch_json_append(&json, "}");
+        }
+        ++emitted;
+    }
+    if (okay) {
+        okay = ch_json_append_format(
+            &json, "],\"complete\":%s,\"next_sequence\":%" PRIu64 "}",
+            complete ? "true" : "false", next_sequence);
+    }
+    ch_events_free(events, count);
+    ch_json_value_destroy(request);
+    char *result = okay ? ch_json_take(&json) : NULL;
+    ch_json_dispose(&json);
+    if (result == NULL) {
+        ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                     "encode event replay");
+    }
+    return result;
 }
 
 static char *ch_runtime_import_result_json(ch_runtime *runtime,
@@ -1417,6 +1630,12 @@ static void ch_command_process(ch_runtime *runtime, ch_command *command) {
                               "silent_decisions") == 0) {
                 command->response = ch_prompt_manager_silent_json(
                     runtime->prompts, &command->error);
+            } else if (strcmp(command->operation, "decisions") == 0) {
+                command->response = ch_traffic_decisions_json(
+                    runtime->traffic, command->payload, &command->error);
+            } else if (strcmp(command->operation, "events") == 0) {
+                command->response = ch_runtime_events_json(
+                    runtime, command->payload, &command->error);
             } else if (strcmp(command->operation, "servers") == 0 ||
                        strcmp(command->operation, "rules") == 0 ||
                        strcmp(command->operation, "policy_groups") == 0 ||
@@ -1851,8 +2070,18 @@ ch_runtime *ch_runtime_create(const ch_runtime_options *options, ch_error *error
         free(runtime);
         return NULL;
     }
+    runtime->events = ch_event_ring_create(4096U, error);
+    if (runtime->events == NULL) {
+        ch_traffic_store_destroy(runtime->traffic);
+        free(runtime->active_profile);
+        free(runtime);
+        return NULL;
+    }
+    ch_traffic_store_set_event_writer(runtime->traffic,
+                                      ch_runtime_traffic_event, runtime);
     runtime->temporary_rules = ch_temporary_rules_create(128U, error);
     if (runtime->temporary_rules == NULL) {
+        ch_event_ring_destroy(runtime->events);
         ch_traffic_store_destroy(runtime->traffic);
         free(runtime->active_profile);
         free(runtime);
@@ -1861,6 +2090,7 @@ ch_runtime *ch_runtime_create(const ch_runtime_options *options, ch_error *error
     runtime->prompts = ch_prompt_manager_create(error);
     if (runtime->prompts == NULL) {
         ch_temporary_rules_destroy(runtime->temporary_rules);
+        ch_event_ring_destroy(runtime->events);
         ch_traffic_store_destroy(runtime->traffic);
         free(runtime->active_profile);
         free(runtime);
@@ -1870,6 +2100,7 @@ ch_runtime *ch_runtime_create(const ch_runtime_options *options, ch_error *error
     if (uv_loop_init(&runtime->loop) != 0 || uv_mutex_init(&runtime->queue_mutex) != 0) {
         ch_prompt_manager_destroy(runtime->prompts);
         ch_temporary_rules_destroy(runtime->temporary_rules);
+        ch_event_ring_destroy(runtime->events);
         ch_traffic_store_destroy(runtime->traffic);
         free(runtime->active_profile);
         free(runtime);
@@ -1882,6 +2113,7 @@ ch_runtime *ch_runtime_create(const ch_runtime_options *options, ch_error *error
         (void)uv_loop_close(&runtime->loop);
         ch_prompt_manager_destroy(runtime->prompts);
         ch_temporary_rules_destroy(runtime->temporary_rules);
+        ch_event_ring_destroy(runtime->events);
         ch_traffic_store_destroy(runtime->traffic);
         free(runtime->active_profile);
         free(runtime);
@@ -1896,6 +2128,7 @@ ch_runtime *ch_runtime_create(const ch_runtime_options *options, ch_error *error
         (void)uv_loop_close(&runtime->loop);
         ch_prompt_manager_destroy(runtime->prompts);
         ch_temporary_rules_destroy(runtime->temporary_rules);
+        ch_event_ring_destroy(runtime->events);
         ch_traffic_store_destroy(runtime->traffic);
         free(runtime->active_profile);
         free(runtime);
@@ -1913,6 +2146,7 @@ ch_runtime *ch_runtime_create(const ch_runtime_options *options, ch_error *error
         (void)uv_loop_close(&runtime->loop);
         ch_prompt_manager_destroy(runtime->prompts);
         ch_temporary_rules_destroy(runtime->temporary_rules);
+        ch_event_ring_destroy(runtime->events);
         ch_traffic_store_destroy(runtime->traffic);
         free(runtime->active_profile);
         free(runtime);
@@ -1930,6 +2164,7 @@ ch_runtime *ch_runtime_create(const ch_runtime_options *options, ch_error *error
         (void)uv_loop_close(&runtime->loop);
         ch_prompt_manager_destroy(runtime->prompts);
         ch_temporary_rules_destroy(runtime->temporary_rules);
+        ch_event_ring_destroy(runtime->events);
         ch_traffic_store_destroy(runtime->traffic);
         free(runtime->active_profile);
         free(runtime);
@@ -1953,6 +2188,7 @@ void ch_runtime_destroy(ch_runtime *runtime) {
     free(runtime->active_profile);
     ch_prompt_manager_destroy(runtime->prompts);
     ch_temporary_rules_destroy(runtime->temporary_rules);
+    ch_event_ring_destroy(runtime->events);
     ch_traffic_store_destroy(runtime->traffic);
     free(runtime);
 }

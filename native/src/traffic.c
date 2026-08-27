@@ -54,6 +54,7 @@ typedef struct ch_traffic_entry {
     int64_t rate_sample_ns;
     uint64_t rx_total;
     uint64_t tx_total;
+    uint64_t event_lamport;
     double rx_bps;
     double tx_bps;
 } ch_traffic_entry;
@@ -71,6 +72,8 @@ struct ch_traffic_store {
     int64_t history_max_age_ns;
     char *history_path;
     char *persist_error;
+    ch_traffic_event_writer event_writer;
+    void *event_writer_context;
 };
 
 typedef struct ch_traffic_filter {
@@ -263,6 +266,124 @@ void ch_traffic_store_destroy(ch_traffic_store *store) {
     free(store);
 }
 
+void ch_traffic_store_set_event_writer(ch_traffic_store *store,
+                                       ch_traffic_event_writer writer,
+                                       void *context) {
+    if (store == NULL) return;
+    pthread_mutex_lock(&store->mutex);
+    store->event_writer = writer;
+    store->event_writer_context = context;
+    pthread_mutex_unlock(&store->mutex);
+}
+
+static void traffic_emit_locked(ch_traffic_store *store,
+                                ch_traffic_entry *entry,
+                                const char *event_type,
+                                ch_json_buffer *data) {
+    if (store->event_writer == NULL || entry == NULL || data == NULL) return;
+    char *encoded = ch_json_take(data);
+    if (encoded == NULL) return;
+    ++entry->event_lamport;
+    store->event_writer(entry->flow_id, entry->event_lamport, event_type,
+                        encoded, store->event_writer_context);
+    free(encoded);
+}
+
+static void traffic_emit_open_locked(ch_traffic_store *store,
+                                     ch_traffic_entry *entry) {
+    if (store->event_writer == NULL) return;
+    ch_json_buffer data;
+    ch_json_init(&data);
+    int okay = ch_json_append(&data, "{\"conn_id\":") &&
+        ch_json_append_string(&data, entry->conn_id) &&
+        ch_json_append(&data, ",\"profile\":") &&
+        ch_json_append_string(&data, entry->profile) &&
+        ch_json_append(&data, ",\"listener\":{\"protocol\":") &&
+        ch_json_append_string(&data, entry->listener_protocol) &&
+        ch_json_append(&data, ",\"addr\":") &&
+        ch_json_append_string(&data, entry->listener_address) &&
+        ch_json_append(&data, "},\"client_addr\":") &&
+        ch_json_append_string(&data, entry->client_address) &&
+        ch_json_append(&data, ",\"chain_name\":") &&
+        ch_json_append_string(&data, entry->chain_name) &&
+        ch_json_append(&data, "}");
+    if (okay) traffic_emit_locked(store, entry, "connection.opened", &data);
+    ch_json_dispose(&data);
+
+    ch_json_init(&data);
+    okay = ch_json_append(&data, "{\"conn_id\":") &&
+        ch_json_append_string(&data, entry->conn_id) &&
+        ch_json_append(&data, ",\"profile\":") &&
+        ch_json_append_string(&data, entry->profile) &&
+        ch_json_append(&data, ",\"rule_name\":") &&
+        ch_json_append_string(&data, entry->rule_name) &&
+        ch_json_append(&data, ",\"action\":") &&
+        ch_json_append_string(&data, entry->rule_action) &&
+        ch_json_append(&data, ",\"chain_name\":") &&
+        ch_json_append_string(&data, entry->chain_name) &&
+        ch_json_append(&data, ",\"group_name\":") &&
+        ch_json_append_string(&data, entry->group_name) &&
+        ch_json_append(&data, ",\"target\":") &&
+        ch_json_append_string(&data, entry->target) &&
+        ch_json_append(&data, ",\"target_host\":") &&
+        ch_json_append_string(&data, entry->target_host) &&
+        ch_json_append(&data, ",\"target_port\":") &&
+        ch_json_append_string(&data, entry->target_port) &&
+        ch_json_append(&data, ",\"network\":") &&
+        ch_json_append_string(&data, entry->network) &&
+        ch_json_append(&data, ",\"source\":") &&
+        ch_json_append_string(&data, entry->source) &&
+        ch_json_append_format(&data, ",\"default\":%s,\"elapsed_ns\":%lld}",
+                              entry->is_default ? "true" : "false",
+                              entry->decision_ns);
+    if (okay) {
+        const char *type = strcasecmp(entry->rule_action, "block") == 0 ||
+            strcasecmp(entry->rule_action, "reject") == 0 ?
+            "rule.blocked" :
+            (strcasecmp(entry->rule_action, "direct") == 0 ?
+                "rule.direct" : "rule.matched");
+        traffic_emit_locked(store, entry, type, &data);
+    }
+    ch_json_dispose(&data);
+}
+
+static void traffic_emit_bytes_locked(ch_traffic_store *store,
+                                      ch_traffic_entry *entry,
+                                      uint64_t rx_delta,
+                                      uint64_t tx_delta,
+                                      int64_t interval) {
+    if (store->event_writer == NULL) return;
+    ch_json_buffer data;
+    ch_json_init(&data);
+    int okay = ch_json_append(&data, "{\"conn_id\":") &&
+        ch_json_append_string(&data, entry->conn_id) &&
+        ch_json_append_format(
+            &data,
+            ",\"rx_delta\":%" PRIu64 ",\"tx_delta\":%" PRIu64
+            ",\"rx_total\":%" PRIu64 ",\"tx_total\":%" PRIu64
+            ",\"interval_ns\":%" PRId64 "}",
+            rx_delta, tx_delta, entry->rx_total, entry->tx_total,
+            interval < 0 ? 0 : interval);
+    if (okay) traffic_emit_locked(store, entry, "connection.bytes", &data);
+    ch_json_dispose(&data);
+}
+
+static void traffic_emit_close_locked(ch_traffic_store *store,
+                                      ch_traffic_entry *entry) {
+    if (store->event_writer == NULL) return;
+    ch_json_buffer data;
+    ch_json_init(&data);
+    int okay = ch_json_append(&data, "{\"conn_id\":") &&
+        ch_json_append_string(&data, entry->conn_id) &&
+        ch_json_append(&data, ",\"reason\":") &&
+        ch_json_append_string(&data, entry->close_reason) &&
+        ch_json_append_format(
+            &data, ",\"rx_total\":%" PRIu64 ",\"tx_total\":%" PRIu64 "}",
+            entry->rx_total, entry->tx_total);
+    if (okay) traffic_emit_locked(store, entry, "connection.closed", &data);
+    ch_json_dispose(&data);
+}
+
 uint64_t ch_traffic_open(ch_traffic_store *store,
                          const ch_traffic_open_info *info,
                          ch_error *error) {
@@ -299,6 +420,7 @@ uint64_t ch_traffic_open(ch_traffic_store *store,
     }
     store->entries[0] = next;
     ++store->count;
+    traffic_emit_open_locked(store, &store->entries[0]);
     pthread_mutex_unlock(&store->mutex);
     return flow_id;
 }
@@ -331,6 +453,8 @@ void ch_traffic_bytes(ch_traffic_store *store, uint64_t flow_id,
         }
         entry->updated_ns = now;
         entry->rate_sample_ns = now;
+        traffic_emit_bytes_locked(store, entry, rx_delta, tx_delta,
+                                  interval);
     }
     pthread_mutex_unlock(&store->mutex);
 }
@@ -354,8 +478,10 @@ void ch_traffic_close(ch_traffic_store *store, uint64_t flow_id,
                       const char *reason) {
     if (store == NULL || flow_id == 0U) return;
     pthread_mutex_lock(&store->mutex);
-    traffic_close_entry(traffic_find_flow(store, flow_id), reason,
-                        traffic_now_ns());
+    ch_traffic_entry *entry = traffic_find_flow(store, flow_id);
+    bool was_active = entry != NULL && entry->active;
+    traffic_close_entry(entry, reason, traffic_now_ns());
+    if (was_active) traffic_emit_close_locked(store, entry);
     traffic_prune_locked(store, traffic_now_ns());
     pthread_mutex_unlock(&store->mutex);
     ch_error ignored;
@@ -367,7 +493,10 @@ void ch_traffic_close_all(ch_traffic_store *store, const char *reason) {
     pthread_mutex_lock(&store->mutex);
     int64_t now = traffic_now_ns();
     for (size_t index = 0U; index < store->count; ++index) {
+        bool was_active = store->entries[index].active;
         traffic_close_entry(&store->entries[index], reason, now);
+        if (was_active) traffic_emit_close_locked(store,
+                                                  &store->entries[index]);
     }
     traffic_prune_locked(store, now);
     pthread_mutex_unlock(&store->mutex);
@@ -1524,6 +1653,49 @@ char *ch_traffic_snapshot_json(ch_traffic_store *store,
     if (result == NULL) {
         ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
                      "encode traffic snapshot");
+    }
+    return result;
+}
+
+char *ch_traffic_decisions_json(ch_traffic_store *store,
+                                const char *request_json,
+                                ch_error *error) {
+    ch_error_clear(error);
+    if (store == NULL) {
+        ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
+                     "traffic store is required");
+        return NULL;
+    }
+    ch_traffic_filter filter;
+    if (traffic_filter_parse(request_json, &filter, error) != CH_OK) {
+        return NULL;
+    }
+    pthread_mutex_lock(&store->mutex);
+    int64_t now = traffic_now_ns();
+    traffic_prune_locked(store, now);
+    ch_json_buffer json;
+    ch_json_init(&json);
+    int okay = ch_json_append_format(
+        &json, "{\"updated_ts_ns\":%" PRId64 ",\"decisions\":[", now);
+    size_t emitted = 0U;
+    for (size_t index = 0U; okay && index < store->count; ++index) {
+        const ch_traffic_entry *entry = &store->entries[index];
+        if (entry->rule_action == NULL || entry->rule_action[0] == '\0') {
+            continue;
+        }
+        if (emitted >= filter.limit) break;
+        if (emitted > 0U) okay = ch_json_append(&json, ",");
+        if (okay) okay = traffic_append_connection(&json, entry, now);
+        ++emitted;
+    }
+    if (okay) okay = ch_json_append(&json, "]}");
+    pthread_mutex_unlock(&store->mutex);
+    traffic_filter_clear(&filter);
+    char *result = okay ? ch_json_take(&json) : NULL;
+    ch_json_dispose(&json);
+    if (result == NULL) {
+        ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                     "encode traffic decisions");
     }
     return result;
 }
