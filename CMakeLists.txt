@@ -101,6 +101,8 @@ add_library(clambhook_core STATIC
   native/src/runtime_config.c
   native/src/runtime_listener.c
   native/src/socks.c
+  native/src/temporary_rules.c
+  native/src/traffic.c
   native/src/watcher.c
 )
 add_library(Clambhook::Core ALIAS clambhook_core)
@@ -215,6 +217,8 @@ if(CLAMBHOOK_BUILD_TESTS)
     native/tests/test_runtime.c
     native/tests/test_runtime_listener.c
     native/tests/test_socks.c
+    native/tests/test_temporary_rules.c
+    native/tests/test_traffic.c
     native/tests/test_watcher.c
   )
   target_include_directories(clambhook-native-tests PRIVATE native/src native/tests)

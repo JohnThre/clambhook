@@ -277,9 +277,10 @@ static void ch_runtime_write_packet(const uint8_t *packet, size_t length,
 
 static ch_status ch_runtime_tun_tcp_dial(
     const char *target, const char *source, const char *domain_hint,
-    int *out_descriptor,
+    int *out_descriptor, uint64_t *out_flow_id,
     void *context, ch_error *error) {
     ch_runtime *runtime = context;
+    *out_flow_id = 0U;
     return ch_runtime_listener_set_tun_tcp_dial(
         runtime->listeners, target, source, domain_hint, out_descriptor,
         error);
@@ -287,8 +288,10 @@ static ch_status ch_runtime_tun_tcp_dial(
 
 static ch_status ch_runtime_tun_udp_dial(
     const char *target, const char *source, const char *domain_hint,
-    void **out_connection, void *context, ch_error *error) {
+    void **out_connection, uint64_t *out_flow_id, void *context,
+    ch_error *error) {
     ch_runtime *runtime = context;
+    *out_flow_id = 0U;
     return ch_runtime_listener_set_tun_udp_dial(
         runtime->listeners, target, source, domain_hint, out_connection,
         error);

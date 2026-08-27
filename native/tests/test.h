@@ -42,6 +42,8 @@ void ch_test_rules(void);
 void ch_test_runtime(void);
 void ch_test_runtime_listener(void);
 void ch_test_socks(void);
+void ch_test_temporary_rules(void);
+void ch_test_traffic(void);
 void ch_test_watcher(void);
 
 #endif

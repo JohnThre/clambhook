@@ -221,8 +221,9 @@ class NativeClambhookBridgeTest {
 
     @Test
     fun kotlinRuntimeFacadeDecodesDashboardAndSwitchesProfile() {
+        val config = configFile()
         NativeClambhookTunnelRuntime { }.use { runtime ->
-            runtime.start(configFile().absolutePath)
+            runtime.start(config.absolutePath)
             val dashboard = ApiJson.decodeFromString<TunnelDashboardBundle>(runtime.dashboardJson())
             assertEquals("work", dashboard.status.profile)
             assertEquals("direct-web", dashboard.rules.rules.single().name)
@@ -238,7 +239,48 @@ class NativeClambhookBridgeTest {
             assertThrows(IllegalStateException::class.java) {
                 runtime.injectPacket(ipv4UdpPacket(9, "blocked".encodeToByteArray()))
             }
-            val invalid = configFile().apply { writeText("not valid toml = [") }
+            val traffic = ApiJson.decodeFromString<TrafficSnapshotPayload>(runtime.trafficJson())
+            val blocked = traffic.connections.single()
+            assertEquals("block-discard", blocked.ruleName)
+            assertEquals("block", blocked.ruleAction)
+            assertEquals("closed", blocked.state)
+            assertEquals("udp", blocked.network)
+            assertEquals(9, blocked.targetPort.toInt())
+
+            val temporary = ApiJson.decodeFromString<TemporaryRuleCreateResponsePayload>(
+                runtime.createTemporaryRuleFromConnectionJson(
+                    blocked.connId,
+                    profile = "home",
+                    name = "allow-discard-temporarily",
+                    action = "direct",
+                    scope = "auto",
+                    ttlSeconds = 60,
+                ),
+            )
+            assertEquals("allow-discard-temporarily", temporary.temporaryRule.rule.name)
+            assertEquals(blocked.connId, temporary.temporaryRule.sourceConnId)
+            val trafficWithTemporary =
+                ApiJson.decodeFromString<TrafficSnapshotPayload>(runtime.trafficJson())
+            assertEquals(temporary.temporaryRule.id, trafficWithTemporary.temporaryRules.single().id)
+
+            val persisted = ApiJson.decodeFromString<RulesPayload>(
+                runtime.createRuleFromConnectionJson(
+                    config.absolutePath,
+                    blocked.connId,
+                    profile = "home",
+                    name = "allow-discard-persisted",
+                    action = "direct",
+                    scope = "auto",
+                ),
+            )
+            assertEquals("allow-discard-persisted", persisted.rules.last().name)
+            assertEquals(listOf("127.0.0.1/32"), persisted.rules.last().cidrs)
+            assertEquals("{\"prompts\":[]}", runtime.pendingPromptsJson())
+            assertEquals("{\"enabled\":false}", runtime.developerStatusJson())
+
+            val invalid = File(config.parentFile, "native-bridge-invalid.toml").apply {
+                writeText("not valid toml = [")
+            }
             assertThrows(IllegalStateException::class.java) {
                 runtime.reload(invalid.absolutePath)
             }

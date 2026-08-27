@@ -42,6 +42,15 @@ typedef struct ip_stack_test_dns {
     unsigned int count;
 } ip_stack_test_dns;
 
+typedef struct ip_stack_test_flow_observer {
+    uint64_t rx_total;
+    uint64_t tx_total;
+    unsigned int byte_events;
+    unsigned int close_events;
+    uint64_t last_flow_id;
+    char last_close_reason[64];
+} ip_stack_test_flow_observer;
+
 static uint32_t ip_stack_test_sum(const uint8_t *bytes, size_t length,
                                   uint32_t sum) {
     while (length >= 2U) {
@@ -302,7 +311,8 @@ static size_t ip_stack_test_ipv6_fragment(
 
 static ch_status ip_stack_test_tcp_dialer(
     const char *target, const char *source, const char *domain_hint,
-    int *out_descriptor, void *context, ch_error *error) {
+    int *out_descriptor, uint64_t *out_flow_id, void *context,
+    ch_error *error) {
     (void)domain_hint;
     ip_stack_test_dial *dial = context;
     int descriptors[2];
@@ -316,12 +326,14 @@ static ch_status ip_stack_test_tcp_dialer(
     (void)snprintf(dial->source, sizeof(dial->source), "%s", source);
     dial->peer = descriptors[1];
     *out_descriptor = descriptors[0];
+    *out_flow_id = (uint64_t)dial->count;
     return CH_OK;
 }
 
 static ch_status ip_stack_test_udp_dialer(
     const char *target, const char *source, const char *domain_hint,
-    void **out_connection, void *context, ch_error *error) {
+    void **out_connection, uint64_t *out_flow_id, void *context,
+    ch_error *error) {
     ip_stack_test_udp *udp = context;
     ch_error_clear(error);
     ++udp->dial_count;
@@ -332,6 +344,7 @@ static ch_status ip_stack_test_udp_dialer(
     (void)snprintf(udp->domain_hint, sizeof(udp->domain_hint), "%s",
                    domain_hint);
     *out_connection = udp;
+    *out_flow_id = (uint64_t)udp->dial_count;
     return CH_OK;
 }
 
@@ -430,6 +443,25 @@ static void ip_stack_test_writer(const uint8_t *packet, size_t length,
     output->length = length > sizeof(output->packet) ? sizeof(output->packet) :
                                                       length;
     memcpy(output->packet, packet, output->length);
+}
+
+static void ip_stack_test_flow_bytes(uint64_t flow_id, uint64_t rx_delta,
+                                     uint64_t tx_delta, void *context) {
+    ip_stack_test_flow_observer *observer = context;
+    observer->rx_total += rx_delta;
+    observer->tx_total += tx_delta;
+    observer->last_flow_id = flow_id;
+    ++observer->byte_events;
+}
+
+static void ip_stack_test_flow_close(uint64_t flow_id, const char *reason,
+                                     void *context) {
+    ip_stack_test_flow_observer *observer = context;
+    observer->last_flow_id = flow_id;
+    (void)snprintf(observer->last_close_reason,
+                   sizeof(observer->last_close_reason), "%s",
+                   reason == NULL ? "" : reason);
+    ++observer->close_events;
 }
 
 static void ip_stack_test_ipv4_echo(ch_ip_stack *stack,
@@ -875,6 +907,7 @@ void ch_test_ip_stack(void) {
     ip_stack_test_dial dial = {.peer = -1};
     ip_stack_test_udp udp = {0};
     ip_stack_test_dns dns = {0};
+    ip_stack_test_flow_observer observer = {0};
     ch_ip_stack_options options = {
         .packet_writer = ip_stack_test_writer,
         .packet_writer_context = &output,
@@ -885,6 +918,9 @@ void ch_test_ip_stack(void) {
         .udp_sender = ip_stack_test_udp_send,
         .udp_receiver = ip_stack_test_udp_receive,
         .udp_closer = ip_stack_test_udp_close,
+        .flow_bytes = ip_stack_test_flow_bytes,
+        .flow_close = ip_stack_test_flow_close,
+        .flow_observer_context = &observer,
         .dns_exchange = ip_stack_test_dns_exchange,
         .dns_exchange_context = &dns
     };
@@ -908,6 +944,12 @@ void ch_test_ip_stack(void) {
     CH_TEST_ASSERT(ch_ip_stack_inject(stack, invalid, sizeof(invalid),
                                       &error) == CH_ERROR_PARSE);
     ch_ip_stack_tick(stack);
+    CH_TEST_ASSERT(observer.byte_events > 0U);
+    CH_TEST_ASSERT(observer.rx_total > 0U);
+    CH_TEST_ASSERT(observer.tx_total > 0U);
+    CH_TEST_ASSERT(observer.last_flow_id != 0U);
     ch_ip_stack_destroy(stack);
     CH_TEST_ASSERT(udp.close_count == 6U);
+    CH_TEST_ASSERT(observer.close_events == 8U);
+    CH_TEST_ASSERT_STRING("closed", observer.last_close_reason);
 }

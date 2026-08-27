@@ -23,6 +23,7 @@ typedef ch_status (*ch_ip_stack_tcp_dialer)(
     const char *source,
     const char *domain_hint,
     int *out_descriptor,
+    uint64_t *out_flow_id,
     void *context,
     ch_error *error
 );
@@ -32,6 +33,7 @@ typedef ch_status (*ch_ip_stack_udp_dialer)(
     const char *source,
     const char *domain_hint,
     void **out_connection,
+    uint64_t *out_flow_id,
     void *context,
     ch_error *error
 );
@@ -56,6 +58,20 @@ typedef ch_status (*ch_ip_stack_udp_receiver)(
 
 typedef void (*ch_ip_stack_udp_closer)(void *connection);
 
+/* Metadata-only lifecycle callbacks; payload bytes are never exposed. */
+typedef void (*ch_ip_stack_flow_bytes_observer)(
+    uint64_t flow_id,
+    uint64_t rx_delta,
+    uint64_t tx_delta,
+    void *context
+);
+
+typedef void (*ch_ip_stack_flow_close_observer)(
+    uint64_t flow_id,
+    const char *reason,
+    void *context
+);
+
 typedef ch_status (*ch_ip_stack_dns_exchange)(
     const uint8_t *query,
     size_t query_length,
@@ -75,6 +91,9 @@ typedef struct ch_ip_stack_options {
     ch_ip_stack_udp_sender udp_sender;
     ch_ip_stack_udp_receiver udp_receiver;
     ch_ip_stack_udp_closer udp_closer;
+    ch_ip_stack_flow_bytes_observer flow_bytes;
+    ch_ip_stack_flow_close_observer flow_close;
+    void *flow_observer_context;
     ch_ip_stack_dns_exchange dns_exchange;
     void *dns_exchange_context;
     const char *ipv4_address; /* Default: 198.18.0.1. */
@@ -84,7 +103,8 @@ typedef struct ch_ip_stack_options {
 } ch_ip_stack_options;
 
 /*
- * A successful TCP dial transfers ownership of out_descriptor to the stack.
+ * A successful TCP dial transfers ownership of out_descriptor to the stack
+ * and may return a non-zero metadata flow identifier through out_flow_id.
  * target and source are numeric host:port strings valid only during the call.
  * domain_hint is either an observed DNS hostname with the same target port or
  * an empty string; it is for rule matching only and must not replace target

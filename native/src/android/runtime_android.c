@@ -10,13 +10,17 @@
 #include "clambhook/ip_stack.h"
 #include "clambhook/protocol.h"
 #include "clambhook/rules.h"
+#include "clambhook/temporary_rules.h"
+#include "clambhook/traffic.h"
 #include "cnet.h"
 #include "internal.h"
 
 typedef struct android_route {
     bool direct;
+    bool blocked;
     const ch_config_table *chain;
     char *selected_group_chain;
+    ch_rule_decision decision;
 } android_route;
 
 typedef struct android_config_state {
@@ -38,6 +42,8 @@ struct ch_runtime {
     char *config_path;
     char *active_profile;
     ch_ip_stack *ip_stack;
+    ch_traffic_store *traffic;
+    ch_temporary_rules *temporary_rules;
     ch_runtime_options options;
 };
 
@@ -90,6 +96,7 @@ static const char *android_selected_group_chain(
 static void android_route_clear(android_route *route) {
     if (route == NULL) return;
     free(route->selected_group_chain);
+    ch_rule_decision_clear(&route->decision);
     memset(route, 0, sizeof(*route));
 }
 
@@ -99,7 +106,6 @@ static ch_status android_runtime_resolve_route(
     ch_error *error) {
     memset(out_route, 0, sizeof(*out_route));
     out_route->direct = true;
-    if (runtime->rules == NULL) return CH_OK;
     ch_rule_match_context context = {
         .network = network,
         .target = domain_hint != NULL && domain_hint[0] != '\0' ?
@@ -108,35 +114,44 @@ static ch_status android_runtime_resolve_route(
         .process_name = "",
         .process_path = ""
     };
-    ch_rule_decision decision;
-    ch_status status = ch_rule_engine_decide(runtime->rules, &context,
-                                             &decision, error);
+    bool temporary_match = false;
+    ch_status status = ch_temporary_rules_decide(
+        runtime->temporary_rules, runtime->active_profile, &context,
+        &out_route->decision, &temporary_match, error);
+    if (status == CH_OK && !temporary_match && runtime->rules != NULL) {
+        status = ch_rule_engine_decide(runtime->rules, &context,
+                                       &out_route->decision, error);
+    }
     if (status != CH_OK) return status;
-    const char *chain_name = decision.chain_name;
-    if (strcmp(decision.action, CH_RULE_ACTION_BLOCK) == 0 ||
-        strcmp(decision.action, CH_RULE_ACTION_REJECT) == 0) {
-        ch_error_set(error, CH_ERROR_INVALID_STATE,
-                     "Android native route rejected flow");
-        status = CH_ERROR_INVALID_STATE;
-    } else if (strcmp(decision.action, CH_RULE_ACTION_DIRECT) == 0) {
+    if (!temporary_match && runtime->rules == NULL) return CH_OK;
+    const char *chain_name = out_route->decision.chain_name;
+    if (strcmp(out_route->decision.action, CH_RULE_ACTION_BLOCK) == 0 ||
+        strcmp(out_route->decision.action, CH_RULE_ACTION_REJECT) == 0) {
+        out_route->blocked = true;
         status = CH_OK;
-    } else if (strcmp(decision.action, CH_RULE_ACTION_GROUP) == 0) {
+    } else if (strcmp(out_route->decision.action,
+                      CH_RULE_ACTION_DIRECT) == 0) {
+        status = CH_OK;
+    } else if (strcmp(out_route->decision.action,
+                      CH_RULE_ACTION_GROUP) == 0) {
         const ch_config_table *profile = ch_config_profile_named(
             runtime->config, runtime->active_profile);
         chain_name = android_selected_group_chain(
-            profile, decision.group_name, &out_route->selected_group_chain);
+            profile, out_route->decision.group_name,
+            &out_route->selected_group_chain);
         if (chain_name == NULL) {
             ch_error_set(error, CH_ERROR_NOT_FOUND,
                          "Android native policy group has no selected chain");
             status = CH_ERROR_NOT_FOUND;
         }
-    } else if (strcmp(decision.action, CH_RULE_ACTION_CHAIN) != 0) {
+    } else if (strcmp(out_route->decision.action,
+                      CH_RULE_ACTION_CHAIN) != 0) {
         ch_error_set(error, CH_ERROR_UNSUPPORTED,
                      "Android native route action is not supported");
         status = CH_ERROR_UNSUPPORTED;
     }
-    if (status == CH_OK &&
-        strcmp(decision.action, CH_RULE_ACTION_DIRECT) != 0) {
+    if (status == CH_OK && !out_route->blocked &&
+        strcmp(out_route->decision.action, CH_RULE_ACTION_DIRECT) != 0) {
         const ch_config_table *profile = ch_config_profile_named(
             runtime->config, runtime->active_profile);
         out_route->chain = android_named_table(
@@ -149,23 +164,70 @@ static ch_status android_runtime_resolve_route(
             out_route->direct = false;
         }
     }
-    ch_rule_decision_clear(&decision);
     if (status != CH_OK) android_route_clear(out_route);
     return status;
 }
 
+static uint64_t android_runtime_open_traffic(ch_runtime *runtime,
+                                             const android_route *route,
+                                             const char *network,
+                                             const char *target,
+                                             const char *source,
+                                             ch_error *error) {
+    const char *final_chain = "";
+    if (!route->direct && !route->blocked) {
+        final_chain = route->selected_group_chain != NULL ?
+            route->selected_group_chain : route->decision.chain_name;
+    }
+    ch_traffic_open_info info = {
+        .profile = runtime->active_profile,
+        .listener_protocol = "tun",
+        .listener_address = "",
+        .client_address = source,
+        .chain_name = final_chain,
+        .group_name = route->decision.group_name,
+        .rule_name = route->decision.rule_name,
+        .rule_action = route->decision.action,
+        .is_default = route->decision.is_default,
+        .decision_ns = route->decision.elapsed_ns,
+        .target = target,
+        .target_host = route->decision.host,
+        .target_port = route->decision.port,
+        .network = network,
+        .source = source
+    };
+    return ch_traffic_open(runtime->traffic, &info, error);
+}
+
 static ch_status android_runtime_tcp_dial(
     const char *target, const char *source, const char *domain_hint,
-    int *out_descriptor, void *context, ch_error *error) {
+    int *out_descriptor, uint64_t *out_flow_id, void *context,
+    ch_error *error) {
     ch_runtime *runtime = context;
+    *out_flow_id = 0U;
     android_route route;
     ch_status status = android_runtime_resolve_route(
         runtime, "tcp", target, source, domain_hint, &route, error);
     if (status == CH_OK) {
-        status = route.direct ?
-            ch_protocol_connect_tcp(target, out_descriptor, error) :
-            ch_protocol_chain_dial(route.chain, "tcp", target,
-                                   out_descriptor, error);
+        uint64_t flow_id = android_runtime_open_traffic(
+            runtime, &route, "tcp", target, source, error);
+        if (flow_id == 0U) {
+            status = error == NULL ? CH_ERROR_OUT_OF_MEMORY : error->code;
+        } else if (route.blocked) {
+            ch_traffic_close(runtime->traffic, flow_id, "blocked by rule");
+            ch_error_set(error, CH_ERROR_INVALID_STATE,
+                         "Android native route rejected flow");
+            status = CH_ERROR_INVALID_STATE;
+        } else {
+            status = route.direct ?
+                ch_protocol_connect_tcp(target, out_descriptor, error) :
+                ch_protocol_chain_dial(route.chain, "tcp", target,
+                                       out_descriptor, error);
+            if (status == CH_OK) *out_flow_id = flow_id;
+            else ch_traffic_close(runtime->traffic, flow_id,
+                                  error == NULL ? "dial failed" :
+                                                  error->message);
+        }
     }
     android_route_clear(&route);
     return status;
@@ -173,19 +235,39 @@ static ch_status android_runtime_tcp_dial(
 
 static ch_status android_runtime_udp_dial(
     const char *target, const char *source, const char *domain_hint,
-    void **out_connection, void *context, ch_error *error) {
+    void **out_connection, uint64_t *out_flow_id, void *context,
+    ch_error *error) {
     ch_runtime *runtime = context;
     *out_connection = NULL;
+    *out_flow_id = 0U;
     android_route route;
     ch_status status = android_runtime_resolve_route(
         runtime, "udp", target, source, domain_hint, &route, error);
     if (status == CH_OK) {
-        ch_packet_connection *connection = NULL;
-        status = route.direct ?
-            ch_protocol_direct_packet_dial(&connection, error) :
-            ch_protocol_chain_dial_packet(route.chain, target,
-                                          &connection, error);
-        if (status == CH_OK) *out_connection = connection;
+        uint64_t flow_id = android_runtime_open_traffic(
+            runtime, &route, "udp", target, source, error);
+        if (flow_id == 0U) {
+            status = error == NULL ? CH_ERROR_OUT_OF_MEMORY : error->code;
+        } else if (route.blocked) {
+            ch_traffic_close(runtime->traffic, flow_id, "blocked by rule");
+            ch_error_set(error, CH_ERROR_INVALID_STATE,
+                         "Android native route rejected flow");
+            status = CH_ERROR_INVALID_STATE;
+        } else {
+            ch_packet_connection *connection = NULL;
+            status = route.direct ?
+                ch_protocol_direct_packet_dial(&connection, error) :
+                ch_protocol_chain_dial_packet(route.chain, target,
+                                              &connection, error);
+            if (status == CH_OK) {
+                *out_connection = connection;
+                *out_flow_id = flow_id;
+            } else {
+                ch_traffic_close(runtime->traffic, flow_id,
+                                  error == NULL ? "dial failed" :
+                                                  error->message);
+            }
+        }
     }
     android_route_clear(&route);
     return status;
@@ -207,6 +289,18 @@ static ch_status android_runtime_udp_receive(
 
 static void android_runtime_udp_close(void *opaque) {
     ch_packet_connection_close(opaque);
+}
+
+static void android_runtime_flow_bytes(uint64_t flow_id, uint64_t rx_delta,
+                                       uint64_t tx_delta, void *context) {
+    ch_runtime *runtime = context;
+    ch_traffic_bytes(runtime->traffic, flow_id, rx_delta, tx_delta);
+}
+
+static void android_runtime_flow_close(uint64_t flow_id, const char *reason,
+                                       void *context) {
+    ch_runtime *runtime = context;
+    ch_traffic_close(runtime->traffic, flow_id, reason);
 }
 
 static void *android_runtime_tick_main(void *context) {
@@ -251,7 +345,10 @@ static ch_status android_runtime_start_ip_stack(ch_runtime *runtime,
         .udp_dialer_context = runtime,
         .udp_sender = android_runtime_udp_send,
         .udp_receiver = android_runtime_udp_receive,
-        .udp_closer = android_runtime_udp_close
+        .udp_closer = android_runtime_udp_close,
+        .flow_bytes = android_runtime_flow_bytes,
+        .flow_close = android_runtime_flow_close,
+        .flow_observer_context = runtime
     };
     pthread_mutex_lock(&runtime->ip_mutex);
     runtime->ip_stack = ch_ip_stack_create(&options, error);
@@ -282,6 +379,7 @@ static void android_runtime_stop_ip_stack(ch_runtime *runtime) {
     ch_ip_stack_destroy(runtime->ip_stack);
     runtime->ip_stack = NULL;
     pthread_mutex_unlock(&runtime->ip_mutex);
+    ch_traffic_close_all(runtime->traffic, "tunnel stopped");
 }
 
 static void android_config_state_clear(android_config_state *state) {
@@ -377,6 +475,30 @@ static ch_status android_runtime_replace_config(ch_runtime *runtime,
     android_config_state next;
     ch_status status = android_runtime_load_config(config_path, &next, error);
     if (status != CH_OK) return status;
+
+    /* A reload must not silently reset an in-session profile selection merely
+     * because the on-disk document has a different default. */
+    if (runtime->active_profile != NULL && next.config != NULL &&
+        ch_config_has_profile(next.config, runtime->active_profile) &&
+        strcmp(next.active_profile, runtime->active_profile) != 0) {
+        char *selected = ch_strdup(runtime->active_profile);
+        ch_rule_engine *selected_rules = selected == NULL ? NULL :
+            ch_rule_engine_compile_config(next.config, selected, error);
+        if (selected == NULL || selected_rules == NULL) {
+            free(selected);
+            android_config_state_clear(&next);
+            if (error == NULL || error->code == CH_OK) {
+                ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                             "preserve active Android profile");
+            }
+            return error == NULL || error->code == CH_OK ?
+                CH_ERROR_OUT_OF_MEMORY : error->code;
+        }
+        free(next.active_profile);
+        ch_rule_engine_destroy(next.rules);
+        next.active_profile = selected;
+        next.rules = selected_rules;
+    }
 
     android_config_state previous = android_runtime_take_config(runtime);
     if (restart) android_runtime_stop_ip_stack(runtime);
@@ -577,8 +699,25 @@ ch_runtime *ch_runtime_create(const ch_runtime_options *options, ch_error *error
         return NULL;
     }
     atomic_init(&runtime->tick_stop, true);
+    runtime->traffic = ch_traffic_store_create(512U, error);
+    if (runtime->traffic == NULL) {
+        pthread_mutex_destroy(&runtime->mutex);
+        pthread_mutex_destroy(&runtime->ip_mutex);
+        free(runtime);
+        return NULL;
+    }
+    runtime->temporary_rules = ch_temporary_rules_create(128U, error);
+    if (runtime->temporary_rules == NULL) {
+        ch_traffic_store_destroy(runtime->traffic);
+        pthread_mutex_destroy(&runtime->mutex);
+        pthread_mutex_destroy(&runtime->ip_mutex);
+        free(runtime);
+        return NULL;
+    }
     runtime->active_profile = ch_strdup("default");
     if (runtime->active_profile == NULL) {
+        ch_temporary_rules_destroy(runtime->temporary_rules);
+        ch_traffic_store_destroy(runtime->traffic);
         pthread_mutex_destroy(&runtime->mutex);
         pthread_mutex_destroy(&runtime->ip_mutex);
         free(runtime);
@@ -603,6 +742,8 @@ void ch_runtime_destroy(ch_runtime *runtime) {
     pthread_mutex_unlock(&runtime->mutex);
     pthread_mutex_destroy(&runtime->mutex);
     pthread_mutex_destroy(&runtime->ip_mutex);
+    ch_temporary_rules_destroy(runtime->temporary_rules);
+    ch_traffic_store_destroy(runtime->traffic);
     free(runtime);
 }
 
@@ -703,6 +844,56 @@ ch_status ch_runtime_query(ch_runtime *runtime, const char *operation,
     pthread_mutex_lock(&runtime->mutex);
     if (strcmp(operation, "status") == 0) response = android_runtime_status_json(runtime);
     else if (strcmp(operation, "profiles") == 0) response = android_runtime_profiles_json(runtime);
+    else if (strcmp(operation, "traffic") == 0 ||
+             strcmp(operation, "traffic_filter") == 0) {
+        char *temporary = ch_temporary_rules_snapshot_json(
+            runtime->temporary_rules, runtime->active_profile, error);
+        if (temporary == NULL) {
+            pthread_mutex_unlock(&runtime->mutex);
+            return error == NULL ? CH_ERROR_OUT_OF_MEMORY : error->code;
+        }
+        response = ch_traffic_snapshot_json(
+            runtime->traffic, runtime->config, runtime->active_profile,
+            strcmp(operation, "traffic_filter") == 0 ? request_json : "{}",
+            temporary, error);
+        free(temporary);
+    }
+    else if (strcmp(operation, "rule_from_connection") == 0) {
+        response = ch_traffic_rule_request_json(
+            runtime->traffic, runtime->config, runtime->active_profile,
+            request_json, error);
+    }
+    else if (strcmp(operation, "cleanup_rule_request") == 0) {
+        response = ch_traffic_cleanup_request_json(
+            runtime->traffic, runtime->config, runtime->active_profile,
+            request_json, error);
+    }
+    else if (strcmp(operation, "pending_prompts") == 0) {
+        response = ch_strdup("{\"prompts\":[]}");
+    }
+    else if (strcmp(operation, "silent_decisions") == 0) {
+        response = ch_strdup("{\"decisions\":[]}");
+    }
+    else if (strcmp(operation, "developer_status") == 0) {
+        response = ch_strdup("{\"enabled\":false}");
+    }
+    else if (strcmp(operation, "developer_entries") == 0 ||
+             strcmp(operation, "developer_entries_filter") == 0) {
+        response = ch_strdup("{\"entries\":[]}");
+    }
+    else if (strcmp(operation, "developer_har") == 0) {
+        response = ch_strdup(
+            "{\"log\":{\"version\":\"1.2\",\"entries\":[]}}");
+    }
+    else if (strcmp(operation, "developer_ca") == 0 ||
+             strcmp(operation, "developer_entry_curl") == 0 ||
+             strcmp(operation, "developer_curl_import") == 0 ||
+             strcmp(operation, "developer_send") == 0) {
+        pthread_mutex_unlock(&runtime->mutex);
+        ch_error_set(error, CH_ERROR_INVALID_STATE,
+                     "developer capture is disabled on Android");
+        return CH_ERROR_INVALID_STATE;
+    }
     else if (strcmp(operation, "crypto_self_test") == 0) {
         response = android_runtime_crypto_self_test_json(error);
     }
@@ -782,6 +973,37 @@ ch_status ch_runtime_mutate(ch_runtime *runtime, const char *operation,
             pthread_mutex_unlock(&runtime->mutex);
             return status;
         }
+    }
+    else if (strcmp(operation, "create_temporary_rule_from_connection") == 0) {
+        *response_json = ch_temporary_rules_create_from_connection_json(
+            runtime->temporary_rules, runtime->traffic, runtime->config,
+            runtime->active_profile, request_json, error);
+        pthread_mutex_unlock(&runtime->mutex);
+        if (*response_json == NULL) {
+            return error == NULL ? CH_ERROR_OUT_OF_MEMORY : error->code;
+        }
+        return CH_OK;
+    }
+    else if (strcmp(operation, "clear_developer_entries") == 0) {
+        *response_json = ch_strdup("{\"cleared\":true}");
+        pthread_mutex_unlock(&runtime->mutex);
+        if (*response_json == NULL) {
+            ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                         "encode developer clear response");
+            return CH_ERROR_OUT_OF_MEMORY;
+        }
+        return CH_OK;
+    }
+    else if (strcmp(operation, "resolve_prompt") == 0) {
+        pthread_mutex_unlock(&runtime->mutex);
+        ch_error_set(error, CH_ERROR_NOT_FOUND, "prompt not found");
+        return CH_ERROR_NOT_FOUND;
+    }
+    else if (strcmp(operation, "promote_silent_decision") == 0) {
+        pthread_mutex_unlock(&runtime->mutex);
+        ch_error_set(error, CH_ERROR_NOT_FOUND,
+                     "silent decision not found");
+        return CH_ERROR_NOT_FOUND;
     }
     else {
         pthread_mutex_unlock(&runtime->mutex);

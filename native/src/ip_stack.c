@@ -74,6 +74,8 @@ struct ch_ip_stack_tcp_flow {
     int client_eof;
     int remote_eof;
     int dead;
+    uint64_t flow_id;
+    int close_observed;
 };
 
 struct ch_ip_stack_udp_flow {
@@ -88,6 +90,8 @@ struct ch_ip_stack_udp_flow {
     char domain_hint[CH_IP_STACK_DOMAIN_HINT_CAPACITY];
     u32_t last_activity;
     int dead;
+    uint64_t flow_id;
+    int close_observed;
 };
 
 struct ch_ip_stack_dns_entry {
@@ -129,6 +133,9 @@ struct ch_ip_stack {
     ch_ip_stack_udp_sender udp_sender;
     ch_ip_stack_udp_receiver udp_receiver;
     ch_ip_stack_udp_closer udp_closer;
+    ch_ip_stack_flow_bytes_observer flow_bytes;
+    ch_ip_stack_flow_close_observer flow_close;
+    void *flow_observer_context;
     ch_ip_stack_dns_exchange dns_exchange;
     void *dns_exchange_context;
     ch_ip_stack_tcp_flow *tcp_flows;
@@ -980,6 +987,36 @@ static void ch_ip_stack_tcp_close_descriptor(ch_ip_stack_tcp_flow *flow) {
     flow->descriptor = -1;
 }
 
+static void ch_ip_stack_observe_bytes(ch_ip_stack *stack, uint64_t flow_id,
+                                      uint64_t rx_delta,
+                                      uint64_t tx_delta) {
+    if (stack->flow_bytes != NULL && flow_id != 0U &&
+        (rx_delta != 0U || tx_delta != 0U)) {
+        stack->flow_bytes(flow_id, rx_delta, tx_delta,
+                          stack->flow_observer_context);
+    }
+}
+
+static void ch_ip_stack_tcp_observe_close(ch_ip_stack_tcp_flow *flow,
+                                          const char *reason) {
+    if (flow == NULL || flow->close_observed) return;
+    flow->close_observed = 1;
+    if (flow->stack->flow_close != NULL && flow->flow_id != 0U) {
+        flow->stack->flow_close(flow->flow_id, reason,
+                                flow->stack->flow_observer_context);
+    }
+}
+
+static void ch_ip_stack_udp_observe_close(ch_ip_stack_udp_flow *flow,
+                                          const char *reason) {
+    if (flow == NULL || flow->close_observed) return;
+    flow->close_observed = 1;
+    if (flow->stack->flow_close != NULL && flow->flow_id != 0U) {
+        flow->stack->flow_close(flow->flow_id, reason,
+                                flow->stack->flow_observer_context);
+    }
+}
+
 static int ch_ip_stack_set_nonblocking(int descriptor) {
     int flags = fcntl(descriptor, F_GETFL, 0);
     if (flags < 0 || fcntl(descriptor, F_SETFL, flags | O_NONBLOCK) != 0) {
@@ -1008,6 +1045,7 @@ static void ch_ip_stack_tcp_error(void *context, err_t error) {
     if (flow == NULL) return;
     flow->client = NULL;
     flow->dead = 1;
+    ch_ip_stack_tcp_observe_close(flow, "TCP stack error");
     ch_ip_stack_tcp_close_descriptor(flow);
 }
 
@@ -1096,8 +1134,9 @@ static err_t ch_ip_stack_tcp_accept(void *context, struct tcp_pcb *client,
                    source_address, (unsigned int)flow->source_port);
     ch_error dial_error;
     int descriptor = -1;
+    uint64_t flow_id = 0U;
     ch_status status = flow->stack->tcp_dialer(
-        target, source, flow->domain_hint, &descriptor,
+        target, source, flow->domain_hint, &descriptor, &flow_id,
         flow->stack->tcp_dialer_context, &dial_error);
     if (status != CH_OK || descriptor < 0 ||
         !ch_ip_stack_set_nonblocking(descriptor)) {
@@ -1107,6 +1146,7 @@ static err_t ch_ip_stack_tcp_accept(void *context, struct tcp_pcb *client,
         return ERR_ABRT;
     }
     flow->descriptor = descriptor;
+    flow->flow_id = flow_id;
     return ERR_OK;
 }
 
@@ -1233,6 +1273,7 @@ static void ch_ip_stack_tcp_flow_abort(ch_ip_stack_tcp_flow *flow) {
     }
     ch_ip_stack_tcp_close_descriptor(flow);
     flow->dead = 1;
+    ch_ip_stack_tcp_observe_close(flow, "TCP flow aborted");
 }
 
 static void ch_ip_stack_tcp_flow_tick(ch_ip_stack_tcp_flow *flow) {
@@ -1250,6 +1291,8 @@ static void ch_ip_stack_tcp_flow_tick(ch_ip_stack_tcp_flow *flow) {
             flow->pending_length - flow->pending_offset);
         if (written > 0) {
             flow->pending_offset += (size_t)written;
+            ch_ip_stack_observe_bytes(flow->stack, flow->flow_id, 0U,
+                                      (uint64_t)written);
             continue;
         }
         if (written < 0 && errno == EINTR) continue;
@@ -1311,6 +1354,8 @@ static void ch_ip_stack_tcp_flow_tick(ch_ip_stack_tcp_flow *flow) {
                 ch_ip_stack_tcp_flow_abort(flow);
                 return;
             }
+            ch_ip_stack_observe_bytes(flow->stack, flow->flow_id,
+                                      (uint64_t)received, 0U);
             continue;
         }
         if (received == 0) {
@@ -1339,6 +1384,7 @@ static void ch_ip_stack_tcp_flow_tick(ch_ip_stack_tcp_flow *flow) {
         if (tcp_close(flow->client) == ERR_OK) {
             flow->client = NULL;
             flow->dead = 1;
+            ch_ip_stack_tcp_observe_close(flow, "closed");
             ch_ip_stack_tcp_close_descriptor(flow);
         } else {
             tcp_arg(flow->client, flow);
@@ -1358,6 +1404,7 @@ static void ch_ip_stack_tcp_sweep(ch_ip_stack *stack) {
             continue;
         }
         *cursor = flow->next;
+        ch_ip_stack_tcp_observe_close(flow, "closed");
         ch_ip_stack_tcp_close_descriptor(flow);
         free(flow->pending);
         free(flow->remote_pending);
@@ -1420,8 +1467,9 @@ static ch_ip_stack_udp_flow *ch_ip_stack_udp_flow_create(
                      "format UDP TUN route endpoints");
         return NULL;
     }
+    uint64_t flow_id = 0U;
     ch_status status = stack->udp_dialer(
-        target, source, flow->domain_hint, &flow->connection,
+        target, source, flow->domain_hint, &flow->connection, &flow_id,
         stack->udp_dialer_context, error);
     if (status != CH_OK || flow->connection == NULL) {
         if (flow->connection != NULL) stack->udp_closer(flow->connection);
@@ -1432,6 +1480,7 @@ static ch_ip_stack_udp_flow *ch_ip_stack_udp_flow_create(
         }
         return NULL;
     }
+    flow->flow_id = flow_id;
     flow->last_activity = sys_now();
     flow->next = stack->udp_flows;
     stack->udp_flows = flow;
@@ -1477,6 +1526,8 @@ static void ch_ip_stack_udp_flow_tick(ch_ip_stack_udp_flow *flow,
             flow->dead = 1;
             break;
         }
+        ch_ip_stack_observe_bytes(flow->stack, flow->flow_id,
+                                  (uint64_t)payload_length, 0U);
         flow->last_activity = sys_now();
     }
     if ((u32_t)(sys_now() - flow->last_activity) >=
@@ -1494,6 +1545,7 @@ static void ch_ip_stack_udp_sweep(ch_ip_stack *stack) {
             continue;
         }
         *cursor = flow->next;
+        ch_ip_stack_udp_observe_close(flow, "closed");
         if (flow->connection != NULL) stack->udp_closer(flow->connection);
         free(flow);
         --stack->udp_flow_count;
@@ -1718,6 +1770,8 @@ static ch_status ch_ip_stack_handle_udp_payload(
         flow->dead = 1;
         return status;
     }
+    ch_ip_stack_observe_bytes(stack, flow->flow_id, 0U,
+                              (uint64_t)payload_length);
     flow->last_activity = sys_now();
     return CH_OK;
 }
@@ -1918,6 +1972,9 @@ ch_ip_stack *ch_ip_stack_create(const ch_ip_stack_options *options,
     stack->udp_sender = options->udp_sender;
     stack->udp_receiver = options->udp_receiver;
     stack->udp_closer = options->udp_closer;
+    stack->flow_bytes = options->flow_bytes;
+    stack->flow_close = options->flow_close;
+    stack->flow_observer_context = options->flow_observer_context;
     stack->dns_exchange = options->dns_exchange;
     stack->dns_exchange_context = options->dns_exchange_context;
     stack->next_tcp_port = CH_IP_STACK_TCP_FIRST_PORT;

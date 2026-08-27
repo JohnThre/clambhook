@@ -114,6 +114,8 @@ add_library(clambhook_jni SHARED
     "${CLAMBHOOK_ROOT}/native/src/rules_config.c"
     "${CLAMBHOOK_ROOT}/native/src/runtime_config.c"
     "${CLAMBHOOK_ROOT}/native/src/socks.c"
+    "${CLAMBHOOK_ROOT}/native/src/temporary_rules.c"
+    "${CLAMBHOOK_ROOT}/native/src/traffic.c"
 )
 
 add_dependencies(clambhook_jni clambhook_android_openssl)
