@@ -86,6 +86,44 @@ void ch_test_rule_feed(void) {
     CH_TEST_ASSERT(decoded.fetched_ts_ns == INT64_C(1787728824039829000));
     ch_rule_feed_cache_clear(&decoded);
     CH_TEST_ASSERT(unlink(native_cache_path) == 0);
+    {
+        const char response_body[] =
+            "ads.example.com\n192.0.2.44/24\n";
+        const char *networks[] = {"udp", "tcp"};
+        ch_rule_feed_refresh_options options = {
+            .config_path = config_path,
+            .kind = CH_RULE_FEED_SUBSCRIPTION,
+            .profile = "default",
+            .name = "ads",
+            .url = "https://lists.example/ads.txt",
+            .format = "plain",
+            .action = "reject",
+            .networks = networks,
+            .network_count = 2U
+        };
+        CH_TEST_ASSERT(ch_rule_feed_cache_store_response(
+            &options, response_body, strlen(response_body), "etag-v2",
+            "Tue, 26 Aug 2026 12:00:00 GMT", INT64_C(100), &error) ==
+            CH_OK);
+        char *metadata = NULL;
+        CH_TEST_ASSERT(ch_rule_feed_cache_metadata_json(
+            config_path, CH_RULE_FEED_SUBSCRIPTION, "default", "ads",
+            "https://lists.example/ads.txt", &metadata, &error) == CH_OK);
+        CH_TEST_ASSERT(strstr(metadata, "\"cached\":true") != NULL);
+        CH_TEST_ASSERT(strstr(metadata, "\"etag\":\"etag-v2\"") != NULL);
+        free(metadata);
+        CH_TEST_ASSERT(ch_rule_feed_cache_touch(
+            config_path, CH_RULE_FEED_SUBSCRIPTION, "default", "ads",
+            "https://lists.example/ads.txt", INT64_C(200), &error) == CH_OK);
+        CH_TEST_ASSERT(ch_rule_feed_cache_load(
+            config_path, CH_RULE_FEED_SUBSCRIPTION, "default", "ads",
+            "https://lists.example/ads.txt", &decoded, &error) == CH_OK);
+        CH_TEST_ASSERT(decoded.fetched_ts_ns == 200);
+        CH_TEST_ASSERT(decoded.network_count == 2U);
+        CH_TEST_ASSERT_STRING("tcp", decoded.networks[0]);
+        ch_rule_feed_cache_clear(&decoded);
+        CH_TEST_ASSERT(unlink(native_cache_path) == 0);
+    }
     const char *unsafe_urls[] = {
         "http://127.0.0.1/list.txt",
         "http://10.0.0.1/list.txt",

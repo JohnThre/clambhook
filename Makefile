@@ -1,4 +1,4 @@
-.PHONY: all build build-clib build-daemon build-tui build-license build-native test-native build-linux-gtk install install-linux prepare-apple-runtime generate-apple build-apple check-macos-signing release-macos release-linux upload-release-r2 release-check ci-local macos-release-contract-check package-smoke test-apple test-android test-android-compatibility build-android-mobile-aar build-android-native build-android lint-android run-android build-android-release release-android upload-release-android check-linux-ui-deps test-linux build-linux test test-race provision-clambback-e2e e2e e2e-required e2e-release e2e-tun lint clean
+.PHONY: all build build-clib build-daemon build-tui build-license build-native test-native build-linux-gtk install install-linux prepare-apple-runtime generate-apple build-apple check-macos-signing release-macos release-linux upload-release-r2 release-check ci-local macos-release-contract-check package-smoke test-apple test-android test-android-compatibility build-android-native build-android lint-android run-android build-android-release release-android upload-release-android check-linux-ui-deps test-linux build-linux test test-race provision-clambback-e2e e2e e2e-required e2e-release e2e-tun lint clean
 
 export CGO_ENABLED=1
 PREFIX ?= /usr/local
@@ -151,9 +151,6 @@ test-android:
 # 31/33/36) using Gradle build-managed AOSP devices.
 test-android-compatibility:
 	cd ui/android && ANDROID_HOME="$(ANDROID_HOME)" ./gradlew :app:androidCompatibilityGroupDebugAndroidTest -Pclambhook.managedDeviceTestAbi=arm64-v8a -Pandroid.experimental.testOptions.managedDevices.maxConcurrentDevices=1 -Pandroid.testoptions.manageddevices.emulator.gpu=swiftshader_indirect
-
-build-android-mobile-aar:
-	./scripts/build-android-mobile-aar.sh
 
 build-android-native:
 	cd ui/android && $(GRADLE) --no-daemon :app:externalNativeBuildDebug

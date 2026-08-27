@@ -10,7 +10,7 @@
 # Sections:
 #   go      make test, make test-race, make lint
 #   apple   make build-apple, make test-apple (swift test)            [macOS only]
-#   android make build-android-mobile-aar, test-android, lint-android, build-android
+#   android test-android, lint-android, build-android
 #          + on-device AVD smoke (Android SDK Emulator) when CI_LOCAL_ANDROID_AVD=<name>
 #   linux   make test-linux + Trisquel/Rocky/Alma container validation
 #   e2e     make e2e-required (local sing-box/Tor/ClambBack) + make e2e-tun (Linux + /dev/net/tun)
@@ -85,12 +85,6 @@ section_android() {
         return "$SKIP_RC"
     }
     echo "==================== ci-local: android ===================="
-    # Embedded daemon AAR (gomobile). Skipped if gomobile/gobind are not installed.
-    if HAVE gomobile && HAVE gobind; then
-        make build-android-mobile-aar
-    else
-        echo "ci-local: [android] skip: gomobile/gobind not installed (AAR build)" >&2
-    fi
     make test-android
     make lint-android
     make build-android

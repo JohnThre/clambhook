@@ -662,6 +662,88 @@ static void test_file_backed_runtime_config_bridge(void) {
     CH_TEST_ASSERT(rmdir(directory) == 0);
 }
 
+static void test_reviewed_profile_import(void) {
+    static const char imported_toml[] =
+        "active = \"imported\"\n"
+        "[[profile]]\nname = \"imported\"\n"
+        "[[profile.chain]]\nname = \"proxy\"\n"
+        "[[profile.chain.server]]\nname = \"exit\"\n"
+        "address = \"import.example.invalid:443\"\n"
+        "protocol = \"Shadowsocks\"\n"
+        "[profile.chain.server.settings]\n"
+        "method = \"chacha20-ietf-poly1305\"\npassword = \"secret\"\n"
+        "[[profile.rule]]\nname = \"ads\"\naction = \"block\"\n"
+        "[[profile]]\nname = \"backup-import\"\n"
+        "[[profile.chain]]\nname = \"direct\"\n"
+        "[[profile.chain.server]]\nname = \"direct\"\n"
+        "protocol = \"direct\"\n";
+    static const char placeholder_toml[] =
+        "active = \"default\"\n"
+        "[[profile]]\nname = \"default\"\n"
+        "[[profile.chain]]\nname = \"proxy\"\n"
+        "[[profile.chain.server]]\nname = \"replace-me\"\n"
+        "address = \"proxy.example.com:443\"\n"
+        "protocol = \"shadowsocks\"\n"
+        "[profile.chain.server.settings]\n"
+        "method = \"chacha20-ietf-poly1305\"\n"
+        "password = \"replace-with-secret\"\n";
+    ch_error error;
+    char *review = NULL;
+    CH_TEST_ASSERT(ch_config_import_review_json(
+        imported_toml, &review, &error) == CH_OK);
+    CH_TEST_ASSERT(strstr(review, "\"active_profile\":\"imported\"") !=
+                   NULL);
+    CH_TEST_ASSERT(strstr(review, "\"chain_count\":1") != NULL);
+    CH_TEST_ASSERT(strstr(review, "\"server_count\":1") != NULL);
+    CH_TEST_ASSERT(strstr(review, "\"rule_count\":1") != NULL);
+    CH_TEST_ASSERT(strstr(review, "\"protocols\":[\"shadowsocks\"]") !=
+                   NULL);
+    free(review);
+
+    char directory[180];
+    char path[220];
+    (void)snprintf(directory, sizeof(directory),
+                   "/tmp/clambhook-config-import-%ld", (long)getpid());
+    (void)snprintf(path, sizeof(path), "%s/config.toml", directory);
+    CH_TEST_ASSERT(ch_config_write_atomic_document(
+        path, placeholder_toml, NULL, &error) == CH_OK);
+    ch_json_buffer request;
+    ch_json_init(&request);
+    CH_TEST_ASSERT(ch_json_append(&request, "{\"import_text\":") != 0);
+    CH_TEST_ASSERT(ch_json_append_string(&request, imported_toml) != 0);
+    CH_TEST_ASSERT(ch_json_append(
+        &request,
+        ",\"profiles\":[{\"source_name\":\"backup-import\","
+        "\"target_name\":\"phone-backup\"}],"
+        "\"activate_profile\":\"phone-backup\"}") != 0);
+    char *request_json = ch_json_take(&request);
+    CH_TEST_ASSERT(ch_config_apply_reviewed_import_file(
+        path, request_json, &error) == CH_OK);
+    free(request_json);
+    ch_config *config = NULL;
+    CH_TEST_ASSERT(ch_config_load(path, &config, &error) == CH_OK);
+    CH_TEST_ASSERT(ch_config_profile_count(config) == 1U);
+    char *active = NULL;
+    CH_TEST_ASSERT(ch_config_table_get_string(
+        ch_config_active_profile(config), "name", &active, &error) == CH_OK);
+    CH_TEST_ASSERT_STRING("phone-backup", active);
+    free(active);
+    ch_config_free(config);
+
+    DIR *stream = opendir(directory);
+    struct dirent *entry;
+    CH_TEST_ASSERT(stream != NULL);
+    while ((entry = readdir(stream)) != NULL) {
+        if (entry->d_name[0] == '.') continue;
+        char file[260];
+        (void)snprintf(file, sizeof(file), "%s/%s", directory,
+                       entry->d_name);
+        CH_TEST_ASSERT(unlink(file) == 0);
+    }
+    (void)closedir(stream);
+    CH_TEST_ASSERT(rmdir(directory) == 0);
+}
+
 void ch_test_config(void) {
     test_load_and_query();
     test_duration_contract();
@@ -671,4 +753,5 @@ void ch_test_config(void) {
     test_structured_document_mutations();
     test_atomic_write_and_backup_retention();
     test_file_backed_runtime_config_bridge();
+    test_reviewed_profile_import();
 }

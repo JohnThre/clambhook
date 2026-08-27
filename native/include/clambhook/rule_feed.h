@@ -73,6 +73,34 @@ ch_status ch_rule_feed_cache_write(const char *config_path,
                                    ch_rule_feed_kind kind,
                                    const ch_rule_feed_cache *cache,
                                    ch_error *error);
+
+/* Metadata used by a platform HTTP client for conditional refreshes. */
+ch_status ch_rule_feed_cache_metadata_json(const char *config_path,
+                                           ch_rule_feed_kind kind,
+                                           const char *profile,
+                                           const char *name,
+                                           const char *url,
+                                           char **out_json,
+                                           ch_error *error);
+
+/* Parses a platform-fetched response and commits it in the shared cache. */
+ch_status ch_rule_feed_cache_store_response(
+    const ch_rule_feed_refresh_options *options,
+    const char *body,
+    size_t length,
+    const char *etag,
+    const char *last_modified,
+    int64_t fetched_ts_ns,
+    ch_error *error);
+
+/* Advances freshness after a successful HTTP 304 response. */
+ch_status ch_rule_feed_cache_touch(const char *config_path,
+                                   ch_rule_feed_kind kind,
+                                   const char *profile,
+                                   const char *name,
+                                   const char *url,
+                                   int64_t fetched_ts_ns,
+                                   ch_error *error);
 /* Fetches with public-address validation, DNS pinning, and safe redirects. */
 ch_status ch_rule_feed_refresh(const ch_rule_feed_refresh_options *options,
                                ch_error *error);

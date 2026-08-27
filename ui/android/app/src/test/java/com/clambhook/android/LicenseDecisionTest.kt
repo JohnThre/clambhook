@@ -50,7 +50,7 @@ class LicenseDecisionTest {
     @Test
     fun licensedDecisionCarriesUpdateCutoffForGating() {
         // The update-install gate keys off updateCutoffDate; it must round-trip
-        // across the gomobile JSON boundary intact.
+        // across the native JSON boundary intact.
         val decision = json.decodeFromString(
             LicenseDecision.serializer(),
             """{"reason":"licensed","updateCutoffDate":"2027-06-01T00:00:00Z","unlockedFeatureIDs":["pro"]}""",

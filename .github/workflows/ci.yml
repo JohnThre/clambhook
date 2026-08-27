@@ -19,7 +19,6 @@ env:
   JAVA_VERSION: '17'
   ANDROID_NDK_VERSION: '27.0.12077973'
   ANDROID_CMAKE_VERSION: '3.22.1'
-  GOMOBILE_VERSION: 'v0.0.0-20260529142300-ecb4cd65260a'
 
 jobs:
   policy:
@@ -120,11 +119,6 @@ jobs:
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
-      - name: Set up Go
-        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
-        with:
-          go-version: ${{ env.GO_VERSION }}
-          cache: true
       - name: Set up Java
         uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
         with:
@@ -141,8 +135,6 @@ jobs:
             'build-tools;36.0.0' \
             "ndk;${ANDROID_NDK_VERSION}" \
             "cmake;${ANDROID_CMAKE_VERSION}"
-      - name: Install transitional gomobile rollback tool
-        run: go install "golang.org/x/mobile/cmd/gomobile@${GOMOBILE_VERSION}"
       - name: Test, lint, and build Android 12+ app
         working-directory: ui/android
         run: ./gradlew --no-daemon :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:externalNativeBuildDebug
@@ -172,18 +164,11 @@ jobs:
     timeout-minutes: 75
     permissions:
       contents: read
-    env:
-      CLAMBHOOK_GOMOBILE_TARGETS: android/amd64
     steps:
       - name: Check out source
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
-      - name: Set up Go
-        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
-        with:
-          go-version: ${{ env.GO_VERSION }}
-          cache: true
       - name: Set up Java
         uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
         with:
@@ -207,8 +192,6 @@ jobs:
             "ndk;${ANDROID_NDK_VERSION}" \
             "cmake;${ANDROID_CMAKE_VERSION}" \
             'system-images;android-${{ matrix.api }};default;x86_64'
-      - name: Install transitional gomobile rollback tool
-        run: go install "golang.org/x/mobile/cmd/gomobile@${GOMOBILE_VERSION}"
       - name: Run Compose and native JNI tests
         working-directory: ui/android
         run: >-

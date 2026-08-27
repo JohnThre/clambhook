@@ -23,6 +23,8 @@ class LocalTunnelApi(
     private val onDisconnect: () -> Unit,
     private val session: ClambhookTunnelSession = ClambhookTunnelSession,
 ) : ClambhookApi {
+    private val ruleSetRefresher = AndroidRuleSetRefresher()
+
     constructor(context: Context) : this(
         onConnect = { ClambhookVpnService.start(context.applicationContext) },
         onDisconnect = { ClambhookVpnService.stop(context.applicationContext) },
@@ -204,9 +206,9 @@ class LocalTunnelApi(
     override suspend fun refreshRuleSets(profile: String, names: List<String>): RuleSetsPayload = io {
         val rt = runtime()
         val configPath = session.configPath
-        val json = GomobileClambhookTunnelRuntimeFactory.refreshRuleSetsJson(configPath, profile, ApiJson.encodeToString(names))
+        val payload = ruleSetRefresher.refresh(configPath, profile, names)
         rt.reload(configPath)
-        ApiJson.decodeFromString(json)
+        payload
     }
 
     override suspend fun conditioner(profile: String): ConditionerPayload = io {

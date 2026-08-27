@@ -1158,6 +1158,157 @@ ch_status ch_rule_feed_cache_load(const char *config_path,
     return status;
 }
 
+static ch_status feed_cache_copy_networks(
+    ch_rule_feed_cache *cache, const ch_rule_feed_refresh_options *options,
+    ch_error *error) {
+    if (options->network_count == 0U) return CH_OK;
+    cache->networks = calloc(options->network_count,
+                             sizeof(*cache->networks));
+    if (cache->networks == NULL) {
+        ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                     "allocate rule feed networks");
+        return CH_ERROR_OUT_OF_MEMORY;
+    }
+    for (size_t index = 0U; index < options->network_count; ++index) {
+        cache->networks[index] = ch_strdup(options->networks[index]);
+        if (cache->networks[index] == NULL) {
+            ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                         "copy rule feed network");
+            return CH_ERROR_OUT_OF_MEMORY;
+        }
+        ++cache->network_count;
+    }
+    if (cache->network_count > 1U) {
+        qsort(cache->networks, cache->network_count,
+              sizeof(*cache->networks), feed_string_compare);
+    }
+    return CH_OK;
+}
+
+ch_status ch_rule_feed_cache_metadata_json(const char *config_path,
+                                           ch_rule_feed_kind kind,
+                                           const char *profile,
+                                           const char *name,
+                                           const char *url,
+                                           char **out_json,
+                                           ch_error *error) {
+    ch_error_clear(error);
+    if (out_json == NULL) {
+        ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
+                     "rule feed metadata output is required");
+        return CH_ERROR_INVALID_ARGUMENT;
+    }
+    *out_json = NULL;
+    ch_rule_feed_cache cache;
+    ch_status status = ch_rule_feed_cache_load(
+        config_path, kind, profile, name, url, &cache, error);
+    if (status == CH_ERROR_NOT_FOUND) {
+        ch_error_clear(error);
+        *out_json = ch_strdup("{\"cached\":false}");
+        if (*out_json == NULL) {
+            ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                         "encode rule feed cache metadata");
+            return CH_ERROR_OUT_OF_MEMORY;
+        }
+        return CH_OK;
+    }
+    if (status != CH_OK) return status;
+    ch_json_buffer output;
+    ch_json_init(&output);
+    int okay = ch_json_append(&output, "{\"cached\":true,\"etag\":") &&
+        ch_json_append_string(&output, cache.etag == NULL ? "" : cache.etag) &&
+        ch_json_append(&output, ",\"last_modified\":") &&
+        ch_json_append_string(&output, cache.last_modified == NULL ? "" :
+                              cache.last_modified) &&
+        ch_json_append_format(&output, ",\"fetched_ts_ns\":%" PRId64 "}",
+                              cache.fetched_ts_ns);
+    ch_rule_feed_cache_clear(&cache);
+    *out_json = okay ? ch_json_take(&output) : NULL;
+    ch_json_dispose(&output);
+    if (*out_json == NULL) {
+        ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                     "encode rule feed cache metadata");
+        return CH_ERROR_OUT_OF_MEMORY;
+    }
+    return CH_OK;
+}
+
+ch_status ch_rule_feed_cache_store_response(
+    const ch_rule_feed_refresh_options *options,
+    const char *body,
+    size_t length,
+    const char *etag,
+    const char *last_modified,
+    int64_t fetched_ts_ns,
+    ch_error *error) {
+    ch_error_clear(error);
+    if (options == NULL || options->config_path == NULL ||
+        options->profile == NULL || options->name == NULL ||
+        options->url == NULL || options->format == NULL || body == NULL ||
+        length > CH_RULE_FEED_MAX_BYTES ||
+        (options->network_count > 0U && options->networks == NULL)) {
+        ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
+                     "complete rule feed response metadata is required");
+        return CH_ERROR_INVALID_ARGUMENT;
+    }
+    for (size_t index = 0U; index < options->network_count; ++index) {
+        if (options->networks[index] == NULL) {
+            ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
+                         "rule feed networks must not contain null values");
+            return CH_ERROR_INVALID_ARGUMENT;
+        }
+    }
+    ch_rule_feed_cache cache;
+    memset(&cache, 0, sizeof(cache));
+    ch_status status = ch_rule_feed_parse(body, length, options->format,
+                                          &cache.feed, error);
+    if (status == CH_OK) {
+        cache.profile = ch_strdup(options->profile);
+        cache.name = ch_strdup(options->name);
+        cache.url = ch_strdup(options->url);
+        cache.action = ch_strdup(options->action == NULL ||
+                                 options->action[0] == '\0' ? "block" :
+                                 options->action);
+        cache.etag = ch_strdup(etag == NULL ? "" : etag);
+        cache.last_modified = ch_strdup(last_modified == NULL ? "" :
+                                        last_modified);
+        cache.fetched_ts_ns = fetched_ts_ns;
+        if (cache.profile == NULL || cache.name == NULL ||
+            cache.url == NULL || cache.action == NULL ||
+            cache.etag == NULL || cache.last_modified == NULL) {
+            ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                         "allocate rule feed cache metadata");
+            status = CH_ERROR_OUT_OF_MEMORY;
+        }
+    }
+    if (status == CH_OK) {
+        status = feed_cache_copy_networks(&cache, options, error);
+    }
+    if (status == CH_OK) {
+        status = ch_rule_feed_cache_write(options->config_path,
+                                          options->kind, &cache, error);
+    }
+    ch_rule_feed_cache_clear(&cache);
+    return status;
+}
+
+ch_status ch_rule_feed_cache_touch(const char *config_path,
+                                   ch_rule_feed_kind kind,
+                                   const char *profile,
+                                   const char *name,
+                                   const char *url,
+                                   int64_t fetched_ts_ns,
+                                   ch_error *error) {
+    ch_rule_feed_cache cache;
+    ch_status status = ch_rule_feed_cache_load(
+        config_path, kind, profile, name, url, &cache, error);
+    if (status != CH_OK) return status;
+    cache.fetched_ts_ns = fetched_ts_ns;
+    status = ch_rule_feed_cache_write(config_path, kind, &cache, error);
+    ch_rule_feed_cache_clear(&cache);
+    return status;
+}
+
 #ifndef __ANDROID__
 typedef struct feed_http_buffer {
     char *data;
@@ -1469,31 +1620,6 @@ static int64_t feed_now_nanoseconds(void) {
     if (clock_gettime(CLOCK_REALTIME, &now) != 0) return 0;
     return (int64_t)now.tv_sec * INT64_C(1000000000) +
         (int64_t)now.tv_nsec;
-}
-
-static ch_status feed_cache_copy_networks(
-    ch_rule_feed_cache *cache, const ch_rule_feed_refresh_options *options,
-    ch_error *error) {
-    if (options->network_count == 0U) return CH_OK;
-    cache->networks = calloc(options->network_count,
-                             sizeof(*cache->networks));
-    if (cache->networks == NULL) {
-        ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
-                     "allocate rule feed networks");
-        return CH_ERROR_OUT_OF_MEMORY;
-    }
-    for (size_t index = 0U; index < options->network_count; ++index) {
-        cache->networks[index] = ch_strdup(options->networks[index]);
-        if (cache->networks[index] == NULL) {
-            ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
-                         "copy rule feed network");
-            return CH_ERROR_OUT_OF_MEMORY;
-        }
-        ++cache->network_count;
-    }
-    qsort(cache->networks, cache->network_count,
-          sizeof(*cache->networks), feed_string_compare);
-    return CH_OK;
 }
 
 ch_status ch_rule_feed_refresh(const ch_rule_feed_refresh_options *options,

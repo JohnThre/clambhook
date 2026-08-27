@@ -2,7 +2,6 @@ package com.clambhook.android
 
 import android.content.Context
 import android.net.Uri
-import com.clambhook.mobile.Mobile
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -16,7 +15,7 @@ import okhttp3.Request
 
 /**
  * Stages and applies ClambHook profile imports. Parsing, validation, and the
- * merge/apply all run in Go (`pkg/mobile`); this manager sources the import text
+ * merge/apply all run in the native C configuration layer; this manager sources the import text
  * (file, clipboard, subscription URL, QR) and drives the review → apply flow.
  */
 class ProfileImportManager(context: Context) {
@@ -37,7 +36,9 @@ class ProfileImportManager(context: Context) {
         }
         _state.update { it.copy(busy = true, message = "") }
         try {
-            val review = json.decodeFromString<TunnelImportReview>(Mobile.tunnelImportReviewJSON(trimmed))
+            val review = json.decodeFromString<TunnelImportReview>(
+                NativeClambhookConfigBridge.importReview(trimmed),
+            )
             if (review.profiles.isEmpty()) {
                 _state.update { it.copy(review = null, message = "No profiles found in the import.") }
             } else {
@@ -105,7 +106,7 @@ class ProfileImportManager(context: Context) {
                     },
                     activateProfile = activateSourceName?.takeIf { it.isNotBlank() }?.let { targetFor(it) }.orEmpty(),
                 )
-                Mobile.applyReviewedTunnelImportJSON(path, json.encodeToString(request))
+                NativeClambhookConfigBridge.applyReviewedImport(path, json.encodeToString(request))
                 val count = review.profiles.size
                 _state.value = ProfileImportUiState(
                     message = "Imported $count profile${if (count == 1) "" else "s"}.",

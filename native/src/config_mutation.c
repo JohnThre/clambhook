@@ -1058,9 +1058,9 @@ static int mutation_render_table(ch_json_buffer *output,
     return 1;
 }
 
-static ch_status mutation_render_document(const ch_json_value *root,
-                                          char **out_toml,
-                                          ch_error *error) {
+ch_status ch_config_render_document_json(const ch_json_value *root,
+                                         char **out_toml,
+                                         ch_error *error) {
     *out_toml = NULL;
     ch_json_buffer output;
     ch_json_init(&output);
@@ -1195,7 +1195,7 @@ ch_status ch_config_mutate_document_json(const ch_config *config,
         status = CH_ERROR_UNSUPPORTED;
     }
     if (status == CH_OK) {
-        status = mutation_render_document(root, out_toml, error);
+        status = ch_config_render_document_json(root, out_toml, error);
     }
     if (status == CH_OK) {
         ch_config *validated = NULL;

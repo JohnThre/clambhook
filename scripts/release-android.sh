@@ -69,14 +69,11 @@ checksum_and_sign() {
   echo "  sha256: $(awk '{print $1}' "$artifact.sha256")"
 }
 
-# 1. Build the transitional embedded daemon AAR and release APK. Protected CI
-# performs this build without signing credentials, signs the completed APK with
+# 1. Build the native C/JNI release APK. Protected CI performs this build
+# without signing credentials, signs the completed APK with
 # the trusted Android SDK apksigner, and then calls this script with
 # CLAMBHOOK_ANDROID_SKIP_BUILD=1 to package its metadata.
 if [[ "${CLAMBHOOK_ANDROID_SKIP_BUILD:-0}" != "1" ]]; then
-  echo "== Building AAR =="
-  make build-android-mobile-aar
-
   # Day-to-day Android development uses Google's `android` CLI by default (see
   # docs/android-development.md). Release assembly stays on Gradle because the
   # `android` CLI has no release-build command.

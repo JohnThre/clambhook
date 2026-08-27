@@ -1,7 +1,7 @@
-# gomobile bindings. Some are invoked reflectively (EmbeddedClambhookRuntime),
-# and the JNI glue in go.* must not be renamed or stripped.
--keep class com.clambhook.mobile.** { *; }
--keep class go.** { *; }
+# JNI entry points use their declared Kotlin class and method names.
+-keepclasseswithmembernames,includedescriptorclasses class com.clambhook.android.** {
+    native <methods>;
+}
 
 # kotlinx.serialization: keep generated serializers and @Serializable metadata.
 -keepattributes *Annotation*, InnerClasses

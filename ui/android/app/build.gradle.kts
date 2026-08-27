@@ -150,16 +150,6 @@ android {
 
 }
 
-val clambhookMobileAar = layout.projectDirectory.file("libs/clambhookmobile.aar")
-val generateClambhookMobileAar = tasks.register<Exec>("generateClambhookMobileAar") {
-    workingDir = repositoryRoot.asFile
-    commandLine(
-        repositoryRoot.file("scripts/build-android-mobile-aar.sh").asFile.absolutePath,
-        clambhookMobileAar.asFile.absolutePath
-    )
-    outputs.file(clambhookMobileAar)
-}
-
 val generateThirdPartyNotices = tasks.register<Sync>("generateThirdPartyNotices") {
     from(repositoryRoot.file("THIRD_PARTY_NOTICES.md"))
     from(repositoryRoot.file("third_party/openssl/LICENSE.txt")) {
@@ -168,11 +158,9 @@ val generateThirdPartyNotices = tasks.register<Sync>("generateThirdPartyNotices"
     into(generatedThirdPartyNoticesDirectory)
 }
 
-// Every build task transitively depends on preBuild, so wiring the AAR
-// generator here makes it a proper prerequisite for all consumers (assemble,
-// R8, lint, dependency collection) without enumerating each one.
+// Every build task transitively depends on preBuild, so packaged notices are
+// always synchronized before asset merging.
 tasks.named("preBuild") {
-    dependsOn(generateClambhookMobileAar)
     dependsOn(generateThirdPartyNotices)
 }
 
@@ -202,8 +190,6 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("com.journeyapps:zxing-android-embedded:4.3.0")
-    implementation(fileTree("libs") { include("*.aar") })
-
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
 

@@ -58,6 +58,23 @@ ch_status ch_config_write_atomic_document(const char *path, const char *toml,
                                           char **out_backup_path,
                                           ch_error *error);
 
+/*
+ * Parses a complete imported TOML document and returns the profile-review JSON
+ * used by native GUIs. The returned string is released with free().
+ */
+ch_status ch_config_import_review_json(const char *import_toml,
+                                       char **out_json,
+                                       ch_error *error);
+
+/*
+ * Applies the reviewed profile selection in request_json to path as one
+ * validated atomic transaction. Unselected imported profiles and imported
+ * root-level settings are not copied.
+ */
+ch_status ch_config_apply_reviewed_import_file(const char *path,
+                                               const char *request_json,
+                                               ch_error *error);
+
 bool ch_config_table_has(const ch_config_table *table, const char *key);
 const ch_config_table *ch_config_table_get_table(const ch_config_table *table,
                                                   const char *key);

@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "clambhook/config.h"
 #include "clambhook/runtime.h"
 
 typedef struct ch_jni_runtime {
@@ -332,4 +333,46 @@ Java_com_clambhook_android_NativeClambhookConfigBridge_nativeMutateConfig(
     jstring result = (*environment)->NewStringUTF(environment, response);
     ch_string_free(response);
     return result;
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_clambhook_android_NativeClambhookConfigBridge_nativeImportReview(
+    JNIEnv *environment, jobject bridge, jstring import_text
+) {
+    (void)bridge;
+    const char *import_utf = ch_jni_get_utf(environment, import_text);
+    if (import_utf == NULL) return NULL;
+    char *response = NULL;
+    ch_error error;
+    ch_status status = ch_config_import_review_json(import_utf, &response,
+                                                    &error);
+    ch_jni_release_utf(environment, import_text, import_utf);
+    if (status != CH_OK) {
+        ch_jni_check(environment, status, &error);
+        return NULL;
+    }
+    jstring result = (*environment)->NewStringUTF(environment, response);
+    ch_string_free(response);
+    return result;
+}
+
+JNIEXPORT void JNICALL
+Java_com_clambhook_android_NativeClambhookConfigBridge_nativeApplyReviewedImport(
+    JNIEnv *environment, jobject bridge, jstring config_path,
+    jstring request_json
+) {
+    (void)bridge;
+    const char *path_utf = ch_jni_get_utf(environment, config_path);
+    const char *request_utf = ch_jni_get_utf(environment, request_json);
+    if (path_utf == NULL || request_utf == NULL) {
+        ch_jni_release_utf(environment, config_path, path_utf);
+        ch_jni_release_utf(environment, request_json, request_utf);
+        return;
+    }
+    ch_error error;
+    ch_status status = ch_config_apply_reviewed_import_file(
+        path_utf, request_utf, &error);
+    ch_jni_release_utf(environment, config_path, path_utf);
+    ch_jni_release_utf(environment, request_json, request_utf);
+    ch_jni_check(environment, status, &error);
 }

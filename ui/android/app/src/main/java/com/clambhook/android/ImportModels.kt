@@ -4,8 +4,7 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 /**
- * Profile-import types mirroring the `pkg/mobile` import review/apply bridge
- * (`TunnelImportReviewJSON` / `ApplyReviewedTunnelImportJSON`). Imports are
+ * Profile-import types for the native C review/apply bridge. Imports are
  * ClambHook TOML configs supplied from a file, the clipboard, a subscription
  * URL, or a scanned QR code; the bridge parses and validates them.
  */

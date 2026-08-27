@@ -73,6 +73,7 @@ endif()
 
 add_library(clambhook_core STATIC
   native/src/config.c
+  native/src/config_import.c
   native/src/config_mutation.c
   native/src/config_payload.c
   native/src/dns.c
@@ -181,7 +182,10 @@ endif()
 
 if(CLAMBHOOK_BUILD_JNI)
   find_package(JNI REQUIRED)
-  add_library(clambhook_jni SHARED native/src/android/jni.c)
+  add_library(clambhook_jni SHARED
+    native/src/android/jni.c
+    native/src/android/rule_feed_jni.c
+  )
   target_include_directories(clambhook_jni PRIVATE ${JNI_INCLUDE_DIRS})
   target_link_libraries(clambhook_jni PRIVATE Clambhook::Core ${JNI_LIBRARIES})
   target_compile_options(clambhook_jni PRIVATE

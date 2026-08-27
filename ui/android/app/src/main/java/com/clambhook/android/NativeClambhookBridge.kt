@@ -1,9 +1,7 @@
 package com.clambhook.android
 
 /**
- * Thin, typed owner of the C runtime's JNI handle. This bridge is additive
- * until every operation exposed by the gomobile runtime passes parity tests;
- * production continues to instantiate [GomobileClambhookTunnelRuntime].
+ * Thin, typed owner of the production C runtime's JNI handle.
  */
 internal class NativeClambhookBridge(
     packetWriter: PacketWriter,

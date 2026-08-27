@@ -745,9 +745,9 @@ data class ComposedRequestPayload(
     val body: String? = null,
 )
 
-/** Server-side capture flow-list filter (mobile bridge counterpart to the
+/** Server-side capture flow-list filter (native bridge counterpart to the
  * /developer/entries query filter). Every field is optional; an empty filter
- * matches every entry. toJson() produces the JSON the gomobile bridge consumes. */
+ * matches every entry. */
 data class DeveloperEntriesFilter(
     val method: String = "",
     val statusMin: Int = 0,
