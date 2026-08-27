@@ -145,10 +145,14 @@ The additive CMake build currently provides:
   status/listeners, profile selection, traffic, servers, policy groups,
   prompts, encrypted DNS, developer capture state/entries, and network
   conditioning. It provides connect/disconnect, refresh, active-profile
-  switching, and policy latency-test actions. Display-independent GLib model
+  switching, policy latency tests/manual chain selection, all five pending-
+  prompt decisions with optional host/port/protocol matching, capture
+  enable/disable, and confirmation-gated capture clearing. Mutation payloads
+  and identifier escaping are covered by display-independent GLib model
   fixtures and a `--version` executable smoke run in the Trisquel/Rocky/Alma
-  lanes. Editing, prompt/capture/policy interactions, event streaming,
-  accessibility QA, license actions, and production packaging remain open;
+  lanes. Remaining editors, silent-decision promotion, capture detail/filter/
+  import/export/repeat/composition, event streaming, accessibility QA, license
+  actions, and production packaging remain open;
 - `clambhook_jni`: the thin JNI ownership/callback boundary used by the Kotlin
   bridge during Android cutover. Gradle now builds and packages it with the NDK
   for arm64-v8a, armeabi-v7a, x86, and x86_64. The JNI runtime now accepts raw

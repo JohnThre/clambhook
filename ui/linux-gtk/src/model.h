@@ -7,6 +7,9 @@ typedef struct ch_gtk_row {
     char *title;
     char *detail;
     char *identifier;
+    char *selected;
+    GPtrArray *options;
+    gboolean selectable;
 } ch_gtk_row;
 
 typedef struct ch_gtk_status_model {
@@ -57,5 +60,13 @@ gboolean ch_gtk_parse_page_rows(ch_gtk_page_model_kind kind,
 
 char *ch_gtk_format_bytes(guint64 value);
 char *ch_gtk_format_rate(double value);
+char *ch_gtk_profile_body(const char *name);
+char *ch_gtk_policy_selection_body(const char *group, const char *chain);
+char *ch_gtk_prompt_resolution_body(const char *action, const char *scope,
+                                    gboolean match_host,
+                                    gboolean match_port,
+                                    gboolean match_protocol);
+char *ch_gtk_capture_enabled_body(gboolean enabled);
+char *ch_gtk_prompt_resolution_path(const char *identifier);
 
 #endif

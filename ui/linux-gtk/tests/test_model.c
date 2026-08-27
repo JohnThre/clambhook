@@ -111,6 +111,22 @@ static void test_page_rows(void) {
     g_assert_nonnull(strstr(conditioner_row->detail, "512 Kbps up"));
     g_ptr_array_unref(rows);
     g_free(summary);
+
+    rows = NULL;
+    summary = NULL;
+    const char *policies =
+        "{\"groups\":[{\"name\":\"manual\",\"type\":\"select\","
+        "\"selected\":\"edge\",\"chains\":[\"direct\",\"edge\"]}]}";
+    g_assert_true(ch_gtk_parse_page_rows(
+        CH_GTK_PAGE_POLICIES, (const guint8 *)policies, strlen(policies),
+        &rows, &summary, &error));
+    ch_gtk_row *policy = g_ptr_array_index(rows, 0U);
+    g_assert_true(policy->selectable);
+    g_assert_cmpstr(policy->selected, ==, "edge");
+    g_assert_cmpuint(policy->options->len, ==, 2U);
+    g_assert_cmpstr(g_ptr_array_index(policy->options, 0U), ==, "direct");
+    g_ptr_array_unref(rows);
+    g_free(summary);
 }
 
 static void test_invalid_payload(void) {
@@ -122,11 +138,37 @@ static void test_invalid_payload(void) {
         "clambhook-linux-gtk-model"), 1);
 }
 
+static void test_action_contracts(void) {
+    g_autofree char *profile = ch_gtk_profile_body("work\"profile");
+    g_assert_cmpstr(profile, ==, "{\"name\":\"work\\\"profile\"}");
+
+    g_autofree char *policy = ch_gtk_policy_selection_body(
+        "manual", "secure");
+    g_assert_cmpstr(policy, ==,
+                    "{\"group\":\"manual\",\"chain\":\"secure\"}");
+
+    g_autofree char *prompt = ch_gtk_prompt_resolution_body(
+        "allow", "until_quit", TRUE, FALSE, TRUE);
+    g_assert_cmpstr(
+        prompt, ==,
+        "{\"action\":\"allow\",\"scope\":\"until_quit\","
+        "\"match_host\":true,\"match_port\":false,"
+        "\"match_protocol\":true}");
+
+    g_autofree char *capture = ch_gtk_capture_enabled_body(TRUE);
+    g_assert_cmpstr(capture, ==, "{\"enabled\":true}");
+
+    g_autofree char *path = ch_gtk_prompt_resolution_path("id /?#");
+    g_assert_cmpstr(path, ==,
+                    "/api/v1/prompts/id%20%2F%3F%23/resolve");
+}
+
 int main(int argc, char **argv) {
     g_test_init(&argc, &argv, NULL);
     g_test_add_func("/gtk-model/status-profiles", test_status_and_profiles);
     g_test_add_func("/gtk-model/traffic", test_traffic);
     g_test_add_func("/gtk-model/pages", test_page_rows);
     g_test_add_func("/gtk-model/invalid", test_invalid_payload);
+    g_test_add_func("/gtk-model/action-contracts", test_action_contracts);
     return g_test_run();
 }

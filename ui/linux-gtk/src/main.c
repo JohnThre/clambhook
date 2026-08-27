@@ -24,7 +24,11 @@ typedef enum request_kind {
     REQUEST_CONDITIONER,
     REQUEST_CONNECT,
     REQUEST_PROFILE,
-    REQUEST_POLICY_TEST
+    REQUEST_POLICY_TEST,
+    REQUEST_POLICY_SELECT,
+    REQUEST_PROMPT_RESOLVE,
+    REQUEST_CAPTURE_TOGGLE,
+    REQUEST_CAPTURE_CLEAR
 } RequestKind;
 
 typedef enum page_slot {
@@ -57,10 +61,17 @@ typedef struct clambhook_linux_app {
     GtkWidget *page_lists[PAGE_SLOT_COUNT];
     GtkWidget *page_summaries[PAGE_SLOT_COUNT];
     GtkWidget *capture_state_label;
+    GtkWidget *capture_toggle_button;
+    GtkWidget *capture_clear_button;
+    GtkWidget *policy_test_button;
+    GtkWidget *prompt_match_host;
+    GtkWidget *prompt_match_port;
+    GtkWidget *prompt_match_protocol;
     SoupSession *session;
     char *api_url;
     char *api_token;
     gboolean running;
+    gboolean capture_enabled;
     gboolean updating_profiles;
     guint active_requests;
 } ClambhookLinuxApp;
@@ -71,7 +82,25 @@ typedef struct request_context {
     RequestKind kind;
 } RequestContext;
 
+typedef struct policy_selection_context {
+    ClambhookLinuxApp *app;
+    char *group;
+    char *selected;
+} PolicySelectionContext;
+
+typedef struct prompt_action_context {
+    ClambhookLinuxApp *app;
+    char *identifier;
+    char *action;
+    char *scope;
+} PromptActionContext;
+
 static void refresh_all(ClambhookLinuxApp *app);
+static void send_request(ClambhookLinuxApp *app, RequestKind kind,
+                         const char *method, const char *path,
+                         const char *body);
+static void populate_policy_rows(ClambhookLinuxApp *app, GPtrArray *rows);
+static void populate_prompt_rows(ClambhookLinuxApp *app, GPtrArray *rows);
 
 static char *join_url(const char *base, const char *path) {
     gsize base_length = strlen(base);
@@ -90,6 +119,12 @@ static void set_request_activity(ClambhookLinuxApp *app, int delta) {
     gtk_widget_set_sensitive(app->connect_button, !active);
     gtk_widget_set_sensitive(app->refresh_button, !active);
     gtk_widget_set_sensitive(app->profile_dropdown, !active);
+    gtk_widget_set_sensitive(app->policy_test_button, !active);
+    gtk_widget_set_sensitive(app->capture_toggle_button, !active);
+    gtk_widget_set_sensitive(app->capture_clear_button,
+                             !active && app->capture_enabled);
+    gtk_widget_set_sensitive(app->page_lists[PAGE_POLICIES], !active);
+    gtk_widget_set_sensitive(app->page_lists[PAGE_PROMPTS], !active);
     gtk_widget_set_visible(app->spinner, active);
     if (active) gtk_spinner_start(GTK_SPINNER(app->spinner));
     else gtk_spinner_stop(GTK_SPINNER(app->spinner));
@@ -104,8 +139,7 @@ static void clear_list(GtkWidget *list) {
     }
 }
 
-static GtkWidget *list_row(const char *title, const char *detail) {
-    GtkWidget *row = gtk_list_box_row_new();
+static GtkWidget *row_box(const char *title, const char *detail) {
     GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 3);
     gtk_widget_set_margin_top(box, 10);
     gtk_widget_set_margin_bottom(box, 10);
@@ -126,7 +160,13 @@ static GtkWidget *list_row(const char *title, const char *detail) {
         gtk_widget_add_css_class(detail_label, "dim-label");
         gtk_box_append(GTK_BOX(box), detail_label);
     }
-    gtk_list_box_row_set_child(GTK_LIST_BOX_ROW(row), box);
+    return box;
+}
+
+static GtkWidget *list_row(const char *title, const char *detail) {
+    GtkWidget *row = gtk_list_box_row_new();
+    gtk_list_box_row_set_child(GTK_LIST_BOX_ROW(row),
+                               row_box(title, detail));
     return row;
 }
 
@@ -166,16 +206,16 @@ static void set_error(ClambhookLinuxApp *app, const char *message) {
                            message != NULL && message[0] != '\0');
 }
 
-static char *json_string_body(const char *name, const char *value) {
-    g_autoptr(JsonBuilder) builder = json_builder_new();
-    json_builder_begin_object(builder);
-    json_builder_set_member_name(builder, name);
-    json_builder_add_string_value(builder, value);
-    json_builder_end_object(builder);
-    g_autoptr(JsonGenerator) generator = json_generator_new();
-    g_autoptr(JsonNode) root = json_builder_get_root(builder);
-    json_generator_set_root(generator, root);
-    return json_generator_to_data(generator, NULL);
+static char *json_prompt_body(ClambhookLinuxApp *app, const char *action,
+                              const char *scope) {
+    return ch_gtk_prompt_resolution_body(
+        action, scope,
+        gtk_check_button_get_active(
+            GTK_CHECK_BUTTON(app->prompt_match_host)),
+        gtk_check_button_get_active(
+            GTK_CHECK_BUTTON(app->prompt_match_port)),
+        gtk_check_button_get_active(
+            GTK_CHECK_BUTTON(app->prompt_match_protocol)));
 }
 
 static void apply_status(ClambhookLinuxApp *app, const guint8 *data,
@@ -202,7 +242,6 @@ static void apply_status(ClambhookLinuxApp *app, const guint8 *data,
                              app->running ? "success" : "error");
     populate_strings(app->listener_list, status.listeners,
                      "No active proxy listeners");
-    set_error(app, "");
     ch_gtk_status_model_clear(&status);
 }
 
@@ -298,7 +337,13 @@ static void apply_page(ClambhookLinuxApp *app, RequestKind kind,
         "No encrypted DNS upstreams", "No captured transactions",
         "No conditioner state"
     };
-    populate_rows(app->page_lists[slot], rows, empty_messages[slot]);
+    if (slot == PAGE_POLICIES) {
+        populate_policy_rows(app, rows);
+    } else if (slot == PAGE_PROMPTS) {
+        populate_prompt_rows(app, rows);
+    } else {
+        populate_rows(app->page_lists[slot], rows, empty_messages[slot]);
+    }
     g_ptr_array_unref(rows);
     g_free(summary);
 }
@@ -317,12 +362,48 @@ static void apply_capture_status(ClambhookLinuxApp *app, const guint8 *data,
     JsonObject *object = json_node_get_object(root);
     gboolean enabled = json_object_has_member(object, "enabled") &&
         json_object_get_boolean_member(object, "enabled");
+    app->capture_enabled = enabled;
     gint64 count = json_object_has_member(object, "capture_count") ?
         json_object_get_int_member(object, "capture_count") : 0;
     g_autofree char *text = g_strdup_printf(
         "%s · %" G_GINT64_FORMAT " stored transactions",
         enabled ? "Capture enabled" : "Capture disabled", count);
     gtk_label_set_text(GTK_LABEL(app->capture_state_label), text);
+    gtk_button_set_label(GTK_BUTTON(app->capture_toggle_button),
+                         enabled ? "Disable capture" : "Enable capture");
+    gtk_widget_set_sensitive(app->capture_clear_button,
+                             enabled && app->active_requests == 0U);
+}
+
+static void reconcile_failed_mutation(ClambhookLinuxApp *app,
+                                      RequestKind kind) {
+    switch (kind) {
+        case REQUEST_CONNECT:
+            send_request(app, REQUEST_STATUS, "GET", "/api/v1/status", NULL);
+            break;
+        case REQUEST_PROFILE:
+            send_request(app, REQUEST_PROFILES, "GET", "/api/v1/profiles",
+                         NULL);
+            break;
+        case REQUEST_POLICY_SELECT:
+            send_request(app, REQUEST_POLICIES, "GET",
+                         "/api/v1/policy-groups", NULL);
+            break;
+        case REQUEST_PROMPT_RESOLVE:
+            send_request(app, REQUEST_PROMPTS, "GET",
+                         "/api/v1/prompts/pending", NULL);
+            break;
+        case REQUEST_CAPTURE_TOGGLE:
+            send_request(app, REQUEST_CAPTURE_STATUS, "GET",
+                         "/api/v1/developer/status", NULL);
+            break;
+        case REQUEST_CAPTURE_CLEAR:
+            send_request(app, REQUEST_CAPTURES, "GET",
+                         "/api/v1/developer/entries?limit=100", NULL);
+            break;
+        default:
+            break;
+    }
 }
 
 static void request_finished(GObject *source, GAsyncResult *result,
@@ -338,6 +419,7 @@ static void request_finished(GObject *source, GAsyncResult *result,
             "API request failed: %s", error->message);
         set_error(app, message);
         gtk_label_set_text(GTK_LABEL(app->api_label), "API offline");
+        reconcile_failed_mutation(app, context->kind);
     } else {
         guint status = soup_message_get_status(context->message);
         gsize length = 0U;
@@ -357,6 +439,12 @@ static void request_finished(GObject *source, GAsyncResult *result,
                     apply_profiles(app, data, length);
                     refresh_all(app);
                     break;
+                case REQUEST_POLICY_SELECT:
+                case REQUEST_PROMPT_RESOLVE:
+                case REQUEST_CAPTURE_TOGGLE:
+                case REQUEST_CAPTURE_CLEAR:
+                    refresh_all(app);
+                    break;
                 default:
                     apply_page(app, context->kind, data, length);
                     break;
@@ -367,6 +455,7 @@ static void request_finished(GObject *source, GAsyncResult *result,
             g_autofree char *message = g_strdup_printf(
                 "Daemon request failed (%u): %s", status, response);
             set_error(app, message);
+            reconcile_failed_mutation(app, context->kind);
         }
     }
     g_object_unref(context->message);
@@ -408,6 +497,7 @@ static void send_request(ClambhookLinuxApp *app, RequestKind kind,
 }
 
 static void refresh_all(ClambhookLinuxApp *app) {
+    set_error(app, "");
     send_request(app, REQUEST_STATUS, "GET", "/api/v1/status", NULL);
     send_request(app, REQUEST_PROFILES, "GET", "/api/v1/profiles", NULL);
     send_request(app, REQUEST_TRAFFIC, "GET",
@@ -456,9 +546,217 @@ static void profile_selected(GObject *object, GParamSpec *parameter,
     g_autoptr(GtkStringObject) item = g_list_model_get_item(model, selected);
     if (item == NULL) return;
     const char *name = gtk_string_object_get_string(item);
-    g_autofree char *body = json_string_body("name", name);
+    g_autofree char *body = ch_gtk_profile_body(name);
     send_request(app, REQUEST_PROFILE, "PUT",
                  "/api/v1/profiles/active", body);
+}
+
+static void policy_selection_context_free(gpointer data, GClosure *closure) {
+    (void)closure;
+    PolicySelectionContext *context = data;
+    g_free(context->group);
+    g_free(context->selected);
+    g_free(context);
+}
+
+static void policy_selected(GObject *object, GParamSpec *parameter,
+                            gpointer user_data) {
+    (void)parameter;
+    PolicySelectionContext *context = user_data;
+    guint selected = gtk_drop_down_get_selected(GTK_DROP_DOWN(object));
+    if (selected == GTK_INVALID_LIST_POSITION) return;
+    GListModel *model = gtk_drop_down_get_model(GTK_DROP_DOWN(object));
+    g_autoptr(GtkStringObject) item = g_list_model_get_item(model, selected);
+    if (item == NULL) return;
+    const char *chain = gtk_string_object_get_string(item);
+    if (strcmp(chain, context->selected) == 0) return;
+    g_free(context->selected);
+    context->selected = g_strdup(chain);
+    g_autofree char *body = ch_gtk_policy_selection_body(
+        context->group, chain);
+    send_request(context->app, REQUEST_POLICY_SELECT, "PUT",
+                 "/api/v1/policy-groups/selection", body);
+}
+
+static void prompt_action_context_free(gpointer data, GClosure *closure) {
+    (void)closure;
+    PromptActionContext *context = data;
+    g_free(context->identifier);
+    g_free(context->action);
+    g_free(context->scope);
+    g_free(context);
+}
+
+static void prompt_action_clicked(GtkButton *button, gpointer user_data) {
+    (void)button;
+    PromptActionContext *context = user_data;
+    g_autofree char *path = ch_gtk_prompt_resolution_path(
+        context->identifier);
+    g_autofree char *body = json_prompt_body(
+        context->app, context->action, context->scope);
+    send_request(context->app, REQUEST_PROMPT_RESOLVE, "POST", path, body);
+}
+
+static GtkWidget *prompt_action_button(ClambhookLinuxApp *app,
+                                       const char *identifier,
+                                       const char *label,
+                                       const char *action,
+                                       const char *scope,
+                                       gboolean destructive) {
+    GtkWidget *button = gtk_button_new_with_label(label);
+    if (destructive) gtk_widget_add_css_class(button, "destructive-action");
+    PromptActionContext *context = g_new0(PromptActionContext, 1U);
+    context->app = app;
+    context->identifier = g_strdup(identifier);
+    context->action = g_strdup(action);
+    context->scope = g_strdup(scope);
+    g_signal_connect_data(button, "clicked", G_CALLBACK(prompt_action_clicked),
+                          context, prompt_action_context_free, 0);
+    return button;
+}
+
+static void populate_policy_rows(ClambhookLinuxApp *app, GPtrArray *rows) {
+    GtkWidget *list = app->page_lists[PAGE_POLICIES];
+    clear_list(list);
+    if (rows == NULL || rows->len == 0U) {
+        gtk_list_box_append(GTK_LIST_BOX(list),
+                            list_row("No policy groups", ""));
+        return;
+    }
+    for (guint index = 0U; index < rows->len; ++index) {
+        ch_gtk_row *row = g_ptr_array_index(rows, index);
+        GtkWidget *list_item = gtk_list_box_row_new();
+        GtkWidget *content = row_box(row->title, row->detail);
+        if (row->selectable && row->options != NULL &&
+            row->options->len > 0U) {
+            GtkStringList *model = gtk_string_list_new(NULL);
+            guint selected = GTK_INVALID_LIST_POSITION;
+            for (guint option = 0U; option < row->options->len; ++option) {
+                const char *chain = g_ptr_array_index(row->options, option);
+                gtk_string_list_append(model, chain);
+                if (strcmp(chain, row->selected) == 0) selected = option;
+            }
+            GtkWidget *dropdown = gtk_drop_down_new(
+                G_LIST_MODEL(model), NULL);
+            g_object_unref(model);
+            gtk_drop_down_set_selected(GTK_DROP_DOWN(dropdown), selected);
+            gtk_widget_set_halign(dropdown, GTK_ALIGN_START);
+            gtk_widget_set_tooltip_text(
+                dropdown, "Select the active chain for this policy group");
+            PolicySelectionContext *context = g_new0(
+                PolicySelectionContext, 1U);
+            context->app = app;
+            context->group = g_strdup(row->identifier);
+            context->selected = g_strdup(row->selected);
+            g_signal_connect_data(
+                dropdown, "notify::selected", G_CALLBACK(policy_selected),
+                context, policy_selection_context_free, 0);
+            gtk_box_append(GTK_BOX(content), dropdown);
+        }
+        gtk_list_box_row_set_child(GTK_LIST_BOX_ROW(list_item), content);
+        gtk_list_box_append(GTK_LIST_BOX(list), list_item);
+    }
+}
+
+static void populate_prompt_rows(ClambhookLinuxApp *app, GPtrArray *rows) {
+    GtkWidget *list = app->page_lists[PAGE_PROMPTS];
+    clear_list(list);
+    if (rows == NULL || rows->len == 0U) {
+        gtk_list_box_append(GTK_LIST_BOX(list),
+                            list_row("No pending prompts", ""));
+        return;
+    }
+    for (guint index = 0U; index < rows->len; ++index) {
+        ch_gtk_row *row = g_ptr_array_index(rows, index);
+        GtkWidget *list_item = gtk_list_box_row_new();
+        GtkWidget *content = row_box(row->title, row->detail);
+        GtkWidget *actions = gtk_flow_box_new();
+        gtk_flow_box_set_selection_mode(GTK_FLOW_BOX(actions),
+                                        GTK_SELECTION_NONE);
+        gtk_flow_box_set_min_children_per_line(GTK_FLOW_BOX(actions), 1U);
+        gtk_flow_box_set_max_children_per_line(GTK_FLOW_BOX(actions), 5U);
+        gtk_flow_box_set_column_spacing(GTK_FLOW_BOX(actions), 6U);
+        gtk_flow_box_set_row_spacing(GTK_FLOW_BOX(actions), 6U);
+        gtk_flow_box_append(GTK_FLOW_BOX(actions), prompt_action_button(
+            app, row->identifier, "Allow once", "allow", "once", FALSE));
+        gtk_flow_box_append(GTK_FLOW_BOX(actions), prompt_action_button(
+            app, row->identifier, "Allow session", "allow", "session",
+            FALSE));
+        gtk_flow_box_append(GTK_FLOW_BOX(actions), prompt_action_button(
+            app, row->identifier, "Allow until quit", "allow", "until_quit",
+            FALSE));
+        gtk_flow_box_append(GTK_FLOW_BOX(actions), prompt_action_button(
+            app, row->identifier, "Allow forever", "allow", "forever",
+            FALSE));
+        gtk_flow_box_append(GTK_FLOW_BOX(actions), prompt_action_button(
+            app, row->identifier, "Block forever", "block", "forever",
+            TRUE));
+        gtk_box_append(GTK_BOX(content), actions);
+        gtk_list_box_row_set_child(GTK_LIST_BOX_ROW(list_item), content);
+        gtk_list_box_append(GTK_LIST_BOX(list), list_item);
+    }
+}
+
+static void capture_toggle_clicked(GtkButton *button, gpointer user_data) {
+    (void)button;
+    ClambhookLinuxApp *app = user_data;
+    g_autofree char *body = ch_gtk_capture_enabled_body(
+        !app->capture_enabled);
+    send_request(app, REQUEST_CAPTURE_TOGGLE, "PUT",
+                 "/api/v1/developer/settings", body);
+}
+
+static void capture_clear_confirmed(GtkButton *button, gpointer user_data) {
+    GtkRoot *root = gtk_widget_get_root(GTK_WIDGET(button));
+    if (GTK_IS_WINDOW(root)) gtk_window_destroy(GTK_WINDOW(root));
+    send_request(user_data, REQUEST_CAPTURE_CLEAR, "DELETE",
+                 "/api/v1/developer/entries", "{}");
+}
+
+static void capture_clear_cancelled(GtkButton *button, gpointer user_data) {
+    (void)user_data;
+    GtkRoot *root = gtk_widget_get_root(GTK_WIDGET(button));
+    if (GTK_IS_WINDOW(root)) gtk_window_destroy(GTK_WINDOW(root));
+}
+
+static void capture_clear_clicked(GtkButton *button, gpointer user_data) {
+    (void)button;
+    ClambhookLinuxApp *app = user_data;
+    GtkWidget *dialog = gtk_window_new();
+    gtk_window_set_title(GTK_WINDOW(dialog), "Clear captured transactions?");
+    gtk_window_set_transient_for(GTK_WINDOW(dialog), GTK_WINDOW(app->window));
+    gtk_window_set_modal(GTK_WINDOW(dialog), TRUE);
+    gtk_window_set_resizable(GTK_WINDOW(dialog), FALSE);
+
+    GtkWidget *content = gtk_box_new(GTK_ORIENTATION_VERTICAL, 14);
+    gtk_widget_set_margin_top(content, 22);
+    gtk_widget_set_margin_bottom(content, 22);
+    gtk_widget_set_margin_start(content, 22);
+    gtk_widget_set_margin_end(content, 22);
+    GtkWidget *title = gtk_label_new("Delete every bounded capture entry?");
+    gtk_label_set_xalign(GTK_LABEL(title), 0.0F);
+    gtk_widget_add_css_class(title, "title-3");
+    gtk_box_append(GTK_BOX(content), title);
+    GtkWidget *detail = gtk_label_new(
+        "This removes captured request and response data from the daemon. "
+        "The action cannot be undone.");
+    gtk_label_set_xalign(GTK_LABEL(detail), 0.0F);
+    gtk_label_set_wrap(GTK_LABEL(detail), TRUE);
+    gtk_box_append(GTK_BOX(content), detail);
+    GtkWidget *actions = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+    gtk_widget_set_halign(actions, GTK_ALIGN_END);
+    GtkWidget *cancel = gtk_button_new_with_label("Cancel");
+    g_signal_connect(cancel, "clicked",
+                     G_CALLBACK(capture_clear_cancelled), NULL);
+    gtk_box_append(GTK_BOX(actions), cancel);
+    GtkWidget *clear = gtk_button_new_with_label("Clear all");
+    gtk_widget_add_css_class(clear, "destructive-action");
+    g_signal_connect(clear, "clicked",
+                     G_CALLBACK(capture_clear_confirmed), app);
+    gtk_box_append(GTK_BOX(actions), clear);
+    gtk_box_append(GTK_BOX(content), actions);
+    gtk_window_set_child(GTK_WINDOW(dialog), content);
+    gtk_window_present(GTK_WINDOW(dialog));
 }
 
 static GtkWidget *detail_row(const char *title, GtkWidget **value_out) {
@@ -551,9 +849,10 @@ static GtkWidget *create_data_page(ClambhookLinuxApp *app, PageSlot slot,
         GtkWidget *bar = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
         gtk_widget_set_hexpand(summary, TRUE);
         gtk_box_append(GTK_BOX(bar), summary);
-        GtkWidget *test = gtk_button_new_with_label("Latency test");
-        g_signal_connect(test, "clicked", G_CALLBACK(policy_test_clicked), app);
-        gtk_box_append(GTK_BOX(bar), test);
+        app->policy_test_button = gtk_button_new_with_label("Latency test");
+        g_signal_connect(app->policy_test_button, "clicked",
+                         G_CALLBACK(policy_test_clicked), app);
+        gtk_box_append(GTK_BOX(bar), app->policy_test_button);
         gtk_box_append(GTK_BOX(page), bar);
     } else {
         gtk_box_append(GTK_BOX(page), summary);
@@ -567,6 +866,33 @@ static GtkWidget *create_activity_page(ClambhookLinuxApp *app) {
         "Traffic Monitor",
         "Recent routed connections, decisions, chains, and byte totals.");
     gtk_box_append(GTK_BOX(page), scrolled_list(&app->activity_list));
+    return page;
+}
+
+static GtkWidget *create_prompt_page(ClambhookLinuxApp *app) {
+    GtkWidget *page = page_container(
+        "Connection prompts",
+        "Allow or block local-proxy connections that no rule has resolved.");
+    GtkWidget *summary = gtk_label_new("Loading…");
+    gtk_label_set_xalign(GTK_LABEL(summary), 0.0F);
+    gtk_widget_add_css_class(summary, "dim-label");
+    app->page_summaries[PAGE_PROMPTS] = summary;
+    gtk_box_append(GTK_BOX(page), summary);
+
+    GtkWidget *match = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 10);
+    GtkWidget *match_label = gtk_label_new("Persisted-rule matching:");
+    gtk_widget_add_css_class(match_label, "dim-label");
+    gtk_box_append(GTK_BOX(match), match_label);
+    app->prompt_match_host = gtk_check_button_new_with_label("This host");
+    app->prompt_match_port = gtk_check_button_new_with_label("This port");
+    app->prompt_match_protocol = gtk_check_button_new_with_label(
+        "This protocol");
+    gtk_box_append(GTK_BOX(match), app->prompt_match_host);
+    gtk_box_append(GTK_BOX(match), app->prompt_match_port);
+    gtk_box_append(GTK_BOX(match), app->prompt_match_protocol);
+    gtk_box_append(GTK_BOX(page), match);
+    gtk_box_append(GTK_BOX(page), scrolled_list(
+        &app->page_lists[PAGE_PROMPTS]));
     return page;
 }
 
@@ -596,10 +922,25 @@ static GtkWidget *create_capture_page(ClambhookLinuxApp *app) {
         app, PAGE_CAPTURES, "HTTP capture",
         "Opt-in bounded request and response inspection. Sensitive headers "
         "and configured query parameters are redacted by the daemon.", FALSE);
+    GtkWidget *bar = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
     app->capture_state_label = gtk_label_new("Capture status loading…");
     gtk_label_set_xalign(GTK_LABEL(app->capture_state_label), 0.0F);
-    gtk_box_insert_child_after(GTK_BOX(page), app->capture_state_label,
-                               gtk_widget_get_first_child(page));
+    gtk_widget_set_hexpand(app->capture_state_label, TRUE);
+    gtk_box_append(GTK_BOX(bar), app->capture_state_label);
+    app->capture_clear_button = gtk_button_new_with_label("Clear");
+    gtk_widget_set_tooltip_text(
+        app->capture_clear_button, "Delete all bounded capture entries");
+    g_signal_connect(app->capture_clear_button, "clicked",
+                     G_CALLBACK(capture_clear_clicked), app);
+    gtk_widget_set_sensitive(app->capture_clear_button, FALSE);
+    gtk_box_append(GTK_BOX(bar), app->capture_clear_button);
+    app->capture_toggle_button = gtk_button_new_with_label("Enable capture");
+    g_signal_connect(app->capture_toggle_button, "clicked",
+                     G_CALLBACK(capture_toggle_clicked), app);
+    gtk_box_append(GTK_BOX(bar), app->capture_toggle_button);
+    GtkWidget *title = gtk_widget_get_first_child(page);
+    GtkWidget *description = gtk_widget_get_next_sibling(title);
+    gtk_box_insert_child_after(GTK_BOX(page), bar, description);
     return page;
 }
 
@@ -673,10 +1014,7 @@ static void activate(GtkApplication *application, gpointer user_data) {
         app, PAGE_POLICIES, "Policy groups",
         "Manual selection and latency-tested automatic policy groups.", TRUE),
         "policies", "Policies");
-    add_stack_page(stack, create_data_page(
-        app, PAGE_PROMPTS, "Connection prompts",
-        "Pending local-proxy decisions that no rule has resolved.", FALSE),
-        "firewall", "Firewall");
+    add_stack_page(stack, create_prompt_page(app), "firewall", "Firewall");
     add_stack_page(stack, create_data_page(
         app, PAGE_DNS, "Encrypted DNS",
         "DNS strategy and encrypted upstreams for the active profile.", FALSE),

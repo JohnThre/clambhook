@@ -93,6 +93,8 @@ void ch_gtk_row_free(ch_gtk_row *row) {
     g_free(row->title);
     g_free(row->detail);
     g_free(row->identifier);
+    g_free(row->selected);
+    g_clear_pointer(&row->options, g_ptr_array_unref);
     g_free(row);
 }
 
@@ -136,12 +138,74 @@ char *ch_gtk_format_rate(double value) {
     return g_strdup_printf("%s/s", bytes);
 }
 
+static char *builder_json(JsonBuilder *builder) {
+    g_autoptr(JsonGenerator) generator = json_generator_new();
+    g_autoptr(JsonNode) root = json_builder_get_root(builder);
+    json_generator_set_root(generator, root);
+    return json_generator_to_data(generator, NULL);
+}
+
+char *ch_gtk_profile_body(const char *name) {
+    g_autoptr(JsonBuilder) builder = json_builder_new();
+    json_builder_begin_object(builder);
+    json_builder_set_member_name(builder, "name");
+    json_builder_add_string_value(builder, name);
+    json_builder_end_object(builder);
+    return builder_json(builder);
+}
+
+char *ch_gtk_policy_selection_body(const char *group, const char *chain) {
+    g_autoptr(JsonBuilder) builder = json_builder_new();
+    json_builder_begin_object(builder);
+    json_builder_set_member_name(builder, "group");
+    json_builder_add_string_value(builder, group);
+    json_builder_set_member_name(builder, "chain");
+    json_builder_add_string_value(builder, chain);
+    json_builder_end_object(builder);
+    return builder_json(builder);
+}
+
+char *ch_gtk_prompt_resolution_body(const char *action, const char *scope,
+                                    gboolean match_host,
+                                    gboolean match_port,
+                                    gboolean match_protocol) {
+    g_autoptr(JsonBuilder) builder = json_builder_new();
+    json_builder_begin_object(builder);
+    json_builder_set_member_name(builder, "action");
+    json_builder_add_string_value(builder, action);
+    json_builder_set_member_name(builder, "scope");
+    json_builder_add_string_value(builder, scope);
+    json_builder_set_member_name(builder, "match_host");
+    json_builder_add_boolean_value(builder, match_host);
+    json_builder_set_member_name(builder, "match_port");
+    json_builder_add_boolean_value(builder, match_port);
+    json_builder_set_member_name(builder, "match_protocol");
+    json_builder_add_boolean_value(builder, match_protocol);
+    json_builder_end_object(builder);
+    return builder_json(builder);
+}
+
+char *ch_gtk_capture_enabled_body(gboolean enabled) {
+    g_autoptr(JsonBuilder) builder = json_builder_new();
+    json_builder_begin_object(builder);
+    json_builder_set_member_name(builder, "enabled");
+    json_builder_add_boolean_value(builder, enabled);
+    json_builder_end_object(builder);
+    return builder_json(builder);
+}
+
+char *ch_gtk_prompt_resolution_path(const char *identifier) {
+    g_autofree char *escaped = g_uri_escape_string(identifier, NULL, FALSE);
+    return g_strdup_printf("/api/v1/prompts/%s/resolve", escaped);
+}
+
 static ch_gtk_row *row_new(const char *title, const char *detail,
                            const char *identifier) {
     ch_gtk_row *row = g_new0(ch_gtk_row, 1U);
     row->title = g_strdup(title == NULL || title[0] == '\0' ? "—" : title);
     row->detail = g_strdup(detail == NULL ? "" : detail);
     row->identifier = g_strdup(identifier == NULL ? "" : identifier);
+    row->selected = g_strdup("");
     return row;
 }
 
@@ -278,8 +342,22 @@ static void append_policy_rows(JsonObject *root, GPtrArray *rows) {
             "%s · active %s · %u chains", type,
             selected[0] == '\0' ? "none" : selected,
             array_length(chains));
-        g_ptr_array_add(rows, row_new(name, detail,
-                                      object_string(group, "name", "")));
+        ch_gtk_row *row = row_new(
+            name, detail, object_string(group, "name", ""));
+        g_free(row->selected);
+        row->selected = g_strdup(selected);
+        row->selectable = strcmp(type, "select") == 0;
+        row->options = g_ptr_array_new_with_free_func(g_free);
+        for (guint chain_index = 0U;
+             chain_index < array_length(chains); ++chain_index) {
+            JsonNode *chain = json_array_get_element(chains, chain_index);
+            if (chain != NULL && JSON_NODE_HOLDS_VALUE(chain) &&
+                json_node_get_value_type(chain) == G_TYPE_STRING) {
+                g_ptr_array_add(row->options,
+                                g_strdup(json_node_get_string(chain)));
+            }
+        }
+        g_ptr_array_add(rows, row);
     }
 }
 
