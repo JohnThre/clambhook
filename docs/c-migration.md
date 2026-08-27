@@ -152,9 +152,13 @@ The additive CMake build currently provides:
   fixtures and a `--version` executable smoke run in the Trisquel/Rocky/Alma
   lanes. Capture text/method/error filters, request/response detail previews,
   and clipboard cURL export use only native C routes and have model fixtures.
-  Remaining editors, silent-decision promotion, capture cURL import/HAR export/
-  repeat/composition, event streaming, accessibility QA, license
-  actions, and production packaging remain open;
+  Encrypted-DNS and conditioner editors construct typed, display-independent
+  JSON payloads before the daemon validates, persists, and applies them
+  transactionally. A reconnecting libsoup WebSocket subscriber listens to the
+  native `connection.*` and `rule.*` feed and coalesces bursty updates into
+  bounded traffic/status refreshes. Remaining configuration/rule editors,
+  silent-decision promotion, capture cURL import/HAR export/repeat/composition,
+  accessibility QA, license actions, and production packaging remain open;
 - `clambhook_jni`: the thin JNI ownership/callback boundary used by the Kotlin
   bridge during Android cutover. Gradle now builds and packages it with the NDK
   for arm64-v8a, armeabi-v7a, x86, and x86_64. The JNI runtime now accepts raw

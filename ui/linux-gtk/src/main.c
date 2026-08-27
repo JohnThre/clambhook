@@ -30,7 +30,9 @@ typedef enum request_kind {
     REQUEST_CAPTURE_TOGGLE,
     REQUEST_CAPTURE_CLEAR,
     REQUEST_CAPTURE_DETAIL,
-    REQUEST_CAPTURE_CURL
+    REQUEST_CAPTURE_CURL,
+    REQUEST_CONDITIONER_UPDATE,
+    REQUEST_DNS_UPDATE
 } RequestKind;
 
 typedef enum page_slot {
@@ -69,18 +71,45 @@ typedef struct clambhook_linux_app {
     GtkWidget *capture_method;
     GtkWidget *capture_error_only;
     GtkWidget *capture_filter_button;
+    GtkWidget *conditioner_editor;
+    GtkWidget *conditioner_profile_label;
+    GtkWidget *conditioner_enabled;
+    GtkWidget *conditioner_download;
+    GtkWidget *conditioner_upload;
+    GtkWidget *conditioner_latency;
+    GtkWidget *conditioner_jitter;
+    GtkWidget *conditioner_loss;
+    GtkWidget *conditioner_save_button;
+    GtkWidget *dns_editor;
+    GtkWidget *dns_profile_label;
+    GtkWidget *dns_enabled;
+    GtkWidget *dns_timeout;
+    GtkTextBuffer *dns_upstreams;
+    GtkWidget *dns_save_button;
     GtkWidget *policy_test_button;
     GtkWidget *prompt_match_host;
     GtkWidget *prompt_match_port;
     GtkWidget *prompt_match_protocol;
     SoupSession *session;
+    SoupWebsocketConnection *event_connection;
     char *api_url;
     char *api_token;
     gboolean running;
     gboolean capture_enabled;
     gboolean updating_profiles;
     guint active_requests;
+    guint event_refresh_source;
+    guint event_reconnect_source;
+    gboolean event_connecting;
+    gboolean shutting_down;
+    char *conditioner_profile;
+    char *dns_profile;
 } ClambhookLinuxApp;
+
+typedef struct event_connect_context {
+    ClambhookLinuxApp *app;
+    SoupMessage *message;
+} EventConnectContext;
 
 typedef struct request_context {
     ClambhookLinuxApp *app;
@@ -108,12 +137,132 @@ static void send_request(ClambhookLinuxApp *app, RequestKind kind,
 static void populate_policy_rows(ClambhookLinuxApp *app, GPtrArray *rows);
 static void populate_prompt_rows(ClambhookLinuxApp *app, GPtrArray *rows);
 static void populate_capture_rows(ClambhookLinuxApp *app, GPtrArray *rows);
+static void start_event_stream(ClambhookLinuxApp *app);
 
 static char *join_url(const char *base, const char *path) {
     gsize base_length = strlen(base);
     gboolean slash = base_length > 0U && base[base_length - 1U] == '/';
     return g_strdup_printf("%s%s%s", base, slash ? "" : "/",
                            path[0] == '/' ? path + 1U : path);
+}
+
+static char *websocket_url(const char *base, const char *path) {
+    const char *scheme = NULL;
+    const char *rest = NULL;
+    if (g_str_has_prefix(base, "http://")) {
+        scheme = "ws://";
+        rest = base + strlen("http://");
+    } else if (g_str_has_prefix(base, "https://")) {
+        scheme = "wss://";
+        rest = base + strlen("https://");
+    } else {
+        return NULL;
+    }
+    g_autofree char *websocket_base = g_strdup_printf("%s%s", scheme, rest);
+    return join_url(websocket_base, path);
+}
+
+static gboolean event_refresh_timeout(gpointer user_data) {
+    ClambhookLinuxApp *app = user_data;
+    app->event_refresh_source = 0U;
+    if (app->shutting_down) return G_SOURCE_REMOVE;
+    send_request(app, REQUEST_STATUS, "GET", "/api/v1/status", NULL);
+    send_request(app, REQUEST_TRAFFIC, "GET",
+                 "/api/v1/traffic?limit=200", NULL);
+    return G_SOURCE_REMOVE;
+}
+
+static void event_message(SoupWebsocketConnection *connection, gint type,
+                          GBytes *message, gpointer user_data) {
+    (void)connection;
+    (void)message;
+    ClambhookLinuxApp *app = user_data;
+    if (type != SOUP_WEBSOCKET_DATA_TEXT || app->shutting_down ||
+        app->event_refresh_source != 0U) return;
+    app->event_refresh_source = g_timeout_add(
+        750U, event_refresh_timeout, app);
+}
+
+static gboolean event_reconnect_timeout(gpointer user_data) {
+    ClambhookLinuxApp *app = user_data;
+    app->event_reconnect_source = 0U;
+    start_event_stream(app);
+    return G_SOURCE_REMOVE;
+}
+
+static void schedule_event_reconnect(ClambhookLinuxApp *app) {
+    if (app->shutting_down || app->event_reconnect_source != 0U) return;
+    app->event_reconnect_source = g_timeout_add_seconds(
+        2U, event_reconnect_timeout, app);
+}
+
+static void event_closed(SoupWebsocketConnection *connection,
+                         gpointer user_data) {
+    ClambhookLinuxApp *app = user_data;
+    if (app->event_connection == connection) {
+        g_clear_object(&app->event_connection);
+    }
+    schedule_event_reconnect(app);
+}
+
+static void event_error(SoupWebsocketConnection *connection, GError *error,
+                        gpointer user_data) {
+    (void)connection;
+    (void)error;
+    (void)user_data;
+}
+
+static void event_connected(GObject *source, GAsyncResult *result,
+                            gpointer user_data) {
+    EventConnectContext *context = user_data;
+    ClambhookLinuxApp *app = context->app;
+    g_autoptr(GError) error = NULL;
+    SoupWebsocketConnection *connection =
+        soup_session_websocket_connect_finish(
+            SOUP_SESSION(source), result, &error);
+    app->event_connecting = FALSE;
+    if (!app->shutting_down && connection != NULL) {
+        g_clear_object(&app->event_connection);
+        app->event_connection = connection;
+        soup_websocket_connection_set_max_incoming_payload_size(
+            connection, 1024U * 1024U);
+        soup_websocket_connection_set_keepalive_interval(connection, 30U);
+        g_signal_connect(connection, "message", G_CALLBACK(event_message),
+                         app);
+        g_signal_connect(connection, "error", G_CALLBACK(event_error), app);
+        g_signal_connect(connection, "closed", G_CALLBACK(event_closed), app);
+    } else {
+        g_clear_object(&connection);
+        schedule_event_reconnect(app);
+    }
+    g_object_unref(context->message);
+    g_free(context);
+}
+
+static void start_event_stream(ClambhookLinuxApp *app) {
+    if (app->shutting_down || app->event_connecting ||
+        app->event_connection != NULL) return;
+    g_autofree char *url = websocket_url(
+        app->api_url, "/api/v1/events?types=connection.*,rule.*");
+    if (url == NULL) return;
+    SoupMessage *message = soup_message_new("GET", url);
+    if (message == NULL) {
+        schedule_event_reconnect(app);
+        return;
+    }
+    SoupMessageHeaders *headers = soup_message_get_request_headers(message);
+    if (app->api_token[0] != '\0') {
+        g_autofree char *authorization = g_strdup_printf(
+            "Bearer %s", app->api_token);
+        soup_message_headers_replace(headers, "Authorization", authorization);
+    }
+    EventConnectContext *context = g_new0(EventConnectContext, 1U);
+    context->app = app;
+    context->message = message;
+    app->event_connecting = TRUE;
+    soup_session_websocket_connect_async(
+        app->session, message, NULL, NULL, G_PRIORITY_DEFAULT, NULL,
+        event_connected, context);
 }
 
 static void set_request_activity(ClambhookLinuxApp *app, int delta) {
@@ -131,6 +280,10 @@ static void set_request_activity(ClambhookLinuxApp *app, int delta) {
     gtk_widget_set_sensitive(app->capture_clear_button,
                              !active && app->capture_enabled);
     gtk_widget_set_sensitive(app->capture_filter_button, !active);
+    gtk_widget_set_sensitive(app->conditioner_editor, !active);
+    gtk_widget_set_sensitive(app->conditioner_save_button, !active);
+    gtk_widget_set_sensitive(app->dns_editor, !active);
+    gtk_widget_set_sensitive(app->dns_save_button, !active);
     gtk_widget_set_sensitive(app->page_lists[PAGE_POLICIES], !active);
     gtk_widget_set_sensitive(app->page_lists[PAGE_PROMPTS], !active);
     gtk_widget_set_sensitive(app->page_lists[PAGE_CAPTURES], !active);
@@ -317,14 +470,71 @@ static gboolean request_page(RequestKind kind, PageSlot *slot,
         case REQUEST_PROMPTS:
             *slot = PAGE_PROMPTS; *model_kind = CH_GTK_PAGE_PROMPTS; return TRUE;
         case REQUEST_DNS:
+        case REQUEST_DNS_UPDATE:
             *slot = PAGE_DNS; *model_kind = CH_GTK_PAGE_DNS; return TRUE;
         case REQUEST_CAPTURES:
             *slot = PAGE_CAPTURES; *model_kind = CH_GTK_PAGE_CAPTURES; return TRUE;
         case REQUEST_CONDITIONER:
+        case REQUEST_CONDITIONER_UPDATE:
             *slot = PAGE_CONDITIONER; *model_kind = CH_GTK_PAGE_CONDITIONER; return TRUE;
         default:
             return FALSE;
     }
+}
+
+static gboolean apply_conditioner_editor(ClambhookLinuxApp *app,
+                                         const guint8 *data,
+                                         gsize length) {
+    ch_gtk_conditioner_model model;
+    g_autoptr(GError) error = NULL;
+    if (!ch_gtk_parse_conditioner(data, length, &model, &error)) {
+        set_error(app, error->message);
+        return FALSE;
+    }
+    g_free(app->conditioner_profile);
+    app->conditioner_profile = g_strdup(model.profile);
+    g_autofree char *profile = g_strdup_printf(
+        "Profile: %s", model.profile[0] == '\0' ? "active profile" :
+                                                    model.profile);
+    gtk_label_set_text(GTK_LABEL(app->conditioner_profile_label), profile);
+    gtk_check_button_set_active(GTK_CHECK_BUTTON(app->conditioner_enabled),
+                                model.enabled);
+    g_autofree char *download = model.download_kbps == 0U ? g_strdup("") :
+        g_strdup_printf("%" G_GUINT64_FORMAT, model.download_kbps);
+    g_autofree char *upload = model.upload_kbps == 0U ? g_strdup("") :
+        g_strdup_printf("%" G_GUINT64_FORMAT, model.upload_kbps);
+    g_autofree char *loss = model.loss_percent == 0.0 ? g_strdup("") :
+        g_strdup_printf("%.17g", model.loss_percent);
+    gtk_editable_set_text(GTK_EDITABLE(app->conditioner_download), download);
+    gtk_editable_set_text(GTK_EDITABLE(app->conditioner_upload), upload);
+    gtk_editable_set_text(GTK_EDITABLE(app->conditioner_latency),
+                          model.latency);
+    gtk_editable_set_text(GTK_EDITABLE(app->conditioner_jitter), model.jitter);
+    gtk_editable_set_text(GTK_EDITABLE(app->conditioner_loss), loss);
+    ch_gtk_conditioner_model_clear(&model);
+    return TRUE;
+}
+
+static gboolean apply_dns_editor(ClambhookLinuxApp *app,
+                                 const guint8 *data, gsize length) {
+    ch_gtk_dns_model model;
+    g_autoptr(GError) error = NULL;
+    if (!ch_gtk_parse_dns(data, length, &model, &error)) {
+        set_error(app, error->message);
+        return FALSE;
+    }
+    g_free(app->dns_profile);
+    app->dns_profile = g_strdup(model.profile);
+    g_autofree char *profile = g_strdup_printf(
+        "Profile: %s", model.profile[0] == '\0' ? "active profile" :
+                                                    model.profile);
+    gtk_label_set_text(GTK_LABEL(app->dns_profile_label), profile);
+    gtk_check_button_set_active(GTK_CHECK_BUTTON(app->dns_enabled),
+                                model.enabled);
+    gtk_editable_set_text(GTK_EDITABLE(app->dns_timeout), model.timeout);
+    gtk_text_buffer_set_text(app->dns_upstreams, model.upstreams_json, -1);
+    ch_gtk_dns_model_clear(&model);
+    return TRUE;
 }
 
 static void apply_page(ClambhookLinuxApp *app, RequestKind kind,
@@ -332,6 +542,9 @@ static void apply_page(ClambhookLinuxApp *app, RequestKind kind,
     PageSlot slot;
     ch_gtk_page_model_kind model_kind;
     if (!request_page(kind, &slot, &model_kind)) return;
+    if (slot == PAGE_CONDITIONER &&
+        !apply_conditioner_editor(app, data, length)) return;
+    if (slot == PAGE_DNS && !apply_dns_editor(app, data, length)) return;
     GPtrArray *rows = NULL;
     char *summary = NULL;
     g_autoptr(GError) error = NULL;
@@ -556,6 +769,13 @@ static void reconcile_failed_mutation(ClambhookLinuxApp *app,
                 g_autofree char *path = capture_entries_path(app);
                 send_request(app, REQUEST_CAPTURES, "GET", path, NULL);
             }
+            break;
+        case REQUEST_CONDITIONER_UPDATE:
+            send_request(app, REQUEST_CONDITIONER, "GET",
+                         "/api/v1/conditioner", NULL);
+            break;
+        case REQUEST_DNS_UPDATE:
+            send_request(app, REQUEST_DNS, "GET", "/api/v1/dns", NULL);
             break;
         default:
             break;
@@ -957,6 +1177,52 @@ static void capture_clear_clicked(GtkButton *button, gpointer user_data) {
     gtk_window_present(GTK_WINDOW(dialog));
 }
 
+static void conditioner_save_clicked(GtkButton *button, gpointer user_data) {
+    (void)button;
+    ClambhookLinuxApp *app = user_data;
+    g_autoptr(GError) error = NULL;
+    g_autofree char *body = ch_gtk_conditioner_body(
+        app->conditioner_profile,
+        gtk_check_button_get_active(
+            GTK_CHECK_BUTTON(app->conditioner_enabled)),
+        gtk_editable_get_text(GTK_EDITABLE(app->conditioner_download)),
+        gtk_editable_get_text(GTK_EDITABLE(app->conditioner_upload)),
+        gtk_editable_get_text(GTK_EDITABLE(app->conditioner_latency)),
+        gtk_editable_get_text(GTK_EDITABLE(app->conditioner_jitter)),
+        gtk_editable_get_text(GTK_EDITABLE(app->conditioner_loss)), &error);
+    if (body == NULL) {
+        set_error(app, error == NULL ? "Invalid conditioner values." :
+                                      error->message);
+        return;
+    }
+    set_error(app, "");
+    send_request(app, REQUEST_CONDITIONER_UPDATE, "PUT",
+                 "/api/v1/conditioner", body);
+}
+
+static void dns_save_clicked(GtkButton *button, gpointer user_data) {
+    (void)button;
+    ClambhookLinuxApp *app = user_data;
+    GtkTextIter start;
+    GtkTextIter end;
+    gtk_text_buffer_get_bounds(app->dns_upstreams, &start, &end);
+    g_autofree char *upstreams = gtk_text_buffer_get_text(
+        app->dns_upstreams, &start, &end, FALSE);
+    g_autoptr(GError) error = NULL;
+    g_autofree char *body = ch_gtk_dns_body(
+        app->dns_profile,
+        gtk_check_button_get_active(GTK_CHECK_BUTTON(app->dns_enabled)),
+        gtk_editable_get_text(GTK_EDITABLE(app->dns_timeout)), upstreams,
+        &error);
+    if (body == NULL) {
+        set_error(app, error == NULL ? "Invalid DNS settings." :
+                                      error->message);
+        return;
+    }
+    set_error(app, "");
+    send_request(app, REQUEST_DNS_UPDATE, "PUT", "/api/v1/dns", body);
+}
+
 static GtkWidget *detail_row(const char *title, GtkWidget **value_out) {
     GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 12);
     GtkWidget *title_label = gtk_label_new(title);
@@ -1166,6 +1432,172 @@ static GtkWidget *create_capture_page(ClambhookLinuxApp *app) {
     return page;
 }
 
+static void conditioner_grid_entry(GtkGrid *grid, int row,
+                                   const char *label_text,
+                                   const char *placeholder,
+                                   GtkInputPurpose purpose,
+                                   GtkWidget **entry_out) {
+    GtkWidget *label = gtk_label_new_with_mnemonic(label_text);
+    gtk_label_set_xalign(GTK_LABEL(label), 0.0F);
+    GtkWidget *entry = gtk_entry_new();
+    gtk_entry_set_placeholder_text(GTK_ENTRY(entry), placeholder);
+    gtk_entry_set_input_purpose(GTK_ENTRY(entry), purpose);
+    gtk_widget_set_hexpand(entry, TRUE);
+    gtk_label_set_mnemonic_widget(GTK_LABEL(label), entry);
+    gtk_grid_attach(grid, label, 0, row, 1, 1);
+    gtk_grid_attach(grid, entry, 1, row, 1, 1);
+    *entry_out = entry;
+}
+
+static GtkWidget *create_conditioner_page(ClambhookLinuxApp *app) {
+    GtkWidget *page = create_data_page(
+        app, PAGE_CONDITIONER, "Network conditioner",
+        "Shape bandwidth, latency, jitter, and packet loss for the active "
+        "profile. Changes are validated and persisted transactionally by "
+        "the native C daemon.", FALSE);
+    GtkWidget *editor = gtk_box_new(GTK_ORIENTATION_VERTICAL, 12);
+    app->conditioner_editor = editor;
+    gtk_widget_add_css_class(editor, "card");
+    gtk_widget_set_margin_top(editor, 4);
+    gtk_widget_set_margin_bottom(editor, 4);
+    gtk_widget_set_margin_start(editor, 2);
+    gtk_widget_set_margin_end(editor, 2);
+
+    GtkWidget *header = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 10);
+    app->conditioner_profile_label = gtk_label_new("Profile: loading…");
+    gtk_label_set_xalign(GTK_LABEL(app->conditioner_profile_label), 0.0F);
+    gtk_widget_set_hexpand(app->conditioner_profile_label, TRUE);
+    gtk_widget_add_css_class(app->conditioner_profile_label, "heading");
+    gtk_box_append(GTK_BOX(header), app->conditioner_profile_label);
+    app->conditioner_enabled = gtk_check_button_new_with_label("Enabled");
+    gtk_widget_set_tooltip_text(
+        app->conditioner_enabled,
+        "Apply the configured network conditions to eligible traffic");
+    gtk_box_append(GTK_BOX(header), app->conditioner_enabled);
+    gtk_box_append(GTK_BOX(editor), header);
+
+    GtkWidget *grid_widget = gtk_grid_new();
+    GtkGrid *grid = GTK_GRID(grid_widget);
+    gtk_grid_set_row_spacing(grid, 8);
+    gtk_grid_set_column_spacing(grid, 12);
+    conditioner_grid_entry(grid, 0, "_Download (Kbps)", "Unlimited",
+                           GTK_INPUT_PURPOSE_DIGITS,
+                           &app->conditioner_download);
+    conditioner_grid_entry(grid, 1, "_Upload (Kbps)", "Unlimited",
+                           GTK_INPUT_PURPOSE_DIGITS,
+                           &app->conditioner_upload);
+    conditioner_grid_entry(grid, 2, "_Latency", "40ms",
+                           GTK_INPUT_PURPOSE_FREE_FORM,
+                           &app->conditioner_latency);
+    conditioner_grid_entry(grid, 3, "_Jitter", "5ms",
+                           GTK_INPUT_PURPOSE_FREE_FORM,
+                           &app->conditioner_jitter);
+    conditioner_grid_entry(grid, 4, "_Loss (%)", "0–100",
+                           GTK_INPUT_PURPOSE_NUMBER,
+                           &app->conditioner_loss);
+    gtk_box_append(GTK_BOX(editor), grid_widget);
+
+    GtkWidget *hint = gtk_label_new(
+        "Leave bandwidth and loss empty for zero. Leave latency or jitter "
+        "empty to remove that delay.");
+    gtk_label_set_xalign(GTK_LABEL(hint), 0.0F);
+    gtk_label_set_wrap(GTK_LABEL(hint), TRUE);
+    gtk_widget_add_css_class(hint, "dim-label");
+    gtk_box_append(GTK_BOX(editor), hint);
+    app->conditioner_save_button = gtk_button_new_with_label(
+        "Save conditioner");
+    gtk_widget_add_css_class(app->conditioner_save_button,
+                             "suggested-action");
+    gtk_widget_set_halign(app->conditioner_save_button, GTK_ALIGN_END);
+    g_signal_connect(app->conditioner_save_button, "clicked",
+                     G_CALLBACK(conditioner_save_clicked), app);
+    gtk_box_append(GTK_BOX(editor), app->conditioner_save_button);
+
+    GtkWidget *title = gtk_widget_get_first_child(page);
+    GtkWidget *description = gtk_widget_get_next_sibling(title);
+    gtk_box_insert_child_after(GTK_BOX(page), editor, description);
+    return page;
+}
+
+static GtkWidget *create_dns_page(ClambhookLinuxApp *app) {
+    GtkWidget *page = create_data_page(
+        app, PAGE_DNS, "Encrypted DNS",
+        "Configure ordered route-aware encrypted DNS upstreams for the "
+        "active profile. The native C daemon validates and persists changes "
+        "before rebuilding the live DNS proxy.", FALSE);
+    GtkWidget *editor = gtk_box_new(GTK_ORIENTATION_VERTICAL, 10);
+    app->dns_editor = editor;
+    gtk_widget_add_css_class(editor, "card");
+    gtk_widget_set_margin_top(editor, 4);
+    gtk_widget_set_margin_bottom(editor, 4);
+    gtk_widget_set_margin_start(editor, 2);
+    gtk_widget_set_margin_end(editor, 2);
+
+    GtkWidget *header = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 10);
+    app->dns_profile_label = gtk_label_new("Profile: loading…");
+    gtk_label_set_xalign(GTK_LABEL(app->dns_profile_label), 0.0F);
+    gtk_widget_set_hexpand(app->dns_profile_label, TRUE);
+    gtk_widget_add_css_class(app->dns_profile_label, "heading");
+    gtk_box_append(GTK_BOX(header), app->dns_profile_label);
+    app->dns_enabled = gtk_check_button_new_with_label("Encrypted DNS");
+    gtk_widget_set_tooltip_text(
+        app->dns_enabled,
+        "Intercept DNS traffic and use the configured encrypted upstreams");
+    gtk_box_append(GTK_BOX(header), app->dns_enabled);
+    gtk_box_append(GTK_BOX(editor), header);
+
+    GtkWidget *timeout_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 12);
+    GtkWidget *timeout_label = gtk_label_new_with_mnemonic("_Timeout");
+    gtk_label_set_xalign(GTK_LABEL(timeout_label), 0.0F);
+    app->dns_timeout = gtk_entry_new();
+    gtk_entry_set_placeholder_text(GTK_ENTRY(app->dns_timeout), "5s");
+    gtk_widget_set_hexpand(app->dns_timeout, TRUE);
+    gtk_label_set_mnemonic_widget(GTK_LABEL(timeout_label), app->dns_timeout);
+    gtk_box_append(GTK_BOX(timeout_row), timeout_label);
+    gtk_box_append(GTK_BOX(timeout_row), app->dns_timeout);
+    gtk_box_append(GTK_BOX(editor), timeout_row);
+
+    GtkWidget *upstreams_label = gtk_label_new_with_mnemonic(
+        "_Ordered upstreams (JSON array)");
+    gtk_label_set_xalign(GTK_LABEL(upstreams_label), 0.0F);
+    gtk_box_append(GTK_BOX(editor), upstreams_label);
+    GtkWidget *upstreams_scroll = gtk_scrolled_window_new();
+    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(upstreams_scroll),
+                                   GTK_POLICY_AUTOMATIC,
+                                   GTK_POLICY_AUTOMATIC);
+    gtk_widget_set_size_request(upstreams_scroll, -1, 180);
+    GtkWidget *upstreams_view = gtk_text_view_new();
+    gtk_text_view_set_wrap_mode(GTK_TEXT_VIEW(upstreams_view),
+                                GTK_WRAP_NONE);
+    gtk_widget_add_css_class(upstreams_view, "monospace");
+    app->dns_upstreams = gtk_text_view_get_buffer(
+        GTK_TEXT_VIEW(upstreams_view));
+    gtk_label_set_mnemonic_widget(GTK_LABEL(upstreams_label),
+                                  upstreams_view);
+    gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(upstreams_scroll),
+                                  upstreams_view);
+    gtk_box_append(GTK_BOX(editor), upstreams_scroll);
+    GtkWidget *hint = gtk_label_new(
+        "Each object may define name, protocol, URL or address, TLS server "
+        "name, bootstrap addresses, and chain. Keep [] when encrypted DNS "
+        "is disabled.");
+    gtk_label_set_xalign(GTK_LABEL(hint), 0.0F);
+    gtk_label_set_wrap(GTK_LABEL(hint), TRUE);
+    gtk_widget_add_css_class(hint, "dim-label");
+    gtk_box_append(GTK_BOX(editor), hint);
+    app->dns_save_button = gtk_button_new_with_label("Save DNS settings");
+    gtk_widget_add_css_class(app->dns_save_button, "suggested-action");
+    gtk_widget_set_halign(app->dns_save_button, GTK_ALIGN_END);
+    g_signal_connect(app->dns_save_button, "clicked",
+                     G_CALLBACK(dns_save_clicked), app);
+    gtk_box_append(GTK_BOX(editor), app->dns_save_button);
+
+    GtkWidget *title = gtk_widget_get_first_child(page);
+    GtkWidget *description = gtk_widget_get_next_sibling(title);
+    gtk_box_insert_child_after(GTK_BOX(page), editor, description);
+    return page;
+}
+
 static GtkWidget *create_information_page(const char *title,
                                           const char *description,
                                           const char *body) {
@@ -1237,15 +1669,10 @@ static void activate(GtkApplication *application, gpointer user_data) {
         "Manual selection and latency-tested automatic policy groups.", TRUE),
         "policies", "Policies");
     add_stack_page(stack, create_prompt_page(app), "firewall", "Firewall");
-    add_stack_page(stack, create_data_page(
-        app, PAGE_DNS, "Encrypted DNS",
-        "DNS strategy and encrypted upstreams for the active profile.", FALSE),
-        "dns", "DNS");
+    add_stack_page(stack, create_dns_page(app), "dns", "DNS");
     add_stack_page(stack, create_capture_page(app), "capture", "Capture");
-    add_stack_page(stack, create_data_page(
-        app, PAGE_CONDITIONER, "Network conditioner",
-        "Latency, jitter, packet-loss, and bandwidth simulation state.", FALSE),
-        "conditioner", "Conditioner");
+    add_stack_page(stack, create_conditioner_page(app),
+                   "conditioner", "Conditioner");
     add_stack_page(stack, create_library_page(app), "library", "Library");
     add_stack_page(stack, create_information_page(
         "License", "ClambHook licensing and trial state.",
@@ -1276,6 +1703,29 @@ static void activate(GtkApplication *application, gpointer user_data) {
     gtk_window_set_child(GTK_WINDOW(app->window), root);
     gtk_window_present(GTK_WINDOW(app->window));
     refresh_all(app);
+    start_event_stream(app);
+}
+
+static void shutdown_application(GApplication *application,
+                                 gpointer user_data) {
+    (void)application;
+    ClambhookLinuxApp *app = user_data;
+    app->shutting_down = TRUE;
+    if (app->event_refresh_source != 0U) {
+        g_source_remove(app->event_refresh_source);
+        app->event_refresh_source = 0U;
+    }
+    if (app->event_reconnect_source != 0U) {
+        g_source_remove(app->event_reconnect_source);
+        app->event_reconnect_source = 0U;
+    }
+    if (app->event_connection != NULL) {
+        soup_websocket_connection_close(
+            app->event_connection, SOUP_WEBSOCKET_CLOSE_NORMAL,
+            "application closing");
+        g_clear_object(&app->event_connection);
+    }
+    soup_session_abort(app->session);
 }
 
 int main(int argc, char **argv) {
@@ -1296,11 +1746,15 @@ int main(int argc, char **argv) {
     app.application = gtk_application_new(
         "com.clambhook.Clambhook", G_APPLICATION_DEFAULT_FLAGS);
     g_signal_connect(app.application, "activate", G_CALLBACK(activate), &app);
+    g_signal_connect(app.application, "shutdown",
+                     G_CALLBACK(shutdown_application), &app);
     int status = g_application_run(
         G_APPLICATION(app.application), argc, argv);
     g_clear_object(&app.session);
     g_clear_object(&app.application);
     g_free(app.api_url);
     g_free(app.api_token);
+    g_free(app.conditioner_profile);
+    g_free(app.dns_profile);
     return status;
 }

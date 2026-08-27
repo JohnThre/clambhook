@@ -2,6 +2,7 @@
 
 #include <json-glib/json-glib.h>
 
+#include <errno.h>
 #include <math.h>
 #include <string.h>
 
@@ -144,6 +145,22 @@ void ch_gtk_capture_detail_clear(ch_gtk_capture_detail *detail) {
     memset(detail, 0, sizeof(*detail));
 }
 
+void ch_gtk_conditioner_model_clear(ch_gtk_conditioner_model *model) {
+    if (model == NULL) return;
+    g_free(model->profile);
+    g_free(model->latency);
+    g_free(model->jitter);
+    memset(model, 0, sizeof(*model));
+}
+
+void ch_gtk_dns_model_clear(ch_gtk_dns_model *model) {
+    if (model == NULL) return;
+    g_free(model->profile);
+    g_free(model->timeout);
+    g_free(model->upstreams_json);
+    memset(model, 0, sizeof(*model));
+}
+
 char *ch_gtk_format_bytes(guint64 value) {
     static const char *const units[] = {"B", "KiB", "MiB", "GiB", "TiB"};
     double scaled = (double)value;
@@ -215,6 +232,122 @@ char *ch_gtk_capture_enabled_body(gboolean enabled) {
     json_builder_begin_object(builder);
     json_builder_set_member_name(builder, "enabled");
     json_builder_add_boolean_value(builder, enabled);
+    json_builder_end_object(builder);
+    return builder_json(builder);
+}
+
+static gboolean parse_nonnegative_integer(const char *text,
+                                           const char *field,
+                                           gint64 *out,
+                                           GError **error) {
+    g_autofree char *trimmed = g_strdup(text == NULL ? "" : text);
+    g_strstrip(trimmed);
+    if (trimmed[0] == '\0') {
+        *out = 0;
+        return TRUE;
+    }
+    errno = 0;
+    char *end = NULL;
+    guint64 value = g_ascii_strtoull(trimmed, &end, 10);
+    if (errno == ERANGE || end == trimmed || *end != '\0' ||
+        value > (guint64)G_MAXINT64 || trimmed[0] == '-') {
+        g_set_error(error, ch_gtk_model_error_quark(), 2,
+                    "%s must be a non-negative integer", field);
+        return FALSE;
+    }
+    *out = (gint64)value;
+    return TRUE;
+}
+
+static gboolean parse_loss_percent(const char *text, double *out,
+                                   GError **error) {
+    g_autofree char *trimmed = g_strdup(text == NULL ? "" : text);
+    g_strstrip(trimmed);
+    if (trimmed[0] == '\0') {
+        *out = 0.0;
+        return TRUE;
+    }
+    errno = 0;
+    char *end = NULL;
+    double value = g_ascii_strtod(trimmed, &end);
+    if (errno == ERANGE || end == trimmed || *end != '\0' ||
+        !isfinite(value) || value < 0.0 || value > 100.0) {
+        g_set_error_literal(error, ch_gtk_model_error_quark(), 2,
+                            "loss percent must be between 0 and 100");
+        return FALSE;
+    }
+    *out = value;
+    return TRUE;
+}
+
+char *ch_gtk_conditioner_body(const char *profile, gboolean enabled,
+                              const char *download_kbps,
+                              const char *upload_kbps,
+                              const char *latency, const char *jitter,
+                              const char *loss_percent, GError **error) {
+    gint64 download = 0;
+    gint64 upload = 0;
+    double loss = 0.0;
+    if (!parse_nonnegative_integer(download_kbps, "download Kbps",
+                                   &download, error) ||
+        !parse_nonnegative_integer(upload_kbps, "upload Kbps", &upload,
+                                   error) ||
+        !parse_loss_percent(loss_percent, &loss, error)) {
+        return NULL;
+    }
+    g_autofree char *latency_value = g_strdup(latency == NULL ? "" : latency);
+    g_autofree char *jitter_value = g_strdup(jitter == NULL ? "" : jitter);
+    g_strstrip(latency_value);
+    g_strstrip(jitter_value);
+    g_autoptr(JsonBuilder) builder = json_builder_new();
+    json_builder_begin_object(builder);
+    if (profile != NULL && profile[0] != '\0') {
+        json_builder_set_member_name(builder, "profile");
+        json_builder_add_string_value(builder, profile);
+    }
+    json_builder_set_member_name(builder, "enabled");
+    json_builder_add_boolean_value(builder, enabled);
+    json_builder_set_member_name(builder, "download_kbps");
+    json_builder_add_int_value(builder, download);
+    json_builder_set_member_name(builder, "upload_kbps");
+    json_builder_add_int_value(builder, upload);
+    json_builder_set_member_name(builder, "latency");
+    json_builder_add_string_value(builder, latency_value);
+    json_builder_set_member_name(builder, "jitter");
+    json_builder_add_string_value(builder, jitter_value);
+    json_builder_set_member_name(builder, "loss_percent");
+    json_builder_add_double_value(builder, loss);
+    json_builder_end_object(builder);
+    return builder_json(builder);
+}
+
+char *ch_gtk_dns_body(const char *profile, gboolean enabled,
+                      const char *timeout, const char *upstreams_json,
+                      GError **error) {
+    g_autofree char *timeout_value = g_strdup(timeout == NULL ? "" : timeout);
+    g_strstrip(timeout_value);
+    g_autoptr(JsonParser) parser = json_parser_new();
+    const char *upstreams = upstreams_json == NULL ||
+        upstreams_json[0] == '\0' ? "[]" : upstreams_json;
+    if (!json_parser_load_from_data(parser, upstreams, -1, error)) return NULL;
+    JsonNode *upstream_root = json_parser_get_root(parser);
+    if (upstream_root == NULL || !JSON_NODE_HOLDS_ARRAY(upstream_root)) {
+        g_set_error_literal(error, ch_gtk_model_error_quark(), 2,
+                            "DNS upstreams must be a JSON array");
+        return NULL;
+    }
+    g_autoptr(JsonBuilder) builder = json_builder_new();
+    json_builder_begin_object(builder);
+    if (profile != NULL && profile[0] != '\0') {
+        json_builder_set_member_name(builder, "profile");
+        json_builder_add_string_value(builder, profile);
+    }
+    json_builder_set_member_name(builder, "enabled");
+    json_builder_add_boolean_value(builder, enabled);
+    json_builder_set_member_name(builder, "timeout");
+    json_builder_add_string_value(builder, timeout_value);
+    json_builder_set_member_name(builder, "upstreams");
+    json_builder_add_value(builder, json_node_copy(upstream_root));
     json_builder_end_object(builder);
     return builder_json(builder);
 }
@@ -549,6 +682,55 @@ char *ch_gtk_parse_curl_export(const guint8 *data, gsize length,
     char *result = g_strdup(object_string(root, "curl", ""));
     g_object_unref(parser);
     return result;
+}
+
+gboolean ch_gtk_parse_conditioner(const guint8 *data, gsize length,
+                                  ch_gtk_conditioner_model *out,
+                                  GError **error) {
+    memset(out, 0, sizeof(*out));
+    JsonParser *parser = NULL;
+    JsonObject *root = parse_root(data, length, &parser, error);
+    if (root == NULL) return FALSE;
+    out->profile = g_strdup(object_string(root, "profile", ""));
+    out->enabled = object_boolean(root, "enabled", FALSE);
+    out->download_kbps = object_uint64(root, "download_kbps");
+    out->upload_kbps = object_uint64(root, "upload_kbps");
+    out->latency = g_strdup(object_string(root, "latency", ""));
+    out->jitter = g_strdup(object_string(root, "jitter", ""));
+    out->loss_percent = object_number(root, "loss_percent", 0.0);
+    if (!isfinite(out->loss_percent) || out->loss_percent < 0.0 ||
+        out->loss_percent > 100.0) {
+        ch_gtk_conditioner_model_clear(out);
+        g_set_error_literal(error, ch_gtk_model_error_quark(), 1,
+                            "daemon conditioner loss must be between 0 and 100");
+        g_object_unref(parser);
+        return FALSE;
+    }
+    g_object_unref(parser);
+    return TRUE;
+}
+
+gboolean ch_gtk_parse_dns(const guint8 *data, gsize length,
+                          ch_gtk_dns_model *out, GError **error) {
+    memset(out, 0, sizeof(*out));
+    JsonParser *parser = NULL;
+    JsonObject *root = parse_root(data, length, &parser, error);
+    if (root == NULL) return FALSE;
+    out->profile = g_strdup(object_string(root, "profile", ""));
+    out->enabled = object_boolean(root, "enabled", FALSE);
+    out->timeout = g_strdup(object_string(root, "timeout", ""));
+    JsonArray *upstreams = object_array(root, "upstreams");
+    g_autoptr(JsonGenerator) generator = json_generator_new();
+    JsonNode *node = json_node_new(JSON_NODE_ARRAY);
+    json_node_take_array(node, upstreams == NULL ? json_array_new() :
+                                                  json_array_ref(upstreams));
+    json_generator_set_root(generator, node);
+    json_generator_set_pretty(generator, TRUE);
+    json_generator_set_indent(generator, 2U);
+    out->upstreams_json = json_generator_to_data(generator, NULL);
+    json_node_free(node);
+    g_object_unref(parser);
+    return TRUE;
 }
 
 gboolean ch_gtk_parse_page_rows(ch_gtk_page_model_kind kind,

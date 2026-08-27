@@ -213,6 +213,80 @@ static void test_capture_detail(void) {
     g_assert_cmpstr(curl, ==, "curl 'http://example.test/'");
 }
 
+static void test_conditioner_contract(void) {
+    static const guint8 json[] =
+        "{\"profile\":\"work\",\"enabled\":true,"
+        "\"download_kbps\":2048,\"upload_kbps\":512,"
+        "\"latency\":\"40ms\",\"jitter\":\"5ms\","
+        "\"loss_percent\":1.25}";
+    ch_gtk_conditioner_model model;
+    g_autoptr(GError) error = NULL;
+    g_assert_true(ch_gtk_parse_conditioner(
+        json, sizeof(json) - 1U, &model, &error));
+    g_assert_cmpstr(model.profile, ==, "work");
+    g_assert_true(model.enabled);
+    g_assert_cmpuint(model.download_kbps, ==, 2048U);
+    g_assert_cmpuint(model.upload_kbps, ==, 512U);
+    g_assert_cmpstr(model.latency, ==, "40ms");
+    g_assert_cmpfloat(model.loss_percent, ==, 1.25);
+    ch_gtk_conditioner_model_clear(&model);
+
+    g_autofree char *body = ch_gtk_conditioner_body(
+        "work", TRUE, " 2048 ", "512", " 40ms ", " 5ms ", "1.25",
+        &error);
+    g_assert_cmpstr(
+        body, ==,
+        "{\"profile\":\"work\",\"enabled\":true,"
+        "\"download_kbps\":2048,\"upload_kbps\":512,"
+        "\"latency\":\"40ms\",\"jitter\":\"5ms\","
+        "\"loss_percent\":1.25}");
+    g_autofree char *cleared = ch_gtk_conditioner_body(
+        "", FALSE, "", "", "", "", "", &error);
+    g_assert_cmpstr(
+        cleared, ==,
+        "{\"enabled\":false,\"download_kbps\":0,"
+        "\"upload_kbps\":0,\"latency\":\"\",\"jitter\":\"\","
+        "\"loss_percent\":0.0}");
+    g_assert_null(ch_gtk_conditioner_body(
+        "work", TRUE, "-1", "0", "0ms", "0ms", "0", &error));
+    g_assert_nonnull(error);
+    g_clear_error(&error);
+    g_assert_null(ch_gtk_conditioner_body(
+        "work", TRUE, "0", "0", "0ms", "0ms", "100.01", &error));
+    g_assert_nonnull(error);
+}
+
+static void test_dns_contract(void) {
+    static const guint8 json[] =
+        "{\"profile\":\"work\",\"strategy\":\"encrypted\","
+        "\"enabled\":true,\"timeout\":\"4s\",\"upstreams\":[{"
+        "\"name\":\"cloudflare\",\"protocol\":\"dot\","
+        "\"address\":\"1.1.1.1:853\","
+        "\"server_name\":\"cloudflare-dns.com\"}]}";
+    ch_gtk_dns_model model;
+    g_autoptr(GError) error = NULL;
+    g_assert_true(ch_gtk_parse_dns(
+        json, sizeof(json) - 1U, &model, &error));
+    g_assert_cmpstr(model.profile, ==, "work");
+    g_assert_true(model.enabled);
+    g_assert_cmpstr(model.timeout, ==, "4s");
+    g_assert_nonnull(strstr(model.upstreams_json, "cloudflare-dns.com"));
+
+    g_autofree char *body = ch_gtk_dns_body(
+        model.profile, model.enabled, " 4s ", model.upstreams_json, &error);
+    g_assert_cmpstr(
+        body, ==,
+        "{\"profile\":\"work\",\"enabled\":true,\"timeout\":\"4s\","
+        "\"upstreams\":[{\"name\":\"cloudflare\","
+        "\"protocol\":\"dot\",\"address\":\"1.1.1.1:853\","
+        "\"server_name\":\"cloudflare-dns.com\"}]}" );
+    ch_gtk_dns_model_clear(&model);
+
+    g_assert_null(ch_gtk_dns_body(
+        "work", TRUE, "4s", "{}", &error));
+    g_assert_nonnull(error);
+}
+
 int main(int argc, char **argv) {
     g_test_init(&argc, &argv, NULL);
     g_test_add_func("/gtk-model/status-profiles", test_status_and_profiles);
@@ -221,5 +295,8 @@ int main(int argc, char **argv) {
     g_test_add_func("/gtk-model/invalid", test_invalid_payload);
     g_test_add_func("/gtk-model/action-contracts", test_action_contracts);
     g_test_add_func("/gtk-model/capture-detail", test_capture_detail);
+    g_test_add_func("/gtk-model/conditioner-contract",
+                    test_conditioner_contract);
+    g_test_add_func("/gtk-model/dns-contract", test_dns_contract);
     return g_test_run();
 }
