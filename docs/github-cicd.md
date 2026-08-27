@@ -16,6 +16,11 @@ publish directly to the private Cloudflare R2 distribution bucket used by
 | `release.yml` | signed `v*` tag or manual | Protected signing, notarization, checksums/manifests, and direct R2 deployment for Android, GNU/Linux, and macOS |
 | `dependabot.yml` | GitHub schedule | GitHub Actions, Go modules, Android/Linux Gradle, and Swift dependency updates |
 
+Swift CodeQL traces only the shared Swift package target. It does not build or
+test `ClambhookMac`; macOS app builds and tests remain local. Go CodeQL uses a
+manual legacy-source build until the final C cutover removes the Go tree and
+its matrix row.
+
 All workflows default to `permissions: {}`. Jobs grant only `contents: read` or
 the security permissions they require. Third-party actions are pinned to full
 commit SHAs. `scripts/check-github-actions.sh` and

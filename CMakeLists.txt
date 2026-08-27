@@ -11,6 +11,7 @@ set(CMAKE_C_EXTENSIONS OFF)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 option(CLAMBHOOK_BUILD_DAEMON "Build the native daemon" ON)
+option(CLAMBHOOK_BUILD_TUI "Build the native terminal client" ON)
 option(CLAMBHOOK_BUILD_LICENSE_HELPER "Build the native license helper migration binary" ON)
 option(CLAMBHOOK_BUILD_GTK "Build the experimental GTK 4 GNU/Linux client" OFF)
 option(CLAMBHOOK_BUILD_JNI "Build the experimental JNI runtime bridge" OFF)
@@ -152,6 +153,18 @@ if(CLAMBHOOK_BUILD_DAEMON)
   set_target_properties(clambhook-c PROPERTIES OUTPUT_NAME clambhook-c)
 endif()
 
+if(CLAMBHOOK_BUILD_TUI)
+  add_executable(clambhook-tui-c native/src/tui/main.c)
+  target_link_libraries(clambhook-tui-c PRIVATE Clambhook::Core PkgConfig::CURL)
+  target_compile_definitions(clambhook-tui-c PRIVATE
+    CLAMBHOOK_VERSION="${PROJECT_VERSION}"
+    _POSIX_C_SOURCE=200809L
+  )
+  target_compile_options(clambhook-tui-c PRIVATE
+    $<$<C_COMPILER_ID:AppleClang,Clang,GNU>:-Wall;-Wextra;-Wpedantic;-Wconversion;-Wshadow>
+  )
+endif()
+
 if(CLAMBHOOK_BUILD_LICENSE_HELPER)
   add_executable(clambhook-license-c native/src/license_helper/main.c)
   target_include_directories(clambhook-license-c PRIVATE native/src)
@@ -229,6 +242,12 @@ if(CLAMBHOOK_BUILD_TESTS)
   )
   target_link_libraries(clambhook-native-tests PRIVATE Clambhook::Core PkgConfig::LLHTTP)
   add_test(NAME native-unit COMMAND clambhook-native-tests)
+  if(CLAMBHOOK_BUILD_TUI)
+    add_test(NAME native-tui-version COMMAND clambhook-tui-c --version)
+    set_tests_properties(native-tui-version PROPERTIES
+      PASS_REGULAR_EXPRESSION "^clambhook-tui ${PROJECT_VERSION}"
+    )
+  endif()
 endif()
 
 install(TARGETS clambhook_core clambhook_crypto

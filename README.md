@@ -336,6 +336,7 @@ through the remaining API/VPN parity gates. See
 | Path | Contents |
 | --- | --- |
 | `cmd/clambhook`, `cmd/clambhook-tui` | Legacy daemon and terminal-UI parity oracles. |
+| `native/src/daemon`, `native/src/tui` | Native C17 daemon and terminal client used for cutover validation. |
 | `internal/` | Core: protocols, chain, config, listeners, API, engine, geo. |
 | `pkg/cnet`, `pkg/mobile` | cgo bridge and mobile embedding surface. |
 | `clib/` | C static library (`src/`, `include/`). |

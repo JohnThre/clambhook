@@ -119,6 +119,12 @@ The additive CMake build currently provides:
   replay, breakpoint, map, and rewrite execution remain guarded.
   Configured proxy listeners participate in runtime start, stop, reload,
   profile switching, and status reporting;
+- `clambhook-tui-c`: a native terminal client with bounded libcurl requests,
+  bearer-token support, raw-terminal restoration, offline retry, status,
+  listener, profile, traffic, and prompt views, live profile switching,
+  connect/disconnect controls, and once/session/permanent prompt decisions. In
+  non-interactive use it prints one plain-text snapshot and exits, which also
+  provides a scriptable API smoke check;
 - `clambhook-linux-c`: an additive `GtkApplication` dashboard using GTK 4,
   libsoup 3, and json-glib;
 - `clambhook_jni`: the thin JNI ownership/callback boundary used by the Kotlin
