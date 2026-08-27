@@ -14,6 +14,7 @@
 
 #include "clambhook/config.h"
 #include "clambhook/dns.h"
+#include "clambhook/developer.h"
 #include "clambhook/events.h"
 #include "clambhook/ip_stack.h"
 #include "clambhook/json.h"
@@ -74,6 +75,7 @@ struct ch_runtime {
     ch_traffic_store *traffic;
     ch_temporary_rules *temporary_rules;
     ch_prompt_manager *prompts;
+    ch_developer_manager *developer;
     ch_event_ring *events;
     ch_network_info network_info;
     ch_config *config;
@@ -849,7 +851,7 @@ static bool ch_runtime_build_services(
     ch_error listener_error;
     ch_runtime_listener_set *listeners = ch_runtime_listener_set_start(
         config, profile_name, runtime->traffic, runtime->temporary_rules,
-        runtime->prompts,
+        runtime->prompts, runtime->developer,
         &listener_error
     );
     if (listeners == NULL) {
@@ -1147,6 +1149,31 @@ static bool ch_runtime_apply_config(ch_runtime *runtime, ch_command *command,
         command->error = prompt_error;
         return false;
     }
+    ch_error developer_error;
+    ch_status developer_status = ch_developer_manager_configure(
+        runtime->developer, next_config, &developer_error);
+    if (developer_status != CH_OK) {
+        ch_error ignored;
+        (void)ch_traffic_store_configure(runtime->traffic, runtime->config,
+                                         &ignored);
+        (void)ch_prompt_manager_configure(runtime->prompts, runtime->config,
+                                          &ignored);
+        (void)ch_developer_manager_configure(runtime->developer,
+                                             runtime->config, &ignored);
+        if (start_listeners) {
+            ch_command rollback_command;
+            memset(&rollback_command, 0, sizeof(rollback_command));
+            (void)ch_runtime_start_listeners(
+                runtime, runtime->config, runtime->active_profile,
+                &rollback_command);
+        }
+        ch_config_free(next_config);
+        free(next_path);
+        free(next_profile);
+        command->status = developer_status;
+        command->error = developer_error;
+        return false;
+    }
     ch_runtime_listener_set *next_listeners = NULL;
     ch_dns_proxy *next_dns = NULL;
     ch_ip_stack *next_ip_stack = NULL;
@@ -1163,6 +1190,8 @@ static bool ch_runtime_apply_config(ch_runtime *runtime, ch_command *command,
                                              runtime->config, &ignored);
             (void)ch_prompt_manager_configure(runtime->prompts,
                                               runtime->config, &ignored);
+            (void)ch_developer_manager_configure(runtime->developer,
+                                                 runtime->config, &ignored);
             (void)ch_runtime_start_listeners(
                 runtime, runtime->config, runtime->active_profile,
                 &rollback_command);
@@ -1694,6 +1723,37 @@ static void ch_command_process(ch_runtime *runtime, ch_command *command) {
             } else if (strcmp(command->operation, "events") == 0) {
                 command->response = ch_runtime_events_json(
                     runtime, command->payload, &command->error);
+            } else if (strcmp(command->operation,
+                              "developer_status") == 0) {
+                command->response = ch_developer_status_json(
+                    runtime->developer, &command->error);
+            } else if (strcmp(command->operation,
+                              "developer_entries") == 0) {
+                command->response = ch_developer_entries_json(
+                    runtime->developer, command->payload,
+                    &command->error);
+            } else if (strcmp(command->operation,
+                              "developer_entry") == 0 ||
+                       strcmp(command->operation,
+                              "developer_entry_curl") == 0) {
+                char *identifier = ch_json_request_string(
+                    command->payload, "id", &command->error);
+                if (identifier == NULL) {
+                    command->status = command->error.code;
+                    break;
+                }
+                ch_runtime_trim_in_place(identifier);
+                command->response = strcmp(command->operation,
+                                           "developer_entry") == 0 ?
+                    ch_developer_entry_json(runtime->developer, identifier,
+                                            &command->error) :
+                    ch_developer_entry_curl_json(
+                        runtime->developer, identifier, &command->error);
+                free(identifier);
+            } else if (strcmp(command->operation,
+                              "developer_har") == 0) {
+                command->response = ch_developer_har_json(
+                    runtime->developer, &command->error);
             } else if (strcmp(command->operation, "policy_groups") == 0) {
                 command->response = ch_runtime_policy_groups_json(
                     runtime, command->payload, &command->error);
@@ -1861,6 +1921,14 @@ static void ch_command_process(ch_runtime *runtime, ch_command *command) {
                 command->response = ch_temporary_rules_remove_json(
                     runtime->temporary_rules, command->payload,
                     &command->error);
+                if (command->response == NULL) {
+                    command->status = command->error.code;
+                    break;
+                }
+            } else if (strcmp(command->operation,
+                              "clear_developer_entries") == 0) {
+                command->response = ch_developer_clear_json(
+                    runtime->developer, &command->error);
                 if (command->response == NULL) {
                     command->status = command->error.code;
                     break;
@@ -2180,8 +2248,19 @@ ch_runtime *ch_runtime_create(const ch_runtime_options *options, ch_error *error
         free(runtime);
         return NULL;
     }
+    runtime->developer = ch_developer_manager_create(error);
+    if (runtime->developer == NULL) {
+        ch_prompt_manager_destroy(runtime->prompts);
+        ch_temporary_rules_destroy(runtime->temporary_rules);
+        ch_event_ring_destroy(runtime->events);
+        ch_traffic_store_destroy(runtime->traffic);
+        free(runtime->active_profile);
+        free(runtime);
+        return NULL;
+    }
     atomic_init(&runtime->running, false);
     if (uv_loop_init(&runtime->loop) != 0 || uv_mutex_init(&runtime->queue_mutex) != 0) {
+        ch_developer_manager_destroy(runtime->developer);
         ch_prompt_manager_destroy(runtime->prompts);
         ch_temporary_rules_destroy(runtime->temporary_rules);
         ch_event_ring_destroy(runtime->events);
@@ -2195,6 +2274,7 @@ ch_runtime *ch_runtime_create(const ch_runtime_options *options, ch_error *error
                       ch_runtime_drain_commands) != 0) {
         uv_mutex_destroy(&runtime->queue_mutex);
         (void)uv_loop_close(&runtime->loop);
+        ch_developer_manager_destroy(runtime->developer);
         ch_prompt_manager_destroy(runtime->prompts);
         ch_temporary_rules_destroy(runtime->temporary_rules);
         ch_event_ring_destroy(runtime->events);
@@ -2210,6 +2290,7 @@ ch_runtime *ch_runtime_create(const ch_runtime_options *options, ch_error *error
         (void)uv_run(&runtime->loop, UV_RUN_DEFAULT);
         uv_mutex_destroy(&runtime->queue_mutex);
         (void)uv_loop_close(&runtime->loop);
+        ch_developer_manager_destroy(runtime->developer);
         ch_prompt_manager_destroy(runtime->prompts);
         ch_temporary_rules_destroy(runtime->temporary_rules);
         ch_event_ring_destroy(runtime->events);
@@ -2228,6 +2309,7 @@ ch_runtime *ch_runtime_create(const ch_runtime_options *options, ch_error *error
         (void)uv_run(&runtime->loop, UV_RUN_DEFAULT);
         uv_mutex_destroy(&runtime->queue_mutex);
         (void)uv_loop_close(&runtime->loop);
+        ch_developer_manager_destroy(runtime->developer);
         ch_prompt_manager_destroy(runtime->prompts);
         ch_temporary_rules_destroy(runtime->temporary_rules);
         ch_event_ring_destroy(runtime->events);
@@ -2246,6 +2328,7 @@ ch_runtime *ch_runtime_create(const ch_runtime_options *options, ch_error *error
         (void)uv_run(&runtime->loop, UV_RUN_DEFAULT);
         uv_mutex_destroy(&runtime->queue_mutex);
         (void)uv_loop_close(&runtime->loop);
+        ch_developer_manager_destroy(runtime->developer);
         ch_prompt_manager_destroy(runtime->prompts);
         ch_temporary_rules_destroy(runtime->temporary_rules);
         ch_event_ring_destroy(runtime->events);
@@ -2270,6 +2353,7 @@ void ch_runtime_destroy(ch_runtime *runtime) {
     free(runtime->config_path);
     ch_config_free(runtime->config);
     free(runtime->active_profile);
+    ch_developer_manager_destroy(runtime->developer);
     ch_prompt_manager_destroy(runtime->prompts);
     ch_temporary_rules_destroy(runtime->temporary_rules);
     ch_event_ring_destroy(runtime->events);

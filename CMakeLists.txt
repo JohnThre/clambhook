@@ -77,6 +77,7 @@ add_library(clambhook_core STATIC
   native/src/config_import.c
   native/src/config_mutation.c
   native/src/config_payload.c
+  native/src/developer.c
   native/src/dns.c
   native/src/error.c
   native/src/events.c
@@ -219,6 +220,7 @@ if(CLAMBHOOK_BUILD_TESTS)
     native/tests/test_main.c
     native/tests/test_events.c
     native/tests/test_crypto.c
+    native/tests/test_developer.c
     native/tests/test_dns.c
     native/tests/test_ip_stack.c
     native/tests/test_json.c

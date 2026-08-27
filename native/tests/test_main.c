@@ -15,6 +15,7 @@ int main(void) {
     if (ch_test_selected(selected, "config")) ch_test_config();
     if (ch_test_selected(selected, "json")) ch_test_json();
     if (ch_test_selected(selected, "crypto")) ch_test_crypto();
+    if (ch_test_selected(selected, "developer")) ch_test_developer();
     if (ch_test_selected(selected, "dns")) ch_test_dns();
     if (ch_test_selected(selected, "events")) ch_test_events();
     if (ch_test_selected(selected, "ip_stack")) ch_test_ip_stack();

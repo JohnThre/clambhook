@@ -246,8 +246,11 @@ includes DNS, listener/TUN/DNS/prompt settings, conditioner state, and rule
 subscription base status with strict profile selection. Developer settings
 reads and transactional writes now apply Go-compatible defaults, enforce the
 explicit HTTPS-capture acknowledgement, normalize redaction/host lists, and
-never expose CA key or certificate paths. The C developer capture/MITM engine
-itself remains gated. Developer map, breakpoint, and rewrite rule reads,
+never expose CA key or certificate paths. The C proxy now captures opt-in
+plain-HTTP request and response traffic with bounded bodies, redaction,
+filtered entry/detail reads, cURL export, HAR 1.2 export, and clearing. HTTPS
+MITM, CA management, replay, cURL import, standalone send, and developer-rule
+execution remain gated. Developer map, breakpoint, and rewrite rule reads,
 ordered replacement, and ID deletion now persist through the same transaction;
 responses retain the public `ops` wire name while TOML uses `op`. These rules
 are configuration-only until the native developer engine executes them. Rule

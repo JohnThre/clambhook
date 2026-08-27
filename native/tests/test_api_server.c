@@ -62,6 +62,23 @@ void ch_test_api_server(void) {
         "/api/v1/traffic?limit=-1", &error) == NULL);
     CH_TEST_ASSERT(error.code == CH_ERROR_INVALID_ARGUMENT);
 
+    request = ch_api_developer_entries_request_json(
+        "/api/v1/developer/entries?method=GET,post&status_min=200&"
+        "status_max=399&host=api.example&scheme=https&content_type=json&"
+        "q=hello+world&error_only=yes&limit=25&ignored=true",
+        &error);
+    CH_TEST_ASSERT(request != NULL);
+    CH_TEST_ASSERT_STRING(
+        "{\"methods\":[\"GET\",\"post\"],\"status_min\":200,"
+        "\"status_max\":399,\"host\":\"api.example\","
+        "\"scheme\":\"https\",\"content_type\":\"json\","
+        "\"query\":\"hello world\",\"error_only\":true,\"limit\":25}",
+        request);
+    free(request);
+    CH_TEST_ASSERT(ch_api_developer_entries_request_json(
+        "/api/v1/developer/entries?error_only=maybe", &error) == NULL);
+    CH_TEST_ASSERT(error.code == CH_ERROR_INVALID_ARGUMENT);
+
     request = ch_api_events_request_json(
         "/api/v1/events?types=connection.*,hop.connected&conn_id=a&"
         "conn_id=b,c&since=1:42,3:7&ignored=yes", &error);

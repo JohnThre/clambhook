@@ -123,8 +123,14 @@ The additive CMake build currently provides:
   map, breakpoint, and rewrite rule collections now support config-derived
   reads, ordered replacement, and percent-decoded ID deletion with the
   Go-compatible developer/backup response. The API maps wire `ops` to TOML
-  `op` without weakening validation. Native capture, MITM, CA management,
-  replay, breakpoint, map, and rewrite execution remain guarded.
+  `op` without weakening validation. Opt-in plain-HTTP inspection now captures
+  bounded request and response bodies directly in the C proxy, applies the
+  configured header and query-parameter redaction lists, and exposes native
+  status, filtered entry lists, entry detail, cURL export, HAR 1.2 export, and
+  clear operations. Fragmented response headers and concurrent capture/API
+  access have native integration coverage. HTTPS MITM, CA management, replay,
+  cURL import, standalone send, breakpoint, map, and rewrite execution remain
+  guarded.
   Configured proxy listeners participate in runtime start, stop, reload,
   profile switching, and status reporting;
 - `clambhook-tui-c`: a native terminal client with bounded libcurl requests,

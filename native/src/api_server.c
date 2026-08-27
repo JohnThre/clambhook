@@ -490,6 +490,119 @@ static int ch_api_events_append_strings(ch_json_value *array, char *value,
     return 1;
 }
 
+char *ch_api_developer_entries_request_json(const char *url,
+                                            ch_error *error) {
+    ch_error_clear(error);
+    ch_json_value *root = ch_json_value_new_object();
+    if (root == NULL) {
+        ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                     "allocate developer entry filter");
+        return NULL;
+    }
+    unsigned int seen = 0U;
+    const char *query = url == NULL ? NULL : strchr(url, '?');
+    int okay = 1;
+    if (query != NULL) {
+        ++query;
+        while (okay && *query != '\0' && *query != '#') {
+            const char *end = query + strcspn(query, "&#");
+            const char *separator = memchr(query, '=', (size_t)(end - query));
+            const char *key_end = separator == NULL ? end : separator;
+            char *key = ch_api_query_decode(
+                query, (size_t)(key_end - query), error);
+            const char *value_start = separator == NULL ? end : separator + 1U;
+            char *value = key == NULL ? NULL : ch_api_query_decode(
+                value_start, (size_t)(end - value_start), error);
+            if (key == NULL || value == NULL) {
+                free(key);
+                free(value);
+                okay = 0;
+                break;
+            }
+            static const char *const keys[] = {
+                "method", "status_min", "status_max", "host", "scheme",
+                "content_type", "q", "error_only", "limit"
+            };
+            int key_index = -1;
+            for (size_t index = 0U;
+                 index < sizeof(keys) / sizeof(keys[0]); ++index) {
+                if (strcmp(key, keys[index]) == 0) {
+                    key_index = (int)index;
+                    break;
+                }
+            }
+            unsigned int bit = key_index < 0 ? 0U :
+                1U << (unsigned int)key_index;
+            if (key_index >= 0 && (seen & bit) == 0U) {
+                ch_json_value *member = NULL;
+                const char *output_key = key;
+                if (key_index == 0) {
+                    member = ch_json_value_new_array();
+                    okay = member != NULL && ch_api_events_append_strings(
+                        member, value, error);
+                    output_key = "methods";
+                } else if (key_index == 1 || key_index == 2 ||
+                           key_index == 8) {
+                    char *number_end = NULL;
+                    unsigned long long number = strtoull(
+                        value, &number_end, 10);
+                    if (!ch_api_nonnegative_integer(value) ||
+                        number_end == value || *number_end != '\0' ||
+                        number > (unsigned long long)INT64_MAX) {
+                        ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
+                                     "invalid %s", key);
+                        okay = 0;
+                    } else {
+                        member = ch_json_value_new_int64((int64_t)number);
+                    }
+                } else if (key_index == 7) {
+                    bool enabled;
+                    if (strcasecmp(value, "1") == 0 ||
+                        strcasecmp(value, "true") == 0 ||
+                        strcasecmp(value, "yes") == 0 ||
+                        strcasecmp(value, "on") == 0) {
+                        enabled = true;
+                    } else if (strcasecmp(value, "0") == 0 ||
+                               strcasecmp(value, "false") == 0 ||
+                               strcasecmp(value, "no") == 0 ||
+                               strcasecmp(value, "off") == 0) {
+                        enabled = false;
+                    } else {
+                        ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
+                                     "invalid error_only");
+                        okay = 0;
+                        enabled = false;
+                    }
+                    if (okay) member = ch_json_value_new_bool(enabled);
+                } else {
+                    member = ch_json_value_new_string(value);
+                    if (key_index == 6) output_key = "query";
+                }
+                if (okay && (member == NULL || ch_json_object_set(
+                        root, output_key, member, error) != CH_OK)) {
+                    ch_json_value_destroy(member);
+                    okay = 0;
+                }
+                if (okay) seen |= bit;
+            }
+            free(key);
+            free(value);
+            query = *end == '&' ? end + 1U : end;
+        }
+    }
+    ch_json_buffer encoded;
+    ch_json_init(&encoded);
+    if (okay) okay = ch_json_append_value(&encoded, root);
+    ch_json_value_destroy(root);
+    char *result = okay ? ch_json_take(&encoded) : NULL;
+    ch_json_dispose(&encoded);
+    if (result == NULL && (error == NULL || error->code == CH_OK)) {
+        ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                     "encode developer entry filter");
+    }
+    return result;
+}
+
 static int ch_api_events_append_cursors(ch_json_value *array, char *value,
                                         ch_error *error) {
     char *cursor = value;
@@ -1179,6 +1292,52 @@ static void ch_api_route(ch_api_client *client) {
         status = ch_runtime_query(client->server->runtime, "config_settings", profile_request, &json, &error);
     } else if (strcmp(method, "GET") == 0 && strcmp(path, "/api/v1/conditioner") == 0) {
         status = ch_runtime_query(client->server->runtime, "conditioner", profile_request, &json, &error);
+    } else if (strcmp(method, "GET") == 0 &&
+               strcmp(path, "/api/v1/developer/status") == 0) {
+        status = ch_runtime_query(client->server->runtime,
+                                  "developer_status", "{}", &json,
+                                  &error);
+    } else if (strcmp(method, "GET") == 0 &&
+               strcmp(path, "/api/v1/developer/entries") == 0) {
+        char *request = ch_api_developer_entries_request_json(url, &error);
+        if (request == NULL) {
+            ch_api_runtime_error(client, error.code, &error);
+            free(profile_request);
+            free(path);
+            return;
+        }
+        status = ch_runtime_query(client->server->runtime,
+                                  "developer_entries", request, &json,
+                                  &error);
+        free(request);
+    } else if (strcmp(method, "GET") == 0 &&
+               strcmp(path, "/api/v1/developer/har") == 0) {
+        content_disposition = "attachment; filename=\"clambhook.har\"";
+        status = ch_runtime_query(client->server->runtime, "developer_har",
+                                  "{}", &json, &error);
+    } else if (strcmp(method, "GET") == 0 &&
+               strncmp(path, "/api/v1/developer/entries/", 26U) == 0) {
+        static const char entry_prefix[] = "/api/v1/developer/entries/";
+        size_t path_length = strlen(path);
+        static const char curl_suffix[] = "/curl";
+        bool curl = path_length > sizeof(entry_prefix) - 1U +
+                sizeof(curl_suffix) - 1U &&
+            strcmp(path + path_length - (sizeof(curl_suffix) - 1U),
+                   curl_suffix) == 0;
+        char *request = curl ? ch_api_path_action_request_json(
+            path, entry_prefix, curl_suffix, NULL, &error) :
+            ch_api_path_id_request_json(path, entry_prefix, &error);
+        if (request == NULL) {
+            ch_api_runtime_error(client, error.code, &error);
+            free(profile_request);
+            free(path);
+            return;
+        }
+        status = ch_runtime_query(
+            client->server->runtime,
+            curl ? "developer_entry_curl" : "developer_entry", request,
+            &json, &error);
+        free(request);
     } else if (strcmp(method, "GET") == 0 && strcmp(path, "/api/v1/developer/settings") == 0) {
         status = ch_runtime_query(client->server->runtime, "developer_settings", "{}", &json, &error);
     } else if (strcmp(method, "GET") == 0 && strcmp(path, "/api/v1/developer/map-rules") == 0) {
@@ -1215,6 +1374,11 @@ static void ch_api_route(ch_api_client *client) {
             client->server->runtime, "update_conditioner",
             client->body.data == NULL ? "{}" : client->body.data,
             &json, &error);
+    } else if (strcmp(method, "DELETE") == 0 &&
+               strcmp(path, "/api/v1/developer/entries") == 0) {
+        status = ch_runtime_mutate(client->server->runtime,
+                                   "clear_developer_entries", "{}", &json,
+                                   &error);
     } else if ((strcmp(method, "PUT") == 0 ||
                 strcmp(method, "POST") == 0) &&
                strcmp(path, "/api/v1/rules") == 0) {
@@ -1429,6 +1593,10 @@ static void ch_api_route(ch_api_client *client) {
             strcmp(path, "/api/v1/dns") == 0 ||
             strcmp(path, "/api/v1/config/settings") == 0 ||
             strcmp(path, "/api/v1/conditioner") == 0 ||
+            strcmp(path, "/api/v1/developer/status") == 0 ||
+            strcmp(path, "/api/v1/developer/entries") == 0 ||
+            strncmp(path, "/api/v1/developer/entries/", 26U) == 0 ||
+            strcmp(path, "/api/v1/developer/har") == 0 ||
             strcmp(path, "/api/v1/rule-subscriptions") == 0 ||
             strcmp(path, "/api/v1/prompts/pending") == 0 ||
             strcmp(path, "/api/v1/prompts/decisions") == 0 ||
