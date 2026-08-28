@@ -384,6 +384,9 @@ func validateDeveloperConfig(dev *DeveloperConfig) []error {
 	for i := range dev.BreakpointRules {
 		errs = append(errs, validateDeveloperBreakpointRule(i, &dev.BreakpointRules[i])...)
 	}
+	for i := range dev.RewriteRules {
+		errs = append(errs, validateDeveloperRewriteRule(i, &dev.RewriteRules[i])...)
+	}
 	return errs
 }
 
@@ -451,6 +454,100 @@ func validateDeveloperBreakpointRule(idx int, rule *DeveloperBreakpointRuleConfi
 		errs = append(errs, fmt.Errorf("%s stage %q must be lowercase without surrounding whitespace", label, rule.Stage))
 	} else if stage != "request" && stage != "response" && stage != "both" {
 		errs = append(errs, fmt.Errorf("%s stage %q must be request, response, or both", label, rule.Stage))
+	}
+	return errs
+}
+
+func validateDeveloperRewriteRule(idx int, rule *DeveloperRewriteRuleConfig) []error {
+	var errs []error
+	label := fmt.Sprintf("developer.rewrite_rule %d", idx)
+	errs = append(errs, validateDeveloperRuleCommon(label, rule.ID, rule.Name, &rule.Match)...)
+	stage := strings.ToLower(strings.TrimSpace(rule.Stage))
+	if stage == "" {
+		errs = append(errs, fmt.Errorf("%s stage is required", label))
+	} else if stage != rule.Stage {
+		errs = append(errs, fmt.Errorf("%s stage %q must be lowercase without surrounding whitespace", label, rule.Stage))
+	} else if stage != "request" && stage != "response" && stage != "both" {
+		errs = append(errs, fmt.Errorf("%s stage %q must be request, response, or both", label, rule.Stage))
+	}
+	if len(rule.Ops) == 0 {
+		errs = append(errs, fmt.Errorf("%s must define at least one op", label))
+	}
+	for i := range rule.Ops {
+		errs = append(errs, validateDeveloperRewriteOp(fmt.Sprintf("%s.op %d", label, i), stage, &rule.Ops[i])...)
+	}
+	return errs
+}
+
+func validateDeveloperRewriteOp(label, stage string, op *DeveloperRewriteOp) []error {
+	var errs []error
+	target := strings.ToLower(strings.TrimSpace(op.Target))
+	if target == "" {
+		errs = append(errs, fmt.Errorf("%s target is required", label))
+		return errs
+	}
+	if target != op.Target {
+		errs = append(errs, fmt.Errorf("%s target %q must be lowercase without surrounding whitespace", label, op.Target))
+		return errs
+	}
+	if target != "header" && target != "body" && target != "status" {
+		errs = append(errs, fmt.Errorf("%s target %q must be header, body, or status", label, op.Target))
+		return errs
+	}
+	action := strings.ToLower(strings.TrimSpace(op.Action))
+	if action == "" {
+		errs = append(errs, fmt.Errorf("%s action is required", label))
+	} else if action != op.Action {
+		errs = append(errs, fmt.Errorf("%s action %q must be lowercase without surrounding whitespace", label, op.Action))
+	}
+	if action == "" {
+		return errs
+	}
+	switch target {
+	case "header":
+		if action != "add" && action != "set" && action != "remove" {
+			errs = append(errs, fmt.Errorf("%s header action %q must be add, set, or remove", label, op.Action))
+		}
+		if strings.TrimSpace(op.Field) == "" {
+			errs = append(errs, fmt.Errorf("%s field is required for header ops", label))
+		} else if strings.TrimSpace(op.Field) != op.Field {
+			errs = append(errs, fmt.Errorf("%s field %q must not have surrounding whitespace", label, op.Field))
+		}
+		if action == "add" || action == "set" {
+			if op.Value == "" {
+				errs = append(errs, fmt.Errorf("%s value is required for header %s", label, action))
+			}
+		}
+	case "body":
+		if action != "set" && action != "replace" {
+			errs = append(errs, fmt.Errorf("%s body action %q must be set or replace", label, op.Action))
+		}
+		if action == "set" {
+			if op.Value == "" {
+				errs = append(errs, fmt.Errorf("%s value is required for body set", label))
+			}
+		} else { // replace
+			if op.Value == "" {
+				errs = append(errs, fmt.Errorf("%s value (search) is required for body replace", label))
+			}
+			if op.Replace == "" {
+				errs = append(errs, fmt.Errorf("%s replace (replacement) is required for body replace", label))
+			}
+		}
+	case "status":
+		if action != "set" {
+			errs = append(errs, fmt.Errorf("%s status action %q must be set", label, op.Action))
+		}
+		if stage == "request" {
+			errs = append(errs, fmt.Errorf("%s status op is only valid when stage is response or both", label))
+		}
+		if op.Value == "" {
+			errs = append(errs, fmt.Errorf("%s value is required for status set", label))
+		} else if _, parseErr := strconv.Atoi(op.Value); parseErr != nil {
+			errs = append(errs, fmt.Errorf("%s status value %q must be an integer", label, op.Value))
+		} else if code, _ := strconv.Atoi(op.Value); code < 100 || code > 599 {
+			errs = append(errs, fmt.Errorf("%s status value %q must be between 100 and 599", label, op.Value))
+		}
 	}
 	return errs
 }

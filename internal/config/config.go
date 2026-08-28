@@ -91,6 +91,7 @@ type DeveloperConfig struct {
 	CAKeyPath       string                          `toml:"ca_key_path" json:"ca_key_path,omitempty"`
 	MapRules        []DeveloperMapRuleConfig        `toml:"map_rule" json:"map_rules,omitempty"`
 	BreakpointRules []DeveloperBreakpointRuleConfig `toml:"breakpoint_rule" json:"breakpoint_rules,omitempty"`
+	RewriteRules    []DeveloperRewriteRuleConfig    `toml:"rewrite_rule" json:"rewrite_rules,omitempty"`
 }
 
 // DeveloperMatchConfig describes a simple HTTP capture/tooling matcher.
@@ -122,6 +123,36 @@ type DeveloperBreakpointRuleConfig struct {
 	Enabled bool                 `toml:"enabled" json:"enabled"`
 	Match   DeveloperMatchConfig `toml:"match" json:"match"`
 	Stage   string               `toml:"stage" json:"stage"`
+}
+
+// DeveloperRewriteRuleConfig non-interactively modifies matching HTTP(S)
+// developer traffic — request/response headers and bodies, and (response)
+// status — in flight. It is distinct from Map (whole-response substitution /
+// URL redirect) and Breakpoint (interactive pause): rewrite applies an ordered
+// list of automated Ops to matching traffic without blocking.
+type DeveloperRewriteRuleConfig struct {
+	ID      string               `toml:"id" json:"id"`
+	Name    string               `toml:"name" json:"name,omitempty"`
+	Enabled bool                 `toml:"enabled" json:"enabled"`
+	Match   DeveloperMatchConfig `toml:"match" json:"match"`
+	Stage   string               `toml:"stage" json:"stage"` // request|response|both
+	Ops     []DeveloperRewriteOp `toml:"op" json:"ops,omitempty"`
+}
+
+// DeveloperRewriteOp is one in-flight modification.
+//
+//   - Target header: Action add (append), set (replace all values for Field),
+//     remove (delete the header named Field). Field is the header name.
+//   - Target body: Action set (replace whole body with Value), replace (literal
+//     substring Value -> Replace via strings.ReplaceAll; no regex).
+//   - Target status: Action set (override response status code). Only valid
+//     when the rule Stage includes response.
+type DeveloperRewriteOp struct {
+	Target  string `toml:"target" json:"target"`         // header|body|status
+	Action  string `toml:"action" json:"action"`         // add|set|remove|replace
+	Field   string `toml:"field" json:"field,omitempty"` // header name (target=header)
+	Value   string `toml:"value" json:"value,omitempty"`
+	Replace string `toml:"replace" json:"replace,omitempty"` // body replace replacement
 }
 
 // DefaultDeveloperConfig keeps developer mode disabled while defining bounded
