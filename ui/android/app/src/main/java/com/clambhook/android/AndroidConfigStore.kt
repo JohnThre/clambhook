@@ -33,6 +33,14 @@ class AndroidConfigStore(context: Context) {
 
 const val defaultAndroidConfigToml = """active = "default"
 
+[developer]
+enabled = true
+capture_limit = 200
+body_limit_bytes = 0
+header_value_limit_bytes = 8192
+redact_headers = ["authorization", "proxy-authorization", "cookie", "set-cookie", "x-api-key", "api-key", "x-auth-token", "x-csrf-token", "x-xsrf-token", "csrf-token", "xsrf-token"]
+redact_query_params = ["token", "access_token", "refresh_token", "id_token", "api_key", "apikey", "key", "secret", "password", "passwd", "code", "session", "auth"]
+
 [traffic]
 enabled = true
 history_limit = 500

@@ -112,6 +112,7 @@ class CaptureDetailViewerTest {
 
         // Request side is the default; header name renders in the Headers tab.
         composeRule.onNodeWithText("content-type").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("Repeat").assertIsDisplayed()
 
         // Body tab shows the request body preview.
         composeRule.onNodeWithText("Body").performScrollTo().performClick()

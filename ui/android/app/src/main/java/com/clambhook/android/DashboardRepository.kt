@@ -72,7 +72,16 @@ class DashboardRepository(
 
     suspend fun developerEntryCurl(id: String): String = api.developerEntryCurl(id)
     suspend fun importCurl(text: String): ParsedCurlResponse = api.importCurl(text)
-    suspend fun sendComposed(request: ComposedRequestPayload): DeveloperEntryPayload = api.sendComposed(request)
+    suspend fun sendComposed(request: ComposedRequestPayload): DeveloperEntryPayload {
+        val entry = api.sendComposed(request)
+        refreshStatus()
+        return entry
+    }
+    suspend fun repeatDeveloperEntry(id: String): DeveloperEntryPayload {
+        val entry = api.repeatDeveloperEntry(id)
+        refreshStatus()
+        return entry
+    }
 
     suspend fun loadPendingPrompts() {
         _state.update { it.copy(pendingPrompts = runCatching { api.pendingPrompts().prompts }.getOrDefault(emptyList())) }

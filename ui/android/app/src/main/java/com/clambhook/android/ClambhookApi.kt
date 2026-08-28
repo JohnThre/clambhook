@@ -34,6 +34,7 @@ interface ClambhookApi {
     suspend fun developerEntryCurl(id: String): String
     suspend fun importCurl(text: String): ParsedCurlResponse
     suspend fun sendComposed(request: ComposedRequestPayload): DeveloperEntryPayload
+    suspend fun repeatDeveloperEntry(id: String): DeveloperEntryPayload
     suspend fun developerHar(): String
     suspend fun clearDeveloperEntries()
     suspend fun conditioner(profile: String = ""): ConditionerPayload

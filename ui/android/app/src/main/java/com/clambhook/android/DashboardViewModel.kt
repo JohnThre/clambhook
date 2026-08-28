@@ -85,6 +85,7 @@ class DashboardViewModel(
     suspend fun copyEntryCurl(id: String): String = repository.developerEntryCurl(id)
     suspend fun importCurl(text: String): ParsedCurlResponse = repository.importCurl(text)
     suspend fun sendComposed(request: ComposedRequestPayload): DeveloperEntryPayload = repository.sendComposed(request)
+    suspend fun repeatDeveloperEntry(id: String): DeveloperEntryPayload = repository.repeatDeveloperEntry(id)
 
     fun loadConditioner() {
         viewModelScope.launch { repository.loadConditioner() }

@@ -9,6 +9,7 @@
 #include <time.h>
 
 #include "clambhook/config.h"
+#include "clambhook/developer.h"
 #include "clambhook/developer_curl.h"
 #include "clambhook/dns.h"
 #include "clambhook/ip_stack.h"
@@ -55,6 +56,7 @@ struct ch_runtime {
     ch_traffic_store *traffic;
     ch_temporary_rules *temporary_rules;
     ch_prompt_manager *prompts;
+    ch_developer_manager *developer;
     ch_runtime_options options;
 };
 
@@ -711,6 +713,36 @@ static ch_status android_runtime_replace_config(ch_runtime *runtime,
         *error = replacement_error;
         return status;
     }
+    status = ch_developer_manager_configure(runtime->developer, next.config,
+                                            error);
+    if (status != CH_OK) {
+        ch_error replacement_error = *error;
+        ch_error ignored;
+        (void)ch_traffic_store_configure(runtime->traffic, previous.config,
+                                         &ignored);
+        (void)ch_prompt_manager_configure(runtime->prompts, previous.config,
+                                          &ignored);
+        (void)ch_developer_manager_configure(runtime->developer,
+                                             previous.config, &ignored);
+        android_runtime_install_config(runtime, &previous);
+        if (restart) {
+            ch_error rollback_error;
+            if (android_runtime_start_ip_stack(runtime, &rollback_error) !=
+                CH_OK) {
+                runtime->running = false;
+                ch_error_set(error, CH_ERROR_INTERNAL,
+                             "configure Android developer capture failed: %s; "
+                             "rollback failed: %s",
+                             replacement_error.message,
+                             rollback_error.message);
+                android_config_state_clear(&next);
+                return CH_ERROR_INTERNAL;
+            }
+        }
+        android_config_state_clear(&next);
+        *error = replacement_error;
+        return status;
+    }
     android_runtime_install_config(runtime, &next);
     if (runtime->policy != NULL) {
         status = ch_policy_manager_start(runtime->policy, error);
@@ -730,6 +762,8 @@ static ch_status android_runtime_replace_config(ch_runtime *runtime,
                                      &ignored);
     (void)ch_prompt_manager_configure(runtime->prompts, previous.config,
                                       &ignored);
+    (void)ch_developer_manager_configure(runtime->developer, previous.config,
+                                         &ignored);
     android_runtime_install_config(runtime, &previous);
     ch_error rollback_error;
     ch_status rollback_status = CH_OK;
@@ -1006,8 +1040,19 @@ ch_runtime *ch_runtime_create(const ch_runtime_options *options, ch_error *error
         free(runtime);
         return NULL;
     }
+    runtime->developer = ch_developer_manager_create(error);
+    if (runtime->developer == NULL) {
+        ch_prompt_manager_destroy(runtime->prompts);
+        ch_temporary_rules_destroy(runtime->temporary_rules);
+        ch_traffic_store_destroy(runtime->traffic);
+        pthread_mutex_destroy(&runtime->mutex);
+        pthread_mutex_destroy(&runtime->ip_mutex);
+        free(runtime);
+        return NULL;
+    }
     runtime->active_profile = ch_strdup("default");
     if (runtime->active_profile == NULL) {
+        ch_developer_manager_destroy(runtime->developer);
         ch_prompt_manager_destroy(runtime->prompts);
         ch_temporary_rules_destroy(runtime->temporary_rules);
         ch_traffic_store_destroy(runtime->traffic);
@@ -1038,6 +1083,7 @@ void ch_runtime_destroy(ch_runtime *runtime) {
     pthread_mutex_destroy(&runtime->mutex);
     pthread_mutex_destroy(&runtime->ip_mutex);
     ch_prompt_manager_destroy(runtime->prompts);
+    ch_developer_manager_destroy(runtime->developer);
     ch_temporary_rules_destroy(runtime->temporary_rules);
     ch_traffic_store_destroy(runtime->traffic);
     free(runtime);
@@ -1277,26 +1323,42 @@ ch_status ch_runtime_query(ch_runtime *runtime, const char *operation,
         response = ch_prompt_manager_silent_json(runtime->prompts, error);
     }
     else if (strcmp(operation, "developer_status") == 0) {
-        response = ch_strdup("{\"enabled\":false}");
+        response = ch_developer_status_json(runtime->developer, error);
     }
     else if (strcmp(operation, "developer_entries") == 0 ||
              strcmp(operation, "developer_entries_filter") == 0) {
-        response = ch_strdup("{\"entries\":[]}");
+        response = ch_developer_entries_json(
+            runtime->developer,
+            strcmp(operation, "developer_entries_filter") == 0 ?
+                request_json : "{}",
+            error);
     }
     else if (strcmp(operation, "developer_har") == 0) {
-        response = ch_strdup(
-            "{\"log\":{\"version\":\"1.2\",\"entries\":[]}}");
+        response = ch_developer_har_json(runtime->developer, error);
     }
     else if (strcmp(operation, "developer_curl_import") == 0) {
         response = ch_developer_curl_import_json(request_json, error);
     }
-    else if (strcmp(operation, "developer_ca") == 0 ||
-             strcmp(operation, "developer_entry_curl") == 0 ||
-             strcmp(operation, "developer_send") == 0) {
+    else if (strcmp(operation, "developer_entry_curl") == 0) {
+        char *identifier = ch_json_request_string(request_json, "id", error);
+        if (identifier != NULL) {
+            response = ch_developer_entry_curl_json(
+                runtime->developer, identifier, error);
+        }
+        free(identifier);
+    }
+    else if (strcmp(operation, "developer_send") == 0 ||
+             strcmp(operation, "developer_repeat") == 0) {
+        bool repeat = strcmp(operation, "developer_repeat") == 0;
         pthread_mutex_unlock(&runtime->mutex);
-        ch_error_set(error, CH_ERROR_INVALID_STATE,
-                     "developer capture is disabled on Android");
-        return CH_ERROR_INVALID_STATE;
+        return ch_runtime_developer_request(runtime, repeat, request_json,
+                                            response_json, error);
+    }
+    else if (strcmp(operation, "developer_ca") == 0) {
+        pthread_mutex_unlock(&runtime->mutex);
+        ch_error_set(error, CH_ERROR_UNSUPPORTED,
+                     "HTTPS interception CA is not available on Android");
+        return CH_ERROR_UNSUPPORTED;
     }
     else if (strcmp(operation, "crypto_self_test") == 0) {
         response = android_runtime_crypto_self_test_json(error);
@@ -1397,12 +1459,11 @@ ch_status ch_runtime_mutate(ch_runtime *runtime, const char *operation,
         return CH_OK;
     }
     else if (strcmp(operation, "clear_developer_entries") == 0) {
-        *response_json = ch_strdup("{\"cleared\":true}");
+        *response_json = ch_developer_clear_json(runtime->developer, error);
         pthread_mutex_unlock(&runtime->mutex);
         if (*response_json == NULL) {
-            ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
-                         "encode developer clear response");
-            return CH_ERROR_OUT_OF_MEMORY;
+            return error == NULL || error->code == CH_OK ?
+                CH_ERROR_OUT_OF_MEMORY : error->code;
         }
         return CH_OK;
     }
@@ -1430,6 +1491,31 @@ ch_status ch_runtime_mutate(ch_runtime *runtime, const char *operation,
         return CH_ERROR_OUT_OF_MEMORY;
     }
     return CH_OK;
+}
+
+ch_status ch_runtime_developer_request(
+    ch_runtime *runtime,
+    bool repeat,
+    const char *request_json,
+    char **response_json,
+    ch_error *error
+) {
+    ch_error_clear(error);
+    if (runtime == NULL || response_json == NULL) {
+        ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
+                     "runtime and developer response are required");
+        return CH_ERROR_INVALID_ARGUMENT;
+    }
+    *response_json = repeat ? ch_developer_repeat_json(
+        runtime->developer, request_json, error) : ch_developer_send_json(
+        runtime->developer, request_json, error);
+    if (*response_json != NULL) return CH_OK;
+    ch_status status = error == NULL || error->code == CH_OK ?
+        CH_ERROR_OUT_OF_MEMORY : error->code;
+    if (status == CH_ERROR_OUT_OF_MEMORY) {
+        ch_error_set(error, status, "encode developer request response");
+    }
+    return status;
 }
 
 void ch_string_free(char *string) {

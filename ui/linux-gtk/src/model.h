@@ -177,6 +177,10 @@ char *ch_gtk_dns_body(const char *profile, gboolean enabled,
                       const char *timeout, const char *upstreams_json,
                       GError **error);
 char *ch_gtk_curl_import_body(const char *command);
+char *ch_gtk_composed_request_body(const char *method, const char *url,
+                                   const char *headers, const char *body,
+                                   GError **error);
+char *ch_gtk_repeat_request_body(const char *identifier);
 char *ch_gtk_rule_create_body(const char *name, const char *action,
                               const char *domains,
                               const char *domain_suffixes,

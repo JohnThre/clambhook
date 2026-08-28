@@ -11,9 +11,9 @@
 #include <strings.h>
 #include <time.h>
 
-#include <sodium.h>
-
+#include <curl/curl.h>
 #include "clambhook/json.h"
+#include "http_safety.h"
 #include "internal.h"
 
 #define CH_DEVELOPER_MAX_HEADER_BYTES (1024U * 1024U)
@@ -288,7 +288,7 @@ static size_t developer_config_size(const ch_config_table *table,
     ch_error ignored;
     if (table == NULL ||
         ch_config_table_get_int(table, key, &value, &ignored) != CH_OK ||
-        value <= 0) {
+        value < 0) {
         return fallback;
     }
     return (uint64_t)value > (uint64_t)SIZE_MAX ? SIZE_MAX : (size_t)value;
@@ -528,7 +528,8 @@ static char *developer_redact_url(const char *url, char *const *names,
     if (query == NULL || name_count == 0U) return ch_strdup(url == NULL ? "" : url);
     ch_json_buffer result;
     ch_json_init(&result);
-    bool okay = ch_json_append_bytes(&result, url, (size_t)(query - url + 1U));
+    bool okay = ch_json_append_bytes(&result, url,
+                                     (size_t)(query - url) + 1U);
     const char *cursor = query + 1U;
     const char *fragment = strchr(cursor, '#');
     const char *query_end = fragment == NULL ? url + strlen(url) : fragment;
@@ -551,7 +552,7 @@ static char *developer_redact_url(const char *url, char *const *names,
         free(name);
         if (redact && equals != NULL) {
             okay = ch_json_append_bytes(&result, cursor,
-                                        (size_t)(equals - cursor + 1U)) &&
+                                        (size_t)(equals - cursor) + 1U) &&
                 ch_json_append(&result, "%5Bredacted%5D");
             changed = true;
         } else {
@@ -693,7 +694,7 @@ static bool developer_capture_response_headers(
     size_t header_length = (size_t)(header_end -
                                      capture->response_header_buffer) + 2U;
     int status = 0;
-    if (sscanf(capture->response_header_buffer, "HTTP/%*u.%*u %d", &status) ==
+    if (sscanf(capture->response_header_buffer, "HTTP/%*s %d", &status) ==
         1 && status >= 100 && status <= 999) {
         capture->entry->status = status;
     }
@@ -864,14 +865,38 @@ static bool developer_append_headers(ch_json_buffer *json,
 }
 
 static char *developer_body_base64(const ch_developer_body *body) {
-    size_t capacity = sodium_base64_encoded_len(
-        body->preview_length, sodium_base64_VARIANT_ORIGINAL);
-    char *encoded = malloc(capacity);
-    if (encoded != NULL) {
-        sodium_bin2base64(encoded, capacity, body->preview,
-                          body->preview_length,
-                          sodium_base64_VARIANT_ORIGINAL);
+    static const char alphabet[] =
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    size_t length = body->preview_length;
+    if (length > (SIZE_MAX / 4U) * 3U - 2U) return NULL;
+    size_t encoded_length = ((length + 2U) / 3U) * 4U;
+    char *encoded = malloc(encoded_length + 1U);
+    if (encoded == NULL) return NULL;
+    size_t input = 0U;
+    size_t output = 0U;
+    while (input + 3U <= length) {
+        uint32_t value = (uint32_t)body->preview[input] << 16U |
+            (uint32_t)body->preview[input + 1U] << 8U |
+            (uint32_t)body->preview[input + 2U];
+        encoded[output++] = alphabet[(value >> 18U) & 0x3fU];
+        encoded[output++] = alphabet[(value >> 12U) & 0x3fU];
+        encoded[output++] = alphabet[(value >> 6U) & 0x3fU];
+        encoded[output++] = alphabet[value & 0x3fU];
+        input += 3U;
     }
+    size_t remaining = length - input;
+    if (remaining > 0U) {
+        uint32_t value = (uint32_t)body->preview[input] << 16U;
+        if (remaining == 2U) {
+            value |= (uint32_t)body->preview[input + 1U] << 8U;
+        }
+        encoded[output++] = alphabet[(value >> 18U) & 0x3fU];
+        encoded[output++] = alphabet[(value >> 12U) & 0x3fU];
+        encoded[output++] = remaining == 2U ?
+            alphabet[(value >> 6U) & 0x3fU] : '=';
+        encoded[output++] = '=';
+    }
+    encoded[output] = '\0';
     return encoded;
 }
 
@@ -1579,5 +1604,698 @@ char *ch_developer_clear_json(ch_developer_manager *manager,
         ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
                      "encode developer clear response");
     }
+    return result;
+}
+
+typedef struct developer_outgoing_request {
+    char *entry_id;
+    char *method;
+    char *url;
+    char *body;
+    bool body_set;
+    ch_developer_header *headers;
+    size_t header_count;
+} developer_outgoing_request;
+
+typedef struct developer_http_response {
+    ch_developer_capture *capture;
+    ch_json_buffer header_block;
+    char *location;
+    long status;
+    bool response_started;
+} developer_http_response;
+
+static pthread_once_t developer_curl_once = PTHREAD_ONCE_INIT;
+static CURLcode developer_curl_init_status = CURLE_OK;
+
+static void developer_curl_initialize(void) {
+    developer_curl_init_status = curl_global_init(CURL_GLOBAL_DEFAULT);
+}
+
+static void developer_outgoing_clear(developer_outgoing_request *request) {
+    if (request == NULL) return;
+    free(request->entry_id);
+    free(request->method);
+    free(request->url);
+    free(request->body);
+    developer_headers_clear(request->headers, request->header_count);
+    memset(request, 0, sizeof(*request));
+}
+
+static char *developer_trim_copy(const char *value) {
+    const char *start = value == NULL ? "" : value;
+    while (*start != '\0' && isspace((unsigned char)*start) != 0) ++start;
+    const char *end = start + strlen(start);
+    while (end > start && isspace((unsigned char)end[-1]) != 0) --end;
+    size_t length = (size_t)(end - start);
+    char *copy = malloc(length + 1U);
+    if (copy == NULL) return NULL;
+    memcpy(copy, start, length);
+    copy[length] = '\0';
+    return copy;
+}
+
+static bool developer_token_valid(const char *token, size_t maximum) {
+    static const char separators[] = "()<>@,;:\\\"/[]?={} \t";
+    size_t length = token == NULL ? 0U : strlen(token);
+    if (length == 0U || length > maximum) return false;
+    for (size_t index = 0U; index < length; ++index) {
+        unsigned char value = (unsigned char)token[index];
+        if (value <= 0x20U || value >= 0x7fU ||
+            strchr(separators, (int)value) != NULL) return false;
+    }
+    return true;
+}
+
+static bool developer_method_valid(const char *method) {
+    return developer_token_valid(method, 32U);
+}
+
+static bool developer_header_valid(const char *name, const char *value) {
+    if (!developer_token_valid(name, 256U) ||
+        value == NULL || strlen(value) > CH_DEVELOPER_MAX_HEADER_BYTES) {
+        return false;
+    }
+    for (const unsigned char *cursor = (const unsigned char *)value;
+         *cursor != 0U; ++cursor) {
+        if (*cursor == '\r' || *cursor == '\n' || *cursor == 0x7fU ||
+            (*cursor < 0x20U && *cursor != '\t')) return false;
+    }
+    return strcasecmp(name, "Host") != 0 &&
+        strcasecmp(name, "Content-Length") != 0 &&
+        strcasecmp(name, "Transfer-Encoding") != 0 &&
+        strcasecmp(name, "Connection") != 0 &&
+        strcasecmp(name, "Proxy-Connection") != 0;
+}
+
+static bool developer_copy_json_string(char **target,
+                                       const ch_json_value *object,
+                                       const char *key, bool optional,
+                                       ch_error *error) {
+    const ch_json_value *value = ch_json_object_get(object, key);
+    if (value == NULL || ch_json_value_type(value) == CH_JSON_NULL) {
+        if (optional) return true;
+        ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
+                     "developer request %s is required", key);
+        return false;
+    }
+    const char *text = ch_json_string_value(value);
+    if (text == NULL) {
+        ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
+                     "developer request %s must be a string", key);
+        return false;
+    }
+    *target = ch_strdup(text);
+    if (*target == NULL) {
+        ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                     "copy developer request %s", key);
+        return false;
+    }
+    return true;
+}
+
+static bool developer_parse_outgoing(const char *request_json, bool repeat,
+                                     developer_outgoing_request *out,
+                                     ch_error *error) {
+    memset(out, 0, sizeof(*out));
+    const char *document = request_json == NULL || request_json[0] == '\0' ?
+        "{}" : request_json;
+    ch_json_value *root = ch_json_parse(document, strlen(document), error);
+    if (root == NULL) return false;
+    bool okay = ch_json_value_type(root) == CH_JSON_OBJECT;
+    if (!okay) {
+        ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
+                     "developer request must be a JSON object");
+    }
+    if (okay && repeat) {
+        okay = developer_copy_json_string(&out->entry_id, root, "entry_id",
+                                          false, error);
+    }
+    if (okay) {
+        okay = developer_copy_json_string(&out->method, root, "method", true,
+                                          error) &&
+            developer_copy_json_string(&out->url, root, "url", true, error);
+    }
+    const ch_json_value *body = okay ? ch_json_object_get(root, "body") : NULL;
+    if (okay && body != NULL && ch_json_value_type(body) != CH_JSON_NULL) {
+        const char *text = ch_json_string_value(body);
+        if (text == NULL) {
+            ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
+                         "developer request body must be a string or null");
+            okay = false;
+        } else {
+            out->body = ch_strdup(text);
+            out->body_set = true;
+            if (out->body == NULL) {
+                ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                             "copy developer request body");
+                okay = false;
+            }
+        }
+    }
+    const ch_json_value *headers = okay ?
+        ch_json_object_get(root, "headers") : NULL;
+    if (okay && headers != NULL &&
+        ch_json_value_type(headers) != CH_JSON_NULL) {
+        if (ch_json_value_type(headers) != CH_JSON_ARRAY ||
+            ch_json_array_size(headers) > 1024U) {
+            ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
+                         "developer request headers must be a bounded array");
+            okay = false;
+        }
+    }
+    size_t count = okay ? ch_json_array_size(headers) : 0U;
+    if (okay && count > 0U) {
+        out->headers = calloc(count, sizeof(*out->headers));
+        if (out->headers == NULL) {
+            ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                         "allocate developer request headers");
+            okay = false;
+        }
+    }
+    for (size_t index = 0U; okay && index < count; ++index) {
+        const ch_json_value *header = ch_json_array_get(headers, index);
+        const char *name = ch_json_string_value(
+            ch_json_object_get(header, "name"));
+        const char *value = ch_json_string_value(
+            ch_json_object_get(header, "value"));
+        if (ch_json_value_type(header) != CH_JSON_OBJECT ||
+            !developer_header_valid(name, value)) {
+            ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
+                         "developer request header %zu is invalid or restricted",
+                         index);
+            okay = false;
+            break;
+        }
+        out->headers[index].name = ch_strdup(name);
+        out->headers[index].value = ch_strdup(value);
+        out->header_count = index + 1U;
+        if (out->headers[index].name == NULL ||
+            out->headers[index].value == NULL) {
+            ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                         "copy developer request header");
+            okay = false;
+            break;
+        }
+    }
+    ch_json_value_destroy(root);
+    if (!okay) developer_outgoing_clear(out);
+    return okay;
+}
+
+static bool developer_outgoing_set_default(char **target,
+                                           const char *fallback,
+                                           ch_error *error) {
+    if (*target != NULL) {
+        char *trimmed = developer_trim_copy(*target);
+        free(*target);
+        *target = trimmed;
+    } else {
+        *target = ch_strdup(fallback == NULL ? "" : fallback);
+    }
+    if (*target == NULL) {
+        ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                     "copy developer request field");
+        return false;
+    }
+    if ((*target)[0] == '\0' && fallback != NULL && fallback[0] != '\0') {
+        free(*target);
+        *target = ch_strdup(fallback);
+        if (*target == NULL) {
+            ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                         "copy developer request default");
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool developer_copy_entry_request(ch_developer_manager *manager,
+                                         developer_outgoing_request *request,
+                                         ch_error *error) {
+    pthread_mutex_lock(&manager->mutex);
+    ch_developer_entry *entry = developer_find_entry_locked(
+        manager, request->entry_id == NULL ? "" : request->entry_id);
+    if (entry == NULL) {
+        pthread_mutex_unlock(&manager->mutex);
+        ch_error_set(error, CH_ERROR_NOT_FOUND, "developer entry not found");
+        return false;
+    }
+    bool okay = true;
+    if (request->method == NULL || request->method[0] == '\0') {
+        free(request->method);
+        request->method = ch_strdup(entry->method);
+        okay = request->method != NULL;
+    }
+    if (okay && (request->url == NULL || request->url[0] == '\0')) {
+        free(request->url);
+        request->url = ch_strdup(entry->url);
+        okay = request->url != NULL;
+    }
+    if (okay && !request->body_set) {
+        if (entry->request_body.size >
+            (uint64_t)entry->request_body.preview_length) {
+            ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
+                         "captured request body is truncated; provide an override body");
+            okay = false;
+        } else if (!developer_utf8_valid(entry->request_body.preview,
+                                         entry->request_body.preview_length)) {
+            ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
+                         "captured request body is binary; provide an override body");
+            okay = false;
+        } else {
+            request->body = malloc(entry->request_body.preview_length + 1U);
+            if (request->body != NULL) {
+                memcpy(request->body, entry->request_body.preview,
+                       entry->request_body.preview_length);
+                request->body[entry->request_body.preview_length] = '\0';
+                request->body_set = true;
+            } else {
+                okay = false;
+            }
+        }
+    }
+    if (okay && request->header_count == 0U) {
+        size_t count = 0U;
+        for (size_t index = 0U; index < entry->request_header_count; ++index) {
+            if (!entry->request_headers[index].redacted &&
+                developer_header_valid(entry->request_headers[index].name,
+                                       entry->request_headers[index].value)) {
+                ++count;
+            }
+        }
+        request->headers = calloc(count, sizeof(*request->headers));
+        if (request->headers == NULL && count > 0U) okay = false;
+        for (size_t index = 0U, output = 0U;
+             okay && index < entry->request_header_count; ++index) {
+            ch_developer_header *source = &entry->request_headers[index];
+            if (source->redacted ||
+                !developer_header_valid(source->name, source->value)) continue;
+            request->headers[output].name = ch_strdup(source->name);
+            request->headers[output].value = ch_strdup(source->value);
+            request->header_count = output + 1U;
+            if (request->headers[output].name == NULL ||
+                request->headers[output].value == NULL) {
+                okay = false;
+                break;
+            }
+            ++output;
+        }
+    }
+    pthread_mutex_unlock(&manager->mutex);
+    if (!okay && error->code == CH_OK) {
+        ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                     "copy captured developer request");
+    }
+    return okay;
+}
+
+static bool developer_http_is_redirect(long status) {
+    return status == 301L || status == 302L || status == 303L ||
+        status == 307L || status == 308L;
+}
+
+static void developer_http_response_reset(developer_http_response *response) {
+    ch_json_dispose(&response->header_block);
+    ch_json_init(&response->header_block);
+    free(response->location);
+    response->location = NULL;
+    response->status = 0L;
+    response->response_started = false;
+}
+
+static bool developer_http_set_location(developer_http_response *response,
+                                        const char *value, size_t length) {
+    while (length > 0U && (value[length - 1U] == '\r' ||
+                           value[length - 1U] == '\n' ||
+                           isspace((unsigned char)value[length - 1U]) != 0)) {
+        --length;
+    }
+    while (length > 0U && isspace((unsigned char)*value) != 0) {
+        ++value;
+        --length;
+    }
+    char *copy = malloc(length + 1U);
+    if (copy == NULL) return false;
+    memcpy(copy, value, length);
+    copy[length] = '\0';
+    free(response->location);
+    response->location = copy;
+    return true;
+}
+
+static size_t developer_http_header(char *data, size_t size, size_t count,
+                                    void *context) {
+    developer_http_response *response = context;
+    if (size != 0U && count > SIZE_MAX / size) return 0U;
+    size_t length = size * count;
+    if (length >= 5U && strncasecmp(data, "HTTP/", 5U) == 0) {
+        ch_json_dispose(&response->header_block);
+        ch_json_init(&response->header_block);
+        response->status = 0L;
+        char line[128];
+        size_t copied = length < sizeof(line) - 1U ? length : sizeof(line) - 1U;
+        memcpy(line, data, copied);
+        line[copied] = '\0';
+        (void)sscanf(line, "HTTP/%*s %ld", &response->status);
+    }
+    if (!ch_json_append_bytes(&response->header_block, data, length)) return 0U;
+    const char *colon = memchr(data, ':', length);
+    if (colon != NULL && (size_t)(colon - data) == 8U &&
+        strncasecmp(data, "Location", 8U) == 0 &&
+        !developer_http_set_location(response, colon + 1U,
+                                     length - (size_t)(colon - data) - 1U)) {
+        return 0U;
+    }
+    bool blank = (length == 2U && data[0] == '\r' && data[1] == '\n') ||
+        (length == 1U && data[0] == '\n');
+    if (blank && response->status >= 200L &&
+        !developer_http_is_redirect(response->status)) {
+        ch_developer_capture_response(
+            response->capture, (const uint8_t *)response->header_block.data,
+            response->header_block.length);
+        response->response_started = true;
+    }
+    return length;
+}
+
+static size_t developer_http_write(char *data, size_t size, size_t count,
+                                   void *context) {
+    developer_http_response *response = context;
+    if (size != 0U && count > SIZE_MAX / size) return 0U;
+    size_t length = size * count;
+    if (response->response_started) {
+        ch_developer_capture_response(response->capture,
+                                      (const uint8_t *)data, length);
+    }
+    return length;
+}
+
+static bool developer_add_curl_headers(const developer_outgoing_request *request,
+                                       struct curl_slist **out,
+                                       ch_json_buffer *raw,
+                                       ch_error *error) {
+    for (size_t index = 0U; index < request->header_count; ++index) {
+        const ch_developer_header *header = &request->headers[index];
+        int length = snprintf(NULL, 0, "%s: %s", header->name, header->value);
+        char *line = length < 0 ? NULL : malloc((size_t)length + 1U);
+        if (line == NULL) goto out_of_memory;
+        (void)snprintf(line, (size_t)length + 1U, "%s: %s", header->name,
+                       header->value);
+        struct curl_slist *grown = curl_slist_append(*out, line);
+        bool appended = ch_json_append(raw, line) && ch_json_append(raw, "\r\n");
+        free(line);
+        if (grown == NULL) goto out_of_memory;
+        *out = grown;
+        if (!appended) goto out_of_memory;
+    }
+    return true;
+
+out_of_memory:
+    ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                 "allocate developer HTTP headers");
+    return false;
+}
+
+static char *developer_entry_wrapper_json(ch_developer_manager *manager,
+                                          const char *identifier,
+                                          ch_error *error) {
+    pthread_mutex_lock(&manager->mutex);
+    ch_developer_entry *entry = developer_find_entry_locked(manager, identifier);
+    ch_json_buffer json;
+    ch_json_init(&json);
+    bool okay = entry != NULL && ch_json_append(&json, "{\"entry\":") &&
+        developer_append_entry(&json, entry) && ch_json_append(&json, "}");
+    pthread_mutex_unlock(&manager->mutex);
+    char *result = okay ? ch_json_take(&json) : NULL;
+    ch_json_dispose(&json);
+    if (result == NULL) {
+        ch_error_set(error, entry == NULL ? CH_ERROR_NOT_FOUND :
+                     CH_ERROR_OUT_OF_MEMORY,
+                     entry == NULL ? "developer entry not found" :
+                     "encode developer request result");
+    }
+    return result;
+}
+
+static char *developer_send_outgoing(ch_developer_manager *manager,
+                                     developer_outgoing_request *request,
+                                     ch_error *error) {
+    if (!developer_outgoing_set_default(&request->method, "GET", error) ||
+        !developer_outgoing_set_default(&request->url, "", error)) return NULL;
+    if (!developer_method_valid(request->method)) {
+        ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
+                     "developer request method is invalid");
+        return NULL;
+    }
+    if (request->url[0] == '\0') {
+        ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
+                     "developer request URL is required");
+        return NULL;
+    }
+    if (request->body == NULL) {
+        request->body = ch_strdup("");
+        if (request->body == NULL) {
+            ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                         "allocate developer request body");
+            return NULL;
+        }
+    }
+    pthread_mutex_lock(&manager->mutex);
+    bool enabled = manager->enabled;
+    pthread_mutex_unlock(&manager->mutex);
+    if (!enabled) {
+        ch_error_set(error, CH_ERROR_INVALID_STATE,
+                     "developer capture disabled");
+        return NULL;
+    }
+    (void)pthread_once(&developer_curl_once, developer_curl_initialize);
+    if (developer_curl_init_status != CURLE_OK) {
+        ch_error_set(error, CH_ERROR_IO, "initialize developer HTTP client: %s",
+                     curl_easy_strerror(developer_curl_init_status));
+        return NULL;
+    }
+    ch_http_endpoint initial = {0};
+    ch_http_endpoint endpoint = {0};
+    ch_status status = ch_http_endpoint_prepare(
+        request->url, "developer request", &initial, error);
+    if (status == CH_OK) {
+        status = ch_http_endpoint_prepare(request->url, "developer request",
+                                          &endpoint, error);
+    }
+    if (status != CH_OK) {
+        ch_http_endpoint_clear(&initial);
+        return NULL;
+    }
+    struct curl_slist *headers = NULL;
+    ch_json_buffer raw_headers;
+    ch_json_init(&raw_headers);
+    if (!developer_add_curl_headers(request, &headers, &raw_headers, error)) {
+        curl_slist_free_all(headers);
+        ch_json_dispose(&raw_headers);
+        ch_http_endpoint_clear(&endpoint);
+        ch_http_endpoint_clear(&initial);
+        return NULL;
+    }
+    ch_developer_capture_metadata metadata = {
+        .flow_id = 0U,
+        .profile = "",
+        .client_address = "",
+        .chain_name = "repeat",
+        .method = request->method,
+        .url = endpoint.url,
+        .scheme = endpoint.scheme,
+        .host = endpoint.host,
+        .request_headers = raw_headers.data,
+        .request_headers_length = raw_headers.length
+    };
+    ch_developer_capture *capture = ch_developer_capture_begin(
+        manager, &metadata, error);
+    if (capture == NULL) {
+        if (error->code == CH_OK) {
+            ch_error_set(error, CH_ERROR_INVALID_STATE,
+                         "developer capture disabled");
+        }
+        curl_slist_free_all(headers);
+        ch_json_dispose(&raw_headers);
+        ch_http_endpoint_clear(&endpoint);
+        ch_http_endpoint_clear(&initial);
+        return NULL;
+    }
+    ch_developer_capture_request_body(capture,
+        (const uint8_t *)request->body, strlen(request->body));
+    char *identifier = ch_strdup(capture->entry->identifier);
+    developer_http_response response = {.capture = capture};
+    ch_json_init(&response.header_block);
+    char *current_method = ch_strdup(request->method);
+    const char *current_body = request->body;
+    char curl_error[CURL_ERROR_SIZE] = {0};
+    ch_status request_status = identifier == NULL || current_method == NULL ?
+        CH_ERROR_OUT_OF_MEMORY : CH_OK;
+    const char *capture_error = NULL;
+    struct timespec deadline_start;
+    (void)clock_gettime(CLOCK_MONOTONIC, &deadline_start);
+    for (unsigned redirect = 0U; request_status == CH_OK; ++redirect) {
+        developer_http_response_reset(&response);
+        curl_error[0] = '\0';
+        CURL *curl = curl_easy_init();
+        struct curl_slist *resolve = NULL;
+        if (curl != NULL) resolve = curl_slist_append(resolve, endpoint.resolve);
+        CURLcode code = curl != NULL && resolve != NULL ? CURLE_OK :
+            CURLE_OUT_OF_MEMORY;
+        struct timespec now;
+        (void)clock_gettime(CLOCK_MONOTONIC, &now);
+        int64_t elapsed_ms = (int64_t)(now.tv_sec - deadline_start.tv_sec) *
+            INT64_C(1000) + (int64_t)(now.tv_nsec - deadline_start.tv_nsec) /
+            INT64_C(1000000);
+        long remaining_ms = elapsed_ms >= INT64_C(30000) ? 1L :
+            (long)(INT64_C(30000) - elapsed_ms);
+#define DEVELOPER_CURL_SET(option, value) do { \
+    if (code == CURLE_OK) code = curl_easy_setopt(curl, (option), (value)); \
+} while (0)
+        DEVELOPER_CURL_SET(CURLOPT_URL, endpoint.url);
+        DEVELOPER_CURL_SET(CURLOPT_HTTPHEADER, headers);
+        DEVELOPER_CURL_SET(CURLOPT_RESOLVE, resolve);
+        DEVELOPER_CURL_SET(CURLOPT_PROXY, "");
+        DEVELOPER_CURL_SET(CURLOPT_PROTOCOLS_STR, "http,https");
+        DEVELOPER_CURL_SET(CURLOPT_FOLLOWLOCATION, 0L);
+        DEVELOPER_CURL_SET(CURLOPT_TIMEOUT_MS, remaining_ms);
+        DEVELOPER_CURL_SET(CURLOPT_CONNECTTIMEOUT_MS, remaining_ms);
+        DEVELOPER_CURL_SET(CURLOPT_NOSIGNAL, 1L);
+        DEVELOPER_CURL_SET(CURLOPT_FRESH_CONNECT, 1L);
+        DEVELOPER_CURL_SET(CURLOPT_FORBID_REUSE, 1L);
+        DEVELOPER_CURL_SET(CURLOPT_DNS_CACHE_TIMEOUT, 0L);
+        DEVELOPER_CURL_SET(CURLOPT_USERAGENT, "clambhook-c/1");
+        DEVELOPER_CURL_SET(CURLOPT_HEADERFUNCTION, developer_http_header);
+        DEVELOPER_CURL_SET(CURLOPT_HEADERDATA, &response);
+        DEVELOPER_CURL_SET(CURLOPT_WRITEFUNCTION, developer_http_write);
+        DEVELOPER_CURL_SET(CURLOPT_WRITEDATA, &response);
+        DEVELOPER_CURL_SET(CURLOPT_ERRORBUFFER, curl_error);
+        if (current_body[0] != '\0') {
+            DEVELOPER_CURL_SET(CURLOPT_POSTFIELDS, current_body);
+            DEVELOPER_CURL_SET(CURLOPT_POSTFIELDSIZE_LARGE,
+                               (curl_off_t)strlen(current_body));
+        }
+        DEVELOPER_CURL_SET(CURLOPT_CUSTOMREQUEST, current_method);
+#undef DEVELOPER_CURL_SET
+        if (code == CURLE_OK) code = curl_easy_perform(curl);
+        long http_status = 0L;
+        if (code == CURLE_OK) {
+            code = curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE,
+                                     &http_status);
+        }
+        curl_slist_free_all(resolve);
+        curl_easy_cleanup(curl);
+        if (code != CURLE_OK) {
+            capture_error = curl_error[0] == '\0' ? curl_easy_strerror(code) :
+                                                    curl_error;
+            break;
+        }
+        if (!developer_http_is_redirect(http_status)) break;
+        if (redirect >= 9U) {
+            capture_error = "stopped after 10 redirects";
+            break;
+        }
+        if (response.location == NULL || response.location[0] == '\0') {
+            capture_error = "redirect has no location";
+            break;
+        }
+        char *next_url = ch_http_resolve_redirect(endpoint.url,
+                                                  response.location);
+        ch_http_endpoint next = {0};
+        request_status = next_url == NULL ? CH_ERROR_INVALID_ARGUMENT :
+            ch_http_endpoint_prepare(next_url, "developer redirect", &next,
+                                     error);
+        curl_free(next_url);
+        if (request_status == CH_OK &&
+            !ch_http_endpoint_same_origin(&initial, &next)) {
+            ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
+                         "developer redirect to a different origin is not allowed");
+            request_status = CH_ERROR_INVALID_ARGUMENT;
+        }
+        if (request_status != CH_OK) {
+            capture_error = error->message;
+            ch_http_endpoint_clear(&next);
+            break;
+        }
+        ch_http_endpoint_clear(&endpoint);
+        endpoint = next;
+        if ((http_status == 301L || http_status == 302L ||
+             http_status == 303L) && strcasecmp(current_method, "GET") != 0 &&
+            strcasecmp(current_method, "HEAD") != 0) {
+            free(current_method);
+            current_method = ch_strdup("GET");
+            current_body = "";
+            if (current_method == NULL) request_status = CH_ERROR_OUT_OF_MEMORY;
+        }
+    }
+    if (request_status == CH_ERROR_OUT_OF_MEMORY && error->code == CH_OK) {
+        ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                     "allocate developer HTTP request");
+        capture_error = error->message;
+    }
+    char captured_error[sizeof(error->message)];
+    captured_error[0] = '\0';
+    if (capture_error != NULL) {
+        (void)snprintf(captured_error, sizeof(captured_error), "%s",
+                       capture_error);
+    }
+    ch_developer_capture_finish(capture,
+        captured_error[0] == '\0' ? NULL : captured_error);
+    developer_http_response_reset(&response);
+    ch_json_dispose(&response.header_block);
+    free(current_method);
+    curl_slist_free_all(headers);
+    ch_json_dispose(&raw_headers);
+    ch_http_endpoint_clear(&endpoint);
+    ch_http_endpoint_clear(&initial);
+    if (identifier == NULL) {
+        free(identifier);
+        return NULL;
+    }
+    /* Transport and redirect errors are captured in the returned entry, just
+     * like an HTTP error status. Only malformed/unsafe requests fail the API. */
+    ch_error_clear(error);
+    char *result = developer_entry_wrapper_json(manager, identifier, error);
+    free(identifier);
+    return result;
+}
+
+char *ch_developer_send_json(ch_developer_manager *manager,
+                             const char *request_json,
+                             ch_error *error) {
+    ch_error_clear(error);
+    if (manager == NULL) {
+        ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
+                     "developer capture manager is required");
+        return NULL;
+    }
+    developer_outgoing_request request;
+    if (!developer_parse_outgoing(request_json, false, &request, error)) {
+        return NULL;
+    }
+    char *result = developer_send_outgoing(manager, &request, error);
+    developer_outgoing_clear(&request);
+    return result;
+}
+
+char *ch_developer_repeat_json(ch_developer_manager *manager,
+                               const char *request_json,
+                               ch_error *error) {
+    ch_error_clear(error);
+    if (manager == NULL) {
+        ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
+                     "developer capture manager is required");
+        return NULL;
+    }
+    developer_outgoing_request request;
+    if (!developer_parse_outgoing(request_json, true, &request, error)) {
+        return NULL;
+    }
+    char *result = NULL;
+    if (developer_copy_entry_request(manager, &request, error)) {
+        result = developer_send_outgoing(manager, &request, error);
+    }
+    developer_outgoing_clear(&request);
     return result;
 }

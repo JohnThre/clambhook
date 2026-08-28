@@ -87,6 +87,16 @@ AEAD families in the statically linked OpenSSL build. A physical Pixel 3a XL
 running Android 12/API 32 has passed focused instrumentation, but it is optional;
 GitHub's managed API 31/33/36 devices are authoritative.
 
+The Compose developer card now uses the native C capture manager and sender.
+The default Android configuration keeps a bounded metadata ring while setting
+`body_limit_bytes = 0`; users must explicitly choose a positive bound for body
+previews. Composed requests preserve editable headers and use the same
+DNS-pinned public-target and redirect validation as the daemon. Loopback,
+private, link-local, cloud-metadata, and cross-origin redirect targets are
+rejected before they can be contacted. Capture detail exposes the same native
+one-tap repeat operation, while redacted headers and incomplete body previews
+are never replayed implicitly.
+
 ```sh
 make build-android-native                     # NDK builds libclambhook_jni.so
 make run-android                              # cd ui/android && android run

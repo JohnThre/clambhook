@@ -2448,6 +2448,31 @@ ch_status ch_runtime_mutate(
     );
 }
 
+ch_status ch_runtime_developer_request(
+    ch_runtime *runtime,
+    bool repeat,
+    const char *request_json,
+    char **response_json,
+    ch_error *error
+) {
+    ch_error_clear(error);
+    if (runtime == NULL || response_json == NULL) {
+        ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
+                     "runtime and developer response are required");
+        return CH_ERROR_INVALID_ARGUMENT;
+    }
+    *response_json = repeat ? ch_developer_repeat_json(
+        runtime->developer, request_json, error) : ch_developer_send_json(
+        runtime->developer, request_json, error);
+    if (*response_json != NULL) return CH_OK;
+    ch_status status = error == NULL || error->code == CH_OK ?
+        CH_ERROR_OUT_OF_MEMORY : error->code;
+    if (status == CH_ERROR_OUT_OF_MEMORY) {
+        ch_error_set(error, status, "encode developer request response");
+    }
+    return status;
+}
+
 void ch_string_free(char *string) {
     free(string);
 }

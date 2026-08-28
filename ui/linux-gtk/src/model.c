@@ -832,6 +832,8 @@ gboolean ch_gtk_parse_capture_detail(const guint8 *data, gsize length,
     JsonParser *parser = NULL;
     JsonObject *root = parse_root(data, length, &parser, error);
     if (root == NULL) return FALSE;
+    JsonObject *wrapped = object_object(root, "entry");
+    if (wrapped != NULL) root = wrapped;
     out->identifier = g_strdup(object_string(root, "id", ""));
     out->method = g_strdup(object_string(root, "method", "GET"));
     out->url = g_strdup(object_string(root, "url", ""));
@@ -923,9 +925,89 @@ gboolean ch_gtk_parse_curl_import(const guint8 *data, gsize length,
     out->method = g_strdup(object_string(root, "method", "GET"));
     out->url = g_strdup(object_string(root, "url", ""));
     out->body = g_strdup(object_string(root, "body", ""));
-    out->headers = capture_headers_text(root);
+    out->headers = array_length(object_array(root, "headers")) == 0U ?
+        g_strdup("") : capture_headers_text(root);
     g_object_unref(parser);
     return TRUE;
+}
+
+static gboolean http_token_valid(const char *value) {
+    static const char separators[] = "()<>@,;:\\\"/[]?={} \t";
+    if (value == NULL || value[0] == '\0') return FALSE;
+    for (const unsigned char *cursor = (const unsigned char *)value;
+         *cursor != 0U; ++cursor) {
+        if (*cursor <= 0x20U || *cursor >= 0x7fU ||
+            strchr(separators, (int)*cursor) != NULL) return FALSE;
+    }
+    return TRUE;
+}
+
+char *ch_gtk_composed_request_body(const char *method, const char *url,
+                                   const char *headers, const char *body,
+                                   GError **error) {
+    g_autofree char *clean_method = g_strdup(method == NULL ? "" : method);
+    g_autofree char *clean_url = g_strdup(url == NULL ? "" : url);
+    g_strstrip(clean_method);
+    g_strstrip(clean_url);
+    if (clean_method[0] == '\0') {
+        g_free(g_steal_pointer(&clean_method));
+        clean_method = g_strdup("GET");
+    }
+    if (!http_token_valid(clean_method) || clean_url[0] == '\0' ||
+        (!g_str_has_prefix(clean_url, "http://") &&
+         !g_str_has_prefix(clean_url, "https://"))) {
+        g_set_error_literal(error, ch_gtk_model_error_quark(), 1,
+                            "Enter a valid HTTP method and HTTP(S) URL.");
+        return NULL;
+    }
+    g_autoptr(JsonBuilder) builder = json_builder_new();
+    json_builder_begin_object(builder);
+    json_builder_set_member_name(builder, "method");
+    json_builder_add_string_value(builder, clean_method);
+    json_builder_set_member_name(builder, "url");
+    json_builder_add_string_value(builder, clean_url);
+    json_builder_set_member_name(builder, "headers");
+    json_builder_begin_array(builder);
+    g_auto(GStrv) lines = g_strsplit(headers == NULL ? "" : headers, "\n", -1);
+    for (gsize index = 0U; lines[index] != NULL; ++index) {
+        g_strchomp(lines[index]);
+        g_strstrip(lines[index]);
+        if (lines[index][0] == '\0') continue;
+        char *colon = strchr(lines[index], ':');
+        if (colon == NULL || colon == lines[index]) {
+            g_set_error(error, ch_gtk_model_error_quark(), 1,
+                        "Header line %zu must use Name: value.", index + 1U);
+            return NULL;
+        }
+        *colon = '\0';
+        char *name = g_strstrip(lines[index]);
+        char *value = g_strstrip(colon + 1U);
+        if (!http_token_valid(name) || strpbrk(value, "\r\n") != NULL) {
+            g_set_error(error, ch_gtk_model_error_quark(), 1,
+                        "Header line %zu is invalid.", index + 1U);
+            return NULL;
+        }
+        json_builder_begin_object(builder);
+        json_builder_set_member_name(builder, "name");
+        json_builder_add_string_value(builder, name);
+        json_builder_set_member_name(builder, "value");
+        json_builder_add_string_value(builder, value);
+        json_builder_end_object(builder);
+    }
+    json_builder_end_array(builder);
+    json_builder_set_member_name(builder, "body");
+    json_builder_add_string_value(builder, body == NULL ? "" : body);
+    json_builder_end_object(builder);
+    return builder_json(builder);
+}
+
+char *ch_gtk_repeat_request_body(const char *identifier) {
+    g_autoptr(JsonBuilder) builder = json_builder_new();
+    json_builder_begin_object(builder);
+    json_builder_set_member_name(builder, "entry_id");
+    json_builder_add_string_value(builder, identifier == NULL ? "" : identifier);
+    json_builder_end_object(builder);
+    return builder_json(builder);
 }
 
 static char *json_node_text(JsonNode *node) {

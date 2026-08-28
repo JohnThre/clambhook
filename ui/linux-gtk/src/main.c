@@ -48,7 +48,9 @@ typedef enum request_kind {
     REQUEST_CAPTURE_HAR,
     REQUEST_RULE_CREATE,
     REQUEST_CONFIG_EXPORT,
-    REQUEST_CONFIG_IMPORT
+    REQUEST_CONFIG_IMPORT,
+    REQUEST_CAPTURE_SEND,
+    REQUEST_CAPTURE_REPEAT
 } RequestKind;
 
 typedef enum page_slot {
@@ -90,6 +92,7 @@ typedef struct clambhook_linux_app {
     GtkWidget *capture_error_only;
     GtkWidget *capture_filter_button;
     GtkWidget *capture_import_button;
+    GtkWidget *capture_compose_button;
     GtkWidget *capture_har_button;
     GtkWidget *conditioner_editor;
     GtkWidget *conditioner_profile_label;
@@ -227,6 +230,9 @@ static void populate_silent_rows(ClambhookLinuxApp *app, GPtrArray *rows);
 static void populate_capture_rows(ClambhookLinuxApp *app, GPtrArray *rows);
 static void start_event_stream(ClambhookLinuxApp *app);
 static void license_update_ui(ClambhookLinuxApp *app);
+static void show_request_composer(ClambhookLinuxApp *app, const char *method,
+                                  const char *url, const char *headers,
+                                  const char *body);
 
 static char *join_url(const char *base, const char *path) {
     gsize base_length = strlen(base);
@@ -372,6 +378,8 @@ static void set_request_activity(ClambhookLinuxApp *app, int delta) {
                              !active && app->capture_enabled);
     gtk_widget_set_sensitive(app->capture_filter_button, !active);
     gtk_widget_set_sensitive(app->capture_import_button, !active);
+    gtk_widget_set_sensitive(app->capture_compose_button,
+                             !active && app->capture_enabled);
     gtk_widget_set_sensitive(app->capture_har_button, !active);
     gtk_widget_set_sensitive(app->conditioner_editor, !active);
     gtk_widget_set_sensitive(app->conditioner_save_button, !active);
@@ -1067,6 +1075,8 @@ static void apply_capture_status(ClambhookLinuxApp *app, const guint8 *data,
                          enabled ? "Disable capture" : "Enable capture");
     gtk_widget_set_sensitive(app->capture_clear_button,
                              enabled && app->active_requests == 0U);
+    gtk_widget_set_sensitive(app->capture_compose_button,
+                             enabled && app->active_requests == 0U);
 }
 
 static GtkWidget *capture_detail_section(const char *title,
@@ -1099,6 +1109,18 @@ static void capture_copy_curl_clicked(GtkButton *button, gpointer user_data) {
     if (identifier == NULL || identifier[0] == '\0') return;
     g_autofree char *path = ch_gtk_capture_curl_path(identifier);
     send_request(app, REQUEST_CAPTURE_CURL, "GET", path, NULL);
+}
+
+static void capture_repeat_clicked(GtkButton *button, gpointer user_data) {
+    ClambhookLinuxApp *app = user_data;
+    const char *identifier = g_object_get_data(
+        G_OBJECT(button), "clambhook-capture-id");
+    if (identifier == NULL || identifier[0] == '\0') return;
+    g_autofree char *body = ch_gtk_repeat_request_body(identifier);
+    GtkRoot *root = gtk_widget_get_root(GTK_WIDGET(button));
+    if (GTK_IS_WINDOW(root)) gtk_window_destroy(GTK_WINDOW(root));
+    send_request(app, REQUEST_CAPTURE_REPEAT, "POST",
+                 "/api/v1/developer/repeat", body);
 }
 
 static void show_capture_detail(ClambhookLinuxApp *app, const guint8 *data,
@@ -1170,6 +1192,15 @@ static void show_capture_detail(ClambhookLinuxApp *app, const guint8 *data,
 
     GtkWidget *actions = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
     gtk_widget_set_halign(actions, GTK_ALIGN_END);
+    GtkWidget *repeat = gtk_button_new_with_label("Repeat request");
+    g_object_set_data_full(G_OBJECT(repeat), "clambhook-capture-id",
+                           g_strdup(detail.identifier), g_free);
+    gtk_widget_set_tooltip_text(
+        repeat,
+        "Resend this request without replaying redacted headers");
+    g_signal_connect(repeat, "clicked",
+                     G_CALLBACK(capture_repeat_clicked), app);
+    gtk_box_append(GTK_BOX(actions), repeat);
     GtkWidget *copy = gtk_button_new_with_label("Copy cURL");
     g_object_set_data_full(G_OBJECT(copy), "clambhook-capture-id",
                            g_strdup(detail.identifier), g_free);
@@ -1203,6 +1234,142 @@ static void copy_curl_export(ClambhookLinuxApp *app, const guint8 *data,
                        "cURL command copied to the clipboard");
 }
 
+static char *text_buffer_contents(GtkTextBuffer *buffer) {
+    GtkTextIter start;
+    GtkTextIter end;
+    gtk_text_buffer_get_bounds(buffer, &start, &end);
+    return gtk_text_buffer_get_text(buffer, &start, &end, FALSE);
+}
+
+static void capture_composer_send(GtkButton *button, gpointer user_data) {
+    ClambhookLinuxApp *app = user_data;
+    GtkWidget *method = g_object_get_data(
+        G_OBJECT(button), "clambhook-compose-method");
+    GtkWidget *url = g_object_get_data(
+        G_OBJECT(button), "clambhook-compose-url");
+    GtkTextBuffer *headers = g_object_get_data(
+        G_OBJECT(button), "clambhook-compose-headers");
+    GtkTextBuffer *body_buffer = g_object_get_data(
+        G_OBJECT(button), "clambhook-compose-body");
+    if (method == NULL || url == NULL || headers == NULL ||
+        body_buffer == NULL) return;
+    g_autofree char *header_text = text_buffer_contents(headers);
+    g_autofree char *body_text = text_buffer_contents(body_buffer);
+    g_autoptr(GError) error = NULL;
+    g_autofree char *request = ch_gtk_composed_request_body(
+        gtk_editable_get_text(GTK_EDITABLE(method)),
+        gtk_editable_get_text(GTK_EDITABLE(url)), header_text, body_text,
+        &error);
+    if (request == NULL) {
+        set_error(app, error == NULL ? "Invalid composed request." :
+                                      error->message);
+        return;
+    }
+    set_error(app, "");
+    GtkRoot *root = gtk_widget_get_root(GTK_WIDGET(button));
+    if (GTK_IS_WINDOW(root)) gtk_window_destroy(GTK_WINDOW(root));
+    send_request(app, REQUEST_CAPTURE_SEND, "POST",
+                 "/api/v1/developer/send", request);
+}
+
+static GtkWidget *composer_text_area(GtkGrid *grid, int row,
+                                     const char *label_text,
+                                     const char *initial,
+                                     GtkTextBuffer **buffer_out) {
+    GtkWidget *label = gtk_label_new_with_mnemonic(label_text);
+    gtk_label_set_xalign(GTK_LABEL(label), 0.0F);
+    gtk_widget_set_valign(label, GTK_ALIGN_START);
+    GtkWidget *scroll = gtk_scrolled_window_new();
+    gtk_widget_set_hexpand(scroll, TRUE);
+    gtk_widget_set_vexpand(scroll, TRUE);
+    gtk_widget_set_size_request(scroll, -1, 130);
+    GtkWidget *view = gtk_text_view_new();
+    gtk_text_view_set_wrap_mode(GTK_TEXT_VIEW(view), GTK_WRAP_WORD_CHAR);
+    gtk_widget_add_css_class(view, "monospace");
+    GtkTextBuffer *buffer = gtk_text_view_get_buffer(GTK_TEXT_VIEW(view));
+    gtk_text_buffer_set_text(buffer, initial == NULL ? "" : initial, -1);
+    gtk_label_set_mnemonic_widget(GTK_LABEL(label), view);
+    gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scroll), view);
+    gtk_grid_attach(grid, label, 0, row, 1, 1);
+    gtk_grid_attach(grid, scroll, 1, row, 1, 1);
+    *buffer_out = buffer;
+    return view;
+}
+
+static void show_request_composer(ClambhookLinuxApp *app, const char *method,
+                                  const char *url, const char *headers,
+                                  const char *body) {
+    if (!app->capture_enabled) {
+        set_error(app, "Enable developer capture before sending a request.");
+        return;
+    }
+    GtkWidget *dialog = gtk_window_new();
+    gtk_window_set_title(GTK_WINDOW(dialog), "Compose HTTP request");
+    gtk_window_set_transient_for(GTK_WINDOW(dialog), GTK_WINDOW(app->window));
+    gtk_window_set_modal(GTK_WINDOW(dialog), TRUE);
+    gtk_window_set_default_size(GTK_WINDOW(dialog), 760, 620);
+    GtkWidget *root = gtk_box_new(GTK_ORIENTATION_VERTICAL, 12);
+    gtk_widget_set_margin_top(root, 22);
+    gtk_widget_set_margin_bottom(root, 22);
+    gtk_widget_set_margin_start(root, 22);
+    gtk_widget_set_margin_end(root, 22);
+    GtkWidget *notice = gtk_label_new(
+        "Requests are limited to public HTTP(S) destinations. Private, local, "
+        "metadata, unsafe redirect, and injected-header targets are rejected.");
+    gtk_label_set_xalign(GTK_LABEL(notice), 0.0F);
+    gtk_label_set_wrap(GTK_LABEL(notice), TRUE);
+    gtk_widget_add_css_class(notice, "dim-label");
+    gtk_box_append(GTK_BOX(root), notice);
+    GtkWidget *grid_widget = gtk_grid_new();
+    GtkGrid *grid = GTK_GRID(grid_widget);
+    gtk_grid_set_row_spacing(grid, 10);
+    gtk_grid_set_column_spacing(grid, 12);
+    GtkWidget *method_label = gtk_label_new_with_mnemonic("_Method");
+    gtk_label_set_xalign(GTK_LABEL(method_label), 0.0F);
+    GtkWidget *method_entry = gtk_entry_new();
+    gtk_editable_set_text(GTK_EDITABLE(method_entry),
+                          method == NULL || method[0] == '\0' ? "GET" : method);
+    gtk_widget_set_hexpand(method_entry, TRUE);
+    gtk_label_set_mnemonic_widget(GTK_LABEL(method_label), method_entry);
+    gtk_grid_attach(grid, method_label, 0, 0, 1, 1);
+    gtk_grid_attach(grid, method_entry, 1, 0, 1, 1);
+    GtkWidget *url_label = gtk_label_new_with_mnemonic("_URL");
+    gtk_label_set_xalign(GTK_LABEL(url_label), 0.0F);
+    GtkWidget *url_entry = gtk_entry_new();
+    gtk_entry_set_placeholder_text(GTK_ENTRY(url_entry),
+                                   "https://api.example.com/path");
+    gtk_entry_set_input_purpose(GTK_ENTRY(url_entry), GTK_INPUT_PURPOSE_URL);
+    gtk_editable_set_text(GTK_EDITABLE(url_entry), url == NULL ? "" : url);
+    gtk_widget_set_hexpand(url_entry, TRUE);
+    gtk_label_set_mnemonic_widget(GTK_LABEL(url_label), url_entry);
+    gtk_grid_attach(grid, url_label, 0, 1, 1, 1);
+    gtk_grid_attach(grid, url_entry, 1, 1, 1, 1);
+    GtkTextBuffer *header_buffer = NULL;
+    (void)composer_text_area(grid, 2, "_Headers (one per line)", headers,
+                             &header_buffer);
+    GtkTextBuffer *body_buffer = NULL;
+    (void)composer_text_area(grid, 3, "_Body", body, &body_buffer);
+    gtk_box_append(GTK_BOX(root), grid_widget);
+    GtkWidget *actions = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+    gtk_widget_set_halign(actions, GTK_ALIGN_END);
+    GtkWidget *cancel = gtk_button_new_with_label("Cancel");
+    g_signal_connect(cancel, "clicked", G_CALLBACK(capture_detail_close), NULL);
+    gtk_box_append(GTK_BOX(actions), cancel);
+    GtkWidget *send = gtk_button_new_with_label("Send and capture");
+    gtk_widget_add_css_class(send, "suggested-action");
+    g_object_set_data(G_OBJECT(send), "clambhook-compose-method", method_entry);
+    g_object_set_data(G_OBJECT(send), "clambhook-compose-url", url_entry);
+    g_object_set_data(G_OBJECT(send), "clambhook-compose-headers",
+                      header_buffer);
+    g_object_set_data(G_OBJECT(send), "clambhook-compose-body", body_buffer);
+    g_signal_connect(send, "clicked", G_CALLBACK(capture_composer_send), app);
+    gtk_box_append(GTK_BOX(actions), send);
+    gtk_box_append(GTK_BOX(root), actions);
+    gtk_window_set_child(GTK_WINDOW(dialog), root);
+    gtk_window_present(GTK_WINDOW(dialog));
+    gtk_widget_grab_focus(url_entry);
+}
+
 static void show_curl_import(ClambhookLinuxApp *app, const guint8 *data,
                              gsize length) {
     ch_gtk_curl_import imported;
@@ -1211,48 +1378,10 @@ static void show_curl_import(ClambhookLinuxApp *app, const guint8 *data,
         set_error(app, error->message);
         return;
     }
-    GtkWidget *dialog = gtk_window_new();
-    gtk_window_set_title(GTK_WINDOW(dialog), "Imported cURL preview");
-    gtk_window_set_transient_for(GTK_WINDOW(dialog), GTK_WINDOW(app->window));
-    gtk_window_set_modal(GTK_WINDOW(dialog), TRUE);
-    gtk_window_set_default_size(GTK_WINDOW(dialog), 700, 520);
-    GtkWidget *root = gtk_box_new(GTK_ORIENTATION_VERTICAL, 14);
-    gtk_widget_set_margin_top(root, 22);
-    gtk_widget_set_margin_bottom(root, 22);
-    gtk_widget_set_margin_start(root, 22);
-    gtk_widget_set_margin_end(root, 22);
-    g_autofree char *title_text = g_strdup_printf(
-        "%s  %s", imported.method, imported.url);
-    GtkWidget *title = gtk_label_new(title_text);
-    gtk_label_set_xalign(GTK_LABEL(title), 0.0F);
-    gtk_label_set_wrap(GTK_LABEL(title), TRUE);
-    gtk_label_set_selectable(GTK_LABEL(title), TRUE);
-    gtk_widget_add_css_class(title, "title-2");
-    gtk_box_append(GTK_BOX(root), title);
-    GtkWidget *notice = gtk_label_new(
-        "Preview only. Import never executes the command or reads @files.");
-    gtk_label_set_xalign(GTK_LABEL(notice), 0.0F);
-    gtk_label_set_wrap(GTK_LABEL(notice), TRUE);
-    gtk_widget_add_css_class(notice, "dim-label");
-    gtk_box_append(GTK_BOX(root), notice);
-    GtkWidget *scroll = gtk_scrolled_window_new();
-    gtk_widget_set_vexpand(scroll, TRUE);
-    GtkWidget *sections = gtk_box_new(GTK_ORIENTATION_VERTICAL, 18);
-    gtk_box_append(GTK_BOX(sections), capture_detail_section(
-        "Headers", imported.headers));
-    gtk_box_append(GTK_BOX(sections), capture_detail_section(
-        "Body", imported.body[0] == '\0' ? "No body" : imported.body));
-    gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scroll), sections);
-    gtk_box_append(GTK_BOX(root), scroll);
-    GtkWidget *close = gtk_button_new_with_label("Close");
-    gtk_widget_set_halign(close, GTK_ALIGN_END);
-    g_signal_connect(close, "clicked", G_CALLBACK(capture_detail_close), NULL);
-    gtk_box_append(GTK_BOX(root), close);
-    gtk_window_set_child(GTK_WINDOW(dialog), root);
-    gtk_window_present(GTK_WINDOW(dialog));
+    show_request_composer(app, imported.method, imported.url,
+                          imported.headers, imported.body);
     ch_gtk_curl_import_clear(&imported);
 }
-
 static void har_write_finished(GObject *source, GAsyncResult *result,
                                gpointer user_data) {
     HarWriteContext *context = user_data;
@@ -1384,6 +1513,20 @@ static void request_finished(GObject *source, GAsyncResult *result,
                     copy_curl_export(app, data, length); break;
                 case REQUEST_CAPTURE_CURL_IMPORT:
                     show_curl_import(app, data, length); break;
+                case REQUEST_CAPTURE_SEND:
+                case REQUEST_CAPTURE_REPEAT: {
+                    show_capture_detail(app, data, length);
+                    gtk_label_set_text(
+                        GTK_LABEL(app->capture_state_label),
+                        context->kind == REQUEST_CAPTURE_REPEAT ?
+                            "Request repeated and captured" :
+                            "Composed request sent and captured");
+                    send_request(app, REQUEST_CAPTURE_STATUS, "GET",
+                                 "/api/v1/developer/status", NULL);
+                    g_autofree char *captures = capture_entries_path(app);
+                    send_request(app, REQUEST_CAPTURES, "GET", captures, NULL);
+                    break;
+                }
                 case REQUEST_CAPTURE_HAR:
                     save_har(app, context->destination, body); break;
                 case REQUEST_CONFIG_EXPORT:
@@ -1926,6 +2069,11 @@ static void capture_import_clicked(GtkButton *button, gpointer user_data) {
     gtk_widget_grab_focus(view);
 }
 
+static void capture_compose_clicked(GtkButton *button, gpointer user_data) {
+    (void)button;
+    show_request_composer(user_data, "GET", "", "", "");
+}
+
 G_GNUC_BEGIN_IGNORE_DEPRECATIONS
 static void capture_har_destination(GtkNativeDialog *dialog, int response,
                                     gpointer user_data) {
@@ -2228,6 +2376,14 @@ static GtkWidget *create_capture_page(ClambhookLinuxApp *app) {
     g_signal_connect(app->capture_import_button, "clicked",
                      G_CALLBACK(capture_import_clicked), app);
     gtk_box_append(GTK_BOX(bar), app->capture_import_button);
+    app->capture_compose_button = gtk_button_new_with_label("Compose");
+    gtk_widget_set_tooltip_text(
+        app->capture_compose_button,
+        "Build and send a public HTTP(S) request through native capture");
+    g_signal_connect(app->capture_compose_button, "clicked",
+                     G_CALLBACK(capture_compose_clicked), app);
+    gtk_widget_set_sensitive(app->capture_compose_button, FALSE);
+    gtk_box_append(GTK_BOX(bar), app->capture_compose_button);
     app->capture_har_button = gtk_button_new_with_label("Export HAR");
     gtk_widget_set_tooltip_text(
         app->capture_har_button,

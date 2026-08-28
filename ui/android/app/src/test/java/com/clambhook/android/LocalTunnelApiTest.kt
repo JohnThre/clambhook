@@ -78,6 +78,16 @@ class LocalTunnelApiTest {
     }
 
     @Test
+    fun repeatsDeveloperEntryThroughNativeRuntime() = runBlocking {
+        runtime.developerRepeatResponse = """{"entry":{"id":"dev-2"}}"""
+
+        val entry = api().repeatDeveloperEntry("dev-1")
+
+        assertEquals("dev-2", entry.id)
+        assertEquals("""{"entry_id":"dev-1"}""", runtime.developerRepeatRequest)
+    }
+
+    @Test
     fun connectAndDisconnectInvokeInjectedActions() = runBlocking {
         var connected = false
         var disconnected = false
@@ -107,10 +117,12 @@ private class FakeTunnelRuntime : ClambhookTunnelRuntime {
     var trafficJson = "{}"
     var dashboardJson = "{}"
     var temporaryRuleJson = "{}"
+    var developerRepeatResponse = "{\"entry\":{}}"
 
     var recordedProfile: String? = null
     var selectedPolicyGroup: Triple<String, String, String>? = null
     var temporaryRuleArgs: List<String> = emptyList()
+    var developerRepeatRequest: String? = null
 
     override fun start(configPath: String) = Unit
     override fun stop() = Unit
@@ -132,6 +144,10 @@ private class FakeTunnelRuntime : ClambhookTunnelRuntime {
     override fun developerEntryCurlJson(id: String): String = "{\"curl\":\"\"}"
     override fun developerCurlImportJson(curl: String): String = "{\"method\":\"GET\",\"url\":\"\",\"headers\":[]}"
     override fun developerSendJson(requestJson: String): String = "{\"entry\":{}}"
+    override fun developerRepeatJson(requestJson: String): String {
+        developerRepeatRequest = requestJson
+        return developerRepeatResponse
+    }
     override fun trafficFilterJson(filterJson: String): String = trafficJson
     override fun pendingPromptsJson(): String = "{\"prompts\":[]}"
     override fun resolvePromptJson(

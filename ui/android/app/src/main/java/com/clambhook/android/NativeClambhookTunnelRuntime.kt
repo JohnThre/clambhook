@@ -60,6 +60,8 @@ internal class NativeClambhookTunnelRuntime(
         bridge.query("developer_curl_import", buildJsonObject { put("curl", curl) }.toString())
     override fun developerSendJson(requestJson: String): String =
         bridge.query("developer_send", requestJson)
+    override fun developerRepeatJson(requestJson: String): String =
+        bridge.query("developer_repeat", requestJson)
     override fun clearDeveloperEntries() {
         bridge.mutate("clear_developer_entries")
     }

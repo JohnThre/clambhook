@@ -247,6 +247,35 @@ static void test_capture_detail(void) {
     g_assert_nonnull(strstr(imported.headers, "X-Test: yes"));
     g_assert_cmpstr(imported.body, ==, "hello");
     ch_gtk_curl_import_clear(&imported);
+
+    static const guint8 imported_without_headers_json[] =
+        "{\"method\":\"GET\",\"url\":\"https://example.test/\","
+        "\"headers\":[],\"body\":\"\"}";
+    g_assert_true(ch_gtk_parse_curl_import(
+        imported_without_headers_json,
+        sizeof(imported_without_headers_json) - 1U, &imported, &error));
+    g_assert_cmpstr(imported.headers, ==, "");
+    ch_gtk_curl_import_clear(&imported);
+
+    g_autofree char *composed = ch_gtk_composed_request_body(
+        " post ", " https://example.test/items ",
+        "Content-Type: application/json\nX-Test: yes", "{\"ok\":true}",
+        &error);
+    g_assert_cmpstr(
+        composed, ==,
+        "{\"method\":\"post\",\"url\":\"https://example.test/items\","
+        "\"headers\":[{\"name\":\"Content-Type\","
+        "\"value\":\"application/json\"},{\"name\":\"X-Test\","
+        "\"value\":\"yes\"}],\"body\":\"{\\\"ok\\\":true}\"}");
+    g_autofree char *repeat = ch_gtk_repeat_request_body("dev-1");
+    g_assert_cmpstr(repeat, ==, "{\"entry_id\":\"dev-1\"}");
+    g_assert_null(ch_gtk_composed_request_body(
+        "GET", "file:///etc/passwd", "", "", &error));
+    g_assert_nonnull(error);
+    g_clear_error(&error);
+    g_assert_null(ch_gtk_composed_request_body(
+        "GET", "https://example.test", "broken header", "", &error));
+    g_assert_nonnull(error);
 }
 
 static void test_conditioner_contract(void) {

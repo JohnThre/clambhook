@@ -382,7 +382,11 @@ class NativeClambhookBridgeTest {
             assertEquals("allow-discard-persisted", persisted.rules.last().name)
             assertEquals(listOf("127.0.0.1/32"), persisted.rules.last().cidrs)
             assertEquals("{\"prompts\":[]}", runtime.pendingPromptsJson())
-            assertEquals("{\"enabled\":false}", runtime.developerStatusJson())
+            assertFalse(
+                ApiJson.decodeFromString<DeveloperStatusPayload>(
+                    runtime.developerStatusJson(),
+                ).enabled,
+            )
 
             val invalid = File(config.parentFile, "native-bridge-invalid.toml").apply {
                 writeText("not valid toml = [")
@@ -395,6 +399,30 @@ class NativeClambhookBridgeTest {
                 "home",
                 ApiJson.decodeFromString<StatusPayload>(runtime.statusJson()).profile,
             )
+        }
+    }
+
+    @Test
+    fun nativeDeveloperComposerRejectsPrivateTargets() {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val config = File(context.cacheDir, "native-developer-send.toml").apply {
+            writeText(defaultAndroidConfigToml)
+        }
+        NativeClambhookTunnelRuntime { }.use { runtime ->
+            runtime.start(config.absolutePath)
+            val status = ApiJson.decodeFromString<DeveloperStatusPayload>(
+                runtime.developerStatusJson(),
+            )
+            assertTrue(status.enabled)
+            assertEquals(0L, status.bodyLimitBytes)
+            val failure = assertThrows(IllegalStateException::class.java) {
+                runtime.developerSendJson("{\"url\":\"http://127.0.0.1/private\"}")
+            }
+            assertTrue(failure.message.orEmpty().contains("non-public"))
+            val repeatFailure = assertThrows(IllegalStateException::class.java) {
+                runtime.developerRepeatJson("{\"entry_id\":\"missing\"}")
+            }
+            assertTrue(repeatFailure.message.orEmpty().contains("not found"))
         }
     }
 

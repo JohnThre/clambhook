@@ -81,6 +81,14 @@ class LocalTunnelApi(
             val body = ApiJson.encodeToString(ComposedRequestPayload.serializer(), request)
             ApiJson.decodeFromString(DeveloperRepeatResponsePayload.serializer(), runtime().developerSendJson(body)).entry
         }
+    override suspend fun repeatDeveloperEntry(id: String): DeveloperEntryPayload =
+        io {
+            val body = buildJsonObject { put("entry_id", id) }.toString()
+            ApiJson.decodeFromString(
+                DeveloperRepeatResponsePayload.serializer(),
+                runtime().developerRepeatJson(body),
+            ).entry
+        }
     override suspend fun developerHar(): String = io { runtime().developerHarJson() }
 
     override suspend fun policyGroups(): PolicyGroupsPayload = io { dashboard().policyGroups }

@@ -43,11 +43,14 @@ redacted request/response detail window. Detail views expose bounded header and
 body previews, truncation/encoding metadata, status/profile/chain context, and
 safe cURL export to the desktop clipboard. Identifiers and filter values are
 percent-escaped before they enter request paths. The non-executing cURL importer
-rejects `@file` inputs and presents only a parsed preview. HAR 1.2 export writes
-the bounded, redacted archive through a native desktop save dialog.
+rejects `@file` inputs and opens its parsed result in the editable composer. The
+composer and one-click repeat action use the native daemon sender, which limits
+requests to public HTTP(S) targets, pins validated DNS answers, disables proxy
+environment variables, and revalidates same-origin redirects. HAR 1.2 export
+writes the bounded, redacted archive through a native desktop save dialog.
 
 The JSON-to-view models are kept outside GTK widgets so daemon-contract
-fixtures can run without a display. This remains an additive target: remaining
-configuration/rule editors, accessibility parity, capture repeat/composition,
-licensing actions, and package cutover are still required before the existing
-Compose Desktop client can be removed.
+fixtures can run without a display. Native configuration/rule editors, license
+actions, and capture repeat/composition are implemented. This remains an
+additive target until accessibility QA and package cutover are complete, after
+which the existing Compose Desktop client can be removed.

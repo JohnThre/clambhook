@@ -1,5 +1,6 @@
 package com.clambhook.android
 
+import android.content.ClipData
 import android.content.Intent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -65,11 +66,11 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.ClipEntry
+import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -112,6 +113,7 @@ fun DashboardScreen(
     onCopyEntryCurl: suspend (String) -> String = { "" },
     onImportCurl: suspend (String) -> ParsedCurlResponse = { ParsedCurlResponse() },
     onSendComposed: suspend (ComposedRequestPayload) -> DeveloperEntryPayload = { DeveloperEntryPayload() },
+    onRepeatDeveloperEntry: suspend (String) -> DeveloperEntryPayload = { DeveloperEntryPayload() },
     modifier: Modifier = Modifier,
 ) {
     LazyColumn(
@@ -141,7 +143,18 @@ fun DashboardScreen(
             DashboardDestination.Activity -> {
                 item { PromptsCard(state, onResolvePrompt) }
                 item { TrafficCard(state, onCreateRule, onCreateRuleFromConnection, onCreateTemporaryRuleFromConnection, onCleanupRule, onApplyQuickFilter) }
-                item { DeveloperCaptureCard(state, onClearDeveloperEntries, developerHar, onApplyDeveloperFilter, onCopyEntryCurl, onImportCurl, onSendComposed) }
+                item {
+                    DeveloperCaptureCard(
+                        state,
+                        onClearDeveloperEntries,
+                        developerHar,
+                        onApplyDeveloperFilter,
+                        onCopyEntryCurl,
+                        onImportCurl,
+                        onSendComposed,
+                        onRepeatDeveloperEntry,
+                    )
+                }
                 item { LogsCard(state) }
             }
         }
@@ -155,7 +168,7 @@ private fun ProfileImportsCard(
     onProfilesImported: () -> Unit,
 ) {
     val context = LocalContext.current
-    val clipboard = LocalClipboardManager.current
+    val clipboard = LocalClipboard.current
     val scope = rememberCoroutineScope()
     val manager = remember { ProfileImportManager(context) }
     val importState by manager.state.collectAsStateWithLifecycle()
@@ -187,7 +200,18 @@ private fun ProfileImportsCard(
                     Text("Import file")
                 }
                 OutlinedButton(
-                    onClick = { scope.launch { manager.stageText(clipboard.getText()?.text.orEmpty()) } },
+                    onClick = {
+                        scope.launch {
+                            val text = clipboard.getClipEntry()
+                                ?.clipData
+                                ?.takeIf { it.itemCount > 0 }
+                                ?.getItemAt(0)
+                                ?.coerceToText(context)
+                                ?.toString()
+                                .orEmpty()
+                            manager.stageText(text)
+                        }
+                    },
                     enabled = !importState.busy,
                 ) { Text("Paste") }
                 OutlinedButton(
@@ -363,6 +387,7 @@ private fun DeveloperCaptureCard(
     onCopyEntryCurl: suspend (String) -> String,
     onImportCurl: suspend (String) -> ParsedCurlResponse,
     onSendComposed: suspend (ComposedRequestPayload) -> DeveloperEntryPayload,
+    onRepeatDeveloperEntry: suspend (String) -> DeveloperEntryPayload,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -394,17 +419,21 @@ private fun DeveloperCaptureCard(
                 Column(Modifier.weight(1f)) {
                     Text("HTTP Capture", style = MaterialTheme.typography.titleMedium)
                     Text(
-                        if (state.developerStatus.enabled) {
-                            "Opt-in body capture configured"
+                        if (state.developerStatus.enabled &&
+                            state.developerStatus.bodyLimitBytes > 0
+                        ) {
+                            "Bounded body capture configured"
+                        } else if (state.developerStatus.enabled) {
+                            "Metadata capture enabled; body previews disabled"
                         } else {
-                            "Metadata by default; body capture disabled"
+                            "Developer capture disabled"
                         },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    StatusPill("${state.developerEntries.size} bodies")
+                    StatusPill("${state.developerEntries.size} captures")
                     if (harProvider != null) {
                         IconButton(
                             onClick = {
@@ -446,13 +475,19 @@ private fun DeveloperCaptureCard(
                 }
             }
             Text(
-                "HTTPS body capture requires explicit developer capture config and a trusted local CA. Without it, HTTPS entries remain CONNECT metadata only.",
+                "Routed HTTPS connections remain metadata-only. Requests sent from the composer use the native TLS client and follow the configured body-preview limit.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                TextButton(onClick = { showImportCurl = true }) { Text("Import cURL") }
-                TextButton(onClick = { composeSeed = null; showCompose = true }) { Text("Compose") }
+                TextButton(
+                    onClick = { showImportCurl = true },
+                    enabled = state.developerStatus.enabled,
+                ) { Text("Import cURL") }
+                TextButton(
+                    onClick = { composeSeed = null; showCompose = true },
+                    enabled = state.developerStatus.enabled,
+                ) { Text("Compose") }
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 OutlinedTextField(
@@ -483,19 +518,20 @@ private fun DeveloperCaptureCard(
         }
     }
     selectedEntry?.let { entry ->
-        CaptureDetailDialog(entry = entry, onCopyEntryCurl = onCopyEntryCurl, onDismiss = { selectedEntry = null })
+        CaptureDetailDialog(
+            entry = entry,
+            onCopyEntryCurl = onCopyEntryCurl,
+            onRepeatDeveloperEntry = onRepeatDeveloperEntry,
+            onDismiss = { selectedEntry = null },
+        )
     }
     if (showImportCurl) {
         CurlImportDialog(
-            onParse = { text ->
-                scope.launch {
-                    val parsed = runCatching { onImportCurl(text) }.getOrNull()
-                    if (parsed != null) {
-                        composeSeed = parsed
-                        showImportCurl = false
-                        showCompose = true
-                    }
-                }
+            onParse = onImportCurl,
+            onParsed = { parsed ->
+                composeSeed = parsed
+                showImportCurl = false
+                showCompose = true
             },
             onCancel = { showImportCurl = false },
         )
@@ -503,12 +539,10 @@ private fun DeveloperCaptureCard(
     if (showCompose) {
         ComposeRequestDialog(
             seed = composeSeed,
-            onSend = { request ->
-                scope.launch {
-                    runCatching { onSendComposed(request) }
-                    showCompose = false
-                    composeSeed = null
-                }
+            onSend = onSendComposed,
+            onSent = {
+                showCompose = false
+                composeSeed = null
             },
             onCancel = { showCompose = false; composeSeed = null },
         )
@@ -517,10 +551,14 @@ private fun DeveloperCaptureCard(
 
 @Composable
 private fun CurlImportDialog(
-    onParse: (String) -> Unit,
+    onParse: suspend (String) -> ParsedCurlResponse,
+    onParsed: (ParsedCurlResponse) -> Unit,
     onCancel: () -> Unit,
 ) {
+    val scope = rememberCoroutineScope()
     var text by remember { mutableStateOf("") }
+    var busy by remember { mutableStateOf(false) }
+    var errorText by remember { mutableStateOf("") }
     AlertDialog(
         onDismissRequest = onCancel,
         title = { Text("Import cURL") },
@@ -537,22 +575,72 @@ private fun CurlImportDialog(
                     modifier = Modifier.fillMaxWidth().height(180.dp),
                     textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
                 )
+                if (errorText.isNotBlank()) {
+                    Text(
+                        errorText,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
             }
         },
-        confirmButton = { TextButton(onClick = { onParse(text) }, enabled = text.isNotBlank()) { Text("Parse & Compose") } },
-        dismissButton = { TextButton(onClick = onCancel) { Text("Cancel") } },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    scope.launch {
+                        busy = true
+                        errorText = ""
+                        val result = runCatching { onParse(text) }
+                        busy = false
+                        result
+                            .onSuccess(onParsed)
+                            .onFailure {
+                                errorText = it.message ?: "Unable to parse cURL"
+                            }
+                    }
+                },
+                enabled = text.isNotBlank() && !busy,
+            ) { Text(if (busy) "Parsing…" else "Parse & Compose") }
+        },
+        dismissButton = {
+            TextButton(onClick = onCancel, enabled = !busy) { Text("Cancel") }
+        },
     )
 }
 
 @Composable
 private fun ComposeRequestDialog(
     seed: ParsedCurlResponse?,
-    onSend: (ComposedRequestPayload) -> Unit,
+    onSend: suspend (ComposedRequestPayload) -> DeveloperEntryPayload,
+    onSent: () -> Unit,
     onCancel: () -> Unit,
 ) {
+    val scope = rememberCoroutineScope()
     var method by remember { mutableStateOf(seed?.method ?: "GET") }
     var url by remember { mutableStateOf(seed?.url ?: "") }
+    var headers by remember {
+        mutableStateOf(
+            seed?.headers?.joinToString("\n") { "${it.name}: ${it.value}" } ?: "",
+        )
+    }
     var body by remember { mutableStateOf(seed?.body ?: "") }
+    var busy by remember { mutableStateOf(false) }
+    var errorText by remember { mutableStateOf("") }
+    val headerLines = headers.lines().filter { it.isNotBlank() }
+    val parsedHeaders =
+        headerLines.mapNotNull { line ->
+            val separator = line.indexOf(':')
+            if (separator <= 0) {
+                null
+            } else {
+                DeveloperHeaderPayload(
+                    name = line.substring(0, separator).trim(),
+                    value = line.substring(separator + 1).trim(),
+                )
+            }
+        }
+    val headersValid = parsedHeaders.size == headerLines.size &&
+        parsedHeaders.all { it.name.isNotBlank() }
     AlertDialog(
         onDismissRequest = onCancel,
         title = { Text("Compose request") },
@@ -560,16 +648,54 @@ private fun ComposeRequestDialog(
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(value = method, onValueChange = { method = it }, label = { Text("Method") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                 OutlinedTextField(value = url, onValueChange = { url = it }, label = { Text("URL") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(
+                    value = headers,
+                    onValueChange = { headers = it },
+                    label = { Text("Headers (one per line)") },
+                    supportingText = if (headersValid) null else {
+                        { Text("Use Name: value for every header.") }
+                    },
+                    isError = !headersValid,
+                    modifier = Modifier.fillMaxWidth().height(120.dp),
+                    textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                )
                 OutlinedTextField(value = body, onValueChange = { body = it }, label = { Text("Body") }, modifier = Modifier.fillMaxWidth().height(120.dp))
+                if (errorText.isNotBlank()) {
+                    Text(
+                        errorText,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
             }
         },
         confirmButton = {
             TextButton(
-                onClick = { onSend(ComposedRequestPayload(method = method.ifBlank { "GET" }, url = url, body = body.ifBlank { null })) },
-                enabled = url.isNotBlank(),
-            ) { Text("Send") }
+                onClick = {
+                    scope.launch {
+                        busy = true
+                        errorText = ""
+                        val request = ComposedRequestPayload(
+                            method = method.ifBlank { "GET" },
+                            url = url,
+                            headers = parsedHeaders,
+                            body = body.ifBlank { null },
+                        )
+                        val result = runCatching { onSend(request) }
+                        busy = false
+                        result
+                            .onSuccess { onSent() }
+                            .onFailure {
+                                errorText = it.message ?: "Unable to send request"
+                            }
+                    }
+                },
+                enabled = url.isNotBlank() && headersValid && !busy,
+            ) { Text(if (busy) "Sending…" else "Send") }
         },
-        dismissButton = { TextButton(onClick = onCancel) { Text("Cancel") } },
+        dismissButton = {
+            TextButton(onClick = onCancel, enabled = !busy) { Text("Cancel") }
+        },
     )
 }
 
@@ -620,12 +746,15 @@ private val captureJson = Json { prettyPrint = true }
 private fun CaptureDetailDialog(
     entry: DeveloperEntryPayload,
     onCopyEntryCurl: suspend (String) -> String,
+    onRepeatDeveloperEntry: suspend (String) -> DeveloperEntryPayload,
     onDismiss: () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
-    val clipboard = LocalClipboardManager.current
+    val clipboard = LocalClipboard.current
     var side by remember(entry.id) { mutableStateOf("request") }
     var tab by remember(entry.id) { mutableStateOf("headers") }
+    var repeatBusy by remember(entry.id) { mutableStateOf(false) }
+    var repeatError by remember(entry.id) { mutableStateOf("") }
     val message = if (side == "request") entry.request else entry.response
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -677,6 +806,13 @@ private fun CaptureDetailDialog(
                         color = MaterialTheme.colorScheme.error,
                     )
                 }
+                if (repeatError.isNotBlank()) {
+                    Text(
+                        repeatError,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     FilterChip(selected = side == "request", onClick = { side = "request" }, label = { Text("Request") })
                     FilterChip(selected = side == "response", onClick = { side = "response" }, label = { Text("Response") })
@@ -709,12 +845,34 @@ private fun CaptureDetailDialog(
         },
         confirmButton = {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton(
+                    onClick = {
+                        scope.launch {
+                            repeatBusy = true
+                            repeatError = ""
+                            val result = runCatching {
+                                onRepeatDeveloperEntry(entry.id)
+                            }
+                            repeatBusy = false
+                            result
+                                .onSuccess { onDismiss() }
+                                .onFailure {
+                                    repeatError = it.message ?: "Unable to repeat request"
+                                }
+                        }
+                    },
+                    enabled = !repeatBusy,
+                ) { Text(if (repeatBusy) "Repeating…" else "Repeat") }
                 TextButton(onClick = {
                     scope.launch {
                         val curl = runCatching { onCopyEntryCurl(entry.id) }.getOrNull()
-                        if (!curl.isNullOrEmpty()) clipboard.setText(AnnotatedString(curl))
+                        if (!curl.isNullOrEmpty()) {
+                            clipboard.setClipEntry(
+                                ClipEntry(ClipData.newPlainText("ClambHook cURL", curl)),
+                            )
+                        }
                     }
-                }) { Text("Copy cURL") }
+                }, enabled = !repeatBusy) { Text("Copy cURL") }
                 TextButton(onClick = onDismiss) { Text("Close") }
             }
         },

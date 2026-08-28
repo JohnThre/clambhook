@@ -68,6 +68,16 @@ ch_status ch_runtime_mutate(
     ch_error *error
 );
 
+/* Developer request execution uses the manager's own lock and deliberately
+ * stays off the serialized packet-processing runtime thread. */
+ch_status ch_runtime_developer_request(
+    ch_runtime *runtime,
+    bool repeat,
+    const char *request_json,
+    char **response_json,
+    ch_error *error
+);
+
 /*
  * File-backed config operations used before a platform tunnel exists. These
  * parse and validate with the same C config layer as the live runtime.

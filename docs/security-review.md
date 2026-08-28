@@ -93,16 +93,16 @@ No high/critical defect. The controls verified clean:
   real `ServerName`, and default (enabled) verification
   (`internal/listener/http.go:588-592`, `:801-805`). No `InsecureSkipVerify:true`
   and no cleartext (`http://`) downgrade on handshake failure.
-- The post-v1.1 capture-tooling endpoints inherit the existing guards rather
-  than introducing new attack surface: `POST /api/v1/developer/curl/import` and
-  `POST /api/v1/developer/send` take `http.MaxBytesReader`-bounded JSON bodies;
-  `send` reuses the shared `sendAndCapture` path that calls
-  `subscription.ValidatePublicHTTPURL` (the M-2 SSRF guard) before dialing, so a
-  composed request cannot reach a loopback/private/link-local target. The cURL
-  importer is a bounded, stdlib-only shell tokenizer with no `exec`/eval, and the
-  flow-list filter (`GET /api/v1/developer/entries`) is read-only over the
-  in-memory capture ring. See `internal/developer/curl.go`, `tooling.go`
-  (`sendAndCapture`), and `internal/api/handlers.go` (`parseDeveloperEntryFilter`).
+- The native capture-tooling endpoints inherit the existing guards rather than
+  introducing a second trust model. `POST /api/v1/developer/curl/import`,
+  `/send`, and `/repeat` are bounded by the native API request limit. Send and
+  repeat use `native/src/http_safety.c`: every initial and redirect hostname is
+  resolved, every answer must be public, the chosen answer is pinned through
+  libcurl, proxy environment variables are disabled, and redirects must remain
+  same-origin. The same helper protects remote rule feeds. Restricted hop-by-hop
+  headers and CR/LF injection are rejected, while redacted capture headers are
+  never replayed. The cURL importer remains a bounded tokenizer with no
+  `exec`/eval, and the flow-list filter is read-only over the in-memory ring.
 
 ### File & secret handling (`internal/config/write.go`)
 

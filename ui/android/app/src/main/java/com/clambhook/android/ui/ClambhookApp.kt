@@ -267,6 +267,7 @@ fun ClambhookApp(
                             onCopyEntryCurl = viewModel::copyEntryCurl,
                             onImportCurl = viewModel::importCurl,
                             onSendComposed = viewModel::sendComposed,
+                            onRepeatDeveloperEntry = viewModel::repeatDeveloperEntry,
                             modifier = Modifier.weight(1f)
                         )
 

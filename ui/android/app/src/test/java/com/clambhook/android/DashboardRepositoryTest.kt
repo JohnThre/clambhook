@@ -452,6 +452,7 @@ open class FakeApi(
     override suspend fun developerEntryCurl(id: String): String = "curl"
     override suspend fun importCurl(text: String): ParsedCurlResponse = ParsedCurlResponse()
     override suspend fun sendComposed(request: ComposedRequestPayload): DeveloperEntryPayload = DeveloperEntryPayload()
+    override suspend fun repeatDeveloperEntry(id: String): DeveloperEntryPayload = DeveloperEntryPayload(id = id)
 
     override suspend fun developerHar(): String = "{}"
 

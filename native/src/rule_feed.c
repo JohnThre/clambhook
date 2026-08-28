@@ -23,6 +23,7 @@
 #endif
 
 #include "clambhook/json.h"
+#include "http_safety.h"
 #include "internal.h"
 
 typedef struct feed_strings {
@@ -1323,14 +1324,6 @@ typedef struct feed_http_headers {
     char *location;
 } feed_http_headers;
 
-typedef struct feed_http_endpoint {
-    char *url;
-    char *scheme;
-    char *host;
-    char *port;
-    char *resolve;
-} feed_http_endpoint;
-
 static pthread_once_t feed_curl_once = PTHREAD_ONCE_INIT;
 static CURLcode feed_curl_init_status = CURLE_OK;
 
@@ -1348,180 +1341,6 @@ static void feed_http_headers_clear(feed_http_headers *headers) {
     free(headers->last_modified);
     free(headers->location);
     memset(headers, 0, sizeof(*headers));
-}
-
-static void feed_http_endpoint_clear(feed_http_endpoint *endpoint) {
-    curl_free(endpoint->url);
-    curl_free(endpoint->scheme);
-    curl_free(endpoint->host);
-    curl_free(endpoint->port);
-    free(endpoint->resolve);
-    memset(endpoint, 0, sizeof(*endpoint));
-}
-
-static int feed_ipv4_unsafe(const unsigned char address[4]) {
-    return (address[0] == 0U && address[1] == 0U &&
-            address[2] == 0U && address[3] == 0U) ||
-        address[0] == 10U || address[0] == 127U ||
-        (address[0] == 172U && address[1] >= 16U && address[1] <= 31U) ||
-        (address[0] == 192U && address[1] == 168U) ||
-        (address[0] == 169U && address[1] == 254U) ||
-        (address[0] == 100U && address[1] >= 64U && address[1] <= 127U) ||
-        (address[0] == 192U && address[1] == 0U && address[2] == 0U &&
-         address[3] == 192U) || address[0] >= 224U;
-}
-
-static int feed_sockaddr_unsafe(const struct sockaddr *address) {
-    if (address->sa_family == AF_INET) {
-        const struct sockaddr_in *ipv4 = (const struct sockaddr_in *)address;
-        return feed_ipv4_unsafe((const unsigned char *)&ipv4->sin_addr);
-    }
-    if (address->sa_family != AF_INET6) return 1;
-    const struct sockaddr_in6 *ipv6 = (const struct sockaddr_in6 *)address;
-    const unsigned char *bytes = (const unsigned char *)&ipv6->sin6_addr;
-    static const unsigned char mapped[12] = {
-        0U,0U,0U,0U,0U,0U,0U,0U,0U,0U,0xffU,0xffU
-    };
-    if (memcmp(bytes, mapped, sizeof(mapped)) == 0) {
-        return feed_ipv4_unsafe(bytes + 12U);
-    }
-    int unspecified = 1;
-    for (size_t index = 0U; index < 16U; ++index) {
-        if (bytes[index] != 0U) unspecified = 0;
-    }
-    int loopback = unspecified == 0;
-    for (size_t index = 0U; index < 15U; ++index) {
-        if (bytes[index] != 0U) loopback = 0;
-    }
-    if (bytes[15] != 1U) loopback = 0;
-    return unspecified || loopback || (bytes[0] & 0xfeU) == 0xfcU ||
-        (bytes[0] == 0xfeU && (bytes[1] & 0xc0U) == 0x80U) ||
-        bytes[0] == 0xffU;
-}
-
-static int feed_host_is_metadata(const char *host) {
-    return strcasecmp(host, "metadata") == 0 ||
-        strcasecmp(host, "instance-data") == 0 ||
-        strcasecmp(host, "metadata.google.internal") == 0 ||
-        strcasecmp(host, "metadata.azure.internal") == 0;
-}
-
-static int feed_host_is_localhost(const char *host) {
-    size_t length = strlen(host);
-    static const char suffix[] = ".localhost";
-    return strcasecmp(host, "localhost") == 0 ||
-        (length > sizeof(suffix) - 1U &&
-         strcasecmp(host + length - (sizeof(suffix) - 1U), suffix) == 0);
-}
-
-static ch_status feed_http_prepare_endpoint(const char *url,
-                                            feed_http_endpoint *out,
-                                            ch_error *error) {
-    memset(out, 0, sizeof(*out));
-    CURLU *parsed = curl_url();
-    if (parsed == NULL ||
-        curl_url_set(parsed, CURLUPART_URL, url, 0U) != CURLUE_OK ||
-        curl_url_get(parsed, CURLUPART_SCHEME, &out->scheme, 0U) != CURLUE_OK ||
-        curl_url_get(parsed, CURLUPART_HOST, &out->host, 0U) != CURLUE_OK ||
-        curl_url_get(parsed, CURLUPART_PORT, &out->port,
-                     CURLU_DEFAULT_PORT) != CURLUE_OK ||
-        curl_url_get(parsed, CURLUPART_URL, &out->url, 0U) != CURLUE_OK ||
-        (strcasecmp(out->scheme, "http") != 0 &&
-         strcasecmp(out->scheme, "https") != 0) || out->host[0] == '\0') {
-        curl_url_cleanup(parsed);
-        feed_http_endpoint_clear(out);
-        ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
-                     "rule feed URL must be http or https with a host");
-        return CH_ERROR_INVALID_ARGUMENT;
-    }
-    curl_url_cleanup(parsed);
-    size_t host_length = strlen(out->host);
-    while (host_length > 0U && out->host[host_length - 1U] == '.') {
-        out->host[--host_length] = '\0';
-    }
-    if (feed_host_is_localhost(out->host) || feed_host_is_metadata(out->host)) {
-        ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
-                     "rule feed host %s is not public", out->host);
-        feed_http_endpoint_clear(out);
-        return CH_ERROR_INVALID_ARGUMENT;
-    }
-    struct addrinfo hints;
-    memset(&hints, 0, sizeof(hints));
-    hints.ai_family = AF_UNSPEC;
-    hints.ai_socktype = SOCK_STREAM;
-    struct addrinfo *addresses = NULL;
-    int resolved = getaddrinfo(out->host, out->port, &hints, &addresses);
-    if (resolved != 0 || addresses == NULL) {
-        ch_error_set(error, CH_ERROR_IO, "resolve rule feed host %s: %s",
-                     out->host, gai_strerror(resolved));
-        feed_http_endpoint_clear(out);
-        return CH_ERROR_IO;
-    }
-    char numeric[NI_MAXHOST];
-    numeric[0] = '\0';
-    ch_status status = CH_OK;
-    for (const struct addrinfo *candidate = addresses; candidate != NULL;
-         candidate = candidate->ai_next) {
-        if (feed_sockaddr_unsafe(candidate->ai_addr)) {
-            ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
-                         "rule feed host %s resolves to a non-public address",
-                         out->host);
-            status = CH_ERROR_INVALID_ARGUMENT;
-            break;
-        }
-        if (numeric[0] == '\0' && getnameinfo(
-                candidate->ai_addr, candidate->ai_addrlen, numeric,
-                sizeof(numeric), NULL, 0U, NI_NUMERICHOST) != 0) {
-            ch_error_set(error, CH_ERROR_IO,
-                         "format rule feed address for %s", out->host);
-            status = CH_ERROR_IO;
-            break;
-        }
-    }
-    freeaddrinfo(addresses);
-    if (status != CH_OK) {
-        feed_http_endpoint_clear(out);
-        return status;
-    }
-    int ipv6_host = strchr(out->host, ':') != NULL;
-    int ipv6_address = strchr(numeric, ':') != NULL;
-    int length = snprintf(NULL, 0,
-        ipv6_host ? (ipv6_address ? "[%s]:%s:[%s]" : "[%s]:%s:%s") :
-                    (ipv6_address ? "%s:%s:[%s]" : "%s:%s:%s"),
-        out->host, out->port, numeric);
-    out->resolve = length < 0 ? NULL : malloc((size_t)length + 1U);
-    if (out->resolve != NULL) {
-        (void)snprintf(out->resolve, (size_t)length + 1U,
-            ipv6_host ? (ipv6_address ? "[%s]:%s:[%s]" : "[%s]:%s:%s") :
-                        (ipv6_address ? "%s:%s:[%s]" : "%s:%s:%s"),
-            out->host, out->port, numeric);
-    } else {
-        ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
-                     "allocate pinned rule feed address");
-        feed_http_endpoint_clear(out);
-        return CH_ERROR_OUT_OF_MEMORY;
-    }
-    return CH_OK;
-}
-
-static int feed_http_same_origin(const feed_http_endpoint *first,
-                                 const feed_http_endpoint *next) {
-    return strcasecmp(first->scheme, next->scheme) == 0 &&
-        strcasecmp(first->host, next->host) == 0 &&
-        strcmp(first->port, next->port) == 0;
-}
-
-static char *feed_http_resolve_redirect(const char *base,
-                                        const char *location) {
-    CURLU *parsed = curl_url();
-    char *resolved = NULL;
-    if (parsed != NULL &&
-        curl_url_set(parsed, CURLUPART_URL, base, 0U) == CURLUE_OK &&
-        curl_url_set(parsed, CURLUPART_URL, location, 0U) == CURLUE_OK) {
-        (void)curl_url_get(parsed, CURLUPART_URL, &resolved, 0U);
-    }
-    curl_url_cleanup(parsed);
-    return resolved;
 }
 
 static size_t feed_http_write(char *data, size_t size, size_t count,
@@ -1644,12 +1463,13 @@ ch_status ch_rule_feed_refresh(const ch_rule_feed_refresh_options *options,
         options->config_path, options->kind, options->profile, options->name,
         options->url, &old, &old_error);
     char *current_url = ch_strdup(options->url);
-    feed_http_endpoint initial = {0};
-    feed_http_endpoint endpoint = {0};
+    ch_http_endpoint initial = {0};
+    ch_http_endpoint endpoint = {0};
     ch_status status = current_url == NULL ? CH_ERROR_OUT_OF_MEMORY :
-        feed_http_prepare_endpoint(current_url, &initial, error);
+        ch_http_endpoint_prepare(current_url, "rule feed", &initial, error);
     if (status == CH_OK) {
-        status = feed_http_prepare_endpoint(current_url, &endpoint, error);
+        status = ch_http_endpoint_prepare(current_url, "rule feed", &endpoint,
+                                          error);
     }
     feed_http_buffer body = {0};
     feed_http_headers response_headers = {0};
@@ -1741,19 +1561,20 @@ ch_status ch_rule_feed_refresh(const ch_rule_feed_refresh_options *options,
             status = CH_ERROR_IO;
             break;
         }
-        char *next_url = feed_http_resolve_redirect(
+        char *next_url = ch_http_resolve_redirect(
             endpoint.url, response_headers.location);
-        feed_http_endpoint next = {0};
+        ch_http_endpoint next = {0};
         status = next_url == NULL ? CH_ERROR_INVALID_ARGUMENT :
-            feed_http_prepare_endpoint(next_url, &next, error);
+            ch_http_endpoint_prepare(next_url, "rule feed", &next, error);
         curl_free(next_url);
-        if (status == CH_OK && !feed_http_same_origin(&initial, &next)) {
+        if (status == CH_OK &&
+            !ch_http_endpoint_same_origin(&initial, &next)) {
             ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
                          "rule feed redirect to a different origin is not allowed");
             status = CH_ERROR_INVALID_ARGUMENT;
         }
         if (status == CH_OK) {
-            feed_http_endpoint_clear(&endpoint);
+            ch_http_endpoint_clear(&endpoint);
             endpoint = next;
             free(current_url);
             current_url = ch_strdup(endpoint.url);
@@ -1763,7 +1584,7 @@ ch_status ch_rule_feed_refresh(const ch_rule_feed_refresh_options *options,
                 status = CH_ERROR_OUT_OF_MEMORY;
             }
         } else {
-            feed_http_endpoint_clear(&next);
+            ch_http_endpoint_clear(&next);
         }
     }
     if (status == CH_OK && http_status == 304L) {
@@ -1819,8 +1640,8 @@ ch_status ch_rule_feed_refresh(const ch_rule_feed_refresh_options *options,
     if (old_status == CH_OK) ch_rule_feed_cache_clear(&old);
     feed_http_buffer_clear(&body);
     feed_http_headers_clear(&response_headers);
-    feed_http_endpoint_clear(&endpoint);
-    feed_http_endpoint_clear(&initial);
+    ch_http_endpoint_clear(&endpoint);
+    ch_http_endpoint_clear(&initial);
     free(current_url);
     return status;
 }

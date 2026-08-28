@@ -63,6 +63,16 @@ char *ch_developer_har_json(ch_developer_manager *manager,
                             ch_error *error);
 char *ch_developer_clear_json(ch_developer_manager *manager,
                               ch_error *error);
+/* Sends an independently composed public HTTP(S) request and stores the
+ * bounded, redacted response as a developer entry. */
+char *ch_developer_send_json(ch_developer_manager *manager,
+                             const char *request_json,
+                             ch_error *error);
+/* Repeats a stored request, applying optional method, URL, header, and body
+ * overrides. Redacted headers are never replayed. */
+char *ch_developer_repeat_json(ch_developer_manager *manager,
+                               const char *request_json,
+                               ch_error *error);
 
 #ifdef __cplusplus
 }

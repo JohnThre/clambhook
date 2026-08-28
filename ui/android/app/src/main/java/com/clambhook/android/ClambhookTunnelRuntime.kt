@@ -22,6 +22,7 @@ interface ClambhookTunnelRuntime {
     fun developerEntryCurlJson(id: String): String
     fun developerCurlImportJson(curl: String): String
     fun developerSendJson(requestJson: String): String
+    fun developerRepeatJson(requestJson: String): String
 
     fun clearDeveloperEntries()
     fun setActiveProfile(name: String)

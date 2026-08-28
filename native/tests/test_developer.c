@@ -69,6 +69,45 @@ void ch_test_developer(void) {
     CH_TEST_ASSERT(manager != NULL);
     CH_TEST_ASSERT(ch_developer_manager_configure(manager, config, &error) ==
                    CH_OK);
+    CH_TEST_ASSERT(ch_developer_send_json(
+        manager, "{\"url\":\"http://localhost/private\"}", &error) == NULL);
+    CH_TEST_ASSERT(error.code == CH_ERROR_INVALID_ARGUMENT);
+    CH_TEST_ASSERT(strstr(error.message, "not public") != NULL);
+    CH_TEST_ASSERT(ch_developer_send_json(
+        manager, "{\"url\":\"http://user:secret@example.com/\"}",
+        &error) == NULL);
+    CH_TEST_ASSERT(error.code == CH_ERROR_INVALID_ARGUMENT);
+    CH_TEST_ASSERT(strstr(error.message, "credentials") != NULL);
+    CH_TEST_ASSERT(ch_developer_send_json(
+        manager, "{\"url\":\"http://@example.com/\"}", &error) == NULL);
+    CH_TEST_ASSERT(error.code == CH_ERROR_INVALID_ARGUMENT);
+    CH_TEST_ASSERT(strstr(error.message, "credentials") != NULL);
+    CH_TEST_ASSERT(ch_developer_send_json(
+        manager, "{\"url\":\"http://[::ffff:127.0.0.1]/private\"}",
+        &error) == NULL);
+    CH_TEST_ASSERT(error.code == CH_ERROR_INVALID_ARGUMENT);
+    CH_TEST_ASSERT(ch_developer_send_json(
+        manager, "{\"url\":\"http://0.0.0.1/private\"}", &error) == NULL);
+    CH_TEST_ASSERT(error.code == CH_ERROR_INVALID_ARGUMENT);
+    CH_TEST_ASSERT(ch_developer_send_json(
+        manager, "{\"url\":\"http://192.0.2.1/private\"}", &error) == NULL);
+    CH_TEST_ASSERT(error.code == CH_ERROR_INVALID_ARGUMENT);
+    CH_TEST_ASSERT(ch_developer_send_json(
+        manager, "{\"url\":\"http://[2001:db8::1]/private\"}",
+        &error) == NULL);
+    CH_TEST_ASSERT(error.code == CH_ERROR_INVALID_ARGUMENT);
+    CH_TEST_ASSERT(ch_developer_send_json(
+        manager, "{\"method\":\"GET\\nInjected\","
+                 "\"url\":\"https://example.com\"}", &error) == NULL);
+    CH_TEST_ASSERT(error.code == CH_ERROR_INVALID_ARGUMENT);
+    CH_TEST_ASSERT(ch_developer_send_json(
+        manager, "{\"url\":\"https://example.com\",\"headers\":[{"
+                 "\"name\":\"Host\",\"value\":\"internal\"}]}",
+        &error) == NULL);
+    CH_TEST_ASSERT(error.code == CH_ERROR_INVALID_ARGUMENT);
+    CH_TEST_ASSERT(ch_developer_repeat_json(
+        manager, "{\"entry_id\":\"missing\"}", &error) == NULL);
+    CH_TEST_ASSERT(error.code == CH_ERROR_NOT_FOUND);
 
     static const char request_headers[] =
         "Host: api.example.com\r\n"
@@ -92,7 +131,7 @@ void ch_test_developer(void) {
     static const uint8_t request_body[] = "{\"x\":12345}";
     ch_developer_capture_request_body(capture, request_body,
                                       sizeof(request_body) - 1U);
-    static const uint8_t response_a[] = "HTTP/1.1 201 Cr";
+    static const uint8_t response_a[] = "HTTP/2 201 Cr";
     static const uint8_t response_b[] =
         "eated\r\nContent-Type: application/json\r\n"
         "Set-Cookie: session=secret\r\n\r\n{\"ok\":true}";
@@ -146,6 +185,15 @@ void ch_test_developer(void) {
     CH_TEST_ASSERT(strstr(json, "captured request body was truncated") !=
                    NULL);
     free(json);
+    CH_TEST_ASSERT(ch_developer_repeat_json(
+        manager, "{\"entry_id\":\"dev-1\"}", &error) == NULL);
+    CH_TEST_ASSERT(error.code == CH_ERROR_INVALID_ARGUMENT);
+    CH_TEST_ASSERT(strstr(error.message, "truncated") != NULL);
+    CH_TEST_ASSERT(ch_developer_repeat_json(
+        manager, "{\"entry_id\":\"dev-1\",\"body\":\"\","
+                 "\"url\":\"http://127.0.0.1/private\"}", &error) == NULL);
+    CH_TEST_ASSERT(error.code == CH_ERROR_INVALID_ARGUMENT);
+    CH_TEST_ASSERT(strstr(error.message, "non-public") != NULL);
 
     json = ch_developer_har_json(manager, &error);
     CH_TEST_ASSERT(json != NULL);
@@ -174,6 +222,9 @@ void ch_test_developer(void) {
                    CH_OK);
     CH_TEST_ASSERT(ch_developer_capture_begin(manager, &metadata, &error) ==
                    NULL);
+    CH_TEST_ASSERT(ch_developer_send_json(
+        manager, "{\"url\":\"https://example.com\"}", &error) == NULL);
+    CH_TEST_ASSERT(error.code == CH_ERROR_INVALID_STATE);
 
     ch_config_free(disabled);
     ch_developer_manager_destroy(manager);

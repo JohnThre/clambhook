@@ -374,6 +374,14 @@ floor. A physical Pixel 3a XL running Android 12/API 32 has also passed focused
 instrumentation, but connected hardware is optional and never substitutes for
 the API 31/33/36 CI matrix.
 
+The Android runtime also owns the native developer capture manager. Compose
+cURL import, standalone request composition, and capture-detail repeat reach
+the C sender through JNI; the default config records bounded metadata with body
+previews disabled. The same C sender backs daemon
+`POST /api/v1/developer/send` and `POST /api/v1/developer/repeat`, with
+public-address DNS pinning, proxy bypass, bounded capture, and same-origin
+redirect revalidation.
+
 ## Cutover gates
 
 Cutover is allowed only after all of the following are green:
