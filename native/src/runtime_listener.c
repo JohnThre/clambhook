@@ -908,6 +908,98 @@ ch_status ch_runtime_listener_set_dns_dial(
     return status;
 }
 
+static char *runtime_dns_packet_send_target(
+    const char *target, const char *const *bootstrap_ips,
+    size_t bootstrap_ip_count, ch_error *error) {
+    if (bootstrap_ip_count == 0U) {
+        char *copy = ch_strdup(target);
+        if (copy == NULL) {
+            ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                         "copy DNS packet target");
+        }
+        return copy;
+    }
+    const char *separator = strrchr(target, ':');
+    if (separator == NULL || separator[1] == '\0') {
+        ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
+                     "DNS packet target must be host:port");
+        return NULL;
+    }
+    const char *address = bootstrap_ips[0];
+    bool ipv6 = strchr(address, ':') != NULL;
+    size_t capacity = strlen(address) + strlen(separator + 1U) +
+        (ipv6 ? 4U : 2U);
+    char *send_target = malloc(capacity);
+    if (send_target == NULL) {
+        ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                     "allocate DNS packet bootstrap target");
+        return NULL;
+    }
+    (void)snprintf(send_target, capacity,
+                   ipv6 ? "[%s]:%s" : "%s:%s", address, separator + 1U);
+    return send_target;
+}
+
+ch_status ch_runtime_listener_set_dns_packet_dial(
+    ch_runtime_listener_set *set, const char *network, const char *target,
+    const char *const *bootstrap_ips, size_t bootstrap_ip_count,
+    ch_packet_connection **out_connection, char **out_send_target,
+    ch_error *error) {
+    ch_error_clear(error);
+    if (set == NULL || !set->dns_ready || network == NULL || target == NULL ||
+        out_connection == NULL || out_send_target == NULL ||
+        (bootstrap_ip_count > 0U && bootstrap_ips == NULL)) {
+        ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
+                     "invalid native DNS packet dial request");
+        return CH_ERROR_INVALID_ARGUMENT;
+    }
+    *out_connection = NULL;
+    *out_send_target = NULL;
+    ch_rule_decision decision;
+    ch_status status = runtime_listener_decide(
+        &set->dns_entry, network, target, "", &decision, error);
+    if (status != CH_OK) return status;
+    if (strcmp(decision.action, CH_RULE_ACTION_BLOCK) == 0 ||
+        strcmp(decision.action, CH_RULE_ACTION_REJECT) == 0) {
+        ch_error_set(error, CH_ERROR_INVALID_STATE,
+                     "DNS upstream route is %s", decision.action);
+        status = CH_ERROR_INVALID_STATE;
+    } else if (strcmp(decision.action, CH_RULE_ACTION_DIRECT) == 0) {
+        *out_send_target = runtime_dns_packet_send_target(
+            target, bootstrap_ips, bootstrap_ip_count, error);
+        status = *out_send_target == NULL ?
+            (error == NULL ? CH_ERROR_OUT_OF_MEMORY : error->code) :
+            ch_protocol_direct_packet_dial(out_connection, error);
+    } else {
+        char *selected_group_chain = NULL;
+        const char *chain_name = runtime_decision_chain(
+            &set->dns_entry, &decision, network, target, "",
+            &selected_group_chain, error);
+        if (chain_name == NULL) {
+            status = error == NULL ? CH_ERROR_INVALID_ARGUMENT : error->code;
+        } else {
+            *out_send_target = ch_strdup(target);
+            if (*out_send_target == NULL) {
+                ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                             "copy routed DNS packet target");
+                status = CH_ERROR_OUT_OF_MEMORY;
+            } else {
+                status = runtime_dial_packet_chain(
+                    &set->dns_entry, chain_name, target, out_connection, error);
+            }
+        }
+        free(selected_group_chain);
+    }
+    if (status != CH_OK) {
+        ch_packet_connection_close(*out_connection);
+        *out_connection = NULL;
+        free(*out_send_target);
+        *out_send_target = NULL;
+    }
+    ch_rule_decision_clear(&decision);
+    return status;
+}
+
 ch_status ch_runtime_listener_set_tun_tcp_dial(
     ch_runtime_listener_set *set, const char *target, const char *source,
     const char *domain_hint, int *out_descriptor, uint64_t *out_flow_id,

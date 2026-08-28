@@ -20,13 +20,15 @@
 #include <openssl/err.h>
 #include <openssl/ssl.h>
 
+#include "dns_quic.h"
 #include "internal.h"
 
 #define CH_DNS_DEFAULT_TIMEOUT_MS 5000U
 
 typedef enum ch_dns_upstream_kind {
     CH_DNS_UPSTREAM_DOH = 1,
-    CH_DNS_UPSTREAM_DOT = 2
+    CH_DNS_UPSTREAM_DOT = 2,
+    CH_DNS_UPSTREAM_DOQ = 3
 } ch_dns_upstream_kind;
 
 typedef struct ch_dns_upstream {
@@ -411,6 +413,37 @@ static ch_status ch_dns_prepare_dot(ch_dns_proxy *proxy,
     return ch_dns_validate_direct_bootstrap(proxy, upstream, "tcp", error);
 }
 
+static ch_status ch_dns_prepare_doq(ch_dns_proxy *proxy,
+                                    ch_dns_upstream *upstream,
+                                    ch_error *error) {
+    if (!ch_dns_quic_available()) {
+        ch_error_set(error, CH_ERROR_UNSUPPORTED,
+                     "native DNS-over-QUIC requires OpenSSL 3.2 or later");
+        return CH_ERROR_UNSUPPORTED;
+    }
+    if (proxy->options.packet_dial == NULL) {
+        ch_error_set(error, CH_ERROR_UNSUPPORTED,
+                     "native DNS-over-QUIC requires a routed packet dialer");
+        return CH_ERROR_UNSUPPORTED;
+    }
+    if (!ch_dns_split_host_port(upstream->target, &upstream->host,
+                                &upstream->port)) {
+        ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
+                     "dns DoQ address must be host:port");
+        return CH_ERROR_INVALID_ARGUMENT;
+    }
+    if (upstream->server_name[0] == '\0' && !ch_dns_is_ip(upstream->host)) {
+        free(upstream->server_name);
+        upstream->server_name = ch_strdup(upstream->host);
+        if (upstream->server_name == NULL) {
+            ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                         "copy dns DoQ server name");
+            return CH_ERROR_OUT_OF_MEMORY;
+        }
+    }
+    return ch_dns_validate_direct_bootstrap(proxy, upstream, "udp", error);
+}
+
 static ch_status ch_dns_expand_controld(const ch_config_table *table,
                                         char **protocol, char **url,
                                         char **target, char **server_name,
@@ -562,9 +595,12 @@ static ch_status ch_dns_upstream_load(ch_dns_proxy *proxy,
                                                     upstream->host);
         }
     } else if (strcmp(protocol, "doq") == 0) {
-        ch_error_set(error, CH_ERROR_UNSUPPORTED,
-                     "native DNS-over-QUIC is not available yet");
-        status = CH_ERROR_UNSUPPORTED;
+        upstream->kind = CH_DNS_UPSTREAM_DOQ;
+        status = ch_dns_prepare_doq(proxy, upstream, error);
+        if (status == CH_OK) {
+            upstream->name = ch_dns_name_or_default(name, "doq:",
+                                                    upstream->host);
+        }
     } else {
         ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
                      "unknown dns protocol %s", protocol);
@@ -1152,19 +1188,35 @@ ch_status ch_dns_proxy_exchange(ch_dns_proxy *proxy, const uint8_t *query,
             ch_error_set(&upstream_error, CH_ERROR_UNSUPPORTED,
                          "native DNS-over-HTTPS is not linked on this platform");
             status = CH_ERROR_UNSUPPORTED;
+        } else if (upstream->kind == CH_DNS_UPSTREAM_DOQ) {
+            status = ch_dns_quic_exchange(
+                &proxy->options, upstream->target, upstream->server_name,
+                (const char *const *)upstream->bootstrap_ips,
+                upstream->bootstrap_ip_count, proxy->timeout_milliseconds,
+                query, query_length, out_response, out_response_length,
+                &upstream_error);
         } else {
             status = ch_dns_exchange_dot(
                 proxy, upstream, query, query_length, out_response,
                 out_response_length, &upstream_error);
         }
 #else
-        status = upstream->kind == CH_DNS_UPSTREAM_DOH ?
-            ch_dns_exchange_doh(proxy, upstream, query, query_length,
-                                out_response, out_response_length,
-                                &upstream_error) :
-            ch_dns_exchange_dot(proxy, upstream, query, query_length,
-                                out_response, out_response_length,
-                                &upstream_error);
+        if (upstream->kind == CH_DNS_UPSTREAM_DOH) {
+            status = ch_dns_exchange_doh(
+                proxy, upstream, query, query_length, out_response,
+                out_response_length, &upstream_error);
+        } else if (upstream->kind == CH_DNS_UPSTREAM_DOQ) {
+            status = ch_dns_quic_exchange(
+                &proxy->options, upstream->target, upstream->server_name,
+                (const char *const *)upstream->bootstrap_ips,
+                upstream->bootstrap_ip_count, proxy->timeout_milliseconds,
+                query, query_length, out_response, out_response_length,
+                &upstream_error);
+        } else {
+            status = ch_dns_exchange_dot(
+                proxy, upstream, query, query_length, out_response,
+                out_response_length, &upstream_error);
+        }
 #endif
         if (status == CH_OK) return CH_OK;
         last_status = status;

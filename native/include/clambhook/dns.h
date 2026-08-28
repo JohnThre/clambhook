@@ -7,6 +7,7 @@
 
 #include "clambhook/config.h"
 #include "clambhook/error.h"
+#include "clambhook/protocol.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -46,9 +47,27 @@ typedef ch_status (*ch_dns_stream_dial_callback)(
     ch_error *error
 );
 
+/*
+ * Opens a routed datagram path for DNS-over-QUIC. The callback also returns
+ * the target used for packet sends: direct hostname routes replace the host
+ * with a bootstrap IP, while proxied routes retain the configured hostname.
+ * Both outputs transfer to the DNS proxy on CH_OK; send_target uses free().
+ */
+typedef ch_status (*ch_dns_packet_dial_callback)(
+    const char *network,
+    const char *target,
+    const char *const *bootstrap_ips,
+    size_t bootstrap_ip_count,
+    ch_packet_connection **out_connection,
+    char **out_send_target,
+    void *context,
+    ch_error *error
+);
+
 typedef struct ch_dns_proxy_options {
     ch_dns_route_callback route;
     ch_dns_stream_dial_callback stream_dial;
+    ch_dns_packet_dial_callback packet_dial;
     void *dial_context;
     bool insecure_skip_verify; /* Test-only injection; production leaves false. */
 } ch_dns_proxy_options;

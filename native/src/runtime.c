@@ -754,6 +754,16 @@ static ch_status ch_runtime_dns_dial(
         out_descriptor, error);
 }
 
+static ch_status ch_runtime_dns_packet_dial(
+    const char *network, const char *target,
+    const char *const *bootstrap_ips, size_t bootstrap_ip_count,
+    ch_packet_connection **out_connection, char **out_send_target,
+    void *context, ch_error *error) {
+    return ch_runtime_listener_set_dns_packet_dial(
+        context, network, target, bootstrap_ips, bootstrap_ip_count,
+        out_connection, out_send_target, error);
+}
+
 static char *ch_runtime_optional_config_string(const ch_config_table *table,
                                                const char *key) {
     char *value = NULL;
@@ -865,6 +875,7 @@ static bool ch_runtime_build_services(
         ch_dns_proxy_options options = {
             .route = ch_runtime_dns_route,
             .stream_dial = ch_runtime_dns_dial,
+            .packet_dial = ch_runtime_dns_packet_dial,
             .dial_context = listeners
         };
         ch_error dns_error;

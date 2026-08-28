@@ -56,7 +56,8 @@ The additive CMake build currently provides:
   serialized runtime. The encrypted-DNS library validates DNS transaction IDs
   and question sections, returns SERVFAIL after upstream failover, expands
   Control D resolver shorthand without system-DNS bootstrap loops, and performs
-  route-planned DoH and DoT exchanges with TLS 1.2 or newer. A pinned lwIP
+  route-planned DoH and DoT exchanges with TLS 1.2 or newer, plus DoQ over
+  OpenSSL QUIC and the same routed packet abstraction. A pinned lwIP
   2.2.1 `NO_SYS` raw core supplies the portable IPv4/IPv6 packet-stack
   foundation used by host runtimes and the Android JNI library;
 - `clambhook_crypto`: the existing C crypto surface, now covering AES-128-GCM,
@@ -242,21 +243,27 @@ The SOCKS5 UDP relay binds to the control connection's local interface, pins
 the first client endpoint (and any explicitly requested port), rejects
 fragmentation, re-evaluates routing for each datagram, reuses one asynchronous
 packet session per selected route, and ties teardown to the TCP control
-connection. WireGuard, OpenVPN, DoQ, traffic persistence, and developer
-inspection execution remain cutover blockers;
+connection. WireGuard, OpenVPN, and traffic persistence remain cutover
+blockers;
 datagram protocols that cannot
 be represented by the native stream-carrier model fail closed.
 
-Native encrypted DNS currently implements DoH with libcurl HTTP/2 negotiation
-and DoT with length-prefixed OpenSSL streams. Both transports use the route
-planner's already-connected descriptor, so direct hostname endpoints require
-validated bootstrap IPs while chained routes preserve remote name resolution.
+Native encrypted DNS implements DoH with libcurl HTTP/2 negotiation, DoT with
+length-prefixed OpenSSL streams, and DoQ with OpenSSL QUIC. DoH/DoT use the
+route planner's already-connected stream descriptor; DoQ bridges QUIC
+datagrams through the native packet connection so direct, Shadowsocks,
+Trojan/clambback, and VMESS UDP routes keep the same policy decision. Direct
+hostname endpoints require validated bootstrap IPs while chained routes
+preserve remote name resolution.
 Each exchange rejects mismatched transaction IDs or question sections, and
 total upstream failure still produces an owned SERVFAIL response for the packet
 stack. Control D custom and free resolver forms derive the same endpoints,
-TLS names, and anycast bootstrap addresses as the legacy implementation. DoQ is
-explicitly rejected until a portable QUIC dependency and transcript parity are
-available; this is not a silent downgrade to DoH or DoT. Runtime start, reload,
+TLS names, and anycast bootstrap addresses as the legacy implementation. DoQ
+negotiates the mandatory `doq` ALPN, uses one length-framed DNS message per
+QUIC stream, zeroes the on-wire transaction ID and restores the caller ID, and
+rejects trailing stream bytes. Its real QUIC server fixture covers handshake,
+framing, FIN, and response validation without downgrading to DoH or DoT.
+Runtime start, reload,
 profile switching, and rollback now construct the DNS proxy transactionally;
 its stream dials use the same compiled rules, policy-group selection, default
 chain, and direct bootstrap addresses as the proxy listeners. Runtime status
@@ -327,9 +334,10 @@ automatic switch remains part of the full control-API gate.
 ## Build and test
 
 The native host build requires CMake, Ninja, pkg-config, libuv, libsodium,
-OpenSSL 3.0 or newer, libcurl, and llhttp. The optional Linux client
-additionally requires GTK 4, libsoup 3, and json-glib. `make build-linux-gtk`
-also runs the display-independent model and executable tests.
+OpenSSL 3.0 or newer (3.2 or newer enables DoQ), libcurl, and llhttp. The
+optional Linux client additionally requires GTK 4, libsoup 3, and json-glib.
+`make build-linux-gtk` also runs the display-independent model and executable
+tests.
 
 ```sh
 make build-native
@@ -365,7 +373,7 @@ production VPN factory selects the native C/JNI packet runtime and no gomobile
 AAR is present in the application. Focused managed-device
 tests load TOML in C and exercise start, stop, status, profiles, server/rule
 payload decoding, profile switching, compiled-rule route explanations, a raw
-IPv4 packet round trip, delayed direct UDP, and encrypted-DNS DoH/DoT
+IPv4 packet round trip, delayed direct UDP, and encrypted-DNS DoH/DoT/DoQ
 interception with failure-generated SERVFAIL. The native route callbacks now
 dial configured encrypted TCP/UDP chains, and the JNI suite calls the statically
 linked OpenSSL implementation for AES-128-GCM, AES-256-GCM, and
@@ -392,8 +400,8 @@ Cutover is allowed only after all of the following are green:
    transcript. Trojan/clambback TCP/UDP, Shadowsocks TCP/UDP, direct UDP, Tor
    SOCKS5/nested-stream, VMESS-AEAD TCP/UDP, nested packet carriers, and
    ShadowTLS v3 fixtures are green. DNS wire, failover/SERVFAIL, Control D,
-   bootstrap-loop, DoH, and DoT fixtures are green; DoQ, WireGuard, and OpenVPN
-   rows are still open.
+   bootstrap-loop, DoH, DoT, and OpenSSL QUIC DoQ fixtures are green;
+   WireGuard and OpenVPN rows are still open.
 3. Listener and protocol integration tests cover TCP, direct/Shadowsocks UDP,
    SOCKS5 UDP association reuse and cancellation, reload rollback, concurrency
    limits, native macOS/Linux process-rule attribution, network-triggered

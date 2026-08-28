@@ -129,6 +129,7 @@ add_library(clambhook_jni SHARED
     "${CLAMBHOOK_ROOT}/native/src/developer.c"
     "${CLAMBHOOK_ROOT}/native/src/developer_curl.c"
     "${CLAMBHOOK_ROOT}/native/src/dns.c"
+    "${CLAMBHOOK_ROOT}/native/src/dns_quic.c"
     "${CLAMBHOOK_ROOT}/native/src/error.c"
     "${CLAMBHOOK_ROOT}/native/src/http_safety.c"
     "${CLAMBHOOK_ROOT}/native/src/ip_stack.c"

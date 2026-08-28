@@ -78,6 +78,16 @@ ch_status ch_runtime_listener_set_dns_dial(
     int *out_descriptor,
     ch_error *error
 );
+ch_status ch_runtime_listener_set_dns_packet_dial(
+    ch_runtime_listener_set *set,
+    const char *network,
+    const char *target,
+    const char *const *bootstrap_ips,
+    size_t bootstrap_ip_count,
+    ch_packet_connection **out_connection,
+    char **out_send_target,
+    ch_error *error
+);
 ch_status ch_runtime_listener_set_tun_tcp_dial(
     ch_runtime_listener_set *set,
     const char *target,

@@ -54,17 +54,12 @@ name = "default"
 socks5 = "127.0.0.1:1080"
 http = "127.0.0.1:8080"
 
-# Add a chain and server before connecting. Example:
-#
-# [[profile.chain]]
-# name = "default"
-#
-# [[profile.chain.server]]
-# name = "example"
-# address = "proxy.example:8388"
-# protocol = "shadowsocks"
-#
-# [profile.chain.server.settings]
-# method = "chacha20-ietf-poly1305"
-# password = "replace-me"
+# A valid direct chain keeps the first launch usable. Replace this server with
+# a configured proxy when you are ready to route traffic remotely.
+[[profile.chain]]
+name = "default"
+
+[[profile.chain.server]]
+name = "direct"
+protocol = "direct"
 """

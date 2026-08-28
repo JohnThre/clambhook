@@ -2,7 +2,9 @@
 
 #include <arpa/inet.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <openssl/evp.h>
+#include <openssl/opensslv.h>
 #include <openssl/rsa.h>
 #include <openssl/ssl.h>
 #include <openssl/x509.h>
@@ -19,6 +21,19 @@
 #include "clambhook/protocol.h"
 #include "internal.h"
 
+#if OPENSSL_VERSION_NUMBER >= 0x30500000L && !defined(OPENSSL_NO_QUIC)
+#include <openssl/quic.h>
+#define DNS_TEST_HAVE_QUIC_SERVER 1
+#else
+#define DNS_TEST_HAVE_QUIC_SERVER 0
+#endif
+
+#if OPENSSL_VERSION_NUMBER >= 0x30200000L && !defined(OPENSSL_NO_QUIC)
+#define DNS_TEST_HAVE_QUIC_CLIENT 1
+#else
+#define DNS_TEST_HAVE_QUIC_CLIENT 0
+#endif
+
 static const uint8_t dns_test_query[] = {
     0x12, 0x34, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00,
     0x00, 0x00, 0x00, 0x00, 0x07, 'e', 'x', 'a',
@@ -28,7 +43,8 @@ static const uint8_t dns_test_query[] = {
 
 typedef enum dns_test_server_kind {
     DNS_TEST_DOH = 1,
-    DNS_TEST_DOT = 2
+    DNS_TEST_DOT = 2,
+    DNS_TEST_DOQ = 3
 } dns_test_server_kind;
 
 typedef struct dns_test_server {
@@ -44,6 +60,7 @@ typedef struct dns_test_dialer {
     ch_dns_route_action action;
     int route_calls;
     int dial_calls;
+    int packet_dial_calls;
     int fail_dial;
 } dns_test_dialer;
 
@@ -70,7 +87,20 @@ static int dns_test_ssl_write_all(SSL *ssl, const uint8_t *bytes,
     return 1;
 }
 
-static SSL_CTX *dns_test_tls_context(void) {
+static int dns_test_select_doq_alpn(SSL *ssl, const unsigned char **out,
+                                    unsigned char *out_length,
+                                    const unsigned char *input,
+                                    unsigned int input_length, void *context) {
+    (void)ssl;
+    (void)context;
+    static const unsigned char doq[] = {3U, 'd', 'o', 'q'};
+    return SSL_select_next_proto((unsigned char **)out, out_length,
+                                 doq, sizeof(doq), input, input_length) ==
+        OPENSSL_NPN_NEGOTIATED ? SSL_TLSEXT_ERR_OK :
+                                SSL_TLSEXT_ERR_ALERT_FATAL;
+}
+
+static SSL_CTX *dns_test_tls_context(dns_test_server_kind kind) {
     EVP_PKEY_CTX *key_context = EVP_PKEY_CTX_new_id(EVP_PKEY_RSA, NULL);
     EVP_PKEY *key = NULL;
     X509 *certificate = NULL;
@@ -90,14 +120,23 @@ static SSL_CTX *dns_test_tls_context(void) {
             (const unsigned char *)"localhost", -1, -1, 0) != 1 ||
         X509_set_issuer_name(certificate, name) != 1 ||
         X509_sign(certificate, key, EVP_sha256()) <= 0) goto cleanup;
-    context = SSL_CTX_new(TLS_server_method());
+    if (kind == DNS_TEST_DOQ) {
+#if DNS_TEST_HAVE_QUIC_SERVER
+        context = SSL_CTX_new(OSSL_QUIC_server_method());
+#endif
+    } else {
+        context = SSL_CTX_new(TLS_server_method());
+    }
     if (context == NULL ||
-        SSL_CTX_set_min_proto_version(context, TLS1_2_VERSION) != 1 ||
+        (kind != DNS_TEST_DOQ &&
+         SSL_CTX_set_min_proto_version(context, TLS1_2_VERSION) != 1) ||
         SSL_CTX_use_certificate(context, certificate) != 1 ||
         SSL_CTX_use_PrivateKey(context, key) != 1 ||
         SSL_CTX_check_private_key(context) != 1) {
         SSL_CTX_free(context);
         context = NULL;
+    } else if (kind == DNS_TEST_DOQ) {
+        SSL_CTX_set_alpn_select_cb(context, dns_test_select_doq_alpn, NULL);
     }
 
 cleanup:
@@ -134,6 +173,27 @@ static int dns_test_handle_dot(SSL *ssl) {
     response[2] |= 0x80U;
     return dns_test_ssl_write_all(ssl, length_bytes, sizeof(length_bytes)) &&
         dns_test_ssl_write_all(ssl, response, sizeof(response));
+}
+
+static int dns_test_handle_doq(SSL *ssl) {
+    uint8_t length_bytes[2];
+    uint8_t query[CH_DNS_MAX_MESSAGE];
+    if (!dns_test_ssl_read_exact(ssl, length_bytes, sizeof(length_bytes))) {
+        return 0;
+    }
+    size_t length = (size_t)length_bytes[0] * 256U + length_bytes[1];
+    if (length != sizeof(dns_test_query) ||
+        !dns_test_ssl_read_exact(ssl, query, length) ||
+        query[0] != 0U || query[1] != 0U ||
+        memcmp(query + 2U, dns_test_query + 2U, length - 2U) != 0) {
+        return 0;
+    }
+    uint8_t response[sizeof(dns_test_query)];
+    memcpy(response, query, sizeof(response));
+    response[2] |= 0x80U;
+    return dns_test_ssl_write_all(ssl, length_bytes, sizeof(length_bytes)) &&
+        dns_test_ssl_write_all(ssl, response, sizeof(response)) &&
+        SSL_stream_conclude(ssl, 0U) == 1;
 }
 
 static int dns_test_handle_doh(SSL *ssl) {
@@ -191,6 +251,24 @@ static int dns_test_handle_doh(SSL *ssl) {
 
 static void *dns_test_server_main(void *opaque) {
     dns_test_server *server = opaque;
+#if DNS_TEST_HAVE_QUIC_SERVER
+    if (server->kind == DNS_TEST_DOQ) {
+        SSL *listener = SSL_new_listener(server->tls, 0U);
+        SSL *connection = NULL;
+        if (listener != NULL && SSL_set_fd(listener, server->descriptor) == 1 &&
+            SSL_listen(listener) == 1) {
+            connection = SSL_accept_connection(listener, 0U);
+        }
+        if (connection != NULL) {
+            server->success = dns_test_handle_doq(connection);
+            (void)SSL_shutdown_ex(connection, SSL_SHUTDOWN_FLAG_RAPID,
+                                  NULL, 0U);
+            SSL_free(connection);
+        }
+        SSL_free(listener);
+        return NULL;
+    }
+#endif
     int client;
     do {
         client = accept(server->descriptor, NULL, NULL);
@@ -215,9 +293,11 @@ static int dns_test_server_start(dns_test_server *server,
     memset(server, 0, sizeof(*server));
     server->descriptor = -1;
     server->kind = kind;
-    server->tls = dns_test_tls_context();
+    server->tls = dns_test_tls_context(kind);
     if (server->tls == NULL) return 0;
-    server->descriptor = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    server->descriptor = socket(AF_INET,
+        kind == DNS_TEST_DOQ ? SOCK_DGRAM : SOCK_STREAM,
+        kind == DNS_TEST_DOQ ? IPPROTO_UDP : IPPROTO_TCP);
     if (server->descriptor < 0) goto failure;
     struct sockaddr_in address = {
         .sin_family = AF_INET,
@@ -226,7 +306,9 @@ static int dns_test_server_start(dns_test_server *server,
     };
     if (bind(server->descriptor, (struct sockaddr *)&address,
              (socklen_t)sizeof(address)) != 0 ||
-        listen(server->descriptor, 1) != 0) goto failure;
+        (kind != DNS_TEST_DOQ && listen(server->descriptor, 1) != 0)) {
+        goto failure;
+    }
     socklen_t address_length = (socklen_t)sizeof(address);
     if (getsockname(server->descriptor, (struct sockaddr *)&address,
                     &address_length) != 0) goto failure;
@@ -303,10 +385,57 @@ static ch_status dns_test_stream_dial(
     return status;
 }
 
+static ch_status dns_test_packet_dial(
+    const char *network, const char *target,
+    const char *const *bootstrap_ips, size_t bootstrap_ip_count,
+    ch_packet_connection **out_connection, char **out_send_target,
+    void *context, ch_error *error) {
+    dns_test_dialer *dialer = context;
+    ++dialer->packet_dial_calls;
+    *out_connection = NULL;
+    *out_send_target = NULL;
+    if (strcmp(network, "udp") != 0 || dialer->fail_dial) {
+        ch_error_set(error, CH_ERROR_IO,
+                     "injected dns packet dial failure");
+        return CH_ERROR_IO;
+    }
+    const char *separator = strrchr(target, ':');
+    if (separator == NULL || separator[1] == '\0') {
+        ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
+                     "test dns packet target has no port");
+        return CH_ERROR_INVALID_ARGUMENT;
+    }
+    if (bootstrap_ip_count == 0U) {
+        *out_send_target = ch_strdup(target);
+    } else {
+        bool ipv6 = strchr(bootstrap_ips[0], ':') != NULL;
+        size_t capacity = strlen(bootstrap_ips[0]) +
+            strlen(separator + 1U) + (ipv6 ? 4U : 2U);
+        *out_send_target = malloc(capacity);
+        if (*out_send_target != NULL) {
+            (void)snprintf(*out_send_target, capacity,
+                           ipv6 ? "[%s]:%s" : "%s:%s",
+                           bootstrap_ips[0], separator + 1U);
+        }
+    }
+    if (*out_send_target == NULL) {
+        ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                     "allocate test DNS packet target");
+        return CH_ERROR_OUT_OF_MEMORY;
+    }
+    ch_status status = ch_protocol_direct_packet_dial(out_connection, error);
+    if (status != CH_OK) {
+        free(*out_send_target);
+        *out_send_target = NULL;
+    }
+    return status;
+}
+
 static ch_dns_proxy_options dns_test_options(dns_test_dialer *dialer) {
     ch_dns_proxy_options options = {
         .route = dns_test_route,
         .stream_dial = dns_test_stream_dial,
+        .packet_dial = dns_test_packet_dial,
         .dial_context = dialer,
         .insecure_skip_verify = true
     };
@@ -404,8 +533,15 @@ static void dns_test_configuration_contract(void) {
     CH_TEST_ASSERT(ch_config_parse(doq_document, NULL, &config, &error) ==
                    CH_OK);
     proxy = ch_dns_proxy_create(config, NULL, &options, &error);
+#if DNS_TEST_HAVE_QUIC_CLIENT
+    CH_TEST_ASSERT(proxy != NULL);
+    CH_TEST_ASSERT_STRING("doq:127.0.0.1",
+                          ch_dns_proxy_upstream_name(proxy, 0U));
+    ch_dns_proxy_destroy(proxy);
+#else
     CH_TEST_ASSERT(proxy == NULL);
     CH_TEST_ASSERT(error.code == CH_ERROR_UNSUPPORTED);
+#endif
     ch_config_free(config);
 
     const char *invalid_bootstrap_document =
@@ -478,7 +614,7 @@ static void dns_test_encrypted_exchange(dns_test_server_kind kind) {
             "url = \"https://localhost:%u/dns-query\"\n"
             "bootstrap_ips = [\"127.0.0.1\"]\n",
             (unsigned int)server.port);
-    } else {
+    } else if (kind == DNS_TEST_DOT) {
         (void)snprintf(
             document, sizeof(document),
             "[[profile]]\n"
@@ -488,6 +624,19 @@ static void dns_test_encrypted_exchange(dns_test_server_kind kind) {
             "timeout = \"2s\"\n"
             "[[profile.dns.upstream]]\n"
             "protocol = \"dot\"\n"
+            "address = \"127.0.0.1:%u\"\n"
+            "server_name = \"localhost\"\n",
+            (unsigned int)server.port);
+    } else {
+        (void)snprintf(
+            document, sizeof(document),
+            "[[profile]]\n"
+            "name = \"default\"\n"
+            "[profile.dns]\n"
+            "enabled = true\n"
+            "timeout = \"4s\"\n"
+            "[[profile.dns.upstream]]\n"
+            "protocol = \"doq\"\n"
             "address = \"127.0.0.1:%u\"\n"
             "server_name = \"localhost\"\n",
             (unsigned int)server.port);
@@ -510,7 +659,8 @@ static void dns_test_encrypted_exchange(dns_test_server_kind kind) {
     CH_TEST_ASSERT(parse_status == CH_OK);
     CH_TEST_ASSERT(exchange_status == CH_OK);
     CH_TEST_ASSERT(server.success);
-    CH_TEST_ASSERT(dialer.dial_calls == 1);
+    CH_TEST_ASSERT(kind == DNS_TEST_DOQ ? dialer.packet_dial_calls == 1 :
+                                         dialer.dial_calls == 1);
     CH_TEST_ASSERT(response_length == sizeof(dns_test_query));
     CH_TEST_ASSERT(response != NULL && (response[2] & 0x80U) != 0U);
     free(response);
@@ -522,4 +672,7 @@ void ch_test_dns(void) {
     dns_test_failure_servfail();
     dns_test_encrypted_exchange(DNS_TEST_DOT);
     dns_test_encrypted_exchange(DNS_TEST_DOH);
+#if DNS_TEST_HAVE_QUIC_SERVER
+    dns_test_encrypted_exchange(DNS_TEST_DOQ);
+#endif
 }

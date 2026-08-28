@@ -397,6 +397,88 @@ static ch_status android_runtime_dns_dial(
     return status;
 }
 
+static char *android_runtime_dns_packet_target(
+    const char *target, const char *const *bootstrap_ips,
+    size_t bootstrap_ip_count, ch_error *error) {
+    if (bootstrap_ip_count == 0U) {
+        char *copy = ch_strdup(target);
+        if (copy == NULL) {
+            ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                         "copy Android DNS packet target");
+        }
+        return copy;
+    }
+    const char *separator = strrchr(target, ':');
+    if (separator == NULL || separator[1] == '\0') {
+        ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
+                     "Android DNS packet target must be host:port");
+        return NULL;
+    }
+    const char *address = bootstrap_ips[0];
+    bool ipv6 = strchr(address, ':') != NULL;
+    size_t capacity = strlen(address) + strlen(separator + 1U) +
+        (ipv6 ? 4U : 2U);
+    char *send_target = malloc(capacity);
+    if (send_target == NULL) {
+        ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                     "allocate Android DNS bootstrap packet target");
+        return NULL;
+    }
+    (void)snprintf(send_target, capacity,
+                   ipv6 ? "[%s]:%s" : "%s:%s", address, separator + 1U);
+    return send_target;
+}
+
+static ch_status android_runtime_dns_packet_dial(
+    const char *network, const char *target,
+    const char *const *bootstrap_ips, size_t bootstrap_ip_count,
+    ch_packet_connection **out_connection, char **out_send_target,
+    void *context, ch_error *error) {
+    ch_runtime *runtime = context;
+    if (network == NULL || target == NULL || out_connection == NULL ||
+        out_send_target == NULL ||
+        (bootstrap_ip_count > 0U && bootstrap_ips == NULL)) {
+        ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
+                     "invalid Android DNS packet dial request");
+        return CH_ERROR_INVALID_ARGUMENT;
+    }
+    *out_connection = NULL;
+    *out_send_target = NULL;
+    android_route route;
+    ch_status status = android_runtime_resolve_route(
+        runtime, network, target, "", target, &route, error);
+    if (status == CH_OK && route.blocked) {
+        ch_error_set(error, CH_ERROR_INVALID_STATE,
+                     "Android DNS upstream route is %s",
+                     route.decision.action);
+        status = CH_ERROR_INVALID_STATE;
+    } else if (status == CH_OK && route.direct) {
+        *out_send_target = android_runtime_dns_packet_target(
+            target, bootstrap_ips, bootstrap_ip_count, error);
+        status = *out_send_target == NULL ?
+            (error == NULL ? CH_ERROR_OUT_OF_MEMORY : error->code) :
+            ch_protocol_direct_packet_dial(out_connection, error);
+    } else if (status == CH_OK) {
+        *out_send_target = ch_strdup(target);
+        if (*out_send_target == NULL) {
+            ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                         "copy Android routed DNS packet target");
+            status = CH_ERROR_OUT_OF_MEMORY;
+        } else {
+            status = ch_protocol_chain_dial_packet(
+                route.chain, target, out_connection, error);
+        }
+    }
+    if (status != CH_OK) {
+        ch_packet_connection_close(*out_connection);
+        *out_connection = NULL;
+        free(*out_send_target);
+        *out_send_target = NULL;
+    }
+    android_route_clear(&route);
+    return status;
+}
+
 static ch_status android_runtime_dns_exchange(
     const uint8_t *query, size_t query_length, uint8_t **out_response,
     size_t *out_response_length, void *context, ch_error *error) {
@@ -454,6 +536,7 @@ static ch_status android_runtime_start_ip_stack(ch_runtime *runtime,
         ch_dns_proxy_options dns_options = {
             .route = android_runtime_dns_route,
             .stream_dial = android_runtime_dns_dial,
+            .packet_dial = android_runtime_dns_packet_dial,
             .dial_context = runtime
         };
         runtime->dns = ch_dns_proxy_create(

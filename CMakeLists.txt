@@ -80,6 +80,7 @@ add_library(clambhook_core STATIC
   native/src/developer.c
   native/src/developer_curl.c
   native/src/dns.c
+  native/src/dns_quic.c
   native/src/error.c
   native/src/events.c
   native/src/http_safety.c

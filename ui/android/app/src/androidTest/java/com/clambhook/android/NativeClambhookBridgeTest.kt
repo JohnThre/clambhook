@@ -74,7 +74,7 @@ class NativeClambhookBridgeTest {
 
     private fun encryptedDnsConfig(protocol: String): File {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
-        val upstream = if (protocol == "dot") {
+        val upstream = if (protocol == "dot" || protocol == "doq") {
             """
             address = "127.0.0.1:9"
             server_name = "localhost"
@@ -253,6 +253,22 @@ class NativeClambhookBridgeTest {
                 "{\"running\":true,\"profile\":\"encrypted-dns\"," +
                     "\"network_info\":{},\"dns\":{\"enabled\":true," +
                     "\"upstreams\":[\"device-doh\"]},\"tunnel_mode\":\"tun\"}",
+                bridge.query("status"),
+            )
+            bridge.injectPacket(ipv4UdpPacket(53, dnsQuery()))
+        }
+        assertDnsServfail(requireNotNull(output))
+    }
+
+    @Test
+    fun routesDnsThroughNativeDoqAndReturnsServfailWhenUpstreamFails() {
+        var output: ByteArray? = null
+        NativeClambhookBridge { packet -> output = packet }.use { bridge ->
+            bridge.start(encryptedDnsConfig("doq").absolutePath)
+            assertEquals(
+                "{\"running\":true,\"profile\":\"encrypted-dns\"," +
+                    "\"network_info\":{},\"dns\":{\"enabled\":true," +
+                    "\"upstreams\":[\"device-doq\"]},\"tunnel_mode\":\"tun\"}",
                 bridge.query("status"),
             )
             bridge.injectPacket(ipv4UdpPacket(53, dnsQuery()))
