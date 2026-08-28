@@ -196,3 +196,62 @@ func TestDeveloperCAGeneration(t *testing.T) {
 		t.Fatalf("regenerated status = %+v, old fingerprint %s", regen, before)
 	}
 }
+
+func TestShouldDecryptHostEmptyAllowlistDecryptsAll(t *testing.T) {
+	dir := t.TempDir()
+	mgr, err := NewManager(config.DeveloperConfig{
+		Enabled:     true,
+		MITMEnabled: true,
+		CACertPath:  filepath.Join(dir, "ca.pem"),
+		CAKeyPath:   filepath.Join(dir, "ca-key.pem"),
+	})
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+	for _, host := range []string{"example.com", "other.test", "sub.example.com"} {
+		if !mgr.ShouldDecryptHost(host) {
+			t.Fatalf("ShouldDecryptHost(%q) = false, want true with empty allowlist", host)
+		}
+	}
+}
+
+func TestShouldDecryptHostAllowlistRestrictsMatching(t *testing.T) {
+	dir := t.TempDir()
+	mgr, err := NewManager(config.DeveloperConfig{
+		Enabled:         true,
+		MITMEnabled:     true,
+		CACertPath:      filepath.Join(dir, "ca.pem"),
+		CAKeyPath:       filepath.Join(dir, "ca-key.pem"),
+		SSLDecryptHosts: []string{"example.com", "*.allowed.test"},
+	})
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+
+	cases := []struct {
+		host string
+		want bool
+	}{
+		{"example.com", true},
+		{"EXAMPLE.COM", true},
+		{"api.allowed.test", true},
+		{"deep.api.allowed.test", true}, // "*" absorbs any run of characters, including dots
+		{"allowed.test", false},         // missing the required "." before "allowed.test"
+		{"other.com", false},
+	}
+	for _, tc := range cases {
+		if got := mgr.ShouldDecryptHost(tc.host); got != tc.want {
+			t.Errorf("ShouldDecryptHost(%q) = %v, want %v", tc.host, got, tc.want)
+		}
+	}
+}
+
+func TestShouldDecryptHostFalseWhenMITMDisabled(t *testing.T) {
+	mgr, err := NewManager(config.DeveloperConfig{Enabled: true, MITMEnabled: false})
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+	if mgr.ShouldDecryptHost("example.com") {
+		t.Fatal("ShouldDecryptHost = true, want false when MITM disabled")
+	}
+}
