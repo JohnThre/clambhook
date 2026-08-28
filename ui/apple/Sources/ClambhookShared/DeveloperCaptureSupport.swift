@@ -693,67 +693,6 @@ public struct DeveloperBreakpointRulePayload: Codable, Equatable, Identifiable, 
     }
 }
 
-public struct DeveloperRewriteOpPayload: Codable, Equatable, Identifiable, Sendable {
-    public var id: String
-    public var target: String  // header|body|status
-    public var action: String  // header: add|set|remove  body: set|replace  status: set
-    public var field: String   // header name (target=header)
-    public var value: String
-    public var replace: String // body replace replacement
-
-    enum CodingKeys: String, CodingKey {
-        case id
-        case target
-        case action
-        case field
-        case value
-        case replace
-    }
-
-    public init(id: String = UUID().uuidString, target: String = "header", action: String = "add", field: String = "", value: String = "", replace: String = "") {
-        self.id = id
-        self.target = target
-        self.action = action
-        self.field = field
-        self.value = value
-        self.replace = replace
-    }
-}
-
-public struct DeveloperRewriteRulePayload: Codable, Equatable, Identifiable, Sendable {
-    public var id: String
-    public var name: String
-    public var enabled: Bool
-    public var match: DeveloperMatchPayload
-    public var stage: String  // request|response|both
-    public var ops: [DeveloperRewriteOpPayload]
-
-    enum CodingKeys: String, CodingKey {
-        case id
-        case name
-        case enabled
-        case match
-        case stage
-        case ops
-    }
-
-    public init(
-        id: String = UUID().uuidString,
-        name: String = "",
-        enabled: Bool = true,
-        match: DeveloperMatchPayload = DeveloperMatchPayload(),
-        stage: String = "both",
-        ops: [DeveloperRewriteOpPayload] = []
-    ) {
-        self.id = id
-        self.name = name
-        self.enabled = enabled
-        self.match = match
-        self.stage = stage
-        self.ops = ops
-    }
-}
-
 public struct DeveloperRuleListPayload<T: Codable & Equatable & Sendable>: Codable, Equatable, Sendable {
     public var rules: [T]
 

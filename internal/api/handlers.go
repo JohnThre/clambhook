@@ -84,9 +84,6 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/developer/breakpoint-rules", s.handleDeveloperBreakpointRules)
 	mux.HandleFunc("PUT /api/v1/developer/breakpoint-rules", s.handleDeveloperReplaceBreakpointRules)
 	mux.HandleFunc("DELETE /api/v1/developer/breakpoint-rules/{id}", s.handleDeveloperDeleteBreakpointRule)
-	mux.HandleFunc("GET /api/v1/developer/rewrite-rules", s.handleDeveloperRewriteRules)
-	mux.HandleFunc("PUT /api/v1/developer/rewrite-rules", s.handleDeveloperReplaceRewriteRules)
-	mux.HandleFunc("DELETE /api/v1/developer/rewrite-rules/{id}", s.handleDeveloperDeleteRewriteRule)
 	mux.HandleFunc("GET /api/v1/developer/breakpoints/pending", s.handleDeveloperPendingBreakpoints)
 	mux.HandleFunc("POST /api/v1/developer/breakpoints/{id}/resolve", s.handleDeveloperResolveBreakpoint)
 	mux.HandleFunc("DELETE /api/v1/developer/entries", s.handleDeveloperClear)
@@ -390,9 +387,9 @@ func (s *Server) handleRefreshRuleSets(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, map[string]any{
-		"profile":     payload.Profile,
-		"rule_sets":   append([]config.RuleSetConfig(nil), profile.RuleSets...),
-		"statuses":    payload.RuleSets,
+		"profile":    payload.Profile,
+		"rule_sets":  append([]config.RuleSetConfig(nil), profile.RuleSets...),
+		"statuses":   payload.RuleSets,
 		"backup_path": result.BackupPath,
 	})
 }
@@ -470,9 +467,9 @@ func (s *Server) handleRefreshRuleSubscriptions(w http.ResponseWriter, r *http.R
 		return
 	}
 	writeJSON(w, map[string]any{
-		"profile":       payload.Profile,
+		"profile":     payload.Profile,
 		"subscriptions": payload.Subscriptions,
-		"backup_path":   result.BackupPath,
+		"backup_path": result.BackupPath,
 	})
 }
 
@@ -763,10 +760,6 @@ type developerMapRulesRequest struct {
 
 type developerBreakpointRulesRequest struct {
 	Rules []config.DeveloperBreakpointRuleConfig `json:"rules"`
-}
-
-type developerRewriteRulesRequest struct {
-	Rules []config.DeveloperRewriteRuleConfig `json:"rules"`
 }
 
 type developerRulesPersistenceResponse struct {
@@ -1519,60 +1512,6 @@ func (s *Server) handleDeveloperDeleteBreakpointRule(w http.ResponseWriter, r *h
 			}
 		}
 		dev.BreakpointRules = next
-		return dev
-	})
-	if err != nil {
-		writeRulePersistenceError(w, err)
-		return
-	}
-	writeJSON(w, resp)
-}
-
-func (s *Server) handleDeveloperRewriteRules(w http.ResponseWriter, r *http.Request) {
-	dev := s.developerManager()
-	if dev == nil {
-		writeJSON(w, map[string]any{"rules": []any{}})
-		return
-	}
-	writeJSON(w, map[string]any{"rules": dev.ConfigSnapshot().RewriteRules})
-}
-
-func (s *Server) handleDeveloperReplaceRewriteRules(w http.ResponseWriter, r *http.Request) {
-	if strings.TrimSpace(s.configPath) == "" {
-		http.Error(w, "developer rule persistence requires daemon config path", http.StatusConflict)
-		return
-	}
-	r.Body = http.MaxBytesReader(w, r.Body, maxJSONRequestBytes)
-	var req developerRewriteRulesRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	resp, err := s.persistDeveloperConfig(func(dev config.DeveloperConfig) config.DeveloperConfig {
-		dev.RewriteRules = append([]config.DeveloperRewriteRuleConfig(nil), req.Rules...)
-		return dev
-	})
-	if err != nil {
-		writeRulePersistenceError(w, err)
-		return
-	}
-	writeJSON(w, resp)
-}
-
-func (s *Server) handleDeveloperDeleteRewriteRule(w http.ResponseWriter, r *http.Request) {
-	if strings.TrimSpace(s.configPath) == "" {
-		http.Error(w, "developer rule persistence requires daemon config path", http.StatusConflict)
-		return
-	}
-	id := strings.TrimSpace(r.PathValue("id"))
-	resp, err := s.persistDeveloperConfig(func(dev config.DeveloperConfig) config.DeveloperConfig {
-		next := make([]config.DeveloperRewriteRuleConfig, 0, len(dev.RewriteRules))
-		for _, rule := range dev.RewriteRules {
-			if rule.ID != id {
-				next = append(next, rule)
-			}
-		}
-		dev.RewriteRules = next
 		return dev
 	})
 	if err != nil {

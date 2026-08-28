@@ -86,7 +86,6 @@ func TestLicenseGateBlocksLockedTrial(t *testing.T) {
 		{"delete developer entries", http.MethodDelete, "/api/v1/developer/entries"},
 		{"delete developer map rule", http.MethodDelete, "/api/v1/developer/map-rules/xyz"},
 		{"delete developer breakpoint rule", http.MethodDelete, "/api/v1/developer/breakpoint-rules/xyz"},
-		{"delete developer rewrite rule", http.MethodDelete, "/api/v1/developer/rewrite-rules/xyz"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

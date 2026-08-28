@@ -66,8 +66,6 @@ public protocol DeveloperCaptureProviding: AnyObject {
     func replaceDeveloperMapRules(_ rules: [DeveloperMapRulePayload]) async throws
     func developerBreakpointRules() async throws -> DeveloperRuleListPayload<DeveloperBreakpointRulePayload>
     func replaceDeveloperBreakpointRules(_ rules: [DeveloperBreakpointRulePayload]) async throws
-    func developerRewriteRules() async throws -> DeveloperRuleListPayload<DeveloperRewriteRulePayload>
-    func replaceDeveloperRewriteRules(_ rules: [DeveloperRewriteRulePayload]) async throws
     func developerPendingBreakpoints() async throws -> DeveloperPendingBreakpointsPayload
     func resolveDeveloperBreakpoint(id: String, resolution: DeveloperBreakpointResolutionPayload) async throws
     func clearDeveloperEntries() async throws
@@ -479,18 +477,6 @@ public final class ClambhookAPIClient: ClambhookAPIProviding, ClambhookRuleEditi
         }
         let body = try encoder.encode(Request(rules: rules))
         _ = try await send(method: "PUT", path: "/api/v1/developer/breakpoint-rules", body: body)
-    }
-
-    public func developerRewriteRules() async throws -> DeveloperRuleListPayload<DeveloperRewriteRulePayload> {
-        try await getJSON("/api/v1/developer/rewrite-rules")
-    }
-
-    public func replaceDeveloperRewriteRules(_ rules: [DeveloperRewriteRulePayload]) async throws {
-        struct Request: Encodable {
-            var rules: [DeveloperRewriteRulePayload]
-        }
-        let body = try encoder.encode(Request(rules: rules))
-        _ = try await send(method: "PUT", path: "/api/v1/developer/rewrite-rules", body: body)
     }
 
     public func developerPendingBreakpoints() async throws -> DeveloperPendingBreakpointsPayload {
