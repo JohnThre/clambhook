@@ -1779,6 +1779,7 @@ static void ch_command_process(ch_runtime *runtime, ch_command *command) {
                        strcmp(command->operation, "dns") == 0 ||
                        strcmp(command->operation, "config_settings") == 0 ||
                        strcmp(command->operation, "conditioner") == 0 ||
+                       strcmp(command->operation, "developer_settings") == 0 ||
                        strcmp(command->operation, "rule_subscriptions") == 0 ||
                        strcmp(command->operation, "config") == 0) {
                 command->response = ch_config_query_payload_json(
@@ -2035,6 +2036,12 @@ static void ch_command_process(ch_runtime *runtime, ch_command *command) {
                 if (!ch_runtime_persist_config_mutation(
                         runtime, "select_policy_group",
                         "policy_group_selection", command->payload, true,
+                        command)) break;
+            } else if (strcmp(command->operation,
+                              "update_developer_settings") == 0) {
+                if (!ch_runtime_persist_config_mutation(
+                        runtime, "update_developer_settings",
+                        "developer_settings", command->payload, true,
                         command)) break;
             } else {
                 ch_command_fail(command, CH_ERROR_UNSUPPORTED, "unknown runtime mutation operation");

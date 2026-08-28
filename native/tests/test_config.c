@@ -456,6 +456,53 @@ static void test_structured_document_mutations(void) {
     CH_TEST_ASSERT(toml == NULL);
     ch_config_free(config);
 
+    config = NULL;
+    updated = NULL;
+    toml = NULL;
+    CH_TEST_ASSERT(ch_config_parse(valid_toml, NULL, &config, &error) == CH_OK);
+    CH_TEST_ASSERT(ch_config_mutate_document_json(
+        config, "default", "update_developer_settings",
+        "{\"enabled\":true,\"mitm_enabled\":true,"
+        "\"https_capture_ack\":true,\"no_cache_enabled\":true,"
+        "\"capture_limit\":321,\"body_limit_bytes\":32768,"
+        "\"header_value_limit_bytes\":4096,"
+        "\"redact_query_params\":[\" Access_Token \",\"SECRET\"],"
+        "\"ssl_decrypt_hosts\":[\" *.Example.com \"]}",
+        &toml, &error) == CH_OK);
+    CH_TEST_ASSERT(ch_config_parse(toml, NULL, &updated, &error) == CH_OK);
+    const ch_config_table *developer = ch_config_table_get_table(
+        ch_config_root(updated), "developer");
+    CH_TEST_ASSERT(ch_config_table_get_bool(
+        developer, "enabled", &enabled, &error) == CH_OK && enabled);
+    CH_TEST_ASSERT(ch_config_table_get_bool(
+        developer, "mitm_enabled", &enabled, &error) == CH_OK && enabled);
+    CH_TEST_ASSERT(ch_config_table_get_int(
+        developer, "capture_limit", &integer, &error) == CH_OK &&
+        integer == 321);
+    CH_TEST_ASSERT(ch_config_array_get_string(
+        ch_config_table_get_array(developer, "redact_query_params"), 0U,
+        &value, &error) == CH_OK);
+    CH_TEST_ASSERT_STRING("access_token", value);
+    free(value);
+    CH_TEST_ASSERT(ch_config_array_get_string(
+        ch_config_table_get_array(developer, "ssl_decrypt_hosts"), 0U,
+        &value, &error) == CH_OK);
+    CH_TEST_ASSERT_STRING("*.example.com", value);
+    free(value);
+    ch_config_free(updated);
+    free(toml);
+    ch_config_free(config);
+
+    config = NULL;
+    toml = NULL;
+    CH_TEST_ASSERT(ch_config_parse(valid_toml, NULL, &config, &error) == CH_OK);
+    CH_TEST_ASSERT(ch_config_mutate_document_json(
+        config, "default", "update_developer_settings",
+        "{\"enabled\":true,\"mitm_enabled\":true}",
+        &toml, &error) == CH_ERROR_INVALID_ARGUMENT);
+    CH_TEST_ASSERT(toml == NULL);
+    ch_config_free(config);
+
     const char *two_profiles =
         "active = \"one\"\n"
         "[[profile]]\nname = \"one\"\n"
