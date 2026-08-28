@@ -11,7 +11,7 @@ outputs in the ignored `ui/android/.native-deps/` cache.
 - SHA-256:
   `a8f84a39918ec6415ce765d9b429d313ba97b8143169c172e734b9514464f5b2`
 - License: Apache License 2.0 (`LICENSE.txt` in this directory)
-- Android floor: API 30 (Android 11)
+- Android floor: API 31 (Android 12)
 - Android ABIs: `arm64-v8a`, `armeabi-v7a`, `x86`, `x86_64`
 
 The build disables shared libraries, command-line applications, tests,
@@ -22,4 +22,5 @@ provider remain statically available to the native protocol implementation.
 To update OpenSSL, change the version, download URL, and digest together in
 `scripts/build-android-openssl.sh`; update this file and
 `THIRD_PARTY_NOTICES.md`; delete the ignored matching cache directory; then
-rebuild all four ABIs and rerun native and physical-device tests.
+rebuild all four ABIs and rerun native tests plus the API 31/33/36
+managed-device matrix. Physical-device testing is optional supplemental QA.

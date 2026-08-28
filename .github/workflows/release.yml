@@ -166,6 +166,15 @@ jobs:
         uses: gradle/actions/setup-gradle@748248ddd2a24f49513d8f472f81c3a07d4d50e1 # v4.4.4
       - name: Set up Android SDK command-line tools
         uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
+      - name: Restore Android native dependencies
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ui/android/.native-deps
+          key: >-
+            android-native-${{ runner.os }}-${{ runner.arch }}-ndk-${{
+            env.ANDROID_NDK_VERSION }}-${{ hashFiles(
+            'scripts/build-android-openssl.sh',
+            'scripts/build-android-curl.sh') }}
       - name: Set up Node
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:

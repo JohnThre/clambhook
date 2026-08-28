@@ -979,6 +979,9 @@ static ch_status ch_dns_exchange_doh(ch_dns_proxy *proxy,
                     proxy->options.insecure_skip_verify ? 0L : 1L);
     CH_DNS_CURL_SET(CURLOPT_SSL_VERIFYHOST,
                     proxy->options.insecure_skip_verify ? 0L : 2L);
+#if defined(__ANDROID__)
+    CH_DNS_CURL_SET(CURLOPT_CAPATH, "/system/etc/security/cacerts");
+#endif
     CH_DNS_CURL_SET(CURLOPT_TIMEOUT_MS, (long)proxy->timeout_milliseconds);
     CH_DNS_CURL_SET(CURLOPT_CONNECTTIMEOUT_MS,
                     (long)proxy->timeout_milliseconds);

@@ -155,6 +155,9 @@ val generateThirdPartyNotices = tasks.register<Sync>("generateThirdPartyNotices"
     from(repositoryRoot.file("third_party/openssl/LICENSE.txt")) {
         into("licenses/openssl")
     }
+    from(repositoryRoot.file("third_party/curl/LICENSE.txt")) {
+        into("licenses/curl")
+    }
     into(generatedThirdPartyNoticesDirectory)
 }
 

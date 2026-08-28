@@ -110,11 +110,15 @@ Android 12 (API 31) floor. Gradle packages the NDK-built C/JNI runtime, the
 production VPN factory selects it, and no gomobile AAR is packaged. The focused
 native configuration/dashboard/route-explanation, profile-rule rebuild, raw-packet
 callback, direct/encrypted route linkage, OpenSSL AEAD, direct-UDP/timer, and
-encrypted-DNS DoT interception/failure-response tests must pass on API 31;
+encrypted-DNS DoH/DoT interception/failure-response tests must pass on API 31;
 GitHub runs unit tests, lint, the debug build, and managed Compose/JNI devices
-at API 31, 33, and 36. Android DoH configuration fails closed until libcurl is
-available to the NDK build; plaintext fallback is forbidden. Google's
-`android` CLI is the default for the local on-device dev loop. A physical Pixel
+at API 31, 33, and 36. The full build populates a recipe-keyed native dependency
+cache only after checksum validation; managed-device jobs restore that exact
+OpenSSL/curl cache and remain downstream of the build. Android DoH uses
+checksum-pinned, HTTP(S)-only curl
+8.18.0 with static OpenSSL and the system CA directory; plaintext fallback is
+forbidden. Google's `android` CLI is the default for the local on-device dev
+loop. A physical Pixel
 3a XL on Android 12/API 32 additionally passed focused instrumentation after
 OpenSSL 3.5.8 LTS was statically linked
 and C rule decisions were connected to native encrypted TCP/UDP chains. The
@@ -155,8 +159,9 @@ refresh fetched a public hosts source, wrote and read back a cache, exposed nine
 generated suffixes in `effective_rules`, and repeated successfully with
 conditional cache metadata. Sanitizer tests, ten license differential cases,
 and all four Android ABI builds remained green afterward. Android packages the
-portable parser/cache reader; outbound refresh remains in the app-owned Kotlin
-networking lane until native Android HTTP/TLS dependencies are selected.
+portable parser/cache reader; outbound rule-feed refresh remains in the
+app-owned Kotlin networking lane. The pinned native curl dependency is scoped
+to encrypted DNS and does not silently change that ownership boundary.
 The shared runtime continues to compile for every packaged Android ABI. When a
 physical device is used for supplemental QA, keep it awake and dismiss its
 keyguard before the Compose run; a locked device stops the test host activity

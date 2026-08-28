@@ -216,9 +216,9 @@ license without changing Clambhook's own license. A physical Pixel 3a XL/API
 AES-256-GCM, and ChaCha20-Poly1305 self-tests and delayed direct UDP; physical
 hardware is optional and does not replace the API 31/33/36 managed-device
 matrix. Android's production VPN service selects the native C/JNI runtime.
-Its packet path now owns DoT interception and returns a correlated SERVFAIL
-when every encrypted upstream fails. Android DoH fails closed until libcurl is
-linked for the NDK rather than leaking queries through plaintext DNS. The
+Its packet path now owns DoH/DoT interception and returns a correlated SERVFAIL
+when every encrypted upstream fails. The NDK build pins a checksum-verified,
+HTTP(S)-only curl 8.18.0 library for DoH and uses Android's system CA store. The
 shared native DNS library provides route-planned DoH and DoT, Control D
 expansion/bootstrap hygiene, response correlation validation, upstream
 failover, and SERVFAIL generation; it deliberately rejects DoQ rather than

@@ -48,10 +48,11 @@ android sdk list --all                        # browse available packages
 ```
 
 The Gradle native build currently resolves NDK `27.0.12077973` and CMake
-`3.22.1`. It downloads the official OpenSSL 3.5.8 LTS source archive, verifies
-the pinned SHA-256 digest, and caches static API 31 libraries for each ABI under
-the ignored `ui/android/.native-deps/` directory. See
-`third_party/openssl/README.clambhook.md` for provenance and update steps.
+`3.22.1`. It downloads the official OpenSSL 3.5.8 LTS and curl 8.18.0 source
+archives, verifies their pinned SHA-256 digests, and caches static API 31
+libraries for each ABI under the ignored `ui/android/.native-deps/` directory.
+See `third_party/openssl/README.clambhook.md` and
+`third_party/curl/README.clambhook.md` for provenance and update steps.
 
 ## Emulators
 
@@ -77,10 +78,11 @@ and accepts raw packets through JNI, returning native stack output through the
 Kotlin packet-writer callback. The JNI runtime owns its independent packet
 timer, resolves direct, named-chain, and policy-group TCP/UDP decisions through
 the shared C protocol layer, and transactionally rebuilds those rules when the
-active profile changes. Native DoT now intercepts UDP/53 and returns SERVFAIL
-when its encrypted upstream cannot be reached. DoH configuration fails closed
-until libcurl is linked into the Android native build. Requested-profile reads
-share the strict C control contract, and the JNI test calls all three native
+active profile changes. Native DoH and DoT now intercept UDP/53 and return
+SERVFAIL when every encrypted upstream fails. Android DoH uses a pinned,
+checksum-verified, HTTP(S)-only curl 8.18.0 static library with OpenSSL and the
+system CA directory. Requested-profile reads share the strict C control
+contract, and the JNI test calls all three native
 AEAD families in the statically linked OpenSSL build. A physical Pixel 3a XL
 running Android 12/API 32 has passed focused instrumentation, but it is optional;
 GitHub's managed API 31/33/36 devices are authoritative.

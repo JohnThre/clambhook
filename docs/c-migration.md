@@ -284,9 +284,10 @@ license without relicensing Clambhook. The physical Pixel suite executes all
 three native AEAD families through JNI, but physical hardware is optional and
 the managed API 31/33/36 matrix is authoritative. The production VPN factory
 selects this C/JNI runtime and packages no gomobile AAR. Android now intercepts
-UDP/53 through the shared DoT engine and emits SERVFAIL on encrypted-upstream
-failure. DoH fails closed on Android until the NDK build links libcurl; it does
-not fall back to plaintext DNS. Full VPN-service lifecycle tests remain open.
+UDP/53 through the shared DoH/DoT engine and emits SERVFAIL on encrypted-
+upstream failure. The NDK build pins checksum-verified curl 8.18.0 with only
+HTTP(S), static OpenSSL, and Android's system CA store. Full VPN-service
+lifecycle tests remain open.
 
 Native process attribution is best-effort at the operating-system boundary,
 matching the rollback contract when permissions hide another process. It
@@ -350,8 +351,8 @@ production VPN factory selects the native C/JNI packet runtime and no gomobile
 AAR is present in the application. Focused managed-device
 tests load TOML in C and exercise start, stop, status, profiles, server/rule
 payload decoding, profile switching, compiled-rule route explanations, a raw
-IPv4 packet round trip, delayed direct UDP, and encrypted-DNS DoT interception
-with fail-closed DoH. The native route callbacks now
+IPv4 packet round trip, delayed direct UDP, and encrypted-DNS DoH/DoT
+interception with failure-generated SERVFAIL. The native route callbacks now
 dial configured encrypted TCP/UDP chains, and the JNI suite calls the statically
 linked OpenSSL implementation for AES-128-GCM, AES-256-GCM, and
 ChaCha20-Poly1305. The complete managed-device run is required on the API 31

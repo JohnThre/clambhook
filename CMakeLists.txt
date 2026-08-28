@@ -290,3 +290,5 @@ install(FILES THIRD_PARTY_NOTICES.md
   DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/doc/clambhook)
 install(FILES third_party/openssl/LICENSE.txt
   DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/doc/clambhook/licenses/openssl)
+install(FILES third_party/curl/LICENSE.txt
+  DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/doc/clambhook/licenses/curl)

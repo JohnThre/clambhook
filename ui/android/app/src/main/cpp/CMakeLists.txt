@@ -17,7 +17,12 @@ set(CLAMBHOOK_ANDROID_OPENSSL_SSL
     "${CLAMBHOOK_ANDROID_OPENSSL_INSTALL}/lib/libssl.a")
 set(CLAMBHOOK_ANDROID_OPENSSL_CRYPTO
     "${CLAMBHOOK_ANDROID_OPENSSL_INSTALL}/lib/libcrypto.a")
+set(CLAMBHOOK_ANDROID_CURL_INSTALL
+    "${CLAMBHOOK_ANDROID_OPENSSL_ROOT}/curl-8.18.0-api${CLAMBHOOK_ANDROID_API}/${ANDROID_ABI}")
+set(CLAMBHOOK_ANDROID_CURL
+    "${CLAMBHOOK_ANDROID_CURL_INSTALL}/lib/libcurl.a")
 file(MAKE_DIRECTORY "${CLAMBHOOK_ANDROID_OPENSSL_INSTALL}/include")
+file(MAKE_DIRECTORY "${CLAMBHOOK_ANDROID_CURL_INSTALL}/include")
 
 add_custom_command(
     OUTPUT
@@ -46,6 +51,30 @@ set_target_properties(clambhook_android_ssl PROPERTIES
     IMPORTED_LOCATION "${CLAMBHOOK_ANDROID_OPENSSL_SSL}"
     INTERFACE_INCLUDE_DIRECTORIES "${CLAMBHOOK_ANDROID_OPENSSL_INSTALL}/include"
     INTERFACE_LINK_LIBRARIES clambhook_android_crypto
+)
+
+add_custom_command(
+    OUTPUT "${CLAMBHOOK_ANDROID_CURL}"
+    COMMAND bash "${CLAMBHOOK_ROOT}/scripts/build-android-curl.sh"
+        "${CLAMBHOOK_ANDROID_OPENSSL_ROOT}"
+        "${CMAKE_ANDROID_NDK}"
+        "${CLAMBHOOK_ANDROID_API}"
+        "${ANDROID_ABI}"
+        "${CLAMBHOOK_ANDROID_OPENSSL_INSTALL}"
+    DEPENDS
+        "${CLAMBHOOK_ROOT}/scripts/build-android-curl.sh"
+        "${CLAMBHOOK_ANDROID_OPENSSL_SSL}"
+        "${CLAMBHOOK_ANDROID_OPENSSL_CRYPTO}"
+    COMMENT "Provisioning curl 8.18.0 for ${ANDROID_ABI}/API ${CLAMBHOOK_ANDROID_API}"
+    VERBATIM
+)
+add_custom_target(clambhook_android_curl DEPENDS "${CLAMBHOOK_ANDROID_CURL}")
+add_dependencies(clambhook_android_curl clambhook_android_openssl)
+add_library(clambhook_android_libcurl STATIC IMPORTED GLOBAL)
+set_target_properties(clambhook_android_libcurl PROPERTIES
+    IMPORTED_LOCATION "${CLAMBHOOK_ANDROID_CURL}"
+    INTERFACE_INCLUDE_DIRECTORIES "${CLAMBHOOK_ANDROID_CURL_INSTALL}/include"
+    INTERFACE_LINK_LIBRARIES "clambhook_android_ssl;clambhook_android_crypto"
 )
 
 add_library(tomlc99 STATIC
@@ -122,7 +151,7 @@ add_library(clambhook_jni SHARED
     "${CLAMBHOOK_ROOT}/native/src/traffic.c"
 )
 
-add_dependencies(clambhook_jni clambhook_android_openssl)
+add_dependencies(clambhook_jni clambhook_android_openssl clambhook_android_curl)
 
 target_include_directories(clambhook_jni PRIVATE
     "${CLAMBHOOK_ROOT}/native/include"
@@ -132,11 +161,12 @@ target_include_directories(clambhook_jni PRIVATE
 )
 target_compile_definitions(clambhook_jni PRIVATE
     _POSIX_C_SOURCE=200809L
-    CLAMBHOOK_DNS_NO_DOH=1
+    CURL_STATICLIB
 )
 target_compile_options(clambhook_jni PRIVATE
     -Wall -Wextra -Wpedantic -Wconversion -Wshadow
 )
 target_link_libraries(clambhook_jni PRIVATE
-    log dl lwipcore tomlc99 clambhook_android_ssl clambhook_android_crypto
+    log dl lwipcore tomlc99 clambhook_android_libcurl
+    clambhook_android_ssl clambhook_android_crypto
 )

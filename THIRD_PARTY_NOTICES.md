@@ -58,6 +58,20 @@ SOFTWARE.
 
 Upstream and commit details: `third_party/tomlc99/README.clambhook.md`.
 
+## curl 8.18.0
+
+Copyright (c) 1996 - 2025, Daniel Stenberg and contributors. All rights
+reserved.
+
+Licensed under the curl license. The complete license is distributed at
+`third_party/curl/LICENSE.txt` in source checkouts and at
+`licenses/curl/LICENSE.txt` in Android package assets.
+
+The Android build downloads the official release archive, validates its
+SHA-256 digest, and statically links an HTTP(S)-only per-ABI library. Version,
+archive, digest, configuration, and update details are recorded in
+`third_party/curl/README.clambhook.md`.
+
 ## OpenSSL 3.5.8 LTS
 
 Copyright 1998-2026 The OpenSSL Project Authors. All Rights Reserved.
