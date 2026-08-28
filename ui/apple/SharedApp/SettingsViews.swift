@@ -34,7 +34,6 @@ struct AppSettingsView: View {
     @State private var headerValueLimitBytes = 8_192
     @State private var redactHeadersText = developerDefaultRedactHeaders.joined(separator: ", ")
     @State private var redactQueryParamsText = developerDefaultRedactQueryParams.joined(separator: ", ")
-    @State private var sslDecryptHostsText = ""
     @State private var showingHTTPSCaptureConfirmation = false
     @State private var showingCARegenerationConfirmation = false
     @State private var stableManifestURL = ""
@@ -459,15 +458,6 @@ struct AppSettingsView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
-            TextField("SSL decrypt hosts (blank = all)", text: $sslDecryptHostsText)
-                .disabled(!developerCaptureEnabled || !httpsCaptureEnabled)
-                .onSubmit {
-                    saveDeveloperSettings(mitmEnabled: httpsCaptureEnabled)
-                }
-            Text(developerSSLDecryptHostsDisclosure)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
             Label(
                 httpsCaptureEnabled ? "HTTPS capture enabled" : "HTTPS capture disabled",
                 systemImage: httpsCaptureEnabled ? "lock.open" : "lock"
@@ -725,7 +715,6 @@ struct AppSettingsView: View {
         headerValueLimitBytes = settings.headerValueLimitBytes
         redactHeadersText = (settings.redactHeaders.isEmpty ? developerDefaultRedactHeaders : settings.redactHeaders).joined(separator: ", ")
         redactQueryParamsText = (settings.redactQueryParams.isEmpty ? developerDefaultRedactQueryParams : settings.redactQueryParams).joined(separator: ", ")
-        sslDecryptHostsText = settings.sslDecryptHosts.joined(separator: ", ")
     }
 
     private func apply() {
@@ -799,7 +788,6 @@ struct AppSettingsView: View {
             headerValueLimitBytes: headerValueLimitBytes,
             redactHeaders: redactionList(redactHeadersText),
             redactQueryParams: redactionList(redactQueryParamsText),
-            sslDecryptHosts: redactionList(sslDecryptHostsText),
             httpsCaptureAck: httpsCaptureAck
         ))
     }
