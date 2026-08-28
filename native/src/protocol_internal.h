@@ -6,6 +6,10 @@
 
 #include "clambhook/config.h"
 #include "clambhook/error.h"
+#include "conditioner.h"
+#include "tunnel_stack.h"
+
+typedef struct ch_packet_connection ch_packet_connection;
 
 /* Takes ownership of underlying_descriptor on every path. */
 ch_status ch_protocol_tls_wrap(const ch_config_table *settings,
@@ -34,5 +38,15 @@ ch_status ch_protocol_chain_vmess_packet_stream(
     const char *target,
     int *out_descriptor,
     ch_error *error);
+
+/* Takes ownership of packet on every path. */
+ch_status ch_protocol_tunnel_packet_wrap(
+    ch_tunnel_packet *packet,
+    ch_packet_connection **out_connection,
+    ch_error *error);
+
+void ch_packet_connection_set_conditioner(
+    ch_packet_connection *connection,
+    const ch_conditioner_config *config);
 
 #endif

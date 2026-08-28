@@ -23,10 +23,12 @@
 #include "cnet.h"
 #include "internal.h"
 #include "protocol_internal.h"
+#include "protocol_openvpn.h"
 #include "protocol_shadowtls.h"
 #include "protocol_shadowsocks.h"
 #include "protocol_tor.h"
 #include "protocol_vmess.h"
+#include "protocol_wireguard.h"
 
 #define CH_PROTOCOL_DIAL_TIMEOUT_MS 30000
 #define CH_PROTOCOL_BUFFER_SIZE 32768U
@@ -848,6 +850,26 @@ static ch_status ch_protocol_chain_dial_current(
             status = ch_protocol_vmess_dial(server, descriptor, hop_target,
                                             &tunneled, error);
             descriptor = status == CH_OK ? tunneled : -1;
+        } else if (strcasecmp(protocol, "wireguard") == 0) {
+            if (count != 1U || index != 0U || descriptor >= 0) {
+                ch_protocol_close(&descriptor);
+                ch_error_set(error, CH_ERROR_UNSUPPORTED,
+                             "wireguard must be used as a single-hop chain");
+                status = CH_ERROR_UNSUPPORTED;
+            } else {
+                status = ch_protocol_wireguard_dial(
+                    server, target, &descriptor, error);
+            }
+        } else if (strcasecmp(protocol, "openvpn") == 0) {
+            if (count != 1U || index != 0U || descriptor >= 0) {
+                ch_protocol_close(&descriptor);
+                ch_error_set(error, CH_ERROR_UNSUPPORTED,
+                             "openvpn must be used as a single-hop chain");
+                status = CH_ERROR_UNSUPPORTED;
+            } else {
+                status = ch_protocol_openvpn_dial(
+                    server, target, &descriptor, error);
+            }
         } else {
             ch_protocol_close(&descriptor);
             ch_error_set(error, CH_ERROR_UNSUPPORTED,
@@ -888,6 +910,11 @@ ch_status ch_protocol_chain_dial_timeout(
         chain, network, target, out_descriptor, error);
     ch_protocol_dial_timeout_ms = previous;
     return status;
+}
+
+void ch_protocol_reset_sessions(void) {
+    ch_protocol_wireguard_reset();
+    ch_protocol_openvpn_reset();
 }
 
 static ch_status ch_protocol_chain_packet_prefix(

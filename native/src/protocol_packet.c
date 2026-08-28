@@ -15,10 +15,13 @@
 #include <unistd.h>
 
 #include "clambhook/socks.h"
+#include "conditioner.h"
 #include "internal.h"
 #include "protocol_internal.h"
+#include "protocol_openvpn.h"
 #include "protocol_shadowsocks.h"
 #include "protocol_vmess.h"
+#include "protocol_wireguard.h"
 
 #define CH_PACKET_MAX_WIRE_SIZE 65507U
 #define CH_TROJAN_MAX_FRAME_SIZE 65798U
@@ -27,7 +30,8 @@ typedef enum ch_packet_kind {
     CH_PACKET_DIRECT = 1,
     CH_PACKET_SHADOWSOCKS = 2,
     CH_PACKET_TROJAN = 3,
-    CH_PACKET_VMESS = 4
+    CH_PACKET_VMESS = 4,
+    CH_PACKET_TUNNEL = 5
 } ch_packet_kind;
 
 struct ch_packet_connection {
@@ -41,6 +45,10 @@ struct ch_packet_connection {
     size_t receive_length;
     size_t receive_capacity;
     char *fixed_target;
+    ch_tunnel_packet *tunnel_packet;
+    ch_conditioner_config conditioner;
+    ch_conditioner_bucket upload_bucket;
+    ch_conditioner_bucket download_bucket;
     pthread_mutex_t send_mutex;
     pthread_mutex_t receive_mutex;
 };
@@ -193,6 +201,29 @@ static ch_packet_connection *ch_packet_allocate(ch_packet_kind kind,
     return connection;
 }
 
+ch_status ch_protocol_tunnel_packet_wrap(
+    ch_tunnel_packet *packet,
+    ch_packet_connection **out_connection,
+    ch_error *error) {
+    ch_error_clear(error);
+    if (packet == NULL || out_connection == NULL) {
+        ch_tunnel_packet_close(packet);
+        ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
+                     "tunnel packet and output are required");
+        return CH_ERROR_INVALID_ARGUMENT;
+    }
+    *out_connection = NULL;
+    ch_packet_connection *connection = ch_packet_allocate(
+        CH_PACKET_TUNNEL, error);
+    if (connection == NULL) {
+        ch_tunnel_packet_close(packet);
+        return error == NULL ? CH_ERROR_OUT_OF_MEMORY : error->code;
+    }
+    connection->tunnel_packet = packet;
+    *out_connection = connection;
+    return CH_OK;
+}
+
 static ch_status ch_packet_connect_server(ch_packet_connection *connection,
                                           const char *target,
                                           ch_error *error) {
@@ -262,6 +293,10 @@ ch_status ch_protocol_chain_dial_packet(const ch_config_table *chain,
         kind = CH_PACKET_TROJAN;
     } else if (strcasecmp(protocol, "vmess") == 0) {
         kind = CH_PACKET_VMESS;
+    } else if (strcasecmp(protocol, "wireguard") == 0) {
+        kind = CH_PACKET_TUNNEL;
+    } else if (strcasecmp(protocol, "openvpn") == 0) {
+        kind = CH_PACKET_TUNNEL;
     } else {
         ch_error_set(error, CH_ERROR_UNSUPPORTED,
                      "native packet protocol %s is not ported yet", protocol);
@@ -331,6 +366,20 @@ ch_status ch_protocol_chain_dial_packet(const ch_config_table *chain,
             ch_packet_connection_close(connection);
             return status;
         }
+    } else if (kind == CH_PACKET_TUNNEL) {
+        char *tunnel_protocol = ch_packet_optional_string(server,
+                                                          "protocol");
+        ch_status status = tunnel_protocol != NULL &&
+            strcasecmp(tunnel_protocol, "openvpn") == 0 ?
+            ch_protocol_openvpn_open_packet(
+                server, &connection->tunnel_packet, error) :
+            ch_protocol_wireguard_open_packet(
+                server, &connection->tunnel_packet, error);
+        free(tunnel_protocol);
+        if (status != CH_OK) {
+            ch_packet_connection_close(connection);
+            return status;
+        }
     }
     *out_connection = connection;
     return CH_OK;
@@ -364,7 +413,9 @@ ch_status ch_protocol_chain_supports_packet(const ch_config_table *chain,
         strcasecmp(protocol, "shadowsocks") == 0 ||
         strcasecmp(protocol, "trojan") == 0 ||
         strcasecmp(protocol, "clambback") == 0 ||
-        strcasecmp(protocol, "vmess") == 0;
+        strcasecmp(protocol, "vmess") == 0 ||
+        strcasecmp(protocol, "wireguard") == 0 ||
+        strcasecmp(protocol, "openvpn") == 0;
     bool carrier_supported = count == 1U ||
         strcasecmp(protocol, "trojan") == 0 ||
         strcasecmp(protocol, "clambback") == 0 ||
@@ -553,6 +604,12 @@ ch_status ch_packet_connection_send(ch_packet_connection *connection,
         return CH_ERROR_INVALID_ARGUMENT;
     }
     (void)pthread_mutex_lock(&connection->send_mutex);
+    if (ch_conditioner_before_upload(
+            &connection->conditioner, &connection->upload_bucket,
+            payload_length)) {
+        (void)pthread_mutex_unlock(&connection->send_mutex);
+        return CH_OK;
+    }
     ch_status status;
     if (connection->kind == CH_PACKET_DIRECT) {
         status = ch_packet_send_direct(connection, target, payload,
@@ -586,6 +643,9 @@ ch_status ch_packet_connection_send(ch_packet_connection *connection,
     } else if (connection->kind == CH_PACKET_TROJAN) {
         status = ch_packet_send_trojan(connection, target, payload,
                                        payload_length, error);
+    } else if (connection->kind == CH_PACKET_TUNNEL) {
+        status = ch_tunnel_packet_send(connection->tunnel_packet, target,
+                                       payload, payload_length, error);
     } else {
         status = ch_packet_send_vmess(connection, target, payload,
                                       payload_length, error);
@@ -977,13 +1037,37 @@ ch_status ch_packet_connection_receive_timeout(
         status = ch_packet_receive_trojan(
             connection, buffer, buffer_capacity, out_length, out_source,
             timeout_milliseconds, error);
+    } else if (connection->kind == CH_PACKET_TUNNEL) {
+        status = ch_tunnel_packet_receive(
+            connection->tunnel_packet, buffer, buffer_capacity,
+            out_length, out_source, timeout_milliseconds, error);
     } else {
         status = ch_packet_receive_vmess(
             connection, buffer, buffer_capacity, out_length, out_source,
             timeout_milliseconds, error);
     }
+    if (status == CH_OK) {
+        ch_conditioner_after_download(
+            &connection->conditioner, &connection->download_bucket,
+            *out_length);
+    }
     (void)pthread_mutex_unlock(&connection->receive_mutex);
     return status;
+}
+
+void ch_packet_connection_set_conditioner(
+    ch_packet_connection *connection,
+    const ch_conditioner_config *config) {
+    if (connection == NULL || config == NULL) return;
+    (void)pthread_mutex_lock(&connection->send_mutex);
+    (void)pthread_mutex_lock(&connection->receive_mutex);
+    connection->conditioner = *config;
+    memset(&connection->upload_bucket, 0,
+           sizeof(connection->upload_bucket));
+    memset(&connection->download_bucket, 0,
+           sizeof(connection->download_bucket));
+    (void)pthread_mutex_unlock(&connection->receive_mutex);
+    (void)pthread_mutex_unlock(&connection->send_mutex);
 }
 
 void ch_packet_connection_close(ch_packet_connection *connection) {
@@ -997,6 +1081,8 @@ void ch_packet_connection_close(ch_packet_connection *connection) {
     ch_packet_close_descriptor(&connection->ipv4_descriptor);
     ch_packet_close_descriptor(&connection->ipv6_descriptor);
     ch_packet_close_descriptor(&connection->stream_descriptor);
+    ch_tunnel_packet_close(connection->tunnel_packet);
+    connection->tunnel_packet = NULL;
     (void)pthread_mutex_destroy(&connection->receive_mutex);
     (void)pthread_mutex_destroy(&connection->send_mutex);
     memset(connection->master_key, 0, sizeof(connection->master_key));

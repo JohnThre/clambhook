@@ -1,7 +1,7 @@
 #ifndef CLAMBHOOK_LWIPOPTS_H
 #define CLAMBHOOK_LWIPOPTS_H
 
-/* Single-threaded raw API: the owning runtime serializes every call. */
+/* Single-threaded raw API: ch_lwip_context serializes every interface. */
 #define NO_SYS 1
 #define SYS_LIGHTWEIGHT_PROT 0
 #define LWIP_NETCONN 0
@@ -34,7 +34,7 @@
 #define LWIP_ACD 0
 #define IP_FORWARD 0
 #define IP_OPTIONS_ALLOWED 0
-#define LWIP_SINGLE_NETIF 1
+#define LWIP_SINGLE_NETIF 0
 #define LWIP_NETIF_LOOPBACK 0
 
 #define IP_REASSEMBLY 1

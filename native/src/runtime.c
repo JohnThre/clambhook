@@ -2364,6 +2364,7 @@ void ch_runtime_destroy(ch_runtime *runtime) {
     ch_error ignored;
     (void)ch_runtime_dispatch(runtime, CH_COMMAND_SHUTDOWN, NULL, NULL, NULL, 0U, NULL, &ignored);
     (void)uv_thread_join(&runtime->thread);
+    ch_protocol_reset_sessions();
     uv_mutex_destroy(&runtime->queue_mutex);
     (void)uv_loop_close(&runtime->loop);
     free(runtime->config_path);
@@ -2385,7 +2386,10 @@ ch_status ch_runtime_start(ch_runtime *runtime, const char *config_path, ch_erro
 }
 
 ch_status ch_runtime_stop(ch_runtime *runtime, ch_error *error) {
-    return ch_runtime_dispatch(runtime, CH_COMMAND_STOP, NULL, NULL, NULL, 0U, NULL, error);
+    ch_status status = ch_runtime_dispatch(
+        runtime, CH_COMMAND_STOP, NULL, NULL, NULL, 0U, NULL, error);
+    if (status == CH_OK) ch_protocol_reset_sessions();
+    return status;
 }
 
 ch_status ch_runtime_reload(ch_runtime *runtime, const char *config_path, ch_error *error) {
@@ -2393,7 +2397,11 @@ ch_status ch_runtime_reload(ch_runtime *runtime, const char *config_path, ch_err
         ch_error_set(error, CH_ERROR_INVALID_ARGUMENT, "config path is required");
         return CH_ERROR_INVALID_ARGUMENT;
     }
-    return ch_runtime_dispatch(runtime, CH_COMMAND_RELOAD, NULL, config_path, NULL, 0U, NULL, error);
+    ch_status status = ch_runtime_dispatch(
+        runtime, CH_COMMAND_RELOAD, NULL, config_path, NULL, 0U, NULL,
+        error);
+    if (status == CH_OK) ch_protocol_reset_sessions();
+    return status;
 }
 
 ch_status ch_runtime_inject_packet(

@@ -142,9 +142,9 @@ void ch_test_policy(void) {
 
     CH_TEST_ASSERT(ch_policy_manager_select(
         manager, "manual", "udp", "1.1.1.1:53", "198.18.0.2:5",
-        &selected, &error) == CH_ERROR_UNSUPPORTED);
-    CH_TEST_ASSERT(selected == NULL);
-    CH_TEST_ASSERT(strstr(error.message, "not UDP-capable") != NULL);
+        &selected, &error) == CH_OK);
+    CH_TEST_ASSERT_STRING("tcp-only", selected);
+    free(selected);
 
     char *snapshot = ch_policy_manager_snapshot_json(
         manager, "default", &error);
@@ -154,8 +154,7 @@ void ch_test_policy(void) {
     CH_TEST_ASSERT(strstr(snapshot, "\"interval\":\"1m\"") != NULL);
     CH_TEST_ASSERT(strstr(snapshot, "\"timeout\":\"2s\"") != NULL);
     CH_TEST_ASSERT(strstr(snapshot, "\"status_code\":503") != NULL);
-    CH_TEST_ASSERT(strstr(snapshot, "\"udp_capable\":false") != NULL);
-    CH_TEST_ASSERT(strstr(snapshot, "\"udp_error\":") != NULL);
+    CH_TEST_ASSERT(strstr(snapshot, "\"udp_capable\":true") != NULL);
     free(snapshot);
 
     ch_policy_manager_destroy(manager);

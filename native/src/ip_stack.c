@@ -26,6 +26,7 @@
 #include "lwip/timeouts.h"
 
 #include "internal.h"
+#include "lwip_context.h"
 
 #define CH_IP_STACK_DEFAULT_MTU 1500U
 #define CH_IP_STACK_MAX_PACKET 65535U
@@ -124,6 +125,7 @@ struct ch_ip_stack_fragment_flow {
 
 struct ch_ip_stack {
     struct netif interface;
+    struct netif *previous_default;
     ch_ip_stack_packet_writer packet_writer;
     void *packet_writer_context;
     ch_ip_stack_tcp_dialer tcp_dialer;
@@ -152,15 +154,8 @@ struct ch_ip_stack {
     unsigned int mtu;
 };
 
-static pthread_once_t ch_ip_stack_lwip_once = PTHREAD_ONCE_INIT;
-static pthread_mutex_t ch_ip_stack_owner_mutex = PTHREAD_MUTEX_INITIALIZER;
-static int ch_ip_stack_owner_active;
 static atomic_uint_fast32_t ch_ip_stack_random_fallback =
     UINT32_C(0x9e3779b9);
-
-static void ch_ip_stack_lwip_initialize(void) {
-    lwip_init();
-}
 
 u32_t sys_now(void) {
     struct timespec now;
@@ -1912,12 +1907,6 @@ static err_t ch_ip_stack_interface_initialize(struct netif *interface) {
     return ERR_OK;
 }
 
-static void ch_ip_stack_release_owner(void) {
-    (void)pthread_mutex_lock(&ch_ip_stack_owner_mutex);
-    ch_ip_stack_owner_active = 0;
-    (void)pthread_mutex_unlock(&ch_ip_stack_owner_mutex);
-}
-
 ch_ip_stack *ch_ip_stack_create(const ch_ip_stack_options *options,
                                 ch_error *error) {
     ch_error_clear(error);
@@ -1933,20 +1922,12 @@ ch_ip_stack *ch_ip_stack_create(const ch_ip_stack_options *options,
                      "IP stack MTU must be between 1280 and 65535");
         return NULL;
     }
-    (void)pthread_mutex_lock(&ch_ip_stack_owner_mutex);
-    if (ch_ip_stack_owner_active) {
-        (void)pthread_mutex_unlock(&ch_ip_stack_owner_mutex);
-        ch_error_set(error, CH_ERROR_INVALID_STATE,
-                     "only one native IP stack may be active");
-        return NULL;
-    }
-    ch_ip_stack_owner_active = 1;
-    (void)pthread_mutex_unlock(&ch_ip_stack_owner_mutex);
-    (void)pthread_once(&ch_ip_stack_lwip_once, ch_ip_stack_lwip_initialize);
+    ch_lwip_context_initialize();
+    ch_lwip_context_lock();
 
     ch_ip_stack *stack = calloc(1U, sizeof(*stack));
     if (stack == NULL) {
-        ch_ip_stack_release_owner();
+        ch_lwip_context_unlock();
         ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
                      "allocate native IP stack");
         return NULL;
@@ -1962,7 +1943,7 @@ ch_ip_stack *ch_ip_stack_create(const ch_ip_stack_options *options,
         (options->udp_dialer == NULL || options->udp_sender == NULL ||
          options->udp_receiver == NULL || options->udp_closer == NULL)) {
         free(stack);
-        ch_ip_stack_release_owner();
+        ch_lwip_context_unlock();
         ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
                      "IP stack UDP callbacks must be configured together");
         return NULL;
@@ -1998,7 +1979,7 @@ ch_ip_stack *ch_ip_stack_create(const ch_ip_stack_options *options,
         !ip4addr_aton(netmask_text, &netmask) ||
         !ip6addr_aton(ipv6_text, &ipv6)) {
         free(stack);
-        ch_ip_stack_release_owner();
+        ch_lwip_context_unlock();
         ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
                      "IP stack addresses are invalid");
         return NULL;
@@ -2006,7 +1987,7 @@ ch_ip_stack *ch_ip_stack_create(const ch_ip_stack_options *options,
     if (netif_add(&stack->interface, &ipv4, &netmask, &gateway, stack,
                   ch_ip_stack_interface_initialize, ip_input) == NULL) {
         free(stack);
-        ch_ip_stack_release_owner();
+        ch_lwip_context_unlock();
         ch_error_set(error, CH_ERROR_INTERNAL,
                      "initialize native IP interface");
         return NULL;
@@ -2017,7 +1998,7 @@ ch_ip_stack *ch_ip_stack_create(const ch_ip_stack_options *options,
         ipv6_index < 0) {
         netif_remove(&stack->interface);
         free(stack);
-        ch_ip_stack_release_owner();
+        ch_lwip_context_unlock();
         ch_error_set(error, CH_ERROR_INTERNAL,
                      "initialize native IPv6 interface");
         return NULL;
@@ -2025,14 +2006,17 @@ ch_ip_stack *ch_ip_stack_create(const ch_ip_stack_options *options,
     netif_ip6_addr_set_state(&stack->interface, ipv6_index,
                              IP6_ADDR_PREFERRED);
     stack->ipv6_index = ipv6_index;
+    stack->previous_default = netif_default;
     netif_set_default(&stack->interface);
     netif_set_up(&stack->interface);
     netif_set_link_up(&stack->interface);
+    ch_lwip_context_unlock();
     return stack;
 }
 
 void ch_ip_stack_destroy(ch_ip_stack *stack) {
     if (stack == NULL) return;
+    ch_lwip_context_lock();
     for (ch_ip_stack_tcp_flow *flow = stack->tcp_flows; flow != NULL;
          flow = flow->next) {
         ch_ip_stack_tcp_flow_abort(flow);
@@ -2051,9 +2035,12 @@ void ch_ip_stack_destroy(ch_ip_stack *stack) {
     free(stack->dns_entries);
     netif_set_link_down(&stack->interface);
     netif_set_down(&stack->interface);
+    if (netif_default == &stack->interface) {
+        netif_set_default(stack->previous_default);
+    }
     netif_remove(&stack->interface);
     free(stack);
-    ch_ip_stack_release_owner();
+    ch_lwip_context_unlock();
 }
 
 ch_status ch_ip_stack_inject(ch_ip_stack *stack, const uint8_t *packet,
@@ -2072,19 +2059,25 @@ ch_status ch_ip_stack_inject(ch_ip_stack *stack, const uint8_t *packet,
                      "packet is not a complete IPv4 or IPv6 datagram");
         return CH_ERROR_PARSE;
     }
+    ch_lwip_context_lock();
     uint8_t *transformed = NULL;
     size_t transformed_length = 0U;
     ch_status fragment_status = ch_ip_stack_prepare_input_packet(
         stack, packet, length, &transformed, &transformed_length, error);
-    if (fragment_status != CH_OK) return fragment_status;
+    if (fragment_status != CH_OK) {
+        ch_lwip_context_unlock();
+        return fragment_status;
+    }
     if (transformed == NULL) {
         ch_ip_stack_tick(stack);
+        ch_lwip_context_unlock();
         return CH_OK;
     }
     ch_status prepare_status = ch_ip_stack_prepare_tcp_input(
         stack, transformed, transformed_length, error);
     if (prepare_status != CH_OK) {
         free(transformed);
+        ch_lwip_context_unlock();
         return prepare_status;
     }
     int udp_handled = 0;
@@ -2093,6 +2086,7 @@ ch_status ch_ip_stack_inject(ch_ip_stack *stack, const uint8_t *packet,
     if (udp_status != CH_OK || udp_handled) {
         free(transformed);
         ch_ip_stack_tick(stack);
+        ch_lwip_context_unlock();
         return udp_status;
     }
     struct pbuf *buffer = pbuf_alloc(PBUF_RAW, (u16_t)transformed_length,
@@ -2103,6 +2097,7 @@ ch_status ch_ip_stack_inject(ch_ip_stack *stack, const uint8_t *packet,
         if (buffer != NULL) (void)pbuf_free(buffer);
         ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
                      "allocate IP packet buffer");
+        ch_lwip_context_unlock();
         return CH_ERROR_OUT_OF_MEMORY;
     }
     free(transformed);
@@ -2111,14 +2106,17 @@ ch_status ch_ip_stack_inject(ch_ip_stack *stack, const uint8_t *packet,
         (void)pbuf_free(buffer);
         ch_error_set(error, CH_ERROR_PARSE,
                      "IP stack rejected packet with error %d", (int)result);
+        ch_lwip_context_unlock();
         return CH_ERROR_PARSE;
     }
     ch_ip_stack_tick(stack);
+    ch_lwip_context_unlock();
     return CH_OK;
 }
 
 void ch_ip_stack_tick(ch_ip_stack *stack) {
     if (stack == NULL) return;
+    ch_lwip_context_lock();
     sys_check_timeouts();
     for (ch_ip_stack_tcp_flow *flow = stack->tcp_flows; flow != NULL;
          flow = flow->next) {
@@ -2143,4 +2141,5 @@ void ch_ip_stack_tick(ch_ip_stack *stack) {
         }
     }
     ch_ip_stack_fragment_sweep(stack);
+    ch_lwip_context_unlock();
 }

@@ -69,6 +69,9 @@ ch_status ch_packet_connection_receive_timeout(
     ch_error *error);
 void ch_packet_connection_close(ch_packet_connection *connection);
 
+/* Tears down reusable layer-3 sessions after runtime stop or reload. */
+void ch_protocol_reset_sessions(void);
+
 /* Exposed to freeze the Trojan/clambback opening-frame contract in tests. */
 ch_status ch_protocol_trojan_header(const char *password, const char *target,
                                     uint8_t **out_header,

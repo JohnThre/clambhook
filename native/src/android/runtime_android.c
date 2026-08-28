@@ -1163,6 +1163,7 @@ void ch_runtime_destroy(ch_runtime *runtime) {
     free(runtime->config_path);
     free(runtime->active_profile);
     pthread_mutex_unlock(&runtime->mutex);
+    ch_protocol_reset_sessions();
     pthread_mutex_destroy(&runtime->mutex);
     pthread_mutex_destroy(&runtime->ip_mutex);
     ch_prompt_manager_destroy(runtime->prompts);
@@ -1208,6 +1209,7 @@ ch_status ch_runtime_stop(ch_runtime *runtime, ch_error *error) {
     android_runtime_stop_ip_stack(runtime);
     ch_policy_manager_stop(runtime->policy);
     pthread_mutex_unlock(&runtime->mutex);
+    ch_protocol_reset_sessions();
     return CH_OK;
 }
 
@@ -1223,6 +1225,7 @@ ch_status ch_runtime_reload(ch_runtime *runtime, const char *config_path, ch_err
     status = android_runtime_replace_config(runtime, config_path, running,
                                             error);
     pthread_mutex_unlock(&runtime->mutex);
+    if (status == CH_OK) ch_protocol_reset_sessions();
     return status;
 }
 

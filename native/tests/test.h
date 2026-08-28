@@ -28,6 +28,7 @@ extern int ch_test_failures;
 void ch_test_json(void);
 void ch_test_api_server(void);
 void ch_test_config(void);
+void ch_test_conditioner(void);
 void ch_test_crypto(void);
 void ch_test_developer(void);
 void ch_test_dns(void);
@@ -36,6 +37,7 @@ void ch_test_ip_stack(void);
 void ch_test_license(void);
 void ch_test_listener(void);
 void ch_test_netwatch(void);
+void ch_test_openvpn(void);
 void ch_test_procattr(void);
 void ch_test_policy(void);
 void ch_test_prompt(void);
@@ -48,5 +50,6 @@ void ch_test_socks(void);
 void ch_test_temporary_rules(void);
 void ch_test_traffic(void);
 void ch_test_watcher(void);
+void ch_test_wireguard(void);
 
 #endif

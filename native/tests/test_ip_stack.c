@@ -927,8 +927,9 @@ void ch_test_ip_stack(void) {
     ch_error error;
     ch_ip_stack *stack = ch_ip_stack_create(&options, &error);
     CH_TEST_ASSERT(stack != NULL);
-    CH_TEST_ASSERT(ch_ip_stack_create(&options, &error) == NULL);
-    CH_TEST_ASSERT(error.code == CH_ERROR_INVALID_STATE);
+    ch_ip_stack *second_stack = ch_ip_stack_create(&options, &error);
+    CH_TEST_ASSERT(second_stack != NULL);
+    ch_ip_stack_destroy(second_stack);
     ip_stack_test_ipv4_echo(stack, &output);
     ip_stack_test_ipv6_echo(stack, &output);
     ip_stack_test_ipv4_tcp(stack, &output, &dial);

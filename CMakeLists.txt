@@ -67,12 +67,32 @@ target_include_directories(lwipcore PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}/native/src
 )
 
+# BSD-3-Clause WireGuard protocol core. ClambHook supplies the transport and
+# lwIP netif integration; the upstream embedded adapter is intentionally not
+# compiled. Provenance and the exact revision live beside the source.
+set(WIREGUARD_LWIP_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third_party/wireguard_lwip)
+add_library(wireguard_protocol STATIC
+  ${WIREGUARD_LWIP_DIR}/src/crypto.c
+  ${WIREGUARD_LWIP_DIR}/src/wireguard.c
+  ${WIREGUARD_LWIP_DIR}/src/crypto/refc/blake2s.c
+  ${WIREGUARD_LWIP_DIR}/src/crypto/refc/chacha20.c
+  ${WIREGUARD_LWIP_DIR}/src/crypto/refc/chacha20poly1305.c
+  ${WIREGUARD_LWIP_DIR}/src/crypto/refc/poly1305-donna.c
+  ${WIREGUARD_LWIP_DIR}/src/crypto/refc/x25519.c
+)
+target_include_directories(wireguard_protocol PUBLIC
+  ${WIREGUARD_LWIP_DIR}/src
+  ${LWIP_DIR}/src/include
+  ${CMAKE_CURRENT_SOURCE_DIR}/native/src
+)
+
 if(CLAMBHOOK_ENABLE_SANITIZERS AND CMAKE_C_COMPILER_ID MATCHES "AppleClang|Clang|GNU")
   add_compile_options(-fno-omit-frame-pointer -fsanitize=address,undefined)
   add_link_options(-fno-omit-frame-pointer -fsanitize=address,undefined)
 endif()
 
 add_library(clambhook_core STATIC
+  native/src/conditioner.c
   native/src/config.c
   native/src/config_import.c
   native/src/config_mutation.c
@@ -90,16 +110,19 @@ add_library(clambhook_core STATIC
   native/src/license_http.c
   native/src/license_json.c
   native/src/listener.c
+  native/src/lwip_context.c
   native/src/netwatch.c
   native/src/policy.c
   native/src/procattr.c
   native/src/prompt.c
   native/src/protocol.c
+  native/src/protocol_openvpn.c
   native/src/protocol_packet.c
   native/src/protocol_shadowtls.c
   native/src/protocol_shadowsocks.c
   native/src/protocol_tor.c
   native/src/protocol_vmess.c
+  native/src/protocol_wireguard.c
   native/src/rule_feed.c
   native/src/rule_feed_config.c
   native/src/rules.c
@@ -110,7 +133,9 @@ add_library(clambhook_core STATIC
   native/src/socks.c
   native/src/temporary_rules.c
   native/src/traffic.c
+  native/src/tunnel_stack.c
   native/src/watcher.c
+  native/src/wireguard_platform.c
 )
 add_library(Clambhook::Core ALIAS clambhook_core)
 
@@ -134,13 +159,14 @@ target_include_directories(clambhook_core
 )
 target_link_libraries(clambhook_core PUBLIC
   PkgConfig::LIBUV PkgConfig::LIBSODIUM PkgConfig::CURL
-  Clambhook::Crypto lwipcore tomlc99 Threads::Threads
+  Clambhook::Crypto lwipcore wireguard_protocol tomlc99 Threads::Threads
 )
 if(APPLE)
   target_link_libraries(clambhook_core PUBLIC "-framework CoreFoundation" "-framework Security")
   target_compile_definitions(clambhook_core PRIVATE _DARWIN_C_SOURCE)
 elseif(UNIX)
   target_compile_definitions(clambhook_core PRIVATE _DEFAULT_SOURCE)
+  target_link_libraries(clambhook_core PUBLIC m)
 endif()
 target_compile_definitions(clambhook_core PRIVATE _POSIX_C_SOURCE=200809L)
 target_compile_options(clambhook_core PRIVATE
@@ -245,6 +271,7 @@ if(CLAMBHOOK_BUILD_TESTS)
     native/src/api_server.c
     native/tests/test_api_server.c
     native/tests/test_config.c
+    native/tests/test_conditioner.c
     native/tests/test_main.c
     native/tests/test_events.c
     native/tests/test_crypto.c
@@ -255,6 +282,7 @@ if(CLAMBHOOK_BUILD_TESTS)
     native/tests/test_license.c
     native/tests/test_listener.c
     native/tests/test_netwatch.c
+    native/tests/test_openvpn.c
     native/tests/test_policy.c
     native/tests/test_procattr.c
     native/tests/test_prompt.c
@@ -267,6 +295,7 @@ if(CLAMBHOOK_BUILD_TESTS)
     native/tests/test_temporary_rules.c
     native/tests/test_traffic.c
     native/tests/test_watcher.c
+    native/tests/test_wireguard.c
   )
   target_include_directories(clambhook-native-tests PRIVATE native/src native/tests)
   target_compile_definitions(clambhook-native-tests PRIVATE

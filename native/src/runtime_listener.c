@@ -17,7 +17,9 @@
 #include "clambhook/temporary_rules.h"
 #include "clambhook/traffic.h"
 #include "cnet.h"
+#include "conditioner.h"
 #include "policy.h"
+#include "protocol_internal.h"
 
 #define CH_RUNTIME_LISTENER_LIMIT 2U
 #define CH_RUNTIME_DEFAULT_MAX_CONNECTIONS 512U
@@ -30,6 +32,7 @@ typedef struct ch_runtime_listener_entry {
     char *default_chain;
     char *listener_protocol;
     char *listener_address;
+    ch_conditioner_config conditioner;
     ch_rule_engine *rules;
     ch_proxy_listener *listener;
 } ch_runtime_listener_entry;
@@ -311,6 +314,12 @@ static ch_status runtime_listener_dial_targets(
         status = runtime_dial_chain(entry, chain_name, dial_target,
                                     out_descriptor, error);
     }
+    if (status == CH_OK && *out_descriptor >= 0) {
+        int conditioned = -1;
+        status = ch_conditioner_wrap_stream(
+            *out_descriptor, &entry->conditioner, &conditioned, error);
+        *out_descriptor = conditioned;
+    }
     if (status != CH_OK) {
         ch_traffic_close(entry->owner->traffic, route->flow_id,
                          error == NULL ? "dial failed" : error->message);
@@ -396,6 +405,10 @@ static ch_status runtime_listener_packet_dial_targets(
         status = runtime_dial_packet_chain(entry, chain_name, dial_target,
                                            out_connection, error);
     }
+    if (status == CH_OK && *out_connection != NULL) {
+        ch_packet_connection_set_conditioner(
+            *out_connection, &entry->conditioner);
+    }
     if (status != CH_OK) {
         ch_traffic_close(entry->owner->traffic, route->flow_id,
                          error == NULL ? "packet dial failed" :
@@ -470,6 +483,7 @@ static ch_status runtime_dns_entry_initialize(
     entry->profile_name = ch_strdup(profile_name);
     entry->listener_protocol = ch_strdup("dns");
     entry->listener_address = ch_strdup("");
+    ch_conditioner_config_load(profile, &entry->conditioner);
     const ch_config_table *listen = ch_config_table_get_table(profile,
                                                                "listen");
     const ch_config_table *tun = ch_config_table_get_table(listen, "tun");
@@ -517,6 +531,7 @@ static ch_status runtime_tun_entry_initialize(
     entry->profile_name = ch_strdup(profile_name);
     entry->listener_protocol = ch_strdup("tun");
     entry->listener_address = ch_strdup("");
+    ch_conditioner_config_load(profile, &entry->conditioner);
     if (entry->profile_name == NULL || entry->listener_protocol == NULL ||
         entry->listener_address == NULL) {
         runtime_listener_entry_clear(entry);
@@ -577,6 +592,7 @@ static ch_status runtime_listener_add(ch_runtime_listener_set *set,
     entry->listener_protocol = ch_strdup(
         protocol == CH_PROXY_LISTENER_SOCKS5 ? "socks5" : "http");
     entry->listener_address = ch_strdup(address);
+    ch_conditioner_config_load(profile, &entry->conditioner);
     if (entry->profile_name == NULL ||
         entry->listener_protocol == NULL || entry->listener_address == NULL ||
         runtime_listener_default_chain(profile, listen, chain_key,
@@ -904,6 +920,13 @@ ch_status ch_runtime_listener_set_dns_dial(
         }
         free(selected_group_chain);
     }
+    if (status == CH_OK && *out_descriptor >= 0) {
+        int conditioned = -1;
+        status = ch_conditioner_wrap_stream(
+            *out_descriptor, &set->dns_entry.conditioner,
+            &conditioned, error);
+        *out_descriptor = conditioned;
+    }
     ch_rule_decision_clear(&decision);
     return status;
 }
@@ -995,6 +1018,9 @@ ch_status ch_runtime_listener_set_dns_packet_dial(
         *out_connection = NULL;
         free(*out_send_target);
         *out_send_target = NULL;
+    } else if (*out_connection != NULL) {
+        ch_packet_connection_set_conditioner(
+            *out_connection, &set->dns_entry.conditioner);
     }
     ch_rule_decision_clear(&decision);
     return status;

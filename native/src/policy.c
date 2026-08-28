@@ -19,6 +19,7 @@
 #include <unistd.h>
 
 #include "clambhook/protocol.h"
+#include "conditioner.h"
 #include "internal.h"
 
 #define CH_POLICY_DEFAULT_INTERVAL_NS INT64_C(30000000000)
@@ -62,6 +63,7 @@ struct ch_policy_manager {
     size_t group_count;
     ch_policy_probe_callback probe;
     void *probe_context;
+    ch_conditioner_config conditioner;
 };
 
 typedef struct ch_policy_url {
@@ -463,6 +465,7 @@ ch_policy_manager *ch_policy_manager_create(
     }
     manager->probe = options == NULL ? NULL : options->probe;
     manager->probe_context = options == NULL ? NULL : options->probe_context;
+    ch_conditioner_config_load(profile, &manager->conditioner);
     const ch_config_array *groups = ch_config_table_get_array(profile,
                                                                "policy_group");
     const ch_config_array *chains = ch_config_table_get_array(profile, "chain");
@@ -750,7 +753,6 @@ static ch_status ch_policy_default_probe(
     const ch_config_table *chain, const char *test_url,
     unsigned int timeout_milliseconds, ch_policy_probe_result *out_result,
     void *context, ch_error *error) {
-    (void)context;
     ch_error_clear(error);
     memset(out_result, 0, sizeof(*out_result));
     int64_t started_mono = ch_policy_clock_ns(CLOCK_MONOTONIC);
@@ -763,6 +765,14 @@ static ch_status ch_policy_default_probe(
     status = ch_protocol_chain_dial_timeout(
         chain, "tcp", url.target, timeout_milliseconds, &descriptor,
         &dial_error);
+    if (status != CH_OK) {
+        ch_policy_result_error(out_result, dial_error.message);
+        goto complete;
+    }
+    int conditioned = -1;
+    status = ch_conditioner_wrap_stream(
+        descriptor, context, &conditioned, &dial_error);
+    descriptor = conditioned;
     if (status != CH_OK) {
         ch_policy_result_error(out_result, dial_error.message);
         goto complete;
@@ -898,6 +908,8 @@ static ch_status ch_policy_refresh_index(ch_policy_manager *manager,
     }
     ch_policy_probe_callback probe = manager->probe == NULL ?
         ch_policy_default_probe : manager->probe;
+    void *probe_context = manager->probe == NULL ?
+        &manager->conditioner : manager->probe_context;
     ch_policy_probe_task *tasks = calloc(group->chain_count, sizeof(*tasks));
     if (tasks != NULL) {
         for (size_t index = 0U; index < group->chain_count; ++index) {
@@ -907,7 +919,7 @@ static ch_status ch_policy_refresh_index(ch_policy_manager *manager,
                 .test_url = group->test_url,
                 .timeout_ms = timeout_ms,
                 .result = &results[index],
-                .probe_context = manager->probe_context
+                .probe_context = probe_context
             };
             if (pthread_create(&tasks[index].thread, NULL,
                                ch_policy_probe_thread, &tasks[index]) == 0) {
@@ -927,7 +939,7 @@ static ch_status ch_policy_refresh_index(ch_policy_manager *manager,
             .probe = probe,
             .test_url = group->test_url,
             .timeout_ms = timeout_ms,
-            .probe_context = manager->probe_context
+            .probe_context = probe_context
         };
         for (size_t index = 0U; index < group->chain_count; ++index) {
             task.chain = group->chains[index].config;
