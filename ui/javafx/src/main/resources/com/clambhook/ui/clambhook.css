@@ -1,0 +1,248 @@
+.root {
+    -clambhook-bg: #0b1018;
+    -clambhook-surface: #121a25;
+    -clambhook-surface-raised: #182333;
+    -clambhook-border: #2a394d;
+    -clambhook-text: #edf4ff;
+    -clambhook-muted: #a9b8ca;
+    -clambhook-accent: #5ee4a7;
+    -clambhook-accent-dark: #173e31;
+    -clambhook-danger: #ff8c8c;
+    -clambhook-warning: #ffd27d;
+    -fx-font-family: "Inter", "Noto Sans", "DejaVu Sans", sans-serif;
+    -fx-font-size: 14px;
+    -fx-background-color: -clambhook-bg;
+    -fx-text-fill: -clambhook-text;
+}
+
+.label {
+    -fx-text-fill: -clambhook-text;
+}
+
+.app-root {
+    -fx-background-color: -clambhook-bg;
+}
+
+.header {
+    -fx-background-color: rgba(11, 16, 24, 0.96);
+    -fx-border-color: transparent transparent -clambhook-border transparent;
+    -fx-border-width: 0 0 1 0;
+}
+
+.toolbar {
+    -fx-padding: 14 18 14 18;
+}
+
+.page-title {
+    -fx-font-size: 24px;
+    -fx-font-weight: 700;
+}
+
+.status-pill {
+    -fx-padding: 5 10 5 10;
+    -fx-background-radius: 99;
+    -fx-font-size: 12px;
+    -fx-font-weight: 700;
+}
+
+.status-pending,
+.status-disconnected {
+    -fx-background-color: #2a3442;
+    -fx-text-fill: #d5deeb;
+}
+
+.status-connected {
+    -fx-background-color: -clambhook-accent-dark;
+    -fx-text-fill: #8ff5c6;
+}
+
+.status-error {
+    -fx-background-color: #4a2429;
+    -fx-text-fill: #ffb0b0;
+}
+
+.error-banner {
+    -fx-padding: 10 18 10 18;
+    -fx-background-color: #4a2429;
+    -fx-text-fill: #ffd3d3;
+}
+
+.side-navigation {
+    -fx-pref-width: 178px;
+    -fx-background-color: -clambhook-surface;
+    -fx-border-color: transparent -clambhook-border transparent transparent;
+    -fx-border-width: 0 1 0 0;
+}
+
+.side-nav-button,
+.bottom-nav-button {
+    -fx-background-color: transparent;
+    -fx-text-fill: -clambhook-muted;
+    -fx-background-radius: 9;
+    -fx-cursor: hand;
+}
+
+.side-nav-button {
+    -fx-alignment: center-left;
+    -fx-padding: 11 14 11 14;
+}
+
+.bottom-navigation {
+    -fx-padding: 7 5 9 5;
+    -fx-background-color: -clambhook-surface;
+    -fx-border-color: -clambhook-border transparent transparent transparent;
+    -fx-border-width: 1 0 0 0;
+}
+
+.bottom-nav-button {
+    -fx-padding: 9 4 9 4;
+    -fx-font-size: 11px;
+}
+
+.side-nav-button:hover,
+.bottom-nav-button:hover,
+.nav-selected {
+    -fx-background-color: -clambhook-surface-raised;
+    -fx-text-fill: -clambhook-text;
+}
+
+.nav-selected {
+    -fx-border-color: -clambhook-accent;
+    -fx-border-width: 0 0 0 3;
+    -fx-border-radius: 9;
+}
+
+.page-content {
+    -fx-padding: 22;
+    -fx-background-color: -clambhook-bg;
+}
+
+.page-scroll,
+.page-scroll > .viewport {
+    -fx-background-color: -clambhook-bg;
+}
+
+.card {
+    -fx-padding: 18;
+    -fx-background-color: -clambhook-surface;
+    -fx-background-radius: 13;
+    -fx-border-color: -clambhook-border;
+    -fx-border-radius: 13;
+    -fx-border-width: 1;
+}
+
+.metric-card {
+    -fx-min-width: 190px;
+    -fx-pref-width: 220px;
+}
+
+.metric-title,
+.detail-label,
+.secondary-text {
+    -fx-text-fill: -clambhook-muted;
+}
+
+.metric-title {
+    -fx-font-size: 12px;
+    -fx-font-weight: 700;
+}
+
+.metric-value {
+    -fx-font-size: 28px;
+    -fx-font-weight: 700;
+}
+
+.section-title {
+    -fx-font-size: 17px;
+    -fx-font-weight: 700;
+}
+
+.detail-label {
+    -fx-min-width: 135px;
+    -fx-font-weight: 700;
+}
+
+.button {
+    -fx-padding: 9 14 9 14;
+    -fx-background-color: -clambhook-surface-raised;
+    -fx-text-fill: -clambhook-text;
+    -fx-background-radius: 8;
+    -fx-border-color: -clambhook-border;
+    -fx-border-radius: 8;
+    -fx-cursor: hand;
+}
+
+.button:hover,
+.button:focused {
+    -fx-border-color: -clambhook-accent;
+}
+
+.primary-button {
+    -fx-background-color: -clambhook-accent;
+    -fx-text-fill: #082016;
+    -fx-font-weight: 700;
+    -fx-border-color: transparent;
+}
+
+.text-field,
+.password-field,
+.combo-box-base {
+    -fx-background-color: -clambhook-surface-raised;
+    -fx-text-fill: -clambhook-text;
+    -fx-prompt-text-fill: -clambhook-muted;
+    -fx-border-color: -clambhook-border;
+    -fx-border-radius: 8;
+    -fx-background-radius: 8;
+}
+
+.combo-box .list-cell,
+.combo-box-popup .list-view,
+.combo-box-popup .list-cell {
+    -fx-background-color: -clambhook-surface-raised;
+    -fx-text-fill: -clambhook-text;
+}
+
+.data-table,
+.table-view,
+.table-view .column-header-background,
+.table-view .column-header,
+.table-view .filler,
+.table-row-cell,
+.table-cell {
+    -fx-background-color: -clambhook-surface;
+    -fx-text-fill: -clambhook-text;
+    -fx-border-color: transparent;
+}
+
+.table-view {
+    -fx-border-color: -clambhook-border;
+    -fx-border-radius: 10;
+    -fx-background-radius: 10;
+}
+
+.table-view .column-header,
+.table-view .column-header-background {
+    -fx-background-color: -clambhook-surface-raised;
+}
+
+.table-view .column-header .label {
+    -fx-alignment: center-left;
+    -fx-font-weight: 700;
+}
+
+.table-row-cell:odd {
+    -fx-background-color: #101823;
+}
+
+.table-row-cell:selected {
+    -fx-background-color: -clambhook-accent-dark;
+}
+
+.separator .line {
+    -fx-border-color: -clambhook-border;
+}
+
+.scroll-bar .thumb {
+    -fx-background-color: #3c4b60;
+    -fx-background-radius: 10;
+}

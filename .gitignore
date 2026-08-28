@@ -29,6 +29,7 @@ ui/linux/builddir/
 ui/linux/build/
 ui/linux/.gradle/
 ui/linux/resources/
+ui/javafx/target/
 *.o
 *.a
 *.so

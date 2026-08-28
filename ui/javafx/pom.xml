@@ -1,0 +1,126 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>org.jpfchang.clambhook</groupId>
+    <artifactId>clambhook-ui</artifactId>
+    <version>1.0.2</version>
+    <name>ClambHook JavaFX UI</name>
+    <description>Shared JavaFX controller for ClambHook on Android and GNU/Linux.</description>
+
+    <properties>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <maven.compiler.release>17</maven.compiler.release>
+        <javafx.version>21.0.12</javafx.version>
+        <junit.version>6.1.3</junit.version>
+        <gluonfx.version>1.0.29</gluonfx.version>
+        <javafx.plugin.version>0.0.8</javafx.plugin.version>
+        <main.class>com.clambhook.ui.ClambhookApplication</main.class>
+        <gluonfx.target>host</gluonfx.target>
+        <clambhook.version.code>3</clambhook.version.code>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.openjfx</groupId>
+            <artifactId>javafx-controls</artifactId>
+            <version>${javafx.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <version>${junit.version}</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <finalName>clambhook-ui</finalName>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.15.0</version>
+                <configuration>
+                    <parameters>true</parameters>
+                    <showWarnings>true</showWarnings>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>3.5.4</version>
+                <configuration>
+                    <useModulePath>false</useModulePath>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.openjfx</groupId>
+                <artifactId>javafx-maven-plugin</artifactId>
+                <version>${javafx.plugin.version}</version>
+                <configuration>
+                    <mainClass>${main.class}</mainClass>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>com.gluonhq</groupId>
+                <artifactId>gluonfx-maven-plugin</artifactId>
+                <version>${gluonfx.version}</version>
+                <configuration>
+                    <target>${gluonfx.target}</target>
+                    <mainClass>${main.class}</mainClass>
+                    <appIdentifier>org.jpfchang.clambhook</appIdentifier>
+                    <resourcesList>
+                        <list>com/clambhook/ui/clambhook.css</list>
+                        <list>THIRD_PARTY_NOTICES.md</list>
+                    </resourcesList>
+                    <jniList>
+                        <list>com.clambhook.ui.backend.AndroidBackend</list>
+                    </jniList>
+                    <compilerArgs>
+                        <arg>-H:+ReportExceptionStackTraces</arg>
+                        <arg>-H:+AddAllCharsets</arg>
+                    </compilerArgs>
+                    <releaseConfiguration>
+                        <appLabel>ClambHook</appLabel>
+                        <versionCode>${clambhook.version.code}</versionCode>
+                        <versionName>${project.version}</versionName>
+                        <vendor>Pengfan Chang</vendor>
+                        <description>ClambHook network routing and privacy controller</description>
+                    </releaseConfiguration>
+                </configuration>
+            </plugin>
+        </plugins>
+        <resources>
+            <resource>
+                <directory>src/main/resources</directory>
+            </resource>
+            <resource>
+                <directory>../..</directory>
+                <includes>
+                    <include>THIRD_PARTY_NOTICES.md</include>
+                </includes>
+            </resource>
+        </resources>
+    </build>
+
+    <profiles>
+        <profile>
+            <id>desktop</id>
+            <activation>
+                <activeByDefault>true</activeByDefault>
+            </activation>
+            <properties>
+                <gluonfx.target>host</gluonfx.target>
+            </properties>
+        </profile>
+        <profile>
+            <id>android</id>
+            <properties>
+                <gluonfx.target>android</gluonfx.target>
+            </properties>
+        </profile>
+    </profiles>
+</project>
