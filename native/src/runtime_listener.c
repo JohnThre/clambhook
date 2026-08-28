@@ -8,6 +8,7 @@
 #include <strings.h>
 
 #include "clambhook/config.h"
+#include "clambhook/developer.h"
 #include "clambhook/listener.h"
 #include "clambhook/procattr.h"
 #include "clambhook/protocol.h"
@@ -40,6 +41,7 @@ struct ch_runtime_listener_set {
     ch_traffic_store *traffic;
     ch_temporary_rules *temporary_rules;
     ch_prompt_manager *prompts;
+    ch_developer_manager *developer;
     ch_policy_manager *policy;
     ch_runtime_listener_entry entries[CH_RUNTIME_LISTENER_LIMIT];
     size_t count;
@@ -291,6 +293,8 @@ static ch_status runtime_listener_dial_targets(
     }
     route->flow_id = runtime_listener_open_traffic(
         entry, &decision, network, dial_target, source, chain_name, error);
+    (void)snprintf(route->chain_name, sizeof(route->chain_name), "%s",
+                   chain_name);
     if (route->flow_id == 0U && error != NULL && error->code != CH_OK) {
         free(selected_group_chain);
         ch_rule_decision_clear(&decision);
@@ -366,6 +370,8 @@ static ch_status runtime_listener_packet_dial_targets(
     }
     route->flow_id = runtime_listener_open_traffic(
         entry, &decision, network, dial_target, source, chain_name, error);
+    (void)snprintf(route->chain_name, sizeof(route->chain_name), "%s",
+                   chain_name);
     if (route->flow_id == 0U && error != NULL && error->code != CH_OK) {
         free(selected_group_chain);
         ch_rule_decision_clear(&decision);
@@ -658,7 +664,9 @@ static ch_status runtime_listener_add(ch_runtime_listener_set *set,
         .dial_context = entry,
         .flow_bytes = runtime_listener_flow_bytes,
         .flow_close = runtime_listener_flow_close,
-        .flow_context = set->traffic
+        .flow_context = set->traffic,
+        .developer = protocol == CH_PROXY_LISTENER_HTTP ? set->developer : NULL,
+        .profile_name = entry->profile_name
     };
     entry->listener = ch_proxy_listener_start(&options, error);
     free(username);
@@ -686,6 +694,7 @@ ch_runtime_listener_set *ch_runtime_listener_set_start(const ch_config *config,
                                                         ch_traffic_store *traffic,
                                                         ch_temporary_rules *temporary_rules,
                                                         ch_prompt_manager *prompts,
+                                                        ch_developer_manager *developer,
                                                         ch_error *error) {
     ch_error_clear(error);
     ch_runtime_listener_set *set = calloc(1U, sizeof(*set));
@@ -696,6 +705,7 @@ ch_runtime_listener_set *ch_runtime_listener_set_start(const ch_config *config,
     set->traffic = traffic;
     set->temporary_rules = temporary_rules;
     set->prompts = prompts;
+    set->developer = developer;
     if (traffic == NULL || temporary_rules == NULL || prompts == NULL) {
         free(set);
         ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,

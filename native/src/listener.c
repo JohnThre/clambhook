@@ -20,6 +20,7 @@
 #include <sodium.h>
 
 #include "clambhook/protocol.h"
+#include "clambhook/developer.h"
 #include "clambhook/socks.h"
 #include "internal.h"
 
@@ -45,6 +46,8 @@ struct ch_proxy_listener {
     ch_proxy_flow_bytes_callback flow_bytes;
     ch_proxy_flow_close_callback flow_close;
     void *flow_context;
+    ch_developer_manager *developer;
+    char *profile_name;
     int descriptor;
     pthread_t accept_thread;
     int accept_thread_started;
@@ -60,6 +63,7 @@ struct ch_listener_connection {
     int client_descriptor;
     int remote_descriptor;
     uint64_t flow_id;
+    ch_developer_capture *developer_capture;
     ch_listener_connection *next;
 };
 
@@ -69,6 +73,7 @@ typedef struct ch_relay_direction {
     ch_proxy_listener *listener;
     uint64_t flow_id;
     int incoming;
+    ch_developer_capture *developer_capture;
 } ch_relay_direction;
 
 typedef struct ch_socks_udp_association ch_socks_udp_association;
@@ -322,6 +327,15 @@ static void *ch_listener_relay_direction(void *context) {
                 direction->incoming ? 0U : (uint64_t)received,
                 direction->listener->flow_context);
         }
+        if (direction->developer_capture != NULL) {
+            if (direction->incoming) {
+                ch_developer_capture_response(
+                    direction->developer_capture, buffer, (size_t)received);
+            } else {
+                ch_developer_capture_request_body(
+                    direction->developer_capture, buffer, (size_t)received);
+            }
+        }
     }
     (void)shutdown(direction->destination, SHUT_WR);
     return NULL;
@@ -334,14 +348,16 @@ static void ch_listener_relay(ch_listener_connection *connection) {
         .source = client,
         .destination = remote,
         .listener = connection->listener,
-        .flow_id = connection->flow_id
+        .flow_id = connection->flow_id,
+        .developer_capture = connection->developer_capture
     };
     ch_relay_direction incoming = {
         .source = remote,
         .destination = client,
         .listener = connection->listener,
         .flow_id = connection->flow_id,
-        .incoming = 1
+        .incoming = 1,
+        .developer_capture = connection->developer_capture
     };
     pthread_t incoming_thread;
     int incoming_started = pthread_create(&incoming_thread, NULL,
@@ -1064,6 +1080,13 @@ static char *ch_http_forward_header(const char *method, const char *path,
     return ch_json_take(&output);
 }
 
+static void ch_http_finish_capture(ch_listener_connection *connection,
+                                   const char *error_message) {
+    if (connection->developer_capture == NULL) return;
+    ch_developer_capture_finish(connection->developer_capture, error_message);
+    connection->developer_capture = NULL;
+}
+
 static void ch_http_handle(ch_listener_connection *connection) {
     int client = connection->client_descriptor;
     size_t capacity = 8192U;
@@ -1137,18 +1160,48 @@ static void ch_http_handle(ch_listener_connection *connection) {
     ch_proxy_route route;
     ch_error error;
     ch_status status = ch_listener_dial(connection, target, &route, &error);
-    free(target);
     if (status != CH_OK) {
+        free(target);
         ch_http_status(client, 502, "Bad Gateway", 0);
         free(request);
         return;
     }
     if (route.action != CH_PROXY_ROUTE_CONNECT) {
+        free(target);
         ch_http_status(client, 403, "Forbidden", 0);
         free(request);
         return;
     }
     ch_listener_clear_timeout(client);
+    if (!is_connect && connection->listener->developer != NULL) {
+        size_t host_length = 0U;
+        const char *host_value = ch_http_header_value(
+            line_end + 2U, header_end, "Host", &host_length);
+        char *host = host_value == NULL ? ch_strdup(target) :
+            strndup(host_value, host_length);
+        char *client_address = ch_listener_socket_address(client, 1);
+        if (host != NULL && client_address != NULL) {
+            ch_developer_capture_metadata metadata = {
+                .flow_id = route.flow_id,
+                .profile = connection->listener->profile_name,
+                .client_address = client_address,
+                .chain_name = route.chain_name,
+                .method = method,
+                .url = uri,
+                .scheme = "http",
+                .host = host,
+                .request_headers = line_end + 2U,
+                .request_headers_length =
+                    (size_t)(header_end + 2U - (line_end + 2U))
+            };
+            ch_error capture_error;
+            connection->developer_capture = ch_developer_capture_begin(
+                connection->listener->developer, &metadata, &capture_error);
+        }
+        free(client_address);
+        free(host);
+    }
+    free(target);
     if (is_connect) {
         static const char connected[] =
             "HTTP/1.1 200 Connection established\r\nProxy-Agent: clambhook\r\n\r\n";
@@ -1166,18 +1219,28 @@ static void ch_http_handle(ch_listener_connection *connection) {
         *line_end = '\r';
         if (forward_header == NULL ||
             !ch_listener_send_all(connection->remote_descriptor, forward_header,
-                                  strlen(forward_header)) ||
-            (buffered_body_length > 0U &&
-             !ch_listener_send_all(connection->remote_descriptor, body_start,
-                                   buffered_body_length))) {
+                                  strlen(forward_header))) {
             free(forward_header);
+            ch_http_finish_capture(connection, "write request headers failed");
             free(request);
             return;
         }
         free(forward_header);
+        if (buffered_body_length > 0U) {
+            if (!ch_listener_send_all(connection->remote_descriptor, body_start,
+                                      buffered_body_length)) {
+                ch_http_finish_capture(connection, "write request body failed");
+                free(request);
+                return;
+            }
+            ch_developer_capture_request_body(
+                connection->developer_capture, (const uint8_t *)body_start,
+                buffered_body_length);
+        }
     }
     free(request);
     ch_listener_relay(connection);
+    ch_http_finish_capture(connection, NULL);
     return;
 
 bad_request:
@@ -1207,6 +1270,8 @@ static void *ch_listener_connection_main(void *context) {
     } else {
         ch_http_handle(connection);
     }
+    ch_http_finish_capture(
+        connection, "connection closed before capture completed");
     pthread_mutex_lock(&connection->listener->mutex);
     int remote = connection->remote_descriptor;
     int client = connection->client_descriptor;
@@ -1315,12 +1380,17 @@ ch_proxy_listener *ch_proxy_listener_start(const ch_proxy_listener_options *opti
     listener->flow_bytes = options->flow_bytes;
     listener->flow_close = options->flow_close;
     listener->flow_context = options->flow_context;
+    listener->developer = options->developer;
+    listener->profile_name = ch_strdup(
+        options->profile_name == NULL ? "" : options->profile_name);
     if (listener->configured_address == NULL || listener->username == NULL ||
-        listener->password == NULL || pthread_mutex_init(&listener->mutex, NULL) != 0) {
+        listener->password == NULL || listener->profile_name == NULL ||
+        pthread_mutex_init(&listener->mutex, NULL) != 0) {
         ch_error_set(error, CH_ERROR_OUT_OF_MEMORY, "initialize proxy listener");
         free(listener->configured_address);
         free(listener->username);
         free(listener->password);
+        free(listener->profile_name);
         free(listener);
         return NULL;
     }
@@ -1329,6 +1399,7 @@ ch_proxy_listener *ch_proxy_listener_start(const ch_proxy_listener_options *opti
         free(listener->configured_address);
         free(listener->username);
         free(listener->password);
+        free(listener->profile_name);
         free(listener);
         ch_error_set(error, CH_ERROR_INTERNAL, "initialize proxy listener condition");
         return NULL;
@@ -1348,6 +1419,7 @@ ch_proxy_listener *ch_proxy_listener_start(const ch_proxy_listener_options *opti
         free(listener->bound_address);
         free(listener->username);
         free(listener->password);
+        free(listener->profile_name);
         free(listener);
         return NULL;
     }
@@ -1389,6 +1461,7 @@ void ch_proxy_listener_stop(ch_proxy_listener *listener) {
     free(listener->bound_address);
     free(listener->username);
     free(listener->password);
+    free(listener->profile_name);
     free(listener);
 }
 
