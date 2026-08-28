@@ -282,6 +282,82 @@ char *ch_gtk_capture_enabled_body(gboolean enabled) {
     return builder_json(builder);
 }
 
+static gboolean builder_add_csv_strings(JsonBuilder *builder,
+                                        const char *name,
+                                        const char *text) {
+    json_builder_set_member_name(builder, name);
+    json_builder_begin_array(builder);
+    g_auto(GStrv) values = g_strsplit(text == NULL ? "" : text, ",", -1);
+    for (gsize index = 0U; values[index] != NULL; ++index) {
+        g_strstrip(values[index]);
+        if (values[index][0] != '\0') {
+            json_builder_add_string_value(builder, values[index]);
+        }
+    }
+    json_builder_end_array(builder);
+    return TRUE;
+}
+
+static gboolean builder_add_csv_ports(JsonBuilder *builder, const char *text,
+                                      GError **error) {
+    json_builder_set_member_name(builder, "ports");
+    json_builder_begin_array(builder);
+    g_auto(GStrv) values = g_strsplit(text == NULL ? "" : text, ",", -1);
+    for (gsize index = 0U; values[index] != NULL; ++index) {
+        g_strstrip(values[index]);
+        if (values[index][0] == '\0') continue;
+        errno = 0;
+        char *end = NULL;
+        guint64 port = g_ascii_strtoull(values[index], &end, 10);
+        if (errno == ERANGE || end == values[index] || *end != '\0' ||
+            port == 0U || port > 65535U || values[index][0] == '-') {
+            g_set_error(error, ch_gtk_model_error_quark(), 2,
+                        "port %s must be between 1 and 65535", values[index]);
+            return FALSE;
+        }
+        json_builder_add_int_value(builder, (gint64)port);
+    }
+    json_builder_end_array(builder);
+    return TRUE;
+}
+
+char *ch_gtk_rule_create_body(const char *name, const char *action,
+                              const char *domains,
+                              const char *domain_suffixes,
+                              const char *domain_keywords,
+                              const char *cidrs, const char *ports,
+                              const char *networks, gboolean prepend,
+                              GError **error) {
+    g_autofree char *trimmed_name = g_strdup(name == NULL ? "" : name);
+    g_autofree char *trimmed_action = g_strdup(action == NULL ? "" : action);
+    g_strstrip(trimmed_name);
+    g_strstrip(trimmed_action);
+    if (trimmed_name[0] == '\0' || trimmed_action[0] == '\0') {
+        g_set_error_literal(error, ch_gtk_model_error_quark(), 2,
+                            "rule name and action are required");
+        return NULL;
+    }
+    g_autoptr(JsonBuilder) builder = json_builder_new();
+    json_builder_begin_object(builder);
+    json_builder_set_member_name(builder, "rule");
+    json_builder_begin_object(builder);
+    json_builder_set_member_name(builder, "name");
+    json_builder_add_string_value(builder, trimmed_name);
+    json_builder_set_member_name(builder, "action");
+    json_builder_add_string_value(builder, trimmed_action);
+    builder_add_csv_strings(builder, "domains", domains);
+    builder_add_csv_strings(builder, "domain_suffixes", domain_suffixes);
+    builder_add_csv_strings(builder, "domain_keywords", domain_keywords);
+    builder_add_csv_strings(builder, "cidrs", cidrs);
+    if (!builder_add_csv_ports(builder, ports, error)) return NULL;
+    builder_add_csv_strings(builder, "networks", networks);
+    json_builder_end_object(builder);
+    json_builder_set_member_name(builder, "position");
+    json_builder_add_string_value(builder, prepend ? "prepend" : "append");
+    json_builder_end_object(builder);
+    return builder_json(builder);
+}
+
 static gboolean parse_nonnegative_integer(const char *text,
                                            const char *field,
                                            gint64 *out,
@@ -570,6 +646,28 @@ static void append_server_rows(JsonObject *root, GPtrArray *rows) {
                 address[0] == '\0' ? "configured endpoint" : address);
             g_ptr_array_add(rows, row_new(name, detail, ""));
         }
+    }
+}
+
+static void append_rule_rows(JsonObject *root, GPtrArray *rows) {
+    JsonArray *rules = object_array(root, "rules");
+    for (guint index = 0U; index < array_length(rules); ++index) {
+        JsonObject *rule = array_object(rules, index);
+        const char *name = object_string(rule, "name", "Unnamed rule");
+        const char *action = object_string(rule, "action", "block");
+        guint domains = array_length(object_array(rule, "domains"));
+        guint suffixes = array_length(object_array(rule, "domain_suffixes"));
+        guint keywords = array_length(object_array(rule, "domain_keywords"));
+        guint cidrs = array_length(object_array(rule, "cidrs"));
+        guint ports = array_length(object_array(rule, "ports"));
+        guint networks = array_length(object_array(rule, "networks"));
+        g_autofree char *action_upper = g_ascii_strup(action, -1);
+        g_autofree char *title = g_strdup_printf("%s  %s", action_upper, name);
+        g_autofree char *detail = g_strdup_printf(
+            "%u domains · %u suffixes · %u keywords · %u CIDRs · "
+            "%u ports · %u networks", domains, suffixes, keywords, cidrs,
+            ports, networks);
+        g_ptr_array_add(rows, row_new(title, detail, name));
     }
 }
 
@@ -1037,6 +1135,10 @@ gboolean ch_gtk_parse_page_rows(ch_gtk_page_model_kind kind,
         case CH_GTK_PAGE_SERVERS:
             append_server_rows(root, rows);
             *out_summary = g_strdup("Configured chains and server endpoints");
+            break;
+        case CH_GTK_PAGE_RULES:
+            append_rule_rows(root, rows);
+            *out_summary = g_strdup("Ordered rules for the active profile");
             break;
         case CH_GTK_PAGE_POLICIES:
             append_policy_rows(root, rows);

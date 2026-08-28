@@ -169,7 +169,13 @@ The additive CMake build currently provides:
   `secret-tool` stdin with paired keyring attributes and never appear in argv or
   logs. Model fixtures cover the persisted/applied/status/device JSON contracts,
   while every GNU/Linux lane starts the real GTK app under Xvfb and verifies the
-  first-launch state and file permissions. Remaining configuration/rule editors,
+  first-launch state and file permissions. The Rules page renders the ordered
+  active-profile collection and creates append/prepend rules with typed domain,
+  suffix, keyword, CIDR, port, and network fields; display-independent fixtures
+  reject missing identity/action and out-of-range ports before mutation. The
+  Settings page loads and edits the complete persisted TOML document, requires a
+  confirmation before import, enforces the 4 MiB limit, and relies on the native
+  daemon's validated backup/persistence/live-rollback transaction. Remaining
   capture repeat/composition, accessibility QA, and production packaging remain
   open;
 - `clambhook_jni`: the thin JNI ownership/callback boundary used by the Kotlin

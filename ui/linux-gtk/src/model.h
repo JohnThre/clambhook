@@ -95,6 +95,7 @@ typedef struct ch_gtk_license_view {
 
 typedef enum ch_gtk_page_model_kind {
     CH_GTK_PAGE_SERVERS,
+    CH_GTK_PAGE_RULES,
     CH_GTK_PAGE_POLICIES,
     CH_GTK_PAGE_PROMPTS,
     CH_GTK_PAGE_SILENT_DECISIONS,
@@ -176,6 +177,13 @@ char *ch_gtk_dns_body(const char *profile, gboolean enabled,
                       const char *timeout, const char *upstreams_json,
                       GError **error);
 char *ch_gtk_curl_import_body(const char *command);
+char *ch_gtk_rule_create_body(const char *name, const char *action,
+                              const char *domains,
+                              const char *domain_suffixes,
+                              const char *domain_keywords,
+                              const char *cidrs, const char *ports,
+                              const char *networks, gboolean prepend,
+                              GError **error);
 char *ch_gtk_license_state_json(const ch_gtk_license_state *state);
 char *ch_gtk_license_registration_body(const char *install_id,
                                        const char *display_name,

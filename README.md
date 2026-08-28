@@ -165,7 +165,7 @@ See [`docs/macos-v1-scope.md`](docs/macos-v1-scope.md) for the full scope.
 | Platform | UI framework | Status |
 | --- | --- | --- |
 | macOS 14+ (Apple Silicon) | SwiftUI | Public release |
-| GNU/Linux (Trisquel, Rocky Linux, AlmaLinux) | C / GTK 4 target; Compose remains during parity | Public release |
+| GNU/Linux (Trisquel, Rocky Linux, AlmaLinux) | C / GTK 4 target with native rule, TOML, and license management; Compose remains only as rollback during parity | Public release |
 | Android 12+ | Kotlin / Compose | Internal developer QA |
 
 Windows development is discontinued with no planned resumption date.

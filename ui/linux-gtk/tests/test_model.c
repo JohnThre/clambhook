@@ -76,6 +76,10 @@ static void test_page_rows(void) {
         "{\"chains\":[{\"name\":\"main\",\"servers\":[{"
         "\"name\":\"edge\",\"protocol\":\"trojan\","
         "\"address\":\"edge.example:443\"}]}]}", "edge");
+    assert_page(CH_GTK_PAGE_RULES,
+        "{\"profile\":\"work\",\"rules\":[{\"name\":\"private\","
+        "\"action\":\"direct\",\"domain_suffixes\":[\"internal\"],"
+        "\"networks\":[\"tcp\",\"udp\"]}]}", "DIRECT");
     assert_page(CH_GTK_PAGE_POLICIES,
         "{\"groups\":[{\"name\":\"fast\",\"type\":\"url-test\","
         "\"active_chain\":\"edge\",\"chains\":[\"edge\"]}]}",
@@ -379,6 +383,31 @@ static void test_license_contract(void) {
     ch_gtk_license_state_clear(&state);
 }
 
+static void test_rule_create_contract(void) {
+    g_autoptr(GError) error = NULL;
+    g_autofree char *body = ch_gtk_rule_create_body(
+        " private ", " direct ", "host.test, api.test", " internal ",
+        " telemetry ", "10.0.0.0/8,2001:db8::/32", " 53, 443 ",
+        "tcp, udp", TRUE, &error);
+    g_assert_cmpstr(
+        body, ==,
+        "{\"rule\":{\"name\":\"private\",\"action\":\"direct\","
+        "\"domains\":[\"host.test\",\"api.test\"],"
+        "\"domain_suffixes\":[\"internal\"],"
+        "\"domain_keywords\":[\"telemetry\"],"
+        "\"cidrs\":[\"10.0.0.0/8\",\"2001:db8::/32\"],"
+        "\"ports\":[53,443],\"networks\":[\"tcp\",\"udp\"]},"
+        "\"position\":\"prepend\"}");
+    g_assert_null(ch_gtk_rule_create_body(
+        "bad-port", "block", "", "", "", "", "70000", "", FALSE,
+        &error));
+    g_assert_nonnull(error);
+    g_clear_error(&error);
+    g_assert_null(ch_gtk_rule_create_body(
+        "", "direct", "", "", "", "", "", "", FALSE, &error));
+    g_assert_nonnull(error);
+}
+
 int main(int argc, char **argv) {
     g_test_init(&argc, &argv, NULL);
     g_test_add_func("/gtk-model/status-profiles", test_status_and_profiles);
@@ -391,5 +420,7 @@ int main(int argc, char **argv) {
                     test_conditioner_contract);
     g_test_add_func("/gtk-model/dns-contract", test_dns_contract);
     g_test_add_func("/gtk-model/license-contract", test_license_contract);
+    g_test_add_func("/gtk-model/rule-create-contract",
+                    test_rule_create_contract);
     return g_test_run();
 }

@@ -24,6 +24,7 @@ typedef enum request_kind {
     REQUEST_PROFILES,
     REQUEST_TRAFFIC,
     REQUEST_SERVERS,
+    REQUEST_RULES,
     REQUEST_POLICIES,
     REQUEST_PROMPTS,
     REQUEST_SILENT_DECISIONS,
@@ -44,11 +45,15 @@ typedef enum request_kind {
     REQUEST_DNS_UPDATE,
     REQUEST_SILENT_PROMOTE,
     REQUEST_CAPTURE_CURL_IMPORT,
-    REQUEST_CAPTURE_HAR
+    REQUEST_CAPTURE_HAR,
+    REQUEST_RULE_CREATE,
+    REQUEST_CONFIG_EXPORT,
+    REQUEST_CONFIG_IMPORT
 } RequestKind;
 
 typedef enum page_slot {
     PAGE_SERVERS,
+    PAGE_RULES,
     PAGE_POLICIES,
     PAGE_PROMPTS,
     PAGE_SILENT_DECISIONS,
@@ -105,6 +110,22 @@ typedef struct clambhook_linux_app {
     GtkWidget *prompt_match_host;
     GtkWidget *prompt_match_port;
     GtkWidget *prompt_match_protocol;
+    GtkWidget *rule_editor;
+    GtkWidget *rule_name;
+    GtkWidget *rule_action;
+    GtkWidget *rule_domains;
+    GtkWidget *rule_suffixes;
+    GtkWidget *rule_keywords;
+    GtkWidget *rule_cidrs;
+    GtkWidget *rule_ports;
+    GtkWidget *rule_networks;
+    GtkWidget *rule_prepend;
+    GtkWidget *rule_save_button;
+    GtkTextBuffer *config_document;
+    GtkWidget *config_editor;
+    GtkWidget *config_status;
+    GtkWidget *config_reload_button;
+    GtkWidget *config_apply_button;
     GtkWidget *license_title;
     GtkWidget *license_detail;
     GtkWidget *license_message;
@@ -197,6 +218,9 @@ static void send_request(ClambhookLinuxApp *app, RequestKind kind,
 static void send_request_to_file(ClambhookLinuxApp *app, RequestKind kind,
                                  const char *method, const char *path,
                                  GFile *destination);
+static void send_text_request(ClambhookLinuxApp *app, RequestKind kind,
+                              const char *method, const char *path,
+                              const char *body);
 static void populate_policy_rows(ClambhookLinuxApp *app, GPtrArray *rows);
 static void populate_prompt_rows(ClambhookLinuxApp *app, GPtrArray *rows);
 static void populate_silent_rows(ClambhookLinuxApp *app, GPtrArray *rows);
@@ -353,6 +377,11 @@ static void set_request_activity(ClambhookLinuxApp *app, int delta) {
     gtk_widget_set_sensitive(app->conditioner_save_button, !active);
     gtk_widget_set_sensitive(app->dns_editor, !active);
     gtk_widget_set_sensitive(app->dns_save_button, !active);
+    gtk_widget_set_sensitive(app->rule_editor, !active);
+    gtk_widget_set_sensitive(app->rule_save_button, !active);
+    gtk_widget_set_sensitive(app->config_editor, !active);
+    gtk_widget_set_sensitive(app->config_reload_button, !active);
+    gtk_widget_set_sensitive(app->config_apply_button, !active);
     gtk_widget_set_sensitive(app->page_lists[PAGE_POLICIES], !active);
     gtk_widget_set_sensitive(app->page_lists[PAGE_PROMPTS], !active);
     gtk_widget_set_sensitive(app->page_lists[PAGE_SILENT_DECISIONS], !active);
@@ -895,6 +924,9 @@ static gboolean request_page(RequestKind kind, PageSlot *slot,
     switch (kind) {
         case REQUEST_SERVERS:
             *slot = PAGE_SERVERS; *model_kind = CH_GTK_PAGE_SERVERS; return TRUE;
+        case REQUEST_RULES:
+        case REQUEST_RULE_CREATE:
+            *slot = PAGE_RULES; *model_kind = CH_GTK_PAGE_RULES; return TRUE;
         case REQUEST_POLICIES:
         case REQUEST_POLICY_TEST:
             *slot = PAGE_POLICIES; *model_kind = CH_GTK_PAGE_POLICIES; return TRUE;
@@ -990,9 +1022,10 @@ static void apply_page(ClambhookLinuxApp *app, RequestKind kind,
     }
     gtk_label_set_text(GTK_LABEL(app->page_summaries[slot]), summary);
     static const char *const empty_messages[PAGE_SLOT_COUNT] = {
-        "No configured servers", "No policy groups", "No pending prompts",
-        "No Silent Mode decisions", "No encrypted DNS upstreams",
-        "No captured transactions", "No conditioner state"
+        "No configured servers", "No configured rules", "No policy groups",
+        "No pending prompts", "No Silent Mode decisions",
+        "No encrypted DNS upstreams", "No captured transactions",
+        "No conditioner state"
     };
     if (slot == PAGE_POLICIES) {
         populate_policy_rows(app, rows);
@@ -1251,6 +1284,15 @@ static void save_har(ClambhookLinuxApp *app, GFile *destination,
         G_FILE_CREATE_REPLACE_DESTINATION, NULL, har_write_finished, context);
 }
 
+static void apply_config_export(ClambhookLinuxApp *app, const guint8 *data,
+                                gsize length) {
+    g_autofree char *document = g_strndup(
+        data == NULL ? "" : (const char *)data, length);
+    gtk_text_buffer_set_text(app->config_document, document, (gint)length);
+    gtk_label_set_text(GTK_LABEL(app->config_status),
+                       "Loaded the daemon's persisted TOML configuration.");
+}
+
 static char *capture_entries_path(ClambhookLinuxApp *app) {
     return ch_gtk_capture_entries_path(
         gtk_editable_get_text(GTK_EDITABLE(app->capture_query)),
@@ -1299,6 +1341,13 @@ static void reconcile_failed_mutation(ClambhookLinuxApp *app,
         case REQUEST_DNS_UPDATE:
             send_request(app, REQUEST_DNS, "GET", "/api/v1/dns", NULL);
             break;
+        case REQUEST_RULE_CREATE:
+            send_request(app, REQUEST_RULES, "GET", "/api/v1/rules", NULL);
+            break;
+        case REQUEST_CONFIG_IMPORT:
+            send_request(app, REQUEST_CONFIG_EXPORT, "GET",
+                         "/api/v1/config/export", NULL);
+            break;
         default:
             break;
     }
@@ -1337,6 +1386,16 @@ static void request_finished(GObject *source, GAsyncResult *result,
                     show_curl_import(app, data, length); break;
                 case REQUEST_CAPTURE_HAR:
                     save_har(app, context->destination, body); break;
+                case REQUEST_CONFIG_EXPORT:
+                    apply_config_export(app, data, length); break;
+                case REQUEST_CONFIG_IMPORT:
+                    gtk_label_set_text(
+                        GTK_LABEL(app->config_status),
+                        "Configuration imported, persisted, and applied.");
+                    send_request(app, REQUEST_CONFIG_EXPORT, "GET",
+                                 "/api/v1/config/export", NULL);
+                    refresh_all(app);
+                    break;
                 case REQUEST_CONNECT:
                     apply_status(app, data, length);
                     refresh_all(app);
@@ -1372,7 +1431,8 @@ static void request_finished(GObject *source, GAsyncResult *result,
 
 static void send_request_internal(ClambhookLinuxApp *app, RequestKind kind,
                                   const char *method, const char *path,
-                                  const char *body, GFile *destination) {
+                                  const char *body, const char *content_type,
+                                  GFile *destination) {
     g_autofree char *url = join_url(app->api_url, path);
     SoupMessage *message = soup_message_new(method, url);
     if (message == NULL) {
@@ -1392,7 +1452,8 @@ static void send_request_internal(ClambhookLinuxApp *app, RequestKind kind,
         g_autoptr(GBytes) request_body = g_bytes_new(
             payload, strlen(payload));
         soup_message_set_request_body_from_bytes(
-            message, "application/json", request_body);
+            message, content_type == NULL ? "application/json" : content_type,
+            request_body);
     }
     RequestContext *context = g_new0(RequestContext, 1U);
     context->app = app;
@@ -1409,13 +1470,20 @@ static void send_request_internal(ClambhookLinuxApp *app, RequestKind kind,
 static void send_request(ClambhookLinuxApp *app, RequestKind kind,
                          const char *method, const char *path,
                          const char *body) {
-    send_request_internal(app, kind, method, path, body, NULL);
+    send_request_internal(app, kind, method, path, body, NULL, NULL);
 }
 
 static void send_request_to_file(ClambhookLinuxApp *app, RequestKind kind,
                                  const char *method, const char *path,
                                  GFile *destination) {
-    send_request_internal(app, kind, method, path, NULL, destination);
+    send_request_internal(app, kind, method, path, NULL, NULL, destination);
+}
+
+static void send_text_request(ClambhookLinuxApp *app, RequestKind kind,
+                              const char *method, const char *path,
+                              const char *body) {
+    send_request_internal(app, kind, method, path, body,
+                          "text/plain; charset=utf-8", NULL);
 }
 
 static void refresh_all(ClambhookLinuxApp *app) {
@@ -1425,6 +1493,7 @@ static void refresh_all(ClambhookLinuxApp *app) {
     send_request(app, REQUEST_TRAFFIC, "GET",
                  "/api/v1/traffic?limit=200", NULL);
     send_request(app, REQUEST_SERVERS, "GET", "/api/v1/servers", NULL);
+    send_request(app, REQUEST_RULES, "GET", "/api/v1/rules", NULL);
     send_request(app, REQUEST_POLICIES, "GET",
                  "/api/v1/policy-groups", NULL);
     send_request(app, REQUEST_PROMPTS, "GET",
@@ -1438,6 +1507,8 @@ static void refresh_all(ClambhookLinuxApp *app) {
     send_request(app, REQUEST_CAPTURES, "GET", captures, NULL);
     send_request(app, REQUEST_CONDITIONER, "GET",
                  "/api/v1/conditioner", NULL);
+    send_request(app, REQUEST_CONFIG_EXPORT, "GET",
+                 "/api/v1/config/export", NULL);
 }
 
 static void connect_clicked(GtkButton *button, gpointer user_data) {
@@ -1931,6 +2002,30 @@ static void dns_save_clicked(GtkButton *button, gpointer user_data) {
     send_request(app, REQUEST_DNS_UPDATE, "PUT", "/api/v1/dns", body);
 }
 
+static void rule_save_clicked(GtkButton *button, gpointer user_data) {
+    (void)button;
+    ClambhookLinuxApp *app = user_data;
+    g_autoptr(GError) error = NULL;
+    g_autofree char *body = ch_gtk_rule_create_body(
+        gtk_editable_get_text(GTK_EDITABLE(app->rule_name)),
+        gtk_editable_get_text(GTK_EDITABLE(app->rule_action)),
+        gtk_editable_get_text(GTK_EDITABLE(app->rule_domains)),
+        gtk_editable_get_text(GTK_EDITABLE(app->rule_suffixes)),
+        gtk_editable_get_text(GTK_EDITABLE(app->rule_keywords)),
+        gtk_editable_get_text(GTK_EDITABLE(app->rule_cidrs)),
+        gtk_editable_get_text(GTK_EDITABLE(app->rule_ports)),
+        gtk_editable_get_text(GTK_EDITABLE(app->rule_networks)),
+        gtk_check_button_get_active(GTK_CHECK_BUTTON(app->rule_prepend)),
+        &error);
+    if (body == NULL) {
+        set_error(app, error == NULL ? "Invalid rule values." :
+                                      error->message);
+        return;
+    }
+    set_error(app, "");
+    send_request(app, REQUEST_RULE_CREATE, "POST", "/api/v1/rules", body);
+}
+
 static GtkWidget *detail_row(const char *title, GtkWidget **value_out) {
     GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 12);
     GtkWidget *title_label = gtk_label_new(title);
@@ -2189,6 +2284,65 @@ static void conditioner_grid_entry(GtkGrid *grid, int row,
     gtk_grid_attach(grid, label, 0, row, 1, 1);
     gtk_grid_attach(grid, entry, 1, row, 1, 1);
     *entry_out = entry;
+}
+
+static GtkWidget *create_rules_page(ClambhookLinuxApp *app) {
+    GtkWidget *page = create_data_page(
+        app, PAGE_RULES, "Routing rules",
+        "Inspect ordered active-profile rules and append or prepend a "
+        "validated rule through the native C configuration transaction.",
+        FALSE);
+    GtkWidget *editor = gtk_box_new(GTK_ORIENTATION_VERTICAL, 10);
+    app->rule_editor = editor;
+    gtk_widget_add_css_class(editor, "card");
+    GtkWidget *heading = gtk_label_new("Create rule");
+    gtk_label_set_xalign(GTK_LABEL(heading), 0.0F);
+    gtk_widget_add_css_class(heading, "title-3");
+    gtk_box_append(GTK_BOX(editor), heading);
+    GtkWidget *grid_widget = gtk_grid_new();
+    GtkGrid *grid = GTK_GRID(grid_widget);
+    gtk_grid_set_row_spacing(grid, 8);
+    gtk_grid_set_column_spacing(grid, 12);
+    conditioner_grid_entry(grid, 0, "_Name", "private-network",
+                           GTK_INPUT_PURPOSE_FREE_FORM, &app->rule_name);
+    conditioner_grid_entry(grid, 1, "_Action", "direct, block, or chain:name",
+                           GTK_INPUT_PURPOSE_FREE_FORM, &app->rule_action);
+    conditioner_grid_entry(grid, 2, "_Domains", "host.test, api.test",
+                           GTK_INPUT_PURPOSE_URL, &app->rule_domains);
+    conditioner_grid_entry(grid, 3, "Domain _suffixes", "example.test, internal",
+                           GTK_INPUT_PURPOSE_URL, &app->rule_suffixes);
+    conditioner_grid_entry(grid, 4, "Domain _keywords", "telemetry, ads",
+                           GTK_INPUT_PURPOSE_FREE_FORM, &app->rule_keywords);
+    conditioner_grid_entry(grid, 5, "_CIDRs", "10.0.0.0/8, 2001:db8::/32",
+                           GTK_INPUT_PURPOSE_FREE_FORM, &app->rule_cidrs);
+    conditioner_grid_entry(grid, 6, "_Ports", "53, 443",
+                           GTK_INPUT_PURPOSE_DIGITS, &app->rule_ports);
+    conditioner_grid_entry(grid, 7, "_Networks", "tcp, udp",
+                           GTK_INPUT_PURPOSE_FREE_FORM, &app->rule_networks);
+    gtk_box_append(GTK_BOX(editor), grid_widget);
+    GtkWidget *footer = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 10);
+    app->rule_prepend = gtk_check_button_new_with_label(
+        "Place before existing rules");
+    gtk_widget_set_hexpand(app->rule_prepend, TRUE);
+    gtk_box_append(GTK_BOX(footer), app->rule_prepend);
+    app->rule_save_button = gtk_button_new_with_label("Create rule");
+    gtk_widget_add_css_class(app->rule_save_button, "suggested-action");
+    g_signal_connect(app->rule_save_button, "clicked",
+                     G_CALLBACK(rule_save_clicked), app);
+    gtk_box_append(GTK_BOX(footer), app->rule_save_button);
+    gtk_box_append(GTK_BOX(editor), footer);
+    GtkWidget *hint = gtk_label_new(
+        "Comma-separate multiple match values. At least a name and action are "
+        "required; the daemon validates the complete rule and rolls back any "
+        "invalid configuration without changing the live runtime.");
+    gtk_label_set_xalign(GTK_LABEL(hint), 0.0F);
+    gtk_label_set_wrap(GTK_LABEL(hint), TRUE);
+    gtk_widget_add_css_class(hint, "dim-label");
+    gtk_box_append(GTK_BOX(editor), hint);
+    GtkWidget *title = gtk_widget_get_first_child(page);
+    GtkWidget *description = gtk_widget_get_next_sibling(title);
+    gtk_box_insert_child_after(GTK_BOX(page), editor, description);
+    return page;
 }
 
 static GtkWidget *create_conditioner_page(ClambhookLinuxApp *app) {
@@ -2596,16 +2750,123 @@ static GtkWidget *create_license_page(ClambhookLinuxApp *app) {
     return scroll;
 }
 
-static GtkWidget *create_information_page(const char *title,
-                                          const char *description,
-                                          const char *body) {
-    GtkWidget *page = page_container(title, description);
-    GtkWidget *label = gtk_label_new(body);
-    gtk_label_set_xalign(GTK_LABEL(label), 0.0F);
-    gtk_label_set_yalign(GTK_LABEL(label), 0.0F);
-    gtk_label_set_wrap(GTK_LABEL(label), TRUE);
-    gtk_label_set_selectable(GTK_LABEL(label), TRUE);
-    gtk_box_append(GTK_BOX(page), label);
+static void config_reload_clicked(GtkButton *button, gpointer user_data) {
+    (void)button;
+    ClambhookLinuxApp *app = user_data;
+    gtk_label_set_text(GTK_LABEL(app->config_status),
+                       "Reloading persisted configuration…");
+    send_request(app, REQUEST_CONFIG_EXPORT, "GET",
+                 "/api/v1/config/export", NULL);
+}
+
+static void config_apply_confirmed(GtkButton *button, gpointer user_data) {
+    ClambhookLinuxApp *app = user_data;
+    GtkRoot *root = gtk_widget_get_root(GTK_WIDGET(button));
+    if (GTK_IS_WINDOW(root)) gtk_window_destroy(GTK_WINDOW(root));
+    GtkTextIter start;
+    GtkTextIter end;
+    gtk_text_buffer_get_bounds(app->config_document, &start, &end);
+    g_autofree char *document = gtk_text_buffer_get_text(
+        app->config_document, &start, &end, FALSE);
+    gsize length = strlen(document);
+    if (length == 0U || length > 4U * 1024U * 1024U) {
+        set_error(app, length == 0U ?
+                  "Configuration TOML cannot be empty." :
+                  "Configuration TOML exceeds the 4 MiB import limit.");
+        return;
+    }
+    gtk_label_set_text(GTK_LABEL(app->config_status),
+                       "Validating and applying configuration…");
+    send_text_request(app, REQUEST_CONFIG_IMPORT, "POST",
+                      "/api/v1/config/import", document);
+}
+
+static void config_apply_clicked(GtkButton *button, gpointer user_data) {
+    (void)button;
+    ClambhookLinuxApp *app = user_data;
+    GtkWidget *dialog = gtk_window_new();
+    gtk_window_set_title(GTK_WINDOW(dialog), "Apply configuration?");
+    gtk_window_set_transient_for(GTK_WINDOW(dialog), GTK_WINDOW(app->window));
+    gtk_window_set_modal(GTK_WINDOW(dialog), TRUE);
+    gtk_window_set_resizable(GTK_WINDOW(dialog), FALSE);
+    GtkWidget *content = gtk_box_new(GTK_ORIENTATION_VERTICAL, 14);
+    gtk_widget_set_margin_top(content, 22);
+    gtk_widget_set_margin_bottom(content, 22);
+    gtk_widget_set_margin_start(content, 22);
+    gtk_widget_set_margin_end(content, 22);
+    GtkWidget *title = gtk_label_new(
+        "Replace the daemon's persisted TOML configuration?");
+    gtk_label_set_xalign(GTK_LABEL(title), 0.0F);
+    gtk_widget_add_css_class(title, "title-3");
+    gtk_box_append(GTK_BOX(content), title);
+    GtkWidget *detail = gtk_label_new(
+        "The native daemon validates the full document, writes a backup, and "
+        "rolls back both disk and live state if reload fails. Active routing "
+        "may restart when the configuration is accepted.");
+    gtk_label_set_xalign(GTK_LABEL(detail), 0.0F);
+    gtk_label_set_wrap(GTK_LABEL(detail), TRUE);
+    gtk_box_append(GTK_BOX(content), detail);
+    GtkWidget *actions = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+    gtk_widget_set_halign(actions, GTK_ALIGN_END);
+    GtkWidget *cancel = gtk_button_new_with_label("Cancel");
+    g_signal_connect(cancel, "clicked",
+                     G_CALLBACK(license_confirmation_cancelled), NULL);
+    gtk_box_append(GTK_BOX(actions), cancel);
+    GtkWidget *apply = gtk_button_new_with_label("Validate and apply");
+    gtk_widget_add_css_class(apply, "suggested-action");
+    g_signal_connect(apply, "clicked", G_CALLBACK(config_apply_confirmed), app);
+    gtk_box_append(GTK_BOX(actions), apply);
+    gtk_box_append(GTK_BOX(content), actions);
+    gtk_window_set_child(GTK_WINDOW(dialog), content);
+    gtk_window_present(GTK_WINDOW(dialog));
+}
+
+static GtkWidget *create_config_page(ClambhookLinuxApp *app) {
+    GtkWidget *page = page_container(
+        "Configuration",
+        "Edit the native daemon's complete TOML document with transactional "
+        "validation, backup, persistence, and live rollback.");
+    g_autofree char *connection = g_strdup_printf(
+        "Daemon API: %s · authentication token %s", app->api_url,
+        app->api_token[0] == '\0' ? "not configured" : "configured");
+    GtkWidget *connection_label = gtk_label_new(connection);
+    gtk_label_set_xalign(GTK_LABEL(connection_label), 0.0F);
+    gtk_label_set_wrap(GTK_LABEL(connection_label), TRUE);
+    gtk_widget_add_css_class(connection_label, "dim-label");
+    gtk_box_append(GTK_BOX(page), connection_label);
+    GtkWidget *toolbar = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+    app->config_status = gtk_label_new("Loading persisted configuration…");
+    gtk_label_set_xalign(GTK_LABEL(app->config_status), 0.0F);
+    gtk_label_set_wrap(GTK_LABEL(app->config_status), TRUE);
+    gtk_widget_set_hexpand(app->config_status, TRUE);
+    gtk_box_append(GTK_BOX(toolbar), app->config_status);
+    app->config_reload_button = gtk_button_new_with_label("Reload");
+    g_signal_connect(app->config_reload_button, "clicked",
+                     G_CALLBACK(config_reload_clicked), app);
+    gtk_box_append(GTK_BOX(toolbar), app->config_reload_button);
+    app->config_apply_button = gtk_button_new_with_label("Apply TOML");
+    gtk_widget_add_css_class(app->config_apply_button, "suggested-action");
+    g_signal_connect(app->config_apply_button, "clicked",
+                     G_CALLBACK(config_apply_clicked), app);
+    gtk_box_append(GTK_BOX(toolbar), app->config_apply_button);
+    gtk_box_append(GTK_BOX(page), toolbar);
+    GtkWidget *scroll = gtk_scrolled_window_new();
+    gtk_widget_set_vexpand(scroll, TRUE);
+    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroll),
+                                   GTK_POLICY_AUTOMATIC,
+                                   GTK_POLICY_AUTOMATIC);
+    app->config_editor = gtk_text_view_new();
+    gtk_text_view_set_wrap_mode(GTK_TEXT_VIEW(app->config_editor),
+                                GTK_WRAP_NONE);
+    gtk_widget_add_css_class(app->config_editor, "monospace");
+    gtk_accessible_update_property(
+        GTK_ACCESSIBLE(app->config_editor), GTK_ACCESSIBLE_PROPERTY_LABEL,
+        "ClambHook TOML configuration", -1);
+    app->config_document = gtk_text_view_get_buffer(
+        GTK_TEXT_VIEW(app->config_editor));
+    gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scroll),
+                                  app->config_editor);
+    gtk_box_append(GTK_BOX(page), scroll);
     return page;
 }
 
@@ -2662,6 +2923,7 @@ static void activate(GtkApplication *application, gpointer user_data) {
 
     add_stack_page(stack, create_now_page(app), "now", "Now");
     add_stack_page(stack, create_activity_page(app), "activity", "Activity");
+    add_stack_page(stack, create_rules_page(app), "rules", "Rules");
     add_stack_page(stack, create_data_page(
         app, PAGE_POLICIES, "Policy groups",
         "Manual selection and latency-tested automatic policy groups.", TRUE),
@@ -2673,15 +2935,7 @@ static void activate(GtkApplication *application, gpointer user_data) {
                    "conditioner", "Conditioner");
     add_stack_page(stack, create_library_page(app), "library", "Library");
     add_stack_page(stack, create_license_page(app), "license", "License");
-    g_autofree char *settings_text = g_strdup_printf(
-        "Daemon API: %s\nAuthentication token: %s\n\nSet CLAMBHOOK_API_URL "
-        "and CLAMBHOOK_API_TOKEN before launch. The token is sent only as a "
-        "Bearer header to the configured loopback API.",
-        app->api_url, app->api_token[0] == '\0' ? "not configured" :
-                                                  "configured");
-    add_stack_page(stack, create_information_page(
-        "Settings", "Native GTK connection settings.", settings_text),
-        "settings", "Settings");
+    add_stack_page(stack, create_config_page(app), "settings", "Settings");
 
     app->error_label = gtk_label_new("");
     gtk_label_set_xalign(GTK_LABEL(app->error_label), 0.0F);
