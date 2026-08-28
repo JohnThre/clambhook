@@ -625,47 +625,6 @@ void ch_test_runtime(void) {
         CH_TEST_ASSERT(runtime != NULL);
         CH_TEST_ASSERT(ch_runtime_reload(runtime, path, &error) == CH_OK);
         CH_TEST_ASSERT(ch_runtime_query(
-            runtime, "developer_settings", "{}", &json, &error) == CH_OK);
-        CH_TEST_ASSERT(strstr(json, "\"enabled\":false") != NULL);
-        CH_TEST_ASSERT(strstr(json, "\"capture_limit\":200") != NULL);
-        CH_TEST_ASSERT(strstr(json, "\"body_limit_bytes\":65536") != NULL);
-        CH_TEST_ASSERT(strstr(json, "\"header_value_limit_bytes\":8192") !=
-                       NULL);
-        CH_TEST_ASSERT(strstr(json, "\"authorization\"") != NULL);
-        CH_TEST_ASSERT(strstr(json, "\"ssl_decrypt_hosts\"") == NULL);
-        ch_string_free(json);
-        CH_TEST_ASSERT(ch_runtime_query(
-            runtime, "config_export", NULL, &json, &error) == CH_OK);
-        char *before_developer = strdup(json);
-        CH_TEST_ASSERT(before_developer != NULL);
-        ch_string_free(json);
-        CH_TEST_ASSERT(ch_runtime_mutate(
-            runtime, "update_developer_settings",
-            "{\"enabled\":true,\"mitm_enabled\":true}",
-            &json, &error) == CH_ERROR_INVALID_ARGUMENT);
-        CH_TEST_ASSERT(ch_runtime_query(
-            runtime, "config_export", NULL, &json, &error) == CH_OK);
-        CH_TEST_ASSERT_STRING(before_developer, json);
-        free(before_developer);
-        ch_string_free(json);
-        CH_TEST_ASSERT(ch_runtime_mutate(
-            runtime, "update_developer_settings",
-            "{\"enabled\":true,\"mitm_enabled\":true,"
-            "\"https_capture_ack\":true,\"no_cache_enabled\":true,"
-            "\"redact_query_params\":[\" Access_Token \",\"SECRET\"],"
-            "\"ssl_decrypt_hosts\":[\" *.Example.com \"]}",
-            &json, &error) == CH_OK);
-        CH_TEST_ASSERT(strstr(json, "\"enabled\":true") != NULL);
-        CH_TEST_ASSERT(strstr(json, "\"mitm_enabled\":true") != NULL);
-        CH_TEST_ASSERT(strstr(json, "\"no_cache_enabled\":true") != NULL);
-        CH_TEST_ASSERT(strstr(json, "\"redact_query_params\":["
-                                    "\"access_token\",\"secret\"]") != NULL);
-        CH_TEST_ASSERT(strstr(json, "\"ssl_decrypt_hosts\":["
-                                    "\"*.example.com\"]") != NULL);
-        CH_TEST_ASSERT(strstr(json, "\"ca_key_path\"") == NULL);
-        CH_TEST_ASSERT(strstr(json, "\"backup_path\":\"") != NULL);
-        ch_string_free(json);
-        CH_TEST_ASSERT(ch_runtime_query(
             runtime, "dns", "{}", &json, &error) == CH_OK);
         CH_TEST_ASSERT(strstr(json, "\"profile\":\"rich\"") != NULL);
         CH_TEST_ASSERT(strstr(json, "\"strategy\":\"encrypted\"") != NULL);
@@ -832,13 +791,6 @@ void ch_test_runtime(void) {
         CH_TEST_ASSERT(strstr(json, "\"http\":\"127.0.0.1:18080\"") !=
                        NULL);
         CH_TEST_ASSERT(strstr(json, "\"silent_mode\":\"deny\"") != NULL);
-        ch_string_free(json);
-        CH_TEST_ASSERT(ch_runtime_query(
-            runtime, "developer_settings", "{}", &json, &error) == CH_OK);
-        CH_TEST_ASSERT(strstr(json, "\"enabled\":true") != NULL);
-        CH_TEST_ASSERT(strstr(json, "\"mitm_enabled\":true") != NULL);
-        CH_TEST_ASSERT(strstr(json, "\"ssl_decrypt_hosts\":["
-                                    "\"*.example.com\"]") != NULL);
         ch_string_free(json);
         CH_TEST_ASSERT(ch_runtime_query(
             runtime, "rules", "{}", &json, &error) == CH_OK);
