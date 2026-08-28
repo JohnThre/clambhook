@@ -161,9 +161,17 @@ The additive CMake build currently provides:
   daemon-recorded action to session, until-quit, or persisted rules without
   letting the UI alter the recorded allow/deny result. The non-executing cURL
   importer exposes only a parsed preview and rejects file reads; HAR 1.2 export
-  writes the bounded redacted archive through a native save dialog. Remaining
-  configuration/rule editors, capture repeat/composition, accessibility QA,
-  license actions, and production packaging remain open;
+  writes the bounded redacted archive through a native save dialog. The native
+  license page creates or resumes the one-calendar-month trial, evaluates access
+  in C, activates licenses asynchronously, and manages deactivate/reactivate/
+  transfer device actions. Persisted license and daemon-snapshot files are
+  crash-consistent mode-0600 files under the XDG config directory; keys use
+  `secret-tool` stdin with paired keyring attributes and never appear in argv or
+  logs. Model fixtures cover the persisted/applied/status/device JSON contracts,
+  while every GNU/Linux lane starts the real GTK app under Xvfb and verifies the
+  first-launch state and file permissions. Remaining configuration/rule editors,
+  capture repeat/composition, accessibility QA, and production packaging remain
+  open;
 - `clambhook_jni`: the thin JNI ownership/callback boundary used by the Kotlin
   bridge during Android cutover. Gradle now builds and packages it with the NDK
   for arm64-v8a, armeabi-v7a, x86, and x86_64. The JNI runtime now accepts raw
@@ -387,7 +395,9 @@ Cutover is allowed only after all of the following are green:
 4. GTK functional/accessibility QA matches the current Linux feature set.
 5. Android unit, lint, build, Compose instrumentation, VPN, background, and
    process-restart tests pass on API 31, 33, and 36.
-6. macOS tests and packaging smoke pass against the C daemon/runtime.
+6. Local macOS app tests and packaging smoke pass against the C daemon/runtime;
+   GitHub Actions tests native-C portability only and never runs the macOS app
+   test suite.
 7. `.deb`, `.rpm`, Android, and macOS packaging use no Go-built artifact.
 8. A repository search finds no production Go source, `go.mod`, gomobile/cgo
    step, Go binary, or Go toolchain requirement.

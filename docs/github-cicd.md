@@ -19,9 +19,11 @@ publish directly to the private Cloudflare R2 distribution bucket used by
 Swift CodeQL traces only the shared Swift package target. It does not build or
 test `ClambhookMac`; macOS app builds and tests remain local. Go CodeQL uses a
 manual legacy-source build until the final C cutover removes the Go tree and
-its matrix row. `scripts/check-github-actions.sh` rejects `build-apple`,
-`test-apple`, `swift test`, or a direct `ClambhookMac` Xcode build in every
-workflow except the protected release workflow.
+its matrix row. `scripts/check-github-actions.sh` rejects `test-apple` and
+`swift test` in every workflow. It also rejects `build-apple` or a direct
+`ClambhookMac` Xcode build outside the protected publication workflow; that
+workflow may archive, sign, and notarize the already locally tested app, but it
+may not run the app test suite.
 
 All workflows default to `permissions: {}`. Jobs grant only `contents: read` or
 the security permissions they require. Third-party actions are pinned to full

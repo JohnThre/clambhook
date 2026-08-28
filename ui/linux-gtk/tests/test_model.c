@@ -319,6 +319,66 @@ static void test_dns_contract(void) {
     g_assert_nonnull(error);
 }
 
+static void test_license_contract(void) {
+    static const guint8 persisted_json[] =
+        "{\"installId\":\"install-1\",\"email\":\"owner@example.test\","
+        "\"snapshotJson\":\"{\\\"trialStartDate\\\":\\\"2026-08-01T00:00:00Z\\\"}\","
+        "\"grantJson\":\"\",\"deviceStateJson\":\"{}\"}";
+    ch_gtk_license_state state;
+    g_autoptr(GError) error = NULL;
+    g_assert_true(ch_gtk_parse_license_state(
+        persisted_json, sizeof(persisted_json) - 1U, &state, &error));
+    g_assert_cmpstr(state.install_id, ==, "install-1");
+    g_assert_cmpstr(state.email, ==, "owner@example.test");
+    g_assert_nonnull(strstr(state.snapshot_json, "trialStartDate"));
+
+    static const guint8 applied_json[] =
+        "{\"snapshot\":{\"reason\":\"lifetime\"},"
+        "\"grant\":{\"signature\":\"opaque\"},\"deviceState\":{"
+        "\"current_install_id\":\"install-1\","
+        "\"current_device_id\":\"device-1\",\"max_active_devices\":3,"
+        "\"devices\":[{\"device_id\":\"device-1\","
+        "\"display_name\":\"Workstation\",\"platform\":\"linux\","
+        "\"architecture\":\"x86_64\",\"deactivated_at\":\"\"}]} }";
+    g_assert_true(ch_gtk_license_state_apply(
+        applied_json, sizeof(applied_json) - 1U, &state, &error));
+    g_assert_cmpstr(state.snapshot_json, ==, "{\"reason\":\"lifetime\"}");
+    g_assert_nonnull(strstr(state.device_state_json, "device-1"));
+    g_autofree char *serialized = ch_gtk_license_state_json(&state);
+    ch_gtk_license_state reparsed;
+    g_assert_true(ch_gtk_parse_license_state(
+        (const guint8 *)serialized, strlen(serialized), &reparsed, &error));
+    g_assert_cmpstr(reparsed.install_id, ==, state.install_id);
+    g_assert_cmpstr(reparsed.device_state_json, ==, state.device_state_json);
+
+    static const char status_json[] =
+        "{\"decision\":{\"reason\":\"lifetime\","
+        "\"updateCutoffDate\":\"2027-08-01T00:00:00Z\"}}";
+    ch_gtk_license_view view;
+    g_assert_true(ch_gtk_parse_license_view(
+        status_json, state.device_state_json, &view, &error));
+    g_assert_true(view.can_use_app);
+    g_assert_true(view.current_device_active);
+    g_assert_cmpstr(view.title, ==, "Licensed");
+    g_assert_cmpuint(view.active_devices, ==, 1U);
+    g_assert_cmpuint(view.max_active_devices, ==, 3U);
+    g_assert_cmpuint(view.devices->len, ==, 1U);
+    ch_gtk_row *device = g_ptr_array_index(view.devices, 0U);
+    g_assert_cmpstr(device->title, ==, "Workstation");
+    g_assert_nonnull(strstr(device->detail, "active"));
+    ch_gtk_license_view_clear(&view);
+
+    g_autofree char *registration = ch_gtk_license_registration_body(
+        state.install_id, "Workstation", "x86_64", "1.2.3");
+    g_assert_cmpstr(
+        registration, ==,
+        "{\"install_id\":\"install-1\",\"display_name\":\"Workstation\","
+        "\"platform\":\"linux\",\"architecture\":\"x86_64\","
+        "\"app_version\":\"1.2.3\"}");
+    ch_gtk_license_state_clear(&reparsed);
+    ch_gtk_license_state_clear(&state);
+}
+
 int main(int argc, char **argv) {
     g_test_init(&argc, &argv, NULL);
     g_test_add_func("/gtk-model/status-profiles", test_status_and_profiles);
@@ -330,5 +390,6 @@ int main(int argc, char **argv) {
     g_test_add_func("/gtk-model/conditioner-contract",
                     test_conditioner_contract);
     g_test_add_func("/gtk-model/dns-contract", test_dns_contract);
+    g_test_add_func("/gtk-model/license-contract", test_license_contract);
     return g_test_run();
 }

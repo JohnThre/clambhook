@@ -74,6 +74,25 @@ typedef struct ch_gtk_curl_import {
     char *body;
 } ch_gtk_curl_import;
 
+typedef struct ch_gtk_license_state {
+    char *install_id;
+    char *email;
+    char *snapshot_json;
+    char *grant_json;
+    char *device_state_json;
+} ch_gtk_license_state;
+
+typedef struct ch_gtk_license_view {
+    gboolean can_use_app;
+    gboolean current_device_active;
+    char *title;
+    char *detail;
+    char *current_device_id;
+    guint active_devices;
+    guint max_active_devices;
+    GPtrArray *devices;
+} ch_gtk_license_view;
+
 typedef enum ch_gtk_page_model_kind {
     CH_GTK_PAGE_SERVERS,
     CH_GTK_PAGE_POLICIES,
@@ -92,6 +111,8 @@ void ch_gtk_capture_detail_clear(ch_gtk_capture_detail *detail);
 void ch_gtk_conditioner_model_clear(ch_gtk_conditioner_model *model);
 void ch_gtk_dns_model_clear(ch_gtk_dns_model *model);
 void ch_gtk_curl_import_clear(ch_gtk_curl_import *model);
+void ch_gtk_license_state_clear(ch_gtk_license_state *state);
+void ch_gtk_license_view_clear(ch_gtk_license_view *view);
 
 gboolean ch_gtk_parse_status(const guint8 *data, gsize length,
                              ch_gtk_status_model *out, GError **error);
@@ -116,6 +137,16 @@ gboolean ch_gtk_parse_dns(const guint8 *data, gsize length,
 gboolean ch_gtk_parse_curl_import(const guint8 *data, gsize length,
                                   ch_gtk_curl_import *out,
                                   GError **error);
+gboolean ch_gtk_parse_license_state(const guint8 *data, gsize length,
+                                    ch_gtk_license_state *out,
+                                    GError **error);
+gboolean ch_gtk_license_state_apply(const guint8 *data, gsize length,
+                                    ch_gtk_license_state *state,
+                                    GError **error);
+gboolean ch_gtk_parse_license_view(const char *status_json,
+                                   const char *device_state_json,
+                                   ch_gtk_license_view *out,
+                                   GError **error);
 
 char *ch_gtk_format_bytes(guint64 value);
 char *ch_gtk_format_rate(double value);
@@ -145,5 +176,10 @@ char *ch_gtk_dns_body(const char *profile, gboolean enabled,
                       const char *timeout, const char *upstreams_json,
                       GError **error);
 char *ch_gtk_curl_import_body(const char *command);
+char *ch_gtk_license_state_json(const ch_gtk_license_state *state);
+char *ch_gtk_license_registration_body(const char *install_id,
+                                       const char *display_name,
+                                       const char *architecture,
+                                       const char *app_version);
 
 #endif

@@ -109,6 +109,7 @@ apt-get install -y -qq \
   build-essential cmake ninja-build pkg-config \
   libuv1-dev libsodium-dev libllhttp-dev libssl-dev libcurl4-openssl-dev \
   libgtk-4-dev libsoup-3.0-dev libjson-glib-dev \
+  xvfb xauth libsecret-tools \
   openjdk-17-jdk-headless \
   debhelper dh-golang dpkg-dev fakeroot rsync \
   git curl wget ca-certificates tar file xz-utils >/dev/null'
@@ -119,6 +120,7 @@ dnf install -y -q --allowerasing \
   gcc gcc-c++ make cmake ninja-build pkgconf-pkg-config \
   libuv-devel libsodium-devel llhttp-devel openssl-devel libcurl-devel \
   gtk4-devel libsoup3-devel json-glib-devel \
+  xorg-x11-server-Xvfb xorg-x11-xauth libsecret \
   java-17-openjdk-devel \
   rpm-build systemd-rpm-macros polkit-devel \
   git curl wget tar gzip file which rsync ca-certificates >/dev/null'
@@ -145,6 +147,18 @@ make test-native
 make build-linux-gtk
 test -x build-native/clambhook-linux-c
 ./build-native/clambhook-linux-c --version | grep -q "^clambhook-linux "
+CLAMBHOOK_GTK_LICENSE_CONFIG=$(mktemp -d)
+set +e
+timeout 4s xvfb-run -a env \
+  XDG_CONFIG_HOME="$CLAMBHOOK_GTK_LICENSE_CONFIG" \
+  CLAMBHOOK_API_URL=http://127.0.0.1:1 \
+  ./build-native/clambhook-linux-c >/tmp/clambhook-gtk-smoke.log 2>&1
+CLAMBHOOK_GTK_EXIT=$?
+set -e
+test "$CLAMBHOOK_GTK_EXIT" -eq 124
+test "$(stat -c %a "$CLAMBHOOK_GTK_LICENSE_CONFIG/clambhook/linux-license.json")" = 600
+test "$(stat -c %a "$CLAMBHOOK_GTK_LICENSE_CONFIG/clambhook/license-snapshot.json")" = 600
+grep -q "trialStartDate" "$CLAMBHOOK_GTK_LICENSE_CONFIG/clambhook/license-snapshot.json"
 make test
 make build
 make test-linux

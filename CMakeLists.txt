@@ -197,7 +197,7 @@ if(CLAMBHOOK_BUILD_GTK)
   )
   add_executable(clambhook-linux-c ui/linux-gtk/src/main.c)
   target_link_libraries(clambhook-linux-c PRIVATE
-    clambhook-linux-model PkgConfig::GTK4 PkgConfig::LIBSOUP
+    clambhook-linux-model Clambhook::Core PkgConfig::GTK4 PkgConfig::LIBSOUP
   )
   target_compile_options(clambhook-linux-c PRIVATE
     $<$<C_COMPILER_ID:AppleClang,Clang,GNU>:-Wall;-Wextra;-Wpedantic;-Wconversion;-Wshadow>

@@ -170,6 +170,25 @@ void ch_gtk_curl_import_clear(ch_gtk_curl_import *model) {
     memset(model, 0, sizeof(*model));
 }
 
+void ch_gtk_license_state_clear(ch_gtk_license_state *state) {
+    if (state == NULL) return;
+    g_free(state->install_id);
+    g_free(state->email);
+    g_free(state->snapshot_json);
+    g_free(state->grant_json);
+    g_free(state->device_state_json);
+    memset(state, 0, sizeof(*state));
+}
+
+void ch_gtk_license_view_clear(ch_gtk_license_view *view) {
+    if (view == NULL) return;
+    g_free(view->title);
+    g_free(view->detail);
+    g_free(view->current_device_id);
+    g_clear_pointer(&view->devices, g_ptr_array_unref);
+    memset(view, 0, sizeof(*view));
+}
+
 char *ch_gtk_format_bytes(guint64 value) {
     static const char *const units[] = {"B", "KiB", "MiB", "GiB", "TiB"};
     double scaled = (double)value;
@@ -809,6 +828,198 @@ gboolean ch_gtk_parse_curl_import(const guint8 *data, gsize length,
     out->headers = capture_headers_text(root);
     g_object_unref(parser);
     return TRUE;
+}
+
+static char *json_node_text(JsonNode *node) {
+    if (node == NULL || JSON_NODE_HOLDS_NULL(node)) return g_strdup("");
+    g_autoptr(JsonGenerator) generator = json_generator_new();
+    json_generator_set_root(generator, node);
+    return json_generator_to_data(generator, NULL);
+}
+
+gboolean ch_gtk_parse_license_state(const guint8 *data, gsize length,
+                                    ch_gtk_license_state *out,
+                                    GError **error) {
+    memset(out, 0, sizeof(*out));
+    if (data == NULL || length == 0U) {
+        out->install_id = g_strdup("");
+        out->email = g_strdup("");
+        out->snapshot_json = g_strdup("");
+        out->grant_json = g_strdup("");
+        out->device_state_json = g_strdup("");
+        return TRUE;
+    }
+    JsonParser *parser = NULL;
+    JsonObject *root = parse_root(data, length, &parser, error);
+    if (root == NULL) return FALSE;
+    out->install_id = g_strdup(object_string(root, "installId", ""));
+    out->email = g_strdup(object_string(root, "email", ""));
+    out->snapshot_json = g_strdup(object_string(root, "snapshotJson", ""));
+    out->grant_json = g_strdup(object_string(root, "grantJson", ""));
+    out->device_state_json = g_strdup(
+        object_string(root, "deviceStateJson", ""));
+    g_object_unref(parser);
+    return TRUE;
+}
+
+char *ch_gtk_license_state_json(const ch_gtk_license_state *state) {
+    g_autoptr(JsonBuilder) builder = json_builder_new();
+    json_builder_begin_object(builder);
+    json_builder_set_member_name(builder, "installId");
+    json_builder_add_string_value(builder, state->install_id == NULL ? "" :
+                                                                    state->install_id);
+    json_builder_set_member_name(builder, "email");
+    json_builder_add_string_value(builder, state->email == NULL ? "" :
+                                                               state->email);
+    json_builder_set_member_name(builder, "snapshotJson");
+    json_builder_add_string_value(builder, state->snapshot_json == NULL ? "" :
+                                                                       state->snapshot_json);
+    json_builder_set_member_name(builder, "grantJson");
+    json_builder_add_string_value(builder, state->grant_json == NULL ? "" :
+                                                                    state->grant_json);
+    json_builder_set_member_name(builder, "deviceStateJson");
+    json_builder_add_string_value(
+        builder, state->device_state_json == NULL ? "" :
+                                                   state->device_state_json);
+    json_builder_end_object(builder);
+    return builder_json(builder);
+}
+
+static void replace_node_json(JsonObject *root, const char *name,
+                              char **destination) {
+    JsonNode *node = json_object_get_member(root, name);
+    if (node == NULL || JSON_NODE_HOLDS_NULL(node)) return;
+    g_autofree char *encoded = json_node_text(node);
+    g_free(*destination);
+    *destination = g_steal_pointer(&encoded);
+}
+
+gboolean ch_gtk_license_state_apply(const guint8 *data, gsize length,
+                                    ch_gtk_license_state *state,
+                                    GError **error) {
+    JsonParser *parser = NULL;
+    JsonObject *root = parse_root(data, length, &parser, error);
+    if (root == NULL) return FALSE;
+    replace_node_json(root, "snapshot", &state->snapshot_json);
+    replace_node_json(root, "grant", &state->grant_json);
+    replace_node_json(root, "deviceState", &state->device_state_json);
+    g_object_unref(parser);
+    return TRUE;
+}
+
+static char *license_detail(JsonObject *decision, const char *reason) {
+    if (strcmp(reason, "trial") == 0) {
+        guint64 days = object_uint64(decision, "trialDaysRemaining");
+        const char *ends = object_string(decision, "trialEndsAt", "");
+        return ends[0] == '\0' ?
+            g_strdup_printf("%" G_GUINT64_FORMAT
+                            " days left in the one-month trial", days) :
+            g_strdup_printf("%" G_GUINT64_FORMAT
+                            " days left · trial ends %.10s", days, ends);
+    }
+    if (strcmp(reason, "lifetime") == 0) {
+        const char *cutoff = object_string(decision, "updateCutoffDate", "");
+        return cutoff[0] == '\0' ?
+            g_strdup("Lifetime license active") :
+            g_strdup_printf("Lifetime license · updates included through %.10s",
+                            cutoff);
+    }
+    if (strcmp(reason, "offlineGrace") == 0) {
+        const char *ends = object_string(decision, "offlineGraceEndsAt", "");
+        return ends[0] == '\0' ?
+            g_strdup("Using a cached license while verification is unavailable") :
+            g_strdup_printf("Cached license · offline grace through %.10s", ends);
+    }
+    return g_strdup("Activate a license key to continue using ClambHook.");
+}
+
+gboolean ch_gtk_parse_license_view(const char *status_json,
+                                   const char *device_state_json,
+                                   ch_gtk_license_view *out,
+                                   GError **error) {
+    memset(out, 0, sizeof(*out));
+    JsonParser *status_parser = NULL;
+    const char *status_text = status_json == NULL || status_json[0] == '\0' ?
+        "{}" : status_json;
+    JsonObject *status = parse_root(
+        (const guint8 *)status_text, strlen(status_text), &status_parser, error);
+    if (status == NULL) return FALSE;
+    JsonObject *decision = object_object(status, "decision");
+    const char *reason = object_string(decision, "reason", "locked");
+    out->can_use_app = strcmp(reason, "locked") != 0;
+    if (strcmp(reason, "trial") == 0) out->title = g_strdup("Trial active");
+    else if (strcmp(reason, "lifetime") == 0) {
+        out->title = g_strdup("Licensed");
+    } else if (strcmp(reason, "offlineGrace") == 0) {
+        out->title = g_strdup("Licensed (offline grace)");
+    } else out->title = g_strdup("License required");
+    out->detail = license_detail(decision, reason);
+
+    JsonParser *device_parser = NULL;
+    const char *device_text = device_state_json == NULL ||
+        device_state_json[0] == '\0' ? "{}" : device_state_json;
+    JsonObject *device_state = parse_root(
+        (const guint8 *)device_text, strlen(device_text), &device_parser,
+        error);
+    if (device_state == NULL) {
+        g_object_unref(status_parser);
+        ch_gtk_license_view_clear(out);
+        return FALSE;
+    }
+    out->current_device_id = g_strdup(
+        object_string(device_state, "current_device_id", ""));
+    guint64 maximum = object_uint64(device_state, "max_active_devices");
+    out->max_active_devices = maximum == 0U ? 3U :
+        (maximum > G_MAXUINT ? G_MAXUINT : (guint)maximum);
+    out->devices = g_ptr_array_new_with_free_func(
+        (GDestroyNotify)ch_gtk_row_free);
+    JsonArray *devices = object_array(device_state, "devices");
+    for (guint index = 0U; index < array_length(devices); ++index) {
+        JsonObject *device = array_object(devices, index);
+        const char *identifier = object_string(device, "device_id", "");
+        const char *name = object_string(device, "display_name", "Device");
+        const char *platform = object_string(device, "platform", "unknown");
+        const char *architecture = object_string(
+            device, "architecture", "unknown");
+        const char *deactivated = object_string(
+            device, "deactivated_at", "");
+        gboolean active = deactivated[0] == '\0';
+        if (active) ++out->active_devices;
+        if (active && strcmp(identifier, out->current_device_id) == 0) {
+            out->current_device_active = TRUE;
+        }
+        g_autofree char *detail = g_strdup_printf(
+            "%s · %s · %s", platform, architecture,
+            active ? "active" : "deactivated");
+        g_ptr_array_add(out->devices, row_new(name, detail, identifier));
+    }
+    g_object_unref(device_parser);
+    g_object_unref(status_parser);
+    return TRUE;
+}
+
+char *ch_gtk_license_registration_body(const char *install_id,
+                                       const char *display_name,
+                                       const char *architecture,
+                                       const char *app_version) {
+    g_autoptr(JsonBuilder) builder = json_builder_new();
+    json_builder_begin_object(builder);
+    json_builder_set_member_name(builder, "install_id");
+    json_builder_add_string_value(builder, install_id == NULL ? "" :
+                                                               install_id);
+    json_builder_set_member_name(builder, "display_name");
+    json_builder_add_string_value(builder, display_name == NULL ?
+                                           "GNU/Linux device" : display_name);
+    json_builder_set_member_name(builder, "platform");
+    json_builder_add_string_value(builder, "linux");
+    json_builder_set_member_name(builder, "architecture");
+    json_builder_add_string_value(builder, architecture == NULL ? "unknown" :
+                                                                 architecture);
+    json_builder_set_member_name(builder, "app_version");
+    json_builder_add_string_value(builder, app_version == NULL ? "" :
+                                                               app_version);
+    json_builder_end_object(builder);
+    return builder_json(builder);
 }
 
 gboolean ch_gtk_parse_page_rows(ch_gtk_page_model_kind kind,

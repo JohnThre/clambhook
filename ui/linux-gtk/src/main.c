@@ -1,15 +1,23 @@
 #include <gtk/gtk.h>
+#include <glib/gstdio.h>
 #include <json-glib/json-glib.h>
 #include <libsoup/soup.h>
 
+#include <errno.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/utsname.h>
 
+#include "clambhook/license.h"
+#include "clambhook/license_json.h"
 #include "model.h"
 
 #ifndef CLAMBHOOK_VERSION
 #define CLAMBHOOK_VERSION "dev"
 #endif
+
+#define CLAMBHOOK_LICENSE_BUY_URL \
+    "https://store.swiphtgroup.com/clambhook/buy/"
 
 typedef enum request_kind {
     REQUEST_STATUS,
@@ -97,6 +105,17 @@ typedef struct clambhook_linux_app {
     GtkWidget *prompt_match_host;
     GtkWidget *prompt_match_port;
     GtkWidget *prompt_match_protocol;
+    GtkWidget *license_title;
+    GtkWidget *license_detail;
+    GtkWidget *license_message;
+    GtkWidget *license_key_entry;
+    GtkWidget *license_email_entry;
+    GtkWidget *license_activate_button;
+    GtkWidget *license_deactivate_button;
+    GtkWidget *license_reactivate_button;
+    GtkWidget *license_transfer_button;
+    GtkWidget *license_device_summary;
+    GtkWidget *license_device_list;
     SoupSession *session;
     SoupWebsocketConnection *event_connection;
     char *api_url;
@@ -109,8 +128,15 @@ typedef struct clambhook_linux_app {
     guint event_reconnect_source;
     gboolean event_connecting;
     gboolean shutting_down;
+    gboolean license_can_use_app;
+    gboolean license_busy;
+    gboolean license_key_available;
+    gboolean license_current_device_active;
     char *conditioner_profile;
     char *dns_profile;
+    char *license_status_json;
+    char *startup_error;
+    ch_gtk_license_state license_state;
 } ClambhookLinuxApp;
 
 typedef struct event_connect_context {
@@ -149,6 +175,21 @@ typedef struct har_write_context {
     GBytes *contents;
 } HarWriteContext;
 
+typedef struct license_task_context {
+    char *action;
+    char *license_key;
+    char *email;
+    char *install_id;
+    char *device_id;
+    char *registration_json;
+} LicenseTaskContext;
+
+typedef struct license_task_result {
+    char *applied_json;
+    char *warning;
+    gboolean key_available;
+} LicenseTaskResult;
+
 static void refresh_all(ClambhookLinuxApp *app);
 static void send_request(ClambhookLinuxApp *app, RequestKind kind,
                          const char *method, const char *path,
@@ -161,6 +202,7 @@ static void populate_prompt_rows(ClambhookLinuxApp *app, GPtrArray *rows);
 static void populate_silent_rows(ClambhookLinuxApp *app, GPtrArray *rows);
 static void populate_capture_rows(ClambhookLinuxApp *app, GPtrArray *rows);
 static void start_event_stream(ClambhookLinuxApp *app);
+static void license_update_ui(ClambhookLinuxApp *app);
 
 static char *join_url(const char *base, const char *path) {
     gsize base_length = strlen(base);
@@ -295,7 +337,9 @@ static void set_request_activity(ClambhookLinuxApp *app, int delta) {
         --app->active_requests;
     }
     gboolean active = app->active_requests > 0U;
-    gtk_widget_set_sensitive(app->connect_button, !active);
+    gtk_widget_set_sensitive(app->connect_button,
+                             !active && !app->license_busy &&
+                             app->license_can_use_app);
     gtk_widget_set_sensitive(app->refresh_button, !active);
     gtk_widget_set_sensitive(app->profile_dropdown, !active);
     gtk_widget_set_sensitive(app->policy_test_button, !active);
@@ -392,6 +436,367 @@ static void set_error(ClambhookLinuxApp *app, const char *message) {
                        message == NULL ? "" : message);
     gtk_widget_set_visible(app->error_label,
                            message != NULL && message[0] != '\0');
+}
+
+static GQuark license_error_quark(void) {
+    return g_quark_from_static_string("clambhook-linux-license");
+}
+
+static gint64 license_now_millis(void) {
+    return g_get_real_time() / 1000;
+}
+
+static char *license_config_path(const char *name) {
+    return g_build_filename(g_get_user_config_dir(), "clambhook", name, NULL);
+}
+
+static gboolean license_save_state(ClambhookLinuxApp *app, GError **error) {
+    g_autofree char *directory = g_build_filename(
+        g_get_user_config_dir(), "clambhook", NULL);
+    if (g_mkdir_with_parents(directory, 0700) != 0) {
+        int saved_errno = errno;
+        g_set_error(error, G_FILE_ERROR,
+                    (int)g_file_error_from_errno(saved_errno),
+                    "create license directory: %s", g_strerror(saved_errno));
+        return FALSE;
+    }
+    if (g_chmod(directory, 0700) != 0) {
+        int saved_errno = errno;
+        g_set_error(error, G_FILE_ERROR,
+                    (int)g_file_error_from_errno(saved_errno),
+                    "protect license directory: %s", g_strerror(saved_errno));
+        return FALSE;
+    }
+    g_autofree char *state_path = license_config_path("linux-license.json");
+    g_autofree char *snapshot_path = license_config_path(
+        "license-snapshot.json");
+    g_autofree char *serialized = ch_gtk_license_state_json(
+        &app->license_state);
+    GFileSetContentsFlags flags = G_FILE_SET_CONTENTS_CONSISTENT |
+                                  G_FILE_SET_CONTENTS_DURABLE;
+    if (!g_file_set_contents_full(state_path, serialized, -1, flags, 0600,
+                                  error)) {
+        return FALSE;
+    }
+    const char *snapshot = app->license_state.snapshot_json == NULL ||
+        app->license_state.snapshot_json[0] == '\0' ? "{}" :
+        app->license_state.snapshot_json;
+    return g_file_set_contents_full(snapshot_path, snapshot, -1, flags, 0600,
+                                    error);
+}
+
+static gboolean license_secret_call(const char *const *arguments,
+                                    const char *input, char **output,
+                                    GError **error) {
+    GSubprocessFlags flags = G_SUBPROCESS_FLAGS_STDOUT_PIPE |
+                             G_SUBPROCESS_FLAGS_STDERR_PIPE;
+    if (input != NULL) flags |= G_SUBPROCESS_FLAGS_STDIN_PIPE;
+    g_autoptr(GSubprocess) process = g_subprocess_newv(arguments, flags, error);
+    if (process == NULL) return FALSE;
+    g_autofree char *stdout_text = NULL;
+    g_autofree char *stderr_text = NULL;
+    if (!g_subprocess_communicate_utf8(
+            process, input, NULL, &stdout_text, &stderr_text, error)) {
+        return FALSE;
+    }
+    if (!g_subprocess_get_successful(process)) {
+        g_autofree char *detail = g_strdup(stderr_text == NULL ? "" :
+                                                               stderr_text);
+        g_strstrip(detail);
+        g_set_error(error, license_error_quark(), 1, "%s",
+                    detail[0] == '\0' ?
+                    "desktop keyring rejected the license-key request" :
+                    detail);
+        return FALSE;
+    }
+    if (output != NULL) {
+        *output = g_strdup(stdout_text == NULL ? "" : stdout_text);
+        g_strstrip(*output);
+    }
+    return TRUE;
+}
+
+static gboolean license_secret_lookup(char **output, GError **error) {
+    static const char *const arguments[] = {
+        "secret-tool", "lookup", "application",
+        "com.clambhook.Clambhook", "account", "default", NULL
+    };
+    *output = NULL;
+    return license_secret_call(arguments, NULL, output, error);
+}
+
+static gboolean license_secret_store(const char *key, GError **error) {
+    static const char *const arguments[] = {
+        "secret-tool", "store", "--label=ClambHook license key",
+        "application", "com.clambhook.Clambhook", "account", "default", NULL
+    };
+    return license_secret_call(arguments, key, NULL, error);
+}
+
+static gboolean license_refresh_status(ClambhookLinuxApp *app,
+                                       GError **error) {
+    ch_error native_error;
+    char *status_json = NULL;
+    ch_status status = ch_license_status_json(
+        app->license_state.snapshot_json == NULL ? "" :
+                                                  app->license_state.snapshot_json,
+        0, license_now_millis(), &status_json, &native_error);
+    if (status != CH_OK) {
+        g_set_error(error, license_error_quark(), (int)status, "%s",
+                    native_error.message[0] == '\0' ?
+                    "evaluate license status" : native_error.message);
+        return FALSE;
+    }
+    ch_gtk_license_view view;
+    gboolean parsed = ch_gtk_parse_license_view(
+        status_json, app->license_state.device_state_json, &view, error);
+    if (!parsed) {
+        free(status_json);
+        return FALSE;
+    }
+    g_free(app->license_status_json);
+    app->license_status_json = status_json;
+    app->license_can_use_app = view.can_use_app;
+    app->license_current_device_active = view.current_device_active;
+    ch_gtk_license_view_clear(&view);
+    license_update_ui(app);
+    return TRUE;
+}
+
+static gboolean license_initialize(ClambhookLinuxApp *app, GError **error) {
+    g_autofree char *path = license_config_path("linux-license.json");
+    g_autofree char *contents = NULL;
+    gsize length = 0U;
+    if (g_file_test(path, G_FILE_TEST_EXISTS) &&
+        !g_file_get_contents(path, &contents, &length, error)) {
+        return FALSE;
+    }
+    if (!ch_gtk_parse_license_state(
+            (const guint8 *)contents, length, &app->license_state, error)) {
+        return FALSE;
+    }
+    if (app->license_state.install_id[0] == '\0') {
+        ch_error native_error;
+        char *install_id = ch_license_new_install_id(&native_error);
+        if (install_id == NULL) {
+            g_set_error(error, license_error_quark(), (int)native_error.code,
+                        "%s", native_error.message);
+            return FALSE;
+        }
+        g_free(app->license_state.install_id);
+        app->license_state.install_id = g_strdup(install_id);
+        free(install_id);
+    }
+    ch_error native_error;
+    char *snapshot_json = NULL;
+    ch_status status = ch_license_ensure_trial_json(
+        app->license_state.snapshot_json, license_now_millis(),
+        &snapshot_json, &native_error);
+    if (status != CH_OK) {
+        g_set_error(error, license_error_quark(), (int)status, "%s",
+                    native_error.message);
+        return FALSE;
+    }
+    g_free(app->license_state.snapshot_json);
+    app->license_state.snapshot_json = g_strdup(snapshot_json);
+    free(snapshot_json);
+    if (!license_save_state(app, error) ||
+        !license_refresh_status(app, error)) {
+        return FALSE;
+    }
+    g_autofree char *stored_key = NULL;
+    g_autoptr(GError) key_error = NULL;
+    app->license_key_available = license_secret_lookup(
+        &stored_key, &key_error) && stored_key[0] != '\0';
+    return TRUE;
+}
+
+static void license_task_context_free(LicenseTaskContext *context) {
+    if (context == NULL) return;
+    g_free(context->action);
+    g_free(context->license_key);
+    g_free(context->email);
+    g_free(context->install_id);
+    g_free(context->device_id);
+    g_free(context->registration_json);
+    g_free(context);
+}
+
+static void license_task_result_free(LicenseTaskResult *result) {
+    if (result == NULL) return;
+    free(result->applied_json);
+    g_free(result->warning);
+    g_free(result);
+}
+
+static void license_task_worker(GTask *task, gpointer source_object,
+                                gpointer task_data,
+                                GCancellable *cancellable) {
+    (void)source_object;
+    (void)cancellable;
+    LicenseTaskContext *context = task_data;
+    g_autofree char *key = g_strdup(context->license_key);
+    if (key == NULL || key[0] == '\0') {
+        g_autoptr(GError) key_error = NULL;
+        g_clear_pointer(&key, g_free);
+        if (!license_secret_lookup(&key, &key_error) || key[0] == '\0') {
+            g_task_return_new_error(
+                task, license_error_quark(), 1,
+                "Enter a license key before managing devices%s%s",
+                key_error == NULL ? "." : ": ",
+                key_error == NULL ? "" : key_error->message);
+            return;
+        }
+    }
+    ch_error native_error;
+    char *applied_json = NULL;
+    ch_status status;
+    if (strcmp(context->action, "activate") == 0) {
+        status = ch_license_activate_json(
+            CH_LICENSE_VALIDATION_BASE_URL, key, context->email,
+            context->registration_json, license_now_millis(), &applied_json,
+            &native_error);
+    } else {
+        status = ch_license_device_action_json(
+            CH_LICENSE_VALIDATION_BASE_URL, context->action, key,
+            context->install_id, context->device_id,
+            context->registration_json, license_now_millis(), &applied_json,
+            &native_error);
+    }
+    if (status != CH_OK) {
+        g_task_return_new_error(
+            task, license_error_quark(), (int)status, "%s",
+            native_error.message[0] == '\0' ?
+            "license request failed" : native_error.message);
+        return;
+    }
+    LicenseTaskResult *result = g_new0(LicenseTaskResult, 1U);
+    result->applied_json = applied_json;
+    g_autoptr(GError) key_error = NULL;
+    result->key_available = license_secret_store(key, &key_error);
+    if (!result->key_available) {
+        result->warning = g_strdup_printf(
+            " The license request succeeded, but the desktop keyring could not "
+            "store the key: %s", key_error->message);
+    }
+    g_task_return_pointer(task, result,
+                          (GDestroyNotify)license_task_result_free);
+}
+
+static void license_mark_verification_failure(ClambhookLinuxApp *app) {
+    ch_error native_error;
+    char *applied_json = NULL;
+    if (ch_license_mark_verification_failure_json(
+            app->license_state.snapshot_json, license_now_millis(),
+            &applied_json, &native_error) == CH_OK) {
+        g_autoptr(GError) error = NULL;
+        if (ch_gtk_license_state_apply(
+                (const guint8 *)applied_json, strlen(applied_json),
+                &app->license_state, &error)) {
+            license_save_state(app, NULL);
+            license_refresh_status(app, NULL);
+        }
+        free(applied_json);
+    }
+}
+
+static void license_task_finished(GObject *source, GAsyncResult *result,
+                                  gpointer user_data) {
+    (void)source;
+    ClambhookLinuxApp *app = user_data;
+    GTask *task = G_TASK(result);
+    LicenseTaskContext *context = g_task_get_task_data(task);
+    g_autoptr(GError) error = NULL;
+    LicenseTaskResult *task_result = g_task_propagate_pointer(task, &error);
+    app->license_busy = FALSE;
+    if (task_result == NULL) {
+        license_mark_verification_failure(app);
+        gtk_label_set_text(GTK_LABEL(app->license_message), error->message);
+        gtk_widget_add_css_class(app->license_message, "error");
+    } else {
+        g_autoptr(GError) apply_error = NULL;
+        gboolean applied = ch_gtk_license_state_apply(
+            (const guint8 *)task_result->applied_json,
+            strlen(task_result->applied_json), &app->license_state,
+            &apply_error);
+        if (applied && strcmp(context->action, "activate") == 0) {
+            g_free(app->license_state.email);
+            app->license_state.email = g_strdup(context->email);
+        }
+        if (applied) applied = license_save_state(app, &apply_error);
+        if (applied) applied = license_refresh_status(app, &apply_error);
+        if (!applied) {
+            gtk_label_set_text(GTK_LABEL(app->license_message),
+                               apply_error->message);
+            gtk_widget_add_css_class(app->license_message, "error");
+        } else {
+            const char *success = strcmp(context->action, "activate") == 0 ?
+                "License activated on this GNU/Linux device." :
+                strcmp(context->action, "deactivate") == 0 ?
+                "This device was deactivated." :
+                strcmp(context->action, "reactivate") == 0 ?
+                "This device was reactivated." :
+                "This device was deactivated; its seat is available to transfer.";
+            g_autofree char *message = g_strdup_printf(
+                "%s%s", success, task_result->warning == NULL ? "" :
+                                                            task_result->warning);
+            gtk_label_set_text(GTK_LABEL(app->license_message), message);
+            gtk_widget_remove_css_class(app->license_message, "error");
+            app->license_key_available = task_result->key_available;
+            gtk_editable_set_text(GTK_EDITABLE(app->license_key_entry), "");
+        }
+        license_task_result_free(task_result);
+    }
+    license_update_ui(app);
+    g_application_release(G_APPLICATION(app->application));
+}
+
+static void license_start_task(ClambhookLinuxApp *app, const char *action) {
+    if (app->license_busy) return;
+    g_autofree char *key = g_strdup(gtk_editable_get_text(
+        GTK_EDITABLE(app->license_key_entry)));
+    g_autofree char *email = g_strdup(gtk_editable_get_text(
+        GTK_EDITABLE(app->license_email_entry)));
+    g_strstrip(key);
+    g_strstrip(email);
+    if (strcmp(action, "activate") == 0 && key[0] == '\0') {
+        gtk_label_set_text(GTK_LABEL(app->license_message),
+                           "Enter a license key before activation.");
+        gtk_widget_add_css_class(app->license_message, "error");
+        return;
+    }
+    struct utsname platform;
+    const char *architecture = uname(&platform) == 0 ?
+        platform.machine : "unknown";
+    LicenseTaskContext *context = g_new0(LicenseTaskContext, 1U);
+    context->action = g_strdup(action);
+    context->license_key = g_strdup(key);
+    context->email = g_strdup(email);
+    context->install_id = g_strdup(app->license_state.install_id);
+    ch_gtk_license_view view;
+    g_autoptr(GError) view_error = NULL;
+    if (ch_gtk_parse_license_view(
+            app->license_status_json, app->license_state.device_state_json,
+            &view, &view_error)) {
+        context->device_id = g_strdup(view.current_device_id);
+        ch_gtk_license_view_clear(&view);
+    } else context->device_id = g_strdup("");
+    context->registration_json = ch_gtk_license_registration_body(
+        context->install_id, g_get_host_name(), architecture,
+        CLAMBHOOK_VERSION);
+    app->license_busy = TRUE;
+    gtk_label_set_text(
+        GTK_LABEL(app->license_message),
+        strcmp(action, "activate") == 0 ? "Activating license…" :
+                                          "Updating device seat…");
+    gtk_widget_remove_css_class(app->license_message, "error");
+    license_update_ui(app);
+    g_application_hold(G_APPLICATION(app->application));
+    GTask *task = g_task_new(NULL, NULL, license_task_finished, app);
+    g_task_set_task_data(task, context,
+                         (GDestroyNotify)license_task_context_free);
+    g_task_run_in_thread(task, license_task_worker);
+    g_object_unref(task);
 }
 
 static char *json_prompt_body(ClambhookLinuxApp *app, const char *action,
@@ -1038,6 +1443,10 @@ static void refresh_all(ClambhookLinuxApp *app) {
 static void connect_clicked(GtkButton *button, gpointer user_data) {
     (void)button;
     ClambhookLinuxApp *app = user_data;
+    if (!app->license_can_use_app) {
+        set_error(app, "A trial or activated license is required to connect.");
+        return;
+    }
     send_request(app, REQUEST_CONNECT, "POST",
                  app->running ? "/api/v1/disconnect" : "/api/v1/connect",
                  "{}");
@@ -1931,6 +2340,262 @@ static GtkWidget *create_dns_page(ClambhookLinuxApp *app) {
     return page;
 }
 
+static void license_update_ui(ClambhookLinuxApp *app) {
+    if (app->license_title == NULL) return;
+    ch_gtk_license_view view;
+    g_autoptr(GError) error = NULL;
+    if (!ch_gtk_parse_license_view(
+            app->license_status_json, app->license_state.device_state_json,
+            &view, &error)) {
+        gtk_label_set_text(GTK_LABEL(app->license_title),
+                           "License state unavailable");
+        gtk_label_set_text(GTK_LABEL(app->license_detail), error->message);
+        gtk_widget_set_sensitive(app->connect_button, FALSE);
+        return;
+    }
+    app->license_can_use_app = view.can_use_app;
+    app->license_current_device_active = view.current_device_active;
+    gtk_label_set_text(GTK_LABEL(app->license_title), view.title);
+    gtk_label_set_text(GTK_LABEL(app->license_detail), view.detail);
+    g_autofree char *summary = g_strdup_printf(
+        "%u of %u device seats active", view.active_devices,
+        view.max_active_devices);
+    gtk_label_set_text(GTK_LABEL(app->license_device_summary), summary);
+    populate_rows(app->license_device_list, view.devices,
+                  "No devices activated");
+
+    gboolean key_entered = gtk_editable_get_text(
+        GTK_EDITABLE(app->license_key_entry))[0] != '\0';
+    gboolean can_manage = !app->license_busy &&
+        (app->license_key_available || key_entered) &&
+        view.current_device_id[0] != '\0';
+    gtk_widget_set_sensitive(app->license_activate_button,
+                             !app->license_busy);
+    gtk_widget_set_sensitive(app->license_deactivate_button,
+                             can_manage && view.current_device_active);
+    gtk_widget_set_sensitive(app->license_transfer_button,
+                             can_manage && view.current_device_active);
+    gtk_widget_set_sensitive(app->license_reactivate_button,
+                             can_manage && !view.current_device_active);
+    gtk_widget_set_sensitive(app->connect_button,
+                             app->active_requests == 0U &&
+                             !app->license_busy && view.can_use_app);
+    ch_gtk_license_view_clear(&view);
+}
+
+static void license_key_changed(GtkEditable *editable, gpointer user_data) {
+    (void)editable;
+    license_update_ui(user_data);
+}
+
+static void license_open_url(GtkButton *button, gpointer user_data) {
+    ClambhookLinuxApp *app = user_data;
+    const char *url = g_object_get_data(G_OBJECT(button), "clambhook-url");
+    g_autoptr(GError) error = NULL;
+    if (url == NULL || !g_app_info_launch_default_for_uri(url, NULL, &error)) {
+        set_error(app, error == NULL ? "The license URL is unavailable." :
+                                      error->message);
+    }
+}
+
+static GtkWidget *license_url_button(ClambhookLinuxApp *app,
+                                     const char *label, const char *url) {
+    GtkWidget *button = gtk_button_new_with_label(label);
+    g_object_set_data(G_OBJECT(button), "clambhook-url", (gpointer)url);
+    g_signal_connect(button, "clicked", G_CALLBACK(license_open_url), app);
+    return button;
+}
+
+static void license_confirmed(GtkButton *button, gpointer user_data) {
+    ClambhookLinuxApp *app = user_data;
+    const char *action = g_object_get_data(
+        G_OBJECT(button), "clambhook-license-action");
+    GtkRoot *root = gtk_widget_get_root(GTK_WIDGET(button));
+    if (GTK_IS_WINDOW(root)) gtk_window_destroy(GTK_WINDOW(root));
+    if (action != NULL) license_start_task(app, action);
+}
+
+static void license_confirmation_cancelled(GtkButton *button,
+                                           gpointer user_data) {
+    (void)user_data;
+    GtkRoot *root = gtk_widget_get_root(GTK_WIDGET(button));
+    if (GTK_IS_WINDOW(root)) gtk_window_destroy(GTK_WINDOW(root));
+}
+
+static void license_action_clicked(GtkButton *button, gpointer user_data) {
+    ClambhookLinuxApp *app = user_data;
+    const char *action = g_object_get_data(
+        G_OBJECT(button), "clambhook-license-action");
+    if (action == NULL) return;
+    if (strcmp(action, "reactivate") == 0) {
+        license_start_task(app, action);
+        return;
+    }
+    GtkWidget *dialog = gtk_window_new();
+    gboolean transfer = strcmp(action, "transfer") == 0;
+    gtk_window_set_title(GTK_WINDOW(dialog),
+                         transfer ? "Transfer this device seat?" :
+                                    "Deactivate this device?");
+    gtk_window_set_transient_for(GTK_WINDOW(dialog), GTK_WINDOW(app->window));
+    gtk_window_set_modal(GTK_WINDOW(dialog), TRUE);
+    gtk_window_set_resizable(GTK_WINDOW(dialog), FALSE);
+    GtkWidget *content = gtk_box_new(GTK_ORIENTATION_VERTICAL, 14);
+    gtk_widget_set_margin_top(content, 22);
+    gtk_widget_set_margin_bottom(content, 22);
+    gtk_widget_set_margin_start(content, 22);
+    gtk_widget_set_margin_end(content, 22);
+    GtkWidget *title = gtk_label_new(
+        transfer ? "Release this seat for another device?" :
+                   "Stop this device from using the license?");
+    gtk_label_set_xalign(GTK_LABEL(title), 0.0F);
+    gtk_widget_add_css_class(title, "title-3");
+    gtk_box_append(GTK_BOX(content), title);
+    GtkWidget *detail = gtk_label_new(
+        transfer ? "ClambHook will deactivate this installation and make its "
+                   "seat available for transfer. You can reactivate it later "
+                   "if a seat remains available." :
+                   "ClambHook will disconnect this installation from the "
+                   "license. You can reactivate it later if a seat remains "
+                   "available.");
+    gtk_label_set_xalign(GTK_LABEL(detail), 0.0F);
+    gtk_label_set_wrap(GTK_LABEL(detail), TRUE);
+    gtk_box_append(GTK_BOX(content), detail);
+    GtkWidget *actions = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+    gtk_widget_set_halign(actions, GTK_ALIGN_END);
+    GtkWidget *cancel = gtk_button_new_with_label("Cancel");
+    g_signal_connect(cancel, "clicked",
+                     G_CALLBACK(license_confirmation_cancelled), NULL);
+    gtk_box_append(GTK_BOX(actions), cancel);
+    GtkWidget *confirm = gtk_button_new_with_label(
+        transfer ? "Transfer seat" : "Deactivate");
+    gtk_widget_add_css_class(confirm, "destructive-action");
+    g_object_set_data(G_OBJECT(confirm), "clambhook-license-action",
+                      (gpointer)action);
+    g_signal_connect(confirm, "clicked", G_CALLBACK(license_confirmed), app);
+    gtk_box_append(GTK_BOX(actions), confirm);
+    gtk_box_append(GTK_BOX(content), actions);
+    gtk_window_set_child(GTK_WINDOW(dialog), content);
+    gtk_window_present(GTK_WINDOW(dialog));
+}
+
+static GtkWidget *license_action_button(ClambhookLinuxApp *app,
+                                        const char *label,
+                                        const char *action) {
+    GtkWidget *button = gtk_button_new_with_label(label);
+    g_object_set_data(G_OBJECT(button), "clambhook-license-action",
+                      (gpointer)action);
+    g_signal_connect(button, "clicked", G_CALLBACK(license_action_clicked),
+                     app);
+    return button;
+}
+
+static void license_activate_clicked(GtkButton *button, gpointer user_data) {
+    (void)button;
+    license_start_task(user_data, "activate");
+}
+
+static GtkWidget *create_license_page(ClambhookLinuxApp *app) {
+    GtkWidget *page = page_container(
+        "License", "One-month trial, activation, and device-seat management.");
+    GtkWidget *status = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
+    gtk_widget_add_css_class(status, "card");
+    app->license_title = gtk_label_new("Loading…");
+    gtk_label_set_xalign(GTK_LABEL(app->license_title), 0.0F);
+    gtk_widget_add_css_class(app->license_title, "title-2");
+    gtk_box_append(GTK_BOX(status), app->license_title);
+    app->license_detail = gtk_label_new("");
+    gtk_label_set_xalign(GTK_LABEL(app->license_detail), 0.0F);
+    gtk_label_set_wrap(GTK_LABEL(app->license_detail), TRUE);
+    gtk_widget_add_css_class(app->license_detail, "dim-label");
+    gtk_box_append(GTK_BOX(status), app->license_detail);
+    GtkWidget *links = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+    gtk_box_append(GTK_BOX(links), license_url_button(
+        app, "Buy license", CLAMBHOOK_LICENSE_BUY_URL));
+    gtk_box_append(GTK_BOX(links), license_url_button(
+        app, "Device portal", CH_LICENSE_PORTAL_URL));
+    gtk_box_append(GTK_BOX(status), links);
+    gtk_box_append(GTK_BOX(page), status);
+
+    GtkWidget *activate_title = gtk_label_new("Activate this device");
+    gtk_label_set_xalign(GTK_LABEL(activate_title), 0.0F);
+    gtk_widget_add_css_class(activate_title, "title-3");
+    gtk_box_append(GTK_BOX(page), activate_title);
+    app->license_key_entry = gtk_password_entry_new();
+    gtk_password_entry_set_show_peek_icon(
+        GTK_PASSWORD_ENTRY(app->license_key_entry), TRUE);
+    gtk_accessible_update_property(
+        GTK_ACCESSIBLE(app->license_key_entry),
+        GTK_ACCESSIBLE_PROPERTY_LABEL, "License key", -1);
+    g_object_set(app->license_key_entry, "placeholder-text", "License key",
+                 NULL);
+    g_signal_connect(app->license_key_entry, "changed",
+                     G_CALLBACK(license_key_changed), app);
+    gtk_box_append(GTK_BOX(page), app->license_key_entry);
+    app->license_email_entry = gtk_entry_new();
+    gtk_entry_set_placeholder_text(GTK_ENTRY(app->license_email_entry),
+                                   "Email (optional)");
+    gtk_entry_set_input_purpose(GTK_ENTRY(app->license_email_entry),
+                                GTK_INPUT_PURPOSE_EMAIL);
+    gtk_accessible_update_property(
+        GTK_ACCESSIBLE(app->license_email_entry),
+        GTK_ACCESSIBLE_PROPERTY_LABEL, "License email", -1);
+    gtk_editable_set_text(GTK_EDITABLE(app->license_email_entry),
+                          app->license_state.email == NULL ? "" :
+                                                            app->license_state.email);
+    gtk_box_append(GTK_BOX(page), app->license_email_entry);
+    app->license_activate_button = gtk_button_new_with_label(
+        "Activate license");
+    gtk_widget_add_css_class(app->license_activate_button,
+                             "suggested-action");
+    gtk_widget_set_halign(app->license_activate_button, GTK_ALIGN_START);
+    g_signal_connect(app->license_activate_button, "clicked",
+                     G_CALLBACK(license_activate_clicked), app);
+    gtk_box_append(GTK_BOX(page), app->license_activate_button);
+    GtkWidget *terms = gtk_label_new(
+        "ClambHook starts with a one-calendar-month trial. License keys are "
+        "stored only in the desktop keyring and are never passed in command-"
+        "line arguments or written to application logs.");
+    gtk_label_set_xalign(GTK_LABEL(terms), 0.0F);
+    gtk_label_set_wrap(GTK_LABEL(terms), TRUE);
+    gtk_widget_add_css_class(terms, "dim-label");
+    gtk_box_append(GTK_BOX(page), terms);
+    app->license_message = gtk_label_new("");
+    gtk_label_set_xalign(GTK_LABEL(app->license_message), 0.0F);
+    gtk_label_set_wrap(GTK_LABEL(app->license_message), TRUE);
+    gtk_label_set_selectable(GTK_LABEL(app->license_message), TRUE);
+    gtk_box_append(GTK_BOX(page), app->license_message);
+
+    GtkWidget *devices_title = gtk_label_new("Devices");
+    gtk_label_set_xalign(GTK_LABEL(devices_title), 0.0F);
+    gtk_widget_add_css_class(devices_title, "title-3");
+    gtk_box_append(GTK_BOX(page), devices_title);
+    app->license_device_summary = gtk_label_new("Loading…");
+    gtk_label_set_xalign(GTK_LABEL(app->license_device_summary), 0.0F);
+    gtk_widget_add_css_class(app->license_device_summary, "dim-label");
+    gtk_box_append(GTK_BOX(page), app->license_device_summary);
+    GtkWidget *devices = scrolled_list(&app->license_device_list);
+    gtk_widget_set_size_request(devices, -1, 180);
+    gtk_box_append(GTK_BOX(page), devices);
+    GtkWidget *actions = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+    app->license_deactivate_button = license_action_button(
+        app, "Deactivate this device", "deactivate");
+    gtk_box_append(GTK_BOX(actions), app->license_deactivate_button);
+    app->license_reactivate_button = license_action_button(
+        app, "Reactivate", "reactivate");
+    gtk_box_append(GTK_BOX(actions), app->license_reactivate_button);
+    app->license_transfer_button = license_action_button(
+        app, "Transfer seat", "transfer");
+    gtk_box_append(GTK_BOX(actions), app->license_transfer_button);
+    gtk_box_append(GTK_BOX(page), actions);
+
+    GtkWidget *scroll = gtk_scrolled_window_new();
+    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroll),
+                                   GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
+    gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scroll), page);
+    license_update_ui(app);
+    return scroll;
+}
+
 static GtkWidget *create_information_page(const char *title,
                                           const char *description,
                                           const char *body) {
@@ -2007,12 +2672,7 @@ static void activate(GtkApplication *application, gpointer user_data) {
     add_stack_page(stack, create_conditioner_page(app),
                    "conditioner", "Conditioner");
     add_stack_page(stack, create_library_page(app), "library", "Library");
-    add_stack_page(stack, create_information_page(
-        "License", "ClambHook licensing and trial state.",
-        "License activation remains managed by the native clambhook-license-c "
-        "helper during this additive GTK migration. No license key is placed "
-        "in command-line arguments or dashboard logs."),
-        "license", "License");
+    add_stack_page(stack, create_license_page(app), "license", "License");
     g_autofree char *settings_text = g_strdup_printf(
         "Daemon API: %s\nAuthentication token: %s\n\nSet CLAMBHOOK_API_URL "
         "and CLAMBHOOK_API_TOKEN before launch. The token is sent only as a "
@@ -2035,6 +2695,12 @@ static void activate(GtkApplication *application, gpointer user_data) {
     gtk_box_append(GTK_BOX(root), app->error_label);
     gtk_window_set_child(GTK_WINDOW(app->window), root);
     gtk_window_present(GTK_WINDOW(app->window));
+    if (app->startup_error != NULL) {
+        set_error(app, app->startup_error);
+        gtk_label_set_text(GTK_LABEL(app->license_message),
+                           app->startup_error);
+        gtk_widget_add_css_class(app->license_message, "error");
+    }
     refresh_all(app);
     start_event_stream(app);
 }
@@ -2076,6 +2742,11 @@ int main(int argc, char **argv) {
                                                        configured_token),
         .session = soup_session_new()
     };
+    g_autoptr(GError) license_error = NULL;
+    if (!license_initialize(&app, &license_error)) {
+        app.startup_error = g_strdup_printf(
+            "License initialization failed: %s", license_error->message);
+    }
     app.application = gtk_application_new(
         "com.clambhook.Clambhook", G_APPLICATION_DEFAULT_FLAGS);
     g_signal_connect(app.application, "activate", G_CALLBACK(activate), &app);
@@ -2089,5 +2760,8 @@ int main(int argc, char **argv) {
     g_free(app.api_token);
     g_free(app.conditioner_profile);
     g_free(app.dns_profile);
+    g_free(app.license_status_json);
+    g_free(app.startup_error);
+    ch_gtk_license_state_clear(&app.license_state);
     return status;
 }
