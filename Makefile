@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Pengfan Chang <support@swiphtgroup.com>
+# SPDX-License-Identifier: GPL-3.0-only
+
 .PHONY: all build build-clib build-daemon build-tui build-license build-native test-native build-linux-gtk install install-linux prepare-apple-runtime generate-apple build-apple check-macos-signing release-macos release-linux upload-release-r2 release-check ci-local macos-release-contract-check package-smoke test-apple test-android test-android-compatibility build-android-native build-android lint-android run-android build-android-release release-android upload-release-android check-linux-ui-deps test-linux build-linux test test-race provision-clambback-e2e e2e e2e-required e2e-release e2e-tun lint clean
 
 export CGO_ENABLED=1
@@ -92,6 +95,11 @@ install-linux: check-linux-ui-deps build-daemon build-tui build-license
 	install -d "$(DESTDIR)$(PREFIX)/share/polkit-1/actions"
 	install -m 0644 packaging/polkit/com.clambhook.Clambhook.policy "$(DESTDIR)$(PREFIX)/share/polkit-1/actions/com.clambhook.Clambhook.policy"
 	install -d "$(DESTDIR)$(PREFIX)/share/doc/clambhook"
+	install -m 0644 LICENSE "$(DESTDIR)$(PREFIX)/share/doc/clambhook/LICENSE"
+	install -m 0644 LICENSE-APACHE "$(DESTDIR)$(PREFIX)/share/doc/clambhook/LICENSE-APACHE"
+	install -m 0644 LICENSING.md "$(DESTDIR)$(PREFIX)/share/doc/clambhook/LICENSING.md"
+	install -m 0644 NOTICE "$(DESTDIR)$(PREFIX)/share/doc/clambhook/NOTICE"
+	install -m 0644 TRADEMARKS.md "$(DESTDIR)$(PREFIX)/share/doc/clambhook/TRADEMARKS.md"
 	install -m 0644 THIRD_PARTY_NOTICES.md "$(DESTDIR)$(PREFIX)/share/doc/clambhook/THIRD_PARTY_NOTICES.md"
 
 prepare-apple-runtime:

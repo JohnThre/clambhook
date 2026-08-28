@@ -1,3 +1,6 @@
+<!-- SPDX-FileCopyrightText: 2026 Pengfan Chang <support@swiphtgroup.com> -->
+<!-- SPDX-License-Identifier: GPL-3.0-only -->
+
 <p align="center">
   <img src="clambhook-icon-1024.png" alt="Clambhook icon" width="160" height="160">
 </p>
@@ -211,7 +214,7 @@ linkage now resolves direct, named-chain, and policy-group decisions through
 the shared C protocol layer for TCP and UDP. Android builds pin and checksum
 OpenSSL 3.5.8 LTS from its official source archive, statically link it for all
 four packaged ABIs at the Android 12/API 31 floor, and package its Apache 2.0
-license without changing Clambhook's own license. A physical Pixel 3a XL/API
+license alongside ClambHook's component licenses. A physical Pixel 3a XL/API
 32 has passed the JNI/Compose suite, including on-device AES-128-GCM,
 AES-256-GCM, and ChaCha20-Poly1305 self-tests and delayed direct UDP; physical
 hardware is optional and does not replace the API 31/33/36 managed-device
@@ -272,9 +275,10 @@ retains the previous cache. Android
 exercises the same requested-profile contract over JNI and keeps its app-owned
 active-profile switch in memory, matching the current mobile lifecycle
 contract.
-Building, running, and testing require prior written permission from Pengfan
-Chang; see [`LICENSE`](LICENSE). The commands below are for the author and
-authorized parties, not a general contribution or redistribution grant.
+Building, running, testing, modifying, and redistributing the application core
+are permitted under GPL-3.0-only. The reusable crypto libraries in `clib` and
+`pkg/cnet` are Apache-2.0. See [`LICENSING.md`](LICENSING.md) for the exact
+component boundary and the separate commercial-license path.
 
 | Command | Result |
 | --- | --- |
@@ -445,22 +449,22 @@ is approved. Windows development is discontinued with no planned resumption
 date. See [`docs/distribution.md`](docs/distribution.md) and
 [`docs/license-validation.md`](docs/license-validation.md).
 
-GitHub is source-only and view-only for end users. Do not publish or link
-end-user installers or package artifacts from GitHub, including `.dmg`, `.pkg`,
-`.apk`, `.aab`, Homebrew formula releases, Debian packages, or macOS installer
-artifacts. Only Pengfan Chang may distribute, publish, package, or release
-Clambhook artifacts.
+GitHub remains the source distribution and CI host; official signed end-user
+installers are distributed through the approved ClambHook download channels,
+not GitHub Releases. GPL-compliant forks may build and redistribute the public
+application core under their own branding and must not imply official status.
 
 ## License
 
-Proprietary to Pengfan Chang, all rights reserved. The source may not be copied,
-modified, built, run, contributed to, redistributed, packaged, released, hosted,
-sublicensed, or used to create derivative works without separate prior written
-permission from Pengfan Chang.
+Copyright 2026 Pengfan Chang. The ClambHook application core is available under
+GPL-3.0-only or under separate written commercial terms. `clib/**` and
+`pkg/cnet/**` are Apache-2.0. Third-party material retains its upstream terms.
+See [`LICENSING.md`](LICENSING.md), [`NOTICE`](NOTICE), and
+[`CONTRIBUTING.md`](CONTRIBUTING.md).
 
 ## Author
 
-Pengfan Chang — <clambhook@jpfchang.org>
+Pengfan Chang — <support@swiphtgroup.com>
 
 ## Donate
 

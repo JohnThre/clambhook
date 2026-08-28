@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# SPDX-FileCopyrightText: 2026 Pengfan Chang <support@swiphtgroup.com>
+# SPDX-License-Identifier: GPL-3.0-only
+
 # Validate the least-privilege hardening of clambhook-daemon.service and the
 # Debian/RPM metadata that provisions its dedicated runtime user.
 #

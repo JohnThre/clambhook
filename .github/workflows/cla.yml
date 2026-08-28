@@ -1,0 +1,29 @@
+# SPDX-FileCopyrightText: 2026 Pengfan Chang <support@swiphtgroup.com>
+# SPDX-License-Identifier: GPL-3.0-only
+
+name: Contributor agreement
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+
+permissions: {}
+
+jobs:
+  cla:
+    name: CLA recorded
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Require maintainer-verified CLA record
+        env:
+          AUTHOR: ${{ github.event.pull_request.user.login }}
+          LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+        run: |
+          case "$AUTHOR" in
+            JohnThre|dependabot\[bot\]) exit 0 ;;
+          esac
+          case ",$LABELS," in
+            *,cla-signed,*) exit 0 ;;
+          esac
+          echo "A maintainer must verify the private signed CLA and apply the cla-signed label." >&2
+          exit 1

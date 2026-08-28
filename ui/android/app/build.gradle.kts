@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Pengfan Chang <support@swiphtgroup.com>
+// SPDX-License-Identifier: GPL-3.0-only
+
 import java.io.FileInputStream
 import java.util.Properties
 
@@ -151,6 +154,11 @@ android {
 }
 
 val generateThirdPartyNotices = tasks.register<Sync>("generateThirdPartyNotices") {
+    from(repositoryRoot.file("LICENSE"))
+    from(repositoryRoot.file("LICENSE-APACHE"))
+    from(repositoryRoot.file("LICENSING.md"))
+    from(repositoryRoot.file("NOTICE"))
+    from(repositoryRoot.file("TRADEMARKS.md"))
     from(repositoryRoot.file("THIRD_PARTY_NOTICES.md"))
     from(repositoryRoot.file("third_party/openssl/LICENSE.txt")) {
         into("licenses/openssl")

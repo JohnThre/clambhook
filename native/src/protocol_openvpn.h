@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Pengfan Chang <support@swiphtgroup.com>
+// SPDX-License-Identifier: GPL-3.0-only
+
 #ifndef CLAMBHOOK_PROTOCOL_OPENVPN_H
 #define CLAMBHOOK_PROTOCOL_OPENVPN_H
 

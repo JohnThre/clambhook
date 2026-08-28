@@ -1,4 +1,6 @@
 // swift-tools-version: 6.1
+// SPDX-FileCopyrightText: 2026 Pengfan Chang <support@swiphtgroup.com>
+// SPDX-License-Identifier: GPL-3.0-only
 
 import PackageDescription
 

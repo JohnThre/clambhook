@@ -1,3 +1,6 @@
+<!-- SPDX-FileCopyrightText: 2026 Pengfan Chang <support@swiphtgroup.com> -->
+<!-- SPDX-License-Identifier: GPL-3.0-only -->
+
 # macOS Scope
 
 macOS uses daemon-backed routing only. The app does not embed Apple Network

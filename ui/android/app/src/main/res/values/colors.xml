@@ -1,4 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- SPDX-FileCopyrightText: 2026 Pengfan Chang <support@swiphtgroup.com> -->
+<!-- SPDX-License-Identifier: GPL-3.0-only -->
+
 <resources>
     <color name="ic_launcher_background">#0E1B2C</color>
 </resources>

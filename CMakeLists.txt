@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Pengfan Chang <support@swiphtgroup.com>
+# SPDX-License-Identifier: GPL-3.0-only
+
 cmake_minimum_required(VERSION 3.22)
 
 project(clambhook VERSION 1.0.2 LANGUAGES C)
@@ -317,7 +320,8 @@ install(TARGETS clambhook_core clambhook_crypto
 )
 install(DIRECTORY native/include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
 install(FILES clib/include/cnet.h DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
-install(FILES THIRD_PARTY_NOTICES.md
+install(FILES LICENSE LICENSE-APACHE LICENSING.md NOTICE TRADEMARKS.md
+  THIRD_PARTY_NOTICES.md
   DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/doc/clambhook)
 install(FILES third_party/openssl/LICENSE.txt
   DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/doc/clambhook/licenses/openssl)

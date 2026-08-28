@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Pengfan Chang <support@swiphtgroup.com>
+// SPDX-License-Identifier: GPL-3.0-only
+
 // Package tor implements a clambhook protocol that routes traffic through
 // a locally-running tor daemon via its SOCKS5 port.
 //

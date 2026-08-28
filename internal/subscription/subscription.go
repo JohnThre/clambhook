@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Pengfan Chang <support@swiphtgroup.com>
+// SPDX-License-Identifier: GPL-3.0-only
+
 // Package subscription fetches and materializes cached rule blocklists.
 package subscription
 

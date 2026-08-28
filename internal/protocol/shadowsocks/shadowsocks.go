@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Pengfan Chang <support@swiphtgroup.com>
+// SPDX-License-Identifier: GPL-3.0-only
+
 // Package shadowsocks implements the legacy Shadowsocks AEAD-2018 protocol
 // (https://shadowsocks.org/doc/aead.html). It supports three cipher methods:
 // aes-128-gcm, aes-256-gcm, and chacha20-ietf-poly1305.

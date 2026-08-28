@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Pengfan Chang <support@swiphtgroup.com>
+// SPDX-License-Identifier: GPL-3.0-only
+
 // Package vmess implements the VMESS-AEAD client protocol as used by v2ray,
 // xray, and sing-box. It speaks the modern AEAD request header (alterId 0 only)
 // over raw TCP or TCP+TLS, with an aes-128-gcm or chacha20-poly1305 chunked

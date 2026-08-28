@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Pengfan Chang <support@swiphtgroup.com>
+# SPDX-License-Identifier: Apache-2.0
+
 CC ?= cc
 AR ?= ar
 

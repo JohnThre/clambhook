@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# SPDX-FileCopyrightText: 2026 Pengfan Chang <support@swiphtgroup.com>
+# SPDX-License-Identifier: GPL-3.0-only
+
 # GPG-sign the release tag for a macOS release using the configured signing key.
 # Run after `make release-macos` and after pushing the tag. Requires a usable
 # pinentry on the host (the release key has a passphrase).

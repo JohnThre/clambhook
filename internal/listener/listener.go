@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Pengfan Chang <support@swiphtgroup.com>
+// SPDX-License-Identifier: GPL-3.0-only
+
 // Package listener provides local ingress listeners (SOCKS5, HTTP CONNECT,
 // and TUN/packet stack) that accept client traffic and route it through a proxy
 // chain.

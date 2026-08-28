@@ -1,3 +1,6 @@
+<!-- SPDX-FileCopyrightText: 2026 Pengfan Chang <support@swiphtgroup.com> -->
+<!-- SPDX-License-Identifier: GPL-3.0-only -->
+
 # clambhook GNU/Linux (legacy parity client)
 
 This Kotlin/Compose client remains the shipping rollback and behavior oracle

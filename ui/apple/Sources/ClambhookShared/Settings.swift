@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Pengfan Chang <support@swiphtgroup.com>
+// SPDX-License-Identifier: GPL-3.0-only
+
 import Foundation
 
 public let defaultAPIEndpoint = URL(string: "http://127.0.0.1:9090")!

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Pengfan Chang <support@swiphtgroup.com>
+// SPDX-License-Identifier: GPL-3.0-only
+
 // Package clambback implements the outbound client for clambback server mode.
 // The wire format is Trojan-compatible: TLS, hex(SHA224(password)) request
 // headers, and Trojan-style UDP datagram frames.

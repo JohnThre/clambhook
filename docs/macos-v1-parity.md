@@ -1,3 +1,6 @@
+<!-- SPDX-FileCopyrightText: 2026 Pengfan Chang <support@swiphtgroup.com> -->
+<!-- SPDX-License-Identifier: GPL-3.0-only -->
+
 # macOS v1 Feature Parity
 
 UI/UX reference: Surge for macOS. Feature reference: Surge, Little Snitch,

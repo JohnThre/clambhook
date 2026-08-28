@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Pengfan Chang <support@swiphtgroup.com>
+// SPDX-License-Identifier: GPL-3.0-only
+
 // Package decode turns captured application-protocol byte streams into
 // structured, human-readable frames for the capture detail viewers. It decodes
 // WebSocket frames, gRPC length-prefixed messages, and GraphQL request/response

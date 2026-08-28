@@ -1,3 +1,6 @@
+<!-- SPDX-FileCopyrightText: 2026 Pengfan Chang <support@swiphtgroup.com> -->
+<!-- SPDX-License-Identifier: GPL-3.0-only -->
+
 # Website Availability Plan
 
 This is the availability plan for the ClambHook direct-download distribution

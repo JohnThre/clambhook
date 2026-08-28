@@ -1,3 +1,6 @@
+<!-- SPDX-FileCopyrightText: 2026 Pengfan Chang <support@swiphtgroup.com> -->
+<!-- SPDX-License-Identifier: GPL-3.0-only -->
+
 # macOS Developer ID Signing
 
 ClambHook sets `DEVELOPMENT_TEAM` to `V6GG4HYABJ` in `ui/apple/project.yml`.

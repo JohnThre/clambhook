@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Pengfan Chang <support@swiphtgroup.com>
+// SPDX-License-Identifier: GPL-3.0-only
+
 import Foundation
 
 /// Thread-safe snapshot of the Sparkle feed URL and the license-based update

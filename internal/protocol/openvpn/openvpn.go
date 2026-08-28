@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Pengfan Chang <support@swiphtgroup.com>
+// SPDX-License-Identifier: GPL-3.0-only
+
 // Package openvpn implements a native OpenVPN 2.6+ client that plugs
 // into clambhook's protocol.Dialer interface.
 //

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Pengfan Chang <support@swiphtgroup.com>
+// SPDX-License-Identifier: GPL-3.0-only
+
 // Command clambhook-license is a small, pure-Go helper that exposes the shared
 // license domain (internal/licensebridge) to the GNU/Linux GTK client and the
 // terminal UI. It reads a single JSON request object from stdin and writes a

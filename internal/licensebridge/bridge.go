@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Pengfan Chang <support@swiphtgroup.com>
+// SPDX-License-Identifier: GPL-3.0-only
+
 // Package licensebridge exposes the shared license domain (internal/license)
 // as a set of pure-Go, JSON-in/JSON-out functions with no cgo, engine, or
 // protocol dependencies. It is the single source of truth for every non-Apple

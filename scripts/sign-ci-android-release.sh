@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# SPDX-FileCopyrightText: 2026 Pengfan Chang <support@swiphtgroup.com>
+# SPDX-License-Identifier: GPL-3.0-only
+
 # Sign an already-built Android release with apksigner. The keystore exists only
 # in the runner temporary directory and is removed before this step exits.
 set -euo pipefail

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Pengfan Chang <support@swiphtgroup.com>
+// SPDX-License-Identifier: GPL-3.0-only
+
 package com.clambhook.linux.daemon
 
 import com.clambhook.linux.settings.AppSettings

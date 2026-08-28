@@ -1,4 +1,7 @@
 #!/usr/bin/make -f
+# SPDX-FileCopyrightText: 2026 Pengfan Chang <support@swiphtgroup.com>
+# SPDX-License-Identifier: GPL-3.0-only
+
 
 export CGO_ENABLED=1
 export GO111MODULE=on

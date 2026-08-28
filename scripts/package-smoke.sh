@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# SPDX-FileCopyrightText: 2026 Pengfan Chang <support@swiphtgroup.com>
+# SPDX-License-Identifier: GPL-3.0-only
+
 set -euo pipefail
 
 usage() {
@@ -235,6 +238,11 @@ smoke_paths() {
     assert_file "$ROOT/debian/rules"
     assert_file "$ROOT/debian/source/format"
     assert_file "$ROOT/debian/changelog"
+    assert_file "$ROOT/LICENSE"
+    assert_file "$ROOT/LICENSE-APACHE"
+    assert_file "$ROOT/LICENSING.md"
+    assert_file "$ROOT/NOTICE"
+    assert_file "$ROOT/TRADEMARKS.md"
     assert_file "$ROOT/ui/android/app/build.gradle.kts"
     assert_file "$ROOT/ui/android/app/src/main/AndroidManifest.xml"
 }

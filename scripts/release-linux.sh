@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# SPDX-FileCopyrightText: 2026 Pengfan Chang <support@swiphtgroup.com>
+# SPDX-License-Identifier: GPL-3.0-only
+
 # Build, checksum, and GPG-sign the ClambHook GNU/Linux release artifacts, then
 # print the Cloudflare R2 keys and clambercloud.com env vars to publish. Run on
 # a GNU/Linux build host from the repository root:

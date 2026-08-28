@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Pengfan Chang <support@swiphtgroup.com>
+// SPDX-License-Identifier: GPL-3.0-only
+
 // Package socks holds wire-format helpers shared across protocols that use
 // SOCKS5-style address encoding: ATYP || ADDR || PORT.
 //

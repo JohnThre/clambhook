@@ -1,3 +1,6 @@
+<!-- SPDX-FileCopyrightText: 2026 Pengfan Chang <support@swiphtgroup.com> -->
+<!-- SPDX-License-Identifier: GPL-3.0-only -->
+
 # Distribution Policy
 
 ClambHook end-user downloads are distributed only from
@@ -32,12 +35,15 @@ flowchart TD
 - After the cutoff, no later updates are included, including critical, bug, and security updates.
 - A USD 9.99 renewal buys one additional update year, extending from the later of the current cutoff or the renewal payment date.
 - ClambHook purchase payments are accepted only through Creem or NOWPayments, not PayPal.
-- GitHub is source-only and view-only for end users.
+- GitHub is the GPL-3.0-only source distribution and CI host, not an official
+  installer channel.
 
-The source is proprietary to Pengfan Chang, all rights reserved, and may not be
-copied, modified, built, run, contributed to, redistributed, packaged, released,
-hosted, sublicensed, or used to create derivative works without separate prior
-written permission from Pengfan Chang.
+The official signed builds retain the trial, activation, update, and support
+contract described above. The public application source may also be built,
+modified, and redistributed under GPL-3.0-only. Compliant forks are not official
+ClambHook releases and must use distinct branding. Proprietary embedding of the
+application core requires a separate written commercial license; see
+[`../LICENSING.md`](../LICENSING.md).
 
 ## License Products
 

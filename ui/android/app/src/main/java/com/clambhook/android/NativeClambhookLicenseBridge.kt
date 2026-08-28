@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Pengfan Chang <support@swiphtgroup.com>
+// SPDX-License-Identifier: GPL-3.0-only
+
 package com.clambhook.android
 
 /** JNI boundary for the shared C license evaluator and response verifier. */

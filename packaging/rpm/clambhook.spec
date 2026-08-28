@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Pengfan Chang <support@swiphtgroup.com>
+# SPDX-License-Identifier: GPL-3.0-only
+
 # ClambHook RPM package for Fedora (RHEL-compatible).
 #
 # Build from the repository root, e.g.:
@@ -16,9 +19,9 @@ Version:        %{?version}%{!?version:1.0.1}
 Release:        1%{?dist}
 Summary:        Private VPN and proxy router with local metadata-first inspection
 
-# First-party materials are proprietary/source-available; vendored deps keep
-# their own licenses. RPM's License field is advisory here.
-License:        LicenseRef-Clambhook-Proprietary-View-Only
+# The distributed application is GPL-3.0-only. Its reusable crypto libraries
+# are Apache-2.0 and vendored dependencies retain their upstream licenses.
+License:        GPL-3.0-only AND Apache-2.0
 URL:            https://store.clambercloud.com/clambhook/
 Source0:        %{name}-%{version}.tar.gz
 
@@ -101,7 +104,8 @@ exit 0
 %systemd_postun_with_restart clambhook-daemon.service
 
 %files
-%doc THIRD_PARTY_NOTICES.md
+%license LICENSE LICENSE-APACHE
+%doc LICENSING.md NOTICE TRADEMARKS.md THIRD_PARTY_NOTICES.md
 %{_bindir}/clambhook
 %{_bindir}/clambhook-tui
 %{_bindir}/clambhook-license

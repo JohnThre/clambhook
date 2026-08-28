@@ -1,3 +1,6 @@
+<!-- SPDX-FileCopyrightText: 2026 Pengfan Chang <support@swiphtgroup.com> -->
+<!-- SPDX-License-Identifier: GPL-3.0-only -->
+
 # C runtime and native client migration
 
 Clambhook is moving from its Go runtime to a C17 runtime in gated phases. The
@@ -301,7 +304,7 @@ transactionally rebuild the compiled rules and packet stack with rollback, and
 an API 31 device test verifies an actual loopback UDP request/reply. The Android
 NDK build pins and checksums the official OpenSSL 3.5.8 LTS source, statically
 links it across all four ABIs at API 31, and packages the upstream Apache 2.0
-license without relicensing Clambhook. The physical Pixel suite executes all
+license alongside ClambHook's component licenses. The physical Pixel suite executes all
 three native AEAD families through JNI, but physical hardware is optional and
 the managed API 31/33/36 matrix is authoritative. The production VPN factory
 selects this C/JNI runtime and packages no gomobile AAR. Android now intercepts

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Pengfan Chang <support@swiphtgroup.com>
+// SPDX-License-Identifier: GPL-3.0-only
+
 // Package prompt implements Little Snitch-style interactive connection
 // prompts. When enabled, a connection that no existing rule already decides is
 // paused while the owning process is surfaced for an allow/block decision.

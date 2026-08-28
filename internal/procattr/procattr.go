@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Pengfan Chang <support@swiphtgroup.com>
+// SPDX-License-Identifier: GPL-3.0-only
+
 // Package procattr resolves the local process that owns a client connection,
 // mapping a listener-visible source address (e.g. 127.0.0.1:54321) to the
 // owning PID and executable path.

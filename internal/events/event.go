@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Pengfan Chang <support@swiphtgroup.com>
+// SPDX-License-Identifier: GPL-3.0-only
+
 // Package events provides a pub-sub event bus with per-connection Lamport
 // clocks for real-time lifecycle and bandwidth reporting to frontends.
 //

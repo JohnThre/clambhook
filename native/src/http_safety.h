@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Pengfan Chang <support@swiphtgroup.com>
+// SPDX-License-Identifier: GPL-3.0-only
+
 #ifndef CLAMBHOOK_HTTP_SAFETY_H
 #define CLAMBHOOK_HTTP_SAFETY_H
 

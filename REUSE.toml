@@ -1,0 +1,57 @@
+# SPDX-FileCopyrightText: 2026 Pengfan Chang <support@swiphtgroup.com>
+# SPDX-License-Identifier: GPL-3.0-only
+
+version = 1
+SPDX-PackageName = "ClambHook"
+SPDX-PackageSupplier = "Pengfan Chang <support@swiphtgroup.com>"
+SPDX-PackageDownloadLocation = "https://github.com/JohnThre/clambhook"
+
+# First-party files whose formats do not safely carry comments.
+[[annotations]]
+path = [
+  ".pi-lens.json",
+  "NOTICE",
+  "clambhook-icon-1024.png",
+  "debian/changelog",
+  "debian/source/format",
+  "flake.lock",
+  "go.sum",
+  "keys/clambhook-release-key.asc",
+  "packaging/icons/**/*.png",
+  "ui/android/app/src/main/res/**/*.png",
+  "ui/apple/**/*.png",
+  "ui/apple/**/*.json",
+  "ui/apple/**/*.pbxproj",
+  "ui/apple/**/*.resolved",
+  "ui/apple/**/*.xcworkspacedata",
+  "ui/apple/**/*.xcscheme",
+  "ui/skip/**/*.json",
+  "ui/skip/**/*.xcstrings",
+]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2026 Pengfan Chang <support@swiphtgroup.com>"
+SPDX-License-Identifier = "GPL-3.0-only"
+
+# Unmodified Gradle wrapper launchers and binaries retain Apache-2.0.
+[[annotations]]
+path = [
+  "ui/android/gradlew",
+  "ui/android/gradle/wrapper/gradle-wrapper.jar",
+  "ui/android/gradle/wrapper/gradle-wrapper.properties",
+  "ui/linux/gradlew",
+  "ui/linux/gradle/wrapper/gradle-wrapper.jar",
+  "ui/linux/gradle/wrapper/gradle-wrapper.properties",
+]
+precedence = "override"
+SPDX-FileCopyrightText = "2015 the original Gradle authors"
+SPDX-License-Identifier = "Apache-2.0"
+
+# MaxMind-DB test fixtures are vendored unchanged under Apache-2.0.
+[[annotations]]
+path = [
+  "internal/geo/testdata/GeoIP2-City-Test.mmdb",
+  "internal/geo/testdata/GeoIP2-Country-Test.mmdb",
+]
+precedence = "override"
+SPDX-FileCopyrightText = "MaxMind, Inc."
+SPDX-License-Identifier = "Apache-2.0"

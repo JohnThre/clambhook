@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# SPDX-FileCopyrightText: 2026 Pengfan Chang <support@swiphtgroup.com>
+# SPDX-License-Identifier: GPL-3.0-only
+
 # Build real Linux package recipes inside throwaway Podman/Docker containers.
 # Outputs remain inside the
 # throwaway container and are never uploaded.

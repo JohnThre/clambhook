@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# SPDX-FileCopyrightText: 2026 Pengfan Chang <support@swiphtgroup.com>
+# SPDX-License-Identifier: GPL-3.0-only
+
 set -euo pipefail
 
 echo "internal-only: macOS archives are for developer QA/build validation and must not be published on GitHub for end users." >&2

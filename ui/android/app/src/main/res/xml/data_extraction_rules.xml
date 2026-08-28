@@ -1,4 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- SPDX-FileCopyrightText: 2026 Pengfan Chang <support@swiphtgroup.com> -->
+<!-- SPDX-License-Identifier: GPL-3.0-only -->
+
 <!-- Android 12+ (API 31+). Keep license/auth secrets out of cloud backup and device transfer. -->
 <data-extraction-rules>
     <cloud-backup>

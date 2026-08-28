@@ -1,3 +1,6 @@
+<!-- SPDX-FileCopyrightText: 2026 Pengfan Chang <support@swiphtgroup.com> -->
+<!-- SPDX-License-Identifier: GPL-3.0-only -->
+
 # ClambHook shared Skip UI (archived experiment)
 
 > **Status: archived — not wired into any shipping client.** This package is

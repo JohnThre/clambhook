@@ -1,3 +1,6 @@
+<!-- SPDX-FileCopyrightText: 2026 Pengfan Chang <support@swiphtgroup.com> -->
+<!-- SPDX-License-Identifier: GPL-3.0-only -->
+
 # ClambHook GNU/Linux packaging
 
 ClambHook for GNU/Linux is distributed only from clambercloud.com as free

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Pengfan Chang <support@swiphtgroup.com>
+// SPDX-License-Identifier: GPL-3.0-only
+
 package com.clambhook.android
 
 /** File-backed C config queries used before Android establishes its VPN TUN. */

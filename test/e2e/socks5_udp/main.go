@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Pengfan Chang <support@swiphtgroup.com>
+// SPDX-License-Identifier: GPL-3.0-only
+
 // socks5_udp is a self-contained end-to-end probe that exercises the
 // SOCKS5 UDP ASSOCIATE path: it opens a SOCKS5 session, binds a local UDP
 // socket, sends a DNS A-query through the relay to a user-specified DNS

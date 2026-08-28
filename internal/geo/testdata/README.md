@@ -1,3 +1,6 @@
+<!-- SPDX-FileCopyrightText: 2026 Pengfan Chang <support@swiphtgroup.com> -->
+<!-- SPDX-License-Identifier: GPL-3.0-only -->
+
 # MaxMind test MMDB fixtures
 
 These files are vendored from https://github.com/maxmind/MaxMind-DB

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Pengfan Chang <support@swiphtgroup.com>
+// SPDX-License-Identifier: GPL-3.0-only
+
 #ifndef CLAMBHOOK_DNS_QUIC_H
 #define CLAMBHOOK_DNS_QUIC_H
 

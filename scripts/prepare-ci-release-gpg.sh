@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# SPDX-FileCopyrightText: 2026 Pengfan Chang <support@swiphtgroup.com>
+# SPDX-License-Identifier: GPL-3.0-only
+
 # Import an owner-held release key into an isolated CI GnuPG home without
 # printing key material or passphrases. Writes safe path variables to the
 # GitHub Actions environment file supplied as the second argument.

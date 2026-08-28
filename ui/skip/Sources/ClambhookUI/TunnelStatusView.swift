@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Pengfan Chang <support@swiphtgroup.com>
+// SPDX-License-Identifier: GPL-3.0-only
+
 import SwiftUI
 
 /// Surge-for-iOS-style connection status card. This is shared SwiftUI that Skip

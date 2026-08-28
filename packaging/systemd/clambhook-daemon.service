@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Pengfan Chang <support@swiphtgroup.com>
+# SPDX-License-Identifier: GPL-3.0-only
+
 [Unit]
 Description=ClambHook daemon (device-wide TUN routing)
 Documentation=https://store.clambercloud.com/clambhook/

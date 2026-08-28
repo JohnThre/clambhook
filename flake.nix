@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Pengfan Chang <support@swiphtgroup.com>
+# SPDX-License-Identifier: GPL-3.0-only
+
 {
   description = "clambhook local network client";
 
@@ -40,13 +43,7 @@
             meta = with pkgs.lib; {
               description = "Local network client daemon and terminal dashboard";
               homepage = "https://github.com/JohnThre/clambhook";
-              license = {
-                shortName = "Clambhook-Proprietary-View-Only";
-                fullName = "Clambhook Proprietary Source-Available License";
-                url = "https://github.com/JohnThre/clambhook/blob/main/LICENSE";
-                free = false;
-                redistributable = false;
-              };
+              license = licenses.gpl3Only;
               mainProgram = "clambhook";
               platforms = platforms.unix;
             };

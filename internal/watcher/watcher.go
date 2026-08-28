@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Pengfan Chang <support@swiphtgroup.com>
+// SPDX-License-Identifier: GPL-3.0-only
+
 // Package watcher reloads the daemon's config file whenever it changes on
 // disk. It watches the config file's parent directory (not the file itself)
 // so editor save patterns — atomic rename, truncate+write, swap-file dance —

@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# SPDX-FileCopyrightText: 2026 Pengfan Chang <support@swiphtgroup.com>
+# SPDX-License-Identifier: GPL-3.0-only
+
 # Build, checksum, and GPG-sign the ClambHook Android release APK, generate the
 # update manifest, and print the Cloudflare R2 keys and clambercloud.com env
 # vars to publish. Run from the repository root:

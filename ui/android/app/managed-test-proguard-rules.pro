@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Pengfan Chang <support@swiphtgroup.com>
+# SPDX-License-Identifier: GPL-3.0-only
+
 # Compose instrumentation tests call these application classes and top-level
 # functions directly from the separate test APK. Keep their binary names for
 # the managed-device-only minified debug variant while allowing R8 to discard

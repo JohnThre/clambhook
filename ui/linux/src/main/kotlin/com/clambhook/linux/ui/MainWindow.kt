@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Pengfan Chang <support@swiphtgroup.com>
+// SPDX-License-Identifier: GPL-3.0-only
+
 package com.clambhook.linux.ui
 
 import androidx.compose.foundation.background
@@ -764,7 +767,7 @@ private fun LicensePage(vm: MainViewModel, licenseState: LicenseManagerState) {
 private fun LegalFooter() {
     SelectionContainer {
         Text(
-            text = "© 2025 Pengfan Chang. All rights reserved. Confidential and proprietary. support@swiphtgroup.com",
+            text = "© 2026 Pengfan Chang. GPL-3.0-only source; commercial licensing: support@swiphtgroup.com",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(top = 12.dp),

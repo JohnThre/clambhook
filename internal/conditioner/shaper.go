@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Pengfan Chang <support@swiphtgroup.com>
+// SPDX-License-Identifier: GPL-3.0-only
+
 // Package conditioner implements a network conditioner (a.k.a. link
 // conditioner or network throttle) that simulates constrained networks by
 // shaping the connections a route plan dials. It wraps net.Conn and

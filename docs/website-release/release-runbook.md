@@ -1,7 +1,10 @@
+<!-- SPDX-FileCopyrightText: 2026 Pengfan Chang <support@swiphtgroup.com> -->
+<!-- SPDX-License-Identifier: GPL-3.0-only -->
+
 # macOS Release Runbook (Owner)
 
-End-user macOS installer is distributed **only from store.clambercloud.com**. GitHub stays
-source-only and view-only. The installer is Apple Developer ID signed,
+End-user macOS installer is distributed **only from store.clambercloud.com**. GitHub remains
+the GPL source and CI host, not an official installer channel. The installer is Apple Developer ID signed,
 notarized, and stapled so Gatekeeper shows no warnings. Release artifacts are
 GPG-signed with the configured release key.
 

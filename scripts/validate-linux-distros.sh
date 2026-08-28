@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# SPDX-FileCopyrightText: 2026 Pengfan Chang <support@swiphtgroup.com>
+# SPDX-License-Identifier: GPL-3.0-only
+
 # Build and smoke-test ClambHook only on the supported GNU/Linux validation
 # matrix: Trisquel 12, Rocky Linux 9, and AlmaLinux 9.
 #

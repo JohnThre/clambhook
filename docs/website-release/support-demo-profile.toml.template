@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Pengfan Chang <support@swiphtgroup.com>
+# SPDX-License-Identifier: GPL-3.0-only
+
 # Support demo tunnel profile template.
 #
 # Keep credentials out of git. Render this template only in a temp directory

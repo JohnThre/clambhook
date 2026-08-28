@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Pengfan Chang <support@swiphtgroup.com>
+// SPDX-License-Identifier: GPL-3.0-only
+
 // Package geo performs IP → country/city lookups against an MMDB-formatted
 // database (MaxMind GeoLite2 and schema-compatible vendors like DB-IP or
 // IPinfo). It is opt-in: a nil *Reader is valid and returns empty Locations,

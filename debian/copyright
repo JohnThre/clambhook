@@ -1,31 +1,24 @@
+# SPDX-FileCopyrightText: 2026 Pengfan Chang <support@swiphtgroup.com>
+# SPDX-License-Identifier: GPL-3.0-only
+
 Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
 Upstream-Name: clambhook
 Source: https://github.com/JohnThre/clambhook
 
 Files: *
-Copyright: 2026 Pengfan Chang
-License: Clambhook-Proprietary-View-Only
+Copyright: 2026 Pengfan Chang <support@swiphtgroup.com>
+License: GPL-3.0-only
+ The complete GNU General Public License version 3 text is distributed in
+ /usr/share/doc/clambhook/LICENSE.
+
+Files: clib/* pkg/cnet/*
+Copyright: 2026 Pengfan Chang <support@swiphtgroup.com>
+License: Apache-2.0
+ The complete Apache License 2.0 text is distributed in
+ /usr/share/doc/clambhook/LICENSE-APACHE.
 
 Files: vendor/* third_party/*
 Copyright: see vendored upstream notices
-License: Vendored-Third-Party-Notices
-
-License: Clambhook-Proprietary-View-Only
- Clambhook first-party materials are proprietary source-available software.
- .
- Copyright (c) 2026 Pengfan Chang. All rights reserved.
- .
- Permission is granted only to view source code made available by Pengfan Chang
- for personal inspection. No permission is granted to copy, modify, build, run,
- distribute, redistribute, contribute to, publish, package, release, host,
- sublicense, sell, or create derivative works from Clambhook first-party
- materials without separate prior written permission from Pengfan Chang.
- .
- Third-party contributions are not accepted unless Pengfan Chang has given
- separate prior written permission.
- .
- This software is provided for viewing only, as is, without warranty of any kind.
- .
 License: Vendored-Third-Party-Notices
  Vendored third-party materials remain subject to their respective upstream
  license notices included with those materials.

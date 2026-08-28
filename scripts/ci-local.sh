@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# SPDX-FileCopyrightText: 2026 Pengfan Chang <support@swiphtgroup.com>
+# SPDX-License-Identifier: GPL-3.0-only
+
 # Local mirror of ClambHook's GitHub Actions CI gates. This script orchestrates
 # the full developer-machine gate; optional local GNU/Linux isolation uses
 # Podman or Docker.

@@ -1,3 +1,6 @@
+<!-- SPDX-FileCopyrightText: 2026 Pengfan Chang <support@swiphtgroup.com> -->
+<!-- SPDX-License-Identifier: GPL-3.0-only -->
+
 <resources>
     <string name="app_name">clambhook</string>
     <string name="daemon_notification_channel">clambhook daemon</string>
@@ -14,7 +17,7 @@
     <string name="vpn_notification_connected_compat">Tunnel active — excluded routes applied in compatibility mode (Android 12 and below)</string>
     <string name="vpn_notification_error">Tunnel error: %1$s</string>
     <string name="vpn_notification_stop">Stop</string>
-    <string name="legal_copyright">© 2025 Pengfan Chang. All rights reserved.</string>
-    <string name="legal_confidential">Confidential and proprietary.</string>
+    <string name="legal_copyright">© 2026 Pengfan Chang.</string>
+    <string name="legal_confidential">GPL-3.0-only source; separate commercial licensing available.</string>
     <string name="legal_support_email">support@swiphtgroup.com</string>
 </resources>

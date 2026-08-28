@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Pengfan Chang <support@swiphtgroup.com>
+// SPDX-License-Identifier: GPL-3.0-only
+
 // Package wireguard implements WireGuard support via the official
 // golang.zx2c4.com/wireguard library and its tun/netstack package
 // (a userspace gVisor TCP/IP stack).

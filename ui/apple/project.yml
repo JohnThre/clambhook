@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Pengfan Chang <support@swiphtgroup.com>
+# SPDX-License-Identifier: GPL-3.0-only
+
 name: Clambhook
 options:
   deploymentTarget:
@@ -30,6 +33,18 @@ targets:
       - path: SharedPrivilegedHelper
       - path: ClambhookMac
       - path: Assets.xcassets
+      - path: ../../LICENSE
+        buildPhase: resources
+      - path: ../../LICENSE-APACHE
+        buildPhase: resources
+      - path: ../../LICENSING.md
+        buildPhase: resources
+      - path: ../../NOTICE
+        buildPhase: resources
+      - path: ../../TRADEMARKS.md
+        buildPhase: resources
+      - path: ../../THIRD_PARTY_NOTICES.md
+        buildPhase: resources
       - path: ../../bin/clambhook
         buildPhase:
           copyFiles:

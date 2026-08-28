@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Pengfan Chang <support@swiphtgroup.com>
+// SPDX-License-Identifier: GPL-3.0-only
+
 // Package shadowtls implements the ShadowTLS v3 client transport
 // (https://github.com/ihciah/shadow-tls/blob/master/docs/protocol-v3-en.md).
 //

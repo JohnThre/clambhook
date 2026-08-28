@@ -1,7 +1,10 @@
+# SPDX-FileCopyrightText: 2026 Pengfan Chang <support@swiphtgroup.com>
+# SPDX-License-Identifier: GPL-3.0-only
+
 Source: clambhook
 Section: net
 Priority: optional
-Maintainer: Pengfan Chang <developer@jpfchang.org>
+Maintainer: Pengfan Chang <support@swiphtgroup.com>
 Build-Depends:
  debhelper-compat (= 13),
  ca-certificates,

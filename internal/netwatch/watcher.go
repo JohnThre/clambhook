@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Pengfan Chang <support@swiphtgroup.com>
+// SPDX-License-Identifier: GPL-3.0-only
+
 // Package netwatch detects the active network interface and SSID, polling
 // for changes so the engine can auto-switch profiles when the physical
 // network changes (e.g., joining a known SSID or plugging into Ethernet).

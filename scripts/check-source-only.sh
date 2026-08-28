@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# SPDX-FileCopyrightText: 2026 Pengfan Chang <support@swiphtgroup.com>
+# SPDX-License-Identifier: GPL-3.0-only
+
 # Enforce the repository's source-only GitHub Release policy. GitHub Actions
 # may validate, sign, and deploy through the approved R2 channel, but installer
 # artifacts must never be committed or attached to a GitHub Release.

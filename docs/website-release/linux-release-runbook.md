@@ -1,6 +1,9 @@
+<!-- SPDX-FileCopyrightText: 2026 Pengfan Chang <support@swiphtgroup.com> -->
+<!-- SPDX-License-Identifier: GPL-3.0-only -->
+
 # GNU/Linux Release Runbook (Owner)
 
-End-user GNU/Linux installers are distributed **only from store.clambercloud.com** as free `.deb` and `.rpm` packages. GitHub stays source-only and view-only. Every release artifact is SHA-256 checksummed and GPG-signed with the configured ClambHook release key.
+End-user GNU/Linux installers are distributed **only from store.clambercloud.com** as free `.deb` and `.rpm` packages. GitHub remains the GPL source and CI host, not an official installer channel. Every release artifact is SHA-256 checksummed and GPG-signed with the configured ClambHook release key.
 
 This runbook covers the owner-held steps. None of these publish anything to GitHub.
 

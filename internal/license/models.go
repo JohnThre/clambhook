@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Pengfan Chang <support@swiphtgroup.com>
+// SPDX-License-Identifier: GPL-3.0-only
+
 // Package license implements ClambHook's direct-sale license domain: trial,
 // lifetime unlock, paid update-year windows, offline grace, and device-seat
 // state. It is the shared source of truth for non-Apple clients (Android via

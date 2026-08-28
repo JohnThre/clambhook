@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Pengfan Chang <support@swiphtgroup.com>
+# SPDX-License-Identifier: GPL-3.0-only
+
 # JNI entry points use their declared Kotlin class and method names.
 -keepclasseswithmembernames,includedescriptorclasses class com.clambhook.android.** {
     native <methods>;

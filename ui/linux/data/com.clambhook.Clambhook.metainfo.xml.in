@@ -1,10 +1,13 @@
 <?xml version="1.0" encoding="UTF-8"?>
+# SPDX-FileCopyrightText: 2026 Pengfan Chang <support@swiphtgroup.com>
+# SPDX-License-Identifier: GPL-3.0-only
+
 <component type="desktop-application">
   <id>@app_id@</id>
   <name>clambhook</name>
   <summary>Control clambhook proxy profiles, policies, rules, DNS, capture, and traffic</summary>
   <metadata_license>CC0-1.0</metadata_license>
-  <project_license>LicenseRef-Clambhook-Proprietary-View-Only</project_license>
+  <project_license>GPL-3.0-only</project_license>
   <developer_name>Pengfan Chang</developer_name>
   <description>
     <p>clambhook for GNU/Linux manages daemon connectivity, proxy profiles, policy groups, routing rules, interactive connection prompts, encrypted DNS, opt-in HTTP(S) capture, listener state, recent traffic, and log activity from a Kotlin/Compose Multiplatform desktop window (Wayland with X11 fallback).</p>

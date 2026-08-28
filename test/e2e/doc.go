@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Pengfan Chang <support@swiphtgroup.com>
+// SPDX-License-Identifier: GPL-3.0-only
+
 // Package e2e contains ClambHook's opt-in real-server end-to-end tests.
 //
 // Build and run with the `e2e` tag: `go test -tags e2e ./test/e2e`. The tests
