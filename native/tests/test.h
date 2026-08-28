@@ -30,7 +30,6 @@ void ch_test_api_server(void);
 void ch_test_config(void);
 void ch_test_conditioner(void);
 void ch_test_crypto(void);
-void ch_test_developer(void);
 void ch_test_dns(void);
 void ch_test_events(void);
 void ch_test_ip_stack(void);

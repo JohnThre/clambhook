@@ -21,15 +21,12 @@ typedef enum ch_proxy_route_action {
     CH_PROXY_ROUTE_REJECT = 3
 } ch_proxy_route_action;
 
-struct ch_developer_manager;
-
 #define CH_PROXY_ROUTE_SESSION_KEY_SIZE 384U
 
 typedef struct ch_proxy_route {
     ch_proxy_route_action action;
     uint64_t flow_id;
     char session_key[CH_PROXY_ROUTE_SESSION_KEY_SIZE];
-    char chain_name[256];
 } ch_proxy_route;
 
 /* Metadata-only flow callbacks. Payload contents are never exposed. */
@@ -87,8 +84,6 @@ typedef struct ch_proxy_listener_options {
     ch_proxy_flow_bytes_callback flow_bytes;
     ch_proxy_flow_close_callback flow_close;
     void *flow_context;
-    struct ch_developer_manager *developer;
-    const char *profile_name;
 } ch_proxy_listener_options;
 
 typedef struct ch_proxy_listener ch_proxy_listener;
