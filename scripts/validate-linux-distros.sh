@@ -52,7 +52,7 @@ rpm_setup='dnf install -y -q --allowerasing \
   libuv-devel libsodium-devel openssl-devel libcurl-devel \
   alsa-lib-devel "pkgconfig(libavcodec)" "pkgconfig(libavformat)" \
   "pkgconfig(libavutil)" freetype-devel gtk3-devel libX11-devel libXtst-devel \
-  libdrm-devel libglvnd-egl-devel mesa-libgbm-devel mesa-libGL-devel \
+  "pkgconfig(libdrm)" "pkgconfig(egl)" "pkgconfig(gbm)" mesa-libGL-devel \
   pango-devel zlib-devel \
   xorg-x11-server-Xvfb xorg-x11-xauth dbus-daemon gnome-keyring libsecret \
   maven \
