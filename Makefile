@@ -174,7 +174,8 @@ test-android:
 test-android-compatibility:
 	cd ui/android && ANDROID_HOME="$(ANDROID_HOME)" ./gradlew --no-daemon \
 		:platform:androidCompatibilityGroupDebugAndroidTest \
-		-Pandroid.experimental.testOptions.managedDevices.maxConcurrentDevices=1
+		-Pandroid.experimental.testOptions.managedDevices.maxConcurrentDevices=1 \
+		-Pandroid.testoptions.manageddevices.emulator.gpu=software
 
 build-android: build-android-platform
 	@test -n "$${GRAALVM_HOME:-}" || { echo "GRAALVM_HOME must point to GraalVM for JDK 17." >&2; exit 2; }

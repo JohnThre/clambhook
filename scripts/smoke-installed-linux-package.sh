@@ -21,7 +21,7 @@ fail() {
 package_path="$(realpath "$1")"
 [[ -f "$package_path" ]] || fail "package does not exist: $package_path"
 
-for tool in curl file readelf secret-tool strings timeout xvfb-run; do
+for tool in curl file readelf runuser secret-tool strings timeout xvfb-run; do
     command -v "$tool" >/dev/null 2>&1 || fail "$tool is required"
 done
 
@@ -170,8 +170,12 @@ command -v gnome-keyring-daemon >/dev/null 2>&1 ||
 secret_home="$(mktemp -d /tmp/clambhook-secret-home.XXXXXX)"
 secret_runtime="$(mktemp -d /tmp/clambhook-secret-runtime.XXXXXX)"
 chmod 0700 "$secret_home" "$secret_runtime"
+secret_user="$(id -un 65534 2>/dev/null || true)"
+[[ -n "$secret_user" ]] || fail "an unprivileged uid 65534 is required"
+chown "$secret_user" "$secret_home" "$secret_runtime"
 # shellcheck disable=SC2016 # Expanded by the nested D-Bus session shell.
-if ! timeout 20s env HOME="$secret_home" XDG_RUNTIME_DIR="$secret_runtime" \
+if ! timeout 20s runuser -u "$secret_user" -- \
+        env HOME="$secret_home" XDG_RUNTIME_DIR="$secret_runtime" \
         dbus-run-session -- bash -euo pipefail -c '
     printf "%s\n" "clambhook-keyring-smoke" |
         gnome-keyring-daemon --unlock --components=secrets >/dev/null
