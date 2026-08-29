@@ -621,10 +621,14 @@ ch_status ch_rule_feed_parse(const char *body, size_t length,
         ch_rule_feed_clear(out_feed);
         return status;
     }
-    qsort(domains.items, domains.count, sizeof(*domains.items),
-          feed_string_compare);
-    qsort(cidrs.items, cidrs.count, sizeof(*cidrs.items),
-          feed_string_compare);
+    if (domains.count > 1U) {
+        qsort(domains.items, domains.count, sizeof(*domains.items),
+              feed_string_compare);
+    }
+    if (cidrs.count > 1U) {
+        qsort(cidrs.items, cidrs.count, sizeof(*cidrs.items),
+              feed_string_compare);
+    }
     out_feed->format = ch_strdup(normalized_format);
     if (out_feed->format == NULL) {
         feed_strings_clear(&domains);
@@ -1053,12 +1057,18 @@ static ch_status feed_decode_cache(const char *json, size_t length,
         }
         out->feed.skipped = (size_t)ch_json_number_value(
             ch_json_object_get(root, "skipped"), 0.0);
-        qsort(domains.items, domains.count, sizeof(*domains.items),
-              feed_string_compare);
-        qsort(cidrs.items, cidrs.count, sizeof(*cidrs.items),
-              feed_string_compare);
-        qsort(networks.items, networks.count, sizeof(*networks.items),
-              feed_string_compare);
+        if (domains.count > 1U) {
+            qsort(domains.items, domains.count, sizeof(*domains.items),
+                  feed_string_compare);
+        }
+        if (cidrs.count > 1U) {
+            qsort(cidrs.items, cidrs.count, sizeof(*cidrs.items),
+                  feed_string_compare);
+        }
+        if (networks.count > 1U) {
+            qsort(networks.items, networks.count, sizeof(*networks.items),
+                  feed_string_compare);
+        }
         out->feed.domain_suffixes = domains.items;
         out->feed.domain_suffix_count = domains.count;
         out->feed.cidrs = cidrs.items;

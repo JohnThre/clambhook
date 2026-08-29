@@ -1681,7 +1681,9 @@ static void config_prune_backups(const char *path) {
         backups[count++] = (config_backup_entry){.path = full_path, .timestamp = timestamp};
     }
     (void)closedir(stream);
-    qsort(backups, count, sizeof(*backups), config_backup_compare);
+    if (count > 1U) {
+        qsort(backups, count, sizeof(*backups), config_backup_compare);
+    }
     if (count > CH_CONFIG_MAX_BACKUPS) {
         for (size_t index = 0U; index < count - CH_CONFIG_MAX_BACKUPS; ++index) {
             (void)unlink(backups[index].path);

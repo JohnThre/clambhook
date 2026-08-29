@@ -337,6 +337,7 @@ static ch_status ch_dns_prepare_doh(ch_dns_proxy *proxy,
     }
     upstream->host = ch_strdup(host);
     upstream->port = ch_strdup(port);
+    free(upstream->target);
     upstream->target = ch_dns_join_host_port(host, port);
     if (upstream->server_name[0] == '\0' && !ch_dns_is_ip(host)) {
         free(upstream->server_name);
