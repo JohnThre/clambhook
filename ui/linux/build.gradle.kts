@@ -4,10 +4,10 @@
 import org.jetbrains.compose.desktop.application.dsl.TargetFormat
 
 plugins {
-    kotlin("jvm") version "2.3.20"
-    kotlin("plugin.compose") version "2.3.20"
-    kotlin("plugin.serialization") version "2.3.20"
-    id("org.jetbrains.compose") version "1.9.0"
+    kotlin("jvm") version "2.4.10"
+    kotlin("plugin.compose") version "2.4.10"
+    kotlin("plugin.serialization") version "2.4.10"
+    id("org.jetbrains.compose") version "1.12.0"
 }
 
 group = "com.clambhook"
@@ -24,19 +24,19 @@ val clambhookTui = project.findProperty("clambhookTui")?.toString() ?: ""
 val clambhookLicense = project.findProperty("clambhookLicense")?.toString() ?: ""
 
 dependencies {
-    implementation("org.jetbrains.compose.desktop:desktop-jvm:1.9.0") {
+    implementation("org.jetbrains.compose.desktop:desktop-jvm:1.12.0") {
         exclude(group = "org.jetbrains.compose.material")
     }
     implementation("org.jetbrains.compose.material3:material3:1.9.0")
     implementation("androidx.compose.material:material-icons-core:1.7.8") { exclude(group = "androidx.compose.ui"); exclude(group = "androidx.lifecycle"); exclude(group = "androidx.compose.runtime"); exclude(group = "androidx.compose.animation"); exclude(group = "androidx.compose.foundation") }
     implementation("androidx.compose.material:material-icons-extended:1.7.8") { exclude(group = "androidx.compose.ui"); exclude(group = "androidx.lifecycle"); exclude(group = "androidx.compose.runtime"); exclude(group = "androidx.compose.animation"); exclude(group = "androidx.compose.foundation") }
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.9.0")
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
-    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
+    implementation("com.squareup.okhttp3:okhttp:5.5.0")
 
     testImplementation(kotlin("test"))
-    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")
-    testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.11.0")
+    testImplementation("com.squareup.okhttp3:mockwebserver:5.5.0")
 }
 
 
