@@ -13,6 +13,9 @@
 
 %global debug_package %{nil}
 %global _build_id_links none
+# Dependency-license filenames are a frozen package contract. Fedora's default
+# brp-compress pass would rename them with a .gz suffix.
+%global __brp_compress %{nil}
 
 Name:           clambhook
 Version:        %{?version}%{!?version:1.0.2}

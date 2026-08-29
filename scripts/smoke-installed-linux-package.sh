@@ -39,7 +39,12 @@ case "$package_path" in
         if dpkg-deb -f "$package_path" Depends | grep -Eqi '(default-jre|openjdk|java-runtime)'; then
             fail "Debian runtime dependencies include a JRE"
         fi
-        DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "$package_path"
+        # Minimal Ubuntu containers exclude most documentation at unpack time.
+        # Re-include this package's complete notice/license tree so the smoke
+        # test validates the payload users receive on a full installation.
+        DEBIAN_FRONTEND=noninteractive apt-get \
+            -o 'Dpkg::Options::=--path-include=/usr/share/doc/clambhook/*' \
+            install -y -qq "$package_path"
         payload="$(dpkg-query -L clambhook)"
         manager="deb"
         ;;
@@ -55,7 +60,9 @@ case "$package_path" in
         if rpm -qp --requires "$package_path" | grep -Eqi '(jre|jdk|java-runtime)'; then
             fail "RPM runtime dependencies include a JRE"
         fi
-        dnf install -y -q --nogpgcheck "$package_path"
+        # Fedora container images commonly enable the RPM transaction's nodocs
+        # flag. Clear it for this package-contract installation.
+        dnf --setopt=tsflags= install -y -q --nogpgcheck "$package_path"
         payload="$(rpm -ql clambhook)"
         manager="rpm"
         ;;
