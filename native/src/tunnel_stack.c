@@ -305,8 +305,7 @@ static int ch_tunnel_buffer_append(uint8_t **buffer, size_t *offset,
 
 static err_t ch_tunnel_emit(struct netif *interface, struct pbuf *packet) {
     ch_tunnel_stack *stack = interface == NULL ? NULL : interface->state;
-    if (stack == NULL || packet == NULL || packet->tot_len == 0U ||
-        packet->tot_len > CH_TUNNEL_MAX_PACKET) {
+    if (stack == NULL || packet == NULL || packet->tot_len == 0U) {
         return ERR_ARG;
     }
     uint8_t *bytes = malloc(packet->tot_len);

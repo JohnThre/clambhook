@@ -4,7 +4,6 @@
 cmake_minimum_required(VERSION 3.22)
 project(clambhook_android LANGUAGES C)
 
-include(CheckTypeSize)
 include(TestBigEndian)
 
 set(CMAKE_C_STANDARD 17)
@@ -91,19 +90,9 @@ target_include_directories(tomlc99 PUBLIC "${CLAMBHOOK_ROOT}/third_party/tomlc99
 target_compile_definitions(tomlc99 PRIVATE _POSIX_C_SOURCE=200809L)
 
 set(MAXMINDDB_DIR "${CLAMBHOOK_ROOT}/third_party/libmaxminddb")
-check_type_size("unsigned __int128" CH_MMDB_UINT128)
-check_type_size("unsigned int __attribute__((mode(TI)))"
-                CH_MMDB_UINT128_USING_MODE)
-if(HAVE_CH_MMDB_UINT128)
-    set(MMDB_UINT128_USING_MODE 0)
-    set(MMDB_UINT128_IS_BYTE_ARRAY 0)
-elseif(HAVE_CH_MMDB_UINT128_USING_MODE)
-    set(MMDB_UINT128_USING_MODE 1)
-    set(MMDB_UINT128_IS_BYTE_ARRAY 0)
-else()
-    set(MMDB_UINT128_USING_MODE 0)
-    set(MMDB_UINT128_IS_BYTE_ARRAY 1)
-endif()
+# Match the desktop core's strictly ISO C17 public-header representation.
+set(MMDB_UINT128_USING_MODE 0)
+set(MMDB_UINT128_IS_BYTE_ARRAY 1)
 test_big_endian(CH_MMDB_BIG_ENDIAN)
 configure_file(
     "${MAXMINDDB_DIR}/include/maxminddb_config.h.cmake.in"

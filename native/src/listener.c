@@ -480,7 +480,8 @@ static int ch_socks_negotiate(ch_listener_connection *connection) {
     password[password_length] = '\0';
     int accepted = ch_listener_constant_equal(username, listener->username) &
                    ch_listener_constant_equal(password, listener->password);
-    uint8_t response[] = {0x01U, accepted ? 0x00U : 0x01U};
+    uint8_t response[] = {0x01U, 0x01U};
+    if (accepted) response[1] = 0x00U;
     return ch_listener_send_all(descriptor, response, sizeof(response)) && accepted;
 }
 

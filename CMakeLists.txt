@@ -7,7 +7,6 @@ project(clambhook VERSION 1.0.2 LANGUAGES C)
 
 include(GNUInstallDirs)
 include(CTest)
-include(CheckTypeSize)
 include(TestBigEndian)
 
 set(CMAKE_C_STANDARD 17)
@@ -56,19 +55,11 @@ target_compile_definitions(tomlc99 PRIVATE _POSIX_C_SOURCE=200809L)
 # Pinned Apache-2.0 libmaxminddb 1.13.3. The application links the static
 # reader so desktop and Android builds share the frozen MMDB geo contract.
 set(MAXMINDDB_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third_party/libmaxminddb)
-check_type_size("unsigned __int128" CH_MMDB_UINT128)
-check_type_size("unsigned int __attribute__((mode(TI)))"
-                CH_MMDB_UINT128_USING_MODE)
-if(HAVE_CH_MMDB_UINT128)
-  set(MMDB_UINT128_USING_MODE 0)
-  set(MMDB_UINT128_IS_BYTE_ARRAY 0)
-elseif(HAVE_CH_MMDB_UINT128_USING_MODE)
-  set(MMDB_UINT128_USING_MODE 1)
-  set(MMDB_UINT128_IS_BYTE_ARRAY 0)
-else()
-  set(MMDB_UINT128_USING_MODE 0)
-  set(MMDB_UINT128_IS_BYTE_ARRAY 1)
-endif()
+# Keep public headers strictly ISO C17 even when the compiler offers a
+# non-standard 128-bit integer extension. libmaxminddb supports this portable
+# byte-array representation directly.
+set(MMDB_UINT128_USING_MODE 0)
+set(MMDB_UINT128_IS_BYTE_ARRAY 1)
 test_big_endian(CH_MMDB_BIG_ENDIAN)
 configure_file(
   ${MAXMINDDB_DIR}/include/maxminddb_config.h.cmake.in

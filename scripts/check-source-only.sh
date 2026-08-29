@@ -22,7 +22,12 @@ reject_artifact_ext() {
     local label="$2"
     local matches=""
     if command -v git >/dev/null 2>&1 && git -C "$ROOT_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-        matches="$(git -C "$ROOT_DIR" ls-files -z --cached --others --exclude-standard | while IFS= read -r -d '' f; do case "$f" in *"$pattern") printf '%s\n' "$f" ;; esac done)"
+        matches="$(git -C "$ROOT_DIR" ls-files -z --cached --others --exclude-standard |
+            while IFS= read -r -d '' f; do
+                if [[ "$f" == *"$pattern" ]]; then
+                    printf '%s\n' "$f"
+                fi
+            done)"
     else
         matches="$(find "$ROOT_DIR" -type f -name "*$pattern" -not -path '*/.git/*' 2>/dev/null || true)"
     fi

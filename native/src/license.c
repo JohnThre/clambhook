@@ -193,7 +193,8 @@ char *ch_license_format_rfc3339(ch_timestamp timestamp) {
     unsigned second = (unsigned)(seconds_of_day % 60);
     char fraction[12] = {0};
     if (nanoseconds > 0) {
-        (void)snprintf(fraction, sizeof(fraction), ".%09lld", (long long)nanoseconds);
+        (void)snprintf(fraction, sizeof(fraction), ".%09u",
+                       (unsigned)nanoseconds);
         size_t end = strlen(fraction);
         while (end > 1U && fraction[end - 1U] == '0') fraction[--end] = '\0';
     }

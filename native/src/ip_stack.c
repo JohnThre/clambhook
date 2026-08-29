@@ -1864,8 +1864,7 @@ static ch_status ch_ip_stack_handle_udp_input(
 
 static err_t ch_ip_stack_emit(struct netif *interface, struct pbuf *packet) {
     ch_ip_stack *stack = interface == NULL ? NULL : interface->state;
-    if (stack == NULL || packet == NULL || packet->tot_len == 0U ||
-        packet->tot_len > CH_IP_STACK_MAX_PACKET) {
+    if (stack == NULL || packet == NULL || packet->tot_len == 0U) {
         return ERR_ARG;
     }
     uint8_t *bytes = malloc(packet->tot_len);
