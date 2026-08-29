@@ -37,7 +37,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Install policy tools
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq curl gnupg shellcheck
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq curl gnupg ripgrep shellcheck
       - name: Validate source, publication, license, and cutover policy
         run: |
           scripts/check-github-actions.sh
@@ -293,7 +293,8 @@ jobs:
             "ndk;${ANDROID_NDK_VERSION}" "cmake;${ANDROID_CMAKE_VERSION}" \
             'system-images;android-${{ matrix.api }};aosp_atd;arm64-v8a'
       - name: Verify ARM64 hypervisor acceleration
-        run: "$ANDROID_HOME/emulator/emulator -accel-check"
+        run: |
+          "$ANDROID_HOME/emulator/emulator" -accel-check
       - name: Run VPN lifecycle and runtime journeys
         working-directory: ui/android
         run: >-
