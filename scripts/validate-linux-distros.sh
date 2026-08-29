@@ -122,6 +122,7 @@ rpm_setup='dnf install -y -q dnf-plugins-core epel-release >/dev/null
 dnf config-manager --set-enabled crb >/dev/null
 dnf install -y -q --allowerasing \
   gcc gcc-c++ make cmake ninja-build pkgconf-pkg-config \
+  libasan libubsan \
   libuv-devel libsodium-devel openssl-devel libcurl-devel \
   alsa-lib-devel freetype-devel gtk3-devel libX11-devel libXtst-devel \
   mesa-libGL-devel pango-devel zlib-devel \

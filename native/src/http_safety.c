@@ -112,6 +112,14 @@ static int http_host_is_localhost(const char *host) {
          strcasecmp(host + length - (sizeof(suffix) - 1U), suffix) == 0);
 }
 
+static int http_url_has_userinfo(const char *url) {
+    const char *scheme_end = strstr(url, "://");
+    if (scheme_end == NULL) return 0;
+    const char *authority = scheme_end + 3U;
+    size_t authority_length = strcspn(authority, "/?#");
+    return memchr(authority, '@', authority_length) != NULL;
+}
+
 ch_status ch_http_endpoint_prepare(const char *url, const char *purpose,
                                    ch_http_endpoint *out, ch_error *error) {
     const char *label = purpose == NULL || purpose[0] == '\0' ?
@@ -123,6 +131,11 @@ ch_status ch_http_endpoint_prepare(const char *url, const char *purpose,
         return CH_ERROR_INVALID_ARGUMENT;
     }
     memset(out, 0, sizeof(*out));
+    if (url != NULL && http_url_has_userinfo(url)) {
+        ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
+                     "%s URL must not contain credentials", label);
+        return CH_ERROR_INVALID_ARGUMENT;
+    }
     CURLU *parsed = curl_url();
     char *user = NULL;
     char *password = NULL;

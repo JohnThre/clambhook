@@ -52,9 +52,9 @@ archive="$work_dir/$archive_name"
 curl --fail --location --silent --show-error --retry 5 \
     --output "$archive" "$BASE_URL/$archive_name"
 if command -v sha256sum >/dev/null 2>&1; then
-    printf '%s  %s\n' "$sha256" "$archive" | sha256sum --check -
+    printf '%s  %s\n' "$sha256" "$archive" | sha256sum --check - >&2
 else
-    printf '%s  %s\n' "$sha256" "$archive" | shasum -a 256 --check -
+    printf '%s  %s\n' "$sha256" "$archive" | shasum -a 256 --check - >&2
 fi
 mkdir -p "$INSTALL_DIR"
 tar -xzf "$archive" -C "$INSTALL_DIR" --strip-components=1
