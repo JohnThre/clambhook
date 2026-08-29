@@ -3,15 +3,10 @@
 # SPDX-License-Identifier: GPL-3.0-only
 
 # Build and smoke-test ClambHook only on the supported GNU/Linux validation
-# matrix: Trisquel 12, Rocky Linux 9, and AlmaLinux 9.
+# matrix: Ubuntu 24.04 LTS and Fedora Linux 44.
 #
-# Trisquel does not publish an OCI image. On arm64 the harness uses Trisquel's
-# official checksum-pinned base root filesystem. On x86_64 it uses debootstrap
-# with Trisquel's official archive key and repositories.
-# Rocky Linux and AlmaLinux use their official version-9 container images.
-#
-#   scripts/validate-linux-distros.sh            # all three targets
-#   scripts/validate-linux-distros.sh trisquel   # one target
+#   scripts/validate-linux-distros.sh            # both targets
+#   scripts/validate-linux-distros.sh ubuntu     # one target
 #
 # The harness supports Podman or Docker. It validates the sanitizer-backed C17
 # runtime, the self-contained JavaFX/Gluon native image, and the authoritative
@@ -33,78 +28,9 @@ else
 fi
 
 declare -A IMAGE=(
-  [trisquel]="clambhook-ci/trisquel:12.0"
-  [rocky]="docker.io/rockylinux/rockylinux:9"
-  [alma]="docker.io/library/almalinux:9"
+  [ubuntu]="docker.io/library/ubuntu:24.04"
+  [fedora]="registry.fedoraproject.org/fedora:44"
 )
-
-trisquel_image_ready=0
-prepare_trisquel_image() {
-  if [[ "$trisquel_image_ready" == "1" ]]; then
-    return
-  fi
-
-  command -v curl >/dev/null 2>&1 || {
-    echo "curl is required to provision the official Trisquel rootfs." >&2
-    return 2
-  }
-
-  local workdir rootfs checksum image keyring rootdir fingerprint
-  workdir="$(mktemp -d "${TMPDIR:-/tmp}/clambhook-trisquel-ci.XXXXXX")"
-  rootfs="$workdir/trisquel-rootfs.tar.bz2"
-  image="${IMAGE[trisquel]}"
-
-  case "$(uname -m)" in
-    arm64|aarch64)
-      checksum="a241899069ca300eb54fadb06a1107f9d218add00d5f76387a8121ba1f23bf46"
-      curl --fail --location --silent --show-error --retry 3 \
-        --output "$rootfs" \
-        "https://cdbuilds.trisquel.org/ecne/trisquel-base_12.0_arm64.tar.bz2"
-      printf '%s  %s\n' "$checksum" "$rootfs" | sha256sum --check -
-      ;;
-    x86_64|amd64)
-      command -v debootstrap >/dev/null 2>&1 || {
-        echo "debootstrap is required to construct the official Trisquel x86_64 image." >&2
-        return 2
-      }
-      command -v sudo >/dev/null 2>&1 || {
-        echo "sudo is required to construct the official Trisquel x86_64 image." >&2
-        return 2
-      }
-      command -v gpg >/dev/null 2>&1 || {
-        echo "gpg is required to authenticate the official Trisquel archive key." >&2
-        return 2
-      }
-      keyring="$workdir/trisquel-archive-signkey.gpg"
-      rootdir="$workdir/rootfs"
-      fingerprint="60364C9869F92450421F0C22B138CA450C05112F"
-      curl --fail --location --silent --show-error --retry 3 \
-        --output "$keyring" \
-        "https://archive.trisquel.info/trisquel/trisquel-archive-signkey.gpg"
-      gpg --batch --no-default-keyring --keyring "$keyring" \
-        --with-colons --fingerprint "$fingerprint" | \
-        grep -q "^fpr:::::::::${fingerprint}:$"
-      sudo debootstrap \
-        --arch=amd64 \
-        --variant=minbase \
-        --keyring="$keyring" \
-        ecne "$rootdir" \
-        https://archive.trisquel.info/trisquel \
-        /usr/share/debootstrap/scripts/noble
-      sudo tar --numeric-owner -C "$rootdir" -cjf "$rootfs" .
-      sudo rm -rf "$rootdir"
-      ;;
-    *)
-      echo "unsupported Trisquel container architecture: $(uname -m)" >&2
-      return 2
-      ;;
-  esac
-
-  cp "$repo_root/packaging/ci/trisquel.Containerfile" "$workdir/Containerfile"
-  "$engine" build --tag "$image" --file "$workdir/Containerfile" "$workdir"
-  rm -rf "$workdir"
-  trisquel_image_ready=1
-}
 
 apt_setup='export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
@@ -118,9 +44,7 @@ apt-get install -y -qq \
   debhelper dpkg-dev fakeroot rsync iproute2 polkitd systemd \
   git curl wget ca-certificates tar file xz-utils >/dev/null'
 
-rpm_setup='dnf install -y -q dnf-plugins-core epel-release >/dev/null
-dnf config-manager --set-enabled crb >/dev/null
-dnf install -y -q --allowerasing \
+rpm_setup='dnf install -y -q --allowerasing \
   gcc gcc-c++ make cmake ninja-build pkgconf-pkg-config \
   libasan libubsan \
   libuv-devel libsodium-devel openssl-devel libcurl-devel \
@@ -169,17 +93,16 @@ run_one() {
   local distro="$1" image="${IMAGE[$1]:-}" setup recipe command
   local -a container_env=()
   if [[ -z "$image" ]]; then
-    echo "Unknown distro: $distro (known: trisquel rocky alma)" >&2
+    echo "Unknown distro: $distro (known: ubuntu fedora)" >&2
     return 2
   fi
 
   case "$distro" in
-    trisquel)
-      prepare_trisquel_image
+    ubuntu)
       setup="$apt_setup"
       recipe='./scripts/ci-linux-package-recipes.sh debian'
       ;;
-    rocky|alma)
+    fedora)
       setup="$rpm_setup"
       recipe='./scripts/ci-linux-package-recipes.sh rpm'
       ;;
@@ -193,7 +116,7 @@ run_one() {
     container_env+=(--env "VERSION=$VERSION")
     container_env+=(--env "UPDATE_CHANNEL=${UPDATE_CHANNEL:-stable}")
     case "$distro" in
-      trisquel)
+      ubuntu)
         # shellcheck disable=SC2016 # Expanded by bash inside the target container.
         command='make clean
 REQUIRE_SIGNING=0 CLAMBHOOK_RELEASE_APPEND=0 scripts/release-linux.sh deb
@@ -201,17 +124,13 @@ release_package=$(find dist/linux -maxdepth 1 -type f -name "*.deb" -print -quit
 test -n "$release_package"
 CLAMBHOOK_CONTAINER_PACKAGE_SMOKE=1 scripts/smoke-installed-linux-package.sh "$release_package"'
         ;;
-      rocky)
+      fedora)
         # shellcheck disable=SC2016 # Expanded by bash inside the target container.
         command='make clean
 REQUIRE_SIGNING=0 CLAMBHOOK_RELEASE_APPEND=1 scripts/release-linux.sh rpm
 release_package=$(find dist/linux -maxdepth 1 -type f -name "*.rpm" -print -quit)
 test -n "$release_package"
 CLAMBHOOK_CONTAINER_PACKAGE_SMOKE=1 scripts/smoke-installed-linux-package.sh "$release_package"'
-        ;;
-      alma)
-        echo "AlmaLinux is a validation lane; release RPMs are built on Rocky Linux." >&2
-        return 2
         ;;
     esac
     recipe=':'
@@ -230,7 +149,7 @@ CLAMBHOOK_CONTAINER_PACKAGE_SMOKE=1 scripts/smoke-installed-linux-package.sh "$r
 
 targets=("$@")
 if [[ ${#targets[@]} -eq 0 ]]; then
-  targets=(trisquel rocky alma)
+  targets=(ubuntu fedora)
 fi
 
 for distro in "${targets[@]}"; do

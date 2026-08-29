@@ -36,8 +36,9 @@ pkg_check_modules(LIBSODIUM REQUIRED IMPORTED_TARGET libsodium)
 pkg_check_modules(OPENSSL REQUIRED IMPORTED_TARGET openssl>=3.0)
 pkg_check_modules(CURL REQUIRED IMPORTED_TARGET libcurl)
 
-# Pinned, unmodified MIT-licensed llhttp 9.4.3. Ubuntu/Trisquel do not ship a
-# development package, so every target uses the same in-tree generated parser.
+# Pinned, unmodified MIT-licensed llhttp 9.4.3. The supported distributions do
+# not provide the pinned development package, so every target uses the same
+# in-tree generated parser.
 set(LLHTTP_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third_party/llhttp)
 add_library(llhttp STATIC
   ${LLHTTP_DIR}/src/api.c

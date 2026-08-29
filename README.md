@@ -170,9 +170,9 @@ flowchart LR
     policy --> ctest["C17 strict + ASan/UBSan<br/>contract and protocol fixtures"]
     policy --> jvm["JavaFX Maven tests<br/>Kotlin AAR tests"]
     policy --> apple["macOS C17 + SwiftUI<br/>build and tests"]
-    ctest --> linux["GNU/Linux x86_64 + aarch64<br/>Trisquel 12 · Rocky 9 · Alma 9<br/>Gluon launch + install/uninstall"]
+    ctest --> linux["GNU/Linux x86_64 + aarch64<br/>Ubuntu 24.04 · Fedora 44<br/>Gluon launch + install/uninstall"]
     jvm --> android["Android ARM64<br/>Gluon build + API 31/33/36 ATD"]
-    linux --> packages["Trisquel Debian package<br/>Rocky RPM<br/>Alma compatibility"]
+    linux --> packages["Ubuntu Debian package<br/>Fedora RPM"]
     android --> packages
     apple --> packages
     packages --> protected["Protected release workflow<br/>sign · notarize · inspect · checksum"]

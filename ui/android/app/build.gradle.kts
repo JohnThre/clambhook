@@ -1,15 +1,66 @@
 // SPDX-FileCopyrightText: 2026 Pengfan Chang <support@swiphtgroup.com>
 // SPDX-License-Identifier: GPL-3.0-only
 
+import javax.inject.Inject
+import org.gradle.api.DefaultTask
+import org.gradle.api.file.ConfigurableFileCollection
+import org.gradle.api.file.DirectoryProperty
+import org.gradle.api.file.FileSystemOperations
+import org.gradle.api.file.RegularFileProperty
+import org.gradle.api.tasks.InputFile
+import org.gradle.api.tasks.InputFiles
+import org.gradle.api.tasks.OutputDirectory
+import org.gradle.api.tasks.PathSensitive
+import org.gradle.api.tasks.PathSensitivity
+import org.gradle.api.tasks.TaskAction
+
 plugins {
     id("com.android.library")
-    id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.serialization")
 }
 
 val repositoryRoot = rootProject.layout.projectDirectory.dir("../..")
-val generatedThirdPartyNoticesDirectory =
-    layout.buildDirectory.dir("generated/thirdPartyNotices")
+
+abstract class GenerateThirdPartyNoticesTask : DefaultTask() {
+    @get:InputFiles
+    @get:PathSensitive(PathSensitivity.RELATIVE)
+    abstract val rootNotices: ConfigurableFileCollection
+
+    @get:InputFile
+    @get:PathSensitive(PathSensitivity.RELATIVE)
+    abstract val opensslLicense: RegularFileProperty
+
+    @get:InputFile
+    @get:PathSensitive(PathSensitivity.RELATIVE)
+    abstract val curlLicense: RegularFileProperty
+
+    @get:InputFile
+    @get:PathSensitive(PathSensitivity.RELATIVE)
+    abstract val llhttpLicense: RegularFileProperty
+
+    @get:OutputDirectory
+    abstract val outputDirectory: DirectoryProperty
+
+    @get:Inject
+    abstract val fileSystemOperations: FileSystemOperations
+
+    @TaskAction
+    fun generate() {
+        fileSystemOperations.sync {
+            from(rootNotices)
+            from(opensslLicense) {
+                into("licenses/openssl")
+            }
+            from(curlLicense) {
+                into("licenses/curl")
+            }
+            from(llhttpLicense) {
+                into("licenses/llhttp")
+            }
+            into(outputDirectory)
+        }
+    }
+}
 
 base {
     archivesName.set("clambhook-android-platform")
@@ -17,7 +68,9 @@ base {
 
 android {
     namespace = "com.clambhook.android"
-    compileSdk = 36
+    compileSdk = 37
+    buildToolsVersion = "37.0.0"
+    ndkVersion = "27.0.12077973"
 
     defaultConfig {
         minSdk = 31
@@ -45,8 +98,6 @@ android {
     buildFeatures {
         buildConfig = false
     }
-
-    sourceSets.getByName("main").assets.srcDir(generatedThirdPartyNoticesDirectory)
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -101,27 +152,31 @@ android {
     }
 }
 
-val generateThirdPartyNotices = tasks.register<Sync>("generateThirdPartyNotices") {
-    from(repositoryRoot.file("LICENSE"))
-    from(repositoryRoot.file("LICENSE-APACHE"))
-    from(repositoryRoot.file("LICENSING.md"))
-    from(repositoryRoot.file("NOTICE"))
-    from(repositoryRoot.file("TRADEMARKS.md"))
-    from(repositoryRoot.file("THIRD_PARTY_NOTICES.md"))
-    from(repositoryRoot.file("third_party/openssl/LICENSE.txt")) {
-        into("licenses/openssl")
-    }
-    from(repositoryRoot.file("third_party/curl/LICENSE.txt")) {
-        into("licenses/curl")
-    }
-    from(repositoryRoot.file("third_party/llhttp/LICENSE")) {
-        into("licenses/llhttp")
-    }
-    into(generatedThirdPartyNoticesDirectory)
-}
+androidComponents {
+    onVariants(selector().all()) { variant ->
+        val capitalizedVariantName = variant.name.replaceFirstChar { it.uppercase() }
+        val generateThirdPartyNotices =
+            tasks.register<GenerateThirdPartyNoticesTask>(
+                "generate${capitalizedVariantName}ThirdPartyNotices",
+            ) {
+                rootNotices.from(
+                    repositoryRoot.file("LICENSE"),
+                    repositoryRoot.file("LICENSE-APACHE"),
+                    repositoryRoot.file("LICENSING.md"),
+                    repositoryRoot.file("NOTICE"),
+                    repositoryRoot.file("TRADEMARKS.md"),
+                    repositoryRoot.file("THIRD_PARTY_NOTICES.md"),
+                )
+                opensslLicense.set(repositoryRoot.file("third_party/openssl/LICENSE.txt"))
+                curlLicense.set(repositoryRoot.file("third_party/curl/LICENSE.txt"))
+                llhttpLicense.set(repositoryRoot.file("third_party/llhttp/LICENSE"))
+            }
 
-tasks.named("preBuild") {
-    dependsOn(generateThirdPartyNotices)
+        variant.sources.assets?.addGeneratedSourceDirectory(
+            generateThirdPartyNotices,
+            GenerateThirdPartyNoticesTask::outputDirectory,
+        )
+    }
 }
 
 kotlin {
@@ -131,18 +186,18 @@ kotlin {
 }
 
 dependencies {
-    implementation("androidx.core:core-ktx:1.16.0")
+    implementation("androidx.core:core-ktx:1.19.0")
     implementation("androidx.datastore:datastore-preferences:1.1.1")
-    implementation("androidx.security:security-crypto:1.1.0-alpha06")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
-    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation("androidx.security:security-crypto:1.1.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
+    implementation("com.squareup.okhttp3:okhttp:5.5.0")
     implementation("com.journeyapps:zxing-android-embedded:4.3.0")
 
     testImplementation("junit:junit:4.13.2")
-    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.11.0")
 
-    androidTestImplementation("androidx.test:core:1.6.1")
-    androidTestImplementation("androidx.test.ext:junit:1.2.1")
-    androidTestImplementation("androidx.test:runner:1.6.2")
+    androidTestImplementation("androidx.test:core:1.7.0")
+    androidTestImplementation("androidx.test.ext:junit:1.3.0")
+    androidTestImplementation("androidx.test:runner:1.7.0")
 }

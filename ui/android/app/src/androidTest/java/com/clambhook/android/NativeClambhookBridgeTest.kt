@@ -146,7 +146,9 @@ class NativeClambhookBridgeTest {
                 AccessibilityService.GLOBAL_ACTION_BACK,
             )
         }
-        request.join(10_000)
+        // Managed ATD instances can take longer to deliver the activity result
+        // while three API levels run sequentially on the same hosted runner.
+        request.join(20_000)
         assertTrue("system VPN consent request did not finish", !request.isAlive)
         failure.get()?.let { throw AssertionError("VPN consent request failed", it) }
         assertTrue("system VPN consent dialog button was not found", clicked)

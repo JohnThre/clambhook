@@ -15,6 +15,7 @@ import java.util.concurrent.atomic.AtomicLong
 /** Headless Android glue activity used only for the system VPN consent sheet. */
 class VpnConsentActivity : Activity() {
     private var requestId = 0L
+    private var consentResult: Boolean? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -25,7 +26,7 @@ class VpnConsentActivity : Activity() {
         }
         val consent = VpnService.prepare(this)
         if (consent == null) {
-            VpnConsentCoordinator.complete(requestId, true)
+            consentResult = true
             finish()
         } else {
             @Suppress("DEPRECATION")
@@ -37,16 +38,19 @@ class VpnConsentActivity : Activity() {
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode == REQUEST_VPN) {
-            VpnConsentCoordinator.complete(requestId, resultCode == RESULT_OK)
+            consentResult = resultCode == RESULT_OK
             finish()
         }
     }
 
     override fun onDestroy() {
-        if (isFinishing) {
-            VpnConsentCoordinator.complete(requestId, VpnService.prepare(this) == null)
-        }
+        val finalResult = if (isFinishing && requestId > 0L) {
+            consentResult ?: (VpnService.prepare(this) == null)
+        } else null
         super.onDestroy()
+        if (finalResult != null) {
+            VpnConsentCoordinator.complete(requestId, finalResult)
+        }
     }
 
     private companion object {

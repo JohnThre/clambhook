@@ -225,10 +225,10 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:maven/androidx.core/core-ktx@1.16.0",
-      "group": "androidx.core",
-      "name": "core-ktx",
-      "version": "1.16.0",
+      "bom-ref": "pkg:maven/androidx.activity/activity@1.11.0",
+      "group": "androidx.activity",
+      "name": "activity",
+      "version": "1.11.0",
       "licenses": [
         {
           "license": {
@@ -236,7 +236,22 @@
           }
         }
       ],
-      "purl": "pkg:maven/androidx.core/core-ktx@1.16.0"
+      "purl": "pkg:maven/androidx.activity/activity@1.11.0"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:maven/androidx.core/core-ktx@1.19.0",
+      "group": "androidx.core",
+      "name": "core-ktx",
+      "version": "1.19.0",
+      "licenses": [
+        {
+          "license": {
+            "id": "Apache-2.0"
+          }
+        }
+      ],
+      "purl": "pkg:maven/androidx.core/core-ktx@1.19.0"
     },
     {
       "type": "library",
@@ -255,10 +270,10 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:maven/androidx.security/security-crypto@1.1.0-alpha06",
+      "bom-ref": "pkg:maven/androidx.security/security-crypto@1.1.0",
       "group": "androidx.security",
       "name": "security-crypto",
-      "version": "1.1.0-alpha06",
+      "version": "1.1.0",
       "licenses": [
         {
           "license": {
@@ -266,14 +281,14 @@
           }
         }
       ],
-      "purl": "pkg:maven/androidx.security/security-crypto@1.1.0-alpha06"
+      "purl": "pkg:maven/androidx.security/security-crypto@1.1.0"
     },
     {
       "type": "library",
-      "bom-ref": "pkg:maven/org.jetbrains.kotlinx/kotlinx-coroutines-android@1.9.0",
+      "bom-ref": "pkg:maven/org.jetbrains.kotlinx/kotlinx-coroutines-android@1.11.0",
       "group": "org.jetbrains.kotlinx",
       "name": "kotlinx-coroutines-android",
-      "version": "1.9.0",
+      "version": "1.11.0",
       "licenses": [
         {
           "license": {
@@ -281,14 +296,14 @@
           }
         }
       ],
-      "purl": "pkg:maven/org.jetbrains.kotlinx/kotlinx-coroutines-android@1.9.0"
+      "purl": "pkg:maven/org.jetbrains.kotlinx/kotlinx-coroutines-android@1.11.0"
     },
     {
       "type": "library",
-      "bom-ref": "pkg:maven/org.jetbrains.kotlinx/kotlinx-serialization-json@1.7.3",
+      "bom-ref": "pkg:maven/org.jetbrains.kotlinx/kotlinx-serialization-json@1.11.0",
       "group": "org.jetbrains.kotlinx",
       "name": "kotlinx-serialization-json",
-      "version": "1.7.3",
+      "version": "1.11.0",
       "licenses": [
         {
           "license": {
@@ -296,14 +311,14 @@
           }
         }
       ],
-      "purl": "pkg:maven/org.jetbrains.kotlinx/kotlinx-serialization-json@1.7.3"
+      "purl": "pkg:maven/org.jetbrains.kotlinx/kotlinx-serialization-json@1.11.0"
     },
     {
       "type": "library",
-      "bom-ref": "pkg:maven/com.squareup.okhttp3/okhttp@4.12.0",
+      "bom-ref": "pkg:maven/com.squareup.okhttp3/okhttp@5.5.0",
       "group": "com.squareup.okhttp3",
       "name": "okhttp",
-      "version": "4.12.0",
+      "version": "5.5.0",
       "licenses": [
         {
           "license": {
@@ -311,7 +326,7 @@
           }
         }
       ],
-      "purl": "pkg:maven/com.squareup.okhttp3/okhttp@4.12.0"
+      "purl": "pkg:maven/com.squareup.okhttp3/okhttp@5.5.0"
     },
     {
       "type": "library",
@@ -346,10 +361,10 @@
     },
     {
       "type": "application",
-      "bom-ref": "tool:android-gradle-plugin:8.9.1",
+      "bom-ref": "tool:android-gradle-plugin:9.3.2",
       "group": "com.android.tools.build",
-      "name": "gradle",
-      "version": "8.9.1",
+      "name": "android-gradle-plugin",
+      "version": "9.3.2",
       "scope": "excluded",
       "licenses": [
         {
@@ -358,14 +373,13 @@
           }
         }
       ],
-      "purl": "pkg:maven/com.android.tools.build/gradle@8.9.1"
+      "purl": "pkg:maven/com.android.tools.build/gradle@9.3.2"
     },
     {
       "type": "application",
-      "bom-ref": "tool:kotlin:2.3.20",
-      "group": "org.jetbrains.kotlin",
-      "name": "kotlin-gradle-plugin",
-      "version": "2.3.20",
+      "bom-ref": "tool:gradle:9.7.1",
+      "name": "Gradle",
+      "version": "9.7.1",
       "scope": "excluded",
       "licenses": [
         {
@@ -374,7 +388,38 @@
           }
         }
       ],
-      "purl": "pkg:maven/org.jetbrains.kotlin/kotlin-gradle-plugin@2.3.20"
+      "purl": "pkg:generic/gradle@9.7.1"
+    },
+    {
+      "type": "application",
+      "bom-ref": "tool:kotlin-serialization:2.4.10",
+      "group": "org.jetbrains.kotlin",
+      "name": "kotlin-serialization-plugin",
+      "version": "2.4.10",
+      "scope": "excluded",
+      "licenses": [
+        {
+          "license": {
+            "id": "Apache-2.0"
+          }
+        }
+      ],
+      "purl": "pkg:maven/org.jetbrains.kotlin/kotlin-serialization@2.4.10"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:maven/org.jetbrains.kotlin/kotlin-stdlib@2.4.10",
+      "group": "org.jetbrains.kotlin",
+      "name": "kotlin-stdlib",
+      "version": "2.4.10",
+      "licenses": [
+        {
+          "license": {
+            "id": "Apache-2.0"
+          }
+        }
+      ],
+      "purl": "pkg:maven/org.jetbrains.kotlin/kotlin-stdlib@2.4.10"
     },
     {
       "type": "application",
@@ -411,12 +456,14 @@
         "pkg:generic/curl@8.18.0",
         "pkg:maven/org.openjfx/javafx-controls@21.0.12",
         "pkg:maven/com.gluonhq/substrate@0.0.69",
-        "pkg:maven/androidx.core/core-ktx@1.16.0",
+        "pkg:maven/androidx.activity/activity@1.11.0",
+        "pkg:maven/androidx.core/core-ktx@1.19.0",
         "pkg:maven/androidx.datastore/datastore-preferences@1.1.1",
-        "pkg:maven/androidx.security/security-crypto@1.1.0-alpha06",
-        "pkg:maven/org.jetbrains.kotlinx/kotlinx-coroutines-android@1.9.0",
-        "pkg:maven/org.jetbrains.kotlinx/kotlinx-serialization-json@1.7.3",
-        "pkg:maven/com.squareup.okhttp3/okhttp@4.12.0",
+        "pkg:maven/androidx.security/security-crypto@1.1.0",
+        "pkg:maven/org.jetbrains.kotlinx/kotlinx-coroutines-android@1.11.0",
+        "pkg:maven/org.jetbrains.kotlinx/kotlinx-serialization-json@1.11.0",
+        "pkg:maven/org.jetbrains.kotlin/kotlin-stdlib@2.4.10",
+        "pkg:maven/com.squareup.okhttp3/okhttp@5.5.0",
         "pkg:maven/com.journeyapps/zxing-android-embedded@4.3.0"
       ]
     }

@@ -36,13 +36,11 @@ Closing the JavaFX window never stops the system daemon.
 
 | Distribution | Architectures | Role |
 | --- | --- | --- |
-| Trisquel 12 Ecne | x86_64, aarch64 | Build/test Debian package |
-| Rocky Linux 9 | x86_64, aarch64 | Build/test RPM package |
-| AlmaLinux 9 | x86_64, aarch64 | Independent installed-package compatibility |
+| Ubuntu 24.04 LTS | x86_64, aarch64 | Build/test Debian package |
+| Fedora Linux 44 | x86_64, aarch64 | Build/test RPM package |
 
-The Trisquel x86_64 image is built from the signed archive with debootstrap.
-The aarch64 lane uses the official checksum-pinned root filesystem. Rocky and
-Alma use their official version-9 images.
+Both lanes use their official container images on native-architecture GitHub
+runners. Ubuntu and Fedora are the only authoritative GNU/Linux test targets.
 
 ```mermaid
 flowchart TD
@@ -52,15 +50,12 @@ flowchart TD
     javafx --> matrix
     matrix --> x64["ubuntu-24.04<br/>x86_64"]
     matrix --> arm["ubuntu-24.04-arm<br/>aarch64"]
-    x64 --> trisquel["Trisquel 12<br/>Debian package"]
-    arm --> trisquel
-    x64 --> rocky["Rocky Linux 9<br/>RPM package"]
-    arm --> rocky
-    x64 --> alma["AlmaLinux 9<br/>compatibility"]
-    arm --> alma
-    trisquel --> inspect["Install · launch under Xvfb<br/>daemon · secret-tool · metadata<br/>uninstall · payload inspection"]
-    rocky --> inspect
-    alma --> inspect
+    x64 --> ubuntu["Ubuntu 24.04 LTS<br/>Debian package"]
+    arm --> ubuntu
+    x64 --> fedora["Fedora Linux 44<br/>RPM package"]
+    arm --> fedora
+    ubuntu --> inspect["Install · launch under Xvfb<br/>daemon · secret-tool · metadata<br/>uninstall · payload inspection"]
+    fedora --> inspect
     inspect --> protected["Protected release job<br/>checksum + GPG signature"]
     protected --> github["GitHub Releases"]
 ```
@@ -69,8 +64,8 @@ Run the matrix locally with Podman or Docker:
 
 ```sh
 scripts/validate-linux-distros.sh
-scripts/validate-linux-distros.sh trisquel
-scripts/validate-linux-distros.sh rocky alma
+scripts/validate-linux-distros.sh ubuntu
+scripts/validate-linux-distros.sh fedora
 ```
 
 Container isolation is optional locally. Hosted lanes are authoritative.
@@ -79,8 +74,8 @@ Apple's `container` CLI is not used.
 ## Recipe validation
 
 `scripts/ci-linux-package-recipes.sh debian` builds the Debian recipe inside
-Trisquel. `scripts/ci-linux-package-recipes.sh rpm` builds the RPM recipe
-inside Rocky. `scripts/package-smoke.sh` validates metadata, production binary
+Ubuntu. `scripts/ci-linux-package-recipes.sh rpm` builds the RPM recipe inside
+Fedora. `scripts/package-smoke.sh` validates metadata, production binary
 names, desktop integration, daemon unit hardening, JavaFX native image launch,
 license helper contract, expected architecture, absence of a bundled JRE, and
 clean uninstall behavior.

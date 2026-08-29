@@ -101,9 +101,8 @@ state, and no blocking control calls on the JavaFX application thread.
 - A checksum-pinned standalone actionlint 1.7.12 binary validates workflows.
 - Dependabot covers Actions, Maven, and Android Gradle dependencies.
 - CodeQL covers C/C++, Java/Kotlin, and Swift.
-- GNU/Linux CI runs Trisquel 12, Rocky Linux 9, and AlmaLinux 9 on x86_64 and
-  `ubuntu-24.04-arm`. Trisquel produces Debian packages, Rocky produces RPMs,
-  and Alma is an independent compatibility lane.
+- GNU/Linux CI runs only Ubuntu 24.04 LTS and Fedora Linux 44 on x86_64 and
+  aarch64. Ubuntu produces Debian packages and Fedora produces RPMs.
 - Android managed-device lanes use `aosp_atd/arm64-v8a` on API 31, 33, and 36.
   Physical devices are supplemental; API 30 is not supported.
 - Protected release jobs build, inspect, sign, and checksum GNU/Linux packages,

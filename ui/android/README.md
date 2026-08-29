@@ -33,8 +33,8 @@ sequenceDiagram
 ```
 
 The locked application ID is `org.jpfchang.clambhook`; `minSdk` is 31,
-`targetSdk` is 36, and product APK/AAB output is ARM64-only. Portable C tests
-may still use other Android ABIs.
+`targetSdk` is 36, `compileSdk` is 37, and product APK/AAB output is
+ARM64-only. Portable C tests may still use other Android ABIs.
 
 Run `make test-android` for Kotlin unit tests, lint, native compilation, and the
 release AAR. Authoritative managed-device journeys run the

@@ -19,7 +19,7 @@ flowchart TD
     native --> contracts["TOML · JSON · HTTP · WebSocket<br/>rollback · CLI · TUI · license"]
     ui --> android["Gluon Android ARM64<br/>API 31 · 33 · 36 ATD"]
     ui --> linux["Gluon GNU/Linux native images<br/>x86_64 · aarch64"]
-    linux --> distros["Trisquel 12 · Rocky 9 · Alma 9<br/>install · launch · daemon · secret store · uninstall"]
+    linux --> distros["Ubuntu 24.04 · Fedora 44<br/>install · launch · daemon · secret store · uninstall"]
     android --> inspect["APK/AAB ABI, manifest, JNI, signing"]
     distros --> inspect
     mac --> inspect
@@ -127,9 +127,8 @@ Both x86_64 and aarch64 lanes:
 - inspect architecture, dynamic dependencies, notices, and SBOM inputs;
 - uninstall cleanly and verify package-owned paths are gone.
 
-Trisquel produces Debian artifacts, Rocky produces RPM artifacts, and Alma
-builds and installs an ephemeral package from the same RPM recipe as an
-independent compatibility lane.
+Ubuntu produces Debian artifacts and Fedora produces RPM artifacts. They are
+the only authoritative GNU/Linux validation targets.
 
 ## macOS gate
 

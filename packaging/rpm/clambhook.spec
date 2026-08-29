@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: 2026 Pengfan Chang <support@swiphtgroup.com>
 # SPDX-License-Identifier: GPL-3.0-only
 
-# ClambHook RPM package for Fedora (RHEL-compatible).
+# ClambHook RPM package for the Fedora validation and release lane.
 #
 # Build from the repository root, e.g.:
 #   VERSION=$(git describe --tags --always | sed 's/^v//;s/-/./g')

@@ -19,7 +19,7 @@ pin every third-party action to a full commit SHA, and grant job-scoped access.
   tamper/replay/rekey fixtures, configuration rollback, API, and WebSocket tests;
 - JavaFX Maven/JUnit/JaCoCo verification and Kotlin AAR tests/lint;
 - unsigned SwiftUI macOS build/test with the C runtime;
-- Trisquel 12, Rocky Linux 9, and AlmaLinux 9 on x86_64 and aarch64 runners,
+- Ubuntu 24.04 LTS and Fedora Linux 44 on x86_64 and aarch64 runners,
   including Gluon native image launch plus package install, integration, and
   uninstall checks;
 - Gluon Android ARM64 build and `aosp_atd/arm64-v8a` managed-device journeys
@@ -38,15 +38,15 @@ upload installers or package outputs.
 It accepts either a verified signed stable tag or an approved manual request.
 It builds and signs:
 
-- Debian packages from Trisquel on x86_64 and aarch64;
-- RPM packages from Rocky on x86_64 and aarch64;
+- Debian packages from Ubuntu on x86_64 and aarch64;
+- RPM packages from Fedora on x86_64 and aarch64;
 - ARM64 Android APK/AAB files with the protected Android keystore;
 - the Apple Silicon SwiftUI app, embedded C runtime, notarized DMG, and Sparkle
   appcast;
 - manifests, SHA-256 files, and GPG signatures.
 
-AlmaLinux builds and installs an ephemeral package from the same RPM recipe as
-an independent compatibility lane; only Rocky produces the release RPM.
+Ubuntu and Fedora are the complete GNU/Linux validation matrix. No additional
+distribution is treated as a release or compatibility authority.
 
 ```mermaid
 flowchart LR
@@ -54,7 +54,7 @@ flowchart LR
     policy --> c["C17 + sanitizers"]
     policy --> java["JavaFX + Kotlin"]
     policy --> swift["SwiftUI + C runtime"]
-    c --> distro["Trisquel · Rocky · Alma<br/>x86_64 + aarch64"]
+    c --> distro["Ubuntu 24.04 · Fedora 44<br/>x86_64 + aarch64"]
     java --> device["Android API 31 · 33 · 36<br/>ARM64 managed devices"]
     distro --> required["Required checks"]
     device --> required

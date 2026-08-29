@@ -30,8 +30,10 @@ it does not stop or destroy the service-owned runtime.
 ## Toolchain
 
 - Java 17
-- Android Gradle Plugin and Kotlin versions pinned in `ui/android`
-- compileSdk/targetSdk 36
+- Android Gradle Plugin 9.3.2 with built-in Kotlin and the Kotlin 2.4.10
+  serialization plugin
+- Gradle 9.7.1 wrapper
+- compileSdk 37 with build-tools 37.0.0; targetSdk 36
 - Android NDK `27.0.12077973`
 - CMake 3.22.1
 - Maven, GraalVM for JDK 17, JavaFX 21.0.12, and GluonFX 1.0.29
@@ -42,6 +44,7 @@ Use the Android CLI for local SDK and device management:
 ```sh
 android info
 android sdk list --all 'platforms*'
+android sdk install --beta platforms/android-37.0 build-tools/37.0.0
 android sdk install platforms/android-36 build-tools/36.0.0
 ```
 

@@ -58,7 +58,7 @@ class UpdateManager(
                     _state.update { it.copy(available = null, upToDate = true, message = "No update available.") }
                     return@withContext
                 }
-                resp.body?.string().orEmpty()
+                resp.body.string()
             }
             val manifest = json.decodeFromString<AndroidUpdateManifest>(body)
             val current = currentVersionCode()
@@ -129,7 +129,7 @@ class UpdateManager(
         val digest = MessageDigest.getInstance("SHA-256")
         client.newCall(Request.Builder().url(manifest.apkUrl).build()).execute().use { resp ->
             if (!resp.isSuccessful) error("download failed (${resp.code})")
-            val source = resp.body?.byteStream() ?: error("empty download body")
+            val source = resp.body.byteStream()
             target.outputStream().use { out ->
                 val buffer = ByteArray(64 * 1024)
                 while (true) {

@@ -201,7 +201,7 @@ class LicenseManager(context: Context) {
             .post(body.toString().toRequestBody(JSON_MEDIA_TYPE))
             .build()
         return client.newCall(request).execute().use { response ->
-            val payload = response.body?.byteStream()?.use(::readBoundedResponse).orEmpty()
+            val payload = response.body.byteStream().use(::readBoundedResponse)
             if (!response.isSuccessful) {
                 val serverMessage = runCatching {
                     json.parseToJsonElement(payload).jsonObject["error"]

@@ -11,8 +11,7 @@
 - Kotlin-only Android platform AAR with service-owned runtime and ARM64
   APK/AAB output at the API 31 floor.
 - SwiftUI macOS 14+ Apple Silicon client using only the C runtime.
-- GNU/Linux x86_64/aarch64 native images and Trisquel/Rocky/Alma packaging
-  matrix.
+- GNU/Linux x86_64/aarch64 native images and Ubuntu/Fedora packaging matrix.
 - WireGuard, OpenVPN UDP/TLS-EKM, VMESS-AEAD, ShadowTLS, Shadowsocks, Tor,
   encrypted DNS, rules/policy/prompts, capture, and traffic/event contracts.
 - Protected multi-platform CI, signing, artifact inspection, and GitHub Release

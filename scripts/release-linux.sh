@@ -72,7 +72,7 @@ checksum_and_sign() {
   echo "  sha256: $(awk '{print $1}' "$artifact.sha256")"
 }
 
-# 1. Trisquel / Debian-format package (.deb)
+# 1. Ubuntu / Debian-format package (.deb)
 build_deb() {
   require dpkg-buildpackage ".deb build"
   dpkg-buildpackage -us -uc -b
@@ -83,7 +83,7 @@ build_deb() {
   checksum_and_sign "$DIST_DIR/ClambHook-${VERSION}-${ARCH}.deb"
 }
 
-# 2. Rocky Linux / AlmaLinux RPM package (.rpm)
+# 2. Fedora Linux RPM package (.rpm)
 build_rpm() {
   require rpmbuild ".rpm build"
   local topdir="$DIST_DIR/rpmbuild"

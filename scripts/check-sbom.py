@@ -52,15 +52,18 @@ expected = {
     "javafx-static-sdk": "21.0.1",
     "substrate": "0.0.69",
     "gluonfx-maven-plugin": "1.0.29",
-    "gradle": "8.9.1",
-    "kotlin-gradle-plugin": "2.3.20",
+    "android-gradle-plugin": "9.3.2",
+    "Gradle": "9.7.1",
+    "kotlin-serialization-plugin": "2.4.10",
+    "kotlin-stdlib": "2.4.10",
     "GraalVM Community Edition": "17.0.9",
-    "core-ktx": "1.16.0",
+    "activity": "1.11.0",
+    "core-ktx": "1.19.0",
     "datastore-preferences": "1.1.1",
-    "security-crypto": "1.1.0-alpha06",
-    "kotlinx-coroutines-android": "1.9.0",
-    "kotlinx-serialization-json": "1.7.3",
-    "okhttp": "4.12.0",
+    "security-crypto": "1.1.0",
+    "kotlinx-coroutines-android": "1.11.0",
+    "kotlinx-serialization-json": "1.11.0",
+    "okhttp": "5.5.0",
     "zxing-android-embedded": "4.3.0",
 }
 actual = {component.get("name"): component.get("version") for component in components}
@@ -75,23 +78,37 @@ gradle = (ROOT / "ui" / "android" / "app" / "build.gradle.kts").read_text(
 root_gradle = (ROOT / "ui" / "android" / "build.gradle.kts").read_text(
     encoding="utf-8"
 )
+gradle_wrapper = (
+    ROOT / "ui" / "android" / "gradle" / "wrapper" / "gradle-wrapper.properties"
+).read_text(encoding="utf-8")
+gluon_android = (ROOT / "ui" / "javafx" / "src" / "android" / "build.gradle").read_text(
+    encoding="utf-8"
+)
 for value in ("21.0.12", "21.0.1", "1.0.29"):
     if value not in pom:
         fail(f"JavaFX/Gluon pin {value} is absent from pom.xml")
 for value in (
-    "1.16.0",
+    "1.19.0",
     "1.1.1",
-    "1.1.0-alpha06",
-    "1.9.0",
-    "1.7.3",
-    "4.12.0",
+    "1.1.0",
+    "1.11.0",
+    "5.5.0",
     "4.3.0",
 ):
     if value not in gradle:
         fail(f"Android dependency pin {value} is absent from app/build.gradle.kts")
-for value in ("8.9.1", "2.3.20"):
+for value in ("9.3.2", "2.4.10"):
     if value not in root_gradle:
         fail(f"Android build-tool pin {value} is absent from build.gradle.kts")
+for value in (
+    "gradle-9.7.1-bin.zip",
+    "acd53f1edaf02f1a8ff99879f8a34b302661a057d9b063ae9e35b552f804d20a",
+):
+    if value not in gradle_wrapper:
+        fail(f"Gradle wrapper pin is absent from gradle-wrapper.properties: {value}")
+for value in ("1.11.0", "1.19.0", "1.1.1", "1.1.0", "2.4.10", "5.5.0", "4.3.0"):
+    if value not in gluon_android:
+        fail(f"Gluon Android dependency pin {value} is absent from src/android/build.gradle")
 
 dependency_refs = {
     reference

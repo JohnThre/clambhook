@@ -103,12 +103,12 @@ if unzip -Z1 "$APK" | grep -Eiq '(^|/)(compose|gtk|jre|jdk)(/|\.|$)|\.go$'; then
 fi
 
 if [[ "$REQUIRE_SIGNING" == "1" ]]; then
-    APKSIGNER="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}/build-tools/36.0.0/apksigner"
+    APKSIGNER="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}/build-tools/37.0.0/apksigner"
     if [[ ! -x "$APKSIGNER" ]]; then
         APKSIGNER="$(command -v apksigner 2>/dev/null || true)"
     fi
     [[ -n "$APKSIGNER" && -x "$APKSIGNER" ]] || {
-        echo "Android SDK build-tools 36.0.0 apksigner is required for APK signature verification." >&2
+        echo "Android SDK build-tools 37.0.0 apksigner is required for APK signature verification." >&2
         exit 2
     }
     require jarsigner "App Bundle signature verification"

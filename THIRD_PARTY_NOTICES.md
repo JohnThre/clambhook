@@ -137,12 +137,13 @@ Source and license information:
 
 ## Android/Kotlin dependencies
 
-The Android platform AAR uses AndroidX Core 1.16.0, DataStore 1.1.1, Security
-Crypto 1.1.0-alpha06, Kotlin 2.3.20, kotlinx.coroutines 1.9.0,
-kotlinx.serialization 1.7.3, OkHttp 4.12.0, and ZXing Android Embedded 4.3.0.
-These components are licensed under Apache-2.0 and retain their upstream
-notices. JUnit and AndroidX Test dependencies are test-only and are not shipped
-in product packages. Exact coordinates and scopes are recorded in
+The Android application and platform AAR use AndroidX Activity 1.11.0, Core
+1.19.0, DataStore 1.1.1, Security Crypto 1.1.0, Kotlin 2.4.10,
+kotlinx.coroutines 1.11.0, kotlinx.serialization 1.11.0, OkHttp 5.5.0, and ZXing
+Android Embedded 4.3.0. These components are licensed under Apache-2.0 and
+retain their upstream notices. JUnit and AndroidX Test dependencies are
+test-only and are not shipped in product packages. Exact coordinates and
+scopes are recorded in
 `packaging/sbom.cdx.json` and the Gradle build.
 
 ## GraalVM Community Edition 17.0.9
