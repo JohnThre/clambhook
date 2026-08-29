@@ -1116,7 +1116,10 @@ static void ch_wg_session_destroy(ch_wg_session *session) {
         (void)pthread_mutex_lock(&session->mutex);
         session->stopping = 1;
         uint8_t wake = 1U;
-        (void)write(session->wake_write, &wake, sizeof(wake));
+        ssize_t wake_result;
+        do {
+            wake_result = write(session->wake_write, &wake, sizeof(wake));
+        } while (wake_result < 0 && errno == EINTR);
         (void)pthread_mutex_unlock(&session->mutex);
         (void)pthread_join(session->worker, NULL);
     }

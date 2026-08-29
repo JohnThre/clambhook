@@ -216,7 +216,10 @@ static ch_status ch_tunnel_submit(ch_tunnel_stack *stack,
     }
     stack->command_tail = command;
     uint8_t wake = 1U;
-    (void)write(stack->wake_write, &wake, sizeof(wake));
+    ssize_t wake_result;
+    do {
+        wake_result = write(stack->wake_write, &wake, sizeof(wake));
+    } while (wake_result < 0 && errno == EINTR);
     (void)pthread_mutex_unlock(&stack->queue_mutex);
     return ch_tunnel_command_wait(command, error);
 }
@@ -1335,7 +1338,10 @@ void ch_tunnel_stack_destroy(ch_tunnel_stack *stack) {
     (void)pthread_mutex_lock(&stack->queue_mutex);
     stack->stopping = 1;
     uint8_t wake = 1U;
-    (void)write(stack->wake_write, &wake, sizeof(wake));
+    ssize_t wake_result;
+    do {
+        wake_result = write(stack->wake_write, &wake, sizeof(wake));
+    } while (wake_result < 0 && errno == EINTR);
     (void)pthread_mutex_unlock(&stack->queue_mutex);
     (void)pthread_join(stack->worker, NULL);
     ch_tunnel_close_descriptor(&stack->wake_read);
