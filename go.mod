@@ -16,13 +16,13 @@ require (
 	github.com/BurntSushi/toml v1.6.0
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/charmbracelet/lipgloss v1.1.0
-	github.com/coder/websocket v1.8.14
-	github.com/fsnotify/fsnotify v1.9.0
-	github.com/google/uuid v1.3.1
+	github.com/coder/websocket v1.8.15
+	github.com/fsnotify/fsnotify v1.10.1
+	github.com/google/uuid v1.6.0
 	github.com/oschwald/maxminddb-golang v1.13.1
-	github.com/quic-go/quic-go v0.59.1
-	golang.org/x/crypto v0.53.0
-	golang.org/x/time v0.7.0
+	github.com/quic-go/quic-go v0.61.0
+	golang.org/x/crypto v0.54.0
+	golang.org/x/time v0.15.0
 	golang.zx2c4.com/wireguard v0.0.0-20250521234502-f333402bd9cb
 	gvisor.dev/gvisor v0.0.0-20250503011706-39ed1f5ac29c
 )
@@ -45,12 +45,12 @@ require (
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
 	golang.org/x/mobile v0.0.0-20260529142300-ecb4cd65260a // indirect
-	golang.org/x/mod v0.36.0 // indirect
+	golang.org/x/mod v0.37.0 // indirect
 	golang.org/x/net v0.56.0 // indirect
-	golang.org/x/sync v0.21.0 // indirect
-	golang.org/x/sys v0.46.0 // indirect
-	golang.org/x/text v0.38.0 // indirect
-	golang.org/x/tools v0.45.0 // indirect
+	golang.org/x/sync v0.22.0 // indirect
+	golang.org/x/sys v0.47.0 // indirect
+	golang.org/x/text v0.40.0 // indirect
+	golang.org/x/tools v0.47.0 // indirect
 	golang.zx2c4.com/wintun v0.0.0-20230126152724-0fa3db229ce2 // indirect
 )
 
