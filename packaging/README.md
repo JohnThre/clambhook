@@ -22,10 +22,10 @@ The Debian and RPM recipes install:
 - the ClambHook polkit policy, sysusers/tmpfiles metadata, sample config,
   licenses, notices, and documentation
 
-The JavaFX image uses system graphics/audio libraries but carries its Java
-runtime as native code. Package inspection rejects JAR/JRE payloads, retired UI
-artifacts, unexpected executables, and runtime build metadata from the retired
-implementation.
+The JavaFX image uses system graphics, audio, and media libraries but carries
+its Java runtime as native code. Package inspection rejects JAR/JRE payloads,
+retired UI artifacts, unexpected executables, and runtime build metadata from
+the retired implementation.
 
 The controller probes the loopback API before connecting. If the packaged
 daemon is not ready, `PlatformServices` starts `clambhook-daemon.service`

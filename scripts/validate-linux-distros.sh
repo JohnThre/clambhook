@@ -37,7 +37,8 @@ apt-get update -qq
 apt-get install -y -qq \
   build-essential cmake ninja-build pkg-config \
   libuv1-dev libsodium-dev libssl-dev libcurl4-openssl-dev \
-  libasound2-dev libfreetype6-dev libgl-dev libglib2.0-dev libgtk-3-dev \
+  libasound2-dev libavcodec-dev libavformat-dev libavutil-dev \
+  libfreetype6-dev libgl-dev libglib2.0-dev libgtk-3-dev \
   libpango1.0-dev libx11-dev libxtst-dev zlib1g-dev \
   xvfb xauth dbus-x11 gnome-keyring libsecret-tools \
   openjdk-17-jdk-headless maven \
@@ -48,7 +49,8 @@ rpm_setup='dnf install -y -q --allowerasing \
   gcc gcc-c++ make cmake ninja-build pkgconf-pkg-config \
   libasan libubsan \
   libuv-devel libsodium-devel openssl-devel libcurl-devel \
-  alsa-lib-devel freetype-devel gtk3-devel libX11-devel libXtst-devel \
+  alsa-lib-devel "pkgconfig(libavcodec)" "pkgconfig(libavformat)" \
+  "pkgconfig(libavutil)" freetype-devel gtk3-devel libX11-devel libXtst-devel \
   mesa-libGL-devel pango-devel zlib-devel \
   xorg-x11-server-Xvfb xorg-x11-xauth dbus-daemon gnome-keyring libsecret \
   maven \

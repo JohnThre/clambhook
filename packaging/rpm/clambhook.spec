@@ -31,6 +31,9 @@ BuildRequires:  ninja-build
 BuildRequires:  pkgconf-pkg-config
 BuildRequires:  maven
 BuildRequires:  alsa-lib-devel
+BuildRequires:  pkgconfig(libavcodec)
+BuildRequires:  pkgconfig(libavformat)
+BuildRequires:  pkgconfig(libavutil)
 BuildRequires:  freetype-devel
 BuildRequires:  gtk3-devel
 BuildRequires:  libX11-devel
