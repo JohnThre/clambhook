@@ -49,6 +49,16 @@ ch_status ch_event_ring_snapshot(ch_event_ring *ring,
 uint64_t ch_event_ring_oldest_lamport(ch_event_ring *ring);
 size_t ch_event_ring_length(ch_event_ring *ring);
 uint64_t ch_event_ring_total(ch_event_ring *ring);
+
+/*
+ * Encodes the frozen replay contract. request_json accepts after_sequence,
+ * limit, types, conn_ids, and per-shard since cursors. The result includes a
+ * process-local sequence on every event so HTTP snapshot clients can resume
+ * without losing events when the retained ring is truncated.
+ */
+char *ch_event_ring_query_json(ch_event_ring *ring,
+                               const char *request_json,
+                               ch_error *error);
 void ch_events_free(ch_event *events, size_t event_count);
 
 #ifdef __cplusplus

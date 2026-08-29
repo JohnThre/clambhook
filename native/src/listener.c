@@ -6,6 +6,7 @@
 #include <arpa/inet.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <limits.h>
 #include <netdb.h>
 #include <poll.h>
 #include <pthread.h>
@@ -20,15 +21,19 @@
 #include <sys/types.h>
 #include <unistd.h>
 
+#include <llhttp.h>
+#include <openssl/ssl.h>
 #include <sodium.h>
 
 #include "clambhook/protocol.h"
 #include "clambhook/developer.h"
 #include "clambhook/socks.h"
+#include "developer_internal.h"
 #include "internal.h"
 
 #define CH_LISTENER_DEFAULT_HANDSHAKE_MS 30000U
 #define CH_HTTP_MAX_HEADER_BYTES (1024U * 1024U)
+#define CH_HTTP_MAX_BODY_BYTES (256U * 1024U * 1024U)
 #define CH_SOCKS_UDP_MAX_PACKET 65507U
 #define CH_SOCKS_UDP_READER_POLL_MS 500
 
@@ -1083,6 +1088,1065 @@ static char *ch_http_forward_header(const char *method, const char *path,
     return ch_json_take(&output);
 }
 
+typedef struct ch_http_io {
+    int descriptor;
+    SSL *tls;
+    uint8_t *unread;
+    size_t unread_length;
+} ch_http_io;
+
+typedef struct ch_http_parser_context {
+    llhttp_t parser;
+    llhttp_settings_t settings;
+    ch_developer_http_message message;
+    ch_json_buffer url;
+    ch_json_buffer header_name;
+    ch_json_buffer header_value;
+    size_t header_bytes;
+    bool reading_value;
+    bool complete;
+    bool response;
+} ch_http_parser_context;
+
+typedef struct ch_http_prefix_bio {
+    int descriptor;
+    uint8_t *prefix;
+    size_t prefix_length;
+    size_t prefix_offset;
+} ch_http_prefix_bio;
+
+static BIO_METHOD *ch_http_prefix_bio_method = NULL;
+static pthread_once_t ch_http_prefix_bio_once = PTHREAD_ONCE_INIT;
+
+static int ch_http_prefix_bio_create(BIO *bio) {
+    BIO_set_init(bio, 1);
+    BIO_set_shutdown(bio, 0);
+    BIO_set_data(bio, NULL);
+    return 1;
+}
+
+static int ch_http_prefix_bio_destroy(BIO *bio) {
+    if (bio == NULL) return 0;
+    ch_http_prefix_bio *state = BIO_get_data(bio);
+    if (state != NULL) {
+        free(state->prefix);
+        free(state);
+    }
+    BIO_set_data(bio, NULL);
+    BIO_set_init(bio, 0);
+    return 1;
+}
+
+static int ch_http_prefix_bio_read(BIO *bio, char *output, int length) {
+    ch_http_prefix_bio *state = BIO_get_data(bio);
+    if (state == NULL || output == NULL || length <= 0) return 0;
+    BIO_clear_retry_flags(bio);
+    size_t remaining = state->prefix_length - state->prefix_offset;
+    if (remaining > 0U) {
+        size_t copied = remaining < (size_t)length ? remaining :
+                                                     (size_t)length;
+        memcpy(output, state->prefix + state->prefix_offset, copied);
+        state->prefix_offset += copied;
+        return (int)copied;
+    }
+    ssize_t received;
+    do {
+        received = recv(state->descriptor, output, (size_t)length, 0);
+    } while (received < 0 && errno == EINTR);
+    if (received < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+        BIO_set_retry_read(bio);
+    }
+    return received > (ssize_t)INT_MAX ? INT_MAX : (int)received;
+}
+
+static int ch_http_prefix_bio_write(BIO *bio, const char *input, int length) {
+    ch_http_prefix_bio *state = BIO_get_data(bio);
+    if (state == NULL || input == NULL || length <= 0) return 0;
+    BIO_clear_retry_flags(bio);
+    ssize_t written;
+    do {
+        written = send(state->descriptor, input, (size_t)length,
+#ifdef MSG_NOSIGNAL
+                       MSG_NOSIGNAL
+#else
+                       0
+#endif
+        );
+    } while (written < 0 && errno == EINTR);
+    if (written < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+        BIO_set_retry_write(bio);
+    }
+    return written > (ssize_t)INT_MAX ? INT_MAX : (int)written;
+}
+
+static long ch_http_prefix_bio_ctrl(BIO *bio, int command, long number,
+                                    void *pointer) {
+    (void)number;
+    (void)pointer;
+    ch_http_prefix_bio *state = BIO_get_data(bio);
+    switch (command) {
+        case BIO_CTRL_FLUSH:
+            return 1L;
+        case BIO_CTRL_PENDING:
+            return state == NULL ? 0L :
+                (long)(state->prefix_length - state->prefix_offset);
+        case BIO_CTRL_GET_CLOSE:
+            return BIO_get_shutdown(bio);
+        case BIO_CTRL_SET_CLOSE:
+            BIO_set_shutdown(bio, (int)number);
+            return 1L;
+        default:
+            return 0L;
+    }
+}
+
+static void ch_http_prefix_bio_initialize(void) {
+    ch_http_prefix_bio_method = BIO_meth_new(
+        BIO_TYPE_SOURCE_SINK | 0x80, "clambhook prefixed socket");
+    if (ch_http_prefix_bio_method == NULL) return;
+    if (BIO_meth_set_create(ch_http_prefix_bio_method,
+                            ch_http_prefix_bio_create) != 1 ||
+        BIO_meth_set_destroy(ch_http_prefix_bio_method,
+                             ch_http_prefix_bio_destroy) != 1 ||
+        BIO_meth_set_read(ch_http_prefix_bio_method,
+                          ch_http_prefix_bio_read) != 1 ||
+        BIO_meth_set_write(ch_http_prefix_bio_method,
+                           ch_http_prefix_bio_write) != 1 ||
+        BIO_meth_set_ctrl(ch_http_prefix_bio_method,
+                          ch_http_prefix_bio_ctrl) != 1) {
+        BIO_meth_free(ch_http_prefix_bio_method);
+        ch_http_prefix_bio_method = NULL;
+    }
+}
+
+static BIO *ch_http_prefix_bio_new(int descriptor, const uint8_t *prefix,
+                                   size_t prefix_length) {
+    (void)pthread_once(&ch_http_prefix_bio_once,
+                       ch_http_prefix_bio_initialize);
+    if (ch_http_prefix_bio_method == NULL) return NULL;
+    BIO *bio = BIO_new(ch_http_prefix_bio_method);
+    ch_http_prefix_bio *state = bio == NULL ? NULL :
+        calloc(1U, sizeof(*state));
+    if (state != NULL && prefix_length > 0U) {
+        state->prefix = malloc(prefix_length);
+        if (state->prefix != NULL) {
+            memcpy(state->prefix, prefix, prefix_length);
+            state->prefix_length = prefix_length;
+        }
+    }
+    if (state == NULL || (prefix_length > 0U && state->prefix == NULL)) {
+        free(state);
+        BIO_free(bio);
+        return NULL;
+    }
+    state->descriptor = descriptor;
+    BIO_set_data(bio, state);
+    return bio;
+}
+
+static ssize_t ch_http_io_read(ch_http_io *io, uint8_t *buffer,
+                               size_t length) {
+    if (io->tls != NULL) {
+        int limited = length > (size_t)INT_MAX ? INT_MAX : (int)length;
+        int result = SSL_read(io->tls, buffer, limited);
+        if (result > 0) return result;
+        int ssl_error = SSL_get_error(io->tls, result);
+        if (ssl_error == SSL_ERROR_ZERO_RETURN) return 0;
+        errno = ssl_error == SSL_ERROR_WANT_READ ||
+            ssl_error == SSL_ERROR_WANT_WRITE ? EINTR : EIO;
+        return -1;
+    }
+    return recv(io->descriptor, buffer, length, 0);
+}
+
+static void ch_http_io_dispose(ch_http_io *io) {
+    if (io == NULL) return;
+    free(io->unread);
+    io->unread = NULL;
+    io->unread_length = 0U;
+}
+
+static bool ch_http_io_store_unread(ch_http_io *io, const char *bytes,
+                                    size_t length) {
+    uint8_t *copy = NULL;
+    if (length > 0U) {
+        copy = malloc(length);
+        if (copy == NULL) return false;
+        memcpy(copy, bytes, length);
+    }
+    free(io->unread);
+    io->unread = copy;
+    io->unread_length = length;
+    return true;
+}
+
+static bool ch_http_io_write_all(ch_http_io *io, const uint8_t *bytes,
+                                 size_t length) {
+    size_t offset = 0U;
+    while (offset < length) {
+        ssize_t written;
+        if (io->tls != NULL) {
+            int limited = length - offset > (size_t)INT_MAX ? INT_MAX :
+                                                           (int)(length - offset);
+            int result = SSL_write(io->tls, bytes + offset, limited);
+            if (result > 0) {
+                written = result;
+            } else {
+                int ssl_error = SSL_get_error(io->tls, result);
+                if (ssl_error == SSL_ERROR_WANT_READ ||
+                    ssl_error == SSL_ERROR_WANT_WRITE) continue;
+                return false;
+            }
+        } else {
+            written = send(io->descriptor, bytes + offset, length - offset,
+#ifdef MSG_NOSIGNAL
+                           MSG_NOSIGNAL
+#else
+                           0
+#endif
+            );
+            if (written < 0 && errno == EINTR) continue;
+        }
+        if (written <= 0) return false;
+        offset += (size_t)written;
+    }
+    return true;
+}
+
+static bool ch_http_message_header_add(ch_developer_http_message *message,
+                                       const char *name,
+                                       const char *value) {
+    ch_developer_http_header *next = realloc(
+        message->headers,
+        (message->header_count + 1U) * sizeof(*message->headers));
+    if (next == NULL) return false;
+    message->headers = next;
+    ch_developer_http_header *header = &next[message->header_count];
+    memset(header, 0, sizeof(*header));
+    header->name = ch_strdup(name == NULL ? "" : name);
+    header->value = ch_strdup(value == NULL ? "" : value);
+    if (header->name == NULL || header->value == NULL) {
+        free(header->name);
+        free(header->value);
+        memset(header, 0, sizeof(*header));
+        return false;
+    }
+    ++message->header_count;
+    return true;
+}
+
+static const char *ch_http_message_header(
+    const ch_developer_http_message *message, const char *name) {
+    for (size_t index = 0U; index < message->header_count; ++index) {
+        if (message->headers[index].name != NULL &&
+            strcasecmp(message->headers[index].name, name) == 0) {
+            return message->headers[index].value;
+        }
+    }
+    return NULL;
+}
+
+static void ch_http_message_header_remove(
+    ch_developer_http_message *message, const char *name) {
+    size_t output = 0U;
+    for (size_t index = 0U; index < message->header_count; ++index) {
+        if (message->headers[index].name != NULL &&
+            strcasecmp(message->headers[index].name, name) == 0) {
+            free(message->headers[index].name);
+            free(message->headers[index].value);
+            continue;
+        }
+        if (output != index) message->headers[output] = message->headers[index];
+        ++output;
+    }
+    message->header_count = output;
+}
+
+static bool ch_http_parser_finalize_header(ch_http_parser_context *context) {
+    if (context->header_name.length == 0U) return true;
+    char *name = ch_json_take(&context->header_name);
+    char *value = ch_json_take(&context->header_value);
+    ch_json_init(&context->header_name);
+    ch_json_init(&context->header_value);
+    bool okay = name != NULL && value != NULL &&
+        ch_http_message_header_add(&context->message, name, value);
+    free(name);
+    free(value);
+    context->reading_value = false;
+    return okay;
+}
+
+static int ch_http_parser_url(llhttp_t *parser, const char *at,
+                              size_t length) {
+    ch_http_parser_context *context = parser->data;
+    return ch_json_append_bytes(&context->url, at, length) ? 0 : HPE_USER;
+}
+
+static int ch_http_parser_header_field(llhttp_t *parser, const char *at,
+                                       size_t length) {
+    ch_http_parser_context *context = parser->data;
+    if (context->reading_value && !ch_http_parser_finalize_header(context)) {
+        return HPE_USER;
+    }
+    context->header_bytes += length;
+    if (context->header_bytes > CH_HTTP_MAX_HEADER_BYTES) return HPE_USER;
+    return ch_json_append_bytes(&context->header_name, at, length) ? 0 :
+                                                                    HPE_USER;
+}
+
+static int ch_http_parser_header_value(llhttp_t *parser, const char *at,
+                                       size_t length) {
+    ch_http_parser_context *context = parser->data;
+    context->reading_value = true;
+    context->header_bytes += length;
+    if (context->header_bytes > CH_HTTP_MAX_HEADER_BYTES) return HPE_USER;
+    return ch_json_append_bytes(&context->header_value, at, length) ? 0 :
+                                                                     HPE_USER;
+}
+
+static int ch_http_parser_headers_complete(llhttp_t *parser) {
+    ch_http_parser_context *context = parser->data;
+    if (!ch_http_parser_finalize_header(context)) return HPE_USER;
+    if (context->response) {
+        context->message.status = (int)parser->status_code;
+    } else {
+        const char *method = llhttp_method_name((llhttp_method_t)parser->method);
+        context->message.method = ch_strdup(method == NULL ? "" : method);
+        if (context->message.method == NULL) return HPE_USER;
+    }
+    return 0;
+}
+
+static int ch_http_parser_body(llhttp_t *parser, const char *at,
+                               size_t length) {
+    ch_http_parser_context *context = parser->data;
+    if (length > CH_HTTP_MAX_BODY_BYTES - context->message.body_length) {
+        return HPE_USER;
+    }
+    uint8_t *next = realloc(context->message.body,
+                            context->message.body_length + length);
+    if (next == NULL && length > 0U) return HPE_USER;
+    context->message.body = next;
+    if (length > 0U) {
+        memcpy(next + context->message.body_length, at, length);
+        context->message.body_length += length;
+        context->message.body_set = true;
+    }
+    return 0;
+}
+
+static int ch_http_parser_message_complete(llhttp_t *parser) {
+    ch_http_parser_context *context = parser->data;
+    if (context->response && context->message.status >= 100 &&
+        context->message.status < 200 && context->message.status != 101) {
+        ch_developer_http_message_clear(&context->message);
+        context->header_bytes = 0U;
+        context->reading_value = false;
+        return 0;
+    }
+    context->complete = true;
+    llhttp_pause(parser);
+    return 0;
+}
+
+static void ch_http_parser_dispose(ch_http_parser_context *context) {
+    ch_json_dispose(&context->url);
+    ch_json_dispose(&context->header_name);
+    ch_json_dispose(&context->header_value);
+    ch_developer_http_message_clear(&context->message);
+}
+
+static bool ch_http_message_derive_request(
+    ch_developer_http_message *message, char *url,
+    const char *scheme_hint, const char *authority_hint) {
+    message->url = url;
+    const char *host_header = ch_http_message_header(message, "Host");
+    const char *authority = host_header == NULL || host_header[0] == '\0' ?
+        authority_hint : host_header;
+    if (url != NULL && (strncasecmp(url, "http://", 7U) == 0 ||
+                        strncasecmp(url, "https://", 8U) == 0)) {
+        const char *start = strstr(url, "://") + 3U;
+        const char *slash = strchr(start, '/');
+        const char *question = strchr(start, '?');
+        const char *end = slash == NULL ? question :
+            (question == NULL || slash < question ? slash : question);
+        size_t host_length = end == NULL ? strlen(start) :
+                                             (size_t)(end - start);
+        message->host = strndup(start, host_length);
+        message->path = ch_strdup(end == NULL ? "/" : end);
+        return message->host != NULL && message->path != NULL;
+    }
+    if (authority == NULL || authority[0] == '\0') return false;
+    message->host = ch_strdup(authority);
+    message->path = ch_strdup(url == NULL || url[0] == '\0' ? "/" : url);
+    ch_json_buffer absolute;
+    ch_json_init(&absolute);
+    bool okay = ch_json_append(&absolute,
+                               scheme_hint == NULL ? "http" : scheme_hint) &&
+        ch_json_append(&absolute, "://") &&
+        ch_json_append(&absolute, authority) &&
+        ch_json_append(&absolute, message->path);
+    char *full = okay ? ch_json_take(&absolute) : NULL;
+    ch_json_dispose(&absolute);
+    free(message->url);
+    message->url = full;
+    return message->host != NULL && message->path != NULL && full != NULL;
+}
+
+static ch_status ch_http_parse_message(
+    ch_http_io *io, llhttp_type_t type,
+    const uint8_t *initial, size_t initial_length,
+    const char *request_method_hint,
+    const char *scheme_hint, const char *authority_hint,
+    ch_developer_http_message *out, ch_error *error) {
+    ch_http_parser_context context;
+    memset(&context, 0, sizeof(context));
+    context.response = type == HTTP_RESPONSE;
+    ch_json_init(&context.url);
+    ch_json_init(&context.header_name);
+    ch_json_init(&context.header_value);
+    llhttp_settings_init(&context.settings);
+    context.settings.on_url = ch_http_parser_url;
+    context.settings.on_header_field = ch_http_parser_header_field;
+    context.settings.on_header_value = ch_http_parser_header_value;
+    context.settings.on_headers_complete = ch_http_parser_headers_complete;
+    context.settings.on_body = ch_http_parser_body;
+    context.settings.on_message_complete = ch_http_parser_message_complete;
+    llhttp_init(&context.parser, type, &context.settings);
+    if (context.response && request_method_hint != NULL &&
+        strcasecmp(request_method_hint, "HEAD") == 0) {
+        context.parser.method = HTTP_HEAD;
+    }
+    context.parser.data = &context;
+    llhttp_errno_t parse_status = HPE_OK;
+    if (initial_length > 0U) {
+        parse_status = llhttp_execute(
+            &context.parser, (const char *)initial, initial_length);
+        if (parse_status == HPE_PAUSED && context.complete) {
+            const char *position = llhttp_get_error_pos(&context.parser);
+            const char *end = (const char *)initial + initial_length;
+            if (position != NULL && position >= (const char *)initial &&
+                position <= end &&
+                !ch_http_io_store_unread(io, position,
+                                         (size_t)(end - position))) {
+                parse_status = HPE_USER;
+            }
+        }
+    }
+    if (!context.complete && parse_status == HPE_OK &&
+        io->unread_length > 0U) {
+        uint8_t *unread = io->unread;
+        size_t unread_length = io->unread_length;
+        io->unread = NULL;
+        io->unread_length = 0U;
+        parse_status = llhttp_execute(
+            &context.parser, (const char *)unread, unread_length);
+        if (parse_status == HPE_PAUSED && context.complete) {
+            const char *position = llhttp_get_error_pos(&context.parser);
+            const char *end = (const char *)unread + unread_length;
+            if (position != NULL && position >= (const char *)unread &&
+                position <= end &&
+                !ch_http_io_store_unread(io, position,
+                                         (size_t)(end - position))) {
+                parse_status = HPE_USER;
+            }
+        }
+        free(unread);
+    }
+    uint8_t buffer[32768];
+    while (!context.complete && parse_status == HPE_OK) {
+        ssize_t received = ch_http_io_read(io, buffer, sizeof(buffer));
+        if (received < 0 && errno == EINTR) continue;
+        if (received < 0) {
+            ch_error_set(error, CH_ERROR_IO, "read HTTP message: %s",
+                         strerror(errno));
+            ch_http_parser_dispose(&context);
+            return CH_ERROR_IO;
+        }
+        if (received == 0) {
+            parse_status = llhttp_finish(&context.parser);
+            break;
+        }
+        parse_status = llhttp_execute(&context.parser, (const char *)buffer,
+                                      (size_t)received);
+        if (parse_status == HPE_PAUSED && context.complete) {
+            const char *position = llhttp_get_error_pos(&context.parser);
+            const char *end = (const char *)buffer + received;
+            if (position != NULL && position >= (const char *)buffer &&
+                position <= end &&
+                !ch_http_io_store_unread(io, position,
+                                         (size_t)(end - position))) {
+                parse_status = HPE_USER;
+            }
+        }
+    }
+    if (parse_status == HPE_PAUSED && context.complete) parse_status = HPE_OK;
+    if (parse_status != HPE_OK || !context.complete) {
+        ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
+                     "parse HTTP message: %s",
+                     llhttp_errno_name(parse_status));
+        ch_http_parser_dispose(&context);
+        return CH_ERROR_INVALID_ARGUMENT;
+    }
+    if (!context.response) {
+        char *url = ch_json_take(&context.url);
+        if (url == NULL || !ch_http_message_derive_request(
+                &context.message, url, scheme_hint, authority_hint)) {
+            free(url);
+            ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
+                         "HTTP request target is invalid");
+            ch_http_parser_dispose(&context);
+            return CH_ERROR_INVALID_ARGUMENT;
+        }
+    }
+    if (ch_http_message_header(&context.message, "Content-Length") != NULL ||
+        ch_http_message_header(&context.message, "Transfer-Encoding") != NULL) {
+        context.message.body_set = true;
+    }
+    *out = context.message;
+    memset(&context.message, 0, sizeof(context.message));
+    ch_http_parser_dispose(&context);
+    return CH_OK;
+}
+
+static const char *ch_http_reason(int status) {
+    switch (status) {
+        case 100: return "Continue";
+        case 200: return "OK";
+        case 201: return "Created";
+        case 202: return "Accepted";
+        case 204: return "No Content";
+        case 206: return "Partial Content";
+        case 301: return "Moved Permanently";
+        case 302: return "Found";
+        case 304: return "Not Modified";
+        case 307: return "Temporary Redirect";
+        case 308: return "Permanent Redirect";
+        case 400: return "Bad Request";
+        case 401: return "Unauthorized";
+        case 403: return "Forbidden";
+        case 404: return "Not Found";
+        case 407: return "Proxy Authentication Required";
+        case 408: return "Request Timeout";
+        case 409: return "Conflict";
+        case 413: return "Content Too Large";
+        case 429: return "Too Many Requests";
+        case 500: return "Internal Server Error";
+        case 502: return "Bad Gateway";
+        case 503: return "Service Unavailable";
+        case 504: return "Gateway Timeout";
+        default: return "Status";
+    }
+}
+
+static void ch_http_strip_hop_headers(ch_developer_http_message *message) {
+    static const char *const names[] = {
+        "Connection", "Proxy-Connection", "Keep-Alive",
+        "Proxy-Authenticate", "Proxy-Authorization", "TE", "Trailer",
+        "Transfer-Encoding", "Upgrade"
+    };
+    for (size_t index = 0U; index < sizeof(names) / sizeof(names[0]); ++index) {
+        ch_http_message_header_remove(message, names[index]);
+    }
+}
+
+static char *ch_http_serialize_message(ch_developer_http_message *message,
+                                       bool response,
+                                       size_t *out_length) {
+    ch_http_strip_hop_headers(message);
+    if (message->body_set || message->body_length > 0U) {
+        char length[32];
+        (void)snprintf(length, sizeof(length), "%zu", message->body_length);
+        ch_http_message_header_remove(message, "Content-Length");
+        if (!ch_http_message_header_add(message, "Content-Length", length)) {
+            return NULL;
+        }
+    }
+    ch_json_buffer output;
+    ch_json_init(&output);
+    bool okay;
+    if (response) {
+        okay = ch_json_append_format(
+            &output, "HTTP/1.1 %d %s\r\n", message->status,
+            ch_http_reason(message->status));
+    } else {
+        const char *path = message->path == NULL || message->path[0] == '\0' ?
+            "/" : message->path;
+        okay = ch_json_append_format(
+            &output, "%s %s HTTP/1.1\r\n",
+            message->method == NULL ? "GET" : message->method, path);
+    }
+    for (size_t index = 0U; okay && index < message->header_count; ++index) {
+        const char *name = message->headers[index].name;
+        const char *value = message->headers[index].value;
+        if (name == NULL || name[0] == '\0' || strchr(name, '\r') != NULL ||
+            strchr(name, '\n') != NULL || (value != NULL &&
+            (strchr(value, '\r') != NULL || strchr(value, '\n') != NULL))) {
+            okay = false;
+            break;
+        }
+        okay = ch_json_append_format(&output, "%s: %s\r\n", name,
+                                     value == NULL ? "" : value);
+    }
+    okay = okay && ch_json_append(&output, "\r\n") &&
+        (message->body_length == 0U || ch_json_append_bytes(
+            &output, (const char *)message->body, message->body_length));
+    *out_length = okay ? output.length : 0U;
+    char *result = okay ? ch_json_take(&output) : NULL;
+    ch_json_dispose(&output);
+    return result;
+}
+
+static char *ch_http_message_headers_raw(
+    const ch_developer_http_message *message, size_t *out_length) {
+    ch_json_buffer output;
+    ch_json_init(&output);
+    bool okay = true;
+    for (size_t index = 0U; okay && index < message->header_count; ++index) {
+        const char *name = message->headers[index].name;
+        const char *value = message->headers[index].value;
+        okay = name != NULL && strchr(name, '\r') == NULL &&
+            strchr(name, '\n') == NULL &&
+            (value == NULL || (strchr(value, '\r') == NULL &&
+                               strchr(value, '\n') == NULL)) &&
+            ch_json_append_format(&output, "%s: %s\r\n", name,
+                                  value == NULL ? "" : value);
+    }
+    *out_length = okay ? output.length : 0U;
+    char *result = okay ? ch_json_take(&output) : NULL;
+    ch_json_dispose(&output);
+    return result;
+}
+
+static ch_developer_capture *ch_http_begin_message_capture(
+    ch_listener_connection *connection,
+    const ch_developer_http_message *message,
+    const ch_proxy_route *route,
+    const char *scheme) {
+    if (connection->listener->developer == NULL) return NULL;
+    size_t headers_length = 0U;
+    char *headers = ch_http_message_headers_raw(message, &headers_length);
+    char *client_address = ch_listener_socket_address(
+        connection->client_descriptor, 1);
+    ch_developer_capture *capture = NULL;
+    if (headers != NULL && client_address != NULL) {
+        ch_developer_capture_metadata metadata = {
+            .flow_id = route == NULL ? 0U : route->flow_id,
+            .profile = connection->listener->profile_name,
+            .client_address = client_address,
+            .chain_name = route == NULL ? "map-local" : route->chain_name,
+            .method = message->method,
+            .url = message->url,
+            .scheme = scheme,
+            .host = message->host,
+            .request_headers = headers,
+            .request_headers_length = headers_length
+        };
+        ch_error error;
+        capture = ch_developer_capture_begin(
+            connection->listener->developer, &metadata, &error);
+        if (capture != NULL && message->body_length > 0U) {
+            ch_developer_capture_request_body(
+                capture, message->body, message->body_length);
+        }
+    }
+    free(headers);
+    free(client_address);
+    return capture;
+}
+
+static char *ch_http_scheme(const ch_developer_http_message *message) {
+    if (message->url == NULL) return NULL;
+    const char *separator = strstr(message->url, "://");
+    if (separator == NULL) return NULL;
+    return strndup(message->url, (size_t)(separator - message->url));
+}
+
+static char *ch_http_target_for_message(
+    const ch_developer_http_message *message, const char *scheme) {
+    return ch_http_authority_target(
+        message->host, scheme != NULL && strcasecmp(scheme, "https") == 0 ?
+                           "443" : "80");
+}
+
+static char *ch_http_target_host(const char *target) {
+    if (target == NULL) return NULL;
+    if (target[0] == '[') {
+        const char *end = strchr(target, ']');
+        return end == NULL ? NULL : strndup(target + 1U,
+                                            (size_t)(end - target - 1U));
+    }
+    const char *separator = strrchr(target, ':');
+    return separator == NULL ? ch_strdup(target) :
+        strndup(target, (size_t)(separator - target));
+}
+
+static SSL *ch_http_upstream_tls(int descriptor, const char *host,
+                                 SSL_CTX **out_context, ch_error *error) {
+    *out_context = SSL_CTX_new(TLS_client_method());
+    if (*out_context == NULL ||
+        SSL_CTX_set_min_proto_version(*out_context, TLS1_2_VERSION) != 1 ||
+        SSL_CTX_set_default_verify_paths(*out_context) != 1) {
+        SSL_CTX_free(*out_context);
+        *out_context = NULL;
+        ch_error_set(error, CH_ERROR_IO,
+                     "initialize upstream TLS context");
+        return NULL;
+    }
+    SSL_CTX_set_verify(*out_context, SSL_VERIFY_PEER, NULL);
+    SSL *tls = SSL_new(*out_context);
+    X509_VERIFY_PARAM *verify = tls == NULL ? NULL : SSL_get0_param(tls);
+    uint8_t address[16];
+    bool okay = tls != NULL && verify != NULL &&
+        SSL_set_fd(tls, descriptor) == 1 &&
+        SSL_set_tlsext_host_name(tls, host) == 1;
+    if (okay) {
+        okay = (inet_pton(AF_INET, host, address) == 1 ||
+                inet_pton(AF_INET6, host, address) == 1) ?
+            X509_VERIFY_PARAM_set1_ip_asc(verify, host) == 1 :
+            X509_VERIFY_PARAM_set1_host(verify, host, 0U) == 1;
+    }
+    if (okay) okay = SSL_connect(tls) == 1;
+    if (!okay) {
+        SSL_free(tls);
+        SSL_CTX_free(*out_context);
+        *out_context = NULL;
+        ch_error_set(error, CH_ERROR_IO,
+                     "establish verified upstream TLS connection");
+        return NULL;
+    }
+    return tls;
+}
+
+static bool ch_http_send_synthetic(ch_http_io *client, int status,
+                                   const char *body) {
+    ch_developer_http_message response;
+    memset(&response, 0, sizeof(response));
+    response.status = status;
+    response.body_length = strlen(body == NULL ? "" : body);
+    response.body = response.body_length == 0U ? NULL :
+        (uint8_t *)ch_strdup(body);
+    response.body_set = true;
+    bool initialized = (response.body != NULL || response.body_length == 0U) &&
+        ch_http_message_header_add(
+            &response, "Content-Type", "text/plain; charset=utf-8") &&
+        ch_http_message_header_add(&response, "Connection", "close");
+    size_t length = 0U;
+    char *serialized = initialized ? ch_http_serialize_message(
+        &response, true, &length) : NULL;
+    bool okay = serialized != NULL && ch_http_io_write_all(
+        client, (const uint8_t *)serialized, length);
+    free(serialized);
+    ch_developer_http_message_clear(&response);
+    return okay;
+}
+
+static void ch_http_flow_bytes(ch_listener_connection *connection,
+                               uint64_t rx, uint64_t tx) {
+    if (connection->listener->flow_bytes != NULL &&
+        connection->flow_id != 0U) {
+        connection->listener->flow_bytes(
+            connection->flow_id, rx, tx,
+            connection->listener->flow_context);
+    }
+}
+
+static bool ch_http_forward_message(
+    ch_listener_connection *connection,
+    ch_http_io *client,
+    ch_developer_http_message *request,
+    const ch_proxy_route *existing_route,
+    int existing_remote,
+    ch_error *error) {
+    ch_developer_http_result request_result;
+    ch_status status = ch_developer_process_request(
+        connection->listener->developer, request, &request_result, error);
+    if (status != CH_OK) {
+        (void)ch_http_send_synthetic(client, 502, "Developer tooling failed");
+        return false;
+    }
+    if (request_result.drop) {
+        (void)ch_http_send_synthetic(client, 403, "Dropped by breakpoint");
+        ch_developer_http_result_clear(&request_result);
+        return true;
+    }
+    if (request_result.local_response) {
+        char *capture_scheme = ch_http_scheme(request);
+        ch_developer_capture *capture = ch_http_begin_message_capture(
+            connection, request, NULL,
+            capture_scheme == NULL ? "http" : capture_scheme);
+        free(capture_scheme);
+        size_t response_length = 0U;
+        char *response = ch_http_serialize_message(
+            &request_result.message, true, &response_length);
+        bool okay = response != NULL && ch_http_io_write_all(
+            client, (const uint8_t *)response, response_length);
+        if (capture != NULL && response != NULL) {
+            ch_developer_capture_response(
+                capture, (const uint8_t *)response, response_length);
+            ch_developer_capture_finish(capture,
+                                        okay ? NULL : "write response failed");
+        }
+        free(response);
+        ch_developer_http_result_clear(&request_result);
+        return okay;
+    }
+    ch_developer_http_message *outgoing = &request_result.message;
+    char *scheme = ch_http_scheme(outgoing);
+    char *target = ch_http_target_for_message(outgoing, scheme);
+    if (scheme == NULL || target == NULL ||
+        (strcasecmp(scheme, "http") != 0 &&
+         strcasecmp(scheme, "https") != 0)) {
+        free(scheme);
+        free(target);
+        ch_developer_http_result_clear(&request_result);
+        ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
+                     "unsupported forwarded URL");
+        (void)ch_http_send_synthetic(client, 400, "Invalid forwarded URL");
+        return false;
+    }
+    ch_proxy_route route_storage;
+    const ch_proxy_route *route = existing_route;
+    int remote = existing_remote;
+    if (route == NULL || request_result.remote_url != NULL) {
+        if (remote >= 0 && remote != connection->remote_descriptor) {
+            ch_listener_close_descriptor(&remote);
+        }
+        if (connection->remote_descriptor >= 0 &&
+            request_result.remote_url != NULL) {
+            pthread_mutex_lock(&connection->listener->mutex);
+            int stale = connection->remote_descriptor;
+            connection->remote_descriptor = -1;
+            pthread_mutex_unlock(&connection->listener->mutex);
+            ch_listener_close_descriptor(&stale);
+        }
+        status = ch_listener_dial(connection, target, &route_storage, error);
+        route = &route_storage;
+        remote = connection->remote_descriptor;
+    }
+    if (status != CH_OK || route == NULL ||
+        route->action != CH_PROXY_ROUTE_CONNECT || remote < 0) {
+        (void)ch_http_send_synthetic(client, 502, "Bad Gateway");
+        free(scheme);
+        free(target);
+        ch_developer_http_result_clear(&request_result);
+        return false;
+    }
+    SSL_CTX *upstream_context = NULL;
+    SSL *upstream_tls = NULL;
+    if (strcasecmp(scheme, "https") == 0) {
+        char *host = ch_http_target_host(target);
+        upstream_tls = host == NULL ? NULL : ch_http_upstream_tls(
+            remote, host, &upstream_context, error);
+        free(host);
+        if (upstream_tls == NULL) {
+            (void)ch_http_send_synthetic(client, 502, "TLS upstream failed");
+            free(scheme);
+            free(target);
+            ch_developer_http_result_clear(&request_result);
+            return false;
+        }
+    }
+    ch_http_io upstream = {.descriptor = remote, .tls = upstream_tls};
+    ch_developer_capture *capture = ch_http_begin_message_capture(
+        connection, outgoing, route, scheme);
+    size_t request_length = 0U;
+    char *serialized_request = ch_http_serialize_message(
+        outgoing, false, &request_length);
+    if (serialized_request == NULL || !ch_http_io_write_all(
+            &upstream, (const uint8_t *)serialized_request, request_length)) {
+        if (capture != NULL) {
+            ch_developer_capture_finish(capture,
+                                        "write request to upstream failed");
+        }
+        free(serialized_request);
+        SSL_free(upstream_tls);
+        SSL_CTX_free(upstream_context);
+        free(scheme);
+        free(target);
+        ch_developer_http_result_clear(&request_result);
+        return false;
+    }
+    ch_http_flow_bytes(connection, 0U, (uint64_t)request_length);
+    free(serialized_request);
+    ch_developer_http_message response_message;
+    memset(&response_message, 0, sizeof(response_message));
+    status = ch_http_parse_message(
+        &upstream, HTTP_RESPONSE, NULL, 0U, outgoing->method, NULL, NULL,
+        &response_message, error);
+    ch_http_io_dispose(&upstream);
+    if (status != CH_OK) {
+        if (capture != NULL) {
+            ch_developer_capture_finish(capture,
+                                        "read response from upstream failed");
+        }
+        SSL_free(upstream_tls);
+        SSL_CTX_free(upstream_context);
+        free(scheme);
+        free(target);
+        ch_developer_http_result_clear(&request_result);
+        return false;
+    }
+    ch_developer_http_result response_result;
+    status = ch_developer_process_response(
+        connection->listener->developer, outgoing, &response_message,
+        &response_result, error);
+    ch_developer_http_message_clear(&response_message);
+    if (status != CH_OK) {
+        if (capture != NULL) {
+            ch_developer_capture_finish(capture,
+                                        "apply response tooling failed");
+        }
+        SSL_free(upstream_tls);
+        SSL_CTX_free(upstream_context);
+        free(scheme);
+        free(target);
+        ch_developer_http_result_clear(&request_result);
+        return false;
+    }
+    if (response_result.drop) {
+        if (capture != NULL) ch_developer_capture_finish(capture, NULL);
+        (void)ch_http_send_synthetic(client, 403,
+                                     "Dropped by breakpoint");
+        ch_developer_http_result_clear(&response_result);
+        SSL_free(upstream_tls);
+        SSL_CTX_free(upstream_context);
+        free(scheme);
+        free(target);
+        ch_developer_http_result_clear(&request_result);
+        return true;
+    }
+    size_t response_length = 0U;
+    char *serialized_response = ch_http_serialize_message(
+        &response_result.message, true, &response_length);
+    bool okay = serialized_response != NULL && ch_http_io_write_all(
+        client, (const uint8_t *)serialized_response, response_length);
+    if (serialized_response != NULL) {
+        ch_http_flow_bytes(connection, (uint64_t)response_length, 0U);
+        if (capture != NULL) {
+            ch_developer_capture_response(
+                capture, (const uint8_t *)serialized_response,
+                response_length);
+        }
+    }
+    if (capture != NULL) {
+        ch_developer_capture_finish(capture,
+                                    okay ? NULL : "write response failed");
+    }
+    free(serialized_response);
+    ch_developer_http_result_clear(&response_result);
+    SSL_free(upstream_tls);
+    SSL_CTX_free(upstream_context);
+    free(scheme);
+    free(target);
+    ch_developer_http_result_clear(&request_result);
+    return okay;
+}
+
+static void ch_http_close_remote_transaction(
+    ch_listener_connection *connection, const char *reason) {
+    pthread_mutex_lock(&connection->listener->mutex);
+    int remote = connection->remote_descriptor;
+    connection->remote_descriptor = -1;
+    pthread_mutex_unlock(&connection->listener->mutex);
+    ch_listener_close_descriptor(&remote);
+    if (connection->listener->flow_close != NULL &&
+        connection->flow_id != 0U) {
+        connection->listener->flow_close(
+            connection->flow_id, reason,
+            connection->listener->flow_context);
+        connection->flow_id = 0U;
+    }
+}
+
+static bool ch_http_handle_mitm(
+    ch_listener_connection *connection,
+    const ch_proxy_route *initial_route,
+    const char *target,
+    const uint8_t *early_data,
+    size_t early_data_length) {
+    char *host = ch_http_target_host(target);
+    ch_error error;
+    SSL_CTX *server_context = NULL;
+    ch_status status = host == NULL ? CH_ERROR_INVALID_ARGUMENT :
+        ch_developer_tls_server_context(
+            connection->listener->developer, host, &server_context, &error);
+    if (status != CH_OK) {
+        free(host);
+        SSL_CTX_free(server_context);
+        return false;
+    }
+    static const char connected[] =
+        "HTTP/1.1 200 Connection established\r\n"
+        "Proxy-Agent: clambhook\r\n\r\n";
+    if (!ch_listener_send_all(connection->client_descriptor, connected,
+                              sizeof(connected) - 1U)) {
+        free(host);
+        SSL_CTX_free(server_context);
+        return false;
+    }
+    SSL *client_tls = SSL_new(server_context);
+    BIO *read_bio = client_tls == NULL ? NULL : ch_http_prefix_bio_new(
+        connection->client_descriptor, early_data, early_data_length);
+    BIO *write_bio = client_tls == NULL ? NULL : BIO_new_socket(
+        connection->client_descriptor, BIO_NOCLOSE);
+    if (client_tls == NULL || read_bio == NULL || write_bio == NULL) {
+        BIO_free(read_bio);
+        BIO_free(write_bio);
+        SSL_free(client_tls);
+        SSL_CTX_free(server_context);
+        free(host);
+        return false;
+    }
+    SSL_set0_rbio(client_tls, read_bio);
+    SSL_set0_wbio(client_tls, write_bio);
+    if (SSL_accept(client_tls) != 1) {
+        SSL_free(client_tls);
+        SSL_CTX_free(server_context);
+        free(host);
+        return false;
+    }
+    ch_http_io client_io = {
+        .descriptor = connection->client_descriptor,
+        .tls = client_tls
+    };
+    const ch_proxy_route *route = initial_route;
+    int remote = connection->remote_descriptor;
+    bool handled = false;
+    for (;;) {
+        ch_developer_http_message request;
+        memset(&request, 0, sizeof(request));
+        status = ch_http_parse_message(
+            &client_io, HTTP_REQUEST, NULL, 0U, NULL, "https", target,
+            &request, &error);
+        if (status != CH_OK) {
+            ch_developer_http_message_clear(&request);
+            break;
+        }
+        bool close_after = false;
+        const char *connection_header = ch_http_message_header(
+            &request, "Connection");
+        if (connection_header != NULL &&
+            strcasecmp(connection_header, "close") == 0) close_after = true;
+        bool okay = ch_http_forward_message(
+            connection, &client_io, &request, route, remote, &error);
+        ch_developer_http_message_clear(&request);
+        handled = handled || okay;
+        ch_http_close_remote_transaction(
+            connection, okay ? "HTTP transaction completed" :
+                               "HTTP transaction failed");
+        route = NULL;
+        remote = -1;
+        if (!okay || close_after) break;
+    }
+    (void)SSL_shutdown(client_tls);
+    ch_http_io_dispose(&client_io);
+    SSL_free(client_tls);
+    SSL_CTX_free(server_context);
+    free(host);
+    return handled;
+}
+
 static void ch_http_finish_capture(ch_listener_connection *connection,
                                    const char *error_message) {
     if (connection->developer_capture == NULL) return;
@@ -1160,6 +2224,31 @@ static void ch_http_handle(ch_listener_connection *connection) {
         if (path == NULL) path = "/";
     }
     if (target == NULL) goto bad_request_restored;
+    if (!is_connect) {
+        uri[-1] = ' ';
+        version[-1] = ' ';
+        ch_http_io client_io = {.descriptor = client};
+        ch_developer_http_message parsed_request;
+        memset(&parsed_request, 0, sizeof(parsed_request));
+        ch_error parse_error;
+        ch_status parse_status = ch_http_parse_message(
+            &client_io, HTTP_REQUEST, (const uint8_t *)request, length,
+            NULL, "http", NULL, &parsed_request, &parse_error);
+        free(target);
+        free(request);
+        ch_http_io_dispose(&client_io);
+        if (parse_status != CH_OK) {
+            ch_http_status(client, 400, "Bad Request", 0);
+            return;
+        }
+        ch_listener_clear_timeout(client);
+        ch_error forward_error;
+        (void)ch_http_forward_message(
+            connection, &client_io, &parsed_request, NULL, -1,
+            &forward_error);
+        ch_developer_http_message_clear(&parsed_request);
+        return;
+    }
     ch_proxy_route route;
     ch_error error;
     ch_status status = ch_listener_dial(connection, target, &route, &error);
@@ -1176,6 +2265,20 @@ static void ch_http_handle(ch_listener_connection *connection) {
         return;
     }
     ch_listener_clear_timeout(client);
+    if (is_connect && connection->listener->developer != NULL) {
+        char *mitm_host = ch_http_target_host(target);
+        bool should_mitm = mitm_host != NULL && ch_developer_should_mitm(
+            connection->listener->developer, mitm_host);
+        free(mitm_host);
+        if (should_mitm) {
+            (void)ch_http_handle_mitm(
+                connection, &route, target,
+                (const uint8_t *)body_start, buffered_body_length);
+            free(target);
+            free(request);
+            return;
+        }
+    }
     if (!is_connect && connection->listener->developer != NULL) {
         size_t host_length = 0U;
         const char *host_value = ch_http_header_value(

@@ -3,6 +3,7 @@
 
 #include "clambhook/runtime.h"
 
+#include <ctype.h>
 #include <pthread.h>
 #include <stdatomic.h>
 #include <stdio.h>
@@ -15,6 +16,7 @@
 #include "clambhook/developer.h"
 #include "clambhook/developer_curl.h"
 #include "clambhook/dns.h"
+#include "clambhook/events.h"
 #include "clambhook/ip_stack.h"
 #include "clambhook/json.h"
 #include "clambhook/protocol.h"
@@ -57,11 +59,36 @@ struct ch_runtime {
     ch_ip_stack *ip_stack;
     ch_dns_proxy *dns;
     ch_traffic_store *traffic;
+    ch_event_ring *events;
     ch_temporary_rules *temporary_rules;
     ch_prompt_manager *prompts;
     ch_developer_manager *developer;
     ch_runtime_options options;
 };
+
+static int64_t android_runtime_now_ns(void) {
+    struct timespec now;
+    if (clock_gettime(CLOCK_REALTIME, &now) != 0) return 0;
+    return (int64_t)now.tv_sec * INT64_C(1000000000) +
+        (int64_t)now.tv_nsec;
+}
+
+static void android_runtime_traffic_event(uint64_t shard_id,
+                                          uint64_t lamport,
+                                          const char *event_type,
+                                          const char *data_json,
+                                          void *context) {
+    ch_runtime *runtime = context;
+    ch_event event = {
+        .shard_id = shard_id,
+        .lamport = lamport,
+        .timestamp_ns = android_runtime_now_ns(),
+        .type = (char *)event_type,
+        .data_json = (char *)data_json
+    };
+    ch_error ignored;
+    (void)ch_event_ring_append(runtime->events, &event, &ignored);
+}
 
 static char *android_optional_string(const ch_config_table *table,
                                      const char *key) {
@@ -709,6 +736,7 @@ static ch_status android_runtime_load_config(const char *config_path,
 static ch_status android_runtime_replace_config(ch_runtime *runtime,
                                                 const char *config_path,
                                                 bool restart,
+                                                bool preserve_active,
                                                 ch_error *error) {
     android_config_state next;
     ch_status status = android_runtime_load_config(config_path, &next, error);
@@ -716,7 +744,8 @@ static ch_status android_runtime_replace_config(ch_runtime *runtime,
 
     /* A reload must not silently reset an in-session profile selection merely
      * because the on-disk document has a different default. */
-    if (runtime->active_profile != NULL && next.config != NULL &&
+    if (preserve_active && runtime->active_profile != NULL &&
+        next.config != NULL &&
         ch_config_has_profile(next.config, runtime->active_profile) &&
         strcmp(next.active_profile, runtime->active_profile) != 0) {
         char *selected = ch_strdup(runtime->active_profile);
@@ -1003,6 +1032,93 @@ failure:
     return NULL;
 }
 
+static char *android_runtime_append_object_fields(char *base,
+                                                  const char *fields,
+                                                  ch_error *error) {
+    if (base == NULL || fields == NULL) return NULL;
+    size_t length = strlen(base);
+    if (length == 0U || base[length - 1U] != '}') {
+        free(base);
+        ch_error_set(error, CH_ERROR_INTERNAL,
+                     "runtime response is not a JSON object");
+        return NULL;
+    }
+    ch_json_buffer output;
+    ch_json_init(&output);
+    int okay = ch_json_append_bytes(&output, base, length - 1U) &&
+        ch_json_append(&output, fields) && ch_json_append(&output, "}");
+    free(base);
+    char *result = okay ? ch_json_take(&output) : NULL;
+    ch_json_dispose(&output);
+    if (result == NULL) {
+        ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                     "extend Android runtime response");
+    }
+    return result;
+}
+
+static char *android_runtime_persisted_status_json(
+    const ch_runtime *runtime, const char *backup_path, ch_error *error) {
+    ch_json_buffer fields;
+    ch_json_init(&fields);
+    int okay = ch_json_append(&fields, ",\"persisted\":true");
+    if (okay && backup_path != NULL && backup_path[0] != '\0') {
+        okay = ch_json_append(&fields, ",\"backup_path\":") &&
+            ch_json_append_string(&fields, backup_path);
+    }
+    char *encoded = okay ? ch_json_take(&fields) : NULL;
+    ch_json_dispose(&fields);
+    if (encoded == NULL) {
+        ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                     "encode Android persistence status");
+        return NULL;
+    }
+    char *result = android_runtime_append_object_fields(
+        android_runtime_status_json(runtime), encoded, error);
+    free(encoded);
+    return result;
+}
+
+static void android_runtime_trim_in_place(char *value) {
+    if (value == NULL) return;
+    char *start = value;
+    while (*start != '\0' && isspace((unsigned char)*start) != 0) ++start;
+    char *end = start + strlen(start);
+    while (end > start && isspace((unsigned char)end[-1]) != 0) --end;
+    size_t length = (size_t)(end - start);
+    memmove(value, start, length);
+    value[length] = '\0';
+}
+
+static char *android_runtime_optional_request_string(
+    const char *request_json, const char *key, ch_error *error) {
+    const char *document = request_json == NULL || request_json[0] == '\0' ?
+        "{}" : request_json;
+    ch_json_value *root = ch_json_parse(document, strlen(document), error);
+    if (root == NULL) return NULL;
+    if (ch_json_value_type(root) != CH_JSON_OBJECT) {
+        ch_json_value_destroy(root);
+        ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
+                     "request must be a JSON object");
+        return NULL;
+    }
+    const ch_json_value *value = ch_json_object_get(root, key);
+    const char *text = value == NULL ? "" : ch_json_string_value(value);
+    if (text == NULL) {
+        ch_json_value_destroy(root);
+        ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
+                     "%s must be a string", key);
+        return NULL;
+    }
+    char *copy = ch_strdup(text);
+    ch_json_value_destroy(root);
+    if (copy == NULL) {
+        ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                     "copy request %s", key);
+    }
+    return copy;
+}
+
 static char *android_runtime_policy_groups_json(ch_runtime *runtime,
                                                 const char *request_json,
                                                 ch_error *error) {
@@ -1109,8 +1225,19 @@ ch_runtime *ch_runtime_create(const ch_runtime_options *options, ch_error *error
         free(runtime);
         return NULL;
     }
+    runtime->events = ch_event_ring_create(4096U, error);
+    if (runtime->events == NULL) {
+        ch_traffic_store_destroy(runtime->traffic);
+        pthread_mutex_destroy(&runtime->mutex);
+        pthread_mutex_destroy(&runtime->ip_mutex);
+        free(runtime);
+        return NULL;
+    }
+    ch_traffic_store_set_event_writer(runtime->traffic,
+                                      android_runtime_traffic_event, runtime);
     runtime->temporary_rules = ch_temporary_rules_create(128U, error);
     if (runtime->temporary_rules == NULL) {
+        ch_event_ring_destroy(runtime->events);
         ch_traffic_store_destroy(runtime->traffic);
         pthread_mutex_destroy(&runtime->mutex);
         pthread_mutex_destroy(&runtime->ip_mutex);
@@ -1120,6 +1247,7 @@ ch_runtime *ch_runtime_create(const ch_runtime_options *options, ch_error *error
     runtime->prompts = ch_prompt_manager_create(error);
     if (runtime->prompts == NULL) {
         ch_temporary_rules_destroy(runtime->temporary_rules);
+        ch_event_ring_destroy(runtime->events);
         ch_traffic_store_destroy(runtime->traffic);
         pthread_mutex_destroy(&runtime->mutex);
         pthread_mutex_destroy(&runtime->ip_mutex);
@@ -1130,6 +1258,7 @@ ch_runtime *ch_runtime_create(const ch_runtime_options *options, ch_error *error
     if (runtime->developer == NULL) {
         ch_prompt_manager_destroy(runtime->prompts);
         ch_temporary_rules_destroy(runtime->temporary_rules);
+        ch_event_ring_destroy(runtime->events);
         ch_traffic_store_destroy(runtime->traffic);
         pthread_mutex_destroy(&runtime->mutex);
         pthread_mutex_destroy(&runtime->ip_mutex);
@@ -1141,6 +1270,7 @@ ch_runtime *ch_runtime_create(const ch_runtime_options *options, ch_error *error
         ch_developer_manager_destroy(runtime->developer);
         ch_prompt_manager_destroy(runtime->prompts);
         ch_temporary_rules_destroy(runtime->temporary_rules);
+        ch_event_ring_destroy(runtime->events);
         ch_traffic_store_destroy(runtime->traffic);
         pthread_mutex_destroy(&runtime->mutex);
         pthread_mutex_destroy(&runtime->ip_mutex);
@@ -1172,6 +1302,7 @@ void ch_runtime_destroy(ch_runtime *runtime) {
     ch_prompt_manager_destroy(runtime->prompts);
     ch_developer_manager_destroy(runtime->developer);
     ch_temporary_rules_destroy(runtime->temporary_rules);
+    ch_event_ring_destroy(runtime->events);
     ch_traffic_store_destroy(runtime->traffic);
     free(runtime);
 }
@@ -1189,7 +1320,8 @@ ch_status ch_runtime_start(ch_runtime *runtime, const char *config_path, ch_erro
         ch_error_set(error, CH_ERROR_INVALID_STATE, "engine already running");
         return CH_ERROR_INVALID_STATE;
     }
-    status = android_runtime_replace_config(runtime, config_path, false, error);
+    status = android_runtime_replace_config(runtime, config_path, false, false,
+                                            error);
     if (status == CH_OK) status = android_runtime_start_ip_stack(runtime,
                                                                 error);
     if (status == CH_OK) {
@@ -1225,7 +1357,7 @@ ch_status ch_runtime_reload(ch_runtime *runtime, const char *config_path, ch_err
     }
     pthread_mutex_lock(&runtime->mutex);
     bool running = runtime->running;
-    status = android_runtime_replace_config(runtime, config_path, running,
+    status = android_runtime_replace_config(runtime, config_path, running, true,
                                             error);
     pthread_mutex_unlock(&runtime->mutex);
     if (status == CH_OK) ch_protocol_reset_sessions();
@@ -1341,7 +1473,8 @@ static ch_status android_runtime_prompt_action(
                 rule_request, response_json, error);
             if (status == CH_OK) {
                 status = android_runtime_replace_config(
-                    runtime, runtime->config_path, runtime->running, error);
+                    runtime, runtime->config_path, runtime->running, true,
+                    error);
                 if (status != CH_OK) {
                     free(*response_json);
                     *response_json = NULL;
@@ -1377,6 +1510,10 @@ ch_status ch_runtime_query(ch_runtime *runtime, const char *operation,
     pthread_mutex_lock(&runtime->mutex);
     if (strcmp(operation, "status") == 0) response = android_runtime_status_json(runtime);
     else if (strcmp(operation, "profiles") == 0) response = android_runtime_profiles_json(runtime);
+    else if (strcmp(operation, "events") == 0) {
+        response = ch_event_ring_query_json(runtime->events, request_json,
+                                            error);
+    }
     else if (strcmp(operation, "traffic") == 0 ||
              strcmp(operation, "traffic_filter") == 0) {
         char *temporary = ch_temporary_rules_snapshot_json(
@@ -1390,6 +1527,10 @@ ch_status ch_runtime_query(ch_runtime *runtime, const char *operation,
             strcmp(operation, "traffic_filter") == 0 ? request_json : "{}",
             temporary, error);
         free(temporary);
+    }
+    else if (strcmp(operation, "decisions") == 0) {
+        response = ch_traffic_decisions_json(runtime->traffic, request_json,
+                                             error);
     }
     else if (strcmp(operation, "rule_from_connection") == 0) {
         response = ch_traffic_rule_request_json(
@@ -1428,11 +1569,15 @@ ch_status ch_runtime_query(ch_runtime *runtime, const char *operation,
     else if (strcmp(operation, "developer_curl_import") == 0) {
         response = ch_developer_curl_import_json(request_json, error);
     }
-    else if (strcmp(operation, "developer_entry_curl") == 0) {
+    else if (strcmp(operation, "developer_entry") == 0 ||
+             strcmp(operation, "developer_entry_curl") == 0) {
         char *identifier = ch_json_request_string(request_json, "id", error);
         if (identifier != NULL) {
-            response = ch_developer_entry_curl_json(
-                runtime->developer, identifier, error);
+            response = strcmp(operation, "developer_entry_curl") == 0 ?
+                ch_developer_entry_curl_json(
+                    runtime->developer, identifier, error) :
+                ch_developer_entry_json(runtime->developer, identifier,
+                                        error);
         }
         free(identifier);
     }
@@ -1456,9 +1601,22 @@ ch_status ch_runtime_query(ch_runtime *runtime, const char *operation,
         response = android_runtime_policy_groups_json(runtime, request_json,
                                                       error);
     }
+    else if (strcmp(operation, "config_export") == 0) {
+        response = ch_strdup(runtime->config == NULL ? "" :
+                             ch_config_document(runtime->config));
+    }
     else if (strcmp(operation, "servers") == 0 ||
              strcmp(operation, "rules") == 0 ||
              strcmp(operation, "rule_sets") == 0 ||
+             strcmp(operation, "rule_subscriptions") == 0 ||
+             strcmp(operation, "dns") == 0 ||
+             strcmp(operation, "config_settings") == 0 ||
+             strcmp(operation, "conditioner") == 0 ||
+             strcmp(operation, "network_settings") == 0 ||
+             strcmp(operation, "developer_settings") == 0 ||
+             strcmp(operation, "developer_map_rules") == 0 ||
+             strcmp(operation, "developer_breakpoint_rules") == 0 ||
+             strcmp(operation, "developer_rewrite_rules") == 0 ||
              strcmp(operation, "config") == 0) {
         response = ch_config_query_payload_json(
             runtime->config, runtime->active_profile, operation,
@@ -1489,10 +1647,220 @@ ch_status ch_runtime_query(ch_runtime *runtime, const char *operation,
     return CH_OK;
 }
 
+static const char *android_runtime_config_response_operation(
+    const char *operation) {
+    if (strcmp(operation, "update_dns") == 0) return "dns";
+    if (strcmp(operation, "update_conditioner") == 0) return "conditioner";
+    if (strcmp(operation, "update_config_settings") == 0) {
+        return "config_settings";
+    }
+    if (strcmp(operation, "replace_rules") == 0 ||
+        strcmp(operation, "create_rule") == 0) {
+        return "rules_persistence";
+    }
+    if (strcmp(operation, "replace_policy_groups") == 0) {
+        return "policy_groups_persistence";
+    }
+    if (strcmp(operation, "replace_rule_sets") == 0) {
+        return "rule_sets_persistence";
+    }
+    if (strcmp(operation, "replace_rule_subscriptions") == 0) {
+        return "rule_subscriptions_persistence";
+    }
+    if (strcmp(operation, "select_policy_group") == 0) {
+        return "policy_group_selection";
+    }
+    if (strcmp(operation, "update_developer_settings") == 0) {
+        return "developer_settings";
+    }
+    if (strcmp(operation, "replace_developer_map_rules") == 0 ||
+        strcmp(operation, "replace_developer_breakpoint_rules") == 0 ||
+        strcmp(operation, "replace_developer_rewrite_rules") == 0 ||
+        strcmp(operation, "delete_developer_map_rule") == 0 ||
+        strcmp(operation, "delete_developer_breakpoint_rule") == 0 ||
+        strcmp(operation, "delete_developer_rewrite_rule") == 0) {
+        return "developer_persistence";
+    }
+    return NULL;
+}
+
+static ch_status android_runtime_restore_document(
+    const char *path, const char *document, ch_error *error,
+    const ch_error *original_error) {
+    ch_error restore_error;
+    ch_status restore = ch_config_write_atomic_document(
+        path, document, NULL, &restore_error);
+    if (restore != CH_OK) {
+        ch_error_set(error, CH_ERROR_INTERNAL, "%s; restore config: %s",
+                     original_error->message, restore_error.message);
+        return CH_ERROR_INTERNAL;
+    }
+    *error = *original_error;
+    return original_error->code;
+}
+
+static ch_status android_runtime_persist_config_mutation(
+    ch_runtime *runtime, const char *operation, const char *response_operation,
+    const char *request_json, char **response_json, ch_error *error) {
+    if (runtime->config_path == NULL || runtime->config_path[0] == '\0' ||
+        runtime->config == NULL) {
+        ch_error_set(error, CH_ERROR_INVALID_STATE,
+                     "configuration persistence requires an Android config path");
+        return CH_ERROR_INVALID_STATE;
+    }
+    char *previous = ch_strdup(ch_config_document(runtime->config));
+    if (previous == NULL) {
+        ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                     "copy Android config for rollback");
+        return CH_ERROR_OUT_OF_MEMORY;
+    }
+    ch_status status = ch_runtime_config_mutate_file(
+        runtime->config_path, operation, response_operation, request_json,
+        response_json, error);
+    if (status == CH_OK) {
+        status = android_runtime_replace_config(
+            runtime, runtime->config_path, runtime->running, true, error);
+        if (status != CH_OK) {
+            ch_error apply_error = *error;
+            free(*response_json);
+            *response_json = NULL;
+            status = android_runtime_restore_document(
+                runtime->config_path, previous, error, &apply_error);
+        }
+    }
+    free(previous);
+    return status;
+}
+
+static ch_status android_runtime_persist_active_profile(
+    ch_runtime *runtime, const char *request_json, char **response_json,
+    ch_error *error) {
+    if (runtime->config_path == NULL || runtime->config_path[0] == '\0' ||
+        runtime->config == NULL) {
+        ch_error_set(error, CH_ERROR_INVALID_STATE,
+                     "profile persistence requires an Android config path");
+        return CH_ERROR_INVALID_STATE;
+    }
+    char *name = ch_json_request_string(request_json, "name", error);
+    if (name == NULL) return error->code;
+    android_runtime_trim_in_place(name);
+    if (name[0] == '\0' || !ch_config_has_profile(runtime->config, name)) {
+        ch_error_set(error, CH_ERROR_NOT_FOUND, "profile %s not found", name);
+        free(name);
+        return CH_ERROR_NOT_FOUND;
+    }
+    char *previous = ch_strdup(ch_config_document(runtime->config));
+    char *document = NULL;
+    char *backup_path = NULL;
+    ch_status status = previous == NULL ? CH_ERROR_OUT_OF_MEMORY :
+        ch_config_document_set_active(runtime->config, name, &document, error);
+    if (previous == NULL) {
+        ch_error_set(error, status, "copy Android config for rollback");
+    }
+    if (status == CH_OK) {
+        status = ch_config_write_atomic_document(
+            runtime->config_path, document, &backup_path, error);
+    }
+    if (status == CH_OK) {
+        status = android_runtime_replace_config(
+            runtime, runtime->config_path, runtime->running, false, error);
+        if (status != CH_OK) {
+            ch_error apply_error = *error;
+            status = android_runtime_restore_document(
+                runtime->config_path, previous, error, &apply_error);
+        }
+    }
+    if (status == CH_OK) {
+        *response_json = android_runtime_persisted_status_json(
+            runtime, backup_path, error);
+        if (*response_json == NULL) status = error->code;
+    }
+    free(backup_path);
+    free(document);
+    free(previous);
+    free(name);
+    return status;
+}
+
+static ch_status android_runtime_import_config(
+    ch_runtime *runtime, const char *document, char **response_json,
+    ch_error *error) {
+    if (runtime->config_path == NULL || runtime->config_path[0] == '\0' ||
+        runtime->config == NULL) {
+        ch_error_set(error, CH_ERROR_INVALID_STATE,
+                     "config import requires an Android config path");
+        return CH_ERROR_INVALID_STATE;
+    }
+    size_t length = document == NULL ? 0U : strlen(document);
+    if (length == 0U || length > 4U * 1024U * 1024U) {
+        ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
+                     "config import body must contain at most 4 MiB");
+        return CH_ERROR_INVALID_ARGUMENT;
+    }
+    bool non_whitespace = false;
+    for (size_t index = 0U; index < length; ++index) {
+        if (isspace((unsigned char)document[index]) == 0) {
+            non_whitespace = true;
+            break;
+        }
+    }
+    if (!non_whitespace) {
+        ch_error_set(error, CH_ERROR_INVALID_ARGUMENT, "empty config body");
+        return CH_ERROR_INVALID_ARGUMENT;
+    }
+    ch_config *incoming = NULL;
+    ch_status status = ch_config_parse(document, runtime->config_path,
+                                       &incoming, error);
+    char *previous = status == CH_OK ?
+        ch_strdup(ch_config_document(runtime->config)) : NULL;
+    if (status == CH_OK && previous == NULL) {
+        ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                     "copy Android config for rollback");
+        status = CH_ERROR_OUT_OF_MEMORY;
+    }
+    char *backup_path = NULL;
+    if (status == CH_OK) {
+        status = ch_config_write_atomic_document(
+            runtime->config_path, document, &backup_path, error);
+    }
+    if (status == CH_OK) {
+        status = android_runtime_replace_config(
+            runtime, runtime->config_path, runtime->running, false, error);
+        if (status != CH_OK) {
+            ch_error apply_error = *error;
+            status = android_runtime_restore_document(
+                runtime->config_path, previous, error, &apply_error);
+        }
+    }
+    if (status == CH_OK) {
+        char *profiles = android_runtime_profiles_json(runtime);
+        ch_json_buffer fields;
+        ch_json_init(&fields);
+        int okay = profiles != NULL &&
+            ch_json_append(&fields, ",\"backup_path\":") &&
+            ch_json_append_string(&fields, backup_path == NULL ? "" :
+                                  backup_path) &&
+            ch_json_append_format(
+                &fields, ",\"message\":\"imported %zu profile(s)\"",
+                ch_config_profile_count(runtime->config));
+        char *encoded = okay ? ch_json_take(&fields) : NULL;
+        ch_json_dispose(&fields);
+        *response_json = encoded == NULL ? NULL :
+            android_runtime_append_object_fields(profiles, encoded, error);
+        if (encoded == NULL) free(profiles);
+        free(encoded);
+        if (*response_json == NULL) status = error->code == CH_OK ?
+            CH_ERROR_OUT_OF_MEMORY : error->code;
+    }
+    free(backup_path);
+    free(previous);
+    ch_config_free(incoming);
+    return status;
+}
+
 ch_status ch_runtime_mutate(ch_runtime *runtime, const char *operation,
                             const char *request_json, char **response_json,
                             ch_error *error) {
-    (void)request_json;
     ch_error_clear(error);
     if (runtime == NULL || operation == NULL || response_json == NULL) {
         ch_error_set(error, CH_ERROR_INVALID_ARGUMENT, "runtime, operation, and response are required");
@@ -1517,6 +1885,31 @@ ch_status ch_runtime_mutate(ch_runtime *runtime, const char *operation,
         runtime->running = false;
         android_runtime_stop_ip_stack(runtime);
         ch_policy_manager_stop(runtime->policy);
+    }
+    else if (strcmp(operation, "test_policy_groups") == 0) {
+        if (!runtime->running || runtime->policy == NULL) {
+            pthread_mutex_unlock(&runtime->mutex);
+            ch_error_set(error, CH_ERROR_INVALID_STATE,
+                         "policy group tests require a running engine");
+            return CH_ERROR_INVALID_STATE;
+        }
+        char *group = android_runtime_optional_request_string(
+            request_json, "group", error);
+        if (group == NULL) {
+            pthread_mutex_unlock(&runtime->mutex);
+            return error->code;
+        }
+        android_runtime_trim_in_place(group);
+        ch_status status = ch_policy_manager_refresh(runtime->policy, group,
+                                                     error);
+        free(group);
+        if (status == CH_OK) {
+            *response_json = ch_policy_manager_snapshot_json(
+                runtime->policy, runtime->active_profile, error);
+            status = *response_json == NULL ? error->code : CH_OK;
+        }
+        pthread_mutex_unlock(&runtime->mutex);
+        return status;
     }
     else if (strcmp(operation, "set_active_profile") == 0) {
         char *name = ch_json_request_string(request_json, "name", error);
@@ -1547,6 +1940,14 @@ ch_status ch_runtime_mutate(ch_runtime *runtime, const char *operation,
         }
         return CH_OK;
     }
+    else if (strcmp(operation, "remove_temporary_rule") == 0) {
+        *response_json = ch_temporary_rules_remove_json(
+            runtime->temporary_rules, request_json, error);
+        pthread_mutex_unlock(&runtime->mutex);
+        return *response_json == NULL ?
+            (error->code == CH_OK ? CH_ERROR_OUT_OF_MEMORY : error->code) :
+            CH_OK;
+    }
     else if (strcmp(operation, "clear_developer_entries") == 0) {
         *response_json = ch_developer_clear_json(runtime->developer, error);
         pthread_mutex_unlock(&runtime->mutex);
@@ -1565,6 +1966,68 @@ ch_status ch_runtime_mutate(ch_runtime *runtime, const char *operation,
     else if (strcmp(operation, "promote_silent_decision") == 0) {
         ch_status status = android_runtime_prompt_action(
             runtime, request_json, true, response_json, error);
+        pthread_mutex_unlock(&runtime->mutex);
+        return status;
+    }
+    else if (strcmp(operation, "create_rule_from_connection") == 0 ||
+             strcmp(operation, "cleanup_rule_from_traffic") == 0) {
+        char *request = strcmp(operation, "create_rule_from_connection") == 0 ?
+            ch_traffic_rule_request_json(
+                runtime->traffic, runtime->config, runtime->active_profile,
+                request_json, error) :
+            ch_traffic_cleanup_request_json(
+                runtime->traffic, runtime->config, runtime->active_profile,
+                request_json, error);
+        if (request == NULL) {
+            pthread_mutex_unlock(&runtime->mutex);
+            return error->code;
+        }
+        const char *mutation = strcmp(
+            operation, "create_rule_from_connection") == 0 ?
+            "create_rule" : "replace_rules";
+        ch_status status = android_runtime_persist_config_mutation(
+            runtime, mutation, "rules_persistence", request, response_json,
+            error);
+        free(request);
+        pthread_mutex_unlock(&runtime->mutex);
+        return status;
+    }
+    else if (strcmp(operation, "refresh_rule_sets") == 0 ||
+             strcmp(operation, "refresh_rule_subscriptions") == 0) {
+        ch_rule_feed_kind kind = strcmp(operation, "refresh_rule_sets") == 0 ?
+            CH_RULE_FEED_RULE_SET : CH_RULE_FEED_SUBSCRIPTION;
+        *response_json = ch_config_refresh_rule_feeds_json(
+            runtime->config, runtime->active_profile, kind, request_json,
+            error);
+        ch_status status = *response_json == NULL ? error->code : CH_OK;
+        if (status == CH_OK) {
+            status = android_runtime_replace_config(
+                runtime, runtime->config_path, runtime->running, true, error);
+            if (status != CH_OK) {
+                free(*response_json);
+                *response_json = NULL;
+            }
+        }
+        pthread_mutex_unlock(&runtime->mutex);
+        return status;
+    }
+    else if (strcmp(operation, "persist_active_profile") == 0) {
+        ch_status status = android_runtime_persist_active_profile(
+            runtime, request_json, response_json, error);
+        pthread_mutex_unlock(&runtime->mutex);
+        return status;
+    }
+    else if (strcmp(operation, "config_import") == 0) {
+        ch_status status = android_runtime_import_config(
+            runtime, request_json, response_json, error);
+        pthread_mutex_unlock(&runtime->mutex);
+        return status;
+    }
+    else if (android_runtime_config_response_operation(operation) != NULL) {
+        ch_status status = android_runtime_persist_config_mutation(
+            runtime, operation,
+            android_runtime_config_response_operation(operation),
+            request_json, response_json, error);
         pthread_mutex_unlock(&runtime->mutex);
         return status;
     }

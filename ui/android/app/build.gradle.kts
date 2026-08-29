@@ -1,51 +1,36 @@
 // SPDX-FileCopyrightText: 2026 Pengfan Chang <support@swiphtgroup.com>
 // SPDX-License-Identifier: GPL-3.0-only
 
-import java.io.FileInputStream
-import java.util.Properties
-
 plugins {
-    id("com.android.application")
+    id("com.android.library")
     id("org.jetbrains.kotlin.android")
-    id("org.jetbrains.kotlin.plugin.compose")
     id("org.jetbrains.kotlin.plugin.serialization")
 }
 
-val keystorePropertiesFile = rootProject.file("keystore.properties")
-val keystoreProperties = Properties().apply {
-    if (keystorePropertiesFile.exists()) {
-        FileInputStream(keystorePropertiesFile).use { load(it) }
-    }
-}
-val managedDeviceTestAbi = providers.gradleProperty("clambhook.managedDeviceTestAbi").orNull
-val configuredVersionName = providers.gradleProperty("clambhook.versionName").orNull
-val configuredVersionCode = providers.gradleProperty("clambhook.versionCode").orNull?.toIntOrNull()
 val repositoryRoot = rootProject.layout.projectDirectory.dir("../..")
 val generatedThirdPartyNoticesDirectory =
     layout.buildDirectory.dir("generated/thirdPartyNotices")
+
+base {
+    archivesName.set("clambhook-android-platform")
+}
 
 android {
     namespace = "com.clambhook.android"
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "org.jpfchang.clambhook"
         minSdk = 31
-        targetSdk = 36
-        versionCode = configuredVersionCode ?: 3
-        versionName = configuredVersionName ?: "1.0.2"
+        testApplicationId = "org.jpfchang.clambhook.platform.test"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        consumerProguardFiles("consumer-rules.pro")
+        ndk {
+            // Gluon Android packages are AArch64-only by product decision.
+            abiFilters += "arm64-v8a"
+        }
         externalNativeBuild {
             cmake {
                 arguments += "-DANDROID_STL=none"
-            }
-        }
-        if (!managedDeviceTestAbi.isNullOrBlank()) {
-            // Filter only when the explicit QA property is present. Local
-            // Apple-silicon devices use arm64-v8a; GitHub-hosted managed
-            // devices use x86_64. Release builds retain full ABI coverage.
-            ndk {
-                abiFilters += managedDeviceTestAbi
             }
         }
     }
@@ -58,7 +43,7 @@ android {
     }
 
     buildFeatures {
-        compose = true
+        buildConfig = false
     }
 
     sourceSets.getByName("main").assets.srcDir(generatedThirdPartyNoticesDirectory)
@@ -71,74 +56,38 @@ android {
     packaging {
         resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
     }
-    signingConfigs {
-        create("release") {
-            if (keystorePropertiesFile.exists()) {
-                storeFile = file(keystoreProperties.getProperty("storeFile"))
-                storePassword = keystoreProperties.getProperty("storePassword")
-                keyAlias = keystoreProperties.getProperty("keyAlias")
-                keyPassword = keystoreProperties.getProperty("keyPassword")
-            }
-        }
-    }
 
     buildTypes {
         debug {
-            if (!managedDeviceTestAbi.isNullOrBlank()) {
-                // Instrumented compatibility tests exercise application
-                // classes directly, so preserve those names while shrinking
-                // the otherwise enormous unreferenced icon/dependency graph.
-                isMinifyEnabled = true
-                proguardFiles(
-                    getDefaultProguardFile("proguard-android-optimize.txt"),
-                    "proguard-rules.pro",
-                    "managed-test-proguard-rules.pro",
-                )
-                testProguardFiles("managed-test-proguard-rules.pro")
-            }
+            isMinifyEnabled = false
         }
         release {
-            isMinifyEnabled = true
-            isShrinkResources = true
-            proguardFiles(
-                getDefaultProguardFile("proguard-android-optimize.txt"),
-                "proguard-rules.pro"
-            )
-            if (keystorePropertiesFile.exists()) {
-                signingConfig = signingConfigs.getByName("release")
-            }
+            isMinifyEnabled = false
         }
     }
 
-    // ClambHook is distributed only via clambercloud.com (sideload), never Play.
-    // The Play dependency-info blob is unnecessary and its collector task reads
-    // the generated AAR without a declared dependency, breaking Gradle 9 builds.
-    dependenciesInfo {
-        includeInApk = false
-        includeInBundle = false
-    }
-
-    // Android 12 is the compatibility floor. Keep instrumented Compose tests
-    // running on the floor, a representative middle release, and the current
-    // target so platform behavior cannot drift unnoticed during JNI cutover.
     testOptions {
+        targetSdk = 36
         animationsDisabled = true
         managedDevices {
             localDevices {
                 create("pixel2Api31") {
                     device = "Pixel 2"
                     apiLevel = 31
-                    systemImageSource = "aosp"
+                    systemImageSource = "aosp-atd"
+                    require64Bit = true
                 }
                 create("pixel6Api33") {
                     device = "Pixel 6"
                     apiLevel = 33
-                    systemImageSource = "aosp"
+                    systemImageSource = "aosp-atd"
+                    require64Bit = true
                 }
                 create("pixel6Api36") {
                     device = "Pixel 6"
                     apiLevel = 36
-                    systemImageSource = "aosp"
+                    systemImageSource = "aosp-atd"
+                    require64Bit = true
                 }
             }
             groups {
@@ -150,7 +99,6 @@ android {
             }
         }
     }
-
 }
 
 val generateThirdPartyNotices = tasks.register<Sync>("generateThirdPartyNotices") {
@@ -169,8 +117,6 @@ val generateThirdPartyNotices = tasks.register<Sync>("generateThirdPartyNotices"
     into(generatedThirdPartyNoticesDirectory)
 }
 
-// Every build task transitively depends on preBuild, so packaged notices are
-// always synchronized before asset merging.
 tasks.named("preBuild") {
     dependsOn(generateThirdPartyNotices)
 }
@@ -182,32 +128,18 @@ kotlin {
 }
 
 dependencies {
-    val composeBom = platform("androidx.compose:compose-bom:2025.12.00")
-    implementation(composeBom)
-    testImplementation(composeBom)
-    androidTestImplementation(composeBom)
-
-    implementation("androidx.activity:activity-compose:1.12.2")
-    implementation("androidx.compose.material:material-icons-core:1.7.8")
-    implementation("androidx.compose.material:material-icons-extended:1.7.8")
-    implementation("androidx.compose.material3:material3")
-    implementation("androidx.compose.ui:ui")
-    implementation("androidx.compose.ui:ui-tooling-preview")
+    implementation("androidx.core:core-ktx:1.16.0")
     implementation("androidx.datastore:datastore-preferences:1.1.1")
-    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.9.4")
-    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.9.4")
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("com.journeyapps:zxing-android-embedded:4.3.0")
-    debugImplementation("androidx.compose.ui:ui-tooling")
-    debugImplementation("androidx.compose.ui:ui-test-manifest")
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")
 
+    androidTestImplementation("androidx.test:core:1.6.1")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
     androidTestImplementation("androidx.test:runner:1.6.2")
-    androidTestImplementation("androidx.compose.ui:ui-test-junit4")
 }

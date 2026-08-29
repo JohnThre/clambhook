@@ -9,9 +9,11 @@ Network Extension entitlement.
 
 ```mermaid
 graph TD
-    app["macOS app"]
+    app["macOS 14+ app<br/>SwiftUI"]
     helper["Privileged helper<br/>Service Management LaunchDaemon"]
-    daemon["clambhook daemon"]
+    daemon["C17 clambhook daemon"]
+    api["Authenticated HTTP + WebSocket"]
+    tools["Bundled C TUI<br/>and license helper"]
 
     subgraph proxy["System Proxy mode"]
         listeners["Local SOCKS5 + HTTP listeners"]
@@ -26,6 +28,8 @@ graph TD
         utun --> routes --> dns
     end
 
+    app --> api --> daemon
+    tools --> daemon
     app -->|proxy-aware apps| daemon
     app -->|device-wide, admin-approved| helper
     daemon --> proxy

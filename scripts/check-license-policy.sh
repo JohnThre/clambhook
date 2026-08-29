@@ -21,30 +21,29 @@ sha256() {
 [[ "$(sha256 LICENSE-APACHE)" == "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30" ]] ||
     fail "LICENSE-APACHE is not the canonical Apache-2.0 text"
 cmp -s LICENSE-APACHE clib/LICENSE || fail "clib/LICENSE differs from LICENSE-APACHE"
-cmp -s LICENSE-APACHE pkg/cnet/LICENSE || fail "pkg/cnet/LICENSE differs from LICENSE-APACHE"
 
 is_mapped() {
     case "$1" in
-        .pi-lens.json|clambhook-icon-1024.png|flake.lock|go.sum|NOTICE|debian/changelog|debian/source/format|keys/clambhook-release-key.asc) return 0 ;;
-        packaging/icons/*.png|internal/geo/testdata/*.mmdb) return 0 ;;
-        ui/android/gradlew|ui/android/gradle/wrapper/*|ui/linux/gradlew|ui/linux/gradle/wrapper/*) return 0 ;;
+        .pi-lens.json|clambhook-icon-1024.png|flake.lock|NOTICE|debian/changelog|debian/source/format|keys/clambhook-release-key.asc|packaging/sbom.cdx.json) return 0 ;;
+        packaging/icons/*.png|third_party/libmaxminddb/testdata/*.mmdb) return 0 ;;
+        ui/android/gradlew|ui/android/gradle/wrapper/*) return 0 ;;
         ui/android/app/src/main/res/*.png|ui/apple/*.png|ui/apple/*.json|ui/apple/*.pbxproj|ui/apple/*.resolved|ui/apple/*.xcworkspacedata|ui/apple/*.xcscheme) return 0 ;;
-        ui/skip/*.json|ui/skip/*.xcstrings) return 0 ;;
     esac
     return 1
 }
 
 license_text() {
     case "$1" in
-        LICENSE|LICENSE-APACHE|clib/LICENSE|pkg/cnet/LICENSE) return 0 ;;
+        LICENSE|LICENSE-APACHE|clib/LICENSE) return 0 ;;
     esac
     return 1
 }
 
 missing=0
 while IFS= read -r path; do
+    [[ -e "$path" ]] || continue
     case "$path" in
-        vendor/*|third_party/*) continue ;;
+        third_party/*) continue ;;
     esac
     if license_text "$path" || is_mapped "$path"; then
         continue
@@ -52,7 +51,7 @@ while IFS= read -r path; do
 
     expected="GPL-3.0-only"
     case "$path" in
-        clib/*|pkg/cnet/*) expected="Apache-2.0" ;;
+        clib/*) expected="Apache-2.0" ;;
     esac
 
     if ! grep -Fq "SPDX-FileCopyrightText: 2026 Pengfan Chang <support@swiphtgroup.com>" "$path" 2>/dev/null; then
@@ -68,7 +67,7 @@ done < <(git ls-files --cached --others --exclude-standard | LC_ALL=C sort)
 
 if rg -n \
     'github\.com/JohnThre/clambhook/(internal|pkg/mobile)|Clambhook::Core|native/(include|src)' \
-    clib pkg/cnet \
+    clib \
     --glob '!LICENSE'; then
     fail "Apache-2.0 library code depends on the GPL-3.0-only application core"
 fi
@@ -80,19 +79,19 @@ if rg -ni \
     docs/website-release/linux-release-runbook.md flake.nix debian/copyright \
     packaging/rpm/clambhook.spec ui/android/app/src/main/res/values/strings.xml \
     ui/apple/ClambhookMac/MacLegalFooter.swift \
-    ui/linux/data/com.clambhook.Clambhook.metainfo.xml.in \
-    ui/linux/src/main/kotlin/com/clambhook/linux/ui/MainWindow.kt; then
+    packaging/desktop/org.jpfchang.clambhook.metainfo.xml.in; then
     fail "obsolete proprietary/view-only language remains in current legal surfaces"
 fi
 
 grep -Fq 'license = licenses.gpl3Only;' flake.nix || fail "Nix metadata is not GPL-3.0-only"
 grep -Fq '<project_license>GPL-3.0-only</project_license>' \
-    ui/linux/data/com.clambhook.Clambhook.metainfo.xml.in || fail "AppStream metadata is not GPL-3.0-only"
+    packaging/desktop/org.jpfchang.clambhook.metainfo.xml.in || fail "AppStream metadata is not GPL-3.0-only"
 grep -Fq 'License:        GPL-3.0-only AND Apache-2.0' packaging/rpm/clambhook.spec ||
     fail "RPM metadata does not declare GPL-3.0-only and Apache-2.0"
 grep -Fq 'Maintainer: Pengfan Chang <support@swiphtgroup.com>' debian/control ||
     fail "Debian maintainer identity is stale"
 grep -Fq 'License: GPL-3.0-only' debian/copyright || fail "Debian GPL declaration is missing"
 grep -Fq 'License: Apache-2.0' debian/copyright || fail "Debian Apache declaration is missing"
+python3 scripts/check-sbom.py
 
 echo "license policy: all checks passed"

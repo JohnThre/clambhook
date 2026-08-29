@@ -22,6 +22,7 @@
 		3F66FD26F33A8017C4D60A10 /* AppleAppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F26A7314DC7A26F275AB285 /* AppleAppModel.swift */; };
 		4A459EE08DE00E773ED8F1A1 /* OnboardingManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 97734C4549F08796D23CD88D /* OnboardingManager.swift */; };
 		4AA3902FB355119E38FC8385 /* MacLicenseManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 861C6B6F1238EBFD62EBA315 /* MacLicenseManager.swift */; };
+		549C58892F82F09A062AC3FE /* libllhttp.9.4.dylib in CopyFiles */ = {isa = PBXBuildFile; fileRef = D5D6B5967CF5158399B9F07C /* libllhttp.9.4.dylib */; };
 		55EB0B85AE3ECF0FD4819B8B /* ClambhookShared in Frameworks */ = {isa = PBXBuildFile; productRef = B64D35EC77B9F6E4644D12DE /* ClambhookShared */; };
 		591061674835E9B22E696123 /* MacMenuBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B7ECD0E4E9DE7440023C997 /* MacMenuBarView.swift */; };
 		595652E887BA75E9E3F51E17 /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16C63F9E0D5D87EDF04EA933 /* OnboardingView.swift */; };
@@ -40,6 +41,7 @@
 		9D1375A09591B29F98B76C9F /* ClambhookMenuBarIcon.swift in Sources */ = {isa = PBXBuildFile; fileRef = 161BB19C1F5E8ECCC7ABF371 /* ClambhookMenuBarIcon.swift */; };
 		A01CAAC55DD104949B937A2D /* MacPrivilegedHelperProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 140F17EF442ACC422CCBAC04 /* MacPrivilegedHelperProtocol.swift */; };
 		A01F8214191B53CB474A015A /* MacDNSSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 96BE88C3165238ABB9B76232 /* MacDNSSection.swift */; };
+		A0D01932A76123091DBFF70B /* libuv.1.dylib in CopyFiles */ = {isa = PBXBuildFile; fileRef = 3BC80F71158C5AC92DCE933A /* libuv.1.dylib */; };
 		A12F8AF841EF13EFCE8A9234 /* MacConditionerSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34FFA1624ECB24249318620F /* MacConditionerSection.swift */; };
 		A16CDA20F6B7C6F85EE71F1B /* MacSystemProxyManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C4BAA859EE07F11DBF405BF /* MacSystemProxyManager.swift */; };
 		A227630963FFF711A4600E65 /* libcrypto.3.dylib in CopyFiles */ = {isa = PBXBuildFile; fileRef = A2047626D3744745D3A93416 /* libcrypto.3.dylib */; };
@@ -84,10 +86,13 @@
 			isa = PBXCopyFilesBuildPhase;
 			buildActionMask = 2147483647;
 			dstPath = "";
-			dstSubfolderSpec = 6;
+			dstSubfolderSpec = 10;
 			files = (
-				3792B993B246938C4220AC8D /* clambhook in CopyFiles */,
-				BB8C3384CE0BE926F18BDCEC /* clambhook-tui in CopyFiles */,
+				A227630963FFF711A4600E65 /* libcrypto.3.dylib in CopyFiles */,
+				549C58892F82F09A062AC3FE /* libllhttp.9.4.dylib in CopyFiles */,
+				069007F5D0A7675880D40F9B /* libsodium.26.dylib in CopyFiles */,
+				5B55BE03F0577CF593269C0B /* libssl.3.dylib in CopyFiles */,
+				A0D01932A76123091DBFF70B /* libuv.1.dylib in CopyFiles */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -95,11 +100,10 @@
 			isa = PBXCopyFilesBuildPhase;
 			buildActionMask = 2147483647;
 			dstPath = "";
-			dstSubfolderSpec = 10;
+			dstSubfolderSpec = 6;
 			files = (
-				A227630963FFF711A4600E65 /* libcrypto.3.dylib in CopyFiles */,
-				069007F5D0A7675880D40F9B /* libsodium.26.dylib in CopyFiles */,
-				5B55BE03F0577CF593269C0B /* libssl.3.dylib in CopyFiles */,
+				3792B993B246938C4220AC8D /* clambhook in CopyFiles */,
+				BB8C3384CE0BE926F18BDCEC /* clambhook-tui in CopyFiles */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -136,6 +140,7 @@
 		32B60654B7160A03F714FF94 /* LICENSE-APACHE */ = {isa = PBXFileReference; path = "LICENSE-APACHE"; sourceTree = "<group>"; };
 		34FFA1624ECB24249318620F /* MacConditionerSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacConditionerSection.swift; sourceTree = "<group>"; };
 		38F2204397E722DD2C025C5A /* LICENSE */ = {isa = PBXFileReference; path = LICENSE; sourceTree = "<group>"; };
+		3BC80F71158C5AC92DCE933A /* libuv.1.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; path = libuv.1.dylib; sourceTree = "<group>"; };
 		3FCF98A1709AD64E24112420 /* MacComposeSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacComposeSheet.swift; sourceTree = "<group>"; };
 		46AF45F7A3B6FE88BDADB04C /* ServiceManagement.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = ServiceManagement.framework; path = System/Library/Frameworks/ServiceManagement.framework; sourceTree = SDKROOT; };
 		517781CFAFBF7D0483CDC1BE /* MacRewriteRuleSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacRewriteRuleSheet.swift; sourceTree = "<group>"; };
@@ -166,6 +171,7 @@
 		C5B1A88D69D422857CEA2238 /* LICENSING.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = LICENSING.md; sourceTree = "<group>"; };
 		C8D0525C10EE904F2F5523DA /* SupportPurchasesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SupportPurchasesView.swift; sourceTree = "<group>"; };
 		D51002549457E19CB6EE988D /* MacUpdateChecker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacUpdateChecker.swift; sourceTree = "<group>"; };
+		D5D6B5967CF5158399B9F07C /* libllhttp.9.4.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; path = libllhttp.9.4.dylib; sourceTree = "<group>"; };
 		D92091F3B5B6E2E4A8F4665B /* MacCertificateManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacCertificateManager.swift; sourceTree = "<group>"; };
 		DCFAEA45C0B462E990EB4D44 /* MacLogsSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacLogsSection.swift; sourceTree = "<group>"; };
 		E3D0AEE6DFC679ECAEE8FA8B /* MacHTTPCaptureSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacHTTPCaptureSection.swift; sourceTree = "<group>"; };
@@ -290,8 +296,10 @@
 				A94F492377279C40EF5D0E2D /* clambhook */,
 				E681AB16A57ACC705B85B4FD /* clambhook-tui */,
 				A2047626D3744745D3A93416 /* libcrypto.3.dylib */,
+				D5D6B5967CF5158399B9F07C /* libllhttp.9.4.dylib */,
 				0A1CC5DD0620471B3CCA85A1 /* libsodium.26.dylib */,
 				3112DCD28963C3B738E56113 /* libssl.3.dylib */,
+				3BC80F71158C5AC92DCE933A /* libuv.1.dylib */,
 			);
 			path = bin;
 			sourceTree = "<group>";

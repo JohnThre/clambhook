@@ -87,3 +87,59 @@ The Android build downloads the official release archive, validates its
 SHA-256 digest, and statically links the resulting per-ABI libraries. Version,
 archive, digest, configuration, and update details are recorded in
 `third_party/openssl/README.clambhook.md`.
+
+## libmaxminddb 1.13.3
+
+Copyright MaxMind, Inc.
+
+Licensed under Apache-2.0. ClambHook compiles the pinned reader as a private
+static dependency. The complete license, upstream version, archive digest, and
+vendored-file inventory are in `third_party/libmaxminddb/`.
+
+## wireguard-lwip
+
+Copyright the wireguard-lwip contributors and the credited reference-crypto
+authors.
+
+Licensed under BSD-3-Clause, with the separate X25519 notice retained beside
+that source. The exact revision and imported-file boundary are in
+`third_party/wireguard_lwip/PROVENANCE.md`.
+
+## OpenJFX 21.0.12
+
+Copyright Oracle and/or its affiliates and OpenJFX contributors.
+
+JavaFX base, graphics, and controls are licensed under GPL-2.0-only with the
+Classpath exception where designated by their source headers. ClambHook's
+Maven API/runtime artifacts are pinned at 21.0.12. Gluon's independently
+published static JavaFX 21 substrate is pinned at 21.0.1 for native targets.
+Source and license information: https://github.com/openjdk/jfx
+
+## GluonFX 1.0.29 and Substrate 0.0.69
+
+Copyright Gluon.
+
+The GluonFX Maven plugin is BSD-3-Clause and is used only at build time.
+Substrate source used to create the native launcher declares GPL-3.0-or-later
+in its source headers. Exact Maven versions are pinned in `ui/javafx/pom.xml`.
+Source and license information:
+
+- https://github.com/gluonhq/gluonfx-maven-plugin
+- https://github.com/gluonhq/substrate
+
+## Android/Kotlin dependencies
+
+The Android platform AAR uses AndroidX Core 1.16.0, DataStore 1.1.1, Security
+Crypto 1.1.0-alpha06, Kotlin 2.3.20, kotlinx.coroutines 1.9.0,
+kotlinx.serialization 1.7.3, OkHttp 4.12.0, and ZXing Android Embedded 4.3.0.
+These components are licensed under Apache-2.0 and retain their upstream
+notices. JUnit and AndroidX Test dependencies are test-only and are not shipped
+in product packages. Exact coordinates and scopes are recorded in
+`packaging/sbom.cdx.json` and the Gradle build.
+
+## GraalVM Community Edition 17.0.9
+
+GraalVM is a checksum-pinned build tool and is not shipped as a JRE or SDK in
+ClambHook packages. Upstream license and component notices accompany the
+official GraalVM archive. Archive URLs and per-platform SHA-256 values are
+recorded in `scripts/provision-graalvm17.sh`.

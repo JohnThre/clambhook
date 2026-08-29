@@ -7,6 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <time.h>
 #include <unistd.h>
 
 #include "clambhook/config.h"
@@ -274,4 +275,43 @@ void ch_test_traffic(void) {
     ch_traffic_store_destroy(store);
     ch_config_free(config);
     CH_TEST_ASSERT(unlink(history_path) == 0);
+
+    static const char geo_toml[] =
+        "[geo]\n"
+        "database = \"" CLAMBHOOK_SOURCE_DIR
+        "/third_party/libmaxminddb/testdata/GeoIP2-City-Test.mmdb\"\n"
+        "[[profile]]\nname = \"Work\"\n";
+    config = NULL;
+    CH_TEST_ASSERT(ch_config_parse(geo_toml, NULL, &config, &error) == CH_OK);
+    store = ch_traffic_store_create(4U, &error);
+    CH_TEST_ASSERT(store != NULL);
+    CH_TEST_ASSERT(ch_traffic_store_configure(store, config, &error) == CH_OK);
+    ch_traffic_open_info london = direct;
+    london.target = "81.2.69.142:443";
+    london.target_host = "81.2.69.142";
+    CH_TEST_ASSERT(ch_traffic_open(store, &london, &error) != 0U);
+    int enriched = 0;
+    for (unsigned int attempt = 0U; attempt < 100U && !enriched; ++attempt) {
+        json = ch_traffic_snapshot_json(store, config, "Work", "{}", "[]",
+                                        &error);
+        CH_TEST_ASSERT(json != NULL);
+        root = ch_json_parse(json, strlen(json), &error);
+        CH_TEST_ASSERT(root != NULL);
+        connections = traffic_test_member(root, "connections");
+        CH_TEST_ASSERT(ch_json_array_size(connections) == 1U);
+        connection = ch_json_array_get(connections, 0U);
+        const ch_json_value *geo = traffic_test_member(connection, "geo");
+        const char *country_code = ch_json_string_value(
+            traffic_test_member(geo, "country_code"));
+        enriched = country_code != NULL && strcmp(country_code, "GB") == 0;
+        ch_json_value_destroy(root);
+        free(json);
+        if (!enriched) {
+            struct timespec pause = {.tv_sec = 0, .tv_nsec = 10000000L};
+            (void)nanosleep(&pause, NULL);
+        }
+    }
+    CH_TEST_ASSERT(enriched);
+    ch_traffic_store_destroy(store);
+    ch_config_free(config);
 }

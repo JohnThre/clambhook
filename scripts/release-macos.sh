@@ -35,6 +35,8 @@ TUI="$ROOT_DIR/bin/clambhook-tui"
 SODIUM="$ROOT_DIR/bin/libsodium.26.dylib"
 SSL="$ROOT_DIR/bin/libssl.3.dylib"
 CRYPTO="$ROOT_DIR/bin/libcrypto.3.dylib"
+UV="$ROOT_DIR/bin/libuv.1.dylib"
+LLHTTP="$ROOT_DIR/bin/libllhttp.9.4.dylib"
 XCODE_AUTH_ARGS=()
 
 if [[ -n "${XCODE_AUTHENTICATION_KEY_PATH:-}" || \
@@ -77,18 +79,21 @@ fi
 rm -rf "$DIST_DIR"
 mkdir -p "$DIST_DIR"
 
-GOOS=darwin GOARCH=arm64 CGO_ENABLED=1 make -C "$ROOT_DIR" build-daemon
-GOOS=darwin GOARCH=arm64 CGO_ENABLED=1 make -C "$ROOT_DIR" build-tui
+make -C "$ROOT_DIR" build-daemon build-tui
 "$ROOT_DIR/scripts/prepare-macos-runtime.sh"
 
 codesign --force --timestamp --options runtime --sign "$IDENTITY" "$SODIUM"
 codesign --force --timestamp --options runtime --sign "$IDENTITY" "$CRYPTO"
 codesign --force --timestamp --options runtime --sign "$IDENTITY" "$SSL"
+codesign --force --timestamp --options runtime --sign "$IDENTITY" "$UV"
+codesign --force --timestamp --options runtime --sign "$IDENTITY" "$LLHTTP"
 codesign --force --timestamp --options runtime --sign "$IDENTITY" "$DAEMON"
 codesign --force --timestamp --options runtime --sign "$IDENTITY" "$TUI"
 codesign --verify --strict --verbose=4 "$SODIUM"
 codesign --verify --strict --verbose=4 "$CRYPTO"
 codesign --verify --strict --verbose=4 "$SSL"
+codesign --verify --strict --verbose=4 "$UV"
+codesign --verify --strict --verbose=4 "$LLHTTP"
 codesign --verify --strict --verbose=4 "$DAEMON"
 codesign --verify --strict --verbose=4 "$TUI"
 

@@ -52,20 +52,8 @@ while IFS= read -r workflow; do
     fail "$workflow must default to permissions: {}"
 done < <(find "$WORKFLOW_DIR" -maxdepth 1 -type f -name '*.yml' -print | sort)
 
-# macOS application tests are always local-only. The protected release workflow
-# may archive/sign the already locally validated app for publication, and
-# Security may trace ClambhookShared without building ClambhookMac.
-if grep -RiqE --include='*.yml' \
-  '(make[[:space:]]+test-apple|swift[[:space:]]+test)' \
-  "$WORKFLOW_DIR"; then
-  fail "macOS app tests are prohibited in GitHub workflows"
-fi
-
-if grep -RiqE --include='*.yml' --exclude='release.yml' \
-  '(make[[:space:]]+build-apple|xcodebuild[^[:cntrl:]]*ClambhookMac)' \
-  "$WORKFLOW_DIR"; then
-  fail "macOS app builds are prohibited outside release.yml"
-fi
+# Unsigned macOS build and test jobs are permitted in CI. Signing, notarizing,
+# packaging, and publishing remain exclusive to the protected release workflow.
 
 # Reports and logs may use Actions artifacts. Installer/package outputs and the
 # dist tree are permitted only in the protected release workflow.

@@ -22,6 +22,7 @@ int main(void) {
     if (ch_test_selected(selected, "developer")) ch_test_developer();
     if (ch_test_selected(selected, "dns")) ch_test_dns();
     if (ch_test_selected(selected, "events")) ch_test_events();
+    if (ch_test_selected(selected, "geo")) ch_test_geo();
     if (ch_test_selected(selected, "ip_stack")) ch_test_ip_stack();
     if (ch_test_selected(selected, "license")) ch_test_license();
     if (ch_test_selected(selected, "listener")) ch_test_listener();

@@ -1,12 +1,16 @@
+<!-- SPDX-FileCopyrightText: 2026 Pengfan Chang <support@swiphtgroup.com> -->
+<!-- SPDX-License-Identifier: GPL-3.0-only -->
+
 # Distribution policy
 
 The sole official binary distribution channel is
 <https://github.com/JohnThre/clambhook/releases>.
 
 - macOS: signed, notarized Apple-silicon DMG for macOS 14+.
-- GNU/Linux: GPG-checksummed `.deb` and `.rpm` packages validated on Trisquel
-  12, Rocky Linux 9, and AlmaLinux 9.
-- Android: signed sideload APK for Android 12/API 31+.
+- GNU/Linux: x86_64/aarch64 GPG-checksummed `.deb` and `.rpm` packages with a
+  self-contained JavaFX/Gluon native image, validated on Trisquel 12, Rocky
+  Linux 9, and AlmaLinux 9.
+- Android: signed ARM64 Gluon APK and AAB for Android 12/API 31+.
 
 Stable releases are created from verified signed `v*` tags. Approved betas are
 GitHub prereleases and are also exposed through the rolling `beta` release for

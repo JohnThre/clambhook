@@ -5,6 +5,7 @@
 
 #include <arpa/inet.h>
 #include <ctype.h>
+#include <errno.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -16,10 +17,13 @@
 #include <sodium.h>
 
 #include "clambhook/json.h"
+#include "clambhook/license_json.h"
 #include "internal.h"
 
 #define CH_API_MAX_REQUEST_BYTES (1024U * 1024U)
 #define CH_API_MAX_CONFIG_TRANSFER_BYTES (4U * 1024U * 1024U)
+#define CH_API_MAX_LICENSE_BYTES (8U * 1024U * 1024U)
+#define CH_API_LICENSE_CACHE_MILLISECONDS UINT64_C(10000)
 
 typedef struct ch_api_client ch_api_client;
 
@@ -28,6 +32,10 @@ struct ch_api_server {
     ch_runtime *runtime;
     uv_tcp_t listener;
     char *auth_token;
+    char *license_path;
+    uint64_t license_cache_expires;
+    int license_cache_valid;
+    int license_cache_allowed;
     char *address;
     char bind_host[INET6_ADDRSTRLEN];
     int bind_port;
@@ -144,6 +152,86 @@ int ch_api_is_loopback_host(const char *authority) {
     int has_port = 0;
     return ch_split_authority(authority, host, &port, &has_port) &&
         ch_api_is_loopback_name(host);
+}
+
+int ch_api_is_license_gated_request(const char *method, const char *path) {
+    if (method == NULL || path == NULL) return 0;
+    if (strcmp(path, "/api/v1/disconnect") == 0) return 0;
+    if (strcmp(method, "DELETE") == 0 &&
+        strncmp(path, "/api/v1/rules/temporary/", 24U) == 0) return 0;
+    return strcmp(method, "POST") == 0 || strcmp(method, "PUT") == 0 ||
+        strcmp(method, "DELETE") == 0;
+}
+
+static char *ch_api_read_license_snapshot(const char *path,
+                                          ch_error *error) {
+    FILE *file = fopen(path, "rb");
+    if (file == NULL) {
+        ch_error_set(error, CH_ERROR_IO, "read license snapshot %s: %s",
+                     path, strerror(errno));
+        return NULL;
+    }
+    ch_json_buffer snapshot;
+    ch_json_init(&snapshot);
+    char chunk[4096];
+    int okay = 1;
+    for (;;) {
+        size_t count = fread(chunk, 1U, sizeof(chunk), file);
+        if (count > 0U) {
+            if (snapshot.length > CH_API_MAX_LICENSE_BYTES - count ||
+                !ch_json_append_bytes(&snapshot, chunk, count)) {
+                okay = 0;
+                ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
+                             "license snapshot exceeds 8 MiB");
+                break;
+            }
+        }
+        if (count < sizeof(chunk)) {
+            if (ferror(file)) {
+                okay = 0;
+                ch_error_set(error, CH_ERROR_IO,
+                             "read license snapshot %s: %s", path,
+                             strerror(errno));
+            }
+            break;
+        }
+    }
+    (void)fclose(file);
+    char *result = okay ? ch_json_take(&snapshot) : NULL;
+    ch_json_dispose(&snapshot);
+    if (okay && result == NULL) {
+        ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                     "allocate license snapshot");
+    }
+    return result;
+}
+
+static ch_status ch_api_license_allowed(ch_api_server *server, int *allowed,
+                                        ch_error *error) {
+    *allowed = 0;
+    if (server->license_path == NULL || server->license_path[0] == '\0') {
+        *allowed = 1;
+        return CH_OK;
+    }
+    uv_update_time(server->loop);
+    uint64_t now = uv_now(server->loop);
+    if (server->license_cache_valid && now < server->license_cache_expires) {
+        *allowed = server->license_cache_allowed;
+        return CH_OK;
+    }
+    char *snapshot = ch_api_read_license_snapshot(server->license_path,
+                                                   error);
+    if (snapshot == NULL) return error->code;
+    bool evaluated = false;
+    ch_status status = ch_license_can_use_snapshot_json(
+        snapshot, 0, &evaluated, error);
+    free(snapshot);
+    if (status != CH_OK) return status;
+    server->license_cache_allowed = evaluated ? 1 : 0;
+    server->license_cache_valid = 1;
+    server->license_cache_expires = now + CH_API_LICENSE_CACHE_MILLISECONDS;
+    *allowed = server->license_cache_allowed;
+    return CH_OK;
 }
 
 static int ch_api_host_allowed(const ch_api_server *server, const char *authority) {
@@ -711,6 +799,42 @@ char *ch_api_events_request_json(const char *url, ch_error *error) {
                 okay = ch_api_events_append_strings(conn_ids, value, error);
             } else if (strcmp(key, "since") == 0) {
                 okay = ch_api_events_append_cursors(since, value, error);
+            } else if (strcmp(key, "after") == 0) {
+                char *number_end = NULL;
+                unsigned long long number = strtoull(value, &number_end, 10);
+                if (!ch_api_nonnegative_integer(value) ||
+                    number_end == value || *number_end != '\0' ||
+                    number > (unsigned long long)INT64_MAX) {
+                    ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
+                                 "invalid after sequence");
+                    okay = 0;
+                } else {
+                    ch_json_value *after = ch_json_value_new_int64(
+                        (int64_t)number);
+                    if (after == NULL || ch_json_object_set(
+                            root, "after_sequence", after, error) != CH_OK) {
+                        ch_json_value_destroy(after);
+                        okay = 0;
+                    }
+                }
+            } else if (strcmp(key, "limit") == 0) {
+                char *number_end = NULL;
+                unsigned long long number = strtoull(value, &number_end, 10);
+                if (!ch_api_nonnegative_integer(value) ||
+                    number_end == value || *number_end != '\0' ||
+                    number == 0U || number > 4096U) {
+                    ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
+                                 "invalid event limit");
+                    okay = 0;
+                } else {
+                    ch_json_value *limit = ch_json_value_new_int64(
+                        (int64_t)number);
+                    if (limit == NULL || ch_json_object_set(
+                            root, "limit", limit, error) != CH_OK) {
+                        ch_json_value_destroy(limit);
+                        okay = 0;
+                    }
+                }
             }
             free(key); free(value);
             query = *end == '&' ? end + 1U : end;
@@ -756,6 +880,7 @@ static int ch_token_equal(const char *configured, const char *authorization) {
 static void ch_api_server_maybe_free(ch_api_server *server) {
     if (server->closing && server->listener_closed && server->client_count == 0U) {
         free(server->auth_token);
+        free(server->license_path);
         free(server->address);
         free(server);
     }
@@ -1218,6 +1343,40 @@ static void ch_api_route(ch_api_client *client) {
         ch_api_respond(client, 500, NULL, "internal error\n");
         return;
     }
+    if (ch_api_is_license_gated_request(method, path) &&
+        client->server->license_path != NULL &&
+        client->server->license_path[0] != '\0') {
+        ch_error license_error;
+        int allowed = 0;
+        ch_status license_status = ch_api_license_allowed(
+            client->server, &allowed, &license_error);
+        if (license_status != CH_OK || !allowed) {
+            ch_api_respond(client, 403, "application/json",
+                           license_status == CH_OK ?
+                               "{\"error\":\"license required\"}\n" :
+                               "{\"error\":\"license unavailable\"}\n");
+            free(path);
+            return;
+        }
+    }
+    if (strcmp(method, "GET") == 0 &&
+        strcmp(path, "/api/v1/events/snapshot") == 0) {
+        ch_error event_error;
+        char *filters = ch_api_events_request_json(url, &event_error);
+        char *snapshot = NULL;
+        ch_status event_status = filters == NULL ? event_error.code :
+            ch_runtime_query(client->server->runtime, "events", filters,
+                             &snapshot, &event_error);
+        if (event_status == CH_OK) {
+            ch_api_respond(client, 200, "application/json", snapshot);
+        } else {
+            ch_api_runtime_error(client, event_status, &event_error);
+        }
+        free(snapshot);
+        free(filters);
+        free(path);
+        return;
+    }
     if (strcmp(method, "GET") == 0 &&
         strcmp(path, "/api/v1/events") == 0) {
         ch_error event_error;
@@ -1300,6 +1459,19 @@ static void ch_api_route(ch_api_client *client) {
         status = ch_runtime_query(client->server->runtime,
                                   "developer_status", "{}", &json,
                                   &error);
+    } else if (strcmp(method, "GET") == 0 &&
+               strcmp(path, "/api/v1/developer/ca.pem") == 0) {
+        response_type = "application/x-pem-file";
+        content_disposition =
+            "attachment; filename=\"clambhook-developer-ca.pem\"";
+        status = ch_runtime_query(client->server->runtime,
+                                  "developer_ca", "{}", &json, &error);
+    } else if (strcmp(method, "GET") == 0 &&
+               strcmp(path,
+                      "/api/v1/developer/breakpoints/pending") == 0) {
+        status = ch_runtime_query(
+            client->server->runtime, "developer_pending_breakpoints", "{}",
+            &json, &error);
     } else if (strcmp(method, "GET") == 0 &&
                strcmp(path, "/api/v1/developer/entries") == 0) {
         char *request = ch_api_developer_entries_request_json(url, &error);
@@ -1396,6 +1568,28 @@ static void ch_api_route(ch_api_client *client) {
             strcmp(path, "/api/v1/developer/repeat") == 0,
             client->body.data == NULL ? "{}" : client->body.data,
             &json, &error);
+    } else if (strcmp(method, "POST") == 0 &&
+               strcmp(path,
+                      "/api/v1/developer/ca/regenerate") == 0) {
+        status = ch_runtime_mutate(
+            client->server->runtime, "regenerate_developer_ca", "{}",
+            &json, &error);
+    } else if (strcmp(method, "POST") == 0 &&
+               strncmp(path, "/api/v1/developer/breakpoints/", 30U) == 0) {
+        char *request = ch_api_path_action_request_json(
+            path, "/api/v1/developer/breakpoints/", "/resolve",
+            client->body.data, &error);
+        if (request == NULL) {
+            ch_api_runtime_error(client, error.code, &error);
+            free(traffic_request);
+            free(profile_request);
+            free(path);
+            return;
+        }
+        status = ch_runtime_mutate(
+            client->server->runtime, "resolve_developer_breakpoint", request,
+            &json, &error);
+        free(request);
     } else if ((strcmp(method, "PUT") == 0 ||
                 strcmp(method, "POST") == 0) &&
                strcmp(path, "/api/v1/rules") == 0) {
@@ -1605,12 +1799,17 @@ static void ch_api_route(ch_api_client *client) {
             strcmp(path, "/api/v1/traffic") == 0 ||
             strcmp(path, "/api/v1/decisions") == 0 ||
             strcmp(path, "/api/v1/events") == 0 ||
+            strcmp(path, "/api/v1/events/snapshot") == 0 ||
             strcmp(path, "/api/v1/policy-groups") == 0 || strcmp(path, "/api/v1/rule-sets") == 0 ||
             strcmp(path, "/api/v1/policy-groups/test") == 0 ||
             strcmp(path, "/api/v1/dns") == 0 ||
             strcmp(path, "/api/v1/config/settings") == 0 ||
             strcmp(path, "/api/v1/conditioner") == 0 ||
             strcmp(path, "/api/v1/developer/status") == 0 ||
+            strcmp(path, "/api/v1/developer/ca.pem") == 0 ||
+            strcmp(path, "/api/v1/developer/ca/regenerate") == 0 ||
+            strcmp(path, "/api/v1/developer/breakpoints/pending") == 0 ||
+            strncmp(path, "/api/v1/developer/breakpoints/", 30U) == 0 ||
             strcmp(path, "/api/v1/developer/entries") == 0 ||
             strncmp(path, "/api/v1/developer/entries/", 26U) == 0 ||
             strcmp(path, "/api/v1/developer/har") == 0 ||
@@ -1881,6 +2080,7 @@ ch_api_server *ch_api_server_start(
     ch_runtime *runtime,
     const char *address,
     const char *auth_token,
+    const char *license_path,
     ch_error *error
 ) {
     ch_error_clear(error);
@@ -1893,14 +2093,18 @@ ch_api_server *ch_api_server_start(
     server->loop = loop;
     server->runtime = runtime;
     server->auth_token = ch_strdup(auth_token == NULL ? "" : auth_token);
+    server->license_path = ch_strdup(license_path == NULL ? "" : license_path);
     struct sockaddr_storage socket_address;
     ch_status parsed = ch_api_parse_address(address, &socket_address, &server->address, error);
-    if (server->auth_token == NULL || parsed != CH_OK) {
-        free(server->auth_token); free(server->address); free(server); return NULL;
+    if (server->auth_token == NULL || server->license_path == NULL ||
+        parsed != CH_OK) {
+        free(server->auth_token); free(server->license_path);
+        free(server->address); free(server); return NULL;
     }
     if (!ch_api_is_loopback_host(address) && server->auth_token[0] == '\0') {
         ch_error_set(error, CH_ERROR_INVALID_ARGUMENT, "non-loopback API listen requires an authentication token");
-        free(server->auth_token); free(server->address); free(server); return NULL;
+        free(server->auth_token); free(server->license_path);
+        free(server->address); free(server); return NULL;
     }
     int result = uv_tcp_init(loop, &server->listener);
     if (result == 0) server->listener.data = server;
@@ -1919,7 +2123,8 @@ ch_api_server *ch_api_server_start(
             uv_close((uv_handle_t *)&server->listener, ch_api_startup_listener_closed);
             while (!closed) (void)uv_run(loop, UV_RUN_NOWAIT);
         }
-        free(server->auth_token); free(server->address); free(server); return NULL;
+        free(server->auth_token); free(server->license_path);
+        free(server->address); free(server); return NULL;
     }
     return server;
 }

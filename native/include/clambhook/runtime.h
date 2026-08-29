@@ -100,6 +100,18 @@ ch_status ch_runtime_config_mutate_file(
     char **response_json,
     ch_error *error
 );
+ch_status ch_runtime_config_import_file(
+    const char *config_path,
+    const char *document,
+    char **response_json,
+    ch_error *error
+);
+ch_status ch_runtime_config_set_active_file(
+    const char *config_path,
+    const char *request_json,
+    char **response_json,
+    ch_error *error
+);
 
 void ch_string_free(char *string);
 

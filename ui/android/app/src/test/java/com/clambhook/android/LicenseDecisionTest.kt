@@ -11,7 +11,7 @@ import org.junit.Test
 
 /**
  * Covers the Kotlin-side license contracts that gate update installs and drive
- * the offline-grace UX. The date math and server calls live in Go; these are
+ * the offline-grace UX. The date math and server calls live in C17; these are
  * the transport + decision semantics the app renders and enforces.
  */
 class LicenseDecisionTest {

@@ -2,46 +2,35 @@
 # SPDX-License-Identifier: GPL-3.0-only
 
 {
-  description = "clambhook local network client";
+  description = "ClambHook C17 runtime and command-line clients";
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
   outputs = { self, nixpkgs }:
     let
-      systems = [
-        "aarch64-darwin"
-        "aarch64-linux"
-        "x86_64-darwin"
-        "x86_64-linux"
-      ];
+      systems = [ "aarch64-darwin" "aarch64-linux" "x86_64-darwin" "x86_64-linux" ];
       forAllSystems = nixpkgs.lib.genAttrs systems;
     in {
-      # The Nix package intentionally covers only the Go daemon and TUI. The
-      # GTK/libadwaita desktop UI remains distro-packaging scope (.deb/.rpm)
-      # because it has a separate Meson build and desktop integration.
       packages = forAllSystems (system:
         let
           pkgs = import nixpkgs { inherit system; };
           version = self.shortRev or self.dirtyShortRev or "dev";
         in {
-          default = pkgs.buildGoModule {
+          default = pkgs.stdenv.mkDerivation {
             pname = "clambhook";
             inherit version;
             src = self;
 
-            vendorHash = null;
-
-            nativeBuildInputs = [ pkgs.pkg-config ];
-            buildInputs = [ pkgs.libsodium ];
-            preBuild = "make -C clib";
-            ldflags = [ "-X" "main.version=${version}" ];
-            subPackages = [
-              "cmd/clambhook"
-              "cmd/clambhook-tui"
+            nativeBuildInputs = with pkgs; [ cmake ninja pkg-config ];
+            buildInputs = with pkgs; [ curl libuv libsodium llhttp openssl ];
+            cmakeFlags = [
+              "-DCLAMBHOOK_BUILD_TESTS=ON"
+              "-DCLAMBHOOK_WARNINGS_AS_ERRORS=ON"
             ];
+            doCheck = true;
 
             meta = with pkgs.lib; {
-              description = "Local network client daemon and terminal dashboard";
+              description = "ClambHook C17 daemon, terminal UI, and license helper";
               homepage = "https://github.com/JohnThre/clambhook";
               license = licenses.gpl3Only;
               mainProgram = "clambhook";
@@ -65,12 +54,8 @@
         let pkgs = import nixpkgs { inherit system; };
         in {
           default = pkgs.mkShell {
-            nativeBuildInputs = [
-              pkgs.go
-              pkgs.gnumake
-              pkgs.pkg-config
-            ];
-            buildInputs = [ pkgs.libsodium ];
+            nativeBuildInputs = with pkgs; [ cmake ninja pkg-config maven jdk17 ];
+            buildInputs = with pkgs; [ curl libuv libsodium llhttp openssl ];
           };
         });
     };

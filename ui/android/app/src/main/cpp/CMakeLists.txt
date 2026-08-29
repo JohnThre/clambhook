@@ -4,9 +4,13 @@
 cmake_minimum_required(VERSION 3.22)
 project(clambhook_android LANGUAGES C)
 
+include(CheckTypeSize)
+include(TestBigEndian)
+
 set(CMAKE_C_STANDARD 17)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_C_EXTENSIONS OFF)
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 get_filename_component(CLAMBHOOK_ROOT "${CMAKE_CURRENT_LIST_DIR}/../../../../../.." ABSOLUTE)
 
@@ -86,6 +90,38 @@ add_library(tomlc99 STATIC
 target_include_directories(tomlc99 PUBLIC "${CLAMBHOOK_ROOT}/third_party/tomlc99")
 target_compile_definitions(tomlc99 PRIVATE _POSIX_C_SOURCE=200809L)
 
+set(MAXMINDDB_DIR "${CLAMBHOOK_ROOT}/third_party/libmaxminddb")
+check_type_size("unsigned __int128" CH_MMDB_UINT128)
+check_type_size("unsigned int __attribute__((mode(TI)))"
+                CH_MMDB_UINT128_USING_MODE)
+if(HAVE_CH_MMDB_UINT128)
+    set(MMDB_UINT128_USING_MODE 0)
+    set(MMDB_UINT128_IS_BYTE_ARRAY 0)
+elseif(HAVE_CH_MMDB_UINT128_USING_MODE)
+    set(MMDB_UINT128_USING_MODE 1)
+    set(MMDB_UINT128_IS_BYTE_ARRAY 0)
+else()
+    set(MMDB_UINT128_USING_MODE 0)
+    set(MMDB_UINT128_IS_BYTE_ARRAY 1)
+endif()
+test_big_endian(CH_MMDB_BIG_ENDIAN)
+configure_file(
+    "${MAXMINDDB_DIR}/include/maxminddb_config.h.cmake.in"
+    "${CMAKE_CURRENT_BINARY_DIR}/generated/maxminddb_config.h"
+)
+add_library(maxminddb STATIC
+    "${MAXMINDDB_DIR}/src/maxminddb.c"
+    "${MAXMINDDB_DIR}/src/data-pool.c"
+)
+target_include_directories(maxminddb
+    PUBLIC "${MAXMINDDB_DIR}/include" "${CMAKE_CURRENT_BINARY_DIR}/generated"
+    PRIVATE "${MAXMINDDB_DIR}/src"
+)
+target_compile_definitions(maxminddb PRIVATE PACKAGE_VERSION="1.13.3")
+if(NOT CH_MMDB_BIG_ENDIAN)
+    target_compile_definitions(maxminddb PRIVATE MMDB_LITTLE_ENDIAN=1)
+endif()
+
 set(LWIP_DIR "${CLAMBHOOK_ROOT}/third_party/lwip")
 add_library(lwipcore STATIC
     "${LWIP_DIR}/src/core/init.c"
@@ -119,12 +155,33 @@ target_include_directories(lwipcore PUBLIC
     "${CLAMBHOOK_ROOT}/native/src"
 )
 
+set(WIREGUARD_LWIP_DIR "${CLAMBHOOK_ROOT}/third_party/wireguard_lwip")
+add_library(wireguard_protocol STATIC
+    "${WIREGUARD_LWIP_DIR}/src/crypto.c"
+    "${WIREGUARD_LWIP_DIR}/src/wireguard.c"
+    "${WIREGUARD_LWIP_DIR}/src/crypto/refc/blake2s.c"
+    "${WIREGUARD_LWIP_DIR}/src/crypto/refc/chacha20.c"
+    "${WIREGUARD_LWIP_DIR}/src/crypto/refc/chacha20poly1305.c"
+    "${WIREGUARD_LWIP_DIR}/src/crypto/refc/poly1305-donna.c"
+    "${WIREGUARD_LWIP_DIR}/src/crypto/refc/x25519.c"
+)
+target_include_directories(wireguard_protocol PUBLIC
+    "${WIREGUARD_LWIP_DIR}/src"
+    "${LWIP_DIR}/src/include"
+    "${CLAMBHOOK_ROOT}/native/src"
+)
+target_compile_definitions(wireguard_protocol PRIVATE
+    poly1305_init=ch_wg_poly1305_init
+    poly1305_update=ch_wg_poly1305_update
+    poly1305_finish=ch_wg_poly1305_finish
+)
+
 add_library(clambhook_jni SHARED
     "${CLAMBHOOK_ROOT}/clib/src/crypto.c"
     "${CLAMBHOOK_ROOT}/native/src/android/jni.c"
     "${CLAMBHOOK_ROOT}/native/src/android/license_jni.c"
-    "${CLAMBHOOK_ROOT}/native/src/android/rule_feed_jni.c"
     "${CLAMBHOOK_ROOT}/native/src/android/runtime_android.c"
+    "${CLAMBHOOK_ROOT}/native/src/conditioner.c"
     "${CLAMBHOOK_ROOT}/native/src/config.c"
     "${CLAMBHOOK_ROOT}/native/src/config_import.c"
     "${CLAMBHOOK_ROOT}/native/src/config_mutation.c"
@@ -134,18 +191,23 @@ add_library(clambhook_jni SHARED
     "${CLAMBHOOK_ROOT}/native/src/dns.c"
     "${CLAMBHOOK_ROOT}/native/src/dns_quic.c"
     "${CLAMBHOOK_ROOT}/native/src/error.c"
+    "${CLAMBHOOK_ROOT}/native/src/events.c"
+    "${CLAMBHOOK_ROOT}/native/src/geo.c"
     "${CLAMBHOOK_ROOT}/native/src/http_safety.c"
     "${CLAMBHOOK_ROOT}/native/src/ip_stack.c"
     "${CLAMBHOOK_ROOT}/native/src/json.c"
     "${CLAMBHOOK_ROOT}/native/src/license.c"
     "${CLAMBHOOK_ROOT}/native/src/license_json.c"
+    "${CLAMBHOOK_ROOT}/native/src/lwip_context.c"
     "${CLAMBHOOK_ROOT}/native/src/policy.c"
     "${CLAMBHOOK_ROOT}/native/src/protocol.c"
+    "${CLAMBHOOK_ROOT}/native/src/protocol_openvpn.c"
     "${CLAMBHOOK_ROOT}/native/src/protocol_packet.c"
     "${CLAMBHOOK_ROOT}/native/src/protocol_shadowtls.c"
     "${CLAMBHOOK_ROOT}/native/src/protocol_shadowsocks.c"
     "${CLAMBHOOK_ROOT}/native/src/protocol_tor.c"
     "${CLAMBHOOK_ROOT}/native/src/protocol_vmess.c"
+    "${CLAMBHOOK_ROOT}/native/src/protocol_wireguard.c"
     "${CLAMBHOOK_ROOT}/native/src/prompt.c"
     "${CLAMBHOOK_ROOT}/native/src/rule_feed.c"
     "${CLAMBHOOK_ROOT}/native/src/rule_feed_config.c"
@@ -155,9 +217,23 @@ add_library(clambhook_jni SHARED
     "${CLAMBHOOK_ROOT}/native/src/socks.c"
     "${CLAMBHOOK_ROOT}/native/src/temporary_rules.c"
     "${CLAMBHOOK_ROOT}/native/src/traffic.c"
+    "${CLAMBHOOK_ROOT}/native/src/tunnel_stack.c"
+    "${CLAMBHOOK_ROOT}/native/src/wireguard_platform.c"
+)
+
+add_library(clambhook_gluon_bridge STATIC
+    "${CLAMBHOOK_ROOT}/native/src/android/gluon_bridge.c"
+)
+set_target_properties(clambhook_gluon_bridge PROPERTIES
+    OUTPUT_NAME clambhook_gluon_bridge
+    ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_CURRENT_LIST_DIR}/../../../build/gluon"
+)
+target_compile_options(clambhook_gluon_bridge PRIVATE
+    -Wall -Wextra -Wpedantic -Wconversion -Wshadow
 )
 
 add_dependencies(clambhook_jni clambhook_android_openssl clambhook_android_curl)
+add_dependencies(clambhook_jni clambhook_gluon_bridge)
 
 target_include_directories(clambhook_jni PRIVATE
     "${CLAMBHOOK_ROOT}/native/include"
@@ -173,6 +249,6 @@ target_compile_options(clambhook_jni PRIVATE
     -Wall -Wextra -Wpedantic -Wconversion -Wshadow
 )
 target_link_libraries(clambhook_jni PRIVATE
-    log dl lwipcore tomlc99 clambhook_android_libcurl
+    log dl lwipcore maxminddb wireguard_protocol tomlc99 clambhook_android_libcurl
     clambhook_android_ssl clambhook_android_crypto
 )

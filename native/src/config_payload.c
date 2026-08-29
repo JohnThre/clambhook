@@ -13,6 +13,7 @@
 #include "clambhook/json.h"
 #include "clambhook/rule_feed.h"
 #include "clambhook/rules.h"
+#include "geo.h"
 
 static ch_status request_optional_string(const char *request_json,
                                          const char *key,
@@ -1390,6 +1391,113 @@ failure:
     return NULL;
 }
 
+typedef struct ch_server_capabilities {
+    int tcp;
+    int udp;
+    const char *udp_mode;
+    const char *udp_reason;
+} ch_server_capabilities;
+
+static ch_server_capabilities server_protocol_capabilities(
+    const char *protocol) {
+    if (protocol != NULL &&
+        (strcmp(protocol, "trojan") == 0 ||
+         strcmp(protocol, "clambback") == 0 ||
+         strcmp(protocol, "vmess") == 0 ||
+         strcmp(protocol, "shadowtls") == 0)) {
+        return (ch_server_capabilities){1, 1, "stream", ""};
+    }
+    if (protocol != NULL && strcmp(protocol, "shadowsocks") == 0) {
+        return (ch_server_capabilities){
+            1, 1, "native", "UDP over a chained stream is not supported"};
+    }
+    if (protocol != NULL && strcmp(protocol, "wireguard") == 0) {
+        return (ch_server_capabilities){
+            1, 1, "native", "WireGuard must be used as a single-hop chain"};
+    }
+    if (protocol != NULL && strcmp(protocol, "openvpn") == 0) {
+        return (ch_server_capabilities){
+            1, 1, "native", "OpenVPN must be used as a single-hop chain"};
+    }
+    if (protocol != NULL && strcmp(protocol, "tor") == 0) {
+        return (ch_server_capabilities){
+            1, 0, "unsupported", "Tor does not carry UDP"};
+    }
+    return (ch_server_capabilities){
+        1, 0, "unsupported", "UDP support is unknown for this protocol"};
+}
+
+static int append_server_capabilities(
+    ch_json_buffer *json, const ch_server_capabilities *capabilities) {
+    int okay = ch_json_append_format(
+        json, "{\"tcp\":%s,\"udp\":%s,\"udp_mode\":",
+        capabilities->tcp ? "true" : "false",
+        capabilities->udp ? "true" : "false") &&
+        ch_json_append_string(json, capabilities->udp_mode);
+    if (okay && capabilities->udp_reason != NULL &&
+        capabilities->udp_reason[0] != '\0') {
+        okay = ch_json_append(json, ",\"udp_reason\":") &&
+            ch_json_append_string(json, capabilities->udp_reason);
+    }
+    return okay && ch_json_append(json, "}");
+}
+
+static ch_server_capabilities server_chain_capabilities(
+    const ch_config_array *servers) {
+    size_t count = ch_config_array_count(servers);
+    if (count == 0U) {
+        return (ch_server_capabilities){
+            0, 0, "unsupported", "chain has no servers"};
+    }
+    const ch_config_table *last = ch_config_array_get_table(
+        servers, count - 1U);
+    char *protocol = optional_config_string(last, "protocol");
+    ch_server_capabilities last_capabilities =
+        server_protocol_capabilities(protocol);
+    free(protocol);
+    if (count == 1U) return last_capabilities;
+    if (!last_capabilities.udp ||
+        strcmp(last_capabilities.udp_mode, "stream") != 0) {
+        const char *reason = last_capabilities.udp_reason;
+        if (reason == NULL || reason[0] == '\0') {
+            reason = last_capabilities.udp ?
+                "final protocol cannot carry UDP through an upstream chain" :
+                "protocol does not support UDP";
+        }
+        return (ch_server_capabilities){1, 0, "unsupported", reason};
+    }
+    return (ch_server_capabilities){1, 1, "stream", ""};
+}
+
+static int append_geo_location(ch_json_buffer *json,
+                               const ch_geo_location *location) {
+    int fields = 0;
+    if (!ch_json_append(json, "{")) return 0;
+    const char *keys[] = {"country", "country_code", "city"};
+    const char *values[] = {
+        location->country, location->country_code, location->city};
+    for (size_t index = 0U; index < 3U; ++index) {
+        if (values[index] == NULL || values[index][0] == '\0') continue;
+        if ((fields > 0 && !ch_json_append(json, ",")) ||
+            !ch_json_append_string(json, keys[index]) ||
+            !ch_json_append(json, ":") ||
+            !ch_json_append_string(json, values[index])) return 0;
+        ++fields;
+    }
+    if (location->latitude != 0.0) {
+        if ((fields > 0 && !ch_json_append(json, ",")) ||
+            !ch_json_append_format(json, "\"latitude\":%.17g",
+                                   location->latitude)) return 0;
+        ++fields;
+    }
+    if (location->longitude != 0.0) {
+        if ((fields > 0 && !ch_json_append(json, ",")) ||
+            !ch_json_append_format(json, "\"longitude\":%.17g",
+                                   location->longitude)) return 0;
+    }
+    return ch_json_append(json, "}");
+}
+
 char *ch_config_servers_payload_json(const ch_config *config,
                                      const char *fallback_profile,
                                      ch_error *error) {
@@ -1400,7 +1508,14 @@ char *ch_config_servers_payload_json(const ch_config *config,
         return NULL;
     }
     char *profile_name = optional_config_string(profile, "name");
-    if (profile_name == NULL) goto out_of_memory;
+    if (profile_name == NULL) {
+        ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                     "encode servers payload");
+        return NULL;
+    }
+    ch_geo_reader *geo_reader = NULL;
+    ch_error geo_open_error;
+    (void)ch_geo_reader_open_config(config, &geo_reader, &geo_open_error);
     const ch_config_array *chains = ch_config_table_get_array(profile, "chain");
     size_t chain_count = ch_config_array_count(chains);
     ch_json_buffer json;
@@ -1413,17 +1528,29 @@ char *ch_config_servers_payload_json(const ch_config *config,
         char *chain_name = optional_config_string(chain, "name");
         const ch_config_array *servers = ch_config_table_get_array(chain, "server");
         size_t server_count = ch_config_array_count(servers);
+        ch_server_capabilities chain_capabilities =
+            server_chain_capabilities(servers);
         okay = chain_name != NULL &&
             (chain_index == 0U || ch_json_append(&json, ",")) &&
             ch_json_append(&json, "{\"name\":") &&
             ch_json_append_string(&json, chain_name) &&
-            ch_json_append_format(&json, ",\"hop_count\":%zu,\"servers\":[", server_count);
+            ch_json_append_format(
+                &json, ",\"hop_count\":%zu,\"capabilities\":",
+                server_count) &&
+            append_server_capabilities(&json, &chain_capabilities) &&
+            ch_json_append(&json, ",\"servers\":[");
         free(chain_name);
         for (size_t server_index = 0U; okay && server_index < server_count; ++server_index) {
             const ch_config_table *server = ch_config_array_get_table(servers, server_index);
             char *name = optional_config_string(server, "name");
             char *address = optional_config_string(server, "address");
             char *protocol = optional_config_string(server, "protocol");
+            ch_server_capabilities server_capabilities =
+                server_protocol_capabilities(protocol);
+            ch_geo_location location;
+            ch_error geo_error;
+            ch_status geo_status = ch_geo_lookup(
+                geo_reader, address, &location, &geo_error);
             okay = name != NULL && address != NULL && protocol != NULL &&
                 (server_index == 0U || ch_json_append(&json, ",")) &&
                 ch_json_append(&json, "{\"name\":") &&
@@ -1432,7 +1559,15 @@ char *ch_config_servers_payload_json(const ch_config *config,
                 ch_json_append_string(&json, address) &&
                 ch_json_append(&json, ",\"protocol\":") &&
                 ch_json_append_string(&json, protocol) &&
-                ch_json_append(&json, ",\"geo\":{}");
+                ch_json_append(&json, ",\"capabilities\":") &&
+                append_server_capabilities(&json, &server_capabilities) &&
+                ch_json_append(&json, ",\"geo\":") &&
+                append_geo_location(&json, &location);
+            if (okay && geo_status != CH_OK) {
+                okay = ch_json_append(&json, ",\"geo_error\":") &&
+                    ch_json_append_string(&json, geo_error.message);
+            }
+            ch_geo_location_clear(&location);
             free(name);
             free(address);
             free(protocol);
@@ -1441,18 +1576,15 @@ char *ch_config_servers_payload_json(const ch_config *config,
         if (okay) okay = ch_json_append(&json, "]}");
     }
     if (okay) okay = ch_json_append(&json, "]}");
+    ch_geo_reader_release(geo_reader);
     free(profile_name);
     if (!okay) {
         ch_json_dispose(&json);
-        goto out_of_memory_without_profile;
+        ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                     "encode servers payload");
+        return NULL;
     }
     return ch_json_take(&json);
-
-out_of_memory:
-    free(profile_name);
-out_of_memory_without_profile:
-    ch_error_set(error, CH_ERROR_OUT_OF_MEMORY, "encode servers payload");
-    return NULL;
 }
 
 char *ch_config_profile_payload_json(const ch_config *config,
@@ -1470,6 +1602,55 @@ char *ch_config_profile_payload_json(const ch_config *config,
     }
     if (ch_config_table_json(profile, &json, error) != CH_OK) return NULL;
     return json;
+}
+
+static char *config_profiles_payload_json(const ch_config *config,
+                                          const char *fallback_profile,
+                                          ch_error *error) {
+    ch_json_buffer json;
+    ch_json_init(&json);
+    char *active = optional_config_string(
+        config == NULL ? NULL : ch_config_root(config), "active");
+    if (active == NULL) {
+        ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                     "copy active profile");
+        return NULL;
+    }
+    if (active[0] == '\0' && fallback_profile != NULL) {
+        free(active);
+        active = ch_strdup(fallback_profile);
+        if (active == NULL) {
+            ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                         "copy active profile");
+            return NULL;
+        }
+    }
+    int okay = ch_json_append(&json, "{\"profiles\":[");
+    size_t count = config == NULL ? 0U : ch_config_profile_count(config);
+    for (size_t index = 0U; okay && index < count; ++index) {
+        char *name = optional_config_string(ch_config_profile_at(config, index),
+                                            "name");
+        okay = name != NULL &&
+            (index == 0U || ch_json_append(&json, ",")) &&
+            ch_json_append_string(&json, name);
+        free(name);
+    }
+    if (okay && count == 0U && active[0] != '\0') {
+        okay = ch_json_append_string(&json, active);
+    }
+    if (okay) {
+        okay = ch_json_append(&json, "],\"active\":") &&
+            ch_json_append_string(&json, active) &&
+            ch_json_append(&json, "}");
+    }
+    free(active);
+    char *result = okay ? ch_json_take(&json) : NULL;
+    ch_json_dispose(&json);
+    if (result == NULL) {
+        ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                     "encode profiles payload");
+    }
+    return result;
 }
 
 static ch_status request_optional_string(const char *request_json,
@@ -1528,7 +1709,9 @@ char *ch_config_query_payload_json(const ch_config *config,
         return NULL;
     }
     char *result = NULL;
-    if (strcmp(operation, "servers") == 0) {
+    if (strcmp(operation, "profiles") == 0) {
+        result = config_profiles_payload_json(config, profile, error);
+    } else if (strcmp(operation, "servers") == 0) {
         result = ch_config_servers_payload_json(config, profile, error);
     } else if (strcmp(operation, "rules") == 0) {
         result = ch_config_collection_payload_json(

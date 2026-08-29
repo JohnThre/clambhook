@@ -120,7 +120,7 @@ class ClambhookVpnService : VpnService() {
             val settings = json.decodeFromString<TunnelNetworkSettings>(
                 NativeClambhookConfigBridge.query(configPath, "network_settings")
             )
-            val appSettings = DataStoreSettingsStore(this).settings.first()
+            val appSettings = DataStoreAppRoutingSettingsStore(this).settings.first()
             pfd = establishInterface(settings, appSettings)
                 ?: error("system rejected VPN interface establishment")
             out = FileOutputStream(pfd.fileDescriptor)
@@ -137,7 +137,10 @@ class ClambhookVpnService : VpnService() {
         }
     }
 
-    private fun establishInterface(settings: TunnelNetworkSettings, appSettings: AppSettings): ParcelFileDescriptor? {
+    private fun establishInterface(
+        settings: TunnelNetworkSettings,
+        appSettings: AppRoutingSettings,
+    ): ParcelFileDescriptor? {
         val builder = Builder()
             .setSession(getString(R.string.app_name))
             .setMtu(if (settings.mtu > 0) settings.mtu else DEFAULT_MTU)
@@ -175,15 +178,15 @@ class ClambhookVpnService : VpnService() {
 
         applyPerAppRouting(builder, appSettings)
 
-        builder.setConfigureIntent(configureIntent())
+        configureIntent()?.let(builder::setConfigureIntent)
         return builder.establish()
     }
 
-    private fun applyPerAppRouting(builder: Builder, appSettings: AppSettings) {
+    private fun applyPerAppRouting(builder: Builder, appSettings: AppRoutingSettings) {
         when (
             val plan = resolveSplitTunnel(
-                appSettings.normalizedSplitTunnelMode,
-                appSettings.normalizedSplitTunnelPackages,
+                appSettings.normalizedMode,
+                appSettings.normalizedPackages,
                 packageName,
             )
         ) {
@@ -200,8 +203,8 @@ class ClambhookVpnService : VpnService() {
             }
             SplitTunnelPlan.DisallowOwnOnly -> {
                 if (
-                    appSettings.normalizedSplitTunnelMode == SplitTunnelMode.Include &&
-                    appSettings.normalizedSplitTunnelPackages.isEmpty()
+                    appSettings.normalizedMode == SplitTunnelMode.Include &&
+                    appSettings.normalizedPackages.isEmpty()
                 ) {
                     Log.w(logTag, "include-only app routing selected with no apps; falling back to all apps")
                 }
@@ -261,12 +264,15 @@ class ClambhookVpnService : VpnService() {
             .notify(notificationId, notification(contentText))
     }
 
-    private fun configureIntent(): PendingIntent = PendingIntent.getActivity(
-        this,
-        0,
-        Intent(this, MainActivity::class.java),
-        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-    )
+    private fun configureIntent(): PendingIntent? =
+        packageManager.getLaunchIntentForPackage(packageName)?.let { launch ->
+            PendingIntent.getActivity(
+                this,
+                0,
+                launch,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            )
+        }
 
     private fun notification(contentText: String): Notification {
         ensureNotificationChannel()

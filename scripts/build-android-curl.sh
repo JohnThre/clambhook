@@ -34,7 +34,7 @@ esac
 
 install_root="$output_root/curl-${CURL_VERSION}-api${api_level}/$abi"
 stamp="$install_root/.clambhook-curl-build"
-stamp_value="curl=${CURL_VERSION} sha256=${CURL_SHA256} recipe=http-only-v1 openssl=3.5.8 api=${api_level} abi=${abi}"
+stamp_value="curl=${CURL_VERSION} sha256=${CURL_SHA256} recipe=http-only-v2 openssl=3.5.8-quic api=${api_level} abi=${abi}"
 if [[ -f "$stamp" && "$(<"$stamp")" == "$stamp_value" &&
       -f "$install_root/include/curl/curl.h" &&
       -f "$install_root/lib/libcurl.a" ]]; then

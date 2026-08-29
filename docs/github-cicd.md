@@ -1,52 +1,90 @@
+<!-- SPDX-FileCopyrightText: 2026 Pengfan Chang <support@swiphtgroup.com> -->
+<!-- SPDX-License-Identifier: GPL-3.0-only -->
+
 # GitHub CI/CD
 
-GitHub Actions is the authoritative CI and release system. Ordinary CI keeps
-read-only permissions and may upload short-lived reports. The protected
-`.github/workflows/release.yml` workflow is the only workflow allowed to build
-and publish end-user installers.
+GitHub Actions is the authoritative automation and GitHub Releases is the only
+official binary distribution channel. Workflows default to no permissions,
+pin every third-party action to a full commit SHA, and grant job-scoped access.
 
-## Protected release environment
+## Continuous integration
 
-Create a `production` environment with required reviewers and deployment
-branches limited to protected `master` and release tags. Keep workflow defaults
-at `permissions: {}`; only release mutation jobs receive `contents: write`.
+`.github/workflows/ci.yml` runs:
 
-Configure these environment secrets:
+- source-only, SPDX/component-license, cutover, workflow, and shell policy;
+- checksum-pinned standalone actionlint 1.7.12
+  (`8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8`
+  for Linux x86_64);
+- strict C17 builds, ASan/UBSan, CTest, license/CLI/TUI contracts, protocol
+  tamper/replay/rekey fixtures, configuration rollback, API, and WebSocket tests;
+- JavaFX Maven/JUnit/JaCoCo verification and Kotlin AAR tests/lint;
+- unsigned SwiftUI macOS build/test with the C runtime;
+- Trisquel 12, Rocky Linux 9, and AlmaLinux 9 on x86_64 and aarch64 runners,
+  including Gluon native image launch plus package install, integration, and
+  uninstall checks;
+- Gluon Android ARM64 build and `aosp_atd/arm64-v8a` managed-device journeys
+  on API 31, 33, and 36.
 
-- `GPG_PRIVATE_KEY_BASE64`, `GPG_PASSPHRASE`
-- `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`,
-  `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`
-- `APPLE_TEAM_ID`, `APPLE_DEVELOPER_ID_P12_BASE64`,
-  `APPLE_DEVELOPER_ID_P12_PASSWORD`, `APPLE_KEYCHAIN_PASSWORD`
-- `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_API_KEY_P8_BASE64`,
-  `APPLE_API_KEY_ID`, `APPLE_API_ISSUER_ID`
-- `SPARKLE_PRIVATE_KEY_BASE64`
+`.github/workflows/security.yml` runs C/C++, Java/Kotlin, and Swift CodeQL plus
+dependency review. Dependabot covers Actions, Maven, and Android Gradle
+dependencies.
 
-Cloudflare credentials and R2 bucket variables are not used.
+Ordinary workflows may upload logs, test reports, and coverage. They must not
+upload installers or package outputs.
 
-## Release behavior
+## Release workflow
 
-A pushed `v*` tag must be an annotated GPG-signed tag made by the pinned
-ClambHook release key. The workflow verifies the tag before the protected jobs
-start, builds the Trisquel `.deb`, Rocky `.rpm`, Android 12+ APK, and macOS DMG,
-then signs, notarizes where applicable, and uploads the allowlisted files to the
-matching GitHub Release. Recovery runs replace only same-named assets.
+`.github/workflows/release.yml` is protected by the `production` environment.
+It accepts either a verified signed stable tag or an approved manual request.
+It builds and signs:
 
-Manual beta runs execute from `master`, create a versioned prerelease, and copy
-its assets into the rolling `beta` prerelease. Stable clients use
-`releases/latest/download/...`; beta clients use `releases/download/beta/...`.
-Manifest and Sparkle enclosure URLs always point to the immutable versioned
-release.
+- Debian packages from Trisquel on x86_64 and aarch64;
+- RPM packages from Rocky on x86_64 and aarch64;
+- ARM64 Android APK/AAB files with the protected Android keystore;
+- the Apple Silicon SwiftUI app, embedded C runtime, notarized DMG, and Sparkle
+  appcast;
+- manifests, SHA-256 files, and GPG signatures.
 
-## Validation
+AlmaLinux builds and installs an ephemeral package from the same RPM recipe as
+an independent compatibility lane; only Rocky produces the release RPM.
 
-Run before delivery:
+```mermaid
+flowchart LR
+    push["Push / pull request"] --> policy["Policy + actionlint"]
+    policy --> c["C17 + sanitizers"]
+    policy --> java["JavaFX + Kotlin"]
+    policy --> swift["SwiftUI + C runtime"]
+    c --> distro["Trisquel · Rocky · Alma<br/>x86_64 + aarch64"]
+    java --> device["Android API 31 · 33 · 36<br/>ARM64 managed devices"]
+    distro --> required["Required checks"]
+    device --> required
+    swift --> required
+    tag["Signed tag or protected dispatch"] --> verify["Request + key verification"]
+    required --> verify
+    verify --> build["Gluon + C17 + SwiftUI<br/>build and artifact inspection"]
+    build --> sign["Android · GPG · Developer ID<br/>notarization + Sparkle"]
+    sign --> release["GitHub Release assets"]
+```
+
+## Local workflow checks
 
 ```sh
 scripts/check-github-actions.sh
-shellcheck scripts/*.sh
-go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+scripts/check-license-policy.sh
+scripts/check-cutover.sh
+shellcheck -x scripts/*.sh
 ```
 
-The macOS test suite remains local-only; the protected workflow archives,
-signs, notarizes, and publishes the locally validated product.
+The hosted policy job downloads actionlint from its versioned GitHub Release,
+verifies the pinned archive SHA-256, extracts only the binary, and runs it
+without a language package manager.
+
+## Delivery policy
+
+- Never force-push a release or cutover commit.
+- Never create a tag merely to validate a build.
+- Never expose signing secrets in files, logs, caches, or artifacts.
+- Never replace the API 31 floor with API 30.
+- Never use Apple’s `container` CLI for hosted or local authority.
+- Finish a source delivery only when required checks are green, the worktree is
+  clean, and local `HEAD`, `origin/master`, and `git ls-remote` agree.

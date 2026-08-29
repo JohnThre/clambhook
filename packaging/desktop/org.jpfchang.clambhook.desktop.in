@@ -1,0 +1,14 @@
+# SPDX-FileCopyrightText: 2026 Pengfan Chang <support@swiphtgroup.com>
+# SPDX-License-Identifier: GPL-3.0-only
+
+[Desktop Entry]
+Name=ClambHook
+GenericName=Network Client
+Comment=Control ClambHook profiles, routing, privacy, and traffic
+Exec=clambhook-ui
+Icon=@app_id@
+Terminal=false
+Type=Application
+Categories=Network;Utility;
+Keywords=proxy;vpn;tunnel;network;traffic;
+StartupNotify=true

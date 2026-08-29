@@ -421,7 +421,7 @@ static ch_status ch_dns_prepare_doq(ch_dns_proxy *proxy,
                                     ch_error *error) {
     if (!ch_dns_quic_available()) {
         ch_error_set(error, CH_ERROR_UNSUPPORTED,
-                     "native DNS-over-QUIC requires OpenSSL 3.2 or later");
+                     "native DNS-over-QUIC requires OpenSSL 3.2 or later with QUIC enabled");
         return CH_ERROR_UNSUPPORTED;
     }
     if (proxy->options.packet_dial == NULL) {

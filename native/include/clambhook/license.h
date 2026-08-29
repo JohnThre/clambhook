@@ -32,7 +32,7 @@ extern "C" {
 #define CH_FEATURE_HTTP_METADATA "http.metadata"
 #define CH_FEATURE_WIDGETS "widgets"
 
-/* Nanoseconds since the Unix epoch, matching Go time.Time JSON precision. */
+/* Nanoseconds since the Unix epoch, matching the frozen JSON precision. */
 typedef int64_t ch_timestamp;
 
 typedef struct ch_license_transaction {

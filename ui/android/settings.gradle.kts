@@ -17,5 +17,6 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "ClambhookAndroid"
-include(":app")
+rootProject.name = "ClambhookAndroidPlatform"
+include(":platform")
+project(":platform").projectDir = file("app")

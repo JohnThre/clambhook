@@ -18,7 +18,7 @@ Group=clambhook
 # Device-wide Enhanced/TUN routing creates a TUN interface, assigns addresses,
 # installs split default routes, and rewrites DNS. That requires CAP_NET_ADMIN
 # (and CAP_NET_RAW). The desktop app talks to this service over the local API.
-ExecStart=/usr/libexec/clambhook -api 127.0.0.1:9090 -config /etc/clambhook/config.toml
+ExecStart=/usr/bin/clambhook -api 127.0.0.1:9090 -config /etc/clambhook/config.toml
 
 # Least privilege: hand the unprivileged user exactly the two capabilities TUN
 # routing needs and nothing else. NoNewPrivileges keeps the child `ip` helpers
@@ -61,8 +61,8 @@ ProtectKernelLogs=true
 ProtectKernelModules=true
 ProtectKernelTunables=true
 
-# Behavioural restrictions compatible with a Go network daemon that shells out
-# to `ip` and speaks netlink.
+# Behavioural restrictions compatible with the C17 daemon, which invokes `ip`
+# for route management and speaks netlink directly.
 LockPersonality=true
 RestrictNamespaces=true
 RestrictRealtime=true

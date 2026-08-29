@@ -1,8 +1,8 @@
 clambhook (1.0.2-1) unstable; urgency=medium
 
-  * Release 1.0.2.
+  * Complete the C17 and JavaFX/Gluon production cutover.
 
- -- Pengfan Chang <developer@jpfchang.org>  Sat, 02 Aug 2026 18:21:00 +0000
+ -- Pengfan Chang <support@swiphtgroup.com>  Sat, 29 Aug 2026 03:20:00 +0000
 
 clambhook (1.0.1-1) unstable; urgency=medium
 

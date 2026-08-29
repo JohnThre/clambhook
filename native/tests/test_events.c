@@ -5,6 +5,7 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include <stdlib.h>
 
 #include "clambhook/events.h"
 
@@ -40,6 +41,30 @@ void ch_test_events(void) {
     CH_TEST_ASSERT(ch_event_ring_total(ring) == 5U);
     ch_events_free(snapshot, snapshot_count);
     CH_TEST_ASSERT(ch_event_ring_oldest_lamport(ring) == 3U);
+
+    char *json = ch_event_ring_query_json(
+        ring, "{\"after_sequence\":2,\"limit\":2}", &error);
+    CH_TEST_ASSERT(json != NULL);
+    CH_TEST_ASSERT(strstr(json, "\"sequence\":3") != NULL);
+    CH_TEST_ASSERT(strstr(json, "\"sequence\":4") != NULL);
+    CH_TEST_ASSERT(strstr(json, "\"sequence\":5") == NULL);
+    CH_TEST_ASSERT(strstr(json, "\"complete\":false") != NULL);
+    CH_TEST_ASSERT(strstr(json, "\"next_sequence\":4") != NULL);
+    free(json);
+
+    json = ch_event_ring_query_json(
+        ring,
+        "{\"after_sequence\":4,\"limit\":2,\"types\":[\"te*\"]}",
+        &error);
+    CH_TEST_ASSERT(json != NULL);
+    CH_TEST_ASSERT(strstr(json, "\"sequence\":5") != NULL);
+    CH_TEST_ASSERT(strstr(json, "\"complete\":true") != NULL);
+    CH_TEST_ASSERT(strstr(json, "\"next_sequence\":5") != NULL);
+    free(json);
+
+    CH_TEST_ASSERT(ch_event_ring_query_json(
+        ring, "{\"after_sequence\":0,\"limit\":0}", &error) == NULL);
+    CH_TEST_ASSERT(error.code == CH_ERROR_INVALID_ARGUMENT);
 
     ch_event *events = NULL;
     size_t count = 0U;

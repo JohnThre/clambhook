@@ -27,9 +27,6 @@ jobs:
         include:
           - language: c-cpp
             runner: ubuntu-24.04
-            build-mode: none
-          - language: go
-            runner: ubuntu-24.04
             build-mode: manual
           - language: java-kotlin
             runner: ubuntu-24.04
@@ -49,23 +46,20 @@ jobs:
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
-      - name: Set up Go
-        if: matrix.language == 'go'
-        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
-        with:
-          go-version-file: go.mod
-          cache: true
       - name: Initialize CodeQL
         uses: github/codeql-action/init@db488ddef3bf6cb639b32c2e9a7c0a7ea8271d28 # v4
         with:
           languages: ${{ matrix.language }}
           build-mode: ${{ matrix.build-mode }}
-      - name: Install legacy Go native dependencies
-        if: matrix.language == 'go'
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libsodium-dev libssl-dev
-      - name: Trace legacy Go sources
-        if: matrix.language == 'go'
-        run: make build-clib && go build ./...
+      - name: Install C17 build dependencies
+        if: matrix.language == 'c-cpp'
+        run: >-
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends
+          cmake ninja-build pkg-config libuv1-dev libsodium-dev libllhttp-dev
+          libssl-dev libcurl4-openssl-dev
+      - name: Trace C17 sources
+        if: matrix.language == 'c-cpp'
+        run: make build-native
       - name: Trace Swift package sources without building the macOS app
         if: matrix.language == 'swift'
         run: swift build --package-path ui/apple --target ClambhookShared

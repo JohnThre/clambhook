@@ -27,6 +27,14 @@ ch_status ch_license_evaluate_json(
     char **result_json,
     ch_error *error
 );
+/* Evaluates a persisted snapshot without rendering an intermediate decision.
+ * This is the daemon API gate used for state-changing routes. */
+ch_status ch_license_can_use_snapshot_json(
+    const char *snapshot_json,
+    int64_t now_unix_millis,
+    bool *allowed,
+    ch_error *error
+);
 ch_status ch_license_status_json(
     const char *snapshot_json,
     int64_t update_published_at_millis,

@@ -15,17 +15,6 @@ updates:
       actions:
         patterns: ['*']
 
-  - package-ecosystem: gomod
-    directory: /
-    schedule:
-      interval: weekly
-      day: monday
-      time: '02:15'
-      timezone: Asia/Singapore
-    groups:
-      go-modules:
-        patterns: ['*']
-
   - package-ecosystem: gradle
     directory: /ui/android
     schedule:
@@ -37,15 +26,15 @@ updates:
       android:
         patterns: ['*']
 
-  - package-ecosystem: gradle
-    directory: /ui/linux
+  - package-ecosystem: maven
+    directory: /ui/javafx
     schedule:
       interval: weekly
       day: monday
       time: '02:45'
       timezone: Asia/Singapore
     groups:
-      linux-desktop:
+      javafx-gluon:
         patterns: ['*']
 
   - package-ecosystem: swift

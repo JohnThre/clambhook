@@ -5,6 +5,8 @@ package com.clambhook.ui.backend;
 
 /** A stable error carrying the platform response code when one exists. */
 public final class BackendException extends RuntimeException {
+    private static final long serialVersionUID = 1L;
+
     private final int statusCode;
 
     public BackendException(String message) {

@@ -1519,7 +1519,7 @@ ch_status ch_rule_feed_refresh(const ch_rule_feed_refresh_options *options,
         FEED_CURL_SET(CURLOPT_FRESH_CONNECT, 1L);
         FEED_CURL_SET(CURLOPT_FORBID_REUSE, 1L);
         FEED_CURL_SET(CURLOPT_DNS_CACHE_TIMEOUT, 0L);
-        FEED_CURL_SET(CURLOPT_USERAGENT, "clambhook-c/1");
+        FEED_CURL_SET(CURLOPT_USERAGENT, "clambhook/1");
         FEED_CURL_SET(CURLOPT_WRITEFUNCTION, feed_http_write);
         FEED_CURL_SET(CURLOPT_WRITEDATA, &body);
         FEED_CURL_SET(CURLOPT_HEADERFUNCTION, feed_http_header);

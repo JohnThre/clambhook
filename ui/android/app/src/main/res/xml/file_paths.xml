@@ -5,4 +5,5 @@
 <paths>
     <!-- Downloaded update APKs shared with the system installer. -->
     <cache-path name="updates" path="updates/" />
+    <cache-path name="share" path="share/" />
 </paths>

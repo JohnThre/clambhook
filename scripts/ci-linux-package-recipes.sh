@@ -25,6 +25,7 @@ log() {
 build_debian() {
     PACKAGE_SMOKE_TARGETS=debian \
         PACKAGE_SMOKE_REQUIRE_TOOLS=1 \
+        PACKAGE_SMOKE_INSTALL=1 \
         "$ROOT_DIR/scripts/package-smoke.sh"
 }
 
@@ -44,7 +45,9 @@ build_rpm() {
 
     (
         cd "$ROOT_DIR"
-        tar --exclude-vcs --exclude='./dist' \
+        tar --exclude-vcs --exclude='./dist' --exclude='./build-native*' \
+            --exclude='./ui/javafx/target' --exclude='./ui/android/.gradle' \
+            --exclude='./ui/android/.native-deps' --exclude='./ui/android/app/build' \
             --transform "s,^\.,clambhook-${version}," \
             -czf "$source" .
         rpmbuild --define "_topdir $topdir" --define "version $version" \
@@ -55,7 +58,11 @@ build_rpm() {
         echo "RPM recipe completed without producing a package." >&2
         return 1
     }
-    log "RPM recipe built and verified in the temporary container workspace"
+    local package
+    package="$(find "$topdir/RPMS" -type f -name 'clambhook-*.rpm' -print -quit)"
+    CLAMBHOOK_CONTAINER_PACKAGE_SMOKE=1 \
+        "$ROOT_DIR/scripts/smoke-installed-linux-package.sh" "$package"
+    log "RPM recipe installed, exercised, uninstalled, and verified"
 }
 
 case "$MODE" in

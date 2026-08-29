@@ -271,6 +271,30 @@ Java_com_clambhook_android_NativeClambhookBridge_nativeMutate(
 }
 
 JNIEXPORT jstring JNICALL
+Java_com_clambhook_android_NativeClambhookBridge_nativeDeveloperRequest(
+    JNIEnv *environment, jobject bridge, jlong handle, jboolean repeat,
+    jstring request_json
+) {
+    (void)bridge;
+    ch_jni_runtime *state = ch_jni_from_handle(environment, handle);
+    if (state == NULL) return NULL;
+    const char *request_utf = ch_jni_get_utf(environment, request_json);
+    if (request_json != NULL && request_utf == NULL) return NULL;
+    char *response = NULL;
+    ch_error error;
+    ch_status status = ch_runtime_developer_request(
+        state->runtime, repeat == JNI_TRUE, request_utf, &response, &error);
+    ch_jni_release_utf(environment, request_json, request_utf);
+    if (status != CH_OK) {
+        ch_jni_check(environment, status, &error);
+        return NULL;
+    }
+    jstring result = (*environment)->NewStringUTF(environment, response);
+    ch_string_free(response);
+    return result;
+}
+
+JNIEXPORT jstring JNICALL
 Java_com_clambhook_android_NativeClambhookConfigBridge_nativeQueryConfig(
     JNIEnv *environment, jobject bridge, jstring config_path,
     jstring operation, jstring request_json
@@ -378,4 +402,52 @@ Java_com_clambhook_android_NativeClambhookConfigBridge_nativeApplyReviewedImport
     ch_jni_release_utf(environment, config_path, path_utf);
     ch_jni_release_utf(environment, request_json, request_utf);
     ch_jni_check(environment, status, &error);
+}
+
+static jstring ch_jni_config_file_operation(
+    JNIEnv *environment, jstring config_path, jstring request,
+    int set_active
+) {
+    const char *path_utf = ch_jni_get_utf(environment, config_path);
+    const char *request_utf = ch_jni_get_utf(environment, request);
+    if (path_utf == NULL || request_utf == NULL) {
+        ch_jni_release_utf(environment, config_path, path_utf);
+        ch_jni_release_utf(environment, request, request_utf);
+        return NULL;
+    }
+    char *response = NULL;
+    ch_error error;
+    ch_status status = set_active ? ch_runtime_config_set_active_file(
+        path_utf, request_utf, &response, &error) :
+        ch_runtime_config_import_file(path_utf, request_utf, &response,
+                                      &error);
+    ch_jni_release_utf(environment, config_path, path_utf);
+    ch_jni_release_utf(environment, request, request_utf);
+    if (status != CH_OK) {
+        ch_jni_check(environment, status, &error);
+        return NULL;
+    }
+    jstring result = (*environment)->NewStringUTF(environment, response);
+    ch_string_free(response);
+    return result;
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_clambhook_android_NativeClambhookConfigBridge_nativeImportConfig(
+    JNIEnv *environment, jobject bridge, jstring config_path,
+    jstring document
+) {
+    (void)bridge;
+    return ch_jni_config_file_operation(environment, config_path, document,
+                                        0);
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_clambhook_android_NativeClambhookConfigBridge_nativeSetActiveProfile(
+    JNIEnv *environment, jobject bridge, jstring config_path,
+    jstring request_json
+) {
+    (void)bridge;
+    return ch_jni_config_file_operation(environment, config_path,
+                                        request_json, 1);
 }

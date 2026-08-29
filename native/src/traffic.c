@@ -21,6 +21,7 @@
 
 #include "clambhook/config.h"
 #include "clambhook/json.h"
+#include "geo.h"
 #include "internal.h"
 
 #define CH_TRAFFIC_DEFAULT_LIMIT 512U
@@ -30,6 +31,13 @@
 #define CH_TRAFFIC_HISTORY_VERSION 1
 #define CH_TRAFFIC_DEFAULT_MAX_AGE_NS INT64_C(604800000000000)
 #define CH_TRAFFIC_MAX_FILE_BYTES (32U * 1024U * 1024U)
+#define CH_TRAFFIC_GEO_QUEUE_CAPACITY 256U
+
+typedef struct ch_traffic_geo_job {
+    uint64_t flow_id;
+    uint64_t generation;
+    char *target;
+} ch_traffic_geo_job;
 
 typedef struct ch_traffic_entry {
     uint64_t flow_id;
@@ -48,6 +56,13 @@ typedef struct ch_traffic_entry {
     char *network;
     char *source;
     char *close_reason;
+    char *geo_country;
+    char *geo_country_code;
+    char *geo_city;
+    char *geo_error;
+    double geo_latitude;
+    double geo_longitude;
+    uint64_t geo_generation;
     bool is_default;
     bool active;
     long long decision_ns;
@@ -65,6 +80,15 @@ typedef struct ch_traffic_entry {
 struct ch_traffic_store {
     pthread_mutex_t mutex;
     pthread_mutex_t persist_mutex;
+    pthread_cond_t geo_condition;
+    pthread_t geo_thread;
+    int geo_thread_started;
+    int geo_stop;
+    ch_geo_reader *geo_reader;
+    ch_traffic_geo_job geo_jobs[CH_TRAFFIC_GEO_QUEUE_CAPACITY];
+    size_t geo_job_head;
+    size_t geo_job_count;
+    uint64_t geo_generation;
     ch_traffic_entry *entries;
     size_t count;
     size_t limit;
@@ -100,6 +124,9 @@ static int64_t traffic_now_ns(void) {
 }
 
 static void traffic_entry_clear(ch_traffic_entry *entry);
+static void *traffic_geo_worker(void *context);
+static void traffic_enqueue_geo_locked(ch_traffic_store *store,
+                                       ch_traffic_entry *entry);
 
 static void traffic_set_persist_error_locked(ch_traffic_store *store,
                                              const char *message) {
@@ -152,12 +179,24 @@ static void traffic_entry_clear(ch_traffic_entry *entry) {
     free(entry->network);
     free(entry->source);
     free(entry->close_reason);
+    free(entry->geo_country);
+    free(entry->geo_country_code);
+    free(entry->geo_city);
+    free(entry->geo_error);
     memset(entry, 0, sizeof(*entry));
 }
 
 static int traffic_copy(char **out, const char *value) {
     *out = ch_strdup(value == NULL ? "" : value);
     return *out != NULL;
+}
+
+static int traffic_replace(char **destination, const char *value) {
+    char *copy = ch_strdup(value == NULL ? "" : value);
+    if (copy == NULL) return 0;
+    free(*destination);
+    *destination = copy;
+    return 1;
 }
 
 static int traffic_entry_initialize(ch_traffic_entry *entry,
@@ -182,7 +221,11 @@ static int traffic_entry_initialize(ch_traffic_entry *entry,
         !traffic_copy(&entry->target_port, info->target_port) ||
         !traffic_copy(&entry->network, info->network) ||
         !traffic_copy(&entry->source, info->source) ||
-        !traffic_copy(&entry->close_reason, "")) {
+        !traffic_copy(&entry->close_reason, "") ||
+        !traffic_copy(&entry->geo_country, "") ||
+        !traffic_copy(&entry->geo_country_code, "") ||
+        !traffic_copy(&entry->geo_city, "") ||
+        !traffic_copy(&entry->geo_error, "")) {
         traffic_entry_clear(entry);
         return 0;
     }
@@ -231,6 +274,15 @@ ch_traffic_store *ch_traffic_store_create(size_t history_limit,
                      "initialize traffic persistence lock");
         return NULL;
     }
+    if (pthread_cond_init(&store->geo_condition, NULL) != 0) {
+        pthread_mutex_destroy(&store->persist_mutex);
+        pthread_mutex_destroy(&store->mutex);
+        free(store->entries);
+        free(store);
+        ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                     "initialize traffic geo condition");
+        return NULL;
+    }
     store->limit = limit;
     store->enabled = true;
     store->history_max_age_ns = CH_TRAFFIC_DEFAULT_MAX_AGE_NS;
@@ -239,6 +291,7 @@ ch_traffic_store *ch_traffic_store_create(size_t history_limit,
     if (store->history_path == NULL || store->persist_error == NULL) {
         free(store->history_path);
         free(store->persist_error);
+        pthread_cond_destroy(&store->geo_condition);
         pthread_mutex_destroy(&store->persist_mutex);
         pthread_mutex_destroy(&store->mutex);
         free(store->entries);
@@ -247,6 +300,20 @@ ch_traffic_store *ch_traffic_store_create(size_t history_limit,
                      "initialize traffic persistence");
         return NULL;
     }
+    if (pthread_create(&store->geo_thread, NULL, traffic_geo_worker, store) !=
+        0) {
+        free(store->history_path);
+        free(store->persist_error);
+        pthread_cond_destroy(&store->geo_condition);
+        pthread_mutex_destroy(&store->persist_mutex);
+        pthread_mutex_destroy(&store->mutex);
+        free(store->entries);
+        free(store);
+        ch_error_set(error, CH_ERROR_INTERNAL,
+                     "start traffic geo worker");
+        return NULL;
+    }
+    store->geo_thread_started = 1;
     return store;
 }
 
@@ -255,6 +322,21 @@ void ch_traffic_store_destroy(ch_traffic_store *store) {
     ch_error ignored;
     (void)ch_traffic_store_flush(store, &ignored);
     pthread_mutex_lock(&store->mutex);
+    store->geo_stop = 1;
+    pthread_cond_broadcast(&store->geo_condition);
+    pthread_mutex_unlock(&store->mutex);
+    if (store->geo_thread_started) {
+        (void)pthread_join(store->geo_thread, NULL);
+    }
+    pthread_mutex_lock(&store->mutex);
+    for (size_t index = 0U; index < store->geo_job_count; ++index) {
+        size_t slot = (store->geo_job_head + index) %
+            CH_TRAFFIC_GEO_QUEUE_CAPACITY;
+        free(store->geo_jobs[slot].target);
+    }
+    store->geo_job_count = 0U;
+    ch_geo_reader *geo_reader = store->geo_reader;
+    store->geo_reader = NULL;
     for (size_t index = 0U; index < store->count; ++index) {
         traffic_entry_clear(&store->entries[index]);
     }
@@ -264,6 +346,8 @@ void ch_traffic_store_destroy(ch_traffic_store *store) {
     free(store->history_path);
     free(store->persist_error);
     pthread_mutex_unlock(&store->mutex);
+    ch_geo_reader_release(geo_reader);
+    pthread_cond_destroy(&store->geo_condition);
     pthread_mutex_destroy(&store->persist_mutex);
     pthread_mutex_destroy(&store->mutex);
     free(store);
@@ -423,6 +507,7 @@ uint64_t ch_traffic_open(ch_traffic_store *store,
     }
     store->entries[0] = next;
     ++store->count;
+    traffic_enqueue_geo_locked(store, &store->entries[0]);
     traffic_emit_open_locked(store, &store->entries[0]);
     pthread_mutex_unlock(&store->mutex);
     return flow_id;
@@ -434,6 +519,96 @@ static ch_traffic_entry *traffic_find_flow(ch_traffic_store *store,
         if (store->entries[index].flow_id == flow_id) {
             return &store->entries[index];
         }
+    }
+    return NULL;
+}
+
+static void traffic_enqueue_geo_locked(ch_traffic_store *store,
+                                       ch_traffic_entry *entry) {
+    if (store->geo_reader == NULL || entry == NULL) return;
+    char *target = ch_strdup(entry->target == NULL ? "" : entry->target);
+    if (target == NULL) {
+        (void)traffic_replace(&entry->geo_error,
+                              "allocate geo lookup target");
+        return;
+    }
+    if (store->geo_job_count == CH_TRAFFIC_GEO_QUEUE_CAPACITY) {
+        free(target);
+        (void)traffic_replace(&entry->geo_error,
+                              "geo lookup backpressure");
+        return;
+    }
+    ++store->geo_generation;
+    if (store->geo_generation == 0U) ++store->geo_generation;
+    entry->geo_generation = store->geo_generation;
+    size_t slot = (store->geo_job_head + store->geo_job_count) %
+        CH_TRAFFIC_GEO_QUEUE_CAPACITY;
+    store->geo_jobs[slot] = (ch_traffic_geo_job){
+        .flow_id = entry->flow_id,
+        .generation = entry->geo_generation,
+        .target = target
+    };
+    ++store->geo_job_count;
+    pthread_cond_signal(&store->geo_condition);
+}
+
+static void *traffic_geo_worker(void *context) {
+    ch_traffic_store *store = context;
+    for (;;) {
+        pthread_mutex_lock(&store->mutex);
+        while (!store->geo_stop && store->geo_job_count == 0U) {
+            (void)pthread_cond_wait(&store->geo_condition, &store->mutex);
+        }
+        if (store->geo_stop) {
+            pthread_mutex_unlock(&store->mutex);
+            break;
+        }
+        ch_traffic_geo_job job = store->geo_jobs[store->geo_job_head];
+        memset(&store->geo_jobs[store->geo_job_head], 0,
+               sizeof(store->geo_jobs[store->geo_job_head]));
+        store->geo_job_head = (store->geo_job_head + 1U) %
+            CH_TRAFFIC_GEO_QUEUE_CAPACITY;
+        --store->geo_job_count;
+        ch_geo_reader *reader = store->geo_reader;
+        ch_geo_reader_retain(reader);
+        pthread_mutex_unlock(&store->mutex);
+
+        ch_geo_location location;
+        ch_error lookup_error;
+        ch_status status = ch_geo_lookup(
+            reader, job.target, &location, &lookup_error);
+
+        pthread_mutex_lock(&store->mutex);
+        ch_traffic_entry *entry = traffic_find_flow(store, job.flow_id);
+        if (entry != NULL && entry->geo_generation == job.generation) {
+            int copied = 1;
+            if (status == CH_OK) {
+                copied = traffic_replace(&entry->geo_country,
+                                         location.country) &&
+                    traffic_replace(&entry->geo_country_code,
+                                    location.country_code) &&
+                    traffic_replace(&entry->geo_city, location.city) &&
+                    traffic_replace(&entry->geo_error, "");
+                entry->geo_latitude = location.latitude;
+                entry->geo_longitude = location.longitude;
+            } else {
+                copied = traffic_replace(&entry->geo_country, "") &&
+                    traffic_replace(&entry->geo_country_code, "") &&
+                    traffic_replace(&entry->geo_city, "") &&
+                    traffic_replace(&entry->geo_error,
+                                    lookup_error.message);
+                entry->geo_latitude = 0.0;
+                entry->geo_longitude = 0.0;
+            }
+            if (!copied) {
+                (void)traffic_replace(&entry->geo_error,
+                                      "copy geo lookup result");
+            }
+        }
+        pthread_mutex_unlock(&store->mutex);
+        ch_geo_location_clear(&location);
+        ch_geo_reader_release(reader);
+        free(job.target);
     }
     return NULL;
 }
@@ -694,6 +869,35 @@ static int traffic_entry_matches(const ch_traffic_entry *entry,
     return 1;
 }
 
+static int traffic_append_geo(ch_json_buffer *json,
+                              const ch_traffic_entry *entry) {
+    if (!ch_json_append(json, "{")) return 0;
+    size_t fields = 0U;
+    const char *keys[] = {"country", "country_code", "city"};
+    const char *values[] = {
+        entry->geo_country, entry->geo_country_code, entry->geo_city};
+    for (size_t index = 0U; index < 3U; ++index) {
+        if (values[index] == NULL || values[index][0] == '\0') continue;
+        if ((fields > 0U && !ch_json_append(json, ",")) ||
+            !ch_json_append_string(json, keys[index]) ||
+            !ch_json_append(json, ":") ||
+            !ch_json_append_string(json, values[index])) return 0;
+        ++fields;
+    }
+    if (entry->geo_latitude != 0.0) {
+        if ((fields > 0U && !ch_json_append(json, ",")) ||
+            !ch_json_append_format(json, "\"latitude\":%.17g",
+                                   entry->geo_latitude)) return 0;
+        ++fields;
+    }
+    if (entry->geo_longitude != 0.0) {
+        if ((fields > 0U && !ch_json_append(json, ",")) ||
+            !ch_json_append_format(json, "\"longitude\":%.17g",
+                                   entry->geo_longitude)) return 0;
+    }
+    return ch_json_append(json, "}");
+}
+
 static int traffic_append_connection(ch_json_buffer *json,
                                      const ch_traffic_entry *entry,
                                      int64_t now) {
@@ -743,7 +947,12 @@ static int traffic_append_connection(ch_json_buffer *json,
         !ch_json_append_format(json, "%" PRId64, entry->start_ns) ||
         !ch_json_append(json,
             ",\"type\":\"connection_opened\",\"title\":\"Opened\","
-            "\"detail\":\"\"}],\"geo\":{},\"geo_error\":\"\",") ||
+            "\"detail\":\"\"}],\"geo\":") ||
+        !traffic_append_geo(json, entry) ||
+        (entry->geo_error != NULL && entry->geo_error[0] != '\0' &&
+         (!ch_json_append(json, ",\"geo_error\":") ||
+          !ch_json_append_string(json, entry->geo_error))) ||
+        !ch_json_append(json, ",") ||
         !ch_json_append_format(json,
             "\"total_dial_ns\":0,\"rx_bps\":%.3f,\"tx_bps\":%.3f,"
             "\"rx_total\":%" PRIu64 ",\"tx_total\":%" PRIu64
@@ -838,6 +1047,7 @@ static int traffic_history_entry_load(ch_traffic_entry *entry,
                                       const ch_json_value *object) {
     memset(entry, 0, sizeof(*entry));
     const ch_json_value *listener = ch_json_object_get(object, "listener");
+    const ch_json_value *geo = ch_json_object_get(object, "geo");
     if (ch_json_value_type(object) != CH_JSON_OBJECT ||
         !traffic_history_entry_string(&entry->conn_id, object, "conn_id") ||
         !traffic_history_entry_string(&entry->profile, object, "profile") ||
@@ -863,7 +1073,14 @@ static int traffic_history_entry_load(ch_traffic_entry *entry,
         !traffic_history_entry_string(&entry->network, object, "network") ||
         !traffic_history_entry_string(&entry->source, object, "source") ||
         !traffic_history_entry_string(&entry->close_reason, object,
-                                      "close_reason")) {
+                                      "close_reason") ||
+        !traffic_history_entry_string(&entry->geo_country, geo,
+                                      "country") ||
+        !traffic_history_entry_string(&entry->geo_country_code, geo,
+                                      "country_code") ||
+        !traffic_history_entry_string(&entry->geo_city, geo, "city") ||
+        !traffic_history_entry_string(&entry->geo_error, object,
+                                      "geo_error")) {
         traffic_entry_clear(entry);
         return 0;
     }
@@ -876,6 +1093,10 @@ static int traffic_history_entry_load(ch_traffic_entry *entry,
     entry->rate_sample_ns = entry->updated_ns;
     entry->rx_total = traffic_history_uint64(object, "rx_total");
     entry->tx_total = traffic_history_uint64(object, "tx_total");
+    entry->geo_latitude = ch_json_number_value(
+        ch_json_object_get(geo, "latitude"), 0.0);
+    entry->geo_longitude = ch_json_number_value(
+        ch_json_object_get(geo, "longitude"), 0.0);
     entry->rx_bps = 0.0;
     entry->tx_bps = 0.0;
     entry->active = false;
@@ -1239,9 +1460,20 @@ ch_status ch_traffic_store_configure(ch_traffic_store *store,
         path = resolved_path;
     }
 
+    ch_geo_reader *next_geo_reader = NULL;
+    ch_error geo_error;
+    ch_status geo_status = ch_geo_reader_open_config(
+        config, &next_geo_reader, &geo_error);
+
     ch_error ignored;
     (void)ch_traffic_store_flush(store, &ignored);
     pthread_mutex_lock(&store->mutex);
+    ch_geo_reader *previous_geo_reader = NULL;
+    if (geo_status == CH_OK) {
+        previous_geo_reader = store->geo_reader;
+        store->geo_reader = next_geo_reader;
+        next_geo_reader = NULL;
+    }
     bool path_changed = strcmp(store->history_path, path) != 0;
     if (path_changed) {
         for (size_t index = 0U; index < store->count; ++index) {
@@ -1266,6 +1498,8 @@ ch_status ch_traffic_store_configure(ch_traffic_store *store,
     char *load_path = should_load ? ch_strdup(store->history_path) : NULL;
     traffic_prune_locked(store, traffic_now_ns());
     pthread_mutex_unlock(&store->mutex);
+    ch_geo_reader_release(previous_geo_reader);
+    ch_geo_reader_release(next_geo_reader);
     if (should_load && load_path == NULL) goto out_of_memory_no_path;
 
     if (should_load) {

@@ -24,6 +24,8 @@ internal class NativeClambhookBridge(
         nativeQuery(requireHandle(), operation, requestJson)
     fun mutate(operation: String, requestJson: String = "{}"): String =
         nativeMutate(requireHandle(), operation, requestJson)
+    fun developerRequest(repeat: Boolean, requestJson: String): String =
+        nativeDeveloperRequest(requireHandle(), repeat, requestJson)
 
     override fun close() {
         val current = handle
@@ -45,6 +47,11 @@ internal class NativeClambhookBridge(
     private external fun nativeIsRunning(handle: Long): Boolean
     private external fun nativeQuery(handle: Long, operation: String, requestJson: String): String
     private external fun nativeMutate(handle: Long, operation: String, requestJson: String): String
+    private external fun nativeDeveloperRequest(
+        handle: Long,
+        repeat: Boolean,
+        requestJson: String,
+    ): String
 
     private companion object {
         init {

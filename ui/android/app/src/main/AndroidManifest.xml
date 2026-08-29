@@ -25,14 +25,24 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.Clambhook">
+        <provider
+            android:name=".ClambhookPlatformInitializer"
+            android:authorities="${applicationId}.platform-init"
+            android:exported="false"
+            android:initOrder="100" />
         <activity
-            android:name=".MainActivity"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-        </activity>
+            android:name=".VpnConsentActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:noHistory="true"
+            android:theme="@style/Theme.Clambhook.PlatformBridge" />
+        <activity
+            android:name=".QrScanActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:noHistory="true"
+            android:screenOrientation="fullSensor"
+            android:theme="@style/Theme.Clambhook.PlatformBridge" />
         <service
             android:name=".ClambhookVpnService"
             android:exported="false"

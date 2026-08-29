@@ -4,8 +4,8 @@
 # License Validation
 
 ClambHook uses the hosted `store.swiphtgroup.com` license backend for trial,
-activation, device-seat, and update-year-renewal state. Public downloads and
-update manifests are served from `store.clambercloud.com`.
+activation, device-seat, and update-year-renewal state. Official installers and
+update manifests are served through GitHub Releases.
 
 ## Production Backend
 
@@ -42,9 +42,27 @@ events in the `swiphtgroup.com` store.
 Users can manage device seats from
 `https://store.swiphtgroup.com/clambhook/portal/`.
 
+## Client State and Helper Boundary
+
+All clients evaluate the same signed state through the production
+`clambhook-license` C17 helper. The GNU/Linux JavaFX client sends the frozen
+`install-id`, `ensure-trial`, `status`, `activate`, `device-action`, and
+`mark-verification-failure` requests to that helper. It stores the license key
+in the desktop secret service using `secret-tool`, never in its JSON state.
+
+GNU/Linux persists the install ID, email, signed snapshot, grant, and device
+state in `$XDG_CONFIG_HOME/clambhook/linux-license.json`, falling back to
+`~/.config/clambhook/linux-license.json`. A sibling `license-snapshot.json`
+retains the signed snapshot used by runtime startup. Both files are replaced
+atomically and created with user-only permissions. Android delegates secure
+storage and lifecycle to the Kotlin platform AAR; macOS continues to use its
+SwiftUI platform integration. Activation, deactivation, reactivation, and
+transfer must survive a client restart on every platform.
+
 ```mermaid
 stateDiagram-v2
-    [*] --> Active: activate
+    [*] --> Trial: JavaFX / SwiftUI client starts
+    Trial --> Active: C17 helper validates activation
     Active --> Active: activate (refresh)
     Active --> Deactivated: deactivate
     Deactivated --> Active: reactivate
@@ -52,6 +70,8 @@ stateDiagram-v2
     Transferred --> Active: activate on new device
 
     note right of Active
+        C17 signed snapshot evaluation
+        Shared across all product clients
         Max 3 concurrently
         active devices per license
     end note
@@ -67,5 +87,5 @@ seats can be deactivated and moved to another device. Each USD 9.99 renewal buys
 one additional update year, extending from the later of the current cutoff or
 the renewal payment date. Releases after the cutoff are not included, including
 critical, bug, and security updates. Public installers are downloaded from
-`store.clambercloud.com`, and generated installer artifacts must not be
-published from GitHub or package mirrors.
+`https://github.com/JohnThre/clambhook/releases`; only the protected release
+workflow may publish generated installer artifacts.

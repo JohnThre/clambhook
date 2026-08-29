@@ -11,13 +11,13 @@ License: GPL-3.0-only
  The complete GNU General Public License version 3 text is distributed in
  /usr/share/doc/clambhook/LICENSE.
 
-Files: clib/* pkg/cnet/*
+Files: clib/*
 Copyright: 2026 Pengfan Chang <support@swiphtgroup.com>
 License: Apache-2.0
  The complete Apache License 2.0 text is distributed in
  /usr/share/doc/clambhook/LICENSE-APACHE.
 
-Files: vendor/* third_party/*
+Files: third_party/*
 Copyright: see vendored upstream notices
 License: Vendored-Third-Party-Notices
  Vendored third-party materials remain subject to their respective upstream

@@ -159,7 +159,10 @@ static void openvpn_test_external_handshake(void) {
     const char *private_key_path = getenv("CLAMBHOOK_OVPN_KEY");
     const char *cipher = getenv("CLAMBHOOK_OVPN_CIPHER");
     if (endpoint == NULL || ca_path == NULL || certificate_path == NULL ||
-        private_key_path == NULL) return;
+        private_key_path == NULL) {
+        CH_TEST_ASSERT(getenv("CLAMBHOOK_REQUIRE_REAL_PEERS") == NULL);
+        return;
+    }
 
     char *ca = openvpn_test_read_file(ca_path);
     char *certificate = openvpn_test_read_file(certificate_path);

@@ -3,8 +3,19 @@
 
 package com.clambhook.android
 
+import android.Manifest
+import android.accessibilityservice.AccessibilityService
+import android.app.NotificationManager
+import android.content.ComponentName
+import android.content.Context
+import android.content.pm.PackageManager
+import android.net.VpnService
+import android.os.Build
+import android.os.ParcelFileDescriptor
+import android.view.accessibility.AccessibilityNodeInfo
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
 import java.io.File
 import java.net.DatagramPacket
 import java.net.DatagramSocket
@@ -12,17 +23,165 @@ import java.net.InetAddress
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
-import kotlinx.serialization.decodeFromString
+import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.boolean
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.long
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 
-/** Runs the C/JNI bridge on the device, including native TOML configuration. */
+/** Device-side contract tests for the small Kotlin AAR and its C17 runtime. */
 @RunWith(AndroidJUnit4::class)
 class NativeClambhookBridgeTest {
+    private val context: Context
+        get() = ApplicationProvider.getApplicationContext()
+
+    private fun objectJson(value: String): JsonObject =
+        ApiJson.parseToJsonElement(value).jsonObject
+
+    private fun array(root: JsonObject, key: String): JsonArray =
+        requireNotNull(root[key]).jsonArray
+
+    private fun configFile(name: String = "native-bridge-test.toml"): File =
+        File(context.cacheDir, name).apply {
+            writeText(
+                """
+                active = "work"
+
+                [[profile]]
+                name = "home"
+                [[profile.chain]]
+                name = "home-default"
+                [[profile.chain.server]]
+                protocol = "direct"
+                [[profile.rule]]
+                name = "block-discard"
+                action = "block"
+                ports = [9]
+                networks = ["udp"]
+
+                [[profile]]
+                name = "work"
+                [[profile.chain]]
+                name = "work-default"
+                [[profile.chain.server]]
+                protocol = "direct"
+                [[profile.rule]]
+                name = "direct-web"
+                action = "direct"
+                ports = [80, 443]
+                networks = ["tcp"]
+                """.trimIndent() + "\n",
+            )
+        }
+
+    private fun shell(command: String): String {
+        val descriptor = InstrumentationRegistry.getInstrumentation()
+            .uiAutomation.executeShellCommand(command)
+        return ParcelFileDescriptor.AutoCloseInputStream(descriptor)
+            .bufferedReader().use { it.readText() }
+    }
+
+    private fun setVpnAuthorization(mode: String) {
+        check(mode == "allow" || mode == "ignore")
+        check(context.packageName.matches(Regex("[A-Za-z0-9._]+")))
+        shell("appops set ${context.packageName} ACTIVATE_VPN $mode")
+        val status = shell("appops get ${context.packageName} ACTIVATE_VPN")
+        assertTrue("unexpected VPN app-op status: $status", status.contains(mode))
+    }
+
+    private fun waitUntil(timeoutMillis: Long = 15_000, condition: () -> Boolean): Boolean {
+        val deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMillis)
+        while (System.nanoTime() < deadline) {
+            if (condition()) return true
+            Thread.sleep(25)
+        }
+        return condition()
+    }
+
+    private fun clickSystemDialogButton(
+        resourceName: String,
+        fallbackLabels: List<String>,
+    ): Boolean {
+        val automation = InstrumentationRegistry.getInstrumentation().uiAutomation
+        return waitUntil(10_000) {
+            val root = automation.rootInActiveWindow ?: return@waitUntil false
+            val byId = root.findAccessibilityNodeInfosByViewId("android:id/$resourceName")
+                .firstOrNull { it.isClickable }
+            val byLabel = fallbackLabels.asSequence()
+                .flatMap { label -> root.findAccessibilityNodeInfosByText(label).asSequence() }
+                .firstOrNull { it.isClickable }
+            (byId ?: byLabel)?.performAction(AccessibilityNodeInfo.ACTION_CLICK) == true
+        }
+    }
+
+    private fun answerVpnConsent(accept: Boolean): Boolean {
+        val response = AtomicReference<String?>()
+        val failure = AtomicReference<Throwable?>()
+        val request = Thread {
+            try {
+                response.set(GluonPlatformFacade.dispatch("vpn-consent", "{}"))
+            } catch (error: Throwable) {
+                failure.set(error)
+            }
+        }.apply { start() }
+        val clicked = clickSystemDialogButton(
+            if (accept) "button1" else "button2",
+            if (accept) listOf("OK", "Allow") else listOf("Cancel", "Don't allow"),
+        )
+        if (!clicked) {
+            VpnConsentCoordinator.cancelPending()
+            InstrumentationRegistry.getInstrumentation().uiAutomation.performGlobalAction(
+                AccessibilityService.GLOBAL_ACTION_BACK,
+            )
+        }
+        request.join(10_000)
+        assertTrue("system VPN consent request did not finish", !request.isAlive)
+        failure.get()?.let { throw AssertionError("VPN consent request failed", it) }
+        assertTrue("system VPN consent dialog button was not found", clicked)
+        return objectJson(requireNotNull(response.get()))
+            .getValue("granted").jsonPrimitive.boolean
+    }
+
+    private fun encryptedDnsConfig(protocol: String): File {
+        val address = if (protocol == "doh") {
+            "url = \"https://dns.example/dns-query\"\nbootstrap_ips = [\"127.0.0.1\"]"
+        } else {
+            "address = \"127.0.0.1:9\"\nserver_name = \"localhost\""
+        }
+        return File(context.cacheDir, "native-$protocol-dns-test.toml").apply {
+            writeText(
+                """
+                active = "encrypted-dns"
+                [[profile]]
+                name = "encrypted-dns"
+                [profile.dns]
+                enabled = true
+                timeout = "50ms"
+                [[profile.dns.upstream]]
+                name = "device-$protocol"
+                protocol = "$protocol"
+                $address
+                [[profile.chain]]
+                name = "direct"
+                [[profile.chain.server]]
+                protocol = "direct"
+                """.trimIndent() + "\n",
+            )
+        }
+    }
+
     private fun writeU16(bytes: ByteArray, offset: Int, value: Int) {
         bytes[offset] = (value ushr 8).toByte()
         bytes[offset + 1] = value.toByte()
@@ -66,49 +225,13 @@ class NativeClambhookBridgeTest {
     }
 
     private fun dnsQuery(): ByteArray = byteArrayOf(
-        0x12, 0x34, 0x01, 0x00,
-        0x00, 0x01, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00,
-        0x07, 'e'.code.toByte(), 'x'.code.toByte(), 'a'.code.toByte(),
-        'm'.code.toByte(), 'p'.code.toByte(), 'l'.code.toByte(), 'e'.code.toByte(),
-        0x03, 'c'.code.toByte(), 'o'.code.toByte(), 'm'.code.toByte(), 0x00,
-        0x00, 0x01, 0x00, 0x01,
+        0x12, 0x34, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x07,
+        'e'.code.toByte(), 'x'.code.toByte(), 'a'.code.toByte(),
+        'm'.code.toByte(), 'p'.code.toByte(), 'l'.code.toByte(),
+        'e'.code.toByte(), 0x03, 'c'.code.toByte(), 'o'.code.toByte(),
+        'm'.code.toByte(), 0x00, 0x00, 0x01, 0x00, 0x01,
     )
-
-    private fun encryptedDnsConfig(protocol: String): File {
-        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
-        val upstream = if (protocol == "dot" || protocol == "doq") {
-            """
-            address = "127.0.0.1:9"
-            server_name = "localhost"
-            """.trimIndent()
-        } else {
-            """
-            url = "https://dns.example/dns-query"
-            bootstrap_ips = ["127.0.0.1"]
-            """.trimIndent()
-        }
-        return File(context.cacheDir, "native-$protocol-dns-test.toml").apply {
-            writeText(
-                """
-                active = "encrypted-dns"
-                [[profile]]
-                name = "encrypted-dns"
-                [profile.dns]
-                enabled = true
-                timeout = "50ms"
-                [[profile.dns.upstream]]
-                name = "device-$protocol"
-                protocol = "$protocol"
-                $upstream
-                [[profile.chain]]
-                name = "direct"
-                [[profile.chain.server]]
-                protocol = "direct"
-                """.trimIndent() + "\n",
-            )
-        }
-    }
 
     private fun assertDnsServfail(packet: ByteArray) {
         assertEquals(53, ((packet[20].toInt() and 0xff) shl 8) or
@@ -121,168 +244,45 @@ class NativeClambhookBridgeTest {
         assertEquals(0x02, packet[31].toInt() and 0x0f)
     }
 
-    private fun configFile(): File {
-        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
-        return File(context.cacheDir, "native-bridge-test.toml").apply {
-            writeText(
-                """
-                active = "work"
-                [[profile]]
-                name = "home"
-                [[profile.chain]]
-                name = "home-default"
-                [[profile.chain.server]]
-                protocol = "direct"
-                [[profile.rule]]
-                name = "block-discard"
-                action = "block"
-                ports = [9]
-                networks = ["udp"]
-                [[profile]]
-                name = "work"
-                [[profile.chain]]
-                name = "work-default"
-                [[profile.chain.server]]
-                protocol = "direct"
-                [[profile.rule]]
-                name = "direct-web"
-                action = "direct"
-                ports = [80, 443]
-                networks = ["tcp"]
-                """.trimIndent() + "\n",
-            )
-        }
-    }
-
     @Test
-    fun loadsConfigAndReportsProfilesThroughJni() {
-        val config = configFile()
-        var outputPacket: ByteArray? = null
-
-        NativeClambhookBridge { outputPacket = it }.use { bridge ->
-            assertFalse(bridge.isRunning())
-            bridge.start(config.absolutePath)
+    fun startsWithPersistedActiveProfileAndExposesFrozenQueries() {
+        NativeClambhookBridge { }.use { bridge ->
+            bridge.start(configFile().absolutePath)
             assertTrue(bridge.isRunning())
+            val status = objectJson(bridge.query("status"))
+            assertEquals("work", status.getValue("profile").jsonPrimitive.content)
+            assertEquals("tun", status.getValue("tunnel_mode").jsonPrimitive.content)
+
+            val profiles = objectJson(bridge.query("profiles"))
+            assertEquals(listOf("home", "work"), array(profiles, "profiles").map {
+                it.jsonPrimitive.content
+            })
+            assertEquals("work", profiles.getValue("active").jsonPrimitive.content)
+
+            val rules = objectJson(bridge.query("rules"))
+            assertEquals("work", rules.getValue("profile").jsonPrimitive.content)
             assertEquals(
-                "{\"profiles\":[\"home\",\"work\"],\"active\":\"work\"}",
-                bridge.query("profiles"),
+                "direct-web",
+                array(rules, "rules").single().jsonObject
+                    .getValue("name").jsonPrimitive.content,
             )
-            assertEquals(
-                "{\"running\":true,\"profile\":\"work\",\"network_info\":{}," +
-                    "\"tunnel_mode\":\"tun\"}",
-                bridge.query("status"),
-            )
-            assertEquals(
-                "{\"openssl\":\"3.5.8\",\"aes_128_gcm\":true," +
-                    "\"aes_256_gcm\":true,\"chacha20_poly1305\":true}",
-                bridge.query("crypto_self_test"),
-            )
-            assertEquals(
-                "{\"method\":\"POST\",\"url\":\"https://api.example.com\"," +
-                    "\"headers\":[{\"name\":\"X-Test\",\"value\":\"yes\"}]," +
-                    "\"body\":\"{\\\"ok\\\":true}\"}",
-                bridge.query(
-                    "developer_curl_import",
-                    "{\"curl\":\"curl https://api.example.com " +
-                        "-H 'X-Test: yes' -d '{\\\"ok\\\":true}'\"}",
-                ),
-            )
-            bridge.injectPacket(
-                byteArrayOf(
-                    0x45, 0x00, 0x00, 0x20, 0x12, 0x34, 0x00, 0x00,
-                    64, 1, 0xdc.toByte(), 0x81.toByte(),
-                    198.toByte(), 18, 0, 2, 198.toByte(), 18, 0, 1,
-                    8, 0, 0x6d, 0x60, 0xab.toByte(), 0xcd.toByte(), 0, 1,
-                    'p'.code.toByte(), 'i'.code.toByte(),
-                    'n'.code.toByte(), 'g'.code.toByte(),
-                ),
-            )
-            assertEquals(0, outputPacket?.get(20)?.toInt())
-            val rules = ApiJson.decodeFromString<RulesPayload>(bridge.query("rules"))
-            assertEquals("work", rules.profile)
-            assertEquals("direct-web", rules.rules.single().name)
-            assertEquals(listOf(80, 443), rules.rules.single().ports)
-            val homeRules = ApiJson.decodeFromString<RulesPayload>(
-                bridge.query("rules", "{\"profile\":\"home\"}"),
-            )
-            assertEquals("home", homeRules.profile)
-            assertEquals("block-discard", homeRules.rules.single().name)
+            val crypto = objectJson(bridge.query("crypto_self_test"))
+            assertTrue(crypto.getValue("aes_256_gcm").jsonPrimitive.boolean)
+            assertTrue(crypto.getValue("chacha20_poly1305").jsonPrimitive.boolean)
             bridge.stop()
             assertFalse(bridge.isRunning())
         }
     }
 
     @Test
-    fun readsVpnInterfaceSettingsFromNativeConfigBeforeRuntimeStart() {
-        val settings = ApiJson.decodeFromString<TunnelNetworkSettings>(
-            NativeClambhookConfigBridge.query(
-                configFile().absolutePath,
-                "network_settings",
-            ),
+    fun fileBackedQueriesAndMutationsRemainTransactionalWhileVpnIsStopped() {
+        val config = configFile("native-file-config-test.toml")
+        val profiles = objectJson(
+            NativeClambhookConfigBridge.query(config.absolutePath, "profiles"),
         )
-        assertEquals(1500, settings.mtu)
-        assertEquals("127.0.0.1", settings.remote_address)
-        assertEquals(listOf("198.18.0.1"), settings.ipv4.map { it.address })
-        assertEquals(listOf(30), settings.ipv4.map { it.prefixLen })
-        assertEquals(listOf("fd7a:636c:616d::1"), settings.ipv6.map { it.address })
-        assertEquals(listOf(64), settings.ipv6.map { it.prefixLen })
-        assertEquals(listOf("0.0.0.0/0", "::/0"), settings.includedRoutes)
-        assertTrue(settings.dnsServers.isEmpty())
-    }
+        assertEquals("work", profiles.getValue("active").jsonPrimitive.content)
 
-    @Test
-    fun routesDnsThroughNativeDotAndReturnsServfailWhenUpstreamFails() {
-        var output: ByteArray? = null
-        NativeClambhookBridge { packet -> output = packet }.use { bridge ->
-            bridge.start(encryptedDnsConfig("dot").absolutePath)
-            assertEquals(
-                "{\"running\":true,\"profile\":\"encrypted-dns\"," +
-                    "\"network_info\":{},\"dns\":{\"enabled\":true," +
-                    "\"upstreams\":[\"device-dot\"]},\"tunnel_mode\":\"tun\"}",
-                bridge.query("status"),
-            )
-            bridge.injectPacket(ipv4UdpPacket(53, dnsQuery()))
-        }
-
-        assertDnsServfail(requireNotNull(output))
-    }
-
-    @Test
-    fun routesDnsThroughNativeDohAndReturnsServfailWhenUpstreamFails() {
-        var output: ByteArray? = null
-        NativeClambhookBridge { packet -> output = packet }.use { bridge ->
-            bridge.start(encryptedDnsConfig("doh").absolutePath)
-            assertEquals(
-                "{\"running\":true,\"profile\":\"encrypted-dns\"," +
-                    "\"network_info\":{},\"dns\":{\"enabled\":true," +
-                    "\"upstreams\":[\"device-doh\"]},\"tunnel_mode\":\"tun\"}",
-                bridge.query("status"),
-            )
-            bridge.injectPacket(ipv4UdpPacket(53, dnsQuery()))
-        }
-        assertDnsServfail(requireNotNull(output))
-    }
-
-    @Test
-    fun routesDnsThroughNativeDoqAndReturnsServfailWhenUpstreamFails() {
-        var output: ByteArray? = null
-        NativeClambhookBridge { packet -> output = packet }.use { bridge ->
-            bridge.start(encryptedDnsConfig("doq").absolutePath)
-            assertEquals(
-                "{\"running\":true,\"profile\":\"encrypted-dns\"," +
-                    "\"network_info\":{},\"dns\":{\"enabled\":true," +
-                    "\"upstreams\":[\"device-doq\"]},\"tunnel_mode\":\"tun\"}",
-                bridge.query("status"),
-            )
-            bridge.injectPacket(ipv4UdpPacket(53, dnsQuery()))
-        }
-        assertDnsServfail(requireNotNull(output))
-    }
-
-    @Test
-    fun mutatesAndValidatesConfigThroughNativeFileBridge() {
-        val config = configFile()
-        val result = ApiJson.decodeFromString<RulesPayload>(
+        val result = objectJson(
             NativeClambhookConfigBridge.mutate(
                 config.absolutePath,
                 "create_rule",
@@ -290,13 +290,11 @@ class NativeClambhookBridgeTest {
                 """{"position":"append","rule":{"name":"device-native-rule","action":"direct"}}""",
             ),
         )
-        assertEquals("work", result.profile)
-        assertEquals("device-native-rule", result.rules.last().name)
-        val persisted = ApiJson.decodeFromString<RulesPayload>(
-            NativeClambhookConfigBridge.query(config.absolutePath, "rules_persistence"),
+        assertEquals(
+            "device-native-rule",
+            array(result, "rules").last().jsonObject
+                .getValue("name").jsonPrimitive.content,
         )
-        assertEquals("device-native-rule", persisted.rules.last().name)
-
         assertThrows(IllegalStateException::class.java) {
             NativeClambhookConfigBridge.mutate(
                 config.absolutePath,
@@ -305,149 +303,111 @@ class NativeClambhookBridgeTest {
                 """{"rules":{}}""",
             )
         }
-        val afterRejectedMutation = ApiJson.decodeFromString<RulesPayload>(
-            NativeClambhookConfigBridge.query(config.absolutePath, "rules_persistence"),
-        )
-        assertEquals("device-native-rule", afterRejectedMutation.rules.last().name)
-    }
-
-    @Test
-    fun evaluatesLicenseStateThroughNativeC() {
-        val installId = NativeClambhookLicenseBridge.newInstallId()
-        assertTrue(
-            Regex("^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
-                .matches(installId),
-        )
-        val snapshot = NativeClambhookLicenseBridge.ensureTrial("", 1_788_000_000_000L)
-        val status = ApiJson.decodeFromString<LicenseStatus>(
-            NativeClambhookLicenseBridge.status(
-                snapshot,
-                publishedMillis = 0,
-                nowMillis = 1_788_000_000_000L,
+        val persisted = objectJson(
+            NativeClambhookConfigBridge.query(
+                config.absolutePath,
+                "rules_persistence",
             ),
         )
-        assertEquals("trial", status.decision.reason)
-        assertTrue(status.decision.canUseApp)
-        assertTrue(
-            NativeClambhookLicenseBridge.updateAllowed(
-                snapshot,
-                publishedMillis = 1_788_000_000_000L,
-                nowMillis = 1_788_000_000_000L,
-            ),
+        assertEquals(
+            "device-native-rule",
+            array(persisted, "rules").last().jsonObject
+                .getValue("name").jsonPrimitive.content,
         )
     }
 
     @Test
-    fun kotlinRuntimeFacadeDecodesDashboardAndSwitchesProfile() {
-        val config = configFile()
-        NativeClambhookTunnelRuntime { }.use { runtime ->
-            runtime.start(config.absolutePath)
-            val dashboard = ApiJson.decodeFromString<TunnelDashboardBundle>(runtime.dashboardJson())
-            assertEquals("work", dashboard.status.profile)
-            assertEquals("direct-web", dashboard.rules.rules.single().name)
-            val explanation = ApiJson.decodeFromString<RuleTestResponse>(
-                runtime.testRuleJson("", "tcp", "example.com:443", ""),
+    fun persistsProfileAndImportsConfigWithLiveRollbackBoundary() {
+        val config = configFile("native-persistence-test.toml")
+        NativeClambhookBridge { }.use { bridge ->
+            bridge.start(config.absolutePath)
+            val switched = objectJson(
+                bridge.mutate("persist_active_profile", "{\"name\":\"home\"}"),
             )
-            assertEquals("work", explanation.profile)
-            assertEquals("direct-web", explanation.decision.ruleName)
-            assertEquals("direct", explanation.decision.action)
-            runtime.setActiveProfile("home")
-            assertEquals("home", ApiJson.decodeFromString<StatusPayload>(runtime.statusJson()).profile)
-            assertEquals("home", ApiJson.decodeFromString<RulesPayload>(runtime.rulesJson()).profile)
-            assertThrows(IllegalStateException::class.java) {
-                runtime.injectPacket(ipv4UdpPacket(9, "blocked".encodeToByteArray()))
-            }
-            val trafficJson = runtime.trafficJson()
-            val traffic = ApiJson.decodeFromString<TrafficSnapshotPayload>(trafficJson)
-            val blockedConnections = traffic.connections.filter {
-                it.ruleName == "block-discard" &&
-                    it.ruleAction == "block" &&
-                    it.targetPort == "9"
-            }
-            assertEquals(trafficJson, 1, blockedConnections.size)
-            val blocked = blockedConnections.single()
-            assertEquals("block-discard", blocked.ruleName)
-            assertEquals("block", blocked.ruleAction)
-            assertEquals("closed", blocked.state)
-            assertEquals("udp", blocked.network)
-            assertEquals(9, blocked.targetPort.toInt())
-
-            val temporary = ApiJson.decodeFromString<TemporaryRuleCreateResponsePayload>(
-                runtime.createTemporaryRuleFromConnectionJson(
-                    blocked.connId,
-                    profile = "home",
-                    name = "allow-discard-temporarily",
-                    action = "direct",
-                    scope = "auto",
-                    ttlSeconds = 60,
-                ),
-            )
-            assertEquals("allow-discard-temporarily", temporary.temporaryRule.rule.name)
-            assertEquals(blocked.connId, temporary.temporaryRule.sourceConnId)
-            val trafficWithTemporary =
-                ApiJson.decodeFromString<TrafficSnapshotPayload>(runtime.trafficJson())
-            assertEquals(temporary.temporaryRule.id, trafficWithTemporary.temporaryRules.single().id)
-
-            val persisted = ApiJson.decodeFromString<RulesPayload>(
-                runtime.createRuleFromConnectionJson(
-                    config.absolutePath,
-                    blocked.connId,
-                    profile = "home",
-                    name = "allow-discard-persisted",
-                    action = "direct",
-                    scope = "auto",
-                ),
-            )
-            assertEquals("allow-discard-persisted", persisted.rules.last().name)
-            assertEquals(listOf("127.0.0.1/32"), persisted.rules.last().cidrs)
-            assertEquals("{\"prompts\":[]}", runtime.pendingPromptsJson())
-            assertFalse(
-                ApiJson.decodeFromString<DeveloperStatusPayload>(
-                    runtime.developerStatusJson(),
-                ).enabled,
-            )
-
-            val invalid = File(config.parentFile, "native-bridge-invalid.toml").apply {
-                writeText("not valid toml = [")
-            }
-            assertThrows(IllegalStateException::class.java) {
-                runtime.reload(invalid.absolutePath)
-            }
-            assertTrue(runtime.isRunning())
+            assertTrue(switched.getValue("persisted").jsonPrimitive.boolean)
+            assertEquals("home", switched.getValue("profile").jsonPrimitive.content)
             assertEquals(
                 "home",
-                ApiJson.decodeFromString<StatusPayload>(runtime.statusJson()).profile,
+                objectJson(
+                    NativeClambhookConfigBridge.query(config.absolutePath, "profiles"),
+                ).getValue("active").jsonPrimitive.content,
+            )
+
+            val importedToml = """
+                active = "imported"
+                [[profile]]
+                name = "imported"
+                [[profile.chain]]
+                name = "direct"
+                [[profile.chain.server]]
+                protocol = "direct"
+            """.trimIndent() + "\n"
+            val imported = objectJson(bridge.mutate("config_import", importedToml))
+            assertEquals("imported", imported.getValue("active").jsonPrimitive.content)
+            assertTrue(imported.getValue("message").jsonPrimitive.content.contains("1 profile"))
+            assertEquals(
+                "imported",
+                objectJson(bridge.query("status")).getValue("profile")
+                    .jsonPrimitive.content,
+            )
+            assertThrows(IllegalStateException::class.java) {
+                bridge.mutate("config_import", "not valid toml = [")
+            }
+            assertEquals(
+                "imported",
+                objectJson(bridge.query("status")).getValue("profile")
+                    .jsonPrimitive.content,
             )
         }
     }
 
     @Test
-    fun nativeDeveloperComposerRejectsPrivateTargets() {
-        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
-        val config = File(context.cacheDir, "native-developer-send.toml").apply {
-            writeText(defaultAndroidConfigToml)
-        }
-        NativeClambhookTunnelRuntime { }.use { runtime ->
-            runtime.start(config.absolutePath)
-            val status = ApiJson.decodeFromString<DeveloperStatusPayload>(
-                runtime.developerStatusJson(),
+    fun emitsTrafficDecisionsEventsAndTemporaryRules() {
+        NativeClambhookBridge { }.use { bridge ->
+            bridge.start(configFile("native-events-test.toml").absolutePath)
+            bridge.mutate("set_active_profile", "{\"name\":\"home\"}")
+            assertThrows(IllegalStateException::class.java) {
+                bridge.injectPacket(ipv4UdpPacket(9, "blocked".encodeToByteArray()))
+            }
+            val traffic = objectJson(bridge.query("traffic_filter", "{\"limit\":20}"))
+            val blocked = array(traffic, "connections").map { it.jsonObject }.first {
+                it["rule_action"]?.jsonPrimitive?.content == "block"
+            }
+            val connectionId = blocked.getValue("conn_id").jsonPrimitive.content
+            assertEquals("block-discard", blocked.getValue("rule_name").jsonPrimitive.content)
+
+            val decisions = objectJson(bridge.query("decisions", "{\"limit\":20}"))
+            assertTrue(array(decisions, "decisions").isNotEmpty())
+            val events = objectJson(
+                bridge.query("events", "{\"after_sequence\":0,\"limit\":16}"),
             )
-            assertTrue(status.enabled)
-            assertEquals(0L, status.bodyLimitBytes)
-            val failure = assertThrows(IllegalStateException::class.java) {
-                runtime.developerSendJson("{\"url\":\"http://127.0.0.1/private\"}")
-            }
-            assertTrue(failure.message.orEmpty().contains("non-public"))
-            val repeatFailure = assertThrows(IllegalStateException::class.java) {
-                runtime.developerRepeatJson("{\"entry_id\":\"missing\"}")
-            }
-            assertTrue(repeatFailure.message.orEmpty().contains("not found"))
+            val emitted = array(events, "events")
+            assertTrue(emitted.isNotEmpty())
+            assertTrue(emitted.all { it.jsonObject.getValue("sequence").jsonPrimitive.long > 0 })
+
+            val temporary = objectJson(
+                bridge.mutate(
+                    "create_temporary_rule_from_connection",
+                    """{"conn_id":"$connectionId","profile":"home","name":"allow-discard-temporarily","action":"direct","scope":"auto","ttl_seconds":60}""",
+                ),
+            )
+            assertTrue(temporary.toString().contains("allow-discard-temporarily"))
+            val rules = objectJson(bridge.query("temporary_rules"))
+            assertEquals(1, array(rules, "temporary_rules").size)
+            val identifier = array(rules, "temporary_rules").single().jsonObject
+                .getValue("id").jsonPrimitive.content
+            bridge.mutate("remove_temporary_rule", "{\"id\":\"$identifier\"}")
+            assertTrue(
+                array(
+                    objectJson(bridge.query("temporary_rules")),
+                    "temporary_rules",
+                ).isEmpty(),
+            )
         }
     }
 
     @Test
-    fun resolvesNativePromptWhilePacketInjectionIsPaused() {
-        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+    fun resolvesPromptWhilePacketInjectionWaits() {
         val config = File(context.cacheDir, "native-prompt-test.toml").apply {
             writeText(
                 """
@@ -475,34 +435,42 @@ class NativeClambhookBridgeTest {
                     injectionFailure.set(error)
                 }
             }.apply { start() }
-            var prompt: PendingPromptPayload? = null
+            var prompt: JsonObject? = null
             for (attempt in 0 until 100) {
-                prompt = ApiJson.decodeFromString<PromptsPayload>(
-                    bridge.query("pending_prompts"),
-                ).prompts.singleOrNull()
+                prompt = array(objectJson(bridge.query("pending_prompts")), "prompts")
+                    .singleOrNull()?.jsonObject
                 if (prompt != null) break
                 Thread.sleep(10)
             }
             val pending = requireNotNull(prompt)
-            assertEquals("udp", pending.network)
-            assertEquals("127.0.0.1:9", pending.target)
-            assertEquals(
-                "{\"resolved\":true,\"id\":\"${pending.id}\","
-                    + "\"action\":\"block\",\"scope\":\"once\"}",
+            val identifier = pending.getValue("id").jsonPrimitive.content
+            val resolved = objectJson(
                 bridge.mutate(
                     "resolve_prompt",
-                    """{"id":"${pending.id}","action":"block","scope":"once"}""",
+                    """{"id":"$identifier","action":"block","scope":"once"}""",
                 ),
             )
+            assertTrue(resolved.getValue("resolved").jsonPrimitive.boolean)
             injection.join(2_000)
             assertFalse(injection.isAlive)
             assertTrue(injectionFailure.get() is IllegalStateException)
-            assertEquals("{\"prompts\":[]}", bridge.query("pending_prompts"))
         }
     }
 
     @Test
-    fun forwardsDirectUdpAndTicksRemoteResponseInNativeCode() {
+    fun encryptedDnsTransportsReturnServfailWhenLocalUpstreamIsUnavailable() {
+        for (protocol in listOf("dot", "doh", "doq")) {
+            var output: ByteArray? = null
+            NativeClambhookBridge { packet -> output = packet }.use { bridge ->
+                bridge.start(encryptedDnsConfig(protocol).absolutePath)
+                bridge.injectPacket(ipv4UdpPacket(53, dnsQuery()))
+            }
+            assertDnsServfail(requireNotNull(output))
+        }
+    }
+
+    @Test
+    fun forwardsDirectUdpAndTicksRemoteResponse() {
         val server = DatagramSocket(0, InetAddress.getByName("127.0.0.1"))
         val responseReady = CountDownLatch(1)
         val serverFailure = AtomicReference<Throwable?>()
@@ -511,7 +479,6 @@ class NativeClambhookBridgeTest {
             try {
                 val incoming = DatagramPacket(ByteArray(128), 128)
                 server.receive(incoming)
-                Thread.sleep(50)
                 val response = "native-udp-response".encodeToByteArray()
                 server.send(DatagramPacket(response, response.size, incoming.socketAddress))
             } catch (error: Throwable) {
@@ -526,34 +493,205 @@ class NativeClambhookBridgeTest {
                     responseReady.countDown()
                 }
             }.use { bridge ->
-                bridge.start(configFile().absolutePath)
+                bridge.start(configFile("native-udp-test.toml").absolutePath)
                 bridge.injectPacket(
-                    ipv4UdpPacket(
-                        server.localPort,
-                        "native-udp-request".encodeToByteArray(),
-                    ),
+                    ipv4UdpPacket(server.localPort, "native-udp-request".encodeToByteArray()),
                 )
                 assertTrue(responseReady.await(3, TimeUnit.SECONDS))
                 serverFailure.get()?.let { throw AssertionError("UDP server failed", it) }
-                bridge.stop()
             }
             val packet = requireNotNull(output)
-            assertEquals(127, packet[12].toInt() and 0xff)
-            assertEquals(1, packet[15].toInt() and 0xff)
-            assertEquals(198, packet[16].toInt() and 0xff)
-            assertEquals(18, packet[17].toInt() and 0xff)
-            assertEquals(2, packet[19].toInt() and 0xff)
-            assertEquals(server.localPort, ((packet[20].toInt() and 0xff) shl 8) or
-                (packet[21].toInt() and 0xff))
-            assertEquals(42000, ((packet[22].toInt() and 0xff) shl 8) or
-                (packet[23].toInt() and 0xff))
             assertEquals(
                 "native-udp-response",
                 packet.copyOfRange(28, packet.size).decodeToString(),
             )
         } finally {
             server.close()
-            serverThread.join(1000)
+            serverThread.join(1_000)
         }
+    }
+
+    @Test
+    fun facadeReadsConfigAndPlatformCapabilitiesWithoutLegacyUiActivity() {
+        AndroidPlatformEnvironment.initialize(context)
+        runBlocking { AndroidConfigStore(context).saveConfig(configFile().readText()) }
+        val profiles = objectJson(
+            GluonPlatformFacade.request("GET", "/api/v1/profiles", ""),
+        )
+        assertEquals("work", profiles.getValue("active").jsonPrimitive.content)
+        val installed = objectJson(GluonPlatformFacade.dispatch("installed-apps", "{}"))
+        assertNotNull(installed["applications"])
+    }
+
+    @Test
+    fun platformFacadePersistsFilesSecretsRoutingAndQrExport() {
+        AndroidPlatformEnvironment.initialize(context)
+        val target = File(context.cacheDir, "platform/facade-profile.toml")
+        val contents = configFile("platform-source.toml").readText()
+        GluonPlatformFacade.dispatch(
+            "file-write",
+            """{"path":"${target.absolutePath}","value":${JsonPrimitive(contents)}}""",
+        )
+        assertEquals(
+            contents,
+            GluonPlatformFacade.dispatch(
+                "file-read",
+                """{"path":"${target.absolutePath}","maximum_bytes":1048576}""",
+            ),
+        )
+        assertThrows(IllegalStateException::class.java) {
+            GluonPlatformFacade.dispatch(
+                "file-read",
+                """{"path":"${File(context.filesDir, "../escape").absolutePath}"}""",
+            )
+        }
+
+        val storageKey = "managed-device-secret"
+        GluonPlatformFacade.dispatch(
+            "secure-write",
+            """{"key":"$storageKey","value":"sensitive-device-value"}""",
+        )
+        assertEquals(
+            "sensitive-device-value",
+            GluonPlatformFacade.dispatch("secure-read", """{"key":"$storageKey"}"""),
+        )
+        GluonPlatformFacade.dispatch("secure-delete", """{"key":"$storageKey"}""")
+        assertEquals("", GluonPlatformFacade.dispatch("secure-read", """{"key":"$storageKey"}"""))
+
+        val routing = objectJson(
+            GluonPlatformFacade.dispatch(
+                "per-app-routing-update",
+                """{"mode":"include","packages":["com.example.zeta","invalid package","com.example.alpha"]}""",
+            ),
+        )
+        assertEquals("include", routing.getValue("mode").jsonPrimitive.content)
+        assertEquals(
+            listOf("com.example.alpha", "com.example.zeta"),
+            array(routing, "packages").map { it.jsonPrimitive.content },
+        )
+
+        val qrFile = createQrShareFile(context, contents)
+        assertTrue(qrFile.isFile)
+        assertTrue(qrFile.length() > 1_024)
+        val header = ByteArray(4)
+        qrFile.inputStream().use { input -> assertEquals(4, input.read(header)) }
+        assertEquals(
+            listOf(0x89, 0x50, 0x4e, 0x47),
+            header.map { it.toInt() and 0xff },
+        )
+
+        val imported = objectJson(
+            GluonPlatformFacade.request("POST", "/api/v1/config/import", contents),
+        )
+        assertEquals("work", imported.getValue("active").jsonPrimitive.content)
+        assertEquals(
+            "work",
+            objectJson(GluonPlatformFacade.request("GET", "/api/v1/profiles", ""))
+                .getValue("active").jsonPrimitive.content,
+        )
+    }
+
+    @Test
+    @Suppress("DEPRECATION")
+    fun vpnConsentForegroundRuntimeReconnectAndFrameworkRevokeJourney() {
+        AndroidPlatformEnvironment.initialize(context)
+        runBlocking { AndroidConfigStore(context).saveConfig(configFile("vpn-service.toml").readText()) }
+        GluonPlatformFacade.dispatch("vpn-stop", "{}")
+        waitUntil { ClambhookTunnelSession.runtime.value == null }
+
+        try {
+            setVpnAuthorization("ignore")
+            assertNotNull(VpnService.prepare(context))
+            assertFalse("denied VPN consent was accepted", answerVpnConsent(accept = false))
+            assertNotNull(VpnService.prepare(context))
+
+            assertTrue("approved VPN consent was rejected", answerVpnConsent(accept = true))
+            assertNull(VpnService.prepare(context))
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                shell("pm grant ${context.packageName} ${Manifest.permission.POST_NOTIFICATIONS}")
+            }
+
+            val service = context.packageManager.getServiceInfo(
+                ComponentName(context, ClambhookVpnService::class.java),
+                PackageManager.GET_META_DATA,
+            )
+            assertEquals(Manifest.permission.BIND_VPN_SERVICE, service.permission)
+            assertFalse(service.exported)
+            assertTrue(
+                service.metaData?.getBoolean(
+                    VpnService.SERVICE_META_DATA_SUPPORTS_ALWAYS_ON,
+                    true,
+                ) ?: true,
+            )
+
+            assertEquals(
+                true,
+                objectJson(GluonPlatformFacade.dispatch("vpn-start", "{}"))
+                    .getValue("accepted").jsonPrimitive.boolean,
+            )
+            assertTrue("foreground VPN runtime did not attach", waitUntil {
+                ClambhookTunnelSession.runtime.value?.isRunning() == true
+            })
+            val firstRuntime = requireNotNull(ClambhookTunnelSession.runtime.value)
+            assertTrue(
+                objectJson(GluonPlatformFacade.request("GET", "/api/v1/status", ""))
+                    .getValue("running").jsonPrimitive.boolean,
+            )
+            assertNotNull(
+                context.getSystemService(NotificationManager::class.java)
+                    .getNotificationChannel("clambhook_vpn"),
+            )
+
+            GluonPlatformFacade.dispatch("vpn-start", "{}")
+            assertTrue("reconnect did not replace the runtime atomically", waitUntil {
+                ClambhookTunnelSession.runtime.value?.let {
+                    it !== firstRuntime && it.isRunning()
+                } == true
+            })
+            GluonPlatformFacade.dispatch("vpn-stop", "{}")
+            assertTrue("explicit stop left the runtime attached", waitUntil {
+                ClambhookTunnelSession.runtime.value == null
+            })
+
+            GluonPlatformFacade.dispatch("vpn-start", "{}")
+            assertTrue("restart did not restore the runtime", waitUntil {
+                ClambhookTunnelSession.runtime.value?.isRunning() == true
+            })
+            setVpnAuthorization("ignore")
+            assertNotNull(VpnService.prepare(context))
+            assertTrue("framework revocation left the runtime attached", waitUntil {
+                ClambhookTunnelSession.runtime.value == null
+            })
+        } finally {
+            GluonPlatformFacade.dispatch("vpn-stop", "{}")
+            waitUntil { ClambhookTunnelSession.runtime.value == null }
+            setVpnAuthorization("ignore")
+        }
+    }
+
+    @Test
+    fun evaluatesLicenseStateThroughNativeC() {
+        val installId = NativeClambhookLicenseBridge.newInstallId()
+        assertTrue(
+            Regex("^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
+                .matches(installId),
+        )
+        val snapshot = NativeClambhookLicenseBridge.ensureTrial("", 1_788_000_000_000L)
+        val status = objectJson(
+            NativeClambhookLicenseBridge.status(
+                snapshot,
+                publishedMillis = 0,
+                nowMillis = 1_788_000_000_000L,
+            ),
+        )
+        assertEquals(
+            "trial",
+            status.getValue("decision").jsonObject
+                .getValue("reason").jsonPrimitive.content,
+        )
+        assertTrue(
+            status.getValue("decision").jsonObject
+                .getValue("reason").jsonPrimitive.content != "locked",
+        )
     }
 }

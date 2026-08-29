@@ -6,6 +6,7 @@
 #include <stdlib.h>
 
 #include "api_server.h"
+#include "clambhook/license_json.h"
 
 void ch_test_api_server(void) {
     ch_error error;
@@ -26,6 +27,32 @@ void ch_test_api_server(void) {
     CH_TEST_ASSERT(!ch_api_is_loopback_host("[::1]:bad"));
     CH_TEST_ASSERT(!ch_api_is_loopback_host("0.0.0.0:9090"));
     CH_TEST_ASSERT(!ch_api_is_loopback_host("192.168.1.2"));
+
+    CH_TEST_ASSERT(ch_api_is_license_gated_request(
+        "POST", "/api/v1/connect"));
+    CH_TEST_ASSERT(ch_api_is_license_gated_request(
+        "PUT", "/api/v1/profiles/active"));
+    CH_TEST_ASSERT(ch_api_is_license_gated_request(
+        "DELETE", "/api/v1/developer/entries"));
+    CH_TEST_ASSERT(!ch_api_is_license_gated_request(
+        "GET", "/api/v1/status"));
+    CH_TEST_ASSERT(!ch_api_is_license_gated_request(
+        "POST", "/api/v1/disconnect"));
+    CH_TEST_ASSERT(!ch_api_is_license_gated_request(
+        "DELETE", "/api/v1/rules/temporary/abc"));
+
+    bool license_allowed = false;
+    CH_TEST_ASSERT(ch_license_can_use_snapshot_json(
+        "{\"trialStartDate\":\"2026-08-28T00:00:00Z\"}",
+        1787961600000LL, &license_allowed, &error) == CH_OK);
+    CH_TEST_ASSERT(license_allowed);
+    CH_TEST_ASSERT(ch_license_can_use_snapshot_json(
+        "{\"trialStartDate\":\"2026-01-01T00:00:00Z\"}",
+        1787961600000LL, &license_allowed, &error) == CH_OK);
+    CH_TEST_ASSERT(!license_allowed);
+    CH_TEST_ASSERT(ch_license_can_use_snapshot_json(
+        "{broken", 1787961600000LL, &license_allowed, &error) ==
+        CH_ERROR_PARSE);
 
     char *request = ch_api_profile_request_json(
         "/api/v1/rules?state=active&profile=work%20vpn", &error);
@@ -84,15 +111,23 @@ void ch_test_api_server(void) {
 
     request = ch_api_events_request_json(
         "/api/v1/events?types=connection.*,hop.connected&conn_id=a&"
-        "conn_id=b,c&since=1:42,3:7&ignored=yes", &error);
+        "conn_id=b,c&since=1:42,3:7&after=12&limit=2&ignored=yes",
+        &error);
     CH_TEST_ASSERT(request != NULL);
     CH_TEST_ASSERT_STRING(
-        "{\"types\":[\"connection.*\",\"hop.connected\"],"
+        "{\"after_sequence\":12,\"limit\":2,"
+        "\"types\":[\"connection.*\",\"hop.connected\"],"
         "\"conn_ids\":[\"a\",\"b\",\"c\"],\"since\":["
         "{\"shard_id\":1,\"lamport\":42},"
         "{\"shard_id\":3,\"lamport\":7}]}", request);
     free(request);
     CH_TEST_ASSERT(ch_api_events_request_json(
         "/api/v1/events?since=bad", &error) == NULL);
+    CH_TEST_ASSERT(error.code == CH_ERROR_INVALID_ARGUMENT);
+    CH_TEST_ASSERT(ch_api_events_request_json(
+        "/api/v1/events?limit=0", &error) == NULL);
+    CH_TEST_ASSERT(error.code == CH_ERROR_INVALID_ARGUMENT);
+    CH_TEST_ASSERT(ch_api_events_request_json(
+        "/api/v1/events?limit=4097", &error) == NULL);
     CH_TEST_ASSERT(error.code == CH_ERROR_INVALID_ARGUMENT);
 }

@@ -124,7 +124,7 @@ if command -v systemd-analyze >/dev/null 2>&1; then
     # verify resolves the unit graph; the ExecStart binary may be absent in a
     # checkout, which systemd-analyze reports as a warning, not a hard failure.
     if ! systemd-analyze verify "$UNIT" 2> "$ROOT/.systemd-verify.log"; then
-        if grep -Eqv 'Command .* is not executable|Failed to prepare filename|/usr/libexec/clambhook' "$ROOT/.systemd-verify.log"; then
+        if grep -Eqv 'Command .* is not executable|Failed to prepare filename|/usr/bin/clambhook' "$ROOT/.systemd-verify.log"; then
             cat "$ROOT/.systemd-verify.log" >&2
             rm -f "$ROOT/.systemd-verify.log"
             fail "systemd-analyze verify reported unit errors"

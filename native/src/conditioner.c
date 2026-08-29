@@ -13,7 +13,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#include <sodium.h>
+#include <openssl/rand.h>
 
 #include "internal.h"
 
@@ -40,6 +40,17 @@ static uint64_t ch_conditioner_now(void) {
         (uint64_t)value.tv_nsec;
 }
 
+static uint32_t ch_conditioner_random(void) {
+    uint32_t value = 0U;
+    if (RAND_bytes((unsigned char *)&value, (int)sizeof(value)) == 1) {
+        return value;
+    }
+    /* Jitter and loss simulation are not security decisions. Keep the
+       conditioner usable if the provider cannot seed during early startup. */
+    uint64_t now = ch_conditioner_now();
+    return (uint32_t)(now ^ (now >> 32U) ^ (uint64_t)(uintptr_t)&value);
+}
+
 static void ch_conditioner_sleep(uint64_t nanoseconds) {
     if (nanoseconds == 0U) return;
     struct timespec requested = {
@@ -52,8 +63,8 @@ static void ch_conditioner_sleep(uint64_t nanoseconds) {
 
 static uint64_t ch_conditioner_jitter(uint64_t maximum) {
     if (maximum == 0U) return 0U;
-    uint64_t random = ((uint64_t)randombytes_random() << 32U) |
-        randombytes_random();
+    uint64_t random = ((uint64_t)ch_conditioner_random() << 32U) |
+        ch_conditioner_random();
     return random % maximum;
 }
 
@@ -180,7 +191,7 @@ int ch_conditioner_before_upload(const ch_conditioner_config *config,
         return 1;
     }
     if (config->loss_probability > 0.0) {
-        double sample = (double)randombytes_random() /
+        double sample = (double)ch_conditioner_random() /
             ((double)UINT32_MAX + 1.0);
         if (sample < config->loss_probability) {
             ch_conditioner_delay(config);

@@ -1,27 +1,36 @@
-#!/bin/sh
+#!/usr/bin/env bash
 # SPDX-FileCopyrightText: 2026 Pengfan Chang <support@swiphtgroup.com>
 # SPDX-License-Identifier: GPL-3.0-only
 
-set -e
+set -euo pipefail
 
-echo "Running go vet..."
-go vet ./...
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+BUILD_DIR="${CLAMBHOOK_LINT_BUILD_DIR:-$ROOT_DIR/build-native-lint}"
+cd "$ROOT_DIR"
 
-STATICCHECK=${STATICCHECK:-staticcheck}
-if ! command -v "$STATICCHECK" >/dev/null 2>&1; then
-    GOPATH_BIN=$(go env GOPATH)/bin/staticcheck
-    if [ -x "$GOPATH_BIN" ]; then
-        STATICCHECK=$GOPATH_BIN
-    fi
+scripts/check-license-policy.sh
+scripts/check-cutover.sh
+
+if command -v shellcheck >/dev/null 2>&1; then
+    shell_files=()
+    while IFS= read -r script; do
+        [[ -f "$script" ]] && shell_files+=("$script")
+    done < <(git ls-files '*.sh')
+    shellcheck -x "${shell_files[@]}"
+else
+    echo "lint: shellcheck is unavailable; running parser checks only" >&2
+    while IFS= read -r script; do
+        bash -n "$script"
+    done < <(git ls-files '*.sh')
 fi
 
-if ! command -v "$STATICCHECK" >/dev/null 2>&1; then
-    echo "staticcheck not found; install it with:" >&2
-    echo "  go install honnef.co/go/tools/cmd/staticcheck@2025.1.1" >&2
-    exit 1
-fi
+cmake -S . -B "$BUILD_DIR" -G Ninja \
+    -DCMAKE_BUILD_TYPE=Debug \
+    -DCLAMBHOOK_ENABLE_SANITIZERS=OFF \
+    -DCLAMBHOOK_WARNINGS_AS_ERRORS=ON
+cmake --build "$BUILD_DIR"
 
-echo "Running staticcheck..."
-"$STATICCHECK" ./...
+(cd ui/javafx && mvn -B -DskipTests package)
+(cd ui/android && ./gradlew --no-daemon :platform:lintDebug)
 
-echo "Lint complete."
+echo "lint: all checks passed"

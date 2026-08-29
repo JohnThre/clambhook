@@ -393,7 +393,7 @@ ch_status ch_dns_quic_exchange(
     (void)out_response;
     (void)out_response_length;
     ch_error_set(error, CH_ERROR_UNSUPPORTED,
-                 "native DNS-over-QUIC requires OpenSSL 3.2 or later");
+                 "native DNS-over-QUIC requires OpenSSL 3.2 or later with QUIC enabled");
     return CH_ERROR_UNSUPPORTED;
 #else
     if (options == NULL || options->packet_dial == NULL || target == NULL ||

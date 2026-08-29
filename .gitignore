@@ -7,6 +7,7 @@
 # Build artifacts
 .worktrees/
 build-native/
+build-native-*/
 bin/
 dist/
 ui/apple/.build/
@@ -28,11 +29,8 @@ ui/android/**/*.jks
 ui/android/**/*.keystore
 ui/android/**/*.p12
 ui/android/**/keystore.properties
-ui/linux/builddir/
-ui/linux/build/
-ui/linux/.gradle/
-ui/linux/resources/
 ui/javafx/target/
+ui/javafx/src/android/libs/
 *.o
 *.a
 *.so
@@ -119,7 +117,7 @@ memory/
 .fleet/
 out/
 
-# Stray root build artifact from `go build ./cmd/clambhook-license`
+# Stray root executable artifacts
 /clambhook-license
 /clambhook
 /clambhook-tui

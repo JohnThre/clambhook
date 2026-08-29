@@ -29,7 +29,7 @@ if [[ -n "${GPG_PASSPHRASE_FILE:-}" ]]; then
 fi
 
 shopt -s nullglob
-targets=("$DIST_DIR"/*.sha256 "$DIST_DIR"/clambhook-linux-manifest.json)
+targets=("$DIST_DIR"/*.sha256 "$DIST_DIR"/clambhook-linux-*-manifest.json)
 [[ ${#targets[@]} -gt 1 ]] || {
   echo "Linux release checksums or manifest are missing." >&2
   exit 1

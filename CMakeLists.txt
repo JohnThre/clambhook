@@ -7,6 +7,8 @@ project(clambhook VERSION 1.0.2 LANGUAGES C)
 
 include(GNUInstallDirs)
 include(CTest)
+include(CheckTypeSize)
+include(TestBigEndian)
 
 set(CMAKE_C_STANDARD 17)
 set(CMAKE_C_STANDARD_REQUIRED ON)
@@ -15,11 +17,18 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 option(CLAMBHOOK_BUILD_DAEMON "Build the native daemon" ON)
 option(CLAMBHOOK_BUILD_TUI "Build the native terminal client" ON)
-option(CLAMBHOOK_BUILD_LICENSE_HELPER "Build the native license helper migration binary" ON)
-option(CLAMBHOOK_BUILD_GTK "Build the experimental GTK 4 GNU/Linux client" OFF)
-option(CLAMBHOOK_BUILD_JNI "Build the experimental JNI runtime bridge" OFF)
+option(CLAMBHOOK_BUILD_LICENSE_HELPER "Build the license helper" ON)
 option(CLAMBHOOK_BUILD_TESTS "Build the native unit tests" ${BUILD_TESTING})
 option(CLAMBHOOK_ENABLE_SANITIZERS "Enable AddressSanitizer and UndefinedBehaviorSanitizer" OFF)
+option(CLAMBHOOK_WARNINGS_AS_ERRORS "Treat first-party C warnings as errors" ON)
+
+set(CLAMBHOOK_WARNING_FLAGS
+  $<$<C_COMPILER_ID:AppleClang,Clang,GNU>:-Wall;-Wextra;-Wpedantic;-Wconversion;-Wshadow>
+)
+if(CLAMBHOOK_WARNINGS_AS_ERRORS)
+  list(APPEND CLAMBHOOK_WARNING_FLAGS
+    $<$<C_COMPILER_ID:AppleClang,Clang,GNU>:-Werror>)
+endif()
 
 find_package(PkgConfig REQUIRED)
 find_package(Threads REQUIRED)
@@ -34,6 +43,40 @@ pkg_check_modules(CURL REQUIRED IMPORTED_TARGET libcurl)
 add_library(tomlc99 STATIC third_party/tomlc99/toml.c)
 target_include_directories(tomlc99 PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/third_party/tomlc99)
 target_compile_definitions(tomlc99 PRIVATE _POSIX_C_SOURCE=200809L)
+
+# Pinned Apache-2.0 libmaxminddb 1.13.3. The application links the static
+# reader so desktop and Android builds share the frozen MMDB geo contract.
+set(MAXMINDDB_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third_party/libmaxminddb)
+check_type_size("unsigned __int128" CH_MMDB_UINT128)
+check_type_size("unsigned int __attribute__((mode(TI)))"
+                CH_MMDB_UINT128_USING_MODE)
+if(HAVE_CH_MMDB_UINT128)
+  set(MMDB_UINT128_USING_MODE 0)
+  set(MMDB_UINT128_IS_BYTE_ARRAY 0)
+elseif(HAVE_CH_MMDB_UINT128_USING_MODE)
+  set(MMDB_UINT128_USING_MODE 1)
+  set(MMDB_UINT128_IS_BYTE_ARRAY 0)
+else()
+  set(MMDB_UINT128_USING_MODE 0)
+  set(MMDB_UINT128_IS_BYTE_ARRAY 1)
+endif()
+test_big_endian(CH_MMDB_BIG_ENDIAN)
+configure_file(
+  ${MAXMINDDB_DIR}/include/maxminddb_config.h.cmake.in
+  ${CMAKE_CURRENT_BINARY_DIR}/generated/maxminddb_config.h
+)
+add_library(maxminddb STATIC
+  ${MAXMINDDB_DIR}/src/maxminddb.c
+  ${MAXMINDDB_DIR}/src/data-pool.c
+)
+target_include_directories(maxminddb
+  PUBLIC ${MAXMINDDB_DIR}/include ${CMAKE_CURRENT_BINARY_DIR}/generated
+  PRIVATE ${MAXMINDDB_DIR}/src
+)
+target_compile_definitions(maxminddb PRIVATE PACKAGE_VERSION="1.13.3")
+if(NOT CH_MMDB_BIG_ENDIAN)
+  target_compile_definitions(maxminddb PRIVATE MMDB_LITTLE_ENDIAN=1)
+endif()
 
 # Pinned BSD-3-Clause lwIP core. Clambhook uses the NO_SYS raw API on its
 # serialized runtime thread and supplies a layer-3 netif in native/src.
@@ -88,6 +131,11 @@ target_include_directories(wireguard_protocol PUBLIC
   ${LWIP_DIR}/src/include
   ${CMAKE_CURRENT_SOURCE_DIR}/native/src
 )
+target_compile_definitions(wireguard_protocol PRIVATE
+  poly1305_init=ch_wg_poly1305_init
+  poly1305_update=ch_wg_poly1305_update
+  poly1305_finish=ch_wg_poly1305_finish
+)
 
 if(CLAMBHOOK_ENABLE_SANITIZERS AND CMAKE_C_COMPILER_ID MATCHES "AppleClang|Clang|GNU")
   add_compile_options(-fno-omit-frame-pointer -fsanitize=address,undefined)
@@ -106,6 +154,7 @@ add_library(clambhook_core STATIC
   native/src/dns_quic.c
   native/src/error.c
   native/src/events.c
+  native/src/geo.c
   native/src/http_safety.c
   native/src/ip_stack.c
   native/src/json.c
@@ -150,7 +199,7 @@ target_include_directories(clambhook_crypto PUBLIC
 )
 target_link_libraries(clambhook_crypto PUBLIC PkgConfig::OPENSSL)
 target_compile_options(clambhook_crypto PRIVATE
-  $<$<C_COMPILER_ID:AppleClang,Clang,GNU>:-Wall;-Wextra;-Wpedantic;-Wconversion;-Wshadow>
+  ${CLAMBHOOK_WARNING_FLAGS}
 )
 
 target_include_directories(clambhook_core
@@ -162,7 +211,9 @@ target_include_directories(clambhook_core
 )
 target_link_libraries(clambhook_core PUBLIC
   PkgConfig::LIBUV PkgConfig::LIBSODIUM PkgConfig::CURL
-  Clambhook::Crypto lwipcore wireguard_protocol tomlc99 Threads::Threads
+  PkgConfig::LLHTTP Clambhook::Crypto lwipcore maxminddb
+  wireguard_protocol tomlc99
+  Threads::Threads
 )
 if(APPLE)
   target_link_libraries(clambhook_core PUBLIC "-framework CoreFoundation" "-framework Security")
@@ -173,100 +224,55 @@ elseif(UNIX)
 endif()
 target_compile_definitions(clambhook_core PRIVATE _POSIX_C_SOURCE=200809L)
 target_compile_options(clambhook_core PRIVATE
-  $<$<C_COMPILER_ID:AppleClang,Clang,GNU>:-Wall;-Wextra;-Wpedantic;-Wconversion;-Wshadow>
+  ${CLAMBHOOK_WARNING_FLAGS}
 )
 
 if(CLAMBHOOK_BUILD_DAEMON)
-  add_executable(clambhook-c native/src/api_server.c native/src/daemon/main.c)
-  target_include_directories(clambhook-c PRIVATE native/src)
-  target_link_libraries(clambhook-c PRIVATE Clambhook::Core PkgConfig::LLHTTP)
-  target_compile_definitions(clambhook-c PRIVATE
+  add_executable(clambhook native/src/api_server.c native/src/daemon/main.c)
+  target_include_directories(clambhook PRIVATE native/src)
+  target_link_libraries(clambhook PRIVATE Clambhook::Core PkgConfig::LLHTTP)
+  target_compile_definitions(clambhook PRIVATE
     CLAMBHOOK_VERSION="${PROJECT_VERSION}"
     _POSIX_C_SOURCE=200809L
   )
-  set_target_properties(clambhook-c PROPERTIES OUTPUT_NAME clambhook-c)
+  target_compile_options(clambhook PRIVATE
+    ${CLAMBHOOK_WARNING_FLAGS}
+  )
+  install(TARGETS clambhook RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+          COMPONENT Runtime)
 endif()
 
 if(CLAMBHOOK_BUILD_TUI)
-  add_executable(clambhook-tui-c native/src/tui/main.c)
-  target_link_libraries(clambhook-tui-c PRIVATE Clambhook::Core PkgConfig::CURL)
-  target_compile_definitions(clambhook-tui-c PRIVATE
+  add_executable(clambhook-tui native/src/tui/main.c)
+  target_link_libraries(clambhook-tui PRIVATE Clambhook::Core PkgConfig::CURL)
+  target_compile_definitions(clambhook-tui PRIVATE
     CLAMBHOOK_VERSION="${PROJECT_VERSION}"
     _POSIX_C_SOURCE=200809L
   )
-  target_compile_options(clambhook-tui-c PRIVATE
-    $<$<C_COMPILER_ID:AppleClang,Clang,GNU>:-Wall;-Wextra;-Wpedantic;-Wconversion;-Wshadow>
+  target_compile_options(clambhook-tui PRIVATE
+    ${CLAMBHOOK_WARNING_FLAGS}
   )
+  install(TARGETS clambhook-tui RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+          COMPONENT Runtime)
 endif()
 
 if(CLAMBHOOK_BUILD_LICENSE_HELPER)
-  add_executable(clambhook-license-c native/src/license_helper/main.c)
-  target_include_directories(clambhook-license-c PRIVATE native/src)
-  target_link_libraries(clambhook-license-c PRIVATE Clambhook::Core)
-  target_compile_definitions(clambhook-license-c PRIVATE CLAMBHOOK_VERSION="${PROJECT_VERSION}")
-  target_compile_options(clambhook-license-c PRIVATE
-    $<$<C_COMPILER_ID:AppleClang,Clang,GNU>:-Wall;-Wextra;-Wpedantic;-Wconversion;-Wshadow>
+  add_executable(clambhook-license native/src/license_helper/main.c)
+  target_include_directories(clambhook-license PRIVATE native/src)
+  target_link_libraries(clambhook-license PRIVATE Clambhook::Core)
+  target_compile_definitions(clambhook-license PRIVATE CLAMBHOOK_VERSION="${PROJECT_VERSION}")
+  target_compile_options(clambhook-license PRIVATE
+    ${CLAMBHOOK_WARNING_FLAGS}
   )
-  add_custom_target(native-license-parity
-    COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/scripts/check-native-license-parity.sh
-            $<TARGET_FILE:clambhook-license-c>
-    DEPENDS clambhook-license-c
+  add_custom_target(license-contract
+    COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/scripts/check-license-contract.sh
+            $<TARGET_FILE:clambhook-license>
+    DEPENDS clambhook-license
     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
     USES_TERMINAL
   )
-endif()
-
-if(CLAMBHOOK_BUILD_GTK)
-  pkg_check_modules(GTK4 REQUIRED IMPORTED_TARGET gtk4)
-  pkg_check_modules(LIBSOUP REQUIRED IMPORTED_TARGET libsoup-3.0)
-  pkg_check_modules(JSON_GLIB REQUIRED IMPORTED_TARGET json-glib-1.0)
-  add_library(clambhook-linux-model STATIC ui/linux-gtk/src/model.c)
-  target_include_directories(clambhook-linux-model PUBLIC ui/linux-gtk/src)
-  target_link_libraries(clambhook-linux-model PUBLIC PkgConfig::JSON_GLIB)
-  target_compile_options(clambhook-linux-model PRIVATE
-    $<$<C_COMPILER_ID:AppleClang,Clang,GNU>:-Wall;-Wextra;-Wpedantic;-Wconversion;-Wshadow>
-  )
-  add_executable(clambhook-linux-c ui/linux-gtk/src/main.c)
-  target_link_libraries(clambhook-linux-c PRIVATE
-    clambhook-linux-model Clambhook::Core PkgConfig::GTK4 PkgConfig::LIBSOUP
-  )
-  target_compile_options(clambhook-linux-c PRIVATE
-    $<$<C_COMPILER_ID:AppleClang,Clang,GNU>:-Wall;-Wextra;-Wpedantic;-Wconversion;-Wshadow>
-  )
-  target_compile_definitions(clambhook-linux-c PRIVATE
-    _POSIX_C_SOURCE=200809L
-    CLAMBHOOK_VERSION="${PROJECT_VERSION}"
-  )
-  if(CLAMBHOOK_BUILD_TESTS)
-    add_executable(clambhook-linux-model-tests
-      ui/linux-gtk/tests/test_model.c
-    )
-    target_link_libraries(clambhook-linux-model-tests PRIVATE
-      clambhook-linux-model
-    )
-    target_compile_options(clambhook-linux-model-tests PRIVATE
-      $<$<C_COMPILER_ID:AppleClang,Clang,GNU>:-Wall;-Wextra;-Wpedantic;-Wconversion;-Wshadow>
-    )
-    add_test(NAME linux-gtk-model COMMAND clambhook-linux-model-tests)
-    add_test(NAME linux-gtk-version COMMAND clambhook-linux-c --version)
-    set_tests_properties(linux-gtk-version PROPERTIES
-      PASS_REGULAR_EXPRESSION "^clambhook-linux ${PROJECT_VERSION}"
-    )
-  endif()
-endif()
-
-if(CLAMBHOOK_BUILD_JNI)
-  find_package(JNI REQUIRED)
-  add_library(clambhook_jni SHARED
-    native/src/android/jni.c
-    native/src/android/rule_feed_jni.c
-  )
-  target_include_directories(clambhook_jni PRIVATE ${JNI_INCLUDE_DIRS})
-  target_link_libraries(clambhook_jni PRIVATE Clambhook::Core ${JNI_LIBRARIES})
-  target_compile_options(clambhook_jni PRIVATE
-    $<$<C_COMPILER_ID:AppleClang,Clang,GNU>:-Wall;-Wextra;-Wpedantic;-Wconversion;-Wshadow>
-  )
-  set_target_properties(clambhook_jni PROPERTIES OUTPUT_NAME clambhook_jni)
+  install(TARGETS clambhook-license RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+          COMPONENT Runtime)
 endif()
 
 if(CLAMBHOOK_BUILD_TESTS)
@@ -277,6 +283,7 @@ if(CLAMBHOOK_BUILD_TESTS)
     native/tests/test_conditioner.c
     native/tests/test_main.c
     native/tests/test_events.c
+    native/tests/test_geo.c
     native/tests/test_crypto.c
     native/tests/test_developer.c
     native/tests/test_dns.c
@@ -307,8 +314,8 @@ if(CLAMBHOOK_BUILD_TESTS)
   target_link_libraries(clambhook-native-tests PRIVATE Clambhook::Core PkgConfig::LLHTTP)
   add_test(NAME native-unit COMMAND clambhook-native-tests)
   if(CLAMBHOOK_BUILD_TUI)
-    add_test(NAME native-tui-version COMMAND clambhook-tui-c --version)
-    set_tests_properties(native-tui-version PROPERTIES
+    add_test(NAME tui-version COMMAND clambhook-tui --version)
+    set_tests_properties(tui-version PROPERTIES
       PASS_REGULAR_EXPRESSION "^clambhook-tui ${PROJECT_VERSION}"
     )
   endif()
@@ -317,13 +324,19 @@ endif()
 install(TARGETS clambhook_core clambhook_crypto
   EXPORT ClambhookTargets
   ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+  COMPONENT Development
 )
-install(DIRECTORY native/include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
-install(FILES clib/include/cnet.h DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+install(DIRECTORY native/include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+  COMPONENT Development)
+install(FILES clib/include/cnet.h DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+  COMPONENT Development)
 install(FILES LICENSE LICENSE-APACHE LICENSING.md NOTICE TRADEMARKS.md
   THIRD_PARTY_NOTICES.md
-  DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/doc/clambhook)
+  DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/doc/clambhook
+  COMPONENT Runtime)
 install(FILES third_party/openssl/LICENSE.txt
-  DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/doc/clambhook/licenses/openssl)
+  DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/doc/clambhook/licenses/openssl
+  COMPONENT Runtime)
 install(FILES third_party/curl/LICENSE.txt
-  DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/doc/clambhook/licenses/curl)
+  DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/doc/clambhook/licenses/curl
+  COMPONENT Runtime)

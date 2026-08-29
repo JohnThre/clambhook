@@ -1,204 +1,196 @@
 <!-- SPDX-FileCopyrightText: 2026 Pengfan Chang <support@swiphtgroup.com> -->
 <!-- SPDX-License-Identifier: GPL-3.0-only -->
 
-# Release Validation Policy
+# Release validation
 
-Every installer is validated **before** any manual QA, signing, or upload to an
-approved store channel. GitHub Actions is the primary automated gate, with a
-local mirror for physical-device and desktop QA. Workflow reports remain
-short-lived Actions artifacts; production installers are attached only to the
-approved GitHub Release.
+This document defines the evidence required before a protected ClambHook
+release. It is also the completion checklist for the C17 and JavaFX/Gluon
+architecture.
 
-`.github/workflows/ci.yml` runs source policy, native C portability, Android,
-and GNU/Linux jobs. Android instrumentation covers API 31, 33, and 36; GNU/Linux is limited
-to Trisquel 12, Rocky Linux 9, and AlmaLinux 9. `.github/workflows/security.yml`
-runs CodeQL and dependency review. After these gates and owner QA,
-`.github/workflows/release.yml` uses a protected GitHub environment to sign,
-notarize, and publish official GitHub Release assets. See
-[`github-cicd.md`](github-cicd.md). `scripts/ci-local.sh` mirrors the platform
-gate in sections
-(`go`, `apple`, `android`, `linux`, `e2e`, `smoke`; default `all`), skipping any
-section whose tooling is absent. CI validates builds and installers; it never
-publishes end-user installers. Distribution stays on the approved channel only
-(see [`distribution.md`](distribution.md)).
-
-## Ordering: GitHub and local gates before distribution
+## Validation topology
 
 ```mermaid
-flowchart LR
-    commit["Commit / release tag"] --> gate{Platform family}
-    gate -->|Apple| apple["Local macOS QA<br/>Swift · Xcode<br/>GitHub tests native C portability only"]
-    gate -->|"GNU/Linux"| linux["GitHub + local containers<br/>Trisquel · Rocky · Alma<br/>C/GTK + package recipes"]
-    gate -->|Android| android["GitHub API 31 · 33 · 36<br/>unit · lint · build · Compose/JNI<br/>+ optional physical Pixel QA"]
-    apple --> qa["Manual QA + sign + notarize"]
-    linux --> qa
-    android --> qa
-    qa --> dist["Publish signed assets<br/>to GitHub Releases"]
+flowchart TD
+    source["Source tree"] --> policy["Zero retired sources/module metadata<br/>SPDX · secrets · source-only"]
+    policy --> native["C17 strict build<br/>ASan/UBSan · CTest"]
+    policy --> ui["JavaFX JUnit/JaCoCo<br/>Kotlin AAR tests/lint"]
+    policy --> mac["SwiftUI + embedded C runtime"]
+    native --> protocols["Protocol peers and fixtures<br/>tamper · replay · rekey"]
+    native --> contracts["TOML · JSON · HTTP · WebSocket<br/>rollback · CLI · TUI · license"]
+    ui --> android["Gluon Android ARM64<br/>API 31 · 33 · 36 ATD"]
+    ui --> linux["Gluon GNU/Linux native images<br/>x86_64 · aarch64"]
+    linux --> distros["Trisquel 12 · Rocky 9 · Alma 9<br/>install · launch · daemon · secret store · uninstall"]
+    android --> inspect["APK/AAB ABI, manifest, JNI, signing"]
+    distros --> inspect
+    mac --> inspect
+    protocols --> inspect
+    contracts --> inspect
+    inspect --> protected["Protected signing/notarization"]
+    protected --> release["GitHub Releases"]
 ```
 
-## Platform → validation matrix
-
-| Platform | Where | Build target | Validation | ClambHook status |
-| --- | --- | --- | --- | --- |
-| macOS | Local app QA; GitHub native-C portability | `ClambhookMac` (`ui/apple`) | local `make build-apple` + `swift test` + notarized installer smoke; GitHub native C sanitizers | Shipping (public) |
-| GNU/Linux | GitHub + local containers | Debian/RPM recipes | Trisquel 12, Rocky Linux 9, AlmaLinux 9; native sanitizers + C/GTK + package smoke | Shipping (public) |
-| Android 12+ | GitHub + optional physical device | signed sideload APK | unit/lint/build + Compose/JNI instrumentation on API 31/33/36 + optional Pixel 3a XL QA | Shipping (public) |
-
-ClambHook's Apple surface is currently macOS only. Windows development is
-discontinued with no planned resumption date.
-
-## Apple lane — local app QA
-
-The macOS app is built and tested only on the developer's Mac; the ordinary
-GitHub CI macOS runner validates the portable native C runtime, not the app.
-The protected release workflow may build, sign, notarize, and publish the app
-after local validation. The Apple project is generated with XcodeGen; the current release still embeds the
-legacy daemon while the C runtime follows the cross-platform parity gates.
+## C17 runtime gate
 
 ```sh
-make prepare-apple-runtime   # darwin daemon + TUI runtime
-make generate-apple          # xcodegen generate
-make build-apple             # xcodebuild ... build
-make test-apple              # swift test --package-path ui/apple
+make test-native
 ```
 
-For a release, `make release-macos` archives, Developer ID-signs, notarizes, and
-staples the DMG. See
-[`docs/website-release/release-runbook.md`](website-release/release-runbook.md).
+The native gate uses `-Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror`
+and ASan/UBSan. It covers:
 
-## GNU/Linux lane — Trisquel, Rocky Linux, and AlmaLinux only
+- configuration defaults, imports/exports, mutation transactions, persisted
+  backups, activation rollback, and malformed/oversized input;
+- authenticated HTTP routes, WebSocket upgrade/framing/filtering, reconnect,
+  event ordering, status/error envelopes, and API token handling;
+- SOCKS5, HTTP forwarding, HTTPS interception, TUN packet handling, IPv4/IPv6,
+  TCP/UDP, fragmentation, process attribution, and network changes;
+- rule, policy, rule-set/subscription, prompt, temporary-rule, conditioner,
+  DNS, geo, traffic, capture, CA, map/rewrite, breakpoint, and persistence
+  behavior;
+- WireGuard handshake/data, TCP/UDP routing, replay, rekey, keepalive, MTU,
+  lifecycle, peer keys, and allowed IPs;
+- OpenVPN UDP/TLS-EKM, AEAD data, PKI/user-password, malformed packets, replay,
+  and explicit rejection of unsupported transport/crypto/control modes;
+- VMESS-AEAD, ShadowTLS, Shadowsocks, Tor, direct, nested-chain, and policy
+  selection fixtures;
+- exact CLI/TUI version behavior and frozen license-helper JSON hashes.
 
-GNU/Linux is tested only on Trisquel 12, Rocky Linux 9, and AlmaLinux 9. GitHub
-uses official Rocky/Alma images and constructs the Trisquel image from the
-official signed Ecne package archive on x86-64. ARM64 local hosts can use the
-official checksum-pinned Trisquel 12 base root filesystem. Optional local
-validation uses Podman or Docker:
+The authoritative GNU/Linux protocol lane provisions real kernel WireGuard and
+OpenVPN 2.6 loopback peers, exercises WireGuard TCP/UDP echo and an OpenVPN UDP
+TLS-EKM data path, and fails if TUN privileges or peer tooling are unavailable.
+The deterministic packet/control fixtures remain mandatory and are never
+replaced by the peer smoke.
+
+## JavaFX gate
 
 ```sh
-scripts/validate-linux-distros.sh            # Trisquel 12 · Rocky Linux 9 · AlmaLinux 9
-make test-linux                              # host-side Kotlin unit tests for the Compose controller
+make test-javafx
 ```
 
-During the phased C/GTK migration, run `make test-native` (including the
-loopback SOCKS5/HTTP relay, Trojan/clambback TLS chain, all three Shadowsocks
-AEAD-2018 TCP and UDP methods, direct UDP packet path, Tor SOCKS5 isolation,
-Trojan/clambback TCP and UDP framing, VMESS-AEAD TCP and UDP with both body
-ciphers,
-ShadowTLS v3 over a genuine TLS 1.3 relay, nested encrypted chains,
-stream-carried nested UDP chains, SOCKS5 UDP association/session reuse,
-native Darwin/Linux TCP and UDP process attribution with an end-to-end process
-rule decision, bounded Darwin/Linux network observation and first-match profile
-switching, encrypted-DNS wire validation, Control D/bootstrap guards, real TLS
-DoH and DoT exchanges, failover SERVFAIL behavior, nonce-exhaustion rejection,
-native lwIP IPv4/IPv6 ICMP/checksum fixtures, configured TUN CIDRs, packet-stack
-runtime/profile lifecycle cases, bounded IPv4/IPv6 TCP flow translation and
-descriptor echo, IPv4/IPv6 UDP session reuse and tuple/checksum restoration,
-encrypted-DNS port-53 interception and domain recovery, direct TUN route
-dialing, bounded out-of-order IPv4/IPv6 fragment reassembly with overlap
-rejection, common IPv6 extension-chain parsing, and Android JNI packet callback
-compilation plus an API 31 delayed direct-UDP round trip),
-plus `make build-linux-gtk` alongside the existing distro harness. Production
-packages stay on their current binaries until the native packaging gate in
-[`c-migration.md`](c-migration.md) passes. See
-[`packaging/README.md`](../packaging/README.md) for the container-harness
-details. For a release, `make release-linux` builds the
-`.deb` + `.rpm`, checksums, GPG-signs, and writes the update manifest; see
-[`docs/website-release/linux-release-runbook.md`](website-release/linux-release-runbook.md).
+Tests cover typed route construction/decoding, event cursors, profile and
+dashboard mapping, asynchronous success/failure/retry, background thread
+boundaries, navigation state, keyboard accelerators, focus behavior, accessible
+names/roles, compact and expanded layouts, scale-sensitive sizing, and color
+contrast tokens. JaCoCo reports are retained as CI reports.
 
-## Android lane — GitHub managed devices with optional physical-device QA
+On GNU/Linux, each architecture builds `clambhook-ui` with Gluon, launches it
+under Xvfb against an unavailable endpoint to exercise failure/retry without a
+JRE, then launches it against the local C daemon.
 
-Android validates authoritatively in GitHub Actions; a developer's physical
-Pixel is optional supplemental QA. The GUI is Kotlin/Jetpack Compose with an
-Android 12 (API 31) floor. Gradle packages the NDK-built C/JNI runtime, the
-production VPN factory selects it, and no gomobile AAR is packaged. The focused
-native configuration/dashboard/route-explanation, profile-rule rebuild, raw-packet
-callback, direct/encrypted route linkage, OpenSSL AEAD, direct-UDP/timer, and
-encrypted-DNS DoH/DoT interception/failure-response tests must pass on API 31;
-GitHub runs unit tests, lint, the debug build, and managed Compose/JNI devices
-at API 31, 33, and 36. The full build populates a recipe-keyed native dependency
-cache only after checksum validation; managed-device jobs restore that exact
-OpenSSL/curl cache and remain downstream of the build. Android DoH uses
-checksum-pinned, HTTP(S)-only curl
-8.18.0 with static OpenSSL and the system CA directory; plaintext fallback is
-forbidden. Google's `android` CLI is the default for the local on-device dev
-loop. A physical Pixel
-3a XL on Android 12/API 32 additionally passed focused instrumentation after
-OpenSSL 3.5.8 LTS was statically linked
-and C rule decisions were connected to native encrypted TCP/UDP chains. The
-device run executes AES-128-GCM, AES-256-GCM, and ChaCha20-Poly1305 through JNI.
-This supplements rather than replaces the API 31/33/36 matrix. The daemon-side
-persistence path is also
-covered by sanitizer-backed host tests that verify the active selection on
-disk, the retained backup, and survival across runtime destruction/restart.
-Native config export/import adds exact TOML round-trip, invalid-import
-no-write, retained-backup, restart, and live HTTP header/response smoke checks;
-config-derived DNS/settings/conditioner/subscription reads add rich-profile and
-missing-profile fixtures. Structured DNS/settings/conditioner writes add
-render-and-reparse validation, retained backups, restart survival, active
-profile preservation, invalid-update no-write checks, an occupied-listener
-transaction fixture that proves disk and service rollback, and a live HTTP
-write/read/export smoke check. Ordered rule replacement/append and policy-
-group/rule-set/subscription replacement add rendered-config, invalid-position,
-restart, exact response-envelope, and live HTTP write/read fixtures. The
-manual policy-selection fixture additionally checks group type/membership,
-config-derived snapshot defaults, nested response compatibility, backup, and
-restart persistence; active health-probe result parity remains a separate gate.
-Developer-settings fixtures verify default limits/redaction lists, CA-path
-omission, first-enable HTTPS acknowledgement, invalid-update byte-for-byte
-no-write behavior, list normalization, retained backup, restart survival, and
-a live HTTP hash/write/readback smoke check. This does not satisfy the native
-developer capture/MITM data-plane gate.
-Developer map/breakpoint/rewrite collection fixtures add nested-table
-render/reparse validation, public `ops` mapping, complete persistence envelopes,
-restart preservation, target-only deletion, encoded-path ID handling, and live
-HTTP replace/read/delete coverage. Execution of those rules remains a separate
-native data-plane gate.
-Native rule-feed fixtures cover Go-equivalent hosts/adblock parsing, CIDR
-masking, sorted de-duplication, exact SHA-256 cache naming, nanosecond timestamp
-round trips, legacy cache reads, atomic version-1 writes, generated-rule
-ordering, rule-set cache enrichment, selected-name validation, and rejection of
-loopback/private/link-local/metadata/file destinations. A live native API smoke
-refresh fetched a public hosts source, wrote and read back a cache, exposed nine
-generated suffixes in `effective_rules`, and repeated successfully with
-conditional cache metadata. Sanitizer tests, ten license differential cases,
-and all four Android ABI builds remained green afterward. Android packages the
-portable parser/cache reader; outbound rule-feed refresh remains in the
-app-owned Kotlin networking lane. The pinned native curl dependency is scoped
-to encrypted DNS and does not silently change that ownership boundary.
-The shared runtime continues to compile for every packaged Android ABI. When a
-physical device is used for supplemental QA, keep it awake and dismiss its
-keyguard before the Compose run; a locked device stops the test host activity
-and produces a false `No compose hierarchies found` failure. An unavailable
-physical device does not block the managed-device CI gate.
+## Android gate
 
 ```sh
-make build-android-native                    # NDK JNI library, all packaged ABIs
-make test-android                            # ./gradlew :app:testDebugUnitTest
-make lint-android                            # ./gradlew :app:lintDebug
-make build-android                           # ./gradlew :app:assembleDebug
-make test-android-compatibility              # managed AOSP devices: API 31/33/36
-make run-android                             # android run (build + deploy + launch on a device or AVD)
+make test-android
+make build-android
+make test-android-compatibility
 ```
 
-For the on-device CI/CD gate, set `CI_LOCAL_ANDROID_AVD=<name>`; `scripts/ci-local.sh android` boots the AVD (`android emulator start`) and runs `make run-android` against it. Create an AVD with `android emulator create --name=clambhook --package="system-images;android-34;google_apis;arm64-v8a"`.
+API 31, 33, and 36 use `aosp_atd/arm64-v8a`. Required independent journeys:
 
-For a release, `make release-android` builds the AAR, assembles the release APK,
-checksums, GPG-signs, and writes the update manifest. See
-[`docs/android-development.md`](android-development.md) for the `android` CLI
-guide and [`docs/website-release/release-runbook.md`](website-release/release-runbook.md).
+1. consent grant and denial;
+2. foreground-service notification and TUN traffic;
+3. direct and encrypted routes;
+4. network loss/reconnect and process restart;
+5. revoke and always-on behavior;
+6. per-application allow/bypass routing;
+7. profile file and QR import/export;
+8. profile, rule, policy, prompt, and temporary-rule mutation;
+9. capture/CA/developer operations;
+10. licensing activation/deactivation/cutoff;
+11. updater check, signature/hash rejection, and install handoff.
 
-## Local `release-check` scope
+The service-owned runtime must survive JavaFX activity closure. Each journey
+fails on a crash, freeze, missing action target, or unmet expectation. Physical
+devices are supplemental. API 30 is never substituted.
 
-`make release-check` (`macos-release-contract-check test lint package-smoke
-e2e-release`) currently gates the legacy core: it runs `go test ./...`, `go vet`, the Debian
-package smoke build, and the real-server protocol e2e suite. It intentionally
-does **not** run the UI test suites (`test-apple`, `test-android`,
-`test-linux`); those are validated by `scripts/ci-local.sh` instead — the Apple
-client via `make build-apple`/`test-apple`, the Android UI via `make
-test-android`/`lint-android`/`build-android`, and the GNU/Linux UI via `make
-test-linux` + `scripts/validate-linux-distros.sh`. Run the platform UI targets
-directly when iterating on a specific client.
+## GNU/Linux gate
 
-During migration, `make test-native` is an additional mandatory local gate.
-After final cutover it replaces the legacy Go-specific checks rather than
-running alongside them.
+```sh
+scripts/validate-linux-distros.sh
+make package-smoke
+```
+
+Both x86_64 and aarch64 lanes:
+
+- build/test C17 and JavaFX;
+- produce and launch the Gluon native image with no bundled JRE;
+- install the C daemon/TUI/license helper and JavaFX UI;
+- validate desktop/AppStream/icon metadata;
+- validate systemd/polkit/sysusers/tmpfiles integration;
+- use `secret-tool` for secure storage;
+- install the native package, launch its C daemon, connect the TUI and JavaFX
+  controller to the authenticated loopback API, exercise an ephemeral Secret
+  Service/keyring, and then remove the package while checking that all payload
+  registrations disappear;
+- connect the UI to authenticated loopback HTTP/WebSocket;
+- exercise the daemon and license helper;
+- inspect architecture, dynamic dependencies, notices, and SBOM inputs;
+- uninstall cleanly and verify package-owned paths are gone.
+
+Trisquel produces Debian artifacts, Rocky produces RPM artifacts, and Alma
+builds and installs an ephemeral package from the same RPM recipe as an
+independent compatibility lane.
+
+## macOS gate
+
+```sh
+make build-apple
+make test-apple
+make macos-release-contract-check
+```
+
+The SwiftUI application must embed the arm64 C17 `clambhook` and
+`clambhook-tui` executables plus bundled OpenSSL, libsodium, libuv, and llhttp
+libraries with bundle-relative install names. The signing check rejects
+Homebrew paths, unexpected architectures, stale helpers, missing notices, or
+unexpected extension payloads.
+
+The protected release additionally verifies Developer ID signatures,
+notarization, stapling, Gatekeeper, DMG contents, Sparkle signature/appcast,
+SHA-256, and GPG signatures.
+
+## Artifact and source gate
+
+Before staging:
+
+```sh
+scripts/check-source-only.sh .
+scripts/check-cutover.sh
+scripts/check-license-policy.sh
+scripts/check-github-actions.sh
+git diff --check
+```
+
+After `git add -A`:
+
+```sh
+git diff --cached --check
+git diff --cached --stat
+git ls-files '*.go'
+git ls-files go.mod go.sum vendor
+```
+
+The last two commands must print nothing. Inspect all packages to require:
+
+- no JRE/JDK or obsolete UI payload;
+- no retired runtime build-information section;
+- no migration guards or suffixed executable names;
+- only ARM64 native libraries in Android APK/AAB;
+- correct application/bundle identifiers and API floors;
+- correct C17 executables, JavaFX native image, licenses, notices, and update
+  manifests.
+
+## Delivery gate
+
+Create one coherent cutover commit, push non-force to `origin/master`, and
+monitor every required workflow. Fix defects with follow-up commits until all
+required CI/security jobs pass. Do not create a release tag or manually publish
+artifacts for source delivery.
+
+Finish only when:
+
+```sh
+test "$(git rev-parse HEAD)" = "$(git rev-parse origin/master)"
+test "$(git rev-parse HEAD)" = "$(git ls-remote origin refs/heads/master | awk '{print $1}')"
+test -z "$(git status --porcelain)"
+```

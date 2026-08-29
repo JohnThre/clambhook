@@ -22,7 +22,11 @@ VERSION="${VERSION:-$(git describe --tags --always --dirty 2>/dev/null | sed 's/
 UPDATE_CHANNEL="${UPDATE_CHANNEL:-stable}"
 REQUIRE_SIGNING="${REQUIRE_SIGNING:-1}"
 GPG_KEY="${GPG_KEY:-EAA876B70B1832F5}"
-ARCH="$(uname -m)"
+case "$(uname -m)" in
+  x86_64|amd64) ARCH="x86_64" ;;
+  aarch64|arm64) ARCH="aarch64" ;;
+  *) echo "Unsupported GNU/Linux release architecture: $(uname -m)" >&2; exit 2 ;;
+esac
 DIST_DIR="$ROOT_DIR/dist/linux"
 RELEASE_TAG="${RELEASE_TAG:-v${VERSION}}"
 RELEASE_BASE="https://github.com/${GITHUB_REPOSITORY:-JohnThre/clambhook}/releases/download/${RELEASE_TAG}"
@@ -75,8 +79,8 @@ build_deb() {
   local built
   # shellcheck disable=SC2012 # Package filenames are controlled by dpkg.
   built="$(ls -t ../clambhook_*_*.deb | head -n1)"
-  cp "$built" "$DIST_DIR/clambhook.deb"
-  checksum_and_sign "$DIST_DIR/clambhook.deb"
+  cp "$built" "$DIST_DIR/ClambHook-${VERSION}-${ARCH}.deb"
+  checksum_and_sign "$DIST_DIR/ClambHook-${VERSION}-${ARCH}.deb"
 }
 
 # 2. Rocky Linux / AlmaLinux RPM package (.rpm)
@@ -85,7 +89,9 @@ build_rpm() {
   local topdir="$DIST_DIR/rpmbuild"
   mkdir -p "$topdir"/{BUILD,RPMS,SOURCES,SPECS,SRPMS}
   local rpmver="${VERSION//-/.}"
-  tar --exclude-vcs --exclude='./dist' \
+  tar --exclude-vcs --exclude='./dist' --exclude='./build-native*' \
+    --exclude='./ui/javafx/target' --exclude='./ui/android/.gradle' \
+    --exclude='./ui/android/.native-deps' --exclude='./ui/android/app/build' \
     --transform "s,^\.,clambhook-${rpmver}," \
     -czf "$topdir/SOURCES/clambhook-${rpmver}.tar.gz" .
   rpmbuild --define "_topdir $topdir" --define "version ${rpmver}" \
@@ -93,8 +99,8 @@ build_rpm() {
   local built
   # shellcheck disable=SC2012 # Package filenames are controlled by rpmbuild.
   built="$(ls -t "$topdir"/RPMS/*/clambhook-*.rpm | head -n1)"
-  cp "$built" "$DIST_DIR/clambhook.rpm"
-  checksum_and_sign "$DIST_DIR/clambhook.rpm"
+  cp "$built" "$DIST_DIR/ClambHook-${VERSION}-${ARCH}.rpm"
+  checksum_and_sign "$DIST_DIR/ClambHook-${VERSION}-${ARCH}.rpm"
 }
 
 TARGETS="${1:-deb rpm}"
@@ -104,12 +110,12 @@ for target in $TARGETS; do
 done
 
 # Generate the GNU/Linux update manifest after all packages are built and signed.
-MANIFEST="$DIST_DIR/clambhook-linux-manifest.json"
+MANIFEST="$DIST_DIR/clambhook-linux-${ARCH}-manifest.json"
 PUBLISHED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
 write_manifest_entry() {
   local pkg="$1" file_suffix="$2"
-  local artifact="$DIST_DIR/clambhook.${file_suffix}"
+  local artifact="$DIST_DIR/ClambHook-${VERSION}-${ARCH}.${file_suffix}"
   local sha256=""
   if [[ -f "$artifact.sha256" ]]; then
     sha256="$(awk '{print $1}' "$artifact.sha256")"

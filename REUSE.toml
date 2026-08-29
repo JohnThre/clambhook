@@ -15,9 +15,9 @@ path = [
   "debian/changelog",
   "debian/source/format",
   "flake.lock",
-  "go.sum",
   "keys/clambhook-release-key.asc",
   "packaging/icons/**/*.png",
+  "packaging/sbom.cdx.json",
   "ui/android/app/src/main/res/**/*.png",
   "ui/apple/**/*.png",
   "ui/apple/**/*.json",
@@ -25,8 +25,6 @@ path = [
   "ui/apple/**/*.resolved",
   "ui/apple/**/*.xcworkspacedata",
   "ui/apple/**/*.xcscheme",
-  "ui/skip/**/*.json",
-  "ui/skip/**/*.xcstrings",
 ]
 precedence = "aggregate"
 SPDX-FileCopyrightText = "2026 Pengfan Chang <support@swiphtgroup.com>"
@@ -38,9 +36,6 @@ path = [
   "ui/android/gradlew",
   "ui/android/gradle/wrapper/gradle-wrapper.jar",
   "ui/android/gradle/wrapper/gradle-wrapper.properties",
-  "ui/linux/gradlew",
-  "ui/linux/gradle/wrapper/gradle-wrapper.jar",
-  "ui/linux/gradle/wrapper/gradle-wrapper.properties",
 ]
 precedence = "override"
 SPDX-FileCopyrightText = "2015 the original Gradle authors"
@@ -49,8 +44,8 @@ SPDX-License-Identifier = "Apache-2.0"
 # MaxMind-DB test fixtures are vendored unchanged under Apache-2.0.
 [[annotations]]
 path = [
-  "internal/geo/testdata/GeoIP2-City-Test.mmdb",
-  "internal/geo/testdata/GeoIP2-Country-Test.mmdb",
+  "third_party/libmaxminddb/testdata/GeoIP2-City-Test.mmdb",
+  "third_party/libmaxminddb/testdata/GeoIP2-Country-Test.mmdb",
 ]
 precedence = "override"
 SPDX-FileCopyrightText = "MaxMind, Inc."

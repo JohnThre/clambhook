@@ -1,81 +1,107 @@
 <!-- SPDX-FileCopyrightText: 2026 Pengfan Chang <support@swiphtgroup.com> -->
 <!-- SPDX-License-Identifier: GPL-3.0-only -->
 
-# ClambHook GNU/Linux packaging
+# Packaging
 
-ClambHook for GNU/Linux is distributed only from clambercloud.com as free
-per-distro packages. Continued use after the one-month trial requires a license
-purchased from store.swiphtgroup.com (Creem or NOWPayments; PayPal is not
-accepted). Do not publish these installers on GitHub Releases or package
-mirrors.
+GNU/Linux packages contain the C17 `clambhook` daemon, `clambhook-tui`,
+`clambhook-license`, and the self-contained `clambhook-ui` Gluon native image.
+They do not bundle a JRE. Android packages are ARM64 Gluon APK/AAB files with
+the Kotlin platform AAR and C17 JNI runtime. macOS embeds the C binaries in the
+SwiftUI application.
 
-## Targets
+## GNU/Linux payload
 
-| Distro | Package | Recipe |
+The Debian and RPM recipes install:
+
+- `/usr/bin/clambhook`
+- `/usr/bin/clambhook-tui`
+- `/usr/bin/clambhook-license`
+- `/usr/bin/clambhook-ui`
+- `org.jpfchang.clambhook.desktop` and matching AppStream metadata/icon
+- `clambhook-daemon.service`
+- the ClambHook polkit policy, sysusers/tmpfiles metadata, sample config,
+  licenses, notices, and documentation
+
+The JavaFX image uses system graphics/audio libraries but carries its Java
+runtime as native code. Package inspection rejects JAR/JRE payloads, retired UI
+artifacts, unexpected executables, and runtime build metadata from the retired
+implementation.
+
+The controller probes the loopback API before connecting. If the packaged
+daemon is not ready, `PlatformServices` starts `clambhook-daemon.service`
+through systemd and waits for the C17 API before sending the connect request.
+Closing the JavaFX window never stops the system daemon.
+
+## Authoritative distro matrix
+
+| Distribution | Architectures | Role |
 | --- | --- | --- |
-| Trisquel | `.deb` | `debian/` (`dpkg-buildpackage -us -uc -b`) |
-| Rocky Linux, AlmaLinux | `.rpm` | `packaging/rpm/clambhook.spec` |
+| Trisquel 12 Ecne | x86_64, aarch64 | Build/test Debian package |
+| Rocky Linux 9 | x86_64, aarch64 | Build/test RPM package |
+| AlmaLinux 9 | x86_64, aarch64 | Independent installed-package compatibility |
 
-Current packages install the daemon (`clambhook`), the legacy Kotlin/Compose
-Multiplatform desktop controller (`clambhook-linux`), the terminal dashboard
-(`clambhook-tui`), and the private license helper (`clambhook-license`) used for
-trial and license activation. The C daemon/helper and C/GTK 4 client are
-additive migration targets and must not enter release packages before the
-parity and no-Go packaging gates in
-[`../docs/c-migration.md`](../docs/c-migration.md) pass.
-
-## Privilege model (TUN / Enhanced mode)
-
-- **System Proxy mode** needs no elevated privileges. It exposes local SOCKS5
-  and HTTP listeners; the desktop app launches the daemon as the current user.
-- **Enhanced / device-wide TUN routing** creates a TUN interface, installs
-  routes, and rewrites DNS, which requires `CAP_NET_ADMIN` (and `CAP_NET_RAW`).
-  The native `.deb`/`.rpm` packages install:
-  - `packaging/systemd/clambhook-daemon.service` — a system service that runs
-    the daemon with the required ambient capabilities.
-  - `packaging/polkit/com.clambhook.Clambhook.policy` — a PolicyKit action so an
-    active local user can start/stop that service with interactive
-    authorization instead of a raw root shell.
-
-## Validation
-
-`scripts/validate-linux-distros.sh` does a headless build + smoke test of the
-GNU/Linux app on exactly Trisquel 12, Rocky Linux 9, and AlmaLinux 9 in
-throwaway Linux containers. GitHub Actions runs the same harness; it is also
-the GNU/Linux section of `scripts/ci-local.sh`.
-
-It auto-selects a supported local container engine:
-
-- **Podman** is preferred.
-- **Docker** is the fallback.
-
-```bash
-# Validate all three supported distros (or pass one):
-scripts/validate-linux-distros.sh
-scripts/validate-linux-distros.sh trisquel
-scripts/validate-linux-distros.sh rocky
-scripts/validate-linux-distros.sh alma
-```
-
-Per distro the harness installs the build toolchain, runs sanitizer-backed C
-tests, builds the C/GTK client, validates the rollback runtime and desktop
-controller while migration remains active, and builds the matching Debian/RPM
-recipe. GUI rendering is out of scope for headless containers and remains a
-manual desktop QA gate.
+The Trisquel x86_64 image is built from the signed archive with debootstrap.
+The aarch64 lane uses the official checksum-pinned root filesystem. Rocky and
+Alma use their official version-9 images.
 
 ```mermaid
 flowchart TD
-    dev["Developer host"] --> tool["Podman or Docker"]
-    subgraph distros["Distro images (validate-linux-distros.sh)"]
-        trisquel["Trisquel 12 official rootfs\n→ .deb path"]
-        rocky["Rocky Linux 9 official image\n→ .rpm path"]
-        alma["AlmaLinux 9 official image\n→ .rpm path"]
-    end
-    tool --> distros
-    distros --> build["make test-native + build-linux-gtk\nrollback + packaging gates"]
-    build --> smoke["Smoke test:\nclambhook-license trial (ok:true)\nclambhook -version\nclambhook-tui -version"]
-    smoke --> pass["PASS / FAIL per distro"]
+    commit["Source commit"] --> native["C17 warning-as-error<br/>ASan/UBSan + CTest"]
+    commit --> javafx["Java 17 + Maven<br/>JavaFX tests + Gluon native image"]
+    native --> matrix{"Runner architecture"}
+    javafx --> matrix
+    matrix --> x64["ubuntu-24.04<br/>x86_64"]
+    matrix --> arm["ubuntu-24.04-arm<br/>aarch64"]
+    x64 --> trisquel["Trisquel 12<br/>Debian package"]
+    arm --> trisquel
+    x64 --> rocky["Rocky Linux 9<br/>RPM package"]
+    arm --> rocky
+    x64 --> alma["AlmaLinux 9<br/>compatibility"]
+    arm --> alma
+    trisquel --> inspect["Install · launch under Xvfb<br/>daemon · secret-tool · metadata<br/>uninstall · payload inspection"]
+    rocky --> inspect
+    alma --> inspect
+    inspect --> protected["Protected release job<br/>checksum + GPG signature"]
+    protected --> github["GitHub Releases"]
 ```
 
-See [`../docs/release-validation.md`](../docs/release-validation.md) for the
-full release-validation policy and diagrams.
+Run the matrix locally with Podman or Docker:
+
+```sh
+scripts/validate-linux-distros.sh
+scripts/validate-linux-distros.sh trisquel
+scripts/validate-linux-distros.sh rocky alma
+```
+
+Container isolation is optional locally. Hosted lanes are authoritative.
+Apple's `container` CLI is not used.
+
+## Recipe validation
+
+`scripts/ci-linux-package-recipes.sh debian` builds the Debian recipe inside
+Trisquel. `scripts/ci-linux-package-recipes.sh rpm` builds the RPM recipe
+inside Rocky. `scripts/package-smoke.sh` validates metadata, production binary
+names, desktop integration, daemon unit hardening, JavaFX native image launch,
+license helper contract, expected architecture, absence of a bundled JRE, and
+clean uninstall behavior.
+
+## Release files
+
+For each GNU/Linux architecture, the protected workflow produces:
+
+- `ClambHook-<version>-<arch>.deb`
+- `ClambHook-<version>-<arch>.rpm`
+- `clambhook-linux-<arch>-manifest.json`
+- SHA-256 files and armored detached GPG signatures
+
+The Android release produces `ClambHook-arm64.apk`,
+`ClambHook-arm64.aab`, a signed update manifest, checksums, and detached GPG
+signatures. The macOS release produces the signed/notarized Apple Silicon DMG,
+ZIP, update manifest, checksum, appcast, and signatures.
+
+Ordinary CI uploads reports only. Packaging or publication is allowed only in
+`.github/workflows/release.yml` after its environment protections and signing
+checks pass.
+
+See [release validation](../docs/release-validation.md) and
+[distribution policy](../docs/distribution.md).

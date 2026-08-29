@@ -36,6 +36,7 @@ void ch_test_crypto(void);
 void ch_test_developer(void);
 void ch_test_dns(void);
 void ch_test_events(void);
+void ch_test_geo(void);
 void ch_test_ip_stack(void);
 void ch_test_license(void);
 void ch_test_listener(void);

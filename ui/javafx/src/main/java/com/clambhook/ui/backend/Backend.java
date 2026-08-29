@@ -4,6 +4,7 @@
 package com.clambhook.ui.backend;
 
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Flow;
 
 /** Platform boundary used by the shared JavaFX controller. */
 public interface Backend extends AutoCloseable {
@@ -19,6 +20,14 @@ public interface Backend extends AutoCloseable {
 
     default CompletableFuture<String> put(String path, String body) {
         return request("PUT", path, body);
+    }
+
+    default boolean supportsLiveEvents() {
+        return false;
+    }
+
+    default Flow.Publisher<String> liveEvents(String path) {
+        throw new UnsupportedOperationException("this backend has no live event stream");
     }
 
     String displayName();

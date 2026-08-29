@@ -32,7 +32,6 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  GO_VERSION: '1.25.0'
   JAVA_VERSION: '17'
   ANDROID_NDK_VERSION: '27.0.12077973'
   ANDROID_CMAKE_VERSION: '3.22.1'
@@ -145,11 +144,19 @@ jobs:
             --repo "$GITHUB_REPOSITORY" --clobber
 
   linux:
-    name: Sign and publish GNU/Linux
+    name: Sign and publish GNU/Linux ${{ matrix.arch }}
     needs: [prepare, release]
     if: needs.prepare.outputs.platform == 'all' || needs.prepare.outputs.platform == 'linux'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-24.04
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 150
     environment: production
     permissions:
       contents: write
@@ -168,7 +175,7 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq debootstrap gnupg
-      - name: Build Trisquel and Rocky packages
+      - name: Build Trisquel and Rocky packages with Gluon native image
         env:
           CLAMBHOOK_LINUX_RELEASE_BUILD: '1'
         run: scripts/validate-linux-distros.sh trisquel rocky
@@ -182,7 +189,7 @@ jobs:
       - name: Publish GNU/Linux assets to GitHub Release
         run: |
           shopt -s nullglob
-          assets=(dist/linux/*.deb dist/linux/*.rpm dist/linux/*.sha256 dist/linux/*.sig dist/linux/clambhook-linux-manifest.json)
+          assets=(dist/linux/*.deb dist/linux/*.rpm dist/linux/*.sha256 dist/linux/*.sig dist/linux/clambhook-linux-*-manifest.json)
           (( ${#assets[@]} > 0 ))
           gh release upload "$RELEASE_TAG" "${assets[@]}" --repo "$GITHUB_REPOSITORY" --clobber
 
@@ -234,34 +241,35 @@ jobs:
             'build-tools;36.0.0' \
             "ndk;${ANDROID_NDK_VERSION}" \
             "cmake;${ANDROID_CMAKE_VERSION}"
-      - name: Build unsigned Android release
+      - name: Provision checksum-pinned GraalVM 17
         run: |
-          ui/android/gradlew --no-daemon -p ui/android \
-            :app:assembleRelease \
-            -Pclambhook.versionName="$VERSION" \
-            -Pclambhook.versionCode="$VERSION_CODE"
-      - name: Sign and verify Android release
+          graal_home="$(bash scripts/provision-graalvm17.sh "$RUNNER_TEMP/graalvm17" | tail -1)"
+          echo "$graal_home/bin" >> "$GITHUB_PATH"
+          echo "GRAALVM_HOME=$graal_home" >> "$GITHUB_ENV"
+          echo "JAVA_HOME=$graal_home" >> "$GITHUB_ENV"
+      - name: Prepare protected Gluon Android signing
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-        run: scripts/sign-ci-android-release.sh "$RUNNER_TEMP"
+        run: scripts/prepare-ci-android-signing.sh "$RUNNER_TEMP" "$GITHUB_ENV"
       - name: Import isolated GPG release key
         env:
           GPG_PRIVATE_KEY_BASE64: ${{ secrets.GPG_PRIVATE_KEY_BASE64 }}
           GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
         run: scripts/prepare-ci-release-gpg.sh "$RUNNER_TEMP" "$GITHUB_ENV"
-      - name: Package Android release metadata
-        env:
-          CLAMBHOOK_ANDROID_SKIP_BUILD: '1'
+      - name: Build, sign, inspect, and package Gluon Android release
         run: make release-android
       - name: Publish Android assets to GitHub Release
         run: |
           shopt -s nullglob
-          assets=(dist/android/*.apk dist/android/*.sha256 dist/android/*.sig dist/android/clambhook-android-manifest.json)
+          assets=(dist/android/*.apk dist/android/*.aab dist/android/*.sha256 dist/android/*.sig dist/android/clambhook-android-manifest.json)
           (( ${#assets[@]} > 0 ))
           gh release upload "$RELEASE_TAG" "${assets[@]}" --repo "$GITHUB_REPOSITORY" --clobber
+      - name: Remove temporary Android signing material
+        if: always()
+        run: rm -f "${CLAMBHOOK_ANDROID_KEYSTORE_PATH:-}"
 
   macos:
     name: Sign, notarize, and publish macOS
@@ -286,11 +294,6 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-      - name: Set up Go
-        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
-        with:
-          go-version: ${{ env.GO_VERSION }}
-          cache: true
       - name: Install macOS release tools
         run: |
           brew install cmake ninja pkg-config libuv libsodium llhttp openssl@3 curl xcodegen gnupg

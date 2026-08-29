@@ -159,7 +159,7 @@ int main(int argc, char **argv) {
         return 0;
     }
     if (argc != 1) {
-        write_error("usage: clambhook-license-c [-version]");
+        write_error("usage: clambhook-license [-version]");
         return 0;
     }
     char *raw = read_request();

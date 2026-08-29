@@ -28,7 +28,7 @@ typedef struct daemon_state {
 static void usage(FILE *stream) {
     fprintf(
         stream,
-        "usage: clambhook-c [-version] [--allow-incomplete-native] "
+        "usage: clambhook [-version] "
         "[-api host:port] [-api-token token] [-config path] [-license path] [-no-watch]\n"
     );
 }
@@ -78,17 +78,15 @@ static void report_reload(bool succeeded, const ch_error *error, void *context) 
 int main(int argc, char **argv) {
     const char *api_address = "127.0.0.1:9090";
     const char *api_token = getenv("CLAMBHOOK_API_TOKEN");
+    const char *license_path = getenv("CLAMBHOOK_LICENSE_PATH");
     const char *config_path = "";
     char *configured_api_address = NULL;
     int show_version = 0;
-    int allow_incomplete = 0;
     int api_address_explicit = 0;
     int no_watch = 0;
     for (int index = 1; index < argc; ++index) {
         if (strcmp(argv[index], "-version") == 0 || strcmp(argv[index], "--version") == 0) {
             show_version = 1;
-        } else if (strcmp(argv[index], "--allow-incomplete-native") == 0) {
-            allow_incomplete = 1;
         } else if (strcmp(argv[index], "-api") == 0) {
             api_address = next_argument(argc, argv, &index, "-api");
             if (api_address == NULL) return 2;
@@ -100,7 +98,8 @@ int main(int argc, char **argv) {
             config_path = next_argument(argc, argv, &index, "-config");
             if (config_path == NULL) return 2;
         } else if (strcmp(argv[index], "-license") == 0) {
-            if (next_argument(argc, argv, &index, "-license") == NULL) return 2;
+            license_path = next_argument(argc, argv, &index, "-license");
+            if (license_path == NULL) return 2;
         } else if (strcmp(argv[index], "-no-watch") == 0) {
             no_watch = 1;
         } else {
@@ -112,11 +111,7 @@ int main(int argc, char **argv) {
         printf("clambhook %s\n", CLAMBHOOK_VERSION);
         return 0;
     }
-    if (!allow_incomplete) {
-        usage(stderr);
-        fprintf(stderr, "native daemon cutover is not enabled until the parity gate passes\n");
-        return 2;
-    }
+    if (license_path == NULL) license_path = "";
 
     if (config_path[0] != '\0' && !api_address_explicit) {
         ch_config *config = NULL;
@@ -172,7 +167,8 @@ int main(int argc, char **argv) {
         }
     }
     state.api_server = ch_api_server_start(
-        loop, state.runtime, api_address, api_token == NULL ? "" : api_token, &error
+        loop, state.runtime, api_address, api_token == NULL ? "" : api_token,
+        license_path, &error
     );
     free(configured_api_address);
     if (state.api_server == NULL) {
@@ -191,7 +187,7 @@ int main(int argc, char **argv) {
     (void)uv_signal_start(&state.terminate_signal, stop_daemon, SIGTERM);
     fprintf(
         stderr,
-        "clambhook %s experimental native API listening on %s\n",
+        "clambhook %s API listening on %s\n",
         CLAMBHOOK_VERSION,
         ch_api_server_address(state.api_server)
     );

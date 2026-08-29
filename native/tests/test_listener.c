@@ -13,7 +13,10 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
+#include <openssl/ssl.h>
+
 #include "clambhook/config.h"
+#include "clambhook/developer.h"
 #include "clambhook/listener.h"
 #include "clambhook/protocol.h"
 
@@ -23,8 +26,15 @@ typedef struct listener_dial_context {
     atomic_int matched;
     pthread_t echo_thread;
     int echo_started;
+    int http_origin;
+    char received_header[1024];
     const ch_config_table *packet_chain;
 } listener_dial_context;
+
+typedef struct listener_origin_context {
+    int descriptor;
+    listener_dial_context *dial;
+} listener_origin_context;
 
 typedef struct listener_udp_echo {
     int descriptor;
@@ -70,6 +80,30 @@ static void *listener_echo_main(void *context) {
     return NULL;
 }
 
+static void *listener_http_origin_main(void *context) {
+    listener_origin_context *origin = context;
+    size_t length = 0U;
+    while (length + 1U < sizeof(origin->dial->received_header)) {
+        ssize_t received = recv(origin->descriptor,
+                                origin->dial->received_header + length,
+                                1U, 0);
+        if (received < 0 && errno == EINTR) continue;
+        if (received <= 0) break;
+        length += (size_t)received;
+        origin->dial->received_header[length] = '\0';
+        if (length >= 4U && strcmp(
+                origin->dial->received_header + length - 4U,
+                "\r\n\r\n") == 0) break;
+    }
+    static const char response[] =
+        "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok";
+    (void)test_send_all(origin->descriptor, response, sizeof(response) - 1U);
+    (void)shutdown(origin->descriptor, SHUT_RDWR);
+    (void)close(origin->descriptor);
+    free(origin);
+    return NULL;
+}
+
 static ch_status listener_test_dial(const char *network, const char *target,
                                     const char *source, ch_proxy_route *route,
                                     int *out_descriptor, void *context,
@@ -89,16 +123,29 @@ static ch_status listener_test_dial(const char *network, const char *target,
     if (dial->action != CH_PROXY_ROUTE_CONNECT) return CH_OK;
     int descriptors[2];
     if (socketpair(AF_UNIX, SOCK_STREAM, 0, descriptors) != 0) return CH_ERROR_IO;
-    int *echo_descriptor = malloc(sizeof(*echo_descriptor));
-    if (echo_descriptor == NULL) {
+    void *thread_context = NULL;
+    void *(*thread_main)(void *) = listener_echo_main;
+    if (dial->http_origin) {
+        listener_origin_context *origin = malloc(sizeof(*origin));
+        if (origin != NULL) {
+            origin->descriptor = descriptors[1];
+            origin->dial = dial;
+        }
+        thread_context = origin;
+        thread_main = listener_http_origin_main;
+    } else {
+        int *echo_descriptor = malloc(sizeof(*echo_descriptor));
+        if (echo_descriptor != NULL) *echo_descriptor = descriptors[1];
+        thread_context = echo_descriptor;
+    }
+    if (thread_context == NULL) {
         (void)close(descriptors[0]);
         (void)close(descriptors[1]);
         return CH_ERROR_OUT_OF_MEMORY;
     }
-    *echo_descriptor = descriptors[1];
-    if (pthread_create(&dial->echo_thread, NULL, listener_echo_main,
-                       echo_descriptor) != 0) {
-        free(echo_descriptor);
+    if (pthread_create(&dial->echo_thread, NULL, thread_main,
+                       thread_context) != 0) {
+        free(thread_context);
         (void)close(descriptors[0]);
         (void)close(descriptors[1]);
         return CH_ERROR_INTERNAL;
@@ -447,6 +494,7 @@ static void test_http_connect_and_forward(void) {
     };
     options.authentication_required = 0;
     options.dial_context = &dial;
+    dial.http_origin = 1;
     listener = ch_proxy_listener_start(&options, &error);
     CH_TEST_ASSERT(listener != NULL);
     client = listener_connect(ch_proxy_listener_address(listener));
@@ -456,9 +504,14 @@ static void test_http_connect_and_forward(void) {
         "Host: example.com\r\nProxy-Connection: keep-alive\r\n\r\n";
     CH_TEST_ASSERT(test_send_all(client, forward_request, sizeof(forward_request) - 1U));
     (void)listener_receive_header(client, header, sizeof(header));
-    CH_TEST_ASSERT(strstr(header, "GET /path?q=1 HTTP/1.1\r\n") == header);
-    CH_TEST_ASSERT(strstr(header, "Host: example.com\r\n") != NULL);
-    CH_TEST_ASSERT(strstr(header, "Proxy-Connection") == NULL);
+    CH_TEST_ASSERT(strstr(header, "200 OK") != NULL);
+    CH_TEST_ASSERT(strstr(dial.received_header,
+                          "GET /path?q=1 HTTP/1.1\r\n") ==
+                   dial.received_header);
+    CH_TEST_ASSERT(strstr(dial.received_header,
+                          "Host: example.com\r\n") != NULL);
+    CH_TEST_ASSERT(strstr(dial.received_header,
+                          "Proxy-Connection") == NULL);
     CH_TEST_ASSERT(atomic_load(&dial.matched) == 1);
     (void)shutdown(client, SHUT_RDWR);
     (void)close(client);
@@ -466,9 +519,121 @@ static void test_http_connect_and_forward(void) {
     listener_join_echo(&dial);
 }
 
+static void test_http_developer_mitm_map_local(void) {
+    char ca_cert[256];
+    char ca_key[256];
+    char local_path[256];
+    (void)snprintf(ca_cert, sizeof(ca_cert),
+                   "/tmp/clambhook-listener-ca-%ld.pem", (long)getpid());
+    (void)snprintf(ca_key, sizeof(ca_key),
+                   "/tmp/clambhook-listener-ca-%ld-key.pem", (long)getpid());
+    (void)snprintf(local_path, sizeof(local_path),
+                   "/tmp/clambhook-listener-map-%ld.txt", (long)getpid());
+    FILE *file = fopen(local_path, "wb");
+    CH_TEST_ASSERT(file != NULL);
+    CH_TEST_ASSERT(fwrite("local body", 1U, 10U, file) == 10U);
+    CH_TEST_ASSERT(fclose(file) == 0);
+    char document[2048];
+    int length = snprintf(
+        document, sizeof(document),
+        "active = \"default\"\n"
+        "[developer]\n"
+        "enabled = true\n"
+        "mitm_enabled = true\n"
+        "ca_cert_path = \"%s\"\n"
+        "ca_key_path = \"%s\"\n"
+        "ssl_decrypt_hosts = [\"example.com\"]\n"
+        "[[developer.map_rule]]\n"
+        "id = \"local\"\n"
+        "enabled = true\n"
+        "kind = \"local\"\n"
+        "local_path = \"%s\"\n"
+        "[developer.map_rule.match]\n"
+        "host = \"example.com\"\n"
+        "[[profile]]\n"
+        "name = \"default\"\n",
+        ca_cert, ca_key, local_path);
+    CH_TEST_ASSERT(length > 0 && (size_t)length < sizeof(document));
+    ch_error error;
+    ch_config *config = NULL;
+    CH_TEST_ASSERT(ch_config_parse(document, NULL, &config, &error) == CH_OK);
+    ch_developer_manager *developer = ch_developer_manager_create(&error);
+    CH_TEST_ASSERT(developer != NULL);
+    CH_TEST_ASSERT(ch_developer_manager_configure(
+                       developer, config, &error) == CH_OK);
+
+    listener_dial_context dial = {
+        .expected_target = "example.com:443",
+        .action = CH_PROXY_ROUTE_CONNECT
+    };
+    ch_proxy_listener_options options = {
+        .protocol = CH_PROXY_LISTENER_HTTP,
+        .address = "127.0.0.1:0",
+        .dial = listener_test_dial,
+        .dial_context = &dial,
+        .developer = developer,
+        .profile_name = "default"
+    };
+    ch_proxy_listener *listener = ch_proxy_listener_start(&options, &error);
+    CH_TEST_ASSERT(listener != NULL);
+    int client = listener_connect(ch_proxy_listener_address(listener));
+    CH_TEST_ASSERT(client >= 0);
+    static const char connect_request[] =
+        "CONNECT example.com:443 HTTP/1.1\r\n"
+        "Host: example.com:443\r\n\r\n";
+    CH_TEST_ASSERT(test_send_all(client, connect_request,
+                                 sizeof(connect_request) - 1U));
+    char header[1024];
+    (void)listener_receive_header(client, header, sizeof(header));
+    CH_TEST_ASSERT(strstr(header, "200 Connection established") != NULL);
+
+    SSL_CTX *client_context = SSL_CTX_new(TLS_client_method());
+    CH_TEST_ASSERT(client_context != NULL);
+    SSL_CTX_set_verify(client_context, SSL_VERIFY_PEER, NULL);
+    CH_TEST_ASSERT(SSL_CTX_load_verify_locations(
+                       client_context, ca_cert, NULL) == 1);
+    SSL *tls = SSL_new(client_context);
+    CH_TEST_ASSERT(tls != NULL);
+    CH_TEST_ASSERT(SSL_set_fd(tls, client) == 1);
+    CH_TEST_ASSERT(SSL_set_tlsext_host_name(tls, "example.com") == 1);
+    CH_TEST_ASSERT(SSL_set1_host(tls, "example.com") == 1);
+    CH_TEST_ASSERT(SSL_connect(tls) == 1);
+    static const char request[] =
+        "GET /mapped HTTP/1.1\r\nHost: example.com\r\n"
+        "Connection: close\r\n\r\n";
+    CH_TEST_ASSERT(SSL_write(tls, request, (int)(sizeof(request) - 1U)) ==
+                   (int)(sizeof(request) - 1U));
+    char response[4096];
+    size_t response_length = 0U;
+    while (response_length + 1U < sizeof(response)) {
+        int received = SSL_read(tls, response + response_length,
+                                (int)(sizeof(response) - response_length - 1U));
+        if (received <= 0) break;
+        response_length += (size_t)received;
+        response[response_length] = '\0';
+        if (strstr(response, "local body") != NULL) break;
+    }
+    response[response_length] = '\0';
+    CH_TEST_ASSERT(strstr(response, "HTTP/1.1 200 OK") != NULL);
+    CH_TEST_ASSERT(strstr(response, "local body") != NULL);
+    (void)SSL_shutdown(tls);
+    SSL_free(tls);
+    SSL_CTX_free(client_context);
+    (void)shutdown(client, SHUT_RDWR);
+    (void)close(client);
+    ch_proxy_listener_stop(listener);
+    listener_join_echo(&dial);
+    ch_developer_manager_destroy(developer);
+    ch_config_free(config);
+    (void)unlink(ca_cert);
+    (void)unlink(ca_key);
+    (void)unlink(local_path);
+}
+
 void ch_test_listener(void) {
     test_socks5_connect_and_auth();
     test_socks5_block();
     test_socks5_udp_associate();
     test_http_connect_and_forward();
+    test_http_developer_mitm_map_local();
 }

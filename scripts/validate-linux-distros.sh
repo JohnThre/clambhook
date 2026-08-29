@@ -13,9 +13,9 @@
 #   scripts/validate-linux-distros.sh            # all three targets
 #   scripts/validate-linux-distros.sh trisquel   # one target
 #
-# The harness supports Podman or Docker. It validates the sanitizer-backed C runtime, C/GTK client, the
-# legacy rollback runtime while migration is active, desktop controller tests,
-# and the distro-family package recipe. No artifact is published.
+# The harness supports Podman or Docker. It validates the sanitizer-backed C17
+# runtime, the self-contained JavaFX/Gluon native image, and the authoritative
+# distro-family package recipe. No artifact is published.
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -111,10 +111,11 @@ apt-get update -qq
 apt-get install -y -qq \
   build-essential cmake ninja-build pkg-config \
   libuv1-dev libsodium-dev libllhttp-dev libssl-dev libcurl4-openssl-dev \
-  libgtk-4-dev libsoup-3.0-dev libjson-glib-dev \
-  xvfb xauth libsecret-tools \
-  openjdk-17-jdk-headless \
-  debhelper dh-golang dpkg-dev fakeroot rsync \
+  libasound2-dev libfreetype6-dev libgl-dev libglib2.0-dev libgtk-3-dev \
+  libpango1.0-dev libx11-dev libxtst-dev zlib1g-dev \
+  xvfb xauth dbus-x11 gnome-keyring libsecret-tools \
+  openjdk-17-jdk-headless maven \
+  debhelper dpkg-dev fakeroot rsync iproute2 polkitd systemd \
   git curl wget ca-certificates tar file xz-utils >/dev/null'
 
 rpm_setup='dnf install -y -q dnf-plugins-core epel-release >/dev/null
@@ -122,55 +123,46 @@ dnf config-manager --set-enabled crb >/dev/null
 dnf install -y -q --allowerasing \
   gcc gcc-c++ make cmake ninja-build pkgconf-pkg-config \
   libuv-devel libsodium-devel llhttp-devel openssl-devel libcurl-devel \
-  gtk4-devel libsoup3-devel json-glib-devel \
-  xorg-x11-server-Xvfb xorg-x11-xauth libsecret \
-  java-17-openjdk-devel \
-  rpm-build systemd-rpm-macros polkit-devel \
+  alsa-lib-devel freetype-devel gtk3-devel libX11-devel libXtst-devel \
+  mesa-libGL-devel pango-devel zlib-devel \
+  xorg-x11-server-Xvfb xorg-x11-xauth dbus-daemon gnome-keyring libsecret \
+  java-17-openjdk-devel maven \
+  rpm-build systemd-rpm-macros polkit-devel iproute \
   git curl wget tar gzip file which rsync ca-certificates >/dev/null'
-
-# Stock distro Go packages are older than go.mod, so install the exact official
-# toolchain requested by the repository.
-# shellcheck disable=SC2016 # Expanded by bash inside the target container.
-go_setup='set -e
-GO_VER=$(sed -n "s/^go \([0-9.][0-9.]*\)$/\1/p" go.mod | head -1)
-case "$(uname -m)" in
-  x86_64) GOARCH=amd64 ;;
-  aarch64|arm64) GOARCH=arm64 ;;
-  *) echo "unsupported architecture $(uname -m)"; exit 2 ;;
-esac
-curl -fsSL "https://go.dev/dl/go${GO_VER}.linux-${GOARCH}.tar.gz" | tar -C /usr/local -xz
-export PATH=/usr/local/go/bin:$PATH
-go version'
 
 # shellcheck disable=SC2016 # Expanded by bash inside the target container.
 smoke='set -e
 cd /src
-export PATH=/usr/local/go/bin:$PATH
+GRAALVM_HOME=$(bash scripts/provision-graalvm17.sh /opt/clambhook-graalvm17 | tail -1)
+export GRAALVM_HOME JAVA_HOME=$GRAALVM_HOME PATH=$GRAALVM_HOME/bin:$PATH
 make test-native
-make build-linux-gtk
-test -x build-native/clambhook-linux-c
-./build-native/clambhook-linux-c --version | grep -q "^clambhook-linux "
-CLAMBHOOK_GTK_LICENSE_CONFIG=$(mktemp -d)
+make test-javafx
+make build
+make build-linux
+case "$(uname -m)" in
+  x86_64) GLUON_TARGET=x86_64-linux ;;
+  aarch64|arm64) GLUON_TARGET=aarch64-linux ;;
+  *) echo "unsupported JavaFX image architecture"; exit 2 ;;
+esac
+GLUON_UI="ui/javafx/target/gluonfx/$GLUON_TARGET/clambhook-ui"
+test -x "$GLUON_UI"
+CLAMBHOOK_UI_CONFIG=$(mktemp -d)
 set +e
 timeout 4s xvfb-run -a env \
-  XDG_CONFIG_HOME="$CLAMBHOOK_GTK_LICENSE_CONFIG" \
+  XDG_CONFIG_HOME="$CLAMBHOOK_UI_CONFIG" \
   CLAMBHOOK_API_URL=http://127.0.0.1:1 \
-  ./build-native/clambhook-linux-c >/tmp/clambhook-gtk-smoke.log 2>&1
-CLAMBHOOK_GTK_EXIT=$?
+  "$GLUON_UI" >/tmp/clambhook-javafx-smoke.log 2>&1
+CLAMBHOOK_UI_EXIT=$?
 set -e
-test "$CLAMBHOOK_GTK_EXIT" -eq 124
-test "$(stat -c %a "$CLAMBHOOK_GTK_LICENSE_CONFIG/clambhook/linux-license.json")" = 600
-test "$(stat -c %a "$CLAMBHOOK_GTK_LICENSE_CONFIG/clambhook/license-snapshot.json")" = 600
-grep -q "trialStartDate" "$CLAMBHOOK_GTK_LICENSE_CONFIG/clambhook/license-snapshot.json"
-make test
-make build
-make test-linux
-SNAP=$(echo "{\"command\":\"ensure-trial\",\"snapshot\":\"\"}" | ./bin/clambhook-license)
+test "$CLAMBHOOK_UI_EXIT" -eq 124
+! ldd "$GLUON_UI" | grep -Eq "libjvm|/jre/|/jdk/"
+SNAP=$(echo "{\"command\":\"ensure-trial\",\"snapshot\":\"\"}" | ./build-native/clambhook-license)
 echo "license: $SNAP"
 echo "$SNAP" | grep -q "\"ok\":true"
-./bin/clambhook -version
-./bin/clambhook-tui -version
-echo "ClambHook C, GTK, rollback, desktop, and license smoke: OK"'
+./build-native/clambhook -version
+./build-native/clambhook-tui -version
+! readelf -S ./build-native/clambhook | grep -q "\.go\.buildinfo"
+echo "ClambHook C17 and JavaFX/Gluon smoke: OK"'
 
 run_one() {
   local distro="$1" image="${IMAGE[$1]:-}" setup recipe command
@@ -201,10 +193,20 @@ run_one() {
     container_env+=(--env "UPDATE_CHANNEL=${UPDATE_CHANNEL:-stable}")
     case "$distro" in
       trisquel)
-        command='make clean; REQUIRE_SIGNING=0 CLAMBHOOK_RELEASE_APPEND=0 scripts/release-linux.sh deb'
+        # shellcheck disable=SC2016 # Expanded by bash inside the target container.
+        command='make clean
+REQUIRE_SIGNING=0 CLAMBHOOK_RELEASE_APPEND=0 scripts/release-linux.sh deb
+release_package=$(find dist/linux -maxdepth 1 -type f -name "*.deb" -print -quit)
+test -n "$release_package"
+CLAMBHOOK_CONTAINER_PACKAGE_SMOKE=1 scripts/smoke-installed-linux-package.sh "$release_package"'
         ;;
       rocky)
-        command='make clean; REQUIRE_SIGNING=0 CLAMBHOOK_RELEASE_APPEND=1 scripts/release-linux.sh rpm'
+        # shellcheck disable=SC2016 # Expanded by bash inside the target container.
+        command='make clean
+REQUIRE_SIGNING=0 CLAMBHOOK_RELEASE_APPEND=1 scripts/release-linux.sh rpm
+release_package=$(find dist/linux -maxdepth 1 -type f -name "*.rpm" -print -quit)
+test -n "$release_package"
+CLAMBHOOK_CONTAINER_PACKAGE_SMOKE=1 scripts/smoke-installed-linux-package.sh "$release_package"'
         ;;
       alma)
         echo "AlmaLinux is a validation lane; release RPMs are built on Rocky Linux." >&2
@@ -221,7 +223,7 @@ run_one() {
     "${container_env[@]}" \
     --volume "$repo_root:/src${mount_suffix}" \
     --workdir /src \
-    "$image" bash -lc "$setup; $go_setup; $command; $recipe"
+    "$image" bash -lc "$setup; $command; $recipe"
   echo "==================== $distro: PASS ===================="
 }
 

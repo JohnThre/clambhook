@@ -167,6 +167,7 @@
 }
 
 .button {
+    -fx-min-height: 48px;
     -fx-padding: 9 14 9 14;
     -fx-background-color: -clambhook-surface-raised;
     -fx-text-fill: -clambhook-text;
@@ -190,6 +191,8 @@
 
 .text-field,
 .password-field,
+.text-area,
+.text-area .content,
 .combo-box-base {
     -fx-background-color: -clambhook-surface-raised;
     -fx-text-fill: -clambhook-text;
@@ -199,11 +202,82 @@
     -fx-background-radius: 8;
 }
 
+.text-field,
+.password-field,
+.combo-box-base {
+    -fx-min-height: 48px;
+}
+
+.text-area {
+    -fx-font-family: "Noto Sans Mono", "DejaVu Sans Mono", monospace;
+    -fx-highlight-fill: -clambhook-accent-dark;
+    -fx-highlight-text-fill: -clambhook-text;
+}
+
+.text-area .content {
+    -fx-background-radius: 8;
+}
+
+.document-area {
+    -fx-min-height: 170px;
+}
+
+.text-field:focused,
+.password-field:focused,
+.text-area:focused,
+.combo-box-base:focused,
+.list-view:focused,
+.table-view:focused {
+    -fx-border-color: -clambhook-accent;
+    -fx-border-width: 2;
+}
+
 .combo-box .list-cell,
 .combo-box-popup .list-view,
 .combo-box-popup .list-cell {
     -fx-background-color: -clambhook-surface-raised;
     -fx-text-fill: -clambhook-text;
+}
+
+.list-view,
+.list-cell {
+    -fx-background-color: -clambhook-surface;
+    -fx-text-fill: -clambhook-text;
+}
+
+.list-view {
+    -fx-border-color: -clambhook-border;
+    -fx-border-radius: 10;
+    -fx-background-radius: 10;
+}
+
+.list-cell:selected {
+    -fx-background-color: -clambhook-accent-dark;
+}
+
+.tab-pane,
+.tab-pane > .tab-header-area > .tab-header-background {
+    -fx-background-color: -clambhook-bg;
+}
+
+.tab-pane > .tab-header-area > .headers-region > .tab {
+    -fx-background-color: -clambhook-surface;
+    -fx-border-color: -clambhook-border;
+}
+
+.tab-pane > .tab-header-area > .headers-region > .tab:selected {
+    -fx-background-color: -clambhook-surface-raised;
+    -fx-border-color: -clambhook-accent;
+}
+
+.tab-pane > .tab-header-area > .headers-region > .tab:focused {
+    -fx-border-width: 2;
+}
+
+.button:disabled,
+.text-input:disabled,
+.combo-box-base:disabled {
+    -fx-opacity: 0.62;
 }
 
 .data-table,

@@ -14,7 +14,6 @@ The following first-party directories, including their source, headers, build
 files, documentation, and tests, are licensed under the Apache License 2.0:
 
 - `clib/**`
-- `pkg/cnet/**`
 
 The complete license text is in [`LICENSE-APACHE`](LICENSE-APACHE), with local
 copies beside each library. These libraries may be used in open-source or
@@ -25,9 +24,9 @@ release documentation.
 ## GPL-3.0-only application core
 
 All other first-party material in this repository is licensed under the GNU
-General Public License version 3 only (`GPL-3.0-only`). This includes the native
-runtime and public ABI, Go application packages, mobile bridge, command-line
-programs, graphical applications, build and release tooling, documentation,
+General Public License version 3 only (`GPL-3.0-only`). This includes the C17
+runtime and public ABI, Kotlin Android platform bridge, JavaFX and SwiftUI
+clients, command-line programs, build and release tooling, documentation,
 configuration, packaging, and first-party assets. The complete license text is
 in [`LICENSE`](LICENSE).
 
@@ -52,7 +51,7 @@ ClambHook trademarks or present a modified build as an official build.
 
 ## Third-party material
 
-Files under `vendor/**` and `third_party/**`, Gradle wrapper files identified in
+Files under `third_party/**`, Gradle wrapper files identified in
 `REUSE.toml`, and other expressly identified upstream material remain under
 their respective licenses. See [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)
 and the notices distributed beside those files. No first-party license changes

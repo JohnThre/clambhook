@@ -100,6 +100,7 @@ static void wireguard_test_external_roundtrip(void) {
     const char *private_key = getenv("CLAMBHOOK_WG_CLIENT_PRIVATE");
     const char *server_public = getenv("CLAMBHOOK_WG_SERVER_PUBLIC");
     if (endpoint == NULL || private_key == NULL || server_public == NULL) {
+        CH_TEST_ASSERT(getenv("CLAMBHOOK_REQUIRE_REAL_PEERS") == NULL);
         return;
     }
     char document[2048];

@@ -3,170 +3,133 @@
 
 # Android development
 
-Google's [`android`](https://developer.android.com/cli) CLI is the default tool
-for ClambHook Android development. It manages the SDK and emulators and builds,
-deploys, and launches the app on a device or emulator. Gradle is still used for
-unit tests, lint, release assembly, and the API compatibility matrix — the
-`android` CLI has no equivalent commands for those. Gradle builds and packages
-`libclambhook_jni.so` with the NDK; the production VPN service selects that
-C/JNI runtime and packages no gomobile AAR. See
-[`c-migration.md`](c-migration.md).
+ClambHook supports Android 12/API 31 through API 36 on ARM64. The application
+ID is `org.jpfchang.clambhook`, `minSdk` is 31, and `targetSdk` is 36. API 30
+and 32-bit release ABIs are not supported.
 
-Building, running, and testing require prior written permission from Pengfan
-Chang; see [`LICENSE`](../LICENSE). These instructions are for the author and
-authorized parties.
+## Ownership boundaries
 
-## Install the `android` CLI
+The user-facing application is the shared JavaFX 21.0.12 UI built by
+GluonFX 1.0.29. `ui/android` builds a non-UI Kotlin AAR named
+`clambhook-android-platform`.
+
+The AAR owns:
+
+- VPN consent and `VpnService` foreground lifecycle;
+- the single JNI-backed C17 runtime and TUN descriptor;
+- process restart, revoke, always-on, and reconnect behavior;
+- per-application allow/bypass routing;
+- file import/export, QR scan/share, and FileProvider updates;
+- encrypted secure storage, clipboard/browser, notifications, licensing, and
+  updater integration.
+
+The JavaFX activity attaches through `AndroidDalvikBridge` and
+`GluonPlatformFacade`. Activity destruction closes only the view attachment;
+it does not stop or destroy the service-owned runtime.
+
+## Toolchain
+
+- Java 17
+- Android Gradle Plugin and Kotlin versions pinned in `ui/android`
+- compileSdk/targetSdk 36
+- Android NDK `27.0.12077973`
+- CMake 3.22.1
+- Maven, GraalVM for JDK 17, JavaFX 21.0.12, and GluonFX 1.0.29
+- OpenSSL 3.5.8 and curl 8.18.0 source archives verified by SHA-256
+
+Use the Android CLI for local SDK and device management:
 
 ```sh
-# macOS (Apple silicon):
-curl -fsSL https://dl.google.com/android/cli/latest/darwin_arm64/install.sh | bash
-# macOS (Intel):
-curl -fsSL https://dl.google.com/android/cli/latest/darwin_x86_64/install.sh | bash
-# Linux:
-curl -fsSL https://dl.google.com/android/cli/latest/linux_x86_64/install.sh | bash
-
-android --version
-```
-
-Initialize the environment and confirm the SDK location:
-
-```sh
-android init
 android info
+android sdk list --all 'platforms*'
+android sdk install platforms/android-36 build-tools/36.0.0
 ```
 
-`ANDROID_HOME` defaults to `~/Library/Android/sdk` on macOS (the Makefile uses
-the same default). Override with `android --sdk=/path/to/sdk …` or the
-`ANDROID_HOME` environment variable.
+The Gradle build will provision the pinned native sources into
+`ui/android/.native-deps`. Release packages contain only `arm64-v8a` native
+libraries.
 
-## SDK and NDK
-
-Provision the platform, build tools, and NDK the project needs:
+## Build and test
 
 ```sh
-android sdk install "platforms;android-31" "platforms;android-33" "platforms;android-36" "platform-tools"
-android sdk install "ndk;27.0.12077973"      # mobile native builds need an NDK
-android sdk list --all                        # browse available packages
+make test-javafx
+make test-android
+
+# Set this to the output of the checksum-pinned provisioner.
+export GRAALVM_HOME=/path/to/graalvm-jdk-17
+export JAVA_HOME="$GRAALVM_HOME"
+export PATH="$GRAALVM_HOME/bin:$PATH"
+
+make build-android
+make build-android-release
 ```
 
-The Gradle native build currently resolves NDK `27.0.12077973` and CMake
-`3.22.1`. It downloads the official OpenSSL 3.5.8 LTS and curl 8.18.0 source
-archives, verifies their pinned SHA-256 digests, and caches static API 31
-libraries for each ABI under the ignored `ui/android/.native-deps/` directory.
-See `third_party/openssl/README.clambhook.md` and
-`third_party/curl/README.clambhook.md` for provenance and update steps.
+`make test-android` runs Kotlin unit tests, Android lint, ARM64 JNI/C
+compilation, and release AAR assembly. `make build-android` copies that AAR
+into Gluon's Android project and builds the JavaFX native application.
+`make build-android-release` packages both an APK and AAB.
 
-## Emulators
+Local installation and launch use the Android CLI:
 
 ```sh
-android emulator list                         # available AVDs
-android emulator create --name=clambhook --package="system-images;android-31;google_apis;arm64-v8a"
-android emulator start clambhook              # blocks until the AVD is booted
-android emulator stop clambhook
-android emulator remove clambhook
+android emulator list
+android emulator start clambhook-api36
+android run --device emulator-5554 --apks /path/to/ClambHook-arm64.apk
+android layout --device emulator-5554 --pretty
 ```
 
-## Build and run (default dev loop)
+Use `android layout --diff` after an interaction to inspect only changed UI
+nodes. Use `android screen capture` only when the hierarchy cannot represent
+the visual state.
 
-The Android GUI is Kotlin with Jetpack Compose and supports Android 12 and
-newer (`minSdk = 31`). The production VPN uses the native C/JNI packet runtime.
-Use the `android` CLI to build, deploy, and launch on a connected device or
-emulator:
+## Managed-device matrix
 
-The packaged C/JNI façade already covers native configuration, dashboard
-status/profile/server/rule reads, profile selection, and compiled-rule route
-explanations. It now also builds the shared lwIP IPv4/IPv6 core for every ABI
-and accepts raw packets through JNI, returning native stack output through the
-Kotlin packet-writer callback. The JNI runtime owns its independent packet
-timer, resolves direct, named-chain, and policy-group TCP/UDP decisions through
-the shared C protocol layer, and transactionally rebuilds those rules when the
-active profile changes. Native DoH and DoT now intercept UDP/53 and return
-SERVFAIL when every encrypted upstream fails. Android DoH uses a pinned,
-checksum-verified, HTTP(S)-only curl 8.18.0 static library with OpenSSL and the
-system CA directory. Requested-profile reads share the strict C control
-contract, and the JNI test calls all three native
-AEAD families in the statically linked OpenSSL build. A physical Pixel 3a XL
-running Android 12/API 32 has passed focused instrumentation, but it is optional;
-GitHub's managed API 31/33/36 devices are authoritative.
+Hosted CI is authoritative and runs `aosp_atd/arm64-v8a` images:
 
-The Compose developer card now uses the native C capture manager and sender.
-The default Android configuration keeps a bounded metadata ring while setting
-`body_limit_bytes = 0`; users must explicitly choose a positive bound for body
-previews. Composed requests preserve editable headers and use the same
-DNS-pinned public-target and redirect validation as the daemon. Loopback,
-private, link-local, cloud-metadata, and cross-origin redirect targets are
-rejected before they can be contacted. Capture detail exposes the same native
-one-tap repeat operation, while redacted headers and incomplete body previews
-are never replayed implicitly.
+| API | Device profile | Required coverage |
+| --- | --- | --- |
+| 31 | Pixel 2 | Android 12 floor, consent, foreground service, TUN traffic |
+| 33 | Pixel 6 | notification permission, process restart, revoke, reconnect |
+| 36 | Pixel 6 | target-SDK behavior, always-on, updater, full regression |
 
 ```sh
-make build-android-native                     # NDK builds libclambhook_jni.so
-make run-android                              # cd ui/android && android run
+make test-android-compatibility
 ```
 
-`android run` builds the Gradle project, installs the APK on the connected
-device/emulator, and launches the main activity. Pass `--debug` for a debug
-build, `--device=<serial>` to target a specific device, or `--activity=<name>`
-to launch a different activity (`android run --help` for the full set).
+The journeys cover consent; foreground-service notification; TUN traffic;
+encrypted routes; reconnect; process restart; revoke; always-on behavior;
+per-application routing; file/QR import; profiles; rules; prompts; capture;
+licensing; and updater behavior. Each journey is independent, stops on crash or
+freeze, and reports every action as passed, failed, or skipped. A physical
+device may supplement these lanes but never replaces them.
 
-Other day-to-day commands:
+## Manifest and native-image metadata
 
-```sh
-android install --apks=ui/android/app/build/outputs/apk/debug/app-debug.apk
-android screenshot --output=/tmp/clambhook.png
-android screen capture                         # capture the current screen
-android layout                                 # dump the UI layout tree (JSON)
-android layout --diff                          # elements changed since the last dump
-android docs search "VPN service lifecycle"    # search Android developer docs
-```
+`ui/javafx/src/android/AndroidManifest.xml` supplies the Gluon activity and
+product identifiers. The platform AAR manifest merges its provider,
+`VpnConsentActivity`, QR activity, FileProvider, permissions, and
+`ClambhookVpnService`. Maven configuration pins:
 
-`android layout` is usually faster than a screenshot for debugging UI issues.
+- JavaFX resources and CSS;
+- JNI and Dalvik bridge classes;
+- the static C bridge archive;
+- app label, version name/code, and application ID;
+- release keystore inputs supplied only by the protected workflow.
 
-## Tests, lint, and release assembly (Gradle)
+The protected release workflow inspects APK/AAB ABI contents, verifies APK and
+bundle signatures, produces SHA-256 files and GPG signatures, and writes the
+signed update manifest. Do not store keystores or passwords in the repository.
 
-The `android` CLI has no unit-test, lint, or release-build command, so those
-stay on Gradle:
+## Runtime troubleshooting
 
-```sh
-make test-android        # ./gradlew :app:testDebugUnitTest
-make lint-android        # ./gradlew :app:lintDebug
-make build-android       # ./gradlew :app:assembleDebug   (headless build, no device)
-make build-android-release   # ./gradlew :app:assembleRelease  (signed release APK)
-make test-android-compatibility # Compose instrumentation on API 31, 33, and 36
-```
-
-The managed-device target packages only `arm64-v8a` for the arm64 AOSP
-emulators. This keeps the test APK below emulator
-installation timeouts; normal debug and release builds retain their full ABI
-set.
-
-The compatibility target uses Gradle build-managed AOSP Pixel 2 devices named
-`pixel2Api31`, plus Pixel 6 devices named `pixel6Api33` and `pixel6Api36`. It is the required Android
-cutover gate, not a substitute for unit tests or lint.
-
-The release pipeline (`scripts/release-android.sh`) assembles the native C/JNI
-release APK with Gradle, then checksums, GPG-signs, and writes the update
-manifest — see
-[`docs/website-release/release-runbook.md`](website-release/release-runbook.md)
-and [`docs/release-validation.md`](release-validation.md).
-
-Protected GitHub CD builds without the Android keystore, signs the completed
-package with the Android SDK `apksigner`, verifies that signature, deletes the
-temporary keystore, verifies it, and uploads it only to GitHub Releases. Environment setup and secret names
-are documented in [`github-cicd.md`](github-cicd.md).
-
-## Local CI
-
-`scripts/ci-local.sh android` runs the AAR build, unit tests, lint, and debug
-build headlessly. The on-device smoke uses an Android SDK Emulator (AVD). Set `CI_LOCAL_ANDROID_AVD=<name>`
-to boot that AVD and run `make run-android` against it:
-
-```sh
-android emulator create --name=clambhook --package="system-images;android-31;google_apis;arm64-v8a"
-CI_LOCAL_ANDROID_AVD=clambhook scripts/ci-local.sh android
-```
-
-The section boots the AVD (`android emulator start`), runs the app, and leaves
-the emulator running; stop it with `android emulator stop clambhook`. See
-[`docs/release-validation.md`](release-validation.md).
+- If the activity closes while the VPN remains connected, that is expected:
+  the service owns the runtime.
+- If consent is denied, request it again through the Profiles/Connect action;
+  never launch the TUN runtime before consent succeeds.
+- If native dependency provisioning fails, verify the NDK path and archive
+  checksum instead of bypassing validation.
+- If a managed device cannot boot, confirm the exact
+  `aosp_atd/arm64-v8a` image and API are installed. Do not substitute API 30 or
+  a release ABI.
+- Inspect `android layout` before using screen coordinates in a journey, and
+  verify input fields are focused before sending text.

@@ -3,29 +3,28 @@
 
 package com.clambhook.ui.backend;
 
+import com.clambhook.ui.platform.AndroidDalvikBridge;
+
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-/** Gluon/Dalvik boundary. The JNI implementation is linked only for Android. */
+/** Gluon boundary to the process-global Kotlin platform AAR. */
 public final class AndroidBackend implements Backend {
     private final ExecutorService executor = Executors.newSingleThreadExecutor(runnable -> {
         Thread thread = new Thread(runnable, "clambhook-android-backend");
         thread.setDaemon(true);
         return thread;
     });
-
     public AndroidBackend() {
-        System.loadLibrary("clambhook_gluon_bridge");
-        nativeInitialize();
     }
 
     @Override
     public CompletableFuture<String> request(String method, String path, String body) {
         String safeBody = Objects.requireNonNullElse(body, "");
         return CompletableFuture.supplyAsync(
-                () -> nativeRequest(method, path, safeBody), executor);
+                () -> invokeRequest(method, path, safeBody), executor);
     }
 
     @Override
@@ -41,12 +40,16 @@ public final class AndroidBackend implements Backend {
     @Override
     public void close() {
         executor.shutdownNow();
-        nativeClose();
     }
 
-    private static native void nativeInitialize();
-
-    private static native String nativeRequest(String method, String path, String body);
-
-    private static native void nativeClose();
+    private String invokeRequest(String method, String path, String body) {
+        try {
+            return AndroidDalvikBridge.safeRequest(method, path, body);
+        } catch (RuntimeException error) {
+            Throwable cause = error.getCause() == null ? error : error.getCause();
+            throw new BackendException(0,
+                    Objects.requireNonNullElse(cause.getMessage(), "Android runtime request failed"),
+                    cause);
+        }
+    }
 }

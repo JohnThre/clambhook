@@ -13,6 +13,14 @@ internal object NativeClambhookConfigBridge {
         nativeApplyReviewedImport(configPath, requestJson)
 
     @Synchronized
+    fun importConfig(configPath: String, document: String): String =
+        nativeImportConfig(configPath, document)
+
+    @Synchronized
+    fun setActiveProfile(configPath: String, requestJson: String): String =
+        nativeSetActiveProfile(configPath, requestJson)
+
+    @Synchronized
     fun query(configPath: String, operation: String, requestJson: String = "{}"): String =
         nativeQueryConfig(configPath, operation, requestJson)
 
@@ -37,6 +45,8 @@ internal object NativeClambhookConfigBridge {
     ): String
     private external fun nativeImportReview(importText: String): String
     private external fun nativeApplyReviewedImport(configPath: String, requestJson: String)
+    private external fun nativeImportConfig(configPath: String, document: String): String
+    private external fun nativeSetActiveProfile(configPath: String, requestJson: String): String
 
     init {
         System.loadLibrary("clambhook_jni")

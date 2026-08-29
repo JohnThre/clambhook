@@ -30,7 +30,7 @@ final class DaemonLaunchTests: XCTestCase {
     }
 
     func testEnvironmentKeyMatchesDaemonFlagDefault() {
-        // cmd/clambhook/main.go reads os.Getenv("CLAMBHOOK_API_TOKEN") as the
+        // The C17 daemon reads CLAMBHOOK_API_TOKEN as the
         // default for -api-token; the key must match exactly.
         XCTAssertEqual(DaemonLaunchPlanner.apiTokenEnvironmentKey, "CLAMBHOOK_API_TOKEN")
     }

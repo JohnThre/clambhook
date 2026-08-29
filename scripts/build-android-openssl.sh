@@ -46,7 +46,7 @@ fi
 
 install_root="$output_root/openssl-${OPENSSL_VERSION}-api${api_level}/$abi"
 stamp="$install_root/.clambhook-openssl-build"
-stamp_value="openssl=${OPENSSL_VERSION} sha256=${OPENSSL_SHA256} api=${api_level} abi=${abi}"
+stamp_value="openssl=${OPENSSL_VERSION} sha256=${OPENSSL_SHA256} features=quic api=${api_level} abi=${abi}"
 if [[ -f "$stamp" && "$(<"$stamp")" == "$stamp_value" &&
       -f "$install_root/include/openssl/ssl.h" &&
       -f "$install_root/lib/libssl.a" &&
@@ -123,7 +123,7 @@ echo "Building OpenSSL ${OPENSSL_VERSION} for $abi/API $api_level"
     export PATH="$toolchain_bin:$PATH"
     ./Configure "$openssl_target" "-D__ANDROID_API__=${api_level}" \
         -Wno-macro-redefined no-shared no-tests no-apps no-docs no-legacy \
-        no-weak-ssl-ciphers no-module no-dso no-quic no-autoload-config \
+        no-weak-ssl-ciphers no-module no-dso no-autoload-config \
         "--prefix=$install_partial" --libdir=lib >/dev/null
     make -s -j"$jobs" build_sw
     make -s install_sw

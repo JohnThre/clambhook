@@ -672,6 +672,38 @@ static void test_file_backed_runtime_config_bridge(void) {
     CH_TEST_ASSERT(strstr(response, "\"name\":\"native-file-rule\"") !=
                    NULL);
     free(response);
+    response = NULL;
+
+    static const char imported[] =
+        "active = \"mobile\"\n"
+        "[[profile]]\nname = \"mobile\"\n"
+        "[[profile.chain]]\nname = \"direct\"\n"
+        "[[profile.chain.server]]\nname = \"direct\"\n"
+        "protocol = \"direct\"\n"
+        "[[profile]]\nname = \"backup\"\n"
+        "[[profile.chain]]\nname = \"direct\"\n"
+        "[[profile.chain.server]]\nname = \"direct\"\n"
+        "protocol = \"direct\"\n";
+    CH_TEST_ASSERT(ch_runtime_config_import_file(
+        path, imported, &response, &error) == CH_OK);
+    CH_TEST_ASSERT(strstr(response, "\"active\":\"mobile\"") != NULL);
+    CH_TEST_ASSERT(strstr(response, "\"backup_path\":") != NULL);
+    CH_TEST_ASSERT(strstr(response, "imported 2 profile(s)") != NULL);
+    free(response);
+    response = NULL;
+    CH_TEST_ASSERT(ch_runtime_config_set_active_file(
+        path, "{\"name\":\"backup\"}", &response, &error) == CH_OK);
+    CH_TEST_ASSERT(strstr(response, "\"active\":\"backup\"") != NULL);
+    CH_TEST_ASSERT(strstr(response, "\"persisted\":true") != NULL);
+    free(response);
+    response = NULL;
+    CH_TEST_ASSERT(ch_runtime_config_import_file(
+        path, "not valid TOML", &response, &error) != CH_OK);
+    CH_TEST_ASSERT(response == NULL);
+    CH_TEST_ASSERT(ch_runtime_config_query_file(
+        path, "profiles", "{}", &response, &error) == CH_OK);
+    CH_TEST_ASSERT(strstr(response, "\"active\":\"backup\"") != NULL);
+    free(response);
 
     DIR *stream = opendir(directory);
     struct dirent *entry;

@@ -55,14 +55,14 @@ typedef struct ch_rule_feed_refresh_options {
     size_t network_count;
 } ch_rule_feed_refresh_options;
 
-/* Parses auto, plain, hosts, or adblock text using the frozen Go limits. */
+/* Parses auto, plain, hosts, or adblock text using the frozen product limits. */
 ch_status ch_rule_feed_parse(const char *body, size_t length,
                              const char *format, ch_rule_feed *out_feed,
                              ch_error *error);
 void ch_rule_feed_clear(ch_rule_feed *feed);
 
 /*
- * Loads version-1 cache files written by either the Go or C implementation.
+ * Loads the frozen version-1 cache format.
  * Cache identity is verified against profile, name, and URL before use.
  */
 ch_status ch_rule_feed_cache_load(const char *config_path,
@@ -71,7 +71,7 @@ ch_status ch_rule_feed_cache_load(const char *config_path,
                                   const char *url,
                                   ch_rule_feed_cache *out_cache,
                                   ch_error *error);
-/* Atomically writes the Go-compatible version-1 cache path and JSON shape. */
+/* Atomically writes the frozen version-1 cache path and JSON shape. */
 ch_status ch_rule_feed_cache_write(const char *config_path,
                                    ch_rule_feed_kind kind,
                                    const ch_rule_feed_cache *cache,

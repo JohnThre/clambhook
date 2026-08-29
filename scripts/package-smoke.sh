@@ -25,6 +25,8 @@ Environment:
                                  Default: package-smoke
   PACKAGE_SMOKE_REQUIRE_TOOLS    If 1, missing optional packaging tools fail.
   PACKAGE_SMOKE_HOMEBREW_INSTALL If 1, run brew install/test for the formula.
+  PACKAGE_SMOKE_INSTALL          If 1, install/exercise/purge the built Debian
+                                 package inside an explicitly marked container.
 USAGE
 }
 
@@ -32,7 +34,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 echo "internal-only: packaging checks must not publish end-user installers or packages on GitHub." >&2
 HOST_OS="$(uname -s 2>/dev/null || echo unknown)"
 TARGETS="${PACKAGE_SMOKE_TARGETS:-paths systemd install linux-gui homebrew debian}"
-SMOKE_VERSION="${PACKAGE_SMOKE_VERSION:-package-smoke}"
+SMOKE_VERSION="${PACKAGE_SMOKE_VERSION:-1.0.2}"
 REQUIRE_TOOLS="${PACKAGE_SMOKE_REQUIRE_TOOLS:-0}"
 HOMEBREW_INSTALL="${PACKAGE_SMOKE_HOMEBREW_INSTALL:-0}"
 
@@ -56,10 +58,6 @@ done
 
 WORKDIR="$(mktemp -d "${TMPDIR:-/tmp}/clambhook-package-smoke.XXXXXX")"
 trap 'rm -rf "$WORKDIR"' EXIT
-
-export GOCACHE="${GOCACHE:-$WORKDIR/go-build-cache}"
-export GOMODCACHE="${GOMODCACHE:-$WORKDIR/go-mod-cache}"
-mkdir -p "$GOCACHE" "$GOMODCACHE"
 
 log() {
     printf 'package-smoke: %s\n' "$*"
@@ -165,12 +163,32 @@ smoke_installed_linux_gui() {
         base="$root"
     fi
 
-    assert_executable "$base/bin/clambhook-linux"
+    assert_executable "$base/bin/clambhook-ui"
+    assert_executable "$base/bin/clambhook"
     assert_executable "$base/bin/clambhook-tui"
-    assert_executable "$base/libexec/clambhook"
-    assert_file "$base/share/applications/com.clambhook.Clambhook.desktop"
-    assert_file "$base/share/metainfo/com.clambhook.Clambhook.metainfo.xml"
-    assert_file "$base/share/icons/hicolor/1024x1024/apps/com.clambhook.Clambhook.png"
+    assert_executable "$base/bin/clambhook-license"
+    assert_file "$base/share/applications/org.jpfchang.clambhook.desktop"
+    assert_file "$base/share/metainfo/org.jpfchang.clambhook.metainfo.xml"
+    assert_file "$base/share/icons/hicolor/1024x1024/apps/org.jpfchang.clambhook.png"
+
+    if find "$base" -type f \( -iname '*.jar' -o -iname '*.go' -o \
+            -iname '*compose*' -o -iname '*gtk*' \) -print -quit | grep -q .; then
+        echo "package-smoke: legacy UI/runtime payload found under $base" >&2
+        exit 1
+    fi
+    if find "$base" -type d \( -iname 'jre' -o -iname 'jdk' \) -print -quit | grep -q .; then
+        echo "package-smoke: bundled Java runtime found under $base" >&2
+        exit 1
+    fi
+    if command -v readelf >/dev/null 2>&1; then
+        for binary in "$base/bin/clambhook" "$base/bin/clambhook-tui" \
+                "$base/bin/clambhook-license"; do
+            if readelf -S "$binary" 2>/dev/null | grep -q '\.go\.buildinfo'; then
+                echo "package-smoke: Go build information found in $binary" >&2
+                exit 1
+            fi
+        done
+    fi
 }
 
 # Assert the native package payload ships the daemon service plus the sysusers.d
@@ -200,10 +218,14 @@ prepare_source_tree() {
             --exclude '/.git' \
             --exclude '/.worktrees' \
             --exclude '/bin' \
+            --exclude '/build-native' \
+            --exclude '/build-native-sanitize' \
             --exclude '/ui/android/build' \
+            --exclude '/ui/android/.gradle' \
+            --exclude '/ui/android/.native-deps' \
             --exclude '/ui/android/app/build' \
             --exclude '/ui/android/app/libs' \
-            --exclude '/ui/linux/builddir' \
+            --exclude '/ui/javafx/target' \
             "$ROOT"/ "$dest"/
         return
     fi
@@ -214,10 +236,14 @@ prepare_source_tree() {
             --exclude './.git' \
             --exclude './.worktrees' \
             --exclude './bin' \
+            --exclude './build-native' \
+            --exclude './build-native-sanitize' \
             --exclude './ui/android/build' \
+            --exclude './ui/android/.gradle' \
+            --exclude './ui/android/.native-deps' \
             --exclude './ui/android/app/build' \
             --exclude './ui/android/app/libs' \
-            --exclude './ui/linux/builddir' \
+            --exclude './ui/javafx/target' \
             .
     ) | (
         cd "$dest"
@@ -230,8 +256,9 @@ smoke_paths() {
     log "checking packaging metadata paths"
 
     assert_file "$ROOT/packaging/homebrew/clambhook.rb"
-    assert_file "$ROOT/ui/linux/data/com.clambhook.Clambhook.desktop.in"
-    assert_file "$ROOT/ui/linux/data/com.clambhook.Clambhook.metainfo.xml.in"
+    assert_file "$ROOT/packaging/desktop/org.jpfchang.clambhook.desktop.in"
+    assert_file "$ROOT/packaging/desktop/org.jpfchang.clambhook.metainfo.xml.in"
+    assert_file "$ROOT/ui/javafx/pom.xml"
     assert_file "$ROOT/clambhook-icon-1024.png"
     assert_file "$ROOT/debian/control"
     assert_file "$ROOT/debian/copyright"
@@ -243,6 +270,7 @@ smoke_paths() {
     assert_file "$ROOT/LICENSING.md"
     assert_file "$ROOT/NOTICE"
     assert_file "$ROOT/TRADEMARKS.md"
+    assert_file "$ROOT/packaging/sbom.cdx.json"
     assert_file "$ROOT/ui/android/app/build.gradle.kts"
     assert_file "$ROOT/ui/android/app/src/main/AndroidManifest.xml"
 }
@@ -258,7 +286,11 @@ smoke_linux_gui_install() {
     log "staging Linux GUI install under temporary DESTDIR"
 
     require_linux_target "Linux GUI install" || return 0
-    need_tools go java gradle pkg-config || return 0
+    need_tools java mvn pkg-config || return 0
+    if [ -z "${GRAALVM_HOME:-}" ] || [ ! -x "$GRAALVM_HOME/bin/native-image" ]; then
+        skip_or_fail "GRAALVM_HOME does not point to GraalVM for JDK 17"
+        return 0
+    fi
     if ! pkg-config --exists libsodium; then
         skip_or_fail "missing libsodium development pkg-config dependency"
         return 0
@@ -268,7 +300,7 @@ smoke_linux_gui_install() {
     mkdir -p "$root"
     (cd "$ROOT" && make install-linux DESTDIR="$root" PREFIX=/usr VERSION="$SMOKE_VERSION")
     smoke_installed_linux_gui "$root" /usr
-    assert_version_output "$root/usr/libexec/clambhook"
+    assert_version_output "$root/usr/bin/clambhook"
     assert_version_output "$root/usr/bin/clambhook-tui"
 }
 
@@ -318,8 +350,6 @@ smoke_debian() {
     deb_version="$(head -1 "$ROOT/debian/changelog" | cut -d' ' -f2 | tr -d '()' | cut -d- -f1)"
     [ -n "$deb_version" ] && SMOKE_VERSION="$deb_version"
 
-    # CI installs the exact go.mod toolchain from go.dev rather than an older
-    # distro Go package, so the explicit tool checks above are authoritative.
     (cd "$src" && dpkg-buildpackage -d -us -uc -b)
 
     local deb
@@ -347,6 +377,11 @@ smoke_debian() {
     if ! grep -rqE 'systemd-tmpfiles|tmpfiles' "$ctl"; then
         echo "package-smoke: Debian maintainer scripts do not create the tmpfiles directories" >&2
         exit 1
+    fi
+
+    if [ "${PACKAGE_SMOKE_INSTALL:-0}" = "1" ]; then
+        CLAMBHOOK_CONTAINER_PACKAGE_SMOKE=1 \
+            "$ROOT/scripts/smoke-installed-linux-package.sh" "$deb"
     fi
 }
 

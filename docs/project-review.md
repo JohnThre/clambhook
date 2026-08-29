@@ -1,220 +1,72 @@
 <!-- SPDX-FileCopyrightText: 2026 Pengfan Chang <support@swiphtgroup.com> -->
 <!-- SPDX-License-Identifier: GPL-3.0-only -->
 
-# Project Review and Backlog
+# Project review
 
-> Historical architecture note: sections describing Go, gomobile, or the
-> Kotlin/Compose GNU/Linux client refer to the pre-cutover implementation kept
-> as the migration oracle. Current C/GTK/JNI status is tracked in
-> [`c-migration.md`](c-migration.md).
+## Current architecture
 
-A repository-wide review of ClambHook covering the Go/C daemon, protocols and
-API, the Apple client (app, privileged helper, widget), the Android and shared
-Skip surfaces, the Linux UI and packaging, release automation, CI, tests, docs,
-licensing, and repository hygiene. Vendored dependency source is out of scope.
+ClambHook has one C17 runtime and one shared JavaFX/Gluon application for
+Android and GNU/Linux. Android retains a Kotlin platform AAR; macOS retains
+SwiftUI. The public CLI, TOML, JSON, HTTP/WebSocket, persistence, licensing,
+identifier, and release contracts are frozen.
 
-Priorities: **P0** data loss or active compromise; **P1** correctness, security,
-or release-contract blocker; **P2** material security, correctness, or coverage
-gap; **P3** polish and consistency.
+## Reviewed implementation surfaces
 
-No P0 findings. Six P1 items should block release.
+### C17 core
 
-## Now — release and security blockers
+- strict-warning CMake targets and sanitizer-backed CTest;
+- bounded JSON/TOML/HTTP/WebSocket parsing and authenticated loopback control;
+- transactional config mutation, backup, activation rollback, and permission
+  handling;
+- SOCKS5/HTTP/TUN listeners, lwIP packet flows, encrypted DNS, network
+  observation, and process attribution;
+- protocol/chain behavior including WireGuard and the supported OpenVPN subset;
+- rule/policy/rule-feed, prompts, traffic/events, geo, licensing, and developer
+  capture state;
+- production daemon/TUI/license executable names and install components.
 
-- [x] **Secure the loopback control API against local browsers.**
-  `internal/api/events_ws.go:42-47` sets `InsecureSkipVerify: true`, disabling
-  the WebSocket same-origin check. Empty auth is permitted on loopback binds
-  (`internal/api/auth.go:33-56`, `cmd/clambhook/main.go:42-43`), and
-  state-changing endpoints (`connect`, `disconnect`, developer CA regenerate)
-  take no body. Any local webpage can read the live traffic-metadata stream and
-  drive the daemon; the missing `Host` check extends this via DNS rebinding.
-  Restore an origin allowlist, validate `Host`, and require an unforgeable
-  credential on state-changing routes.
-  Done when an arbitrary webpage cannot read `/api/v1/events` or toggle routing.
+### Platform clients
 
-- [x] **Remove tracked Cloudflare account data.** `.wrangler/cache/wrangler-account.json`
-  and `.wrangler/cache/pages.json` are git-tracked and expose a Cloudflare
-  account ID and a personal iCloud address in a source-available repo; they are
-  also a wrong-repo artifact. Delete `.wrangler/`, add it to `.gitignore`, and
-  purge it from reachable history.
-  Done when the tree and history contain no Wrangler account cache.
+- typed asynchronous `RuntimeClient` route and event mapping;
+- `PlatformServices` separation and background-thread boundaries;
+- JavaFX responsive navigation, keyboard/focus/accessibility state, and
+  mutation failure/retry behavior;
+- Android service ownership, consent, foreground lifecycle, process restart,
+  per-application routing, secure storage, QR/files, notifications, licensing,
+  and updates;
+- SwiftUI helper/runtime handoff and bundle-relative C dependencies.
 
-- [x] **Fix the Apple widget license bypass.** `ClambhookWidgetBundle.swift:129-131`
-  hardcodes `canUseApp = true`; `ConnectIntent`/`NextProfileIntent` act with no
-  license check while `WidgetEnvironment.licenseDecision()` goes unused. An
-  expired trial can start the tunnel and switch profiles from the widget. Gate
-  every widget action on the license decision; add a daemon-side guard as
-  defense in depth.
-  Done when an expired trial cannot start routing from any client entry point.
+### Build, package, and release
 
-- [x] **Stop proxy-only saves from erasing Enhanced Mode.**
-  `ConfigListenSettingsPayload` (`ui/apple/Sources/ClambhookShared/ConfigSettings.swift:64-101`)
-  always encodes a `tun` object; `saveProxyPorts` and the system-proxy toggle
-  (`SharedApp/SettingsViews.swift:293-301,749-756`) omit current TUN values, so
-  the backend (`internal/api/config_settings.go:135-149`) overwrites TUN with
-  defaults. Editing proxy ports disables and resets the user's TUN setup. Make
-  `tun` optional in partial updates and add a preservation round-trip test.
-  Done when changing proxy ports leaves every TUN field unchanged.
+- Java 17, JavaFX 21.0.12, Gluon static substrate 21.0.1, and GluonFX 1.0.29;
+- Maven tests/coverage, Gradle Kotlin AAR, CMake/CTest, and standalone pinned
+  workflow linting;
+- x86_64/aarch64 Trisquel/Rocky/Alma lanes and API 31/33/36 ARM64 Android
+  managed devices;
+- source-only, license-boundary, stale-reference, package payload, signing,
+  checksum, and update-manifest gates.
 
-- [x] **Repair the Linux release script.** `scripts/release-linux.sh:136`
-  expands `$CHAN` under `set -euo pipefail`, but `CHAN` is not assigned until
-  line 151, so `make release-linux` aborts before writing or signing the
-  manifest. Move the channel normalization above the manifest block.
-  Done when the script emits correctly named channel fields and signed checksums.
+## Review conclusions
 
-- [x] **Resolve the Android rule-management stubs.**
-  `LocalTunnelApi.kt:100-116` throws `UnsupportedOperationException` for rule
-  create/cleanup/ruleset ops in the default embedded mode; the UI exposes these
-  actions and `DashboardRepository.performAction` reports the throw as a fake
-  "offline" state. Implement runtime-backed mutations (mirroring the existing
-  `replaceRules` reload path) or hide unsupported actions, and classify
-  unsupported-feature errors separately from connectivity loss.
-  Done when every visible rule action works end-to-end in default mode.
+- The production tree has a single runtime source of truth.
+- JavaFX is the only Android/GNU/Linux product UI.
+- Android activity lifecycle cannot destroy the service-owned runtime.
+- GNU/Linux packages contain a self-contained native UI and no bundled JRE.
+- macOS embeds the C runtime and remains Apple Silicon/macOS 14+ only.
+- Retired module, binding, and UI sources are absent from the delivered tree.
+- Trisquel produces Debian files, Rocky produces RPM files, and Alma provides
+  an independent compatibility result.
 
-## Next — security and correctness
+## Ongoing review items
 
-### Backend
+- Keep external WireGuard/OpenVPN interoperability peers in addition to
+  deterministic fixtures.
+- Re-run accessibility journeys when JavaFX/Gluon or Android system images
+  change.
+- Inspect every release archive after toolchain upgrades.
+- Treat any control-route, persistence, identifier, license, or update-manifest
+  change as a compatibility change requiring new fixtures and documentation.
 
-- [x] Validate key/nonce/tag lengths before cgo libsodium calls in
-  `pkg/cnet/cnet.go`; the `purego` and AES-128 paths already do, so the cgo
-  build is silently memory-unsafe on misuse.
-- [x] Add malformed-input and cgo-vs-`purego` parity tests for the crypto
-  boundary (`pkg/cnet/cnet_test.go`).
-- [x] Remove or implement the unused `cnet_buf` "zero-copy pool"
-  (`clib/include/cnet.h`, `clib/src/netio.c`); it is dead `malloc`/`free`.
-- [x] Make the `test` target depend on `build-clib`; `go test ./...` fails on a
-  clean checkout because `internal/api` links against a missing `libcnet.a`.
-
-### Apple
-
-- [x] Stop passing the API bearer token in daemon argv (`DaemonSupervisor.swift:121-130`,
-  `ClambhookMacHelper/main.swift:65-80`); argv is world-readable via `ps`. Use
-  environment, a file descriptor, or an IPC handshake, and restrict the helper
-  log file mode.
-- [x] Give the widget the shared keychain access group and entitlement so
-  token-enabled widget actions stop failing silently with 401.
-- [x] Validate privileged-helper XPC peers via the audit token, not the reusable
-  PID (`ClambhookMacHelper/main.swift:141-158`).
-- [x] Make system-proxy enablement idempotent and reconcile/restore stale proxy
-  state on launch, quit, crash, and license lockout (`MacSystemProxyManager.swift`).
-- [x] Remove `MainActor.assumeIsolated` from Sparkle callbacks unless the
-  main-thread guarantee is established (`MacSparkleUpdater.swift:47-61`).
-- [x] Add app-target tests for helper validation, daemon arguments, proxy
-  snapshot restoration, widget intents, license networking, and Sparkle gating.
-
-### Android
-
-- [x] Serialize `ClambhookVpnService` start/stop transitions; unsynchronized
-  cross-thread field mutation can leak a freshly established TUN descriptor.
-- [x] Handle excluded routes on Android 12 (`SDK_INT < TIRAMISU`) or surface a
-  blocking warning; today they are dropped and become a full tunnel silently.
-- [x] Decide the non-embedded daemon mode: either wire `LocalDaemonService` and
-  permit secure loopback transport, or remove the dead service, its
-  `FOREGROUND_SERVICE_DATA_SYNC` permission, and the HTTP client mode.
-- [x] Test update checksum rejection, update-license gating, license offline
-  grace, VPN route/prefix parsing, and `LocalTunnelApi` dispatch.
-
-### Linux and release engineering
-
-- [x] Ship `/etc/clambhook/config.toml` (deb conffile / rpm `%config(noreplace)`)
-  or fall back to defaults on missing config; the packaged systemd unit
-  crash-loops on a fresh install.
-- [x] Add systemd scriptlets/macros and explicit systemd/polkit runtime
-  dependencies to RPM and Debian packaging.
-- [x] Pin AppImage tooling to immutable versions and verify SHA-256 before
-  execution (`packaging/appimage/build-appimage.sh`).
-- [x] Commit `flake.lock`; support Linux systems in the flake or document it as
-  Darwin-daemon-only.
-- [x] Drop `--share=network` from the vendored Flatpak build.
-- [x] Replace the `touch`/`sleep` Meson rebuild workaround in `make build-linux`
-  with deterministic dependency handling.
-
-## Then — CI and contract integrity
-
-- [x] Add CI for `make test`, `make lint`, `make test-linux` (Meson), and a
-  scheduled/manual protocol `e2e` lane (`test/e2e/README.md` references a
-  non-existent `.github/workflows/e2e.yml`).
-- [x] Exercise the real `.deb`/RPM/Flatpak/AppImage recipes in CI, not just
-  binary builds.
-- [x] Apply the source-only GitHub publication guard to the Linux release path,
-  not only macOS.
-- [x] Reconcile the Android floor: build is `minSdk 31` (Android 12); README
-  says "Android 12+".
-- [x] Remove or replace the README link to `AGENTS.md`, which is gitignored and
-  absent.
-- [x] Reconcile the README build/test instructions with the LICENSE prohibition
-  on building, running, and testing.
-- [x] Add `SECURITY.md` with a coordinated vulnerability-disclosure route.
-- [x] Document whether `release-check` intentionally defers Apple/Android/Linux
-  UI test suites to CI.
-
-## Decide / incubate
-
-- [x] `ui/skip`: marked explicitly experimental. `ui/skip/README.md` now leads
-  with an experimental-status callout (unwired into every client, excluded from
-  `make test`, blocked by the Skip 1.9.4 standalone-library resolution defect),
-  and the placeholder `1 + 2 == 3` test is replaced with real behavioral tests
-  for `TunnelStatus` labels and `formatByteRate` edge cases (NaN/negative/inf,
-  unit scaling) that run in the proven `skip init` app workspace.
-- [x] Android support-purchase flow: removed the no-op `SupportPurchaseManager`,
-  `SupportPurchaseModels`, and their test, and stripped all wiring
-  (`MainActivity`, `ClambhookApp`, `SettingsScreen`). The app is sideloaded with
-  no billing dependency and payments run only through the website
-  (Creem/NOWPayments), so the dead direct-payment stub is gone;
-  `:app:compileDebugKotlin` and `:app:testDebugUnitTest` pass.
-- [x] Confirm the Android updater manifest host: standardized on
-  `store.clambercloud.com` (matching the macOS feeds and distribution docs) in
-  `UpdateManager`, `UpdateModels`, `LicenseScreen`, and `release-android.sh`, and
-  constrained the download origin via `isTrustedUpdateOrigin` (HTTPS + host
-  allowlist) enforced in `downloadVerified`, with unit tests for accept/reject.
-- [x] Sequence v1.1 (network conditioner, protocol-specific viewers) and the
-  planned VMess/Reality/scripting work only after the blockers above close.
-  `docs/roadmap.md` now carries an explicit sequence: v1.1 capture/network
-  tooling → Reality transport (VMess and ShadowTLS already ship) → scripting
-  engine, one cross-client change in flight at a time.
-
-## macOS review — completed 2026-07-22
-
-All prior P1 items confirmed fixed in current code. New items addressed:
-
-- [x] **Daemon-side license enforcement.** Added `internal/api/license.go`
-  middleware gating state-changing API routes on a cached `license.Snapshot`
-  via the `--license` flag. Fail-closed on missing/expired; 10s cache TTL;
-  disconnect exempt. 8 tests in `internal/api/license_test.go`.
-- [x] **Daemon crash recovery.** Privileged helper (`main.swift`) relaunches
-  the daemon up to 3 times with exponential backoff on unexpected exit.
-  `isStopping` flag distinguishes intentional stops from crashes. User-session
-  `DaemonSupervisor` surfaces `.failed` state on non-zero exit.
-- [x] **Source-only guard.** `check-source-only.sh` now scans the repo tree
-  for installer artifacts by extension, not just workflow text.
-- [x] **GPG key pinning.** `release-macos.sh` pins `EXPECTED_GPG_KEY` to
-  `EAA876B70B1832F5` and warns on mismatch.
-- [x] **CI tool pinning.** `ci_post_clone.sh` pins Go and XcodeGen versions.
-- [x] **MacSidebarSections split.** 3,818-line monolith split into 10
-  per-section files. Duplicated `private` helpers consolidated to `internal`.
-- [x] **Keychain error surfacing.** `AppleAppModel` no longer silently swallows
-  keychain read/write errors; surfaces via `keychainReadFailed` + `daemonMessage`.
-- [x] **Widget keychain build assertion.** `project.yml` and the release
-  contract check validate `V6GG4HYABJ.org.jpfchang.clambhook`.
-- [x] **Force-unwrapped URLs.** Inline `URL(string:...)!` buy links replaced
-  with `defaultLicensePurchaseURL` constant.
-- [x] **signing.md DEVELOPMENT_TEAM fix.** Corrected stale claim; documented
-  notarytool keychain profile setup.
-
-Verification: Go tests pass (`internal/api`, `internal/license`,
-`internal/licensebridge`), `go vet` clean, Swift build succeeds,
-`swift test` 164 tests pass, `macos-release-contract-check.sh` passes.
-
-## Verified baseline
-
-- The Go suite passed for every package once `clib/libcnet.a` was built; only the
-  clean-checkout sequencing defect above remains.
-- Apple/Android full test suites were not run here (environment cost); their
-  coverage was assessed by inspection.
-- Licensing is implemented in the Go core and the Apple and Android clients; only
-  the hosted license server remains external per `docs/license-validation.md`.
-- Notable strengths: bounds-checked network parsers, DNS-leak hygiene, atomic
-  0600 persistence, disciplined event-bus locking, mobile-runtime resource
-  unwinding, encrypted Android secret storage, thorough license/update policy
-  tests, hardened Apple release configuration, and enforced source-only GitHub
-  releases.
+The authoritative evidence and commands are in
+[release validation](release-validation.md) and the completed
+[cutover record](c-migration.md).

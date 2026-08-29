@@ -3,8 +3,10 @@
 
 package com.clambhook.ui;
 
-import com.clambhook.ui.backend.Backend;
-import com.clambhook.ui.backend.BackendFactory;
+import com.clambhook.ui.platform.PlatformServices;
+import com.clambhook.ui.platform.PlatformServicesFactory;
+import com.clambhook.ui.runtime.RuntimeClient;
+import com.clambhook.ui.runtime.RuntimeClientFactory;
 import javafx.application.Application;
 import javafx.scene.Scene;
 import javafx.stage.Stage;
@@ -13,14 +15,17 @@ import java.net.URL;
 
 /** JavaFX entry point used unchanged by Gluon on Android and GNU/Linux. */
 public final class ClambhookApplication extends Application {
-    private Backend backend;
+    private RuntimeClient runtime;
+    private PlatformServices platformServices;
     private MainView mainView;
 
     @Override
     public void start(Stage stage) {
-        backend = BackendFactory.create();
-        mainView = new MainView(backend);
+        runtime = RuntimeClientFactory.create();
+        platformServices = PlatformServicesFactory.create(runtime);
+        mainView = new MainView(runtime, platformServices);
         Scene scene = new Scene(mainView.node(), 1180, 760);
+        mainView.installAccelerators(scene);
         URL stylesheet = ClambhookApplication.class.getResource("clambhook.css");
         if (stylesheet != null) {
             scene.getStylesheets().add(stylesheet.toExternalForm());
@@ -37,8 +42,11 @@ public final class ClambhookApplication extends Application {
         if (mainView != null) {
             mainView.close();
         }
-        if (backend != null) {
-            backend.close();
+        if (platformServices != null) {
+            platformServices.close();
+        }
+        if (runtime != null) {
+            runtime.close();
         }
     }
 

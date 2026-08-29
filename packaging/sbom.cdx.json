@@ -1,0 +1,397 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.6",
+  "serialNumber": "urn:uuid:90320571-1b7e-4e88-8f1a-39ce2ec8de3a",
+  "version": 1,
+  "metadata": {
+    "timestamp": "2026-08-29T00:00:00Z",
+    "authors": [
+      {
+        "name": "Pengfan Chang",
+        "email": "support@swiphtgroup.com"
+      }
+    ],
+    "component": {
+      "type": "application",
+      "bom-ref": "pkg:github/JohnThre/clambhook@1.0.2",
+      "group": "org.jpfchang",
+      "name": "clambhook",
+      "version": "1.0.2",
+      "licenses": [
+        {
+          "license": {
+            "id": "GPL-3.0-only"
+          }
+        }
+      ],
+      "purl": "pkg:github/JohnThre/clambhook@1.0.2"
+    }
+  },
+  "components": [
+    {
+      "type": "library",
+      "bom-ref": "clambhook:clib:1.0.2",
+      "group": "org.jpfchang.clambhook",
+      "name": "clib",
+      "version": "1.0.2",
+      "licenses": [
+        {
+          "license": {
+            "id": "Apache-2.0"
+          }
+        }
+      ],
+      "properties": [
+        {
+          "name": "clambhook:distribution",
+          "value": "source-and-native-library"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:generic/lwip@2.2.1",
+      "name": "lwIP",
+      "version": "2.2.1",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "ce0b7461c0ad9602c376f0bf07c5eb7253b48c7bf66f011c6bf3e2a96731c539"
+        }
+      ],
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ],
+      "purl": "pkg:generic/lwip@2.2.1"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:github/cktan/tomlc99@29076dfd095bbbbd50a3c1b2760d29f4b83e74ac",
+      "name": "tomlc99",
+      "version": "29076dfd095bbbbd50a3c1b2760d29f4b83e74ac",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "purl": "pkg:github/cktan/tomlc99@29076dfd095bbbbd50a3c1b2760d29f4b83e74ac"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:github/maxmind/libmaxminddb@1.13.3",
+      "name": "libmaxminddb",
+      "version": "1.13.3",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "341dfbeef96bd58c3e1e98ffe39ac4fa1110b72b20149f312345fc43cc3559f9"
+        }
+      ],
+      "licenses": [
+        {
+          "license": {
+            "id": "Apache-2.0"
+          }
+        }
+      ],
+      "purl": "pkg:github/maxmind/libmaxminddb@1.13.3"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:github/smartalock/wireguard-lwip@c54f20dbe76ac8b3411ad21e0ed7deea6f0cfd4d",
+      "name": "wireguard-lwip",
+      "version": "c54f20dbe76ac8b3411ad21e0ed7deea6f0cfd4d",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ],
+      "purl": "pkg:github/smartalock/wireguard-lwip@c54f20dbe76ac8b3411ad21e0ed7deea6f0cfd4d"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:generic/openssl@3.5.8?download_url=https%3A%2F%2Fwww.openssl.org%2Fsource%2Fopenssl-3.5.8.tar.gz",
+      "name": "OpenSSL",
+      "version": "3.5.8",
+      "licenses": [
+        {
+          "license": {
+            "id": "Apache-2.0"
+          }
+        }
+      ],
+      "purl": "pkg:generic/openssl@3.5.8",
+      "properties": [
+        {
+          "name": "clambhook:distribution",
+          "value": "statically-linked-android"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:generic/curl@8.18.0",
+      "name": "curl",
+      "version": "8.18.0",
+      "licenses": [
+        {
+          "license": {
+            "id": "curl"
+          }
+        }
+      ],
+      "purl": "pkg:generic/curl@8.18.0",
+      "properties": [
+        {
+          "name": "clambhook:distribution",
+          "value": "statically-linked-android"
+        }
+      ]
+    },
+    {
+      "type": "framework",
+      "bom-ref": "pkg:maven/org.openjfx/javafx-controls@21.0.12",
+      "group": "org.openjfx",
+      "name": "javafx-controls",
+      "version": "21.0.12",
+      "licenses": [
+        {
+          "expression": "GPL-2.0-only WITH Classpath-exception-2.0"
+        }
+      ],
+      "purl": "pkg:maven/org.openjfx/javafx-controls@21.0.12"
+    },
+    {
+      "type": "framework",
+      "bom-ref": "pkg:maven/com.gluonhq/javafx-static-sdk@21.0.1",
+      "group": "com.gluonhq",
+      "name": "javafx-static-sdk",
+      "version": "21.0.1",
+      "licenses": [
+        {
+          "expression": "GPL-2.0-only WITH Classpath-exception-2.0"
+        }
+      ],
+      "purl": "pkg:maven/com.gluonhq/javafx-static-sdk@21.0.1"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:maven/com.gluonhq/substrate@0.0.69",
+      "group": "com.gluonhq",
+      "name": "substrate",
+      "version": "0.0.69",
+      "licenses": [
+        {
+          "license": {
+            "id": "GPL-3.0-or-later"
+          }
+        }
+      ],
+      "purl": "pkg:maven/com.gluonhq/substrate@0.0.69"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:maven/androidx.core/core-ktx@1.16.0",
+      "group": "androidx.core",
+      "name": "core-ktx",
+      "version": "1.16.0",
+      "licenses": [
+        {
+          "license": {
+            "id": "Apache-2.0"
+          }
+        }
+      ],
+      "purl": "pkg:maven/androidx.core/core-ktx@1.16.0"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:maven/androidx.datastore/datastore-preferences@1.1.1",
+      "group": "androidx.datastore",
+      "name": "datastore-preferences",
+      "version": "1.1.1",
+      "licenses": [
+        {
+          "license": {
+            "id": "Apache-2.0"
+          }
+        }
+      ],
+      "purl": "pkg:maven/androidx.datastore/datastore-preferences@1.1.1"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:maven/androidx.security/security-crypto@1.1.0-alpha06",
+      "group": "androidx.security",
+      "name": "security-crypto",
+      "version": "1.1.0-alpha06",
+      "licenses": [
+        {
+          "license": {
+            "id": "Apache-2.0"
+          }
+        }
+      ],
+      "purl": "pkg:maven/androidx.security/security-crypto@1.1.0-alpha06"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:maven/org.jetbrains.kotlinx/kotlinx-coroutines-android@1.9.0",
+      "group": "org.jetbrains.kotlinx",
+      "name": "kotlinx-coroutines-android",
+      "version": "1.9.0",
+      "licenses": [
+        {
+          "license": {
+            "id": "Apache-2.0"
+          }
+        }
+      ],
+      "purl": "pkg:maven/org.jetbrains.kotlinx/kotlinx-coroutines-android@1.9.0"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:maven/org.jetbrains.kotlinx/kotlinx-serialization-json@1.7.3",
+      "group": "org.jetbrains.kotlinx",
+      "name": "kotlinx-serialization-json",
+      "version": "1.7.3",
+      "licenses": [
+        {
+          "license": {
+            "id": "Apache-2.0"
+          }
+        }
+      ],
+      "purl": "pkg:maven/org.jetbrains.kotlinx/kotlinx-serialization-json@1.7.3"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:maven/com.squareup.okhttp3/okhttp@4.12.0",
+      "group": "com.squareup.okhttp3",
+      "name": "okhttp",
+      "version": "4.12.0",
+      "licenses": [
+        {
+          "license": {
+            "id": "Apache-2.0"
+          }
+        }
+      ],
+      "purl": "pkg:maven/com.squareup.okhttp3/okhttp@4.12.0"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:maven/com.journeyapps/zxing-android-embedded@4.3.0",
+      "group": "com.journeyapps",
+      "name": "zxing-android-embedded",
+      "version": "4.3.0",
+      "licenses": [
+        {
+          "license": {
+            "id": "Apache-2.0"
+          }
+        }
+      ],
+      "purl": "pkg:maven/com.journeyapps/zxing-android-embedded@4.3.0"
+    },
+    {
+      "type": "application",
+      "bom-ref": "tool:gluonfx-maven-plugin:1.0.29",
+      "group": "com.gluonhq",
+      "name": "gluonfx-maven-plugin",
+      "version": "1.0.29",
+      "scope": "excluded",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ],
+      "purl": "pkg:maven/com.gluonhq/gluonfx-maven-plugin@1.0.29"
+    },
+    {
+      "type": "application",
+      "bom-ref": "tool:android-gradle-plugin:8.9.1",
+      "group": "com.android.tools.build",
+      "name": "gradle",
+      "version": "8.9.1",
+      "scope": "excluded",
+      "licenses": [
+        {
+          "license": {
+            "id": "Apache-2.0"
+          }
+        }
+      ],
+      "purl": "pkg:maven/com.android.tools.build/gradle@8.9.1"
+    },
+    {
+      "type": "application",
+      "bom-ref": "tool:kotlin:2.3.20",
+      "group": "org.jetbrains.kotlin",
+      "name": "kotlin-gradle-plugin",
+      "version": "2.3.20",
+      "scope": "excluded",
+      "licenses": [
+        {
+          "license": {
+            "id": "Apache-2.0"
+          }
+        }
+      ],
+      "purl": "pkg:maven/org.jetbrains.kotlin/kotlin-gradle-plugin@2.3.20"
+    },
+    {
+      "type": "application",
+      "bom-ref": "tool:graalvm-community:17.0.9",
+      "name": "GraalVM Community Edition",
+      "version": "17.0.9",
+      "scope": "excluded",
+      "licenses": [
+        {
+          "license": {
+            "name": "GraalVM Community Edition license bundle"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/graalvm/graalvm-ce-builds/releases/tag/jdk-17.0.9"
+        }
+      ]
+    }
+  ],
+  "dependencies": [
+    {
+      "ref": "pkg:github/JohnThre/clambhook@1.0.2",
+      "dependsOn": [
+        "clambhook:clib:1.0.2",
+        "pkg:generic/lwip@2.2.1",
+        "pkg:github/cktan/tomlc99@29076dfd095bbbbd50a3c1b2760d29f4b83e74ac",
+        "pkg:github/maxmind/libmaxminddb@1.13.3",
+        "pkg:github/smartalock/wireguard-lwip@c54f20dbe76ac8b3411ad21e0ed7deea6f0cfd4d",
+        "pkg:generic/openssl@3.5.8?download_url=https%3A%2F%2Fwww.openssl.org%2Fsource%2Fopenssl-3.5.8.tar.gz",
+        "pkg:generic/curl@8.18.0",
+        "pkg:maven/org.openjfx/javafx-controls@21.0.12",
+        "pkg:maven/com.gluonhq/substrate@0.0.69",
+        "pkg:maven/androidx.core/core-ktx@1.16.0",
+        "pkg:maven/androidx.datastore/datastore-preferences@1.1.1",
+        "pkg:maven/androidx.security/security-crypto@1.1.0-alpha06",
+        "pkg:maven/org.jetbrains.kotlinx/kotlinx-coroutines-android@1.9.0",
+        "pkg:maven/org.jetbrains.kotlinx/kotlinx-serialization-json@1.7.3",
+        "pkg:maven/com.squareup.okhttp3/okhttp@4.12.0",
+        "pkg:maven/com.journeyapps/zxing-android-embedded@4.3.0"
+      ]
+    }
+  ]
+}

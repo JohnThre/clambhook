@@ -14,11 +14,25 @@ public final class BackendFactory {
         String osName = System.getProperty("os.name", "").toLowerCase(Locale.ROOT);
         String javafxPlatform = System.getProperty("javafx.platform", "").toLowerCase(Locale.ROOT);
         if (osName.contains("android") || javafxPlatform.contains("android")) {
-            return new AndroidBackend();
+            return instantiate("AndroidBackend", new Class<?>[0]);
         }
         String baseUrl = setting("CLAMBHOOK_API_URL", "clambhook.apiUrl", "http://127.0.0.1:9090");
         String token = setting("CLAMBHOOK_API_TOKEN", "clambhook.apiToken", "");
-        return new HttpBackend(baseUrl, token);
+        return instantiate("HttpBackend", new Class<?>[]{String.class, String.class},
+                baseUrl, token);
+    }
+
+    private static Backend instantiate(String simpleName, Class<?>[] parameterTypes,
+                                       Object... arguments) {
+        String className = BackendFactory.class.getPackageName() + "." + simpleName;
+        try {
+            Class<?> implementation = Class.forName(className);
+            return Backend.class.cast(implementation.getConstructor(parameterTypes)
+                    .newInstance(arguments));
+        } catch (ReflectiveOperationException | ClassCastException error) {
+            throw new IllegalStateException(
+                    "Cannot create platform backend " + className, error);
+        }
     }
 
     private static String setting(String environmentName, String propertyName, String fallback) {

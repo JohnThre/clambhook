@@ -659,6 +659,35 @@ ch_status ch_license_evaluate_json(
     return status;
 }
 
+ch_status ch_license_can_use_snapshot_json(
+    const char *snapshot_json,
+    int64_t now_unix_millis,
+    bool *allowed,
+    ch_error *error
+) {
+    ch_error_clear(error);
+    if (allowed == NULL) {
+        ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
+                     "license allowed result is required");
+        return CH_ERROR_INVALID_ARGUMENT;
+    }
+    *allowed = false;
+    ch_decoded_snapshot decoded;
+    ch_status status = ch_decode_snapshot(snapshot_json, &decoded, error);
+    if (status != CH_OK) return status;
+    ch_license_decision decision;
+    status = ch_license_evaluate(
+        &decoded.snapshot, NULL, 0U, ch_license_now(now_unix_millis),
+        &decision, error
+    );
+    if (status == CH_OK) {
+        *allowed = ch_license_can_use_app(&decision);
+        ch_license_decision_clear(&decision);
+    }
+    ch_decoded_snapshot_clear(&decoded);
+    return status;
+}
+
 ch_status ch_license_status_json(
     const char *snapshot_json,
     int64_t update_published_at_millis,
