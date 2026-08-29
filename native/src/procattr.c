@@ -245,10 +245,13 @@ static int ch_procattr_find_linux(int port, int tcp, char *path,
         if (fds == NULL) continue;
         struct dirent *fd_entry;
         while ((fd_entry = readdir(fds)) != NULL) {
-            char link_path[192];
+            char link_path[PATH_MAX];
             char link_value[128];
-            (void)snprintf(link_path, sizeof(link_path), "%s/%s", fd_path,
-                           fd_entry->d_name);
+            int link_length = snprintf(link_path, sizeof(link_path), "%s/%s",
+                                       fd_path, fd_entry->d_name);
+            if (link_length < 0 || (size_t)link_length >= sizeof(link_path)) {
+                continue;
+            }
             ssize_t length = readlink(link_path, link_value,
                                       sizeof(link_value) - 1U);
             if (length <= 0) continue;
