@@ -296,8 +296,8 @@ jobs:
           persist-credentials: false
       - name: Install macOS release tools
         run: |
-          brew install cmake ninja pkg-config libuv libsodium llhttp openssl@3 curl xcodegen gnupg
-          echo "PKG_CONFIG_PATH=$(brew --prefix openssl@3)/lib/pkgconfig:$(brew --prefix curl)/lib/pkgconfig:${PKG_CONFIG_PATH:-}" >> "$GITHUB_ENV"
+          brew install cmake ninja pkg-config libuv libsodium openssl@3 xcodegen gnupg
+          echo "PKG_CONFIG_PATH=$(brew --prefix openssl@3)/lib/pkgconfig:${PKG_CONFIG_PATH:-}" >> "$GITHUB_ENV"
       - name: Configure Apple signing, provisioning, and notarization
         env:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}

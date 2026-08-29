@@ -73,7 +73,7 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq \
             build-essential cmake ninja-build pkg-config \
-            libuv1-dev libsodium-dev libllhttp-dev libssl-dev libcurl4-openssl-dev \
+            libuv1-dev libsodium-dev libssl-dev libcurl4-openssl-dev \
             iproute2 openvpn socat wireguard-tools
       - name: Run strict ASan and UBSan suite
         run: make test-native
@@ -179,8 +179,8 @@ jobs:
           persist-credentials: false
       - name: Install native and Apple build dependencies
         run: |
-          brew install cmake ninja pkg-config libuv libsodium llhttp openssl@3 curl xcodegen
-          echo "PKG_CONFIG_PATH=$(brew --prefix openssl@3)/lib/pkgconfig:$(brew --prefix curl)/lib/pkgconfig:${PKG_CONFIG_PATH:-}" >> "$GITHUB_ENV"
+          brew install cmake ninja pkg-config libuv libsodium openssl@3 xcodegen
+          echo "PKG_CONFIG_PATH=$(brew --prefix openssl@3)/lib/pkgconfig:${PKG_CONFIG_PATH:-}" >> "$GITHUB_ENV"
       - name: Test C17 runtime
         run: make test-native
       - name: Build and test SwiftUI client

@@ -55,7 +55,7 @@ jobs:
         if: matrix.language == 'c-cpp'
         run: >-
           sudo apt-get update && sudo apt-get install -y --no-install-recommends
-          cmake ninja-build pkg-config libuv1-dev libsodium-dev libllhttp-dev
+          cmake ninja-build pkg-config libuv1-dev libsodium-dev
           libssl-dev libcurl4-openssl-dev
       - name: Trace C17 sources
         if: matrix.language == 'c-cpp'

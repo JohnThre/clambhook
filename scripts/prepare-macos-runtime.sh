@@ -28,10 +28,6 @@ UV_NAME="libuv.1.dylib"
 UV_SOURCE="$(pkg-config --variable=libdir libuv)/$UV_NAME"
 UV_DEST="$ROOT_DIR/bin/$UV_NAME"
 UV_BUNDLE_PATH="@executable_path/../Frameworks/$UV_NAME"
-LLHTTP_NAME="libllhttp.9.4.dylib"
-LLHTTP_SOURCE="$(pkg-config --variable=libdir libllhttp)/$LLHTTP_NAME"
-LLHTTP_DEST="$ROOT_DIR/bin/$LLHTTP_NAME"
-LLHTTP_BUNDLE_PATH="@executable_path/../Frameworks/$LLHTTP_NAME"
 
 if [[ ! -x "$DAEMON_SOURCE" || ! -x "$TUI_SOURCE" ]]; then
     echo "missing C17 runtime executables in $BUILD_DIR" >&2
@@ -79,7 +75,6 @@ prepare_arm64_dylib "$SODIUM_SOURCE" "$SODIUM_DEST" "libsodium"
 prepare_arm64_dylib "$SSL_SOURCE" "$SSL_DEST" "OpenSSL libssl"
 prepare_arm64_dylib "$CRYPTO_SOURCE" "$CRYPTO_DEST" "OpenSSL libcrypto"
 prepare_arm64_dylib "$UV_SOURCE" "$UV_DEST" "libuv"
-prepare_arm64_dylib "$LLHTTP_SOURCE" "$LLHTTP_DEST" "llhttp"
 
 install_name_tool -id "@rpath/$SSL_NAME" "$SSL_DEST"
 install_name_tool -id "@rpath/$CRYPTO_NAME" "$CRYPTO_DEST"
@@ -111,12 +106,8 @@ if [[ -n "$current_crypto_path" && "$current_crypto_path" != "$CRYPTO_BUNDLE_PAT
     install_name_tool -change "$current_crypto_path" "$CRYPTO_BUNDLE_PATH" "$DAEMON"
 fi
 current_uv_path="$(otool -L "$DAEMON" | awk '/libuv\.1\.dylib/ { print $1; exit }')"
-current_llhttp_path="$(otool -L "$DAEMON" | awk '/libllhttp\.9\.4\.dylib/ { print $1; exit }')"
 if [[ -n "$current_uv_path" && "$current_uv_path" != "$UV_BUNDLE_PATH" ]]; then
     install_name_tool -change "$current_uv_path" "$UV_BUNDLE_PATH" "$DAEMON"
-fi
-if [[ -n "$current_llhttp_path" && "$current_llhttp_path" != "$LLHTTP_BUNDLE_PATH" ]]; then
-    install_name_tool -change "$current_llhttp_path" "$LLHTTP_BUNDLE_PATH" "$DAEMON"
 fi
 
 if otool -L "$DAEMON" | grep -q '/opt/homebrew'; then
@@ -145,11 +136,9 @@ fi
 tui_ssl_path="$(otool -L "$TUI" | awk '/libssl\.3\.dylib/ { print $1; exit }')"
 tui_crypto_path="$(otool -L "$TUI" | awk '/libcrypto\.3\.dylib/ { print $1; exit }')"
 tui_uv_path="$(otool -L "$TUI" | awk '/libuv\.1\.dylib/ { print $1; exit }')"
-tui_llhttp_path="$(otool -L "$TUI" | awk '/libllhttp\.9\.4\.dylib/ { print $1; exit }')"
 [[ -z "$tui_ssl_path" || "$tui_ssl_path" == "$SSL_BUNDLE_PATH" ]] || install_name_tool -change "$tui_ssl_path" "$SSL_BUNDLE_PATH" "$TUI"
 [[ -z "$tui_crypto_path" || "$tui_crypto_path" == "$CRYPTO_BUNDLE_PATH" ]] || install_name_tool -change "$tui_crypto_path" "$CRYPTO_BUNDLE_PATH" "$TUI"
 [[ -z "$tui_uv_path" || "$tui_uv_path" == "$UV_BUNDLE_PATH" ]] || install_name_tool -change "$tui_uv_path" "$UV_BUNDLE_PATH" "$TUI"
-[[ -z "$tui_llhttp_path" || "$tui_llhttp_path" == "$LLHTTP_BUNDLE_PATH" ]] || install_name_tool -change "$tui_llhttp_path" "$LLHTTP_BUNDLE_PATH" "$TUI"
 
 if otool -L "$TUI" | grep -q '/opt/homebrew'; then
     echo "tui still contains a Homebrew runtime dependency" >&2

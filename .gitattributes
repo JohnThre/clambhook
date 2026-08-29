@@ -3,3 +3,4 @@
 
 # Preserve pinned upstream bytes exactly; upstream whitespace is intentional.
 third_party/lwip/** -whitespace
+third_party/llhttp/** -whitespace

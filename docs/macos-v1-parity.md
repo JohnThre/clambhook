@@ -32,7 +32,8 @@ This checklist is a release contract, not a migration tracker.
 ## Packaging and release
 
 - [x] Apple Silicon only, deployment target macOS 14.
-- [x] Bundle-relative libsodium, OpenSSL, libuv, and llhttp dependencies.
+- [x] Bundle-relative libsodium, OpenSSL, and libuv dependencies; static
+  llhttp and system libcurl leave no Homebrew runtime paths.
 - [x] Developer ID signing, hardened runtime, notarization, stapling, and
   Gatekeeper verification.
 - [x] DMG/ZIP, SHA-256, GPG signatures, signed Sparkle appcast, and update

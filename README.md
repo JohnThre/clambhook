@@ -137,9 +137,10 @@ Windows development is discontinued with no planned resumption date.
 ## Build and test
 
 The source build needs CMake 3.22+, Ninja, a C17 compiler, `pkg-config`,
-OpenSSL 3, libsodium, libuv, libcurl, and llhttp. JavaFX work uses Java 17 and
-Maven. Gluon native-image builds use the checksum-pinned GraalVM 17 provisioned
-by `scripts/provision-graalvm17.sh`.
+OpenSSL 3, libsodium, libuv, and libcurl. The pinned llhttp parser is compiled
+from `third_party/llhttp/`. JavaFX work uses Java 17 and Maven. Gluon
+native-image builds use the checksum-pinned GraalVM 17 provisioned by
+`scripts/provision-graalvm17.sh`.
 
 JavaFX Maven dependencies are pinned at 21.0.12. Gluon's independently
 published JavaFX 21 static ABI substrate is pinned at 21.0.1, the public bundle

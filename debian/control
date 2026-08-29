@@ -19,7 +19,6 @@ Build-Depends:
  libgl-dev,
  libglib2.0-dev,
  libgtk-3-dev,
- libllhttp-dev,
  libpango1.0-dev,
  libsodium-dev,
  libssl-dev,

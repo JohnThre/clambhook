@@ -61,6 +61,14 @@ SOFTWARE.
 
 Upstream and commit details: `third_party/tomlc99/README.clambhook.md`.
 
+## llhttp 9.4.3
+
+Copyright (c) 2018 Fedor Indutny.
+
+Licensed under the MIT License. ClambHook compiles the pinned generated parser
+as a private static library. The complete license, release archive digest, and
+upstream details are in `third_party/llhttp/`.
+
 ## curl 8.18.0
 
 Copyright (c) 1996 - 2025, Daniel Stenberg and contributors. All rights

@@ -84,6 +84,32 @@
     },
     {
       "type": "library",
+      "bom-ref": "pkg:github/nodejs/llhttp@9.4.3",
+      "name": "llhttp",
+      "version": "9.4.3",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "1eb813c7437b31a87496a1cd3ed79f00746720f5e7e29c79b42c02cb69f36c39"
+        }
+      ],
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "purl": "pkg:github/nodejs/llhttp@9.4.3",
+      "properties": [
+        {
+          "name": "clambhook:distribution",
+          "value": "vendored-static-native"
+        }
+      ]
+    },
+    {
+      "type": "library",
       "bom-ref": "pkg:github/maxmind/libmaxminddb@1.13.3",
       "name": "libmaxminddb",
       "version": "1.13.3",
@@ -378,6 +404,7 @@
         "clambhook:clib:1.0.2",
         "pkg:generic/lwip@2.2.1",
         "pkg:github/cktan/tomlc99@29076dfd095bbbbd50a3c1b2760d29f4b83e74ac",
+        "pkg:github/nodejs/llhttp@9.4.3",
         "pkg:github/maxmind/libmaxminddb@1.13.3",
         "pkg:github/smartalock/wireguard-lwip@c54f20dbe76ac8b3411ad21e0ed7deea6f0cfd4d",
         "pkg:generic/openssl@3.5.8?download_url=https%3A%2F%2Fwww.openssl.org%2Fsource%2Fopenssl-3.5.8.tar.gz",

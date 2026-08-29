@@ -150,6 +150,10 @@ smoke_installed_root() {
     assert_executable "$bindir/clambhook-tui"
     assert_version_output "$bindir/clambhook"
     assert_version_output "$bindir/clambhook-tui"
+
+    assert_file "$root$prefix/share/doc/clambhook/licenses/openssl/LICENSE.txt"
+    assert_file "$root$prefix/share/doc/clambhook/licenses/curl/LICENSE.txt"
+    assert_file "$root$prefix/share/doc/clambhook/licenses/llhttp/LICENSE"
 }
 
 smoke_installed_linux_gui() {

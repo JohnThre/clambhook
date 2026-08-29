@@ -34,9 +34,18 @@ find_package(PkgConfig REQUIRED)
 find_package(Threads REQUIRED)
 pkg_check_modules(LIBUV REQUIRED IMPORTED_TARGET libuv)
 pkg_check_modules(LIBSODIUM REQUIRED IMPORTED_TARGET libsodium)
-pkg_check_modules(LLHTTP REQUIRED IMPORTED_TARGET libllhttp)
 pkg_check_modules(OPENSSL REQUIRED IMPORTED_TARGET openssl>=3.0)
 pkg_check_modules(CURL REQUIRED IMPORTED_TARGET libcurl)
+
+# Pinned, unmodified MIT-licensed llhttp 9.4.3. Ubuntu/Trisquel do not ship a
+# development package, so every target uses the same in-tree generated parser.
+set(LLHTTP_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third_party/llhttp)
+add_library(llhttp STATIC
+  ${LLHTTP_DIR}/src/api.c
+  ${LLHTTP_DIR}/src/http.c
+  ${LLHTTP_DIR}/src/llhttp.c
+)
+target_include_directories(llhttp PUBLIC ${LLHTTP_DIR}/include)
 
 # Pinned, unmodified C99 TOML parser. Keep third-party warnings separate from
 # the project's strict warning policy; provenance lives beside the source.
@@ -211,7 +220,7 @@ target_include_directories(clambhook_core
 )
 target_link_libraries(clambhook_core PUBLIC
   PkgConfig::LIBUV PkgConfig::LIBSODIUM PkgConfig::CURL
-  PkgConfig::LLHTTP Clambhook::Crypto lwipcore maxminddb
+  Clambhook::Crypto llhttp lwipcore maxminddb
   wireguard_protocol tomlc99
   Threads::Threads
 )
@@ -230,7 +239,7 @@ target_compile_options(clambhook_core PRIVATE
 if(CLAMBHOOK_BUILD_DAEMON)
   add_executable(clambhook native/src/api_server.c native/src/daemon/main.c)
   target_include_directories(clambhook PRIVATE native/src)
-  target_link_libraries(clambhook PRIVATE Clambhook::Core PkgConfig::LLHTTP)
+  target_link_libraries(clambhook PRIVATE Clambhook::Core)
   target_compile_definitions(clambhook PRIVATE
     CLAMBHOOK_VERSION="${PROJECT_VERSION}"
     _POSIX_C_SOURCE=200809L
@@ -311,7 +320,7 @@ if(CLAMBHOOK_BUILD_TESTS)
   target_compile_definitions(clambhook-native-tests PRIVATE
     CLAMBHOOK_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
   )
-  target_link_libraries(clambhook-native-tests PRIVATE Clambhook::Core PkgConfig::LLHTTP)
+  target_link_libraries(clambhook-native-tests PRIVATE Clambhook::Core)
   add_test(NAME native-unit COMMAND clambhook-native-tests)
   if(CLAMBHOOK_BUILD_TUI)
     add_test(NAME tui-version COMMAND clambhook-tui --version)
@@ -339,4 +348,7 @@ install(FILES third_party/openssl/LICENSE.txt
   COMPONENT Runtime)
 install(FILES third_party/curl/LICENSE.txt
   DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/doc/clambhook/licenses/curl
+  COMPONENT Runtime)
+install(FILES third_party/llhttp/LICENSE
+  DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/doc/clambhook/licenses/llhttp
   COMPONENT Runtime)

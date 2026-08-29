@@ -114,6 +114,9 @@ val generateThirdPartyNotices = tasks.register<Sync>("generateThirdPartyNotices"
     from(repositoryRoot.file("third_party/curl/LICENSE.txt")) {
         into("licenses/curl")
     }
+    from(repositoryRoot.file("third_party/llhttp/LICENSE")) {
+        into("licenses/llhttp")
+    }
     into(generatedThirdPartyNoticesDirectory)
 }
 

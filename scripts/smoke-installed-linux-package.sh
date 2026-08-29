@@ -65,6 +65,9 @@ esac
 for installed in /usr/bin/clambhook /usr/bin/clambhook-tui \
         /usr/bin/clambhook-license /usr/bin/clambhook-ui \
         /usr/lib/systemd/system/clambhook-daemon.service \
+        /usr/share/doc/clambhook/licenses/openssl/LICENSE.txt \
+        /usr/share/doc/clambhook/licenses/curl/LICENSE.txt \
+        /usr/share/doc/clambhook/licenses/llhttp/LICENSE \
         /usr/share/applications/org.jpfchang.clambhook.desktop \
         /usr/share/metainfo/org.jpfchang.clambhook.metainfo.xml; do
     [[ -e "$installed" ]] || fail "installed payload is missing $installed"

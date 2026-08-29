@@ -22,7 +22,7 @@
             src = self;
 
             nativeBuildInputs = with pkgs; [ cmake ninja pkg-config ];
-            buildInputs = with pkgs; [ curl libuv libsodium llhttp openssl ];
+            buildInputs = with pkgs; [ curl libuv libsodium openssl ];
             cmakeFlags = [
               "-DCLAMBHOOK_BUILD_TESTS=ON"
               "-DCLAMBHOOK_WARNINGS_AS_ERRORS=ON"
@@ -55,7 +55,7 @@
         in {
           default = pkgs.mkShell {
             nativeBuildInputs = with pkgs; [ cmake ninja pkg-config maven jdk17 ];
-            buildInputs = with pkgs; [ curl libuv libsodium llhttp openssl ];
+            buildInputs = with pkgs; [ curl libuv libsodium openssl ];
           };
         });
     };

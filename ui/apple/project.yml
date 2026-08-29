@@ -69,10 +69,6 @@ targets:
         buildPhase:
           copyFiles:
             destination: frameworks
-      - path: ../../bin/libllhttp.9.4.dylib
-        buildPhase:
-          copyFiles:
-            destination: frameworks
     dependencies:
       - package: ClambhookShared
       - package: Sparkle

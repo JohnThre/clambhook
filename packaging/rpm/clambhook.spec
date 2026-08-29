@@ -38,7 +38,6 @@ BuildRequires:  libX11-devel
 BuildRequires:  libXtst-devel
 BuildRequires:  libcurl-devel
 BuildRequires:  libuv-devel
-BuildRequires:  llhttp-devel
 BuildRequires:  libsodium-devel
 BuildRequires:  mesa-libGL-devel
 BuildRequires:  openssl-devel
@@ -110,6 +109,7 @@ exit 0
 %{_bindir}/clambhook-tui
 %{_bindir}/clambhook-license
 %{_bindir}/clambhook-ui
+%{_datadir}/doc/clambhook/licenses
 %{_datadir}/applications/org.jpfchang.clambhook.desktop
 %{_datadir}/metainfo/org.jpfchang.clambhook.metainfo.xml
 %{_datadir}/icons/hicolor/1024x1024/apps/org.jpfchang.clambhook.png

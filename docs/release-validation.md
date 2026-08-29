@@ -140,10 +140,11 @@ make macos-release-contract-check
 ```
 
 The SwiftUI application must embed the arm64 C17 `clambhook` and
-`clambhook-tui` executables plus bundled OpenSSL, libsodium, libuv, and llhttp
-libraries with bundle-relative install names. The signing check rejects
-Homebrew paths, unexpected architectures, stale helpers, missing notices, or
-unexpected extension payloads.
+`clambhook-tui` executables plus bundled OpenSSL, libsodium, and libuv
+libraries with bundle-relative install names. llhttp is static and libcurl is
+the macOS system library. The signing check rejects Homebrew paths, unexpected
+architectures, stale helpers, missing notices, or unexpected extension
+payloads.
 
 The protected release additionally verifies Developer ID signatures,
 notarization, stapling, Gatekeeper, DMG contents, Sparkle signature/appcast,

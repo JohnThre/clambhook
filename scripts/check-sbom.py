@@ -43,6 +43,7 @@ if len(references) != len(set(references)):
 expected = {
     "lwIP": "2.2.1",
     "tomlc99": "29076dfd095bbbbd50a3c1b2760d29f4b83e74ac",
+    "llhttp": "9.4.3",
     "libmaxminddb": "1.13.3",
     "wireguard-lwip": "c54f20dbe76ac8b3411ad21e0ed7deea6f0cfd4d",
     "OpenSSL": "3.5.8",

@@ -15,7 +15,6 @@ class Clambhook < Formula
   depends_on "curl"
   depends_on "libuv"
   depends_on "libsodium"
-  depends_on "llhttp"
   depends_on "openssl@3"
 
   def install
