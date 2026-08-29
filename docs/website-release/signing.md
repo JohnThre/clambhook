@@ -1,133 +1,20 @@
-<!-- SPDX-FileCopyrightText: 2026 Pengfan Chang <support@swiphtgroup.com> -->
-<!-- SPDX-License-Identifier: GPL-3.0-only -->
+# Release signing
 
-# macOS Developer ID Signing
+ClambHook GitHub Releases use three independent trust layers:
 
-ClambHook sets `DEVELOPMENT_TEAM` to `V6GG4HYABJ` in `ui/apple/project.yml`.
-The public macOS archive is signed, notarized, stapled, packaged as a DMG,
-and uploaded to the website artifact bucket through the macOS release scripts.
+- GPG signs checksums and update manifests with the pinned public key in
+  `keys/clambhook-release-key.asc`.
+- Apple Developer ID, notarization, stapling, and Sparkle EdDSA protect macOS.
+- The stable Android keystore signs APKs; `apksigner verify` runs before upload.
 
-## Required Apple Identifiers
+Private material is provided only through the protected `production`
+environment, decoded into mode-0600 temporary files, and removed after use.
+Never commit signing keys or put their values on compiler command lines.
 
-Use Apple Developer Team ID `V6GG4HYABJ`.
-
-Create and enable these identifiers in the Apple Developer portal:
-
-- macOS app: `org.jpfchang.clambhook.mac`
-- macOS widget extension: `org.jpfchang.clambhook.mac.widgets`
-- App Group: `group.org.jpfchang.clambhook`
-- Keychain group: `V6GG4HYABJ.org.jpfchang.clambhook`
-- Privileged helper LaunchDaemon and Mach service:
-  `org.jpfchang.clambhook.mac.helper`
-
-Enable these capabilities where applicable:
-
-- App Groups: `group.org.jpfchang.clambhook`
-- Keychain Sharing: `V6GG4HYABJ.org.jpfchang.clambhook`
-
-Do not enable Network Extensions or System Extension Install for this release.
-Enhanced Mode is implemented by the privileged daemon with a macOS utun
-interface, so it does not use Apple's restricted Network Extension entitlement.
-
-## Required Environment
-
-Set these variables before building a notarized macOS release:
+Users can import the public key from a GitHub Release and verify a checksum:
 
 ```sh
-export CLAMBHOOK_DEVELOPMENT_TEAM=V6GG4HYABJ
-export NOTARYTOOL_PROFILE=clambhook-notary
-export CLAMBHOOK_R2_BUCKET=clambhook-artifacts
+gpg --import clambhook-release-key.asc
+gpg --verify ClambHook.apk.sha256.sig ClambHook.apk.sha256
+sha256sum -c ClambHook.apk.sha256
 ```
-
-
-## Notarytool Keychain Profile (one-time)
-
-`make release-macos` is blocked until the `clambhook-notary` notarytool
-keychain profile is created. Create it once with an Apple Connect API key
-(Developer portal > Users and Access > Keys > Connect API, access App
-Manager or higher):
-
-```sh
-xcrun notarytool store-keychain-profile "clambhook-notary" \
-    --apple-id "developer@jpfchang.org" \
-    --team-id "V6GG4HYABJ" \
-    --password "<app-specific-password>"
-```
-
-Or, with a Connect API key (`AuthKey_XXXXXX.p8`):
-
-```sh
-xcrun notarytool store-keychain-profile "clambhook-notary" \
-    --key "AuthKey_XXXXXX.p8" \
-    --key-id "XXXXXX" \
-    --issuer "xxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-```
-
-Verify it is stored:
-
-```sh
-xcrun notarytool history --keychain-profile "clambhook-notary"
-```
-
-After this, `export NOTARYTOOL_PROFILE=clambhook-notary` unblocks
-`make release-macos`.
-Do not commit private keys, notary credentials, provisioning profiles, generated
-archives, exported apps, ZIPs, DMGs, checksums, or update manifests.
-
-## Release Proof
-
-Run:
-
-```sh
-make release-macos
-```
-
-On success, the script writes release artifacts under `dist/macos/`, including:
-
-- `ClambhookMac-arm64.dmg`
-- `ClambhookMac-arm64.dmg.sha256`
-- `ClambhookMac-arm64.zip`
-- `clambhook-update-manifest.json` or `clambhook-beta-update-manifest.json`
-
-`make release-macos` verifies signing, notarization, stapling, Gatekeeper
-assessment, checksum generation, and update manifest generation before optional
-R2 upload.
-
-## Sparkle Auto-Update
-
-The macOS app uses Sparkle for in-app download and install of updates. The app
-checks the EdDSA-signed appcast served from store.clambercloud.com and gates all
-updates to the buyer's license update window. Releases after the update cutoff
-are denied, including critical, bug, and security updates. If an appcast item
-has no publication date, the app denies it once the licensed update window has
-expired.
-
-### One-time key setup (owner-held secrets)
-
-1. Generate the EdDSA key pair with Sparkle's `generate_keys`. The private key
-   is stored in your login keychain; the tool prints the public key.
-2. Put the printed public key in `ui/apple/ClambhookMac/Info.plist` under
-   `SUPublicEDKey`, replacing `REPLACE_WITH_SPARKLE_ED25519_PUBLIC_KEY`.
-3. Never commit the private key. Keep it in the keychain (or a secured key file
-   referenced by `SPARKLE_PRIVATE_KEY_FILE`).
-
-### Release wiring
-
-- `make release-macos` calls Sparkle's `sign_update` (found on `PATH` or via
-  `SPARKLE_SIGN_UPDATE`) to sign the DMG and writes `appcast.xml`
-  (`appcast-beta.xml` on the beta channel) under `dist/macos/`.
-- `make upload-release-r2` uploads the appcast to R2 as `appcast.xml` /
-  `appcast-beta.xml`.
-- The website serves it at `https://store.clambercloud.com/api/clambhook/appcast.xml`
-  (and `?channel=beta`), which matches the app's `SUFeedURL`.
-
-### Feed and entitlements
-
-- App `Info.plist`: `SUFeedURL`, `SUPublicEDKey`,
-  `SUEnableInstallerLauncherService`, `SUEnableAutomaticChecks`.
-- The macOS app ships as a non-sandboxed Developer ID build
-  (`ENABLE_APP_SANDBOX: NO`). It manages system proxy settings
-  (`networksetup`) and CA trust (`security add-trusted-cert`) directly, which
-  the App Sandbox would block. `ClambhookMac.entitlements` therefore carries
-  only the App Group and Keychain Sharing groups shared with the widget; no
-  sandbox key and no Sparkle mach-lookup temporary exceptions are needed.

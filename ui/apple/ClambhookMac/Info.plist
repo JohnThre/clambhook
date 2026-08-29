@@ -26,7 +26,7 @@
 	<key>LSUIElement</key>
 	<false/>
 	<key>SUFeedURL</key>
-	<string>https://store.clambercloud.com/api/clambhook/appcast.xml</string>
+	<string>https://github.com/JohnThre/clambhook/releases/latest/download/appcast.xml</string>
 	<key>SUPublicEDKey</key>
 	<string>EAo1mJ+uu5IvCZTjKjXXoP5FJT7MqzxpB7NiLiYdRYQ=</string>
 	<key>SUEnableInstallerLauncherService</key>

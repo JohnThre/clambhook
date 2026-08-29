@@ -25,7 +25,7 @@ import java.time.Instant
 import java.util.concurrent.TimeUnit
 
 /**
- * In-app sideload updater. Polls the store.clambercloud.com Android update
+ * In-app sideload updater. Polls the latest GitHub Release Android update
  * manifest, compares against the installed version, gates installs through the
  * shared license update policy (renewed update window), constrains the download
  * to the trusted update origin, downloads the signed APK, verifies its SHA-256,
@@ -173,7 +173,7 @@ class UpdateManager(
         runCatching { Instant.parse(value.trim()).toEpochMilli() }.getOrDefault(0L)
 
     private companion object {
-        const val MANIFEST_URL = "https://store.clambercloud.com/api/clambhook/android-manifest"
+        const val MANIFEST_URL = "https://github.com/JohnThre/clambhook/releases/latest/download/clambhook-android-manifest.json"
     }
 }
 
@@ -202,14 +202,12 @@ fun classifyUpdate(
 }
 
 /**
- * Hosts permitted to serve the signed update APK. Downloads are constrained to
- * the trusted store origin so a compromised or spoofed manifest cannot redirect
- * the installer to an arbitrary URL. The apex is accepted alongside the store
- * subdomain because the release script currently emits an apex `apkUrl`.
+ * Hosts permitted to serve the signed update APK. Manifests contain immutable
+ * versioned GitHub Release URLs; GitHub may redirect the actual bytes to its
+ * release-asset CDN after this origin check.
  */
 val trustedUpdateHosts = setOf(
-    "store.clambercloud.com",
-    "clambercloud.com",
+    "github.com",
 )
 
 /**

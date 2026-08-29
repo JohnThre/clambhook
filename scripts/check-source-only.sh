@@ -2,28 +2,15 @@
 # SPDX-FileCopyrightText: 2026 Pengfan Chang <support@swiphtgroup.com>
 # SPDX-License-Identifier: GPL-3.0-only
 
-# Enforce the repository's source-only GitHub Release policy. GitHub Actions
-# may validate, sign, and deploy through the approved R2 channel, but installer
-# artifacts must never be committed or attached to a GitHub Release.
-# This guard has two layers:
-#   1. Workflow-text scan: reject prohibited release/upload patterns in .github/.
-#   2. Tree scan: reject committed binary/installer artifacts anywhere in the
-#      repo tree by extension, so a renamed workflow step can't sneak one in.
+# Keep generated installer artifacts out of the source tree. Signed binaries
+# are published as GitHub Release assets, never committed to Git.
 set -euo pipefail
 
 ROOT_DIR="${1:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
-WORKFLOW_ROOT="$ROOT_DIR/.github"
 
 fail() {
     echo "$1" >&2
     exit 1
-}
-
-reject_tree_text() {
-    local pattern="$1"
-    if [[ -d "$WORKFLOW_ROOT" ]] && grep -RFiq -- "$pattern" "$WORKFLOW_ROOT"; then
-        fail "GitHub workflow release policy contains prohibited text: $pattern"
-    fi
 }
 
 # reject_artifact_ext scans the tracked tree (and the working tree) for
@@ -46,18 +33,6 @@ reject_artifact_ext() {
 
 command -v grep >/dev/null 2>&1 || fail "grep is required for source-only policy checks."
 
-# GitHub Actions is the primary CI/CD orchestrator. These text checks prohibit
-# GitHub Release publication while allowing R2-only deployment workflows.
-reject_tree_text "gh release create"
-reject_tree_text "gh release upload"
-reject_tree_text "softprops/action-gh-release"
-reject_tree_text "actions/create-release"
-reject_tree_text "actions/upload-release-asset"
-reject_tree_text "ncipollo/release-action"
-
-# The tree scan below is the authoritative guard against committed installer
-# artifacts. Public GitHub Releases remain prohibited by the text checks above.
-
 # Tree scan: reject committed installer artifacts by extension anywhere in the
 # repo, not just in .github/. This catches binaries that bypass the workflow
 # text check via renamed steps or manual commits.
@@ -70,4 +45,4 @@ reject_artifact_ext ".rpm" "RPM"
 reject_artifact_ext ".flatpak" "Flatpak"
 reject_artifact_ext ".AppImage" "AppImage"
 
-echo "Source-only GitHub policy check passed."
+echo "Source-tree artifact policy check passed."

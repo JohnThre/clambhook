@@ -2,21 +2,17 @@
 # SPDX-FileCopyrightText: 2026 Pengfan Chang <support@swiphtgroup.com>
 # SPDX-License-Identifier: GPL-3.0-only
 
-# Build, checksum, and GPG-sign the ClambHook Android release APK, generate the
-# update manifest, and print the Cloudflare R2 keys and clambercloud.com env
-# vars to publish. Run from the repository root:
+# Build, checksum, and GPG-sign the ClambHook Android APK and generate its
+# GitHub-hosted update manifest. Run from the repository root:
 #
 #   UPDATE_CHANNEL=stable REQUIRE_SIGNING=1 GPG_KEY=EAA876B70B1832F5 \
 #     scripts/release-android.sh
 #
 # Produces the APK, a .sha256 checksum, a detached armored .sha256.sig, and
-# clambhook-android-manifest.json (+ .sig). Never publish these artifacts on
-# GitHub Releases — upload only to the store.clambercloud.com R2 bucket and
-# set the CLAMBHOOK_STABLE_APK_* / CLAMBHOOK_STABLE_ANDROID_MANIFEST_URL
-# variables on the Pages project.
+# clambhook-android-manifest.json (+ .sig).
 set -euo pipefail
 
-echo "internal-only: building Android release artifacts for store.clambercloud.com." >&2
+echo "Building Android release assets for GitHub Releases." >&2
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
@@ -26,11 +22,11 @@ cd "$ROOT_DIR"
 VERSION="${VERSION:-$(git describe --tags --always --dirty 2>/dev/null | sed 's/^v//' || echo dev)}"
 VERSION_CODE="${VERSION_CODE:-3}"
 UPDATE_CHANNEL="${UPDATE_CHANNEL:-stable}"
-CHAN="$(echo "$UPDATE_CHANNEL" | tr '[:lower:]' '[:upper:]')"
 REQUIRE_SIGNING="${REQUIRE_SIGNING:-1}"
 GPG_KEY="${GPG_KEY:-EAA876B70B1832F5}"
 DIST_DIR="$ROOT_DIR/dist/android"
-BUCKET="${CLAMBHOOK_R2_BUCKET:-clambhook-artifacts}"
+RELEASE_TAG="${RELEASE_TAG:-v${VERSION}}"
+RELEASE_BASE="https://github.com/${GITHUB_REPOSITORY:-JohnThre/clambhook}/releases/download/${RELEASE_TAG}"
 ANDROID_HOME="${ANDROID_HOME:-$(uname -s | grep -qi darwin && echo "$HOME/Library/Android/sdk" || echo "$ANDROID_HOME")}"
 
 rm -rf "$DIST_DIR"
@@ -101,17 +97,12 @@ fi
   echo "Android release APK not found: $APK_SRC" >&2
   exit 1
 }
-APK_NAME="ClambHook-${VERSION}.apk"
+APK_NAME="ClambHook.apk"
 APK="$DIST_DIR/$APK_NAME"
 cp "$APK_SRC" "$APK"
 checksum_and_sign "$APK"
 
-# 3. Generate the Android update manifest. The website serves this at
-#    /api/clambhook/android-manifest so the in-app UpdateManager can detect
-#    newer signed APKs from store.clambercloud.com. The apkUrl points at the
-#    store.clambercloud.com download route (same host as MANIFEST_URL in
-#    UpdateManager.kt); it must stay on a host in UpdateManager.trustedUpdateHosts
-#    or the in-app installer rejects the download.
+# 3. Generate the update manifest with an immutable versioned asset URL.
 MANIFEST="$DIST_DIR/clambhook-android-manifest.json"
 PUBLISHED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 SHA256="$(awk '{print $1}' "$APK.sha256")"
@@ -126,7 +117,7 @@ MIN_SDK=31
   printf '  "versionName": "%s",\n' "$VERSION"
   printf '  "minSdk": %s,\n' "$MIN_SDK"
   printf '  "publishedAt": "%s",\n' "$PUBLISHED_AT"
-  printf '  "apkUrl": "https://store.clambercloud.com/api/clambhook/download?platform=android",\n'
+  printf '  "apkUrl": "%s/%s",\n' "$RELEASE_BASE" "$APK_NAME"
   printf '  "sha256": "%s",\n' "$SHA256"
   printf '  "notes": ""\n'
   printf '}\n'
@@ -139,11 +130,5 @@ echo "Generated $MANIFEST"
 cat <<SUMMARY
 
 Android release artifacts written to $DIST_DIR
-Upload each to r2://$BUCKET/clambhook/android/ and set these Pages variables:
-  CLAMBHOOK_${CHAN}_APK_URL               → ClambHook-${VERSION}.apk
-  CLAMBHOOK_${CHAN}_APK_SHA256_URL        → ClambHook-${VERSION}.apk.sha256
-  CLAMBHOOK_${CHAN}_APK_SHA256_SIG_URL    → ClambHook-${VERSION}.apk.sha256.sig
-  CLAMBHOOK_${CHAN}_ANDROID_MANIFEST_URL  → clambhook-android-manifest.json
-  CLAMBHOOK_${CHAN}_ANDROID_MANIFEST_SIG_URL → clambhook-android-manifest.json.sig
-Do not publish these on GitHub Releases or package mirrors.
+Publish these files on GitHub Release $RELEASE_TAG.
 SUMMARY

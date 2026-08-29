@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: 2026 Pengfan Chang <support@swiphtgroup.com>
 # SPDX-License-Identifier: GPL-3.0-only
 
-name: Release to R2
+name: Release to GitHub
 
 on:
   push:
@@ -36,7 +36,6 @@ env:
   JAVA_VERSION: '17'
   ANDROID_NDK_VERSION: '27.0.12077973'
   ANDROID_CMAKE_VERSION: '3.22.1'
-  WRANGLER_VERSION: '4.126.0'
 
 jobs:
   prepare:
@@ -50,6 +49,7 @@ jobs:
       channel: ${{ steps.release.outputs.channel }}
       platform: ${{ steps.release.outputs.platform }}
       build-number: ${{ steps.release.outputs.build-number }}
+      tag: ${{ steps.release.outputs.tag }}
     steps:
       - name: Check out complete source history
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -88,41 +88,86 @@ jobs:
           [[ "$channel" == "stable" || "$channel" == "beta" ]]
           [[ "$platform" == "all" || "$platform" == "android" || "$platform" == "linux" || "$platform" == "macos" ]]
           build_number=$((100000 + GITHUB_RUN_NUMBER))
+          tag="v${version}"
           {
             echo "version=$version"
             echo "channel=$channel"
             echo "platform=$platform"
             echo "build-number=$build_number"
+            echo "tag=$tag"
           } >> "$GITHUB_OUTPUT"
 
-  linux:
-    name: Sign and publish GNU/Linux
+  release:
+    name: Create GitHub Release
     needs: prepare
-    if: needs.prepare.outputs.platform == 'all' || needs.prepare.outputs.platform == 'linux'
     runs-on: ubuntu-24.04
-    timeout-minutes: 120
+    timeout-minutes: 15
     environment: production
     permissions:
-      contents: read
+      contents: write
     env:
-      VERSION: ${{ needs.prepare.outputs.version }}
-      UPDATE_CHANNEL: ${{ needs.prepare.outputs.channel }}
-      CLAMBHOOK_R2_BUCKET: ${{ vars.CLAMBHOOK_R2_BUCKET || 'clambhook-artifacts' }}
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+      RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
+      RELEASE_CHANNEL: ${{ needs.prepare.outputs.channel }}
     steps:
       - name: Check out complete source history
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 0
           persist-credentials: false
-      - name: Set up Node
-        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+      - name: Create or normalize release
+        run: |
+          args=(--repo "$GITHUB_REPOSITORY" --title "ClambHook ${RELEASE_VERSION}" --generate-notes)
+          if [[ "$RELEASE_CHANNEL" == "beta" ]]; then
+            args+=(--prerelease --target "$GITHUB_SHA")
+          else
+            [[ "$(git cat-file -t "$RELEASE_TAG")" == "tag" ]]
+            verify_home="$RUNNER_TEMP/release-tag-gnupg"
+            mkdir -p "$verify_home"
+            chmod 0700 "$verify_home"
+            GNUPGHOME="$verify_home" gpg --batch --import keys/clambhook-release-key.asc
+            GNUPGHOME="$verify_home" git verify-tag "$RELEASE_TAG"
+            args+=(--verify-tag --latest)
+          fi
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            edit_args=(--repo "$GITHUB_REPOSITORY" --title "ClambHook ${RELEASE_VERSION}")
+            if [[ "$RELEASE_CHANNEL" == "beta" ]]; then
+              edit_args+=(--prerelease --latest=false)
+            else
+              edit_args+=(--prerelease=false --latest)
+            fi
+            gh release edit "$RELEASE_TAG" "${edit_args[@]}"
+          else
+            gh release create "$RELEASE_TAG" "${args[@]}"
+          fi
+          gh release upload "$RELEASE_TAG" keys/clambhook-release-key.asc \
+            --repo "$GITHUB_REPOSITORY" --clobber
+
+  linux:
+    name: Sign and publish GNU/Linux
+    needs: [prepare, release]
+    if: needs.prepare.outputs.platform == 'all' || needs.prepare.outputs.platform == 'linux'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    environment: production
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+      UPDATE_CHANNEL: ${{ needs.prepare.outputs.channel }}
+      RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Check out complete source history
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
-          node-version: '24'
+          fetch-depth: 0
+          persist-credentials: false
       - name: Install release tools
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq debootstrap gnupg
-          npm install --global "wrangler@${WRANGLER_VERSION}"
       - name: Build Trisquel and Rocky packages
         env:
           CLAMBHOOK_LINUX_RELEASE_BUILD: '1'
@@ -134,26 +179,28 @@ jobs:
         run: scripts/prepare-ci-release-gpg.sh "$RUNNER_TEMP" "$GITHUB_ENV"
       - name: Sign package checksums and manifest
         run: scripts/sign-linux-release-artifacts.sh
-      - name: Publish to Cloudflare R2
-        env:
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-        run: scripts/upload-release-linux.sh
+      - name: Publish GNU/Linux assets to GitHub Release
+        run: |
+          shopt -s nullglob
+          assets=(dist/linux/*.deb dist/linux/*.rpm dist/linux/*.sha256 dist/linux/*.sig dist/linux/clambhook-linux-manifest.json)
+          (( ${#assets[@]} > 0 ))
+          gh release upload "$RELEASE_TAG" "${assets[@]}" --repo "$GITHUB_REPOSITORY" --clobber
 
   android:
     name: Sign and publish Android 12+
-    needs: prepare
+    needs: [prepare, release]
     if: needs.prepare.outputs.platform == 'all' || needs.prepare.outputs.platform == 'android'
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     environment: production
     permissions:
-      contents: read
+      contents: write
     env:
       VERSION: ${{ needs.prepare.outputs.version }}
       VERSION_CODE: ${{ needs.prepare.outputs.build-number }}
       UPDATE_CHANNEL: ${{ needs.prepare.outputs.channel }}
-      CLAMBHOOK_R2_BUCKET: ${{ vars.CLAMBHOOK_R2_BUCKET || 'clambhook-artifacts' }}
+      RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+      GH_TOKEN: ${{ github.token }}
     steps:
       - name: Check out complete source history
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -178,10 +225,6 @@ jobs:
             env.ANDROID_NDK_VERSION }}-${{ hashFiles(
             'scripts/build-android-openssl.sh',
             'scripts/build-android-curl.sh') }}
-      - name: Set up Node
-        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
-        with:
-          node-version: '24'
       - name: Install Android and release tools
         run: |
           yes | sdkmanager --licenses >/dev/null || true
@@ -191,7 +234,6 @@ jobs:
             'build-tools;36.0.0' \
             "ndk;${ANDROID_NDK_VERSION}" \
             "cmake;${ANDROID_CMAKE_VERSION}"
-          npm install --global "wrangler@${WRANGLER_VERSION}"
       - name: Build unsigned Android release
         run: |
           ui/android/gradlew --no-daemon -p ui/android \
@@ -214,27 +256,30 @@ jobs:
         env:
           CLAMBHOOK_ANDROID_SKIP_BUILD: '1'
         run: make release-android
-      - name: Publish to Cloudflare R2
-        env:
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-        run: make upload-release-android
+      - name: Publish Android assets to GitHub Release
+        run: |
+          shopt -s nullglob
+          assets=(dist/android/*.apk dist/android/*.sha256 dist/android/*.sig dist/android/clambhook-android-manifest.json)
+          (( ${#assets[@]} > 0 ))
+          gh release upload "$RELEASE_TAG" "${assets[@]}" --repo "$GITHUB_REPOSITORY" --clobber
 
   macos:
     name: Sign, notarize, and publish macOS
-    needs: prepare
+    needs: [prepare, release]
     if: needs.prepare.outputs.platform == 'all' || needs.prepare.outputs.platform == 'macos'
     runs-on: macos-15
     timeout-minutes: 120
     environment: production
     permissions:
-      contents: read
+      contents: write
     env:
       HOMEBREW_NO_AUTO_UPDATE: '1'
       VERSION: ${{ needs.prepare.outputs.version }}
       BUILD_NUMBER: ${{ needs.prepare.outputs.build-number }}
       UPDATE_CHANNEL: ${{ needs.prepare.outputs.channel }}
       NOTARYTOOL_PROFILE: clambhook-ci-notary
+      RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+      GH_TOKEN: ${{ github.token }}
     steps:
       - name: Check out complete source history
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -246,14 +291,9 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
-      - name: Set up Node
-        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
-        with:
-          node-version: '24'
       - name: Install macOS release tools
         run: |
           brew install cmake ninja pkg-config libuv libsodium llhttp openssl@3 curl xcodegen gnupg
-          npm install --global "wrangler@${WRANGLER_VERSION}"
           echo "PKG_CONFIG_PATH=$(brew --prefix openssl@3)/lib/pkgconfig:$(brew --prefix curl)/lib/pkgconfig:${PKG_CONFIG_PATH:-}" >> "$GITHUB_ENV"
       - name: Configure Apple signing, provisioning, and notarization
         env:
@@ -323,12 +363,20 @@ jobs:
         run: scripts/prepare-ci-release-gpg.sh "$RUNNER_TEMP" "$GITHUB_ENV"
       - name: Build, sign, notarize, and package macOS release
         run: make release-macos
-      - name: Publish to Cloudflare R2
-        env:
-          CLAMBHOOK_R2_BUCKET: ${{ vars.CLAMBHOOK_R2_BUCKET || 'clambhook-artifacts' }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-        run: make upload-release-r2
+      - name: Publish macOS assets to GitHub Release
+        run: |
+          shopt -s nullglob
+          assets=(
+            dist/macos/ClambhookMac-arm64.zip
+            dist/macos/ClambhookMac-arm64.dmg
+            dist/macos/ClambhookMac-arm64.dmg.sha256
+            dist/macos/ClambhookMac-arm64.dmg.sha256.sig
+            dist/macos/clambhook*-update-manifest.json
+            dist/macos/clambhook*-update-manifest.json.sig
+            dist/macos/appcast*.xml
+          )
+          (( ${#assets[@]} > 0 ))
+          gh release upload "$RELEASE_TAG" "${assets[@]}" --repo "$GITHUB_REPOSITORY" --clobber
       - name: Remove temporary Apple keychain
         if: always()
         run: |
@@ -339,3 +387,27 @@ jobs:
             "${XCODE_AUTHENTICATION_KEY_PATH:-}" \
             "${SPARKLE_PRIVATE_KEY_FILE:-}" \
             "$RUNNER_TEMP/developer-id-certificate"
+
+  beta-channel:
+    name: Update rolling beta channel
+    needs: [prepare, release, linux, android, macos]
+    if: always() && needs.prepare.outputs.channel == 'beta' && needs.release.result == 'success' && (needs.linux.result == 'success' || needs.linux.result == 'skipped') && (needs.android.result == 'success' || needs.android.result == 'skipped') && (needs.macos.result == 'success' || needs.macos.result == 'skipped')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment: production
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+    steps:
+      - name: Mirror versioned prerelease into rolling beta release
+        run: |
+          mkdir -p "$RUNNER_TEMP/clambhook-beta-assets"
+          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --dir "$RUNNER_TEMP/clambhook-beta-assets"
+          if gh release view beta --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release edit beta --repo "$GITHUB_REPOSITORY" --title "ClambHook beta" --prerelease --latest=false
+          else
+            gh release create beta --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "ClambHook beta" --notes "Rolling assets for the latest approved ClambHook beta." --prerelease
+          fi
+          gh release upload beta "$RUNNER_TEMP"/clambhook-beta-assets/* --repo "$GITHUB_REPOSITORY" --clobber

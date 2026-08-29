@@ -60,7 +60,6 @@ copy_notes="$website_release_dir/copy-notes.md"
 privacy="$website_release_dir/privacy.md"
 signing="$website_release_dir/signing.md"
 support="$website_release_dir/support.md"
-availability_plan="$website_release_dir/availability-plan.md"
 support_demo_profile="$website_release_dir/support-demo-profile.toml.template"
 license_validation="$ROOT_DIR/docs/license-validation.md"
 
@@ -73,7 +72,6 @@ for path in \
     "$privacy" \
     "$signing" \
     "$support" \
-    "$availability_plan" \
     "$support_demo_profile" \
     "$license_validation" \
     "$settings" \
@@ -88,8 +86,8 @@ for path in \
     require_file "$path"
 done
 
-require_text "$readme" "distributed only from \`https://store.clambercloud.com/clambhook/\`" "README distribution policy"
-require_text "$readme" "free public DMG download for Apple Silicon Macs running macOS 14 or later" "README macOS availability policy"
+require_text "$readme" "https://github.com/JohnThre/clambhook/releases" "README distribution policy"
+require_text "$readme" "notarized DMG for Apple Silicon Macs running macOS 14 or later" "README macOS availability policy"
 product_promise="USD 49.99"
 versions_promise="on or before the update cutoff remain usable"
 device_promise="maximum of 3 concurrently active"
@@ -145,7 +143,6 @@ for website_release_file in \
     "$privacy" \
     "$signing" \
     "$support" \
-    "$availability_plan" \
     "$support_demo_profile" \
     "$license_validation"; do
     reject_text "$website_release_file" "StoreKit" "macOS website release copy"
@@ -155,8 +152,8 @@ for website_release_file in \
     reject_text "$website_release_file" "app-review" "macOS website release copy"
 done
 
-require_text "$settings" "https://store.clambercloud.com/api/clambhook/update-manifest" "stable update manifest"
-require_text "$settings" "https://store.clambercloud.com/api/clambhook/update-manifest?channel=beta" "beta update manifest"
+require_text "$settings" "https://github.com/JohnThre/clambhook/releases/latest/download/clambhook-update-manifest.json" "stable update manifest"
+require_text "$settings" "https://github.com/JohnThre/clambhook/releases/download/beta/clambhook-beta-update-manifest.json" "beta update manifest"
 reject_text "$settings" "public let defaultStableUpdateManifestURL = URL(string: \"https://jpfchang.org/clambhook/clambhook-update-manifest.json\")!" "stable update manifest"
 reject_text "$settings" "public let defaultBetaUpdateManifestURL = URL(string: \"https://jpfchang.org/clambhook/clambhook-beta-update-manifest.json\")!" "beta update manifest"
 

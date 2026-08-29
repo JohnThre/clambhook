@@ -68,11 +68,23 @@ if grep -RiqE --include='*.yml' --exclude='release.yml' \
 fi
 
 # Reports and logs may use Actions artifacts. Installer/package outputs and the
-# entire dist tree may only go to the approved R2 deployment scripts.
-if grep -RiqE --include='*.yml' \
+# dist tree are permitted only in the protected release workflow.
+if grep -RiqE --include='*.yml' --exclude='release.yml' \
   '(^|[[:space:]/])(dist(/|$)|[^[:space:]]+\.(apk|aab|dmg|pkg|deb|rpm|flatpak|AppImage))' \
   "$WORKFLOW_DIR"; then
-  fail "workflow references an installer/package artifact or dist/ path"
+  fail "non-release workflow references an installer/package artifact or dist/ path"
+fi
+
+release_workflow="$WORKFLOW_DIR/release.yml"
+[[ -f "$release_workflow" ]] || fail "missing release workflow"
+grep -q 'name: Release to GitHub' "$release_workflow" || \
+  fail "release workflow must publish to GitHub Releases"
+grep -q 'contents: write' "$release_workflow" || \
+  fail "release workflow needs job-scoped contents: write"
+grep -q 'gh release upload' "$release_workflow" || \
+  fail "release workflow does not upload GitHub Release assets"
+if grep -Eiq '(wrangler|Cloudflare R2|CLOUDFLARE_|CLAMBHOOK_R2_)' "$release_workflow"; then
+  fail "release workflow still references Cloudflare R2"
 fi
 
 "$ROOT_DIR/scripts/check-source-only.sh" "$ROOT_DIR"

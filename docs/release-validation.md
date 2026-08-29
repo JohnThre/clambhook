@@ -5,21 +5,21 @@
 
 Every installer is validated **before** any manual QA, signing, or upload to an
 approved store channel. GitHub Actions is the primary automated gate, with a
-local mirror for physical-device and desktop QA. Nothing is attached to GitHub
-Releases: workflow reports remain short-lived Actions artifacts and production
-installers use only the approved R2-backed store channel.
+local mirror for physical-device and desktop QA. Workflow reports remain
+short-lived Actions artifacts; production installers are attached only to the
+approved GitHub Release.
 
 `.github/workflows/ci.yml` runs source policy, native C portability, Android,
 and GNU/Linux jobs. Android instrumentation covers API 31, 33, and 36; GNU/Linux is limited
 to Trisquel 12, Rocky Linux 9, and AlmaLinux 9. `.github/workflows/security.yml`
 runs CodeQL and dependency review. After these gates and owner QA,
 `.github/workflows/release.yml` uses a protected GitHub environment to sign,
-notarize, and deploy directly to R2 without GitHub installer artifacts. See
+notarize, and publish official GitHub Release assets. See
 [`github-cicd.md`](github-cicd.md). `scripts/ci-local.sh` mirrors the platform
 gate in sections
 (`go`, `apple`, `android`, `linux`, `e2e`, `smoke`; default `all`), skipping any
 section whose tooling is absent. CI validates builds and installers; it never
-publishes end-user installers. Distribution stays on the approved channels only
+publishes end-user installers. Distribution stays on the approved channel only
 (see [`distribution.md`](distribution.md)).
 
 ## Ordering: GitHub and local gates before distribution
@@ -33,7 +33,7 @@ flowchart LR
     apple --> qa["Manual QA + sign + notarize"]
     linux --> qa
     android --> qa
-    qa --> dist["Distribute via approved store channels only<br/>(never GitHub Releases)"]
+    qa --> dist["Publish signed assets<br/>to GitHub Releases"]
 ```
 
 ## Platform → validation matrix
@@ -42,7 +42,7 @@ flowchart LR
 | --- | --- | --- | --- | --- |
 | macOS | Local app QA; GitHub native-C portability | `ClambhookMac` (`ui/apple`) | local `make build-apple` + `swift test` + notarized installer smoke; GitHub native C sanitizers | Shipping (public) |
 | GNU/Linux | GitHub + local containers | Debian/RPM recipes | Trisquel 12, Rocky Linux 9, AlmaLinux 9; native sanitizers + C/GTK + package smoke | Shipping (public) |
-| Android 12+ | GitHub + optional physical device | sideload build | unit/lint/build + Compose/JNI instrumentation on API 31/33/36 + optional Pixel 3a XL QA | Internal developer QA |
+| Android 12+ | GitHub + optional physical device | signed sideload APK | unit/lint/build + Compose/JNI instrumentation on API 31/33/36 + optional Pixel 3a XL QA | Shipping (public) |
 
 ClambHook's Apple surface is currently macOS only. Windows development is
 discontinued with no planned resumption date.

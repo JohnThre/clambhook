@@ -8,9 +8,9 @@ This checklist is the source of truth for ClambHook direct-sale setup across
 
 ## Account Prerequisites
 
-- Confirm `store.clambercloud.com` serves ClambHook product, download, support, privacy, update manifest, appcast, and artifact routes.
+- Confirm `store.clambercloud.com` serves ClambHook product, download guidance, support, and privacy routes.
 - Confirm `store.swiphtgroup.com` has the `DB` binding and ClambHook license migrations applied.
-- Confirm the ClambHook artifact R2 bucket is configured for download/update delivery.
+- Confirm the official ClambHook GitHub Releases page and latest asset URLs are public.
 - Confirm Creem and NOWPayments product IDs are configured for the USD 49.99 license and USD 9.99 update-year renewal.
 - Confirm license grant email delivery is configured before accepting purchases.
 
@@ -23,7 +23,7 @@ This checklist is the source of truth for ClambHook direct-sale setup across
 - License Portal URL: `https://store.swiphtgroup.com/clambhook/portal/`.
 - Support URL: `https://store.clambercloud.com/clambhook/support/`.
 - Privacy Policy URL: `https://store.clambercloud.com/clambhook/privacy/`.
-- Distribution copy: direct download from `store.clambercloud.com`.
+- Distribution copy: signed downloads from GitHub Releases.
 
 ## License Products
 
@@ -71,8 +71,8 @@ including critical, bug, and security updates.
 
 ## Verification
 
-- Confirm `https://store.clambercloud.com/api/clambhook/download` returns the current notarized macOS DMG while platform-specific artifacts are configured.
-- Confirm `https://store.clambercloud.com/api/clambhook/update-manifest` returns the current update manifest.
+- Confirm `https://github.com/JohnThre/clambhook/releases/latest` exposes the current notarized DMG, signed APK, `.deb`, `.rpm`, checksums, signatures, and manifests.
+- Confirm the Clamber Cloud download page links to GitHub Releases.
 - Confirm license checkout creates a license and sends the license email.
 - Confirm the USD 9.99 renewal extends the update window by one year from the later of the current cutoff or renewal payment date.
 - Confirm activation enforces 3 active devices across supported platforms.

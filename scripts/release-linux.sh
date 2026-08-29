@@ -2,20 +2,16 @@
 # SPDX-FileCopyrightText: 2026 Pengfan Chang <support@swiphtgroup.com>
 # SPDX-License-Identifier: GPL-3.0-only
 
-# Build, checksum, and GPG-sign the ClambHook GNU/Linux release artifacts, then
-# print the Cloudflare R2 keys and clambercloud.com env vars to publish. Run on
-# a GNU/Linux build host from the repository root:
+# Build, checksum, and GPG-sign the ClambHook GNU/Linux GitHub Release assets.
 #
 #   UPDATE_CHANNEL=stable REQUIRE_SIGNING=1 GPG_KEY=EAA876B70B1832F5 \
 #     scripts/release-linux.sh
 #
 # Produces per-package .sha256 and detached .sha256.sig files (armored GPG),
-# matching the macOS release convention. Never publish these artifacts on GitHub
-# Releases or package mirrors — upload only to the store.clambercloud.com R2
-# bucket and set the CLAMBHOOK_*_LINUX_* URL variables on the Pages project.
+# matching the macOS release convention.
 set -euo pipefail
 
-echo "internal-only: building GNU/Linux release artifacts for store.clambercloud.com." >&2
+echo "Building GNU/Linux release assets for GitHub Releases." >&2
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
@@ -24,12 +20,12 @@ cd "$ROOT_DIR"
 
 VERSION="${VERSION:-$(git describe --tags --always --dirty 2>/dev/null | sed 's/^v//' || echo dev)}"
 UPDATE_CHANNEL="${UPDATE_CHANNEL:-stable}"
-CHAN="$(echo "$UPDATE_CHANNEL" | tr '[:lower:]' '[:upper:]')"
 REQUIRE_SIGNING="${REQUIRE_SIGNING:-1}"
 GPG_KEY="${GPG_KEY:-EAA876B70B1832F5}"
 ARCH="$(uname -m)"
 DIST_DIR="$ROOT_DIR/dist/linux"
-BUCKET="${CLAMBHOOK_R2_BUCKET:-clambhook-artifacts}"
+RELEASE_TAG="${RELEASE_TAG:-v${VERSION}}"
+RELEASE_BASE="https://github.com/${GITHUB_REPOSITORY:-JohnThre/clambhook}/releases/download/${RELEASE_TAG}"
 
 if [[ "${CLAMBHOOK_RELEASE_APPEND:-0}" != "1" ]]; then
   rm -rf "$DIST_DIR"
@@ -79,8 +75,8 @@ build_deb() {
   local built
   # shellcheck disable=SC2012 # Package filenames are controlled by dpkg.
   built="$(ls -t ../clambhook_*_*.deb | head -n1)"
-  cp "$built" "$DIST_DIR/clambhook-${VERSION}-${ARCH}.deb"
-  checksum_and_sign "$DIST_DIR/clambhook-${VERSION}-${ARCH}.deb"
+  cp "$built" "$DIST_DIR/clambhook.deb"
+  checksum_and_sign "$DIST_DIR/clambhook.deb"
 }
 
 # 2. Rocky Linux / AlmaLinux RPM package (.rpm)
@@ -97,8 +93,8 @@ build_rpm() {
   local built
   # shellcheck disable=SC2012 # Package filenames are controlled by rpmbuild.
   built="$(ls -t "$topdir"/RPMS/*/clambhook-*.rpm | head -n1)"
-  cp "$built" "$DIST_DIR/clambhook-${VERSION}-${ARCH}.rpm"
-  checksum_and_sign "$DIST_DIR/clambhook-${VERSION}-${ARCH}.rpm"
+  cp "$built" "$DIST_DIR/clambhook.rpm"
+  checksum_and_sign "$DIST_DIR/clambhook.rpm"
 }
 
 TARGETS="${1:-deb rpm}"
@@ -108,21 +104,18 @@ for target in $TARGETS; do
 done
 
 # Generate the GNU/Linux update manifest after all packages are built and signed.
-# The website serves this at /api/clambhook/linux-manifest so users and package
-# managers can discover the current release without hitting GitHub.
 MANIFEST="$DIST_DIR/clambhook-linux-manifest.json"
 PUBLISHED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
 write_manifest_entry() {
-  local pkg="$1" file_suffix="$2" url_key="$3"
-  local artifact="$DIST_DIR/clambhook-${VERSION}-${ARCH}.${file_suffix}"
+  local pkg="$1" file_suffix="$2"
+  local artifact="$DIST_DIR/clambhook.${file_suffix}"
   local sha256=""
   if [[ -f "$artifact.sha256" ]]; then
     sha256="$(awk '{print $1}' "$artifact.sha256")"
   fi
   printf '    "%s": {\n' "$pkg"
-  # shellcheck disable=SC2016 # Emit a literal website environment placeholder.
-  printf '      "url": "${%s}",\n' "$url_key"
+  printf '      "url": "%s/%s",\n' "$RELEASE_BASE" "$(basename "$artifact")"
   if [[ -n "$sha256" ]]; then
     printf '      "sha256": "%s"\n' "$sha256"
   else
@@ -137,9 +130,9 @@ write_manifest_entry() {
   printf '  "publishedAt": "%s",\n' "$PUBLISHED_AT"
   printf '  "architecture": "%s",\n' "$ARCH"
   printf '  "packages": {\n'
-  write_manifest_entry "deb" "deb" "CLAMBHOOK_${CHAN}_LINUX_DEB_URL"
+  write_manifest_entry "deb" "deb"
   printf ',\n'
-  write_manifest_entry "rpm" "rpm" "CLAMBHOOK_${CHAN}_LINUX_RPM_URL"
+  write_manifest_entry "rpm" "rpm"
   printf '\n  }\n'
   printf '}\n'
 } >"$MANIFEST"
@@ -151,11 +144,5 @@ echo "Generated $MANIFEST"
 cat <<SUMMARY
 
 Linux release artifacts written to $DIST_DIR
-Upload each to r2://$BUCKET/clambhook/linux/ and set these Pages variables:
-  CLAMBHOOK_${CHAN}_LINUX_DEB_URL          → clambhook-${VERSION}-${ARCH}.deb
-  CLAMBHOOK_${CHAN}_LINUX_DEB_SHA256_URL   → clambhook-${VERSION}-${ARCH}.deb.sha256
-  CLAMBHOOK_${CHAN}_LINUX_RPM_URL          → clambhook-${VERSION}-${ARCH}.rpm
-  CLAMBHOOK_${CHAN}_LINUX_RPM_SHA256_URL   → clambhook-${VERSION}-${ARCH}.rpm.sha256
-  CLAMBHOOK_${CHAN}_LINUX_MANIFEST_URL     → clambhook-linux-manifest.json
-Do not publish these on GitHub Releases or package mirrors.
+Publish these files on GitHub Release $RELEASE_TAG.
 SUMMARY

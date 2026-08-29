@@ -13,7 +13,7 @@ class UpdateManagerTest {
     private fun manifest(
         versionCode: Long = 2,
         minSdk: Int = 31,
-        apkUrl: String = "https://store.clambercloud.com/clambhook.apk",
+        apkUrl: String = "https://github.com/JohnThre/clambhook/releases/download/v1.0.0/ClambHook.apk",
         sha256: String = "abc123",
     ) = AndroidUpdateManifest(
         versionCode = versionCode,
@@ -82,17 +82,16 @@ class UpdateManagerTest {
     }
 
     @Test
-    fun trustedOriginAcceptsStoreAndApexOverHttps() {
-        assertTrue(isTrustedUpdateOrigin("https://store.clambercloud.com/api/clambhook/download?platform=android"))
-        assertTrue(isTrustedUpdateOrigin("https://clambercloud.com/clambhook.apk"))
-        assertTrue(isTrustedUpdateOrigin("  https://STORE.clambercloud.com/x.apk  "))
+    fun trustedOriginAcceptsGitHubOverHttps() {
+        assertTrue(isTrustedUpdateOrigin("https://github.com/JohnThre/clambhook/releases/download/v1.0.0/ClambHook.apk"))
+        assertTrue(isTrustedUpdateOrigin("  https://GITHUB.com/JohnThre/clambhook/releases/download/v1/x.apk  "))
     }
 
     @Test
     fun trustedOriginRejectsOffOriginNonHttpsAndMalformed() {
         assertFalse(isTrustedUpdateOrigin("https://evil.example.com/clambhook.apk"))
-        assertFalse(isTrustedUpdateOrigin("https://clambercloud.com.evil.example.com/x.apk"))
-        assertFalse(isTrustedUpdateOrigin("http://store.clambercloud.com/x.apk"))
+        assertFalse(isTrustedUpdateOrigin("https://github.com.evil.example.com/x.apk"))
+        assertFalse(isTrustedUpdateOrigin("http://github.com/JohnThre/clambhook/x.apk"))
         assertFalse(isTrustedUpdateOrigin(""))
         assertFalse(isTrustedUpdateOrigin("not a url"))
     }

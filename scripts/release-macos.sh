@@ -4,7 +4,7 @@
 
 set -euo pipefail
 
-echo "internal-only: macOS archives are for developer QA/build validation and must not be published on GitHub for end users." >&2
+echo "Building signed and notarized macOS assets for GitHub Releases." >&2
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TEAM_ID="${CLAMBHOOK_DEVELOPMENT_TEAM:-}"
@@ -27,7 +27,9 @@ else
     UPDATE_MANIFEST="$DIST_DIR/clambhook-update-manifest.json"
     APPCAST="$DIST_DIR/appcast.xml"
 fi
-APPCAST_DOWNLOAD_URL="${CLAMBHOOK_APPCAST_DOWNLOAD_URL:-https://store.clambercloud.com/api/clambhook/download}"
+RELEASE_TAG="${RELEASE_TAG:-v${VERSION:-$(git -C "$ROOT_DIR" describe --tags --always 2>/dev/null | sed 's/^v//')}}"
+RELEASE_BASE="https://github.com/${GITHUB_REPOSITORY:-JohnThre/clambhook}/releases/download/${RELEASE_TAG}"
+APPCAST_DOWNLOAD_URL="${CLAMBHOOK_APPCAST_DOWNLOAD_URL:-${RELEASE_BASE}/ClambhookMac-arm64.dmg}"
 DAEMON="$ROOT_DIR/bin/clambhook"
 TUI="$ROOT_DIR/bin/clambhook-tui"
 SODIUM="$ROOT_DIR/bin/libsodium.26.dylib"
@@ -272,7 +274,7 @@ cat > "$UPDATE_MANIFEST" <<JSON
   "channel": "${UPDATE_CHANNEL}",
   "published_at": "${BUILD_DATE}",
   "minimum_os_version": "14.0",
-  "url": "https://store.clambercloud.com/api/clambhook/download",
+  "url": "${RELEASE_BASE}/ClambhookMac-arm64.dmg",
   "filename": "ClambhookMac-arm64.dmg",
   "sha256": "${DMG_SHA256}",
   "size": ${DMG_SIZE}
@@ -323,9 +325,4 @@ else
     echo "Skipping appcast generation: Sparkle sign_update not found (internal build-validation archive; do not publish)." >&2
 fi
 
-# Upload to Cloudflare R2 when bucket is configured.
-if [[ -n "${CLAMBHOOK_R2_BUCKET:-}" ]]; then
-    "$ROOT_DIR/scripts/upload-release-r2.sh" "$FINAL_ZIP" "$FINAL_DMG" "$FINAL_DMG_CHECKSUM" "$UPDATE_MANIFEST" "$APPCAST"
-else
-    echo "Skipping R2 upload: set CLAMBHOOK_R2_BUCKET and run 'make upload-release-r2' to publish." >&2
-fi
+echo "Publish the generated files from $DIST_DIR on GitHub Release $RELEASE_TAG."

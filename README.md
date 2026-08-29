@@ -169,7 +169,7 @@ See [`docs/macos-v1-scope.md`](docs/macos-v1-scope.md) for the full scope.
 | --- | --- | --- |
 | macOS 14+ (Apple Silicon) | SwiftUI | Public release |
 | GNU/Linux (Trisquel, Rocky Linux, AlmaLinux) | C / GTK 4 target with native rule, TOML, and license management; Compose remains only as rollback during parity | Public release |
-| Android 12+ | Kotlin / Compose | Internal developer QA |
+| Android 12+ | Kotlin / Compose | Public signed APK |
 
 Windows development is discontinued with no planned resumption date.
 
@@ -311,8 +311,9 @@ commit SHAs and workflow permissions default to none.
 
 [`.github/workflows/release.yml`](.github/workflows/release.yml) provides the
 protected CD path for signed tags and approved manual beta/recovery runs. It
-signs/notarizes on protected runners and uploads directly to Cloudflare R2;
-installer/package outputs are never stored in GitHub artifacts or Releases.
+signs/notarizes on protected runners and publishes checksummed, signed assets
+directly to GitHub Releases; short-lived Actions artifacts are not used for
+installer distribution.
 See [`docs/github-cicd.md`](docs/github-cicd.md) for environment protection,
 required secrets, release behavior, and branch-protection setup.
 
@@ -361,10 +362,11 @@ packaged or selected by the production VPN service. See
 
 ## Distribution and licensing
 
-The end-user macOS app is distributed only from `https://store.clambercloud.com/clambhook/`
-as a free public DMG download for Apple Silicon Macs running macOS 14 or later. The GNU/Linux
-app is distributed only from the same host as free per-distro packages (`.deb` and `.rpm`)
-tested on Trisquel, Rocky Linux, and AlmaLinux. First launch
+The end-user apps are distributed from the official
+[GitHub Releases page](https://github.com/JohnThre/clambhook/releases). Releases
+include a notarized DMG for Apple Silicon Macs running macOS 14 or later,
+signed `.deb` and `.rpm` packages tested on Trisquel, Rocky Linux, and
+AlmaLinux, and a signed Android APK for Android 12/API 31 or later. First launch
 starts a one-calendar-month trial, after which a USD 49.99 one-time ClambHook license is
 purchased from `https://store.swiphtgroup.com/clambhook/buy`.
 
@@ -377,7 +379,7 @@ renewal payment date. Purchase payments are accepted only through Creem or NOWPa
 
 ```mermaid
 flowchart TD
-    download["Free DMG<br/>store.clambercloud.com"] --> trial["One-calendar-month trial"]
+    download["Signed downloads<br/>GitHub Releases"] --> trial["One-calendar-month trial"]
     trial --> buy["USD 49.99 license<br/>Creem / NOWPayments"]
     buy --> year["One update year<br/>from purchase date"]
     year --> cutoff{Past update cutoff?}
@@ -422,9 +424,9 @@ flowchart LR
     buy --> license
 ```
 
-- **Marketing / download (`clambercloud.com`):** product content, feature and
-  pricing pages, and free downloads with the one-calendar-month trial. No
-  checkout runs here; the payment CTA redirect is the only commerce coupling.
+- **Marketing (`clambercloud.com`):** product content, feature, pricing, and
+  download guidance linking to official GitHub Release assets. No checkout
+  runs here; purchase CTAs continue to link to the store.
 - **Checkout / licensing (`store.swiphtgroup.com`):** Creem and NOWPayments
   checkout, license-key delivery, update-year renewals, and the device-seat
   portal enforcing the 3 concurrently active device limit.
@@ -432,7 +434,7 @@ flowchart LR
 Official public routes:
 
 - Product: `https://store.clambercloud.com/clambhook/`
-- Download: `https://store.clambercloud.com/clambhook/download/`
+- Download: `https://github.com/JohnThre/clambhook/releases`
 - Features: `https://store.clambercloud.com/clambhook/features/`
 - Pricing: `https://store.clambercloud.com/clambhook/pricing/`
 - Buy or upgrade: `https://store.swiphtgroup.com/clambhook/buy/`
@@ -441,17 +443,15 @@ Official public routes:
 - Privacy policy: `https://store.clambercloud.com/clambhook/privacy/`
 - Support: `https://store.clambercloud.com/clambhook/support/`
 
-Clambhook is not distributed to end users through app marketplaces, GitHub
-Releases, Homebrew, package registries, or third-party mirrors. macOS and
-GNU/Linux are public releases served only from `store.clambercloud.com`; Android
-builds remain internal developer QA targets until a separate distribution plan
-is approved. Windows development is discontinued with no planned resumption
-date. See [`docs/distribution.md`](docs/distribution.md) and
+ClambHook is distributed to end users through GitHub Releases, not app
+marketplaces, Homebrew, package registries, Cloudflare R2, or third-party
+mirrors. macOS, GNU/Linux, and Android 12+ are public release targets. Windows
+development is discontinued with no planned resumption date. See
+[`docs/distribution.md`](docs/distribution.md) and
 [`docs/license-validation.md`](docs/license-validation.md).
 
-GitHub remains the source distribution and CI host; official signed end-user
-installers are distributed through the approved ClambHook download channels,
-not GitHub Releases. GPL-compliant forks may build and redistribute the public
+GitHub is the source, CI, and official signed binary distribution host.
+GPL-compliant forks may build and redistribute the public
 application core under their own branding and must not imply official status.
 
 ## License
@@ -467,6 +467,13 @@ See [`LICENSING.md`](LICENSING.md), [`NOTICE`](NOTICE), and
 Pengfan Chang — <support@swiphtgroup.com>
 
 ## Donate
+
+Support ClambHook development through any of these services:
+
+- [Ko-fi](https://ko-fi.com/jpfchang)
+- [Liberapay](https://en.liberapay.com/jpfchang/)
+- [IssueHunt](https://oss.issuehunt.io/u/johnthre)
+- [NOWPayments cryptocurrency donation](https://nowpayments.io/donation?api_key=5792a927-dd7d-4b0c-982b-584a7499ffc9)
 
 <a href="https://nowpayments.io/donation?api_key=5792a927-dd7d-4b0c-982b-584a7499ffc9" target="_blank" rel="noreferrer noopener">
     <img src="https://nowpayments.io/images/embeds/donation-button-black.svg" alt="Crypto donation button by NOWPayments">

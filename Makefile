@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: 2026 Pengfan Chang <support@swiphtgroup.com>
 # SPDX-License-Identifier: GPL-3.0-only
 
-.PHONY: all build build-clib build-daemon build-tui build-license build-native test-native build-linux-gtk install install-linux prepare-apple-runtime generate-apple build-apple check-macos-signing release-macos release-linux upload-release-r2 release-check ci-local macos-release-contract-check package-smoke test-apple test-android test-android-compatibility build-android-native build-android lint-android run-android build-android-release release-android upload-release-android check-linux-ui-deps test-linux build-linux test test-race provision-clambback-e2e e2e e2e-required e2e-release e2e-tun lint clean
+.PHONY: all build build-clib build-daemon build-tui build-license build-native test-native build-linux-gtk install install-linux prepare-apple-runtime generate-apple build-apple check-macos-signing release-macos release-linux release-check ci-local macos-release-contract-check package-smoke test-apple test-android test-android-compatibility build-android-native build-android lint-android run-android build-android-release release-android check-linux-ui-deps test-linux build-linux test test-race provision-clambback-e2e e2e e2e-required e2e-release e2e-tun lint clean
 
 export CGO_ENABLED=1
 PREFIX ?= /usr/local
@@ -23,7 +23,7 @@ E2E_CLAMBBACK_BIN = $(or $(abspath $(CLAMBBACK_BIN)),$(CLAMBBACK_E2E_BIN))
 NATIVE_BUILD_DIR ?= build-native
 
 require-command = @command -v $(1) >/dev/null 2>&1 || { echo "$(1) is required for $(2)." >&2; echo "$(3)" >&2; exit 2; }
-internal-release-notice = @printf '%s\n' "internal-only: this target is for developer QA/build validation and must not publish end-user installers or packages on GitHub."
+internal-release-notice = @printf '%s\n' "local build only: publishing is performed by the protected GitHub Release workflow."
 
 all: build
 
@@ -125,14 +125,6 @@ release-linux:
 	$(internal-release-notice)
 	./scripts/release-linux.sh
 
-upload-release-r2:
-	$(internal-release-notice)
-	./scripts/upload-release-r2.sh
-
-upload-release-linux:
-	$(internal-release-notice)
-	./scripts/upload-release-linux.sh
-
 release-check:
 	$(internal-release-notice)
 	$(MAKE) macos-release-contract-check test lint package-smoke e2e-release
@@ -183,10 +175,6 @@ build-android-release:
 release-android:
 	$(internal-release-notice)
 	./scripts/release-android.sh
-
-upload-release-android:
-	$(internal-release-notice)
-	./scripts/upload-release-android.sh
 
 test-linux: check-linux-ui-deps
 	cd ui/linux && $(GRADLE) --no-daemon test

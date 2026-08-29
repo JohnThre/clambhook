@@ -108,11 +108,11 @@ final class SettingsTests: XCTestCase {
     func testDefaultUpdateManifestURLsUseReleaseAPIEndpoints() {
         XCTAssertEqual(
             defaultStableUpdateManifestURL.absoluteString,
-            "https://store.clambercloud.com/api/clambhook/update-manifest"
+            "https://github.com/JohnThre/clambhook/releases/latest/download/clambhook-update-manifest.json"
         )
         XCTAssertEqual(
             defaultBetaUpdateManifestURL.absoluteString,
-            "https://store.clambercloud.com/api/clambhook/update-manifest?channel=beta"
+            "https://github.com/JohnThre/clambhook/releases/download/beta/clambhook-beta-update-manifest.json"
         )
     }
 
@@ -138,6 +138,16 @@ final class SettingsTests: XCTestCase {
         let settings = AppSettings(
             stableUpdateManifestURL: URL(string: "https://jpfchang.org/api/clambhook/update-manifest")!,
             betaUpdateManifestURL: URL(string: "https://jpfchang.org/api/clambhook/update-manifest?channel=beta")!
+        ).normalized()
+
+        XCTAssertEqual(settings.stableUpdateManifestURL, defaultStableUpdateManifestURL)
+        XCTAssertEqual(settings.betaUpdateManifestURL, defaultBetaUpdateManifestURL)
+    }
+
+    func testNormalizingLegacyStoreManifestURLsMigratesToGitHubReleaseEndpoints() {
+        let settings = AppSettings(
+            stableUpdateManifestURL: URL(string: "https://store.clambercloud.com/api/clambhook/update-manifest")!,
+            betaUpdateManifestURL: URL(string: "https://store.clambercloud.com/api/clambhook/update-manifest?channel=beta")!
         ).normalized()
 
         XCTAssertEqual(settings.stableUpdateManifestURL, defaultStableUpdateManifestURL)

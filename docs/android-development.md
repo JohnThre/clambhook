@@ -153,7 +153,7 @@ and [`docs/release-validation.md`](release-validation.md).
 
 Protected GitHub CD builds without the Android keystore, signs the completed
 package with the Android SDK `apksigner`, verifies that signature, deletes the
-temporary keystore, and uploads only to R2. Environment setup and secret names
+temporary keystore, verifies it, and uploads it only to GitHub Releases. Environment setup and secret names
 are documented in [`github-cicd.md`](github-cicd.md).
 
 ## Local CI

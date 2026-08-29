@@ -18,18 +18,20 @@ public let minRefreshIntervalSeconds: Double = 1
 public let maxRefreshIntervalSeconds: Double = 30
 public let minLogRetention = 50
 public let maxLogRetention = 500
-public let defaultStableUpdateManifestURL = URL(string: "https://store.clambercloud.com/api/clambhook/update-manifest")!
-public let defaultBetaUpdateManifestURL = URL(string: "https://store.clambercloud.com/api/clambhook/update-manifest?channel=beta")!
-public let defaultStableAppcastURL = URL(string: "https://store.clambercloud.com/api/clambhook/appcast.xml")!
-public let defaultBetaAppcastURL = URL(string: "https://store.clambercloud.com/api/clambhook/appcast.xml?channel=beta")!
+public let defaultStableUpdateManifestURL = URL(string: "https://github.com/JohnThre/clambhook/releases/latest/download/clambhook-update-manifest.json")!
+public let defaultBetaUpdateManifestURL = URL(string: "https://github.com/JohnThre/clambhook/releases/download/beta/clambhook-beta-update-manifest.json")!
+public let defaultStableAppcastURL = URL(string: "https://github.com/JohnThre/clambhook/releases/latest/download/appcast.xml")!
+public let defaultBetaAppcastURL = URL(string: "https://github.com/JohnThre/clambhook/releases/download/beta/appcast-beta.xml")!
 private let legacyStableUpdateManifestURLStrings: Set<String> = [
     "https://jpfchang.org/clambhook/clambhook-update-manifest.json",
     "https://jpfchang.org/api/clambhook/update-manifest",
+    "https://store.clambercloud.com/api/clambhook/update-manifest",
 ]
 private let legacyBetaUpdateManifestURLStrings: Set<String> = [
     "https://jpfchang.org/clambhook/clambhook-beta-update-manifest.json",
     "https://jpfchang.org/clambhook/clambhook-update-manifest.json?channel=beta",
     "https://jpfchang.org/api/clambhook/update-manifest?channel=beta",
+    "https://store.clambercloud.com/api/clambhook/update-manifest?channel=beta",
 ]
 public let vpnDataUseDisclosure = """
 ClambHook routes device network traffic according to your profiles and rules. Activity inspection is metadata-only by default: connection targets, routing decisions, byte counts, timing, and hop status. HTTP Capture is a separate local opt-in for traffic routed through the daemon HTTP proxy; HTTPS capture requires a user-trusted local certificate authority and can store bounded request and response body previews plus HAR exports on this Mac. Profile data, connection metadata, traffic logs, diagnostics, and captures stay on this device unless you export them. ClambHook does not sell, use, or disclose VPN traffic data to third parties. Apple diagnostics may include crash and performance data if enabled.
