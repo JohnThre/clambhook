@@ -51,7 +51,7 @@ rpm_setup='dnf install -y -q --allowerasing \
   alsa-lib-devel freetype-devel gtk3-devel libX11-devel libXtst-devel \
   mesa-libGL-devel pango-devel zlib-devel \
   xorg-x11-server-Xvfb xorg-x11-xauth dbus-daemon gnome-keyring libsecret \
-  java-17-openjdk-devel maven \
+  maven \
   rpm-build systemd-rpm-macros polkit-devel iproute \
   git curl wget tar gzip file which rsync ca-certificates >/dev/null'
 

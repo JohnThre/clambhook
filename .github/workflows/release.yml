@@ -235,7 +235,7 @@ jobs:
       - name: Install Android and release tools
         run: |
           yes | sdkmanager --licenses >/dev/null || true
-          android sdk install --beta platforms/android-37.0 build-tools/37.0.0
+          sdkmanager --channel=3 'platforms;android-37.0' 'build-tools;37.0.0'
           sdkmanager \
             'platform-tools' \
             'platforms;android-36' \
