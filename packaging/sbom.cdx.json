@@ -206,7 +206,13 @@
           "expression": "GPL-2.0-only WITH Classpath-exception-2.0"
         }
       ],
-      "purl": "pkg:maven/com.gluonhq/javafx-static-sdk@21.0.1"
+      "purl": "pkg:maven/com.gluonhq/javafx-static-sdk@21.0.1",
+      "properties": [
+        {
+          "name": "clambhook:linux-aarch64-gtk-archive-sha256",
+          "value": "44beff405df3719f597e046cbdcd8f8ec245c4813ad3d0f5418e6ab50992231b"
+        }
+      ]
     },
     {
       "type": "library",
@@ -221,7 +227,17 @@
           }
         }
       ],
-      "purl": "pkg:maven/com.gluonhq/substrate@0.0.69"
+      "purl": "pkg:maven/com.gluonhq/substrate@0.0.69",
+      "properties": [
+        {
+          "name": "clambhook:official-jar-sha256",
+          "value": "d2ba5f26578e4aa81e358f2e9fdf107c1d528294920db4e4a70841a678e49cf4"
+        },
+        {
+          "name": "clambhook:linux-aarch64-backend-selector",
+          "value": "GTK patch in isolated build repository; target triplet unchanged"
+        }
+      ]
     },
     {
       "type": "library",

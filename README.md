@@ -148,8 +148,12 @@ JavaFX Maven dependencies are pinned at 21.0.12. Gluon's independently
 published JavaFX 21 static ABI substrate is pinned at 21.0.1, the public bundle
 available for every locked native target. GluonFX is pinned at 1.0.29. The
 Linux AArch64 image is a GTK/X11 desktop build and excludes Gluon's separate
-commercial DRM/framebuffer extension; its empty link guard makes the build
-fail if a DRM symbol ever becomes reachable.
+commercial DRM/framebuffer extension. Because Substrate 0.0.69 otherwise
+selects its Raspberry Pi/Monocle backend for every AArch64 Linux target, the
+build verifies and patches its single class-local backend selector inside an
+isolated Maven repository. The AArch64 target triplet is unchanged, and
+Gluon's checksum-pinned non-Monocle static SDK supplies the ordinary GTK
+libraries. Monocle and DRM archives are rejected before linking.
 
 | Command | Purpose |
 | --- | --- |

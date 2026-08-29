@@ -88,6 +88,12 @@ gluon_android = (ROOT / "ui" / "javafx" / "src" / "android" / "build.gradle").re
 graalvm_provisioner = (ROOT / "scripts" / "provision-graalvm17.sh").read_text(
     encoding="utf-8"
 )
+arm64_preparer = (ROOT / "scripts" / "prepare-gluon-linux-aarch64.sh").read_text(
+    encoding="utf-8"
+)
+substrate_patcher = (ROOT / "scripts" / "patch-gluon-substrate-aarch64.py").read_text(
+    encoding="utf-8"
+)
 for value in ("21.0.12", "21.0.1", "1.0.29"):
     if value not in pom:
         fail(f"JavaFX/Gluon pin {value} is absent from pom.xml")
@@ -120,6 +126,33 @@ for value in (
 ):
     if value not in graalvm_provisioner:
         fail(f"GraalVM toolchain pin is absent from provision-graalvm17.sh: {value}")
+for value in (
+    "44beff405df3719f597e046cbdcd8f8ec245c4813ad3d0f5418e6ab50992231b",
+    "d2ba5f26578e4aa81e358f2e9fdf107c1d528294920db4e4a70841a678e49cf4",
+    "40365f7737cceb4561ef0a586e3f6a54b7e5fc98b2df604c0d88bff3209b72d1",
+):
+    if value not in arm64_preparer:
+        fail(f"Linux AArch64 Gluon pin is absent from its preparer: {value}")
+if "d2ba5f26578e4aa81e358f2e9fdf107c1d528294920db4e4a70841a678e49cf4" not in substrate_patcher:
+    fail("Substrate patcher does not verify the official 0.0.69 JAR")
+
+component_by_name = {component.get("name"): component for component in components}
+static_properties = {
+    item.get("name"): item.get("value")
+    for item in component_by_name["javafx-static-sdk"].get("properties", [])
+}
+substrate_properties = {
+    item.get("name"): item.get("value")
+    for item in component_by_name["substrate"].get("properties", [])
+}
+if static_properties.get("clambhook:linux-aarch64-gtk-archive-sha256") != (
+    "44beff405df3719f597e046cbdcd8f8ec245c4813ad3d0f5418e6ab50992231b"
+):
+    fail("SBOM omits the Linux AArch64 GTK static SDK checksum")
+if substrate_properties.get("clambhook:official-jar-sha256") != (
+    "d2ba5f26578e4aa81e358f2e9fdf107c1d528294920db4e4a70841a678e49cf4"
+):
+    fail("SBOM omits the patched Substrate input checksum")
 
 dependency_refs = {
     reference

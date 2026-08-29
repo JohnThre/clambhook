@@ -46,6 +46,7 @@ build_rpm() {
     (
         cd "$ROOT_DIR"
         tar --exclude-vcs --exclude='./dist' --exclude='./build-native*' \
+            --exclude='./build-gluon-linux-aarch64' \
             --exclude='./ui/javafx/target' --exclude='./ui/android/.gradle' \
             --exclude='./ui/android/.native-deps' --exclude='./ui/android/app/build' \
             --transform "s,^\.,clambhook-${version}," \

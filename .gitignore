@@ -8,6 +8,7 @@
 .worktrees/
 build-native/
 build-native-*/
+build-gluon-linux-aarch64/
 bin/
 dist/
 ui/apple/.build/

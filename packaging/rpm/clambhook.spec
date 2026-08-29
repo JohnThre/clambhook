@@ -8,8 +8,8 @@
 #   tar --transform "s,^,clambhook-${VERSION}/," -czf ~/rpmbuild/SOURCES/clambhook-${VERSION}.tar.gz .
 #   rpmbuild -bb packaging/rpm/clambhook.spec --define "version ${VERSION}"
 #
-# CI supplies the checksum-pinned GraalVM 17 toolchain and pre-populated Maven
-# and Gluon caches; package builds do not download dependencies.
+# CI supplies the checksum-pinned GraalVM 17 toolchain. Maven, Gluon, and the
+# Linux AArch64 preparation script verify every explicitly pinned build input.
 
 %global debug_package %{nil}
 %global _build_id_links none
@@ -30,6 +30,8 @@ BuildRequires:  cmake
 BuildRequires:  ninja-build
 BuildRequires:  pkgconf-pkg-config
 BuildRequires:  maven
+BuildRequires:  curl
+BuildRequires:  python3
 BuildRequires:  alsa-lib-devel
 BuildRequires:  pkgconfig(libavcodec)
 BuildRequires:  pkgconfig(libavformat)

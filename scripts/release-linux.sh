@@ -90,6 +90,7 @@ build_rpm() {
   mkdir -p "$topdir"/{BUILD,RPMS,SOURCES,SPECS,SRPMS}
   local rpmver="${VERSION//-/.}"
   tar --exclude-vcs --exclude='./dist' --exclude='./build-native*' \
+    --exclude='./build-gluon-linux-aarch64' \
     --exclude='./ui/javafx/target' --exclude='./ui/android/.gradle' \
     --exclude='./ui/android/.native-deps' --exclude='./ui/android/app/build' \
     --transform "s,^\.,clambhook-${rpmver}," \

@@ -44,7 +44,7 @@ apt-get install -y -qq \
   xvfb xauth dbus-x11 gnome-keyring libsecret-tools \
   openjdk-17-jdk-headless maven \
   debhelper dpkg-dev fakeroot rsync iproute2 polkitd systemd \
-  git curl wget ca-certificates tar file xz-utils >/dev/null'
+  git curl wget ca-certificates tar file xz-utils python3 unzip >/dev/null'
 
 rpm_setup='dnf install -y -q --allowerasing \
   gcc gcc-c++ make cmake ninja-build pkgconf-pkg-config \
@@ -57,7 +57,7 @@ rpm_setup='dnf install -y -q --allowerasing \
   xorg-x11-server-Xvfb xorg-x11-xauth dbus-daemon gnome-keyring libsecret \
   maven \
   rpm-build systemd-rpm-macros polkit-devel iproute \
-  git curl wget tar gzip file which rsync ca-certificates >/dev/null'
+  git curl wget tar gzip file which rsync ca-certificates python3 unzip >/dev/null'
 
 # shellcheck disable=SC2016 # Expanded by bash inside the target container.
 toolchain='GRAALVM_HOME=$(bash scripts/provision-graalvm17.sh /opt/clambhook-graalvm17)
@@ -89,7 +89,11 @@ timeout 4s xvfb-run -a env \
   "$GLUON_UI" >/tmp/clambhook-javafx-smoke.log 2>&1
 CLAMBHOOK_UI_EXIT=$?
 set -e
-test "$CLAMBHOOK_UI_EXIT" -eq 124
+if [[ "$CLAMBHOOK_UI_EXIT" -ne 124 ]]; then
+  echo "Gluon native image exited unexpectedly: $CLAMBHOOK_UI_EXIT" >&2
+  cat /tmp/clambhook-javafx-smoke.log >&2
+  exit 1
+fi
 ! ldd "$GLUON_UI" | grep -Eq "libjvm|/jre/|/jdk/"
 ! strings "$GLUON_UI" | grep -Fq "[GluonDRM]"
 SNAP=$(echo "{\"command\":\"ensure-trial\",\"snapshot\":\"\"}" | ./build-native/clambhook-license)

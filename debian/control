@@ -8,10 +8,12 @@ Maintainer: Pengfan Chang <support@swiphtgroup.com>
 Build-Depends:
  debhelper-compat (= 13),
  ca-certificates,
+ curl,
  cmake,
  ninja-build,
  pkgconf,
  maven,
+ python3,
  default-jdk-headless (>= 17) | openjdk-17-jdk-headless,
  libasound2-dev,
  libavcodec-dev,

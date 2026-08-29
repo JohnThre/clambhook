@@ -131,10 +131,12 @@ The GluonFX Maven plugin is BSD-3-Clause and is used only at build time.
 Substrate source used to create the native launcher declares GPL-3.0-or-later
 in its source headers. Exact Maven versions are pinned in `ui/javafx/pom.xml`.
 Gluon's separately licensed DRM/framebuffer extension is not downloaded,
-linked, or shipped. On Linux AArch64, where Substrate requests that library
-even for a GTK desktop build, the build supplies an empty archive as a link
-guard; unresolved DRM symbols therefore fail the build instead of importing
-the extension.
+linked, or shipped. Substrate 0.0.69 assumes Linux AArch64 means its Raspberry
+Pi/Monocle backend. For Ubuntu and Fedora, ClambHook checksum-verifies the
+official Substrate JAR and changes only that class-local backend selector in an
+isolated build repository. The architecture triplet remains AArch64. The
+official, checksum-pinned non-Monocle JavaFX 21.0.1 static SDK supplies the GTK
+desktop libraries; the build rejects Monocle and DRM archives before linking.
 Source and license information:
 
 - https://github.com/gluonhq/gluonfx-maven-plugin

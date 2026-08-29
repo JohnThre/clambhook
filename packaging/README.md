@@ -27,7 +27,8 @@ its Java runtime as native code. Package inspection rejects JAR/JRE payloads,
 retired UI artifacts, unexpected executables, and runtime build metadata from
 the retired implementation. On AArch64 it also verifies that Gluon's separate
 commercial DRM/framebuffer extension is absent; Ubuntu and Fedora use the
-ordinary GTK/X11 desktop path.
+ordinary GTK/X11 desktop path selected from a checksum-pinned, isolated
+Substrate build input and Gluon's official non-Monocle static SDK.
 
 The controller probes the loopback API before connecting. If the packaged
 daemon is not ready, `PlatformServices` starts `clambhook-daemon.service`

@@ -224,6 +224,7 @@ prepare_source_tree() {
             --exclude '/bin' \
             --exclude '/build-native' \
             --exclude '/build-native-sanitize' \
+            --exclude '/build-gluon-linux-aarch64' \
             --exclude '/ui/android/build' \
             --exclude '/ui/android/.gradle' \
             --exclude '/ui/android/.native-deps' \
@@ -242,6 +243,7 @@ prepare_source_tree() {
             --exclude './bin' \
             --exclude './build-native' \
             --exclude './build-native-sanitize' \
+            --exclude './build-gluon-linux-aarch64' \
             --exclude './ui/android/build' \
             --exclude './ui/android/.gradle' \
             --exclude './ui/android/.native-deps' \

@@ -24,6 +24,16 @@ GLUON_LINUX_ARCH ?= $(shell uname -m)
 GLUON_LINUX_TARGET = $(if $(filter arm64 aarch64,$(GLUON_LINUX_ARCH)),aarch64-linux,x86_64-linux)
 GLUON_LINUX_BINARY ?= ui/javafx/target/gluonfx/$(GLUON_LINUX_TARGET)/clambhook-ui
 GLUON_JAVAFX_STATIC_VERSION ?= 21.0.1
+GLUON_ARM64_BUILD_DIR ?= $(CURDIR)/build-gluon-linux-aarch64
+GLUON_ARM64_MAVEN_REPO ?= $(GLUON_ARM64_BUILD_DIR)/m2
+GLUON_ARM64_JAVAFX_SDK ?= $(GLUON_ARM64_BUILD_DIR)/javafx-static-sdk
+
+ifeq ($(GLUON_LINUX_TARGET),aarch64-linux)
+GLUON_LINUX_MAVEN = JAVAFX_STATIC_SDK_PATH="$(GLUON_ARM64_JAVAFX_SDK)" \
+	$(MAVEN) -Dmaven.repo.local="$(GLUON_ARM64_MAVEN_REPO)"
+else
+GLUON_LINUX_MAVEN = $(MAVEN)
+endif
 
 require-command = @command -v $(1) >/dev/null 2>&1 || { echo "$(1) is required for $(2)." >&2; echo "$(3)" >&2; exit 2; }
 internal-release-notice = @printf '%s\n' "local build only: publishing is performed by the protected GitHub Release workflow."
@@ -83,11 +93,12 @@ check-linux-ui-deps:
 	@test -n "$${GRAALVM_HOME:-}" || { echo "GRAALVM_HOME must point to GraalVM for JDK 17." >&2; exit 2; }
 
 build-linux: check-linux-ui-deps
-	cd ui/javafx && $(MAVEN) -B -Pdesktop gluonfx:compile
 	@if [ "$(GLUON_LINUX_TARGET)" = "aarch64-linux" ]; then \
-		scripts/prepare-gluon-linux-aarch64.sh "$(GLUON_JAVAFX_STATIC_VERSION)"; \
+		scripts/prepare-gluon-linux-aarch64.sh \
+			"$(GLUON_JAVAFX_STATIC_VERSION)" "$(GLUON_ARM64_BUILD_DIR)"; \
 	fi
-	cd ui/javafx && $(MAVEN) -B -Pdesktop gluonfx:link
+	cd ui/javafx && $(GLUON_LINUX_MAVEN) -B -Pdesktop gluonfx:compile
+	cd ui/javafx && $(GLUON_LINUX_MAVEN) -B -Pdesktop gluonfx:link
 
 build-linux-package: build-linux
 	cd ui/javafx && $(MAVEN) -B -Pdesktop gluonfx:package
@@ -193,7 +204,8 @@ lint:
 	./scripts/lint.sh
 
 clean:
-	rm -rf bin/ "$(NATIVE_BUILD_DIR)/" "$(NATIVE_SANITIZE_DIR)/"
+	rm -rf bin/ "$(NATIVE_BUILD_DIR)/" "$(NATIVE_SANITIZE_DIR)/" \
+		"$(GLUON_ARM64_BUILD_DIR)/"
 	rm -rf ui/apple/Frameworks/*.xcframework
 	rm -rf ui/android/build/ ui/android/app/build/ ui/android/app/libs/
 	rm -rf ui/javafx/target/

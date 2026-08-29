@@ -62,5 +62,18 @@ grep -Fq '<javafx.static.version>21.0.1</javafx.static.version>' ui/javafx/pom.x
     fail "unexpected Gluon JavaFX static SDK version"
 grep -Fq 'GLUON_JAVAFX_STATIC_VERSION ?= 21.0.1' Makefile ||
     fail "Make and Maven disagree on the Gluon JavaFX static SDK version"
+grep -Fq '44beff405df3719f597e046cbdcd8f8ec245c4813ad3d0f5418e6ab50992231b' \
+    scripts/prepare-gluon-linux-aarch64.sh ||
+    fail "Linux AArch64 GTK static SDK is not checksum-pinned"
+grep -Fq 'd2ba5f26578e4aa81e358f2e9fdf107c1d528294920db4e4a70841a678e49cf4' \
+    scripts/patch-gluon-substrate-aarch64.py ||
+    fail "Linux AArch64 Substrate input is not checksum-pinned"
+if ! grep -Fq 'ORIGINAL_SELECTOR = b"aarch64"' scripts/patch-gluon-substrate-aarch64.py ||
+    ! grep -Fq 'GTK_SELECTOR = b"gtkarch"' scripts/patch-gluon-substrate-aarch64.py; then
+    fail "Linux AArch64 GTK backend patch changed unexpectedly"
+fi
+if grep -Fq "printf '!<arch>" scripts/prepare-gluon-linux-aarch64.sh; then
+    fail "obsolete empty DRM archive workaround remains"
+fi
 
 echo "cutover check: all checks passed"
