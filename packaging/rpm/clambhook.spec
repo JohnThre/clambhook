@@ -116,7 +116,14 @@ exit 0
 
 %files
 %license LICENSE LICENSE-APACHE
-%doc LICENSING.md NOTICE TRADEMARKS.md THIRD_PARTY_NOTICES.md
+# These documentation files are already installed by CMake.  Use absolute
+# buildroot paths so rpm marks them as documentation without recreating (and
+# replacing) /usr/share/doc/clambhook after the nested dependency licenses
+# have been installed there.
+%doc %{_datadir}/doc/clambhook/LICENSING.md
+%doc %{_datadir}/doc/clambhook/NOTICE
+%doc %{_datadir}/doc/clambhook/TRADEMARKS.md
+%doc %{_datadir}/doc/clambhook/THIRD_PARTY_NOTICES.md
 %{_bindir}/clambhook
 %{_bindir}/clambhook-tui
 %{_bindir}/clambhook-license

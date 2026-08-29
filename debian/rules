@@ -20,3 +20,13 @@ override_dh_auto_test:
 override_dh_auto_install:
 	$(MAKE) install VERSION=$(VERSION) DESTDIR=$(CURDIR)/debian/clambhook PREFIX=/usr
 	$(MAKE) install-linux VERSION=$(VERSION) DESTDIR=$(CURDIR)/debian/clambhook PREFIX=/usr
+
+# dh_installdocs recreates the package documentation directory after CMake's
+# install step. Restore the structured third-party license tree after
+# dh_compress as well, preserving the exact uncompressed paths validated by
+# the installed-package smoke test.
+override_dh_compress:
+	dh_compress
+	install -Dpm 0644 third_party/openssl/LICENSE.txt $(CURDIR)/debian/clambhook/usr/share/doc/clambhook/licenses/openssl/LICENSE.txt
+	install -Dpm 0644 third_party/curl/LICENSE.txt $(CURDIR)/debian/clambhook/usr/share/doc/clambhook/licenses/curl/LICENSE.txt
+	install -Dpm 0644 third_party/llhttp/LICENSE $(CURDIR)/debian/clambhook/usr/share/doc/clambhook/licenses/llhttp/LICENSE
