@@ -17,7 +17,7 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <project.build.outputTimestamp>2026-08-29T00:00:00Z</project.build.outputTimestamp>
         <maven.compiler.release>17</maven.compiler.release>
-        <javafx.version>21.0.12</javafx.version>
+        <javafx.version>26.0.2</javafx.version>
         <!-- Gluon's public Substrate ABI bundle is independent of the Maven
              JavaFX API/runtime artifacts and is the latest JavaFX 21 static
              bundle published for every locked target. -->
@@ -64,7 +64,7 @@
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
-                <version>3.5.4</version>
+                <version>3.5.6</version>
                 <configuration>
                     <useModulePath>false</useModulePath>
                     <argLine>@{argLine} --enable-native-access=ALL-UNNAMED -Djavafx.cachedir=${project.build.directory}/javafx-cache</argLine>
@@ -73,7 +73,7 @@
             <plugin>
                 <groupId>org.jacoco</groupId>
                 <artifactId>jacoco-maven-plugin</artifactId>
-                <version>0.8.13</version>
+                <version>0.8.15</version>
                 <executions>
                     <execution>
                         <goals>
@@ -114,7 +114,7 @@
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-jar-plugin</artifactId>
-                <version>3.4.2</version>
+                <version>3.5.1</version>
                 <configuration>
                     <archive>
                         <manifest>
