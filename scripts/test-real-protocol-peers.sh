@@ -123,7 +123,7 @@ printf '%s\n' \
     'dh none' \
     'tls-server' \
     'tls-version-min 1.2' \
-    'tls-ekm' \
+    'force-tls-key-material-export' \
     'remote-cert-tls client' \
     'verify-client-cert require' \
     'auth SHA256' \
