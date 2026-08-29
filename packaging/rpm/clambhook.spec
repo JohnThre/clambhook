@@ -30,7 +30,6 @@ BuildRequires:  cmake
 BuildRequires:  ninja-build
 BuildRequires:  pkgconf-pkg-config
 BuildRequires:  maven
-BuildRequires:  java-17-openjdk-devel
 BuildRequires:  alsa-lib-devel
 BuildRequires:  freetype-devel
 BuildRequires:  gtk3-devel
