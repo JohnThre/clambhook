@@ -178,6 +178,7 @@ static int dns_test_handle_dot(SSL *ssl) {
         dns_test_ssl_write_all(ssl, response, sizeof(response));
 }
 
+#if DNS_TEST_HAVE_QUIC_SERVER
 static int dns_test_handle_doq(SSL *ssl) {
     uint8_t length_bytes[2];
     uint8_t query[CH_DNS_MAX_MESSAGE];
@@ -198,6 +199,7 @@ static int dns_test_handle_doq(SSL *ssl) {
         dns_test_ssl_write_all(ssl, response, sizeof(response)) &&
         SSL_stream_conclude(ssl, 0U) == 1;
 }
+#endif
 
 static int dns_test_handle_doh(SSL *ssl) {
     uint8_t request[8192];
