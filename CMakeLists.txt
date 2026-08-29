@@ -310,7 +310,13 @@ if(CLAMBHOOK_BUILD_TESTS)
   target_include_directories(clambhook-native-tests PRIVATE native/src native/tests)
   target_compile_definitions(clambhook-native-tests PRIVATE
     CLAMBHOOK_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
+    _POSIX_C_SOURCE=200809L
   )
+  if(APPLE)
+    target_compile_definitions(clambhook-native-tests PRIVATE _DARWIN_C_SOURCE)
+  elseif(UNIX)
+    target_compile_definitions(clambhook-native-tests PRIVATE _DEFAULT_SOURCE)
+  endif()
   target_link_libraries(clambhook-native-tests PRIVATE Clambhook::Core)
   add_test(NAME native-unit COMMAND clambhook-native-tests)
   if(CLAMBHOOK_BUILD_TUI)
