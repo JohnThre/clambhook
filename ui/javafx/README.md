@@ -31,7 +31,9 @@ WebSocket upgrade, and reconnects the event stream without blocking JavaFX.
 Run `make test-javafx` from the repository root. The suite uses a real JavaFX
 toolkit to exercise keyboard shortcuts, accessible names, responsive
 navigation, 48-pixel interaction targets, contrast, failure/retry behavior,
-and asynchronous transport. GNU/Linux CI runs these tests under Xvfb.
+and asynchronous transport. On headless GNU/Linux, the Make target starts Xvfb
+automatically. Build targets do not rerun this suite; CI declares the test gate
+as an explicit prerequisite before native-image jobs.
 
 For GNU/Linux, set `GRAALVM_HOME` to the checksum-pinned Java 17 toolchain and
 run `make build-linux`. The output is a self-contained x86_64 or aarch64 native

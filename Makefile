@@ -16,6 +16,7 @@ NATIVE_BUILD_DIR ?= build-native
 NATIVE_SANITIZE_DIR ?= build-native-sanitize
 ANDROID_HOME ?= $(HOME)/Library/Android/sdk
 MAVEN ?= mvn
+CLAMBHOOK_HOST_OS ?= $(shell uname -s)
 GLUON_LINUX_ARCH ?= $(shell uname -m)
 GLUON_LINUX_TARGET = $(if $(filter arm64 aarch64,$(GLUON_LINUX_ARCH)),aarch64-linux,x86_64-linux)
 GLUON_LINUX_BINARY ?= ui/javafx/target/gluonfx/$(GLUON_LINUX_TARGET)/clambhook-ui
@@ -52,7 +53,23 @@ test-native:
 	cmake --build "$(NATIVE_SANITIZE_DIR)" --target license-contract
 
 test-javafx:
-	cd ui/javafx && $(MAVEN) -B clean verify
+	@if [ "$(CLAMBHOOK_HOST_OS)" = "Linux" ]; then \
+		command -v timeout >/dev/null 2>&1 || { \
+			echo "timeout is required for GNU/Linux JavaFX tests." >&2; \
+			exit 2; \
+		}; \
+		if [ -z "$${DISPLAY:-}" ]; then \
+			command -v xvfb-run >/dev/null 2>&1 || { \
+				echo "xvfb-run is required for headless GNU/Linux JavaFX tests." >&2; \
+				exit 2; \
+			}; \
+			cd ui/javafx && timeout --kill-after=15s 10m xvfb-run -a $(MAVEN) -B clean verify; \
+		else \
+			cd ui/javafx && timeout --kill-after=15s 10m $(MAVEN) -B clean verify; \
+		fi; \
+	else \
+		cd ui/javafx && $(MAVEN) -B clean verify; \
+	fi
 
 test-linux: test-javafx
 
@@ -61,7 +78,7 @@ check-linux-ui-deps:
 	$(call require-command,$(MAVEN),GNU/Linux JavaFX targets,Install Maven 3.9+.)
 	@test -n "$${GRAALVM_HOME:-}" || { echo "GRAALVM_HOME must point to GraalVM for JDK 17." >&2; exit 2; }
 
-build-linux: check-linux-ui-deps test-javafx
+build-linux: check-linux-ui-deps
 	cd ui/javafx && $(MAVEN) -B -Pdesktop gluonfx:build
 
 build-linux-package: build-linux
@@ -140,7 +157,7 @@ test-android-compatibility:
 		-Pandroid.experimental.testOptions.managedDevices.maxConcurrentDevices=1 \
 		-Pandroid.testoptions.manageddevices.emulator.gpu=swiftshader_indirect
 
-build-android: build-android-platform test-javafx
+build-android: build-android-platform
 	@test -n "$${GRAALVM_HOME:-}" || { echo "GRAALVM_HOME must point to GraalVM for JDK 17." >&2; exit 2; }
 	bash scripts/prepare-gluon-android.sh
 	cd ui/javafx && $(MAVEN) -B -Pandroid gluonfx:build

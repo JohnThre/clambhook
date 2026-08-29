@@ -105,7 +105,7 @@ jobs:
       - name: Install virtual display for JavaFX semantics tests
         run: sudo apt-get update -qq && sudo apt-get install -y -qq xvfb
       - name: Verify JavaFX UI and coverage
-        run: xvfb-run -a make test-javafx
+        run: make test-javafx
       - name: Upload JavaFX reports
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
