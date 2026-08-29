@@ -34,7 +34,7 @@ it does not stop or destroy the service-owned runtime.
   serialization plugin
 - Gradle 9.7.1 wrapper
 - compileSdk 37 with build-tools 37.0.0; targetSdk 36
-- Android NDK `27.0.12077973`
+- Android NDK `28.2.13676358`
 - CMake 3.22.1
 - Maven, GraalVM for JDK 17, JavaFX 21.0.12, and GluonFX 1.0.29
 - OpenSSL 3.5.8 and curl 8.18.0 source archives verified by SHA-256
@@ -58,8 +58,10 @@ libraries.
 make test-javafx
 make test-android
 
-# Set this to the output of the checksum-pinned provisioner.
-export GRAALVM_HOME=/path/to/graalvm-jdk-17
+# Android native-image builds require the checksum-pinned Gluon distribution.
+# The published toolchain runs on a Linux x86_64 host.
+bash scripts/provision-graalvm17.sh /absolute/empty/graalvm17-directory gluon
+export GRAALVM_HOME=/absolute/empty/graalvm17-directory
 export JAVA_HOME="$GRAALVM_HOME"
 export PATH="$GRAALVM_HOME/bin:$PATH"
 

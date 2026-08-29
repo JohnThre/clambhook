@@ -19,7 +19,7 @@ concurrency:
 
 env:
   JAVA_VERSION: '17'
-  ANDROID_NDK_VERSION: '27.0.12077973'
+  ANDROID_NDK_VERSION: '28.2.13676358'
   ANDROID_CMAKE_VERSION: '3.22.1'
   ACTIONLINT_VERSION: '1.7.12'
   ACTIONLINT_LINUX_AMD64_SHA256: '8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8'
@@ -217,9 +217,9 @@ jobs:
           sdkmanager 'platform-tools' 'platforms;android-36' 'build-tools;36.0.0' "ndk;${ANDROID_NDK_VERSION}" "cmake;${ANDROID_CMAKE_VERSION}"
       - name: Test and assemble the Kotlin platform AAR
         run: make test-android
-      - name: Provision checksum-pinned GraalVM 17
+      - name: Provision checksum-pinned Gluon GraalVM 17
         run: |
-          graal_home="$(bash scripts/provision-graalvm17.sh "$RUNNER_TEMP/graalvm17")"
+          graal_home="$(bash scripts/provision-graalvm17.sh "$RUNNER_TEMP/graalvm17" gluon)"
           echo "$graal_home/bin" >> "$GITHUB_PATH"
           echo "GRAALVM_HOME=$graal_home" >> "$GITHUB_ENV"
           echo "JAVA_HOME=$graal_home" >> "$GITHUB_ENV"

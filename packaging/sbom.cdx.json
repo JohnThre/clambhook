@@ -440,6 +440,32 @@
           "url": "https://github.com/graalvm/graalvm-ce-builds/releases/tag/jdk-17.0.9"
         }
       ]
+    },
+    {
+      "type": "application",
+      "bom-ref": "tool:gluon-graalvm-java17:22.1.0.1-Final",
+      "name": "Gluon GraalVM for Java 17",
+      "version": "22.1.0.1-Final",
+      "scope": "excluded",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "70df79831e4e55289414b4e9c4ab78b74e31d7b7db7ba70cfff86ab8f9f8d4ef"
+        }
+      ],
+      "licenses": [
+        {
+          "license": {
+            "name": "GraalVM Community Edition license bundle"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "distribution",
+          "url": "https://github.com/gluonhq/graal/releases/tag/gluon-22.1.0.1-Final"
+        }
+      ]
     }
   ],
   "dependencies": [

@@ -70,7 +70,7 @@ android {
     namespace = "com.clambhook.android"
     compileSdk = 37
     buildToolsVersion = "37.0.0"
-    ndkVersion = "27.0.12077973"
+    ndkVersion = "28.2.13676358"
 
     defaultConfig {
         minSdk = 31

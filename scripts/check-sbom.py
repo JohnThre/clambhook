@@ -57,6 +57,7 @@ expected = {
     "kotlin-serialization-plugin": "2.4.10",
     "kotlin-stdlib": "2.4.10",
     "GraalVM Community Edition": "17.0.9",
+    "Gluon GraalVM for Java 17": "22.1.0.1-Final",
     "activity": "1.11.0",
     "core-ktx": "1.19.0",
     "datastore-preferences": "1.1.1",
@@ -84,6 +85,9 @@ gradle_wrapper = (
 gluon_android = (ROOT / "ui" / "javafx" / "src" / "android" / "build.gradle").read_text(
     encoding="utf-8"
 )
+graalvm_provisioner = (ROOT / "scripts" / "provision-graalvm17.sh").read_text(
+    encoding="utf-8"
+)
 for value in ("21.0.12", "21.0.1", "1.0.29"):
     if value not in pom:
         fail(f"JavaFX/Gluon pin {value} is absent from pom.xml")
@@ -109,6 +113,13 @@ for value in (
 for value in ("1.11.0", "1.19.0", "1.1.1", "1.1.0", "2.4.10", "5.5.0", "4.3.0"):
     if value not in gluon_android:
         fail(f"Gluon Android dependency pin {value} is absent from src/android/build.gradle")
+for value in (
+    "17.0.9",
+    "22.1.0.1-Final",
+    "70df79831e4e55289414b4e9c4ab78b74e31d7b7db7ba70cfff86ab8f9f8d4ef",
+):
+    if value not in graalvm_provisioner:
+        fail(f"GraalVM toolchain pin is absent from provision-graalvm17.sh: {value}")
 
 dependency_refs = {
     reference

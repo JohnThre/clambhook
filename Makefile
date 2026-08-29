@@ -15,6 +15,9 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 NATIVE_BUILD_DIR ?= build-native
 NATIVE_SANITIZE_DIR ?= build-native-sanitize
 ANDROID_HOME ?= $(HOME)/Library/Android/sdk
+ANDROID_NDK_VERSION ?= 28.2.13676358
+ANDROID_SDK ?= $(ANDROID_HOME)
+ANDROID_NDK ?= $(ANDROID_SDK)/ndk/$(ANDROID_NDK_VERSION)
 MAVEN ?= mvn
 CLAMBHOOK_HOST_OS ?= $(shell uname -s)
 GLUON_LINUX_ARCH ?= $(shell uname -m)
@@ -159,8 +162,11 @@ test-android-compatibility:
 
 build-android: build-android-platform
 	@test -n "$${GRAALVM_HOME:-}" || { echo "GRAALVM_HOME must point to GraalVM for JDK 17." >&2; exit 2; }
+	@test -d "$(ANDROID_SDK)" || { echo "ANDROID_SDK does not exist: $(ANDROID_SDK)" >&2; exit 2; }
+	@test -d "$(ANDROID_NDK)" || { echo "ANDROID_NDK does not exist: $(ANDROID_NDK)" >&2; exit 2; }
 	bash scripts/prepare-gluon-android.sh
-	cd ui/javafx && $(MAVEN) -B -Pandroid gluonfx:build
+	cd ui/javafx && ANDROID_SDK="$(ANDROID_SDK)" ANDROID_NDK="$(ANDROID_NDK)" \
+		$(MAVEN) -B -Pandroid gluonfx:build
 
 lint-android:
 	cd ui/android && ANDROID_HOME="$(ANDROID_HOME)" ./gradlew --no-daemon :platform:lintDebug

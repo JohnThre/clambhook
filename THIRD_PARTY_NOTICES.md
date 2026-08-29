@@ -146,9 +146,12 @@ test-only and are not shipped in product packages. Exact coordinates and
 scopes are recorded in
 `packaging/sbom.cdx.json` and the Gradle build.
 
-## GraalVM Community Edition 17.0.9
+## GraalVM 17 build toolchains
 
-GraalVM is a checksum-pinned build tool and is not shipped as a JRE or SDK in
-ClambHook packages. Upstream license and component notices accompany the
-official GraalVM archive. Archive URLs and per-platform SHA-256 values are
-recorded in `scripts/provision-graalvm17.sh`.
+GraalVM Community Edition 17.0.9 builds the GNU/Linux native images. Gluon
+GraalVM for Java 17 version 22.1.0.1-Final builds the Android native image with
+the matching Substrate CAP cache. Both are checksum-pinned build tools and are
+not shipped as a JRE or SDK in ClambHook packages. Upstream license and
+component notices accompany the official archives. Archive URLs and
+per-platform SHA-256 values are recorded in
+`scripts/provision-graalvm17.sh`.
