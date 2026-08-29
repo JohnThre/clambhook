@@ -62,6 +62,8 @@ grep -Fq '<javafx.static.version>21.0.1</javafx.static.version>' ui/javafx/pom.x
     fail "unexpected Gluon JavaFX static SDK version"
 grep -Fq 'GLUON_JAVAFX_STATIC_VERSION ?= 21.0.1' Makefile ||
     fail "Make and Maven disagree on the Gluon JavaFX static SDK version"
+grep -Fq '<enableSWRendering>true</enableSWRendering>' ui/javafx/pom.xml ||
+    fail "Gluon desktop native images lack the software-rendering fallback"
 grep -Fq '44beff405df3719f597e046cbdcd8f8ec245c4813ad3d0f5418e6ab50992231b' \
     scripts/prepare-gluon-linux-aarch64.sh ||
     fail "Linux AArch64 GTK static SDK is not checksum-pinned"

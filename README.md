@@ -153,7 +153,9 @@ selects its Raspberry Pi/Monocle backend for every AArch64 Linux target, the
 build verifies and patches its single class-local backend selector inside an
 isolated Maven repository. The AArch64 target triplet is unchanged, and
 Gluon's checksum-pinned non-Monocle static SDK supplies the ordinary GTK
-libraries. Monocle and DRM archives are rejected before linking.
+libraries. The desktop image includes JavaFX's software renderer as a fallback
+for Xvfb, virtual machines, and systems without usable OpenGL. Monocle and DRM
+archives are rejected before linking.
 
 | Command | Purpose |
 | --- | --- |

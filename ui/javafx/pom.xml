@@ -196,6 +196,9 @@
                         <groupId>com.gluonhq</groupId>
                         <artifactId>gluonfx-maven-plugin</artifactId>
                         <configuration>
+                            <!-- Ship the JavaFX software pipeline as a fallback
+                                 for Xvfb, VMs, and desktops without usable GL. -->
+                            <enableSWRendering>true</enableSWRendering>
                             <reflectionList combine.children="append">
                                 <list>com.clambhook.ui.backend.HttpBackend</list>
                                 <list>com.clambhook.ui.platform.DesktopPlatformServices</list>

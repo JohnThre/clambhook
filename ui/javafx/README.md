@@ -45,8 +45,9 @@ Gluon's checksum-pinned non-Monocle static SDK and creates an isolated Maven
 repository in `build-gluon-linux-aarch64/`. A deterministic helper changes
 only Substrate's class-local backend selector; the target triplet remains
 AArch64. The build rejects Monocle and DRM archives, and the distro harness
-launches the result under Xvfb. No Gluon DRM extension code is downloaded,
-linked, or shipped.
+launches the result under Xvfb. Desktop native images include JavaFX's software
+pipeline so virtual machines and systems without usable OpenGL retain a
+renderer. No Gluon DRM extension code is downloaded, linked, or shipped.
 The Maven configuration pins the application resources, reflection roots,
 native-image arguments, and Android JNI boundary explicitly so reachability
 metadata does not depend on host-side tracing. Its desktop and Android
