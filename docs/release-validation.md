@@ -75,7 +75,8 @@ contrast tokens. JaCoCo reports are retained as CI reports.
 
 On GNU/Linux, each architecture builds `clambhook-ui` with Gluon, launches it
 under Xvfb against an unavailable endpoint to exercise failure/retry without a
-JRE, then launches it against the local C daemon.
+JRE, then launches it against the local C daemon. The AArch64 inspection also
+requires the GTK/X11 image to contain no Gluon DRM/framebuffer extension.
 
 ## Android gate
 

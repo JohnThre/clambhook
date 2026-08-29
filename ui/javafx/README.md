@@ -38,6 +38,12 @@ as an explicit prerequisite before native-image jobs.
 For GNU/Linux, set `GRAALVM_HOME` to the checksum-pinned Java 17 toolchain and
 run `make build-linux`. The output is a self-contained x86_64 or aarch64 native
 image under `target/gluonfx/<architecture>-linux/`; no JRE is packaged.
+The AArch64 build deliberately targets GTK/X11 on Ubuntu and Fedora. GluonFX
+1.0.29 also requests its separate commercial DRM/framebuffer extension on
+that architecture, so the Make target inserts an empty link guard after
+compilation. Linking fails if any DRM symbol becomes reachable, and the distro
+harness then launches the result under Xvfb. No Gluon DRM extension code is
+downloaded or shipped.
 The Maven configuration pins the application resources, reflection roots,
 native-image arguments, and Android JNI boundary explicitly so reachability
 metadata does not depend on host-side tracing. Its desktop and Android

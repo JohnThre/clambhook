@@ -38,7 +38,8 @@ apt-get install -y -qq \
   build-essential cmake ninja-build pkg-config \
   libuv1-dev libsodium-dev libssl-dev libcurl4-openssl-dev \
   libasound2-dev libavcodec-dev libavformat-dev libavutil-dev \
-  libfreetype6-dev libgl-dev libglib2.0-dev libgtk-3-dev \
+  libdrm-dev libegl-dev libfreetype6-dev libgbm-dev libgl-dev \
+  libglib2.0-dev libgtk-3-dev \
   libpango1.0-dev libx11-dev libxtst-dev zlib1g-dev \
   xvfb xauth dbus-x11 gnome-keyring libsecret-tools \
   openjdk-17-jdk-headless maven \
@@ -51,17 +52,20 @@ rpm_setup='dnf install -y -q --allowerasing \
   libuv-devel libsodium-devel openssl-devel libcurl-devel \
   alsa-lib-devel "pkgconfig(libavcodec)" "pkgconfig(libavformat)" \
   "pkgconfig(libavutil)" freetype-devel gtk3-devel libX11-devel libXtst-devel \
-  mesa-libGL-devel pango-devel zlib-devel \
+  libdrm-devel libglvnd-egl-devel mesa-libgbm-devel mesa-libGL-devel \
+  pango-devel zlib-devel \
   xorg-x11-server-Xvfb xorg-x11-xauth dbus-daemon gnome-keyring libsecret \
   maven \
   rpm-build systemd-rpm-macros polkit-devel iproute \
   git curl wget tar gzip file which rsync ca-certificates >/dev/null'
 
 # shellcheck disable=SC2016 # Expanded by bash inside the target container.
+toolchain='GRAALVM_HOME=$(bash scripts/provision-graalvm17.sh /opt/clambhook-graalvm17)
+export GRAALVM_HOME JAVA_HOME=$GRAALVM_HOME PATH=$GRAALVM_HOME/bin:$PATH'
+
+# shellcheck disable=SC2016 # Expanded by bash inside the target container.
 smoke='set -euo pipefail
 cd /src
-GRAALVM_HOME=$(bash scripts/provision-graalvm17.sh /opt/clambhook-graalvm17)
-export GRAALVM_HOME JAVA_HOME=$GRAALVM_HOME PATH=$GRAALVM_HOME/bin:$PATH
 make test-native
 make test-javafx
 make build
@@ -72,7 +76,11 @@ case "$(uname -m)" in
   *) echo "unsupported JavaFX image architecture"; exit 2 ;;
 esac
 GLUON_UI="ui/javafx/target/gluonfx/$GLUON_TARGET/clambhook-ui"
-test -x "$GLUON_UI"
+if [[ ! -x "$GLUON_UI" ]]; then
+  echo "Gluon native image not found: $GLUON_UI" >&2
+  find "ui/javafx/target/gluonfx/$GLUON_TARGET" -maxdepth 2 -type f -print >&2 || true
+  exit 2
+fi
 CLAMBHOOK_UI_CONFIG=$(mktemp -d)
 set +e
 timeout 4s xvfb-run -a env \
@@ -83,6 +91,7 @@ CLAMBHOOK_UI_EXIT=$?
 set -e
 test "$CLAMBHOOK_UI_EXIT" -eq 124
 ! ldd "$GLUON_UI" | grep -Eq "libjvm|/jre/|/jdk/"
+! strings "$GLUON_UI" | grep -Fq "[GluonDRM]"
 SNAP=$(echo "{\"command\":\"ensure-trial\",\"snapshot\":\"\"}" | ./build-native/clambhook-license)
 echo "license: $SNAP"
 echo "$SNAP" | grep -q "\"ok\":true"
@@ -145,7 +154,7 @@ CLAMBHOOK_CONTAINER_PACKAGE_SMOKE=1 scripts/smoke-installed-linux-package.sh "$r
     "${container_env[@]}" \
     --volume "$repo_root:/src${mount_suffix}" \
     --workdir /src \
-    "$image" bash -lc "$setup; $command; $recipe"
+    "$image" bash -lc "$setup; $toolchain; $command; $recipe"
   echo "==================== $distro: PASS ===================="
 }
 

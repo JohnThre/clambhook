@@ -56,4 +56,11 @@ for binary in build-native/clambhook build-native/clambhook-tui build-native/cla
     fi
 done
 
+grep -Fq '<name>clambhook-ui</name>' ui/javafx/pom.xml ||
+    fail "Gluon project name no longer matches the production Linux executable"
+grep -Fq '<javafx.static.version>21.0.1</javafx.static.version>' ui/javafx/pom.xml ||
+    fail "unexpected Gluon JavaFX static SDK version"
+grep -Fq 'GLUON_JAVAFX_STATIC_VERSION ?= 21.0.1' Makefile ||
+    fail "Make and Maven disagree on the Gluon JavaFX static SDK version"
+
 echo "cutover check: all checks passed"

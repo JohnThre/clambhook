@@ -130,6 +130,11 @@ Copyright Gluon.
 The GluonFX Maven plugin is BSD-3-Clause and is used only at build time.
 Substrate source used to create the native launcher declares GPL-3.0-or-later
 in its source headers. Exact Maven versions are pinned in `ui/javafx/pom.xml`.
+Gluon's separately licensed DRM/framebuffer extension is not downloaded,
+linked, or shipped. On Linux AArch64, where Substrate requests that library
+even for a GTK desktop build, the build supplies an empty archive as a link
+guard; unresolved DRM symbols therefore fail the build instead of importing
+the extension.
 Source and license information:
 
 - https://github.com/gluonhq/gluonfx-maven-plugin

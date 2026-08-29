@@ -25,7 +25,9 @@ The Debian and RPM recipes install:
 The JavaFX image uses system graphics, audio, and media libraries but carries
 its Java runtime as native code. Package inspection rejects JAR/JRE payloads,
 retired UI artifacts, unexpected executables, and runtime build metadata from
-the retired implementation.
+the retired implementation. On AArch64 it also verifies that Gluon's separate
+commercial DRM/framebuffer extension is absent; Ubuntu and Fedora use the
+ordinary GTK/X11 desktop path.
 
 The controller probes the loopback API before connecting. If the packaged
 daemon is not ready, `PlatformServices` starts `clambhook-daemon.service`

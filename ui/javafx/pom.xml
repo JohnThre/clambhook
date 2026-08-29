@@ -10,7 +10,10 @@
     <groupId>org.jpfchang.clambhook</groupId>
     <artifactId>clambhook-ui</artifactId>
     <version>1.0.2</version>
-    <name>ClambHook JavaFX UI</name>
+    <!-- GluonFX uses Maven's project name, rather than its executable option,
+         as the GNU/Linux output filename. Keep this equal to the production
+         executable contract consumed by packaging. -->
+    <name>clambhook-ui</name>
     <description>Shared JavaFX controller for ClambHook on Android and GNU/Linux.</description>
 
     <properties>
@@ -139,7 +142,6 @@
                 <configuration>
                     <target>${gluonfx.target}</target>
                     <mainClass>${main.class}</mainClass>
-                    <executable>clambhook-ui</executable>
                     <appIdentifier>org.jpfchang.clambhook</appIdentifier>
                     <javafxStaticSdkVersion>${javafx.static.version}</javafxStaticSdkVersion>
                     <resourcesList>
@@ -150,6 +152,9 @@
                         <list>com.clambhook.ui.ClambhookApplication</list>
                     </reflectionList>
                     <nativeImageArgs>
+                        <!-- Gluon's JDK 17.0.4 native-image launcher otherwise
+                             crashes while probing GitHub's cgroup-v2 layout. -->
+                        <arg>-J-XX:-UseContainerSupport</arg>
                         <arg>-H:+ReportExceptionStackTraces</arg>
                         <arg>-H:+AddAllCharsets</arg>
                     </nativeImageArgs>

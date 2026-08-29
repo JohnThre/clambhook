@@ -146,7 +146,10 @@ checksum-pinned Gluon GraalVM 17 distribution.
 
 JavaFX Maven dependencies are pinned at 21.0.12. Gluon's independently
 published JavaFX 21 static ABI substrate is pinned at 21.0.1, the public bundle
-available for every locked native target. GluonFX is pinned at 1.0.29.
+available for every locked native target. GluonFX is pinned at 1.0.29. The
+Linux AArch64 image is a GTK/X11 desktop build and excludes Gluon's separate
+commercial DRM/framebuffer extension; its empty link guard makes the build
+fail if a DRM symbol ever becomes reachable.
 
 | Command | Purpose |
 | --- | --- |

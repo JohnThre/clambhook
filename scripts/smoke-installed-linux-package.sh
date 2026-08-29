@@ -21,7 +21,7 @@ fail() {
 package_path="$(realpath "$1")"
 [[ -f "$package_path" ]] || fail "package does not exist: $package_path"
 
-for tool in curl file readelf secret-tool timeout xvfb-run; do
+for tool in curl file readelf secret-tool strings timeout xvfb-run; do
     command -v "$tool" >/dev/null 2>&1 || fail "$tool is required"
 done
 
@@ -90,6 +90,8 @@ done
 ldd_output="$(ldd /usr/bin/clambhook-ui 2>&1 || true)"
 printf '%s\n' "$ldd_output" | grep -Eqi '(libjvm|/jre/|/jdk/)' &&
     fail "the JavaFX native image depends on a JRE"
+strings /usr/bin/clambhook-ui | grep -Fq '[GluonDRM]' &&
+    fail "the JavaFX native image contains Gluon's excluded DRM extension"
 
 license_result="$(printf '%s\n' \
     '{"command":"ensure-trial","snapshot":""}' |

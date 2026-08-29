@@ -39,8 +39,11 @@ BuildRequires:  gtk3-devel
 BuildRequires:  libX11-devel
 BuildRequires:  libXtst-devel
 BuildRequires:  libcurl-devel
+BuildRequires:  libdrm-devel
 BuildRequires:  libuv-devel
 BuildRequires:  libsodium-devel
+BuildRequires:  libglvnd-egl-devel
+BuildRequires:  mesa-libgbm-devel
 BuildRequires:  mesa-libGL-devel
 BuildRequires:  openssl-devel
 BuildRequires:  pango-devel
