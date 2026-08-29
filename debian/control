@@ -33,6 +33,8 @@ Build-Depends:
  libuv1-dev,
  libx11-dev,
  libxtst-dev,
+ xauth,
+ xvfb,
  zlib1g-dev
 Standards-Version: 4.7.0
 Homepage: https://github.com/JohnThre/clambhook

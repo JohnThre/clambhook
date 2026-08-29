@@ -89,7 +89,10 @@ the visual state.
 
 ## Managed-device matrix
 
-Hosted CI is authoritative and runs `aosp_atd/arm64-v8a` images:
+Hosted CI is authoritative and runs `aosp_atd/arm64-v8a` images on Apple
+Silicon runners, whose hypervisor supports the matching ARM64 guests. GitHub's
+hosted Linux ARM64 preview runners do not expose KVM and therefore are not used
+for emulator journeys:
 
 | API | Device profile | Required coverage |
 | --- | --- | --- |

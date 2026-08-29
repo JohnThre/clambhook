@@ -251,7 +251,10 @@ jobs:
             task: pixel6Api33DebugAndroidTest
           - api: 36
             task: pixel6Api36DebugAndroidTest
-    runs-on: ubuntu-24.04-arm
+    # GitHub's hosted Linux ARM64 preview runners do not expose /dev/kvm.
+    # Apple Silicon runners provide the matching ARM64 hypervisor required by
+    # the aosp_atd/arm64-v8a managed devices.
+    runs-on: macos-15
     timeout-minutes: 120
     permissions:
       contents: read
@@ -280,11 +283,6 @@ jobs:
             env.ANDROID_NDK_VERSION }}-${{ hashFiles(
             'scripts/build-android-openssl.sh',
             'scripts/build-android-curl.sh') }}
-      - name: Enable KVM acceleration
-        run: |
-          test -c /dev/kvm
-          sudo chmod 0666 /dev/kvm
-          test -r /dev/kvm -a -w /dev/kvm
       - name: Install API ${{ matrix.api }} ARM64 ATD image and native toolchain
         run: |
           yes | sdkmanager --licenses >/dev/null || true
@@ -294,6 +292,8 @@ jobs:
             'platforms;android-37.0' 'build-tools;37.0.0' \
             "ndk;${ANDROID_NDK_VERSION}" "cmake;${ANDROID_CMAKE_VERSION}" \
             'system-images;android-${{ matrix.api }};aosp_atd;arm64-v8a'
+      - name: Verify ARM64 hypervisor acceleration
+        run: "$ANDROID_HOME/emulator/emulator -accel-check"
       - name: Run VPN lifecycle and runtime journeys
         working-directory: ui/android
         run: >-

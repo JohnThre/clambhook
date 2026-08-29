@@ -13,6 +13,10 @@ override_dh_auto_build:
 	$(MAKE) build VERSION=$(VERSION)
 	$(MAKE) build-linux VERSION=$(VERSION)
 
+override_dh_auto_test:
+	$(MAKE) test-native
+	$(MAKE) test-javafx JAVAFX_TEST_GOALS=verify
+
 override_dh_auto_install:
 	$(MAKE) install VERSION=$(VERSION) DESTDIR=$(CURDIR)/debian/clambhook PREFIX=/usr
 	$(MAKE) install-linux VERSION=$(VERSION) DESTDIR=$(CURDIR)/debian/clambhook PREFIX=/usr

@@ -964,14 +964,19 @@ static char *ch_ovpn_read_push_reply(SSL *ssl, ch_error *error) {
         return NULL;
     }
     static const char prefix[] = "PUSH_REPLY,";
-    if (strncmp(message, prefix, sizeof(prefix) - 1U) != 0) {
+    const size_t prefix_length = sizeof(prefix) - 1U;
+    if (buffer.length <= prefix_length ||
+        memcmp(message, prefix, prefix_length) != 0) {
         ch_error_set(error, CH_ERROR_PARSE,
                      "openvpn: expected PUSH_REPLY, got %.120s", message);
         free(message);
         return NULL;
     }
-    memmove(message, message + sizeof(prefix) - 1U,
-            strlen(message + sizeof(prefix) - 1U) + 1U);
+    const size_t payload_length = buffer.length - prefix_length;
+    for (size_t index = 0U; index < payload_length; ++index) {
+        buffer.bytes[index] = buffer.bytes[prefix_length + index];
+    }
+    buffer.length = payload_length;
     return message;
 }
 

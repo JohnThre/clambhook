@@ -23,7 +23,9 @@ pin every third-party action to a full commit SHA, and grant job-scoped access.
   including Gluon native image launch plus package install, integration, and
   uninstall checks;
 - Gluon Android ARM64 build and `aosp_atd/arm64-v8a` managed-device journeys
-  on API 31, 33, and 36.
+  on API 31, 33, and 36. Device journeys use Apple Silicon hosted runners for
+  ARM64 hypervisor acceleration; Ubuntu and Fedora remain the complete
+  GNU/Linux application/package matrix.
 
 `.github/workflows/security.yml` runs C/C++, Java/Kotlin, and Swift CodeQL plus
 dependency review. Dependabot covers Actions, Maven, and Android Gradle

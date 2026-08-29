@@ -19,6 +19,7 @@ ANDROID_NDK_VERSION ?= 28.2.13676358
 ANDROID_SDK ?= $(ANDROID_HOME)
 ANDROID_NDK ?= $(ANDROID_SDK)/ndk/$(ANDROID_NDK_VERSION)
 MAVEN ?= mvn
+JAVAFX_TEST_GOALS ?= clean verify
 CLAMBHOOK_HOST_OS ?= $(shell uname -s)
 GLUON_LINUX_ARCH ?= $(shell uname -m)
 GLUON_LINUX_TARGET = $(if $(filter arm64 aarch64,$(GLUON_LINUX_ARCH)),aarch64-linux,x86_64-linux)
@@ -77,12 +78,12 @@ test-javafx:
 				echo "xvfb-run is required for headless GNU/Linux JavaFX tests." >&2; \
 				exit 2; \
 			}; \
-			cd ui/javafx && timeout --kill-after=15s 10m xvfb-run -a $(MAVEN) -B clean verify; \
+			cd ui/javafx && timeout --kill-after=15s 10m xvfb-run -a $(MAVEN) -B $(JAVAFX_TEST_GOALS); \
 		else \
-			cd ui/javafx && timeout --kill-after=15s 10m $(MAVEN) -B clean verify; \
+			cd ui/javafx && timeout --kill-after=15s 10m $(MAVEN) -B $(JAVAFX_TEST_GOALS); \
 		fi; \
 	else \
-		cd ui/javafx && $(MAVEN) -B clean verify; \
+		cd ui/javafx && $(MAVEN) -B $(JAVAFX_TEST_GOALS); \
 	fi
 
 test-linux: test-javafx

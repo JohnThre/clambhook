@@ -82,6 +82,11 @@ make build-linux VERSION=%{version}
 
 %install
 make install-linux DESTDIR=%{buildroot} PREFIX=%{_prefix}
+# %%license installs the two first-party licenses in the RPM license directory.
+# Drop the generic CMake documentation copies to avoid duplicate, unpackaged
+# payload under %%{_datadir}/doc.
+rm -f %{buildroot}%{_datadir}/doc/clambhook/LICENSE
+rm -f %{buildroot}%{_datadir}/doc/clambhook/LICENSE-APACHE
 install -Dpm 0644 packaging/config/config.toml %{buildroot}%{_sysconfdir}/clambhook/config.toml
 install -Dpm 0644 packaging/systemd/clambhook-sysusers.conf %{buildroot}%{_sysusersdir}/clambhook.conf
 install -Dpm 0644 packaging/systemd/clambhook-tmpfiles.conf %{buildroot}%{_tmpfilesdir}/clambhook.conf
