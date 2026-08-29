@@ -4289,7 +4289,12 @@ static char *developer_send_outgoing(ch_developer_manager *manager,
         DEVELOPER_CURL_SET(CURLOPT_HTTPHEADER, headers);
         DEVELOPER_CURL_SET(CURLOPT_RESOLVE, resolve);
         DEVELOPER_CURL_SET(CURLOPT_PROXY, "");
+#if LIBCURL_VERSION_NUM >= 0x075500
         DEVELOPER_CURL_SET(CURLOPT_PROTOCOLS_STR, "http,https");
+#else
+        DEVELOPER_CURL_SET(CURLOPT_PROTOCOLS,
+                           (long)(CURLPROTO_HTTP | CURLPROTO_HTTPS));
+#endif
         DEVELOPER_CURL_SET(CURLOPT_FOLLOWLOCATION, 0L);
         DEVELOPER_CURL_SET(CURLOPT_TIMEOUT_MS, remaining_ms);
         DEVELOPER_CURL_SET(CURLOPT_CONNECTTIMEOUT_MS, remaining_ms);

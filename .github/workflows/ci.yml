@@ -229,7 +229,7 @@ jobs:
         run: make test-android
       - name: Provision checksum-pinned GraalVM 17
         run: |
-          graal_home="$(bash scripts/provision-graalvm17.sh "$RUNNER_TEMP/graalvm17" | tail -1)"
+          graal_home="$(bash scripts/provision-graalvm17.sh "$RUNNER_TEMP/graalvm17")"
           echo "$graal_home/bin" >> "$GITHUB_PATH"
           echo "GRAALVM_HOME=$graal_home" >> "$GITHUB_ENV"
           echo "JAVA_HOME=$graal_home" >> "$GITHUB_ENV"

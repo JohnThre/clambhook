@@ -131,9 +131,9 @@ dnf install -y -q --allowerasing \
   git curl wget tar gzip file which rsync ca-certificates >/dev/null'
 
 # shellcheck disable=SC2016 # Expanded by bash inside the target container.
-smoke='set -e
+smoke='set -euo pipefail
 cd /src
-GRAALVM_HOME=$(bash scripts/provision-graalvm17.sh /opt/clambhook-graalvm17 | tail -1)
+GRAALVM_HOME=$(bash scripts/provision-graalvm17.sh /opt/clambhook-graalvm17)
 export GRAALVM_HOME JAVA_HOME=$GRAALVM_HOME PATH=$GRAALVM_HOME/bin:$PATH
 make test-native
 make test-javafx
@@ -232,15 +232,7 @@ if [[ ${#targets[@]} -eq 0 ]]; then
   targets=(trisquel rocky alma)
 fi
 
-failed=()
 for distro in "${targets[@]}"; do
-  if ! run_one "$distro"; then
-    failed+=("$distro")
-  fi
+  run_one "$distro"
 done
-
-if [[ ${#failed[@]} -gt 0 ]]; then
-  echo "FAILED: ${failed[*]}" >&2
-  exit 1
-fi
 echo "All requested GNU/Linux targets validated."

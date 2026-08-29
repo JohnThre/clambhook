@@ -20,12 +20,12 @@ fi
 case "$(uname -s)-$(uname -m)" in
     Linux-x86_64)
         platform=linux-x64
-        sha256=e47ba7229cef02393e19d5b8f46f7f1cab4829dd17bfe84d5431fc8ff0e22a96c
+        sha256=e47ba7229cef02393e19d5b8f46f7f1cab4829dd17bfe84d5431fc8ff0e22a96
         home_suffix=
         ;;
     Linux-aarch64|Linux-arm64)
         platform=linux-aarch64
-        sha256=3281b21f5220c2f76cf6fa0d646bc42e2d729af2c022bb06e557a613ba16102
+        sha256=c3281b21f5220c2f76cf6fa0d646bc42e2d729af2c022bb06e557a613ba16102
         home_suffix=
         ;;
     Darwin-arm64|Darwin-aarch64)
@@ -38,6 +38,11 @@ case "$(uname -s)-$(uname -m)" in
         exit 2
         ;;
 esac
+
+if [[ ! "$sha256" =~ ^[0-9a-f]{64}$ ]]; then
+    echo "invalid pinned GraalVM SHA-256 for $platform" >&2
+    exit 2
+fi
 
 archive_name="graalvm-community-jdk-${VERSION}_${platform}_bin.tar.gz"
 work_dir="$(mktemp -d "${TMPDIR:-/tmp}/clambhook-graalvm17.XXXXXX")"
@@ -55,6 +60,6 @@ mkdir -p "$INSTALL_DIR"
 tar -xzf "$archive" -C "$INSTALL_DIR" --strip-components=1
 
 graalvm_home="$INSTALL_DIR$home_suffix"
-"$graalvm_home/bin/java" -version
-"$graalvm_home/bin/native-image" --version
+"$graalvm_home/bin/java" -version >&2
+"$graalvm_home/bin/native-image" --version >&2
 printf '%s\n' "$graalvm_home"

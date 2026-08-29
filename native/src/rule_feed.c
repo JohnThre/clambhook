@@ -1521,7 +1521,12 @@ ch_status ch_rule_feed_refresh(const ch_rule_feed_refresh_options *options,
         FEED_CURL_SET(CURLOPT_HTTPHEADER, headers);
         FEED_CURL_SET(CURLOPT_RESOLVE, resolve);
         FEED_CURL_SET(CURLOPT_PROXY, "");
+#if LIBCURL_VERSION_NUM >= 0x075500
         FEED_CURL_SET(CURLOPT_PROTOCOLS_STR, "http,https");
+#else
+        FEED_CURL_SET(CURLOPT_PROTOCOLS,
+                      (long)(CURLPROTO_HTTP | CURLPROTO_HTTPS));
+#endif
         FEED_CURL_SET(CURLOPT_FOLLOWLOCATION, 0L);
         FEED_CURL_SET(CURLOPT_TIMEOUT_MS, 15000L);
         FEED_CURL_SET(CURLOPT_CONNECTTIMEOUT_MS, 15000L);

@@ -222,8 +222,17 @@ static ch_status ch_license_post(
     if (result == CURLE_OK) result = curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
     if (result == CURLE_OK) result = curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
     if (result == CURLE_OK) result = curl_easy_setopt(curl, CURLOPT_MAXREDIRS, 10L);
+#if LIBCURL_VERSION_NUM >= 0x075500
     if (result == CURLE_OK) result = curl_easy_setopt(curl, CURLOPT_PROTOCOLS_STR, "http,https");
     if (result == CURLE_OK) result = curl_easy_setopt(curl, CURLOPT_REDIR_PROTOCOLS_STR, "http,https");
+#else
+    if (result == CURLE_OK) result = curl_easy_setopt(
+        curl, CURLOPT_PROTOCOLS, (long)(CURLPROTO_HTTP | CURLPROTO_HTTPS)
+    );
+    if (result == CURLE_OK) result = curl_easy_setopt(
+        curl, CURLOPT_REDIR_PROTOCOLS, (long)(CURLPROTO_HTTP | CURLPROTO_HTTPS)
+    );
+#endif
     if (result == CURLE_OK) result = curl_easy_perform(curl);
     long http_status = 0L;
     if (result == CURLE_OK) result = curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_status);
