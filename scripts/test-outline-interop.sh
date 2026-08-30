@@ -14,13 +14,43 @@ TCP_PID=""
 UDP_PID=""
 
 cleanup() {
+    local status=$?
     set +e
+    if ((status != 0)); then
+        for log in "$WORK_DIR/tcp.log" "$WORK_DIR/udp.log" \
+                   "$WORK_DIR/server.log"; do
+            [[ ! -f "$log" ]] || {
+                echo "--- $(basename "$log") ---" >&2
+                sed -n '1,200p' "$log" >&2
+            }
+        done
+    fi
     [[ -z "$SERVER_PID" ]] || kill "$SERVER_PID" 2>/dev/null
     [[ -z "$TCP_PID" ]] || kill "$TCP_PID" 2>/dev/null
     [[ -z "$UDP_PID" ]] || kill "$UDP_PID" 2>/dev/null
     rm -rf "$WORK_DIR"
 }
 trap cleanup EXIT INT TERM
+
+wait_for_tcp_listener() {
+    local port="$1"
+    local label="$2"
+    local pid="$3"
+    for _ in {1..100}; do
+        kill -0 "$pid" 2>/dev/null || {
+            echo "$label exited before becoming ready" >&2
+            return 1
+        }
+        if (exec 9<>"/dev/tcp/127.0.0.1/$port") 2>/dev/null; then
+            exec 9>&-
+            exec 9<&-
+            return 0
+        fi
+        sleep 0.1
+    done
+    echo "$label did not listen on 127.0.0.1:$port" >&2
+    return 1
+}
 
 for tool in git go socat; do
     command -v "$tool" >/dev/null 2>&1 || {
@@ -73,16 +103,12 @@ UDP_PID=$!
     >"$WORK_DIR/server.log" 2>&1 &
 SERVER_PID=$!
 
-for _ in {1..50}; do
-    kill -0 "$SERVER_PID" 2>/dev/null || {
-        cat "$WORK_DIR/server.log" >&2
-        exit 1
-    }
-    if grep -Eq 'service|listener|started|running' "$WORK_DIR/server.log"; then
-        break
-    fi
-    sleep 0.1
-done
+wait_for_tcp_listener "$TCP_PORT" "TCP echo target" "$TCP_PID"
+wait_for_tcp_listener "$SERVER_PORT" "Outline server" "$SERVER_PID"
+kill -0 "$UDP_PID" 2>/dev/null || {
+    echo "UDP echo target exited before the test" >&2
+    exit 1
+}
 
 env \
     CLAMBHOOK_TEST_GROUP=protocol \
