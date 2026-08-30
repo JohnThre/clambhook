@@ -100,6 +100,7 @@ add_library(libyaml STATIC
 target_include_directories(libyaml PUBLIC "${LIBYAML_DIR}/include")
 target_include_directories(libyaml PRIVATE "${LIBYAML_DIR}/src")
 target_compile_definitions(libyaml PRIVATE
+    _POSIX_C_SOURCE=200809L
     YAML_VERSION_STRING="0.2.5"
     YAML_VERSION_MAJOR=0
     YAML_VERSION_MINOR=2
