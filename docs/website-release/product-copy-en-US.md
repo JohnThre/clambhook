@@ -6,7 +6,9 @@
 ## Hero
 
 - Title: ClambHook.
-- Description: Private VPN and proxy router for Apple Silicon Macs running macOS 14 or later. Download from GitHub Releases, start a 7-day trial, then subscribe through `store.swiphtgroup.com`.
+- Description: Private VPN and proxy router for Apple Silicon Macs running macOS 14 or later, Ubuntu and Fedora systems, and ARM64 Android 12+ devices.
+  Download verified builds from GitHub Releases, start a 7-day trial, then
+  subscribe through `store.swiphtgroup.com`.
 - Primary action: Download.
 - Secondary action: Subscription & Pricing.
 
@@ -19,6 +21,8 @@
 - Privacy Policy URL: `https://clambercloud.com/clambhook/privacy/`.
 - Support URL: `https://clambercloud.com/clambhook/support/`.
 - No account is required to download or use the trial.
+- Show download actions only after the corresponding protected release assets
+  have been independently verified.
 
 ## Pricing
 
@@ -35,10 +39,11 @@
 ## Description
 
 ClambHook helps advanced users manage local network profiles, routing rules,
-status views, diagnostics, and opt-in HTTP(S) capture from one native macOS app
-surface. It is distributed through GitHub Releases;
-`clambercloud.com` is marketing-only, while checkout, license delivery, and device-seat
-management are handled by `store.swiphtgroup.com`.
+status views, diagnostics, and opt-in HTTP(S) capture. macOS uses a native
+SwiftUI app; GNU/Linux and Android share a JavaFX interface with platform-native
+service integration. Official binaries are distributed through GitHub Releases;
+`clambercloud.com` is marketing-only, while checkout, license delivery, and
+device-seat management are handled by `store.swiphtgroup.com`.
 
 Use ClambHook to import or edit profiles, choose the active profile, apply
 rules, inspect local status, and opt in to HTTP Capture workflows such as
@@ -50,6 +55,9 @@ the device unless the user explicitly exports or sends them.
 
 - Use "7-day trial", "USD 79.99/year subscription", "maximum of 6 concurrently active devices", and "perpetual compatible fallback" for commercial copy.
 - Public download CTAs point to GitHub Releases through `clambercloud.com`.
+- Do not show a platform CTA until its versioned artifacts and signatures have
+  passed the publication checklist.
 - Subscription and license portal CTAs point to `store.swiphtgroup.com`.
-- Do not describe the current public release as a marketplace purchase or hosted account service.
+- Do not describe an official release as a marketplace purchase or hosted
+  account service.
 - Describe HTTP(S) capture as local, opt-in, and intended for devices and test traffic the user controls.

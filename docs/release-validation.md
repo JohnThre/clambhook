@@ -3,30 +3,32 @@
 
 # Release validation
 
-This document defines the evidence required before a protected ClambHook
-release. It is also the completion checklist for the C17 and JavaFX/Gluon
-architecture.
+This document defines the evidence required before and after a protected
+ClambHook release. It is also the continuing regression checklist for the C17
+and JavaFX/Gluon architecture. Passing source checks does not prove that public
+release assets exist.
 
 ## Validation topology
 
 ```mermaid
 flowchart TD
-    source["Source tree"] --> policy["Zero retired sources/module metadata<br/>SPDX · secrets · source-only"]
+    source["Source tree"] --> policy["Source-only · SPDX · secrets<br/>workflow + cutover policy"]
     policy --> native["C17 strict build<br/>ASan/UBSan · CTest"]
     policy --> ui["JavaFX JUnit/JaCoCo<br/>Kotlin AAR tests/lint"]
     policy --> mac["SwiftUI + embedded C runtime"]
-    native --> protocols["Protocol peers and fixtures<br/>tamper · replay · rekey"]
+    native --> protocols["Deterministic fixtures<br/>real WireGuard/OpenVPN peers"]
     native --> contracts["TOML · JSON · HTTP · WebSocket<br/>rollback · CLI · TUI · license"]
-    ui --> android["Gluon Android ARM64<br/>API 31 · 33 · 36 ATD"]
-    ui --> linux["Gluon GNU/Linux native images<br/>x86_64 · aarch64"]
-    linux --> distros["Ubuntu 24.04 · Fedora 44<br/>install · launch · daemon · secret store · uninstall"]
-    android --> inspect["APK/AAB ABI, manifest, JNI, signing"]
-    distros --> inspect
-    mac --> inspect
-    protocols --> inspect
-    contracts --> inspect
-    inspect --> protected["Protected signing/notarization"]
-    protected --> release["GitHub Releases"]
+    ui --> android["ARM64 product build<br/>API 31 · 33 · 36 x86_64 ATDs"]
+    ui --> linux["Gluon native images<br/>x86_64 · aarch64"]
+    linux --> distros["Ubuntu 24.04 · Fedora 44<br/>install · launch · secret store · uninstall"]
+    protocols --> ready["Source readiness"]
+    contracts --> ready
+    android --> ready
+    distros --> ready
+    mac --> ready
+    ready --> protected["Protected build · inspection<br/>signing · notarization"]
+    protected --> published["Versioned GitHub Release"]
+    published --> download["Independent download<br/>hash · signature · install · update smoke"]
 ```
 
 ## C17 runtime gate
@@ -186,9 +188,9 @@ The last two commands must print nothing. Inspect all packages to require:
 - correct C17 executables, JavaFX native image, licenses, notices, and update
   manifests.
 
-## Delivery gate
+## Source delivery gate
 
-Create one coherent cutover commit, push non-force to `origin/master`, and
+Create one coherent source commit, push non-force to `origin/master`, and
 monitor every required workflow. Fix defects with follow-up commits until all
 required CI/security jobs pass. Do not create a release tag or manually publish
 artifacts for source delivery.
@@ -200,3 +202,13 @@ test "$(git rev-parse HEAD)" = "$(git rev-parse origin/master)"
 test "$(git rev-parse HEAD)" = "$(git ls-remote origin refs/heads/master | awk '{print $1}')"
 test -z "$(git status --porcelain)"
 ```
+
+## Publication gate
+
+After the protected workflow succeeds, download every selected-platform asset
+from its immutable versioned URL. Verify SHA-256 records, GPG signatures, APK
+and AAB signatures, Developer ID/notarization/stapling, Sparkle signatures, and
+manifest URLs before calling the release public. Install, launch, update-check,
+and uninstall smoke tests must use the downloaded bytes rather than workspace
+artifacts. A release page created before all selected jobs finish is not a
+completed release.

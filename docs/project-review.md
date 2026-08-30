@@ -3,6 +3,10 @@
 
 # Project review
 
+This review describes the version 1.0.2 source and release contracts. It does
+not by itself certify that a public installer exists; publication evidence is
+tracked separately by the protected release workflow.
+
 ## Current architecture
 
 ClambHook has one C17 runtime and one shared JavaFX/Gluon application for
@@ -56,6 +60,8 @@ identifier, and release contracts are frozen.
 - Retired module, binding, and UI sources are absent from the delivered tree.
 - Ubuntu produces Debian files and Fedora produces RPM files; no other
   GNU/Linux distribution is an authoritative test target.
+- The release workflow is implemented, but a release is not publicly validated
+  until every asset has been downloaded and its signatures inspected.
 
 ## Ongoing review items
 

@@ -8,17 +8,18 @@ Extension or System Extension targets, and it does not require the restricted
 Network Extension entitlement.
 
 ```mermaid
-graph TD
-    app["macOS 14+ app<br/>SwiftUI"]
-    helper["Privileged helper<br/>Service Management LaunchDaemon"]
-    daemon["C17 clambhook daemon"]
-    api["Authenticated HTTP + WebSocket"]
-    tools["Bundled C TUI<br/>and license helper"]
+flowchart TD
+    app["macOS 14+ SwiftUI app"]
+    helper["Signed privileged helper<br/>Service Management LaunchDaemon"]
+    daemon["Bundled C17 daemon"]
+    api["Authenticated loopback<br/>HTTP + WebSocket"]
+    tui["Bundled C TUI"]
+    license["Bundled C license helper"]
 
     subgraph proxy["System Proxy mode"]
-        listeners["Local SOCKS5 + HTTP listeners"]
         settings["macOS HTTP/HTTPS/SOCKS<br/>proxy settings (optional)"]
-        listeners --> settings
+        listeners["Local SOCKS5 + HTTP listeners"]
+        settings --> listeners
     end
 
     subgraph enhanced["Enhanced mode"]
@@ -29,11 +30,12 @@ graph TD
     end
 
     app --> api --> daemon
-    tools --> daemon
-    app -->|proxy-aware apps| daemon
-    app -->|device-wide, admin-approved| helper
-    daemon --> proxy
-    helper --> daemon --> enhanced
+    tui --> api
+    app --> license
+    app -->|install/start privileged service| helper
+    helper --> daemon
+    daemon --> listeners
+    daemon --> utun
 ```
 
 ## Included

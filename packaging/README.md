@@ -47,9 +47,10 @@ runners. Ubuntu and Fedora are the only authoritative GNU/Linux test targets.
 
 ```mermaid
 flowchart TD
-    commit["Source commit"] --> native["C17 warning-as-error<br/>ASan/UBSan + CTest"]
-    commit --> javafx["Java 17 + Maven<br/>JavaFX tests + Gluon native image"]
-    native --> matrix{"Runner architecture"}
+    commit["Source commit"] --> policy["Source · license · cutover policy"]
+    policy --> native["C17 warning-as-error<br/>ASan/UBSan + CTest"]
+    policy --> javafx["Java 17 + Maven<br/>JavaFX tests + Gluon image"]
+    native --> matrix{"Native GitHub runner"}
     javafx --> matrix
     matrix --> x64["ubuntu-24.04<br/>x86_64"]
     matrix --> arm["ubuntu-24.04-arm<br/>aarch64"]
@@ -59,8 +60,9 @@ flowchart TD
     arm --> fedora
     ubuntu --> inspect["Install · launch under Xvfb<br/>daemon · secret-tool · metadata<br/>uninstall · payload inspection"]
     fedora --> inspect
-    inspect --> protected["Protected release job<br/>checksum + GPG signature"]
-    protected --> github["GitHub Releases"]
+    inspect --> protected["Protected release job<br/>manifest · checksum · GPG"]
+    protected --> github["Versioned GitHub Release"]
+    github --> verify["Download + signature<br/>install/update smoke"]
 ```
 
 Run the matrix locally with Podman or Docker:
@@ -95,11 +97,13 @@ For each GNU/Linux architecture, the protected workflow produces:
 The Android release produces `ClambHook-arm64.apk`,
 `ClambHook-arm64.aab`, a signed update manifest, checksums, and detached GPG
 signatures. The macOS release produces the signed/notarized Apple Silicon DMG,
-ZIP, update manifest, checksum, appcast, and signatures.
+ZIP, signed update manifest, DMG checksum and signature, and signed Sparkle
+appcast.
 
 Ordinary CI uploads reports only. Packaging or publication is allowed only in
 `.github/workflows/release.yml` after its environment protections and signing
-checks pass.
+checks pass. The generated asset list is a release contract, not evidence that
+the GitHub Release currently exists.
 
 See [release validation](../docs/release-validation.md) and
 [distribution policy](../docs/distribution.md).

@@ -10,13 +10,14 @@ activity, servers and chains, policies, rules, DNS/firewall/conditioner,
 prompts, developer tools, settings, licensing, and updates.
 
 ```mermaid
-flowchart LR
+flowchart TB
     views["Responsive JavaFX views"] --> client["Typed asynchronous RuntimeClient"]
-    views --> services["PlatformServices"]
-    client -->|"GNU/Linux HTTP and WebSocket"| daemon["C17 daemon"]
-    client -->|"Android JNI"| runtime["C17 in-process runtime"]
-    services --> linux["systemd · secret-tool · package repositories"]
-    services --> android["Kotlin AAR · VpnService · Android framework"]
+    views --> services["PlatformServices capability boundary"]
+    client --> backend{"Platform backend"}
+    backend -->|"GNU/Linux authenticated<br/>HTTP + WebSocket"| daemon["Supervised C17 daemon"]
+    backend -->|"Android Dalvik/JNI"| runtime["Service-owned C17 runtime"]
+    services --> linux["systemd · polkit · secret-tool<br/>apt/dnf when configured"]
+    services --> android["Kotlin AAR · VpnService<br/>files · QR · secure storage · updater"]
     android --> runtime
 ```
 
@@ -56,6 +57,10 @@ On GNU/Linux, license keys live in the system secret service through
 `secret-tool`; the install ID and signed C-helper state are atomically written
 with private permissions under `$XDG_CONFIG_HOME/clambhook/` (or
 `~/.config/clambhook/`).
+Update checks use `apt` or `dnf` only when the system administrator has
+configured a signed package repository containing ClambHook. GitHub Releases
+remains the official binary host, and official repository metadata is not yet
+published.
 
 For Android, first run `scripts/prepare-gluon-android.sh`, then run
 `mvn -B -Pandroid gluonfx:build gluonfx:package`. The package step emits a

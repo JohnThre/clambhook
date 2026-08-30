@@ -4,7 +4,8 @@
 # macOS v1 parity
 
 The macOS 14+ Apple Silicon SwiftUI client is fully attached to the C17 runtime.
-This checklist is a release contract, not a migration tracker.
+This checklist is a release contract, not a migration tracker or evidence that
+a notarized DMG has already been published.
 
 ## Runtime and routing
 

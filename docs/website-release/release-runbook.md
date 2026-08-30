@@ -3,9 +3,10 @@
 
 # macOS and Android release runbook
 
-GitHub Releases is the sole public artifact host. The protected release workflow
-imports credentials only after compilation, produces signed assets, and uploads
-them directly to the versioned release.
+GitHub Releases is the sole public artifact host. After request validation, each
+protected platform job imports only its required credentials into temporary
+files, builds and inspects signed assets, and uploads them directly to the
+versioned release.
 
 For macOS, run `make test-apple` and `make build-apple` locally before tagging.
 The workflow then archives with Developer ID, notarizes and staples the app and
@@ -27,4 +28,6 @@ git push origin v1.2.3
 
 After approval, download every release asset, verify checksums/signatures,
 confirm macOS notarization and APK/AAB signatures, and exercise stable update
-discovery. Use manual dispatch for beta or an idempotent recovery upload.
+discovery. Do not announce the release while selected platform jobs are still
+running or failed. Use manual dispatch for beta or an idempotent recovery
+upload; approved beta assets are mirrored to the rolling `beta` prerelease.

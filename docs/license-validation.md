@@ -4,8 +4,9 @@
 # License Validation
 
 ClambHook uses the hosted `store.swiphtgroup.com` license backend for trial,
-activation, device-seat, annual-subscription, paid-through, and supporter state. Official installers and
-update manifests are served through GitHub Releases.
+activation, device-seat, annual-subscription, paid-through, and supporter state.
+Official installers and update manifests are served through GitHub Releases
+only after the protected publication workflow succeeds.
 
 ## Production Backend
 
@@ -65,13 +66,17 @@ transfer must survive a client restart on every platform.
 
 ```mermaid
 stateDiagram-v2
-    [*] --> Trial: JavaFX / SwiftUI client starts
-    Trial --> Active: C17 helper validates activation
-    Active --> Active: activate (refresh)
-    Active --> Deactivated: deactivate
-    Deactivated --> Active: reactivate
-    Active --> Transferred: transfer (deactivates current seat)
-    Transferred --> Active: activate on new device
+    [*] --> Trial: first installation
+    Trial --> TrialEnded: seven days elapse
+    Trial --> Active: activate verified key
+    TrialEnded --> Active: activate verified key
+    Active --> Active: refresh or renew paid term
+    Active --> CompatibleFallback: paid-through cutoff passes
+    CompatibleFallback --> Active: resubscribe with same key
+    Active --> Deactivated: deactivate this seat
+    Deactivated --> Active: reactivate when a seat is available
+    Active --> Transferred: transfer frees this seat
+    Transferred --> Active: activate on destination device
 
     note right of Active
         C17 signed snapshot evaluation
@@ -89,5 +94,5 @@ covers releases published during each paid term and up to six active devices.
 Cancellation stops future billing at the paid-through date. Compatible releases
 from paid terms remain usable perpetually, and resubscription can reuse the same
 key. Public installers are downloaded from
-`https://github.com/JohnThre/clambhook/releases`; only the protected release
-workflow may publish generated installer artifacts.
+`https://github.com/JohnThre/clambhook/releases` when a release is available;
+only the protected release workflow may publish generated installer artifacts.

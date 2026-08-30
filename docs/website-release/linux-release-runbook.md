@@ -10,11 +10,15 @@ signature, and `clambhook-linux-<arch>-manifest.json` is uploaded to the
 versioned GitHub Release. Every package contains the C17 command-line programs
 and self-contained JavaFX/Gluon native image with no bundled JRE.
 
-For local preflight, run `scripts/validate-linux-distros.sh`, then build with:
+For local preflight, run the same container matrix without publishing:
 
 ```sh
-VERSION=1.2.3 RELEASE_TAG=v1.2.3 REQUIRE_SIGNING=1 make release-linux
+scripts/validate-linux-distros.sh ubuntu fedora
 ```
+
+`make release-linux` is a local artifact/signing helper for a suitably
+provisioned GNU/Linux host; it does not publish and does not replace the
+protected two-architecture workflow.
 
 Before publishing, verify both architectures, package metadata, daemon and
 secret-storage integration, JavaFX launch, clean uninstall, SHA-256 files, GPG

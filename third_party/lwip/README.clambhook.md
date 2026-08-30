@@ -10,4 +10,4 @@
 
 The source is pinned and vendored so the same C packet stack can be built for
 GNU/Linux, macOS, and Android without a network fetch or a platform package.
-Clambhook-specific configuration and adapters live outside this directory.
+ClambHook-specific configuration and adapters live outside this directory.

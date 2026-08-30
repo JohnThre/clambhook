@@ -11,24 +11,31 @@ C terminal UI, and C license helper provide the command-line surface.
 The completed implementation cutover is recorded in
 [outcome details](docs/c-migration.md).
 
+The source tree contains protected release automation for every supported
+platform. Official binaries appear only on the
+[GitHub Releases page](https://github.com/JohnThre/clambhook/releases) after a
+protected workflow finishes; a source version or tag alone is not evidence that
+an installer has been published.
+
 ## Architecture
 
 ```mermaid
 flowchart TB
-    subgraph clients["Product clients"]
+    subgraph clients["Product surfaces"]
         mac["macOS 14+<br/>SwiftUI"]
-        linux["GNU/Linux<br/>JavaFX 21.0.12 + Gluon native image"]
-        android["Android 12+ ARM64<br/>JavaFX 21.0.12 + Gluon"]
-        tools["Command line<br/>C daemon · C TUI · C license helper"]
+        linux["GNU/Linux<br/>JavaFX 21.0.12 native image"]
+        android["Android 12+ ARM64<br/>JavaFX 21.0.12 native image"]
+        tui["C terminal UI"]
     end
 
-    subgraph androidPlatform["Android platform boundary"]
-        kotlin["Small Kotlin AAR<br/>VpnService · consent · files · QR<br/>secure storage · notifications · updater"]
-        jni["JNI / Dalvik bridge"]
+    subgraph platform["Platform ownership"]
+        macHelper["macOS signed helper<br/>utun · routes · DNS"]
+        linuxServices["GNU/Linux services<br/>systemd · polkit · secret-tool"]
+        kotlin["Kotlin platform AAR<br/>VpnService · consent · files · QR<br/>secure storage · notifications · updater"]
     end
 
-    subgraph core["C17 production core"]
-        control["Authenticated loopback<br/>HTTP + WebSocket"]
+    subgraph runtime["C17 production runtime"]
+        control["Control and event boundary<br/>HTTP/WebSocket or JNI"]
         config["TOML config · profiles<br/>transaction + rollback"]
         routing["Rules · rule sets · subscriptions<br/>policy groups · prompts"]
         network["SOCKS5 · HTTP(S) · TUN<br/>DNS · firewall · conditioner"]
@@ -39,17 +46,21 @@ flowchart TB
         crypto["OpenSSL · libsodium · libuv<br/>libcurl · llhttp"]
     end
 
-    mac -->|HTTP + WebSocket| control
-    linux -->|HTTP + WebSocket| control
-    android --> kotlin --> jni --> core
-    tools --> core
+    mac -->|authenticated loopback| control
+    mac --> macHelper
+    linux -->|authenticated loopback| control
+    linux --> linuxServices
+    android --> kotlin -->|Dalvik/JNI| control
+    tui -->|authenticated loopback| control
     control --> config
     control --> routing
     control --> developer
     routing --> network --> protocols
     protocols --> lwip
     protocols --> crypto
-    core --> support
+    control --> support
+    macHelper --> control
+    linuxServices --> control
 ```
 
 The Java layer is split deliberately:
@@ -71,15 +82,15 @@ sequenceDiagram
     participant User
     participant UI as JavaFX or SwiftUI client
     participant Platform as Kotlin AAR or desktop services
-    participant API as C17 control/event server
+    participant API as C17 control/event boundary
     participant Router as C17 policy and chain engine
     participant Tunnel as lwIP / TUN / protocol transport
     participant Store as Traffic, events, config, license
 
     User->>UI: Connect or edit configuration
     UI->>Platform: Request consent / platform operation
-    Platform->>API: Attach to existing runtime
-    UI->>API: Typed authenticated request
+    Platform->>API: Attach to service or supervised daemon
+    UI->>API: Typed request over loopback or JNI
     API->>Router: Validate and apply transaction
     Router->>Tunnel: Route TCP/UDP packet or stream
     Tunnel-->>Router: Result, counters, errors
@@ -188,8 +199,8 @@ flowchart LR
     linux --> packages["Ubuntu Debian package<br/>Fedora RPM"]
     android --> packages
     apple --> packages
-    packages --> protected["Protected release workflow<br/>sign · notarize · inspect · checksum"]
-    protected --> releases["GitHub Releases"]
+    packages --> protected["Protected release workflow<br/>inspect · sign · notarize · checksum"]
+    protected --> releases["Versioned GitHub Release<br/>only after every selected job succeeds"]
 ```
 
 Hosted distro and Android managed-device lanes are authoritative. Podman or
@@ -203,9 +214,12 @@ signed tags or an approved protected dispatch. See
 
 ## Distribution and licensing
 
-Official downloads are hosted at
-<https://github.com/JohnThre/clambhook/releases>. macOS is distributed as a
-notarized DMG for Apple Silicon Macs running macOS 14 or later.
+When available, official downloads are hosted only at
+<https://github.com/JohnThre/clambhook/releases>. The protected workflow
+publishes a notarized DMG for Apple Silicon Macs running macOS 14 or later,
+signed ARM64 Android packages, and signed GNU/Linux packages. If the page has
+no release, no official binary has been published yet; build locally or wait
+for a protected release rather than obtaining an installer elsewhere.
 
 The commercial product contract is:
 
@@ -222,10 +236,14 @@ The commercial product contract is:
 ```mermaid
 stateDiagram-v2
     [*] --> Trial
-    Trial --> Active: verified annual payment
+    Trial --> Active: verified annual payment or key activation
+    Trial --> TrialEnded: seven days elapse
+    TrialEnded --> Active: verified annual payment or key activation
     Active --> Active: annual renewal
     Active --> Deactivated: deactivate seat
-    Deactivated --> Active: activate on another device
+    Deactivated --> Active: reactivate this seat
+    Active --> Transferred: transfer frees this seat
+    Transferred --> Active: activate destination device
     Active --> Fallback: cancel or paid term lapses
     Fallback --> Active: resubscribe with the same key
 
@@ -263,6 +281,20 @@ Report vulnerabilities privately as described in [SECURITY.md](SECURITY.md).
 Contributions require the agreement in [CLA.md](CLA.md), SPDX headers, tests,
 and preservation of the published control, persistence, identifier, and
 licensing contracts.
+
+## Documentation map
+
+- [Roadmap](docs/roadmap.md) and [project review](docs/project-review.md):
+  delivered architecture, current priorities, and reviewed boundaries.
+- [Android development](docs/android-development.md),
+  [macOS scope](docs/macos-v1-scope.md), and the
+  [JavaFX client](ui/javafx/README.md): platform ownership and toolchains.
+- [Release validation](docs/release-validation.md),
+  [GitHub CI/CD](docs/github-cicd.md), and
+  [packaging](packaging/README.md): release evidence and artifact policy.
+- [Distribution](docs/distribution.md), [licensing](LICENSING.md), and
+  [security](SECURITY.md): public distribution, legal boundaries, and private
+  vulnerability reporting.
 
 ## Author
 

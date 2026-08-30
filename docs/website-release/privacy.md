@@ -3,11 +3,13 @@
 
 # Privacy Notes
 
-Last updated: 2026-06-30
+Last updated: 2026-08-30
 
-ClambHook is distributed through GitHub Releases and described on `clambercloud.com`. It offers System Proxy
-mode for apps that honor system proxy settings and daemon-backed Enhanced Mode
-for device-wide routing according to the user's selected profiles and rules.
+ClambHook official binaries are distributed through GitHub Releases after a
+protected publication and described on `clambercloud.com`. On macOS it offers
+System Proxy mode for apps that honor system proxy settings and daemon-backed
+Enhanced Mode for device-wide routing. GNU/Linux uses the supervised daemon;
+Android uses the system VPN service and an in-process C runtime.
 
 Profile data, proxy credentials, private keys, connection metadata, traffic
 logs, diagnostics, and local captures stay on the device unless the user
@@ -15,7 +17,7 @@ explicitly exports or sends them. Activity inspection is metadata-only by
 default. HTTP Capture is a separate local opt-in for traffic routed through the
 daemon HTTP proxy; HTTPS capture requires a user-trusted local certificate
 authority and can store bounded request and response body previews plus HAR
-exports on this Mac.
+exports on the local device.
 
 When a user activates a provider-neutral license, `store.swiphtgroup.com` receives
 the license key, generated install ID, device display name, platform,

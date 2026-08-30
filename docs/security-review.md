@@ -73,7 +73,9 @@ reported privately under [SECURITY.md](../SECURITY.md).
   bounded JSON result. Device-seat and update-cutoff rules are identical across
   JavaFX, Kotlin, and SwiftUI surfaces.
 - Android checks update metadata/hash/signature before install handoff.
-- GNU/Linux updates remain package-repository managed.
+- GNU/Linux update actions use `apt` or `dnf` only when an administrator has
+  configured a signed repository; official repository metadata remains a
+  roadmap item.
 - macOS requires manifest hash, GPG signature, Sparkle signature, Developer ID,
   notarization, and stapling.
 - Protected workflows keep Android, GPG, Apple, and Sparkle private keys in
@@ -104,6 +106,6 @@ scripts/validate-systemd-unit.sh
 ```
 
 Release validation additionally runs managed Android journeys, both GNU/Linux
-architectures and all three distros, SwiftUI build/tests, package install and
+architectures and both authoritative distros, SwiftUI build/tests, package install and
 uninstall, archive inspection, signature verification, and required CodeQL and
 dependency-review jobs.

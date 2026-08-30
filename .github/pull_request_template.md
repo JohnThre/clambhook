@@ -3,7 +3,15 @@
 
 ## Summary
 
-Describe the change and how it was tested.
+Describe the behavior change and its compatibility or packaging effects.
+
+## Validation
+
+- [ ] I listed the focused test, build, lint, or documentation checks I ran.
+- [ ] I added or updated regression coverage for behavior changes.
+- [ ] I did not include generated installers, credentials, private keys, full
+      license keys, or unredacted profiles/logs.
+- [ ] I updated affected public contracts, documentation, and diagrams.
 
 ## Rights and licensing
 

@@ -4,8 +4,9 @@
 # GitHub CI/CD
 
 GitHub Actions is the authoritative automation and GitHub Releases is the only
-official binary distribution channel. Workflows default to no permissions,
-pin every third-party action to a full commit SHA, and grant job-scoped access.
+official binary distribution channel when a protected publication succeeds.
+Workflows default to no permissions, pin every third-party action to a full
+commit SHA, and grant job-scoped access.
 
 ## Continuous integration
 
@@ -52,21 +53,34 @@ Ubuntu and Fedora are the complete GNU/Linux validation matrix. No additional
 distribution is treated as a release or compatibility authority.
 
 ```mermaid
-flowchart LR
-    push["Push / pull request"] --> policy["Policy + actionlint"]
-    policy --> c["C17 + sanitizers"]
-    policy --> java["JavaFX + Kotlin"]
-    policy --> swift["SwiftUI + C runtime"]
-    c --> distro["Ubuntu 24.04 · Fedora 44<br/>x86_64 + aarch64"]
-    java --> device["Android API 31 · 33 · 36<br/>Ubuntu/KVM x86_64 ATDs"]
-    distro --> required["Required checks"]
-    device --> required
-    swift --> required
-    tag["Signed tag or protected dispatch"] --> verify["Request + key verification"]
-    required --> verify
-    verify --> build["Gluon + C17 + SwiftUI<br/>build and artifact inspection"]
-    build --> sign["Android · GPG · Developer ID<br/>notarization + Sparkle"]
-    sign --> release["GitHub Release assets"]
+flowchart TB
+    subgraph ci["Continuous integration"]
+        push["Push / pull request"] --> policy["Source · license · cutover<br/>workflow + actionlint"]
+        policy --> c["C17 strict + sanitizers<br/>real protocol peers"]
+        policy --> java["JavaFX + Kotlin<br/>JUnit · JaCoCo · lint"]
+        policy --> swift["SwiftUI + bundled C runtime"]
+        c --> distro["Ubuntu 24.04 · Fedora 44<br/>x86_64 + aarch64"]
+        java --> device["Android API 31 · 33 · 36<br/>x86_64 ATDs on Ubuntu/KVM"]
+        distro --> checks["Required CI evidence"]
+        device --> checks
+        swift --> checks
+    end
+
+    subgraph publication["Protected publication"]
+        request["Verified signed tag<br/>or approved dispatch"] --> guard["Policy recheck<br/>production environment"]
+        guard --> release["Create or normalize<br/>versioned GitHub Release"]
+        release --> linux["Build + inspect<br/>DEB/RPM"]
+        release --> android["Build + inspect<br/>APK/AAB"]
+        release --> macos["Build + inspect<br/>DMG/ZIP/appcast"]
+        linux --> signed["GPG checksums<br/>and manifests"]
+        android --> signed
+        macos --> signedMac["Developer ID · notarization<br/>Sparkle + GPG"]
+        signed --> assets["Versioned release assets"]
+        signedMac --> assets
+        assets --> beta["Rolling beta mirror<br/>beta channel only"]
+    end
+
+    checks -. maintainer release decision .-> request
 ```
 
 ## Local workflow checks
@@ -89,5 +103,7 @@ without a language package manager.
 - Never expose signing secrets in files, logs, caches, or artifacts.
 - Never replace the API 31 floor with API 30.
 - Never use Apple’s `container` CLI for hosted or local authority.
+- Never describe a source version, tag, or successful CI run as a published
+  release; verify the versioned release and its assets independently.
 - Finish a source delivery only when required checks are green, the worktree is
   clean, and local `HEAD`, `origin/master`, and `git ls-remote` agree.

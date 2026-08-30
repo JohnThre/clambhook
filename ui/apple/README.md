@@ -10,12 +10,16 @@ embedded.
 
 ```mermaid
 flowchart LR
-    swiftui["SwiftUI app and menu bar"] --> api["Frozen HTTP/WebSocket client"]
-    helper["Privileged helper"] --> daemon["C17 clambhook daemon"]
+    swiftui["SwiftUI app<br/>menu bar · widget"] --> api["Typed authenticated<br/>HTTP/WebSocket client"]
+    swiftui --> license["C license helper<br/>signed snapshot"]
+    swiftui --> updater["Signed manifest<br/>Sparkle policy"]
+    swiftui --> helper["Signed privileged helper"]
+    tui["Bundled C TUI"] --> api
+    helper --> daemon["Bundled C17 daemon"]
     api --> daemon
-    tools["C TUI and license helper"] --> daemon
+    daemon --> proxy["System proxy listeners"]
     daemon --> tun["utun · routes · DNS"]
-    daemon --> proxies["Encrypted proxy and VPN peers"]
+    daemon --> peers["Encrypted proxy/VPN peers"]
 ```
 
 Run `make build-apple` for an unsigned application build and `make test-apple`

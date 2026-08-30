@@ -3,14 +3,17 @@
 
 # Website Commercial Setup
 
-This checklist is the source of truth for ClambHook subscription setup across
-`clambercloud.com` and `store.swiphtgroup.com`.
+This checklist is the handoff contract for ClambHook product, download, and
+subscription setup across `clambercloud.com` and `store.swiphtgroup.com`.
+Repository readiness does not satisfy any item that requires a live release or
+production provider response.
 
 ## Account Prerequisites
 
 - Confirm `clambercloud.com` serves ClambHook product, download guidance, support, and privacy routes without commerce code.
 - Confirm `store.swiphtgroup.com` has the `DB` binding and ClambHook license migrations applied.
-- Confirm the official ClambHook GitHub Releases page and latest asset URLs are public.
+- Confirm the official ClambHook GitHub Releases page contains a completed
+  protected release before enabling download calls to action.
 - Confirm test-mode Creem and NOWPayments recurring annual products are configured for USD 79.99/year.
 - Confirm a dedicated license-key derivation secret is configured separately from provider webhook secrets and the public donation API key.
 - Confirm license grant email delivery is configured before accepting purchases.
@@ -65,7 +68,9 @@ resubscription, or a provider change.
 
 ## Verification
 
-- Confirm `https://github.com/JohnThre/clambhook/releases/latest` exposes the current notarized DMG, signed APK, `.deb`, `.rpm`, checksums, signatures, and manifests.
+- Confirm `https://github.com/JohnThre/clambhook/releases/latest` exposes the
+  current notarized DMG, signed APK/AAB, both architecture variants of `.deb`
+  and `.rpm`, checksums, signatures, and manifests.
 - Confirm the Clamber Cloud download page links to GitHub Releases.
 - Confirm each provider's test-mode annual payment creates or extends a provider-neutral license and sends the email.
 - Confirm cancellation, lapse, resubscription, provider switching, refunds, chargebacks, and webhook replay behavior.
@@ -73,3 +78,5 @@ resubscription, or a provider change.
 - Confirm deactivation, reactivation, and transfer flows update device seats.
 - Confirm the portal shows subscription status and paid-through date, schedules cancellation, lists devices, deactivates an active device, reactivates a known device when a seat is available, and frees an active seat for transfer.
 - Do not enable live billing until both providers pass end-to-end test-mode verification.
+- Do not describe source builds, CI reports, tags, or an asset-incomplete
+  release as a public download.

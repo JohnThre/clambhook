@@ -3,7 +3,8 @@
 
 # Completed C17 and JavaFX/Gluon Cutover
 
-This is the permanent cutover record. It intentionally names the retired Go,
+This is the permanent cutover record, reconciled with the 1.0.2 source tree.
+It intentionally names the retired Go,
 gomobile, Compose, and GTK implementations as historical artifacts; they are
 not build options, rollback paths, or active instructions.
 
@@ -33,18 +34,20 @@ C17 daemon/TUI and required native libraries.
 
 ```mermaid
 flowchart LR
-    oracle["Retired behavior oracle<br/>frozen contracts and fixtures"] --> matrix["Package · route · fixture matrix"]
-    matrix --> c17["C17 runtime parity"]
-    c17 --> names["Production C executable names"]
-    matrix --> javafx["Shared JavaFX RuntimeClient"]
-    javafx --> linux["Gluon GNU/Linux<br/>x86_64 + aarch64"]
-    javafx --> android["Gluon Android<br/>ARM64"]
-    android --> kotlin["Kotlin platform AAR<br/>VpnService owns C runtime"]
-    c17 --> swift["SwiftUI macOS client"]
-    c17 --> cli["C CLI · TUI · license helper"]
-    names --> removal["Remove historical source/module/UI trees"]
+    historical["Historical implementations<br/>behavior oracle"] --> contracts["Frozen CLI · TOML · JSON<br/>HTTP/WebSocket · persistence"]
+    contracts --> fixtures["Parity fixtures<br/>platform + package gates"]
+    fixtures --> c17["C17 runtime · daemon<br/>TUI · license helper"]
+    fixtures --> javafx["Shared typed JavaFX client"]
+    c17 --> swift["SwiftUI macOS 14+<br/>Apple Silicon"]
+    c17 --> linux["GNU/Linux daemon<br/>x86_64 + aarch64"]
+    c17 --> android["Android in-process runtime<br/>ARM64 product ABI"]
+    javafx --> linux
+    javafx --> android
+    android --> kotlin["Kotlin platform AAR<br/>VpnService owns runtime"]
+    swift --> removal["Cutover gates passed<br/>retired trees removed"]
     linux --> removal
     kotlin --> removal
+    removal --> policy["Zero-retired-source policy<br/>continuing regression checks"]
 ```
 
 ## Frozen contracts preserved

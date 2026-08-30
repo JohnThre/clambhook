@@ -17,18 +17,22 @@ destroys that runtime.
 ```mermaid
 sequenceDiagram
     participant UI as JavaFX/Gluon activity
-    participant Facade as Kotlin GluonPlatformFacade
+    participant Bridge as Dalvik/JNI bridge
+    participant Facade as Kotlin platform facade
     participant VPN as ClambhookVpnService
     participant Core as C17 runtime
     participant OS as Android VPN framework
-    UI->>Facade: typed JNI request
+    UI->>Bridge: typed runtime/platform request
+    Bridge->>Facade: platform operation
     Facade->>OS: request consent when required
     Facade->>VPN: start foreground service
     VPN->>OS: establish ARM64 TUN
     VPN->>Core: create one runtime and attach TUN
-    UI-->>Facade: detach when activity closes
+    Bridge->>Core: route typed control request
+    UI-->>Bridge: detach when activity closes
     Note over VPN,Core: service and runtime continue
-    VPN->>Core: explicit stop or revoke
+    Facade->>VPN: explicit stop or OS revoke
+    VPN->>Core: stop runtime
     VPN->>OS: close TUN and foreground notification
 ```
 
