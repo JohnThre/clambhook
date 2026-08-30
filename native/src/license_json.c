@@ -10,7 +10,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <strings.h>
 #include <time.h>
 
 #include <openssl/rand.h>
@@ -88,6 +87,22 @@ static ch_status ch_decode_snapshot(
         root, "trialStartDate", &decoded->snapshot.has_trial_start_date,
         &decoded->snapshot.trial_start_date, error
     );
+    const ch_json_value *trial_duration = ch_json_object_get(root, "trialDurationDays");
+    if (status == CH_OK && trial_duration != NULL && ch_json_value_type(trial_duration) != CH_JSON_NULL) {
+        if (ch_json_value_type(trial_duration) != CH_JSON_NUMBER) {
+            ch_error_set(error, CH_ERROR_PARSE, "license: trialDurationDays must be an integer or null");
+            status = CH_ERROR_PARSE;
+        } else {
+            double number = ch_json_number_value(trial_duration, 0.0);
+            if (!isfinite(number) || number < 1.0 || number > 366.0 || (double)(int)number != number) {
+                ch_error_set(error, CH_ERROR_PARSE, "license: trialDurationDays must be between 1 and 366");
+                status = CH_ERROR_PARSE;
+            } else {
+                decoded->snapshot.has_trial_duration_days = true;
+                decoded->snapshot.trial_duration_days = (int)number;
+            }
+        }
+    }
     if (status == CH_OK) status = ch_decode_optional_time(
         root, "lastVerifiedAt", &decoded->snapshot.has_last_verified_at,
         &decoded->snapshot.last_verified_at, error
@@ -260,6 +275,10 @@ static int ch_append_snapshot(ch_json_buffer *json, const ch_decoded_snapshot *d
     const ch_license_snapshot *snapshot = &decoded->snapshot;
     if (!ch_json_append(json, "{\"trialStartDate\":" ) ||
         !ch_append_optional_time(json, snapshot->has_trial_start_date, snapshot->trial_start_date) ||
+        !ch_json_append(json, ",\"trialDurationDays\":") ||
+        !(snapshot->has_trial_duration_days
+            ? ch_json_append_format(json, "%d", snapshot->trial_duration_days)
+            : ch_json_append(json, "null")) ||
         !ch_json_append(json, ",\"transactions\":")) return 0;
     if (!decoded->transactions_array && snapshot->transaction_count == 0U) {
         if (!ch_json_append(json, "null")) return 0;
@@ -300,7 +319,10 @@ static int ch_append_decision(ch_json_buffer *json, const ch_license_decision *d
             decision->trial_days_remaining, decision->has_lifetime_unlock ? "true" : "false") ||
         !ch_append_optional_time(
             json, decision->has_update_cutoff_date, decision->update_cutoff_date
-        ) || !ch_json_append(json, ",\"offlineGraceEndsAt\":") ||
+        ) || !ch_json_append(json, ",\"supporterTier\":") ||
+        !ch_json_append_string(json, ch_license_supporter_tier_name(decision->supporter_tier)) ||
+        !ch_json_append_format(json, ",\"supporterActive\":%s", decision->supporter_active ? "true" : "false") ||
+        !ch_json_append(json, ",\"offlineGraceEndsAt\":") ||
         !ch_append_optional_time(
             json, decision->has_offline_grace_ends_at, decision->offline_grace_ends_at
         ) || !ch_json_append(json, ",\"unlockedFeatureIDs\":[")) return 0;
@@ -367,16 +389,19 @@ static int ch_append_product_states(
     if (!ch_json_append(json, "[") || !ch_append_product_state(
         json,
         "trial",
-        "One-calendar-month trial",
+        decision->has_trial_ends_at && decision->has_trial_start_date &&
+            decision->trial_ends_at - decision->trial_start_date <=
+                INT64_C(7) * INT64_C(86400) * INT64_C(1000000000)
+            ? "7-day trial" : "Grandfathered one-calendar-month trial",
         trial_detail,
         decision->reason == CH_LICENSE_REASON_TRIAL
     ) || !ch_json_append(json, ",") || !ch_append_product_state(
         json,
         "lifetimeUnlocked",
-        "ClambHook license",
+        "ClambHook supporter entitlement",
         decision->has_lifetime_unlock
             ? "Versions released during the included update window remain usable."
-            : "Buy or activate a ClambHook license to keep using ClambHook after free access.",
+            : "Subscribe or activate a ClambHook key to keep using ClambHook after free access.",
         decision->has_lifetime_unlock
     ) || !ch_json_append(json, ",")) return 0;
 
@@ -396,7 +421,7 @@ static int ch_append_product_states(
         json,
         "paidUpdateWindow",
         "Included updates through DATE",
-        "A ClambHook license includes one year of all updates from the purchase date.",
+        "Each paid annual term includes all releases published during that paid period.",
         false
     )) {
         return 0;
@@ -426,8 +451,6 @@ static int ch_append_product_states(
             }
         }
     }
-    const char *default_detail =
-        "All updates released after the cutoff, including critical, bug, and security updates, require a USD 9.99 update-year renewal.";
     char *locked_detail = NULL;
     if (locked_count > 0U) {
         ch_json_buffer detail;
@@ -445,8 +468,10 @@ static int ch_append_product_states(
     int ok = ch_json_append(json, ",") && ch_append_product_state(
         json,
         "newFeaturesLocked",
-        "Later updates require renewal",
-        locked_detail == NULL ? default_detail : locked_detail,
+        "Later updates require an active subscription",
+        locked_detail == NULL ?
+            "Your compatible fallback version remains usable. Resubscribe to receive releases after the paid-through cutoff." :
+            locked_detail,
         locked_count > 0U
     ) && ch_json_append(json, "]");
     free(locked_detail);
@@ -486,7 +511,7 @@ static int ch_append_expired_trial(
     static const char *const secondary[] = {
         "activate_license", "open_license_portal", "support"
     };
-    const char *default_message = "Buy or activate a ClambHook license to continue.";
+    const char *default_message = "Subscribe or activate a ClambHook key to continue.";
     char message[192];
     const char *selected_message = default_message;
     if (decision->has_trial_ends_at) {
@@ -495,7 +520,7 @@ static int ch_append_expired_trial(
         int count = snprintf(
             message,
             sizeof(message),
-            "The one-calendar-month trial ended %s. Buy or activate a USD 49.99 one-time ClambHook license to continue.",
+            "The ClambHook trial ended %s. Start a USD 79.99/year subscription or activate an existing key to continue.",
             date
         );
         if (count < 0 || (size_t)count >= sizeof(message)) return 0;
@@ -506,7 +531,7 @@ static int ch_append_expired_trial(
         "expired_trial",
         "Trial ended",
         selected_message,
-        "buy_license",
+        "buy_subscription",
         secondary,
         sizeof(secondary) / sizeof(secondary[0]),
         ""
@@ -532,21 +557,21 @@ static int ch_append_expired_updates(
         ? snprintf(
             message,
             sizeof(message),
-            "This update was published %s, after your included update window ended %s. Your installed version keeps working; renew updates for USD 9.99 to install releases after the cutoff, including critical, bug, and security updates.",
+            "This update was published %s, after your paid-through cutoff of %s. Your compatible fallback version keeps working; resubscribe to install later releases.",
             published,
             cutoff
         )
         : snprintf(
             message,
             sizeof(message),
-            "Your included update window ended %s. Your installed version keeps working; renew updates for USD 9.99 to install releases after the cutoff, including critical, bug, and security updates.",
+            "Your paid-through period ended %s. Your compatible fallback version keeps working; resubscribe to install later releases.",
             cutoff
         );
     if (count < 0 || (size_t)count >= sizeof(message)) return 0;
     count = snprintf(
         diagnostic,
         sizeof(diagnostic),
-        "The ClambHook license includes all updates released through %s. Versions released during that window remain usable. Updates released after that date, including critical, bug, and security updates, require a USD 9.99 update-year renewal.",
+        "Your paid terms include all ClambHook releases through %s. Versions released during those terms remain usable after cancellation or lapse.",
         cutoff
     );
     if (count < 0 || (size_t)count >= sizeof(diagnostic)) return 0;
@@ -555,7 +580,7 @@ static int ch_append_expired_updates(
         "license_expired_for_updates",
         "Update window ended",
         message,
-        "renew_updates",
+        "buy_subscription",
         secondary,
         sizeof(secondary) / sizeof(secondary[0]),
         diagnostic
@@ -589,8 +614,8 @@ char *ch_license_new_install_id(ch_error *error) {
 char *ch_license_commercial_terms_json(ch_error *error) {
     ch_error_clear(error);
     return ch_strdup(
-        "{\"includedUpdateYears\":1,\"licensePriceUSD\":\"49.99\","
-        "\"maxActiveDevices\":3,\"paidUpdatePriceUSD\":\"9.99\",\"trialMonths\":1}"
+        "{\"annualSubscriptionPriceUSD\":\"79.99\",\"billingInterval\":\"yearly\","
+        "\"includedUpdateYears\":1,\"legacyTrialMonths\":1,\"maxActiveDevices\":6,\"trialDays\":7}"
     );
 }
 
@@ -612,6 +637,8 @@ ch_status ch_license_ensure_trial_json(
     if (!decoded.snapshot.has_trial_start_date) {
         decoded.snapshot.has_trial_start_date = true;
         decoded.snapshot.trial_start_date = now;
+        decoded.snapshot.has_trial_duration_days = true;
+        decoded.snapshot.trial_duration_days = CH_NEW_TRIAL_DAYS;
     }
     decoded.snapshot.cached_at = now;
     ch_json_buffer json;
@@ -786,16 +813,6 @@ static ch_status ch_append_device_state(
         ch_error_set(error, CH_ERROR_PARSE, "license: devices must be an array or null");
         return CH_ERROR_PARSE;
     }
-    const ch_json_value *provider_value = ch_json_object_get(value, "payment_provider");
-    const char *provider = NULL;
-    if (provider_value != NULL && ch_json_value_type(provider_value) != CH_JSON_NULL) {
-        provider = ch_json_string_value(provider_value);
-        if (provider == NULL) {
-            ch_error_set(error, CH_ERROR_PARSE, "license: payment_provider must be a string");
-            return CH_ERROR_PARSE;
-        }
-    }
-
     int ok = ch_json_append(json, "{\"current_install_id\":") &&
         ch_json_append_string(json, install_id == NULL ? "" : install_id);
     if (ok && current_device != NULL && current_device[0] != '\0') {
@@ -804,13 +821,6 @@ static ch_status ch_append_device_state(
     }
     ok = ok && ch_json_append_format(json, ",\"max_active_devices\":%d,\"devices\":", maximum) &&
         (devices == NULL ? ch_json_append(json, "null") : ch_json_append_value(json, devices));
-    if (ok && provider != NULL) {
-        const char *normalized = provider;
-        if (strcasecmp(provider, "creem") == 0) normalized = "creem";
-        else if (strcasecmp(provider, "nowpayments") == 0) normalized = "nowpayments";
-        ok = ch_json_append(json, ",\"payment_provider\":") &&
-            ch_json_append_string(json, normalized);
-    }
     if (!ok || !ch_json_append(json, "}")) {
         ch_error_set(error, CH_ERROR_OUT_OF_MEMORY, "encode license device state");
         return CH_ERROR_OUT_OF_MEMORY;

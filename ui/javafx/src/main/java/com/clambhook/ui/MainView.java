@@ -66,6 +66,13 @@ import java.util.function.Supplier;
 /** One responsive JavaFX view hierarchy shared by Gluon Android and GNU/Linux. */
 public final class MainView implements AutoCloseable {
     private static final double COMPACT_WIDTH = 760;
+    private static final String CLAMBHOOK_BUY_URL = "https://store.swiphtgroup.com/clambhook/buy/";
+    private static final String CLAMBHOOK_PORTAL_URL = "https://store.swiphtgroup.com/clambhook/portal/";
+    private static final Map<String, String> DONATION_URLS = Map.of(
+            "Ko-fi", "https://ko-fi.com/jpfchang",
+            "Liberapay", "https://en.liberapay.com/jpfchang/",
+            "IssueHunt", "https://oss.issuehunt.io/u/johnthre",
+            "Donate crypto", "https://nowpayments.io/donation?api_key=4f798f1e-c93e-456e-8067-b03b200790cd");
 
     private final RuntimeClient runtime;
     private final PlatformServices platformServices;
@@ -127,6 +134,9 @@ public final class MainView implements AutoCloseable {
     private final Label captureSummary = new Label("Capture status unavailable");
     private final Button captureToggle = new Button("Enable capture");
     private final Label lastUpdated = new Label("Not refreshed yet");
+    private final Label dashboardSupporterBadge = new Label("Supporter status unavailable");
+    private final Label settingsSupporterBadge = new Label("Supporter status unavailable");
+    private final Label supporterThanks = new Label();
 
     private volatile DashboardData currentData = DashboardData.empty();
     private volatile boolean updatingProfile;
@@ -252,8 +262,14 @@ public final class MainView implements AutoCloseable {
         VBox dnsCard = card(dnsTitle, dnsSummary);
 
         lastUpdated.getStyleClass().add("secondary-text");
-        VBox body = new VBox(18, metrics, listenersCard, dnsCard, lastUpdated);
+        dashboardSupporterBadge.setAccessibleText("ClambHook supporter status");
+        dashboardSupporterBadge.getStyleClass().add("secondary-text");
+        VBox body = new VBox(18, dashboardSupporterBadge, metrics, listenersCard, dnsCard, lastUpdated);
         body.getStyleClass().add("page-content");
+        if (platformServices.supports(PlatformServices.Capability.LICENSING)) {
+            pageRefreshers.put(Page.DASHBOARD, () -> loadLicenseStatus(
+                    platformServices.licensing("status", "{}"), null));
+        }
         return scroll(body);
     }
 
@@ -638,21 +654,39 @@ public final class MainView implements AutoCloseable {
         Button licenseStatus = new Button("Refresh license");
         Button activate = new Button("Activate");
         Button deactivate = new Button("Deactivate this device");
-        licenseStatus.setOnAction(ignored -> loadPlatformResult(
+        licenseStatus.setOnAction(ignored -> loadLicenseStatus(
                 platformServices.licensing("status", "{}"), licenseDocument));
-        activate.setOnAction(ignored -> loadPlatformResult(
+        activate.setOnAction(ignored -> loadLicenseStatus(
                 platformServices.licensing("activate", Json.object(Map.of(
                         "email", email.getText(), "license_key", licenseKey.getText()))),
                 licenseDocument));
-        deactivate.setOnAction(ignored -> loadPlatformResult(
+        deactivate.setOnAction(ignored -> loadLicenseStatus(
                 platformServices.licensing("deactivate", "{}"), licenseDocument));
         boolean licensing = platformServices.supports(PlatformServices.Capability.LICENSING);
         licenseStatus.setDisable(!licensing);
         activate.setDisable(!licensing);
         deactivate.setDisable(!licensing);
+        Button buySubscription = externalLinkButton("Buy Subscription", CLAMBHOOK_BUY_URL);
+        Button manageSubscription = externalLinkButton("Manage Subscription", CLAMBHOOK_PORTAL_URL);
+        supporterThanks.setWrapText(true);
+        supporterThanks.setAccessibleText("Supporter thank-you message");
+        settingsSupporterBadge.setAccessibleText("ClambHook supporter status");
+        settingsSupporterBadge.getStyleClass().add("secondary-text");
+        FlowPane donationButtons = new FlowPane(8, 8);
+        DONATION_URLS.forEach((label, url) -> donationButtons.getChildren().add(externalLinkButton(label, url)));
+        Label donationNotice = new Label(
+                "Donations never create licenses, extend subscriptions, change badges, or affect support priority.");
+        donationNotice.setWrapText(true);
+        donationNotice.getStyleClass().add("secondary-text");
         VBox licenseCard = card(sectionTitle("Licensing"),
+                settingsSupporterBadge,
+                supporterThanks,
                 new HBox(8, email, licenseKey),
                 new FlowPane(8, 8, licenseStatus, activate, deactivate),
+                new FlowPane(8, 8, buySubscription, manageSubscription),
+                sectionTitle("Support independent ClambHook development"),
+                donationNotice,
+                donationButtons,
                 licenseDocument);
         HBox.setHgrow(email, Priority.ALWAYS);
         HBox.setHgrow(licenseKey, Priority.ALWAYS);
@@ -673,7 +707,7 @@ public final class MainView implements AutoCloseable {
                 detailRow("Notices", "JavaFX, Gluon, native dependencies, and license texts are packaged with the application."));
         pageRefreshers.put(Page.SETTINGS, () -> {
             if (licensing) {
-                loadPlatformResult(platformServices.licensing("status", "{}"),
+                loadLicenseStatus(platformServices.licensing("status", "{}"),
                         licenseDocument);
             }
             if (updates) {
@@ -877,6 +911,52 @@ public final class MainView implements AutoCloseable {
             if (result.successful()) clearError();
             else showError(new IllegalStateException(result.message()));
         }));
+    }
+
+    private void loadLicenseStatus(
+            CompletableFuture<PlatformServices.Result> operation,
+            TextArea destination) {
+        operation.whenComplete((result, error) -> Platform.runLater(() -> {
+            if (error != null) {
+                showError(error);
+                return;
+            }
+            if (destination != null) {
+                destination.setText(result.payload().isBlank() ? result.message() : result.payload());
+                destination.positionCaret(0);
+            }
+            try {
+                Json.Node decision = Json.parse(result.payload()).get("status").get("decision");
+                String tier = decision.get("supporterTier").text("none");
+                boolean active = decision.get("supporterActive").bool(false);
+                if ("none".equals(tier)) {
+                    dashboardSupporterBadge.setText("No verified supporter entitlement");
+                    settingsSupporterBadge.setText("No verified supporter entitlement");
+                    supporterThanks.setText("");
+                } else {
+                    String title = Character.toUpperCase(tier.charAt(0)) + tier.substring(1) + " Supporter";
+                    String badge = title + (active ? " · Active" : " · Perpetual fallback");
+                    dashboardSupporterBadge.setText(badge);
+                    settingsSupporterBadge.setText(badge);
+                    supporterThanks.setText("Thank you for supporting independent ClambHook development. " +
+                            (active ? "Your paid-through period is current." :
+                                    "Your compatible fallback and supporter badge remain yours."));
+                }
+            } catch (RuntimeException parseError) {
+                dashboardSupporterBadge.setText("Supporter status unavailable");
+                settingsSupporterBadge.setText("Supporter status unavailable");
+            }
+            if (result.successful()) clearError();
+            else showError(new IllegalStateException(result.message()));
+        }));
+    }
+
+    private Button externalLinkButton(String label, String uri) {
+        Button button = new Button(label);
+        button.setAccessibleText(label + " (opens in browser)");
+        button.setDisable(!platformServices.supports(PlatformServices.Capability.BROWSER));
+        button.setOnAction(ignored -> runMutation(platformServices.openBrowser(uri)));
+        return button;
     }
 
     private void createConnectionRule(String name, String action,

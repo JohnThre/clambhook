@@ -39,7 +39,7 @@ data class LicenseUiState(
 }
 
 /**
- * Drives ClambHook's direct-sale license flow on Android. Persistence is local
+ * Drives ClambHook's provider-neutral subscription entitlement flow on Android. Persistence is local
  * (encrypted [LicenseStorage]); evaluation, date math, and the
  * store.swiphtgroup.com calls use Android's OkHttp client and the response is
  * validated and evaluated by C. Mirrors the macOS
@@ -54,10 +54,10 @@ class LicenseManager(context: Context) {
     private val _state = MutableStateFlow(LicenseUiState())
     val state: StateFlow<LicenseUiState> = _state.asStateFlow()
 
-    /** Store checkout page (Creem / NOWPayments only). */
+    /** Provider-neutral store checkout page. */
     val buyUrl: String = "https://store.swiphtgroup.com/clambhook/buy/"
 
-    /** Device-seat management portal. */
+    /** Subscription and device-seat management portal. */
     val portalUrl: String = "https://store.swiphtgroup.com/clambhook/portal/"
 
     private val validationBaseUrl: String = "https://store.swiphtgroup.com/clambhook/license"

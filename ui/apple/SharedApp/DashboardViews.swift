@@ -12,6 +12,7 @@ struct DashboardContentView: View {
         List {
             Section {
                 StatusHeaderView(model: model)
+                SupporterBadge(decision: model.licenseManager.decision)
             }
             if !model.appRecoveryStates.isEmpty {
                 Section("Attention") {

@@ -4,7 +4,7 @@
 # License Validation
 
 ClambHook uses the hosted `store.swiphtgroup.com` license backend for trial,
-activation, device-seat, and update-year-renewal state. Official installers and
+activation, device-seat, annual-subscription, paid-through, and supporter state. Official installers and
 update manifests are served through GitHub Releases.
 
 ## Production Backend
@@ -22,7 +22,7 @@ The application stores and transmits stable identifiers only through the hosted
 license flow. The backend stores hashed license keys, checkout records, license
 transactions, entitlement windows, generated install IDs, device display names,
 platform and architecture values, app version values, activation state, and
-transfer/deactivation events needed to support the direct-sale license. Profile
+transfer/deactivation events needed to support provider-neutral licensing. Profile
 contents, traffic data, proxy credentials, and private keys are not uploaded for
 license activation.
 
@@ -34,7 +34,7 @@ license activation.
 - `POST /clambhook/license/v1/devices/transfer` records a transfer by deactivating the current device seat.
 - Compatibility aliases under `/clambhook/license/v1/macos/*` may remain available for older macOS builds during migration.
 
-Website checkout and claim flows are exposed through `/api/clambhook/checkout`.
+Website checkout accepts `{ provider, email, licenseKey? }` through `/api/clambhook/checkout`.
 ClambHook purchase payments are accepted only through Creem or NOWPayments, not
 PayPal, and license transactions must originate from verified provider webhook
 events in the `swiphtgroup.com` store.
@@ -72,20 +72,18 @@ stateDiagram-v2
     note right of Active
         C17 signed snapshot evaluation
         Shared across all product clients
-        Max 3 concurrently
+        Max 6 concurrently
         active devices per license
     end note
 ```
 
 ## Distribution Contract
 
-A USD 49.99 one-time ClambHook license is required after the one-calendar-month
-trial and includes one year of all updates from the purchase date. Versions
-released on or before the update cutoff remain usable; each license covers a
-maximum of 3 concurrently active devices across supported platforms. Device
-seats can be deactivated and moved to another device. Each USD 9.99 renewal buys
-one additional update year, extending from the later of the current cutoff or
-the renewal payment date. Releases after the cutoff are not included, including
-critical, bug, and security updates. Public installers are downloaded from
+New installations include a 7-day trial; already-started legacy trials retain
+their original month-long end date. A recurring USD 79.99 annual subscription
+covers releases published during each paid term and up to six active devices.
+Cancellation stops future billing at the paid-through date. Compatible releases
+from paid terms remain usable perpetually, and resubscription can reuse the same
+key. Public installers are downloaded from
 `https://github.com/JohnThre/clambhook/releases`; only the protected release
 workflow may publish generated installer artifacts.

@@ -23,9 +23,12 @@ struct MacLicenseSectionInline: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
+                SupporterThankYouCard(decision: model.licenseManager.decision)
                 ProductStatePanel(decision: model.licenseManager.decision)
                 Divider()
                 MacLicenseControls(manager: model.licenseManager)
+                Divider()
+                DonationLinksPanel()
                 Divider()
                 LegalFooter()
             }
@@ -86,11 +89,11 @@ private struct MacLicenseControls: View {
             }
 
             Link(destination: defaultLicensePurchaseURL) {
-                Label("Buy license - USD \(MobileLicenseCommercialTerms.licensePriceUSD)", systemImage: "cart")
+                Label("Buy subscription - USD \(MobileLicenseCommercialTerms.annualSubscriptionPriceUSD)/year", systemImage: "cart")
             }
 
             Link(destination: defaultLicensePortalURL) {
-                Label("License Portal", systemImage: "safari")
+                Label("Manage Subscription", systemImage: "safari")
             }
 
             if manager.isLoading {
@@ -116,4 +119,3 @@ private struct MacLicenseControls: View {
         return "This Mac is not activated"
     }
 }
-

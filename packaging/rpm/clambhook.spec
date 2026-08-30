@@ -72,7 +72,8 @@ daemon, the self-contained JavaFX/Gluon desktop controller, the terminal
 dashboard, and the license helper used for trial and license activation
 against the hosted store backend.
 
-Continued use after the one-month trial requires a license purchased from
+New installations include a 7-day trial. Continued use requires a USD 79.99/year
+subscription purchased from
 store.swiphtgroup.com (Creem or NOWPayments; PayPal is not accepted).
 
 %prep

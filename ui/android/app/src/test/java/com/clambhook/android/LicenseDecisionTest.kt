@@ -67,14 +67,14 @@ class LicenseDecisionTest {
     fun deviceStateComputesRemainingSeats() {
         val state = LicenseDeviceState(
             currentDeviceId = "dev-1",
-            maxActiveDevices = 3,
+            maxActiveDevices = 6,
             devices = listOf(
                 LicenseDevice(deviceId = "dev-1", displayName = "Pixel", activatedAt = "t"),
                 LicenseDevice(deviceId = "dev-2", displayName = "Tablet", activatedAt = "t", deactivatedAt = "t2"),
             ),
         )
         assertEquals(1, state.activeDeviceCount)
-        assertEquals(2, state.remainingActivations)
+        assertEquals(5, state.remainingActivations)
         assertEquals("dev-1", state.currentDevice?.deviceId)
         assertTrue(state.isCurrentDeviceActive)
         assertTrue(state.canTransferCurrentDevice)
@@ -92,5 +92,17 @@ class LicenseDecisionTest {
         assertFalse(state.isCurrentDeviceActive)
         assertTrue(state.canReactivateCurrentDevice)
         assertFalse(state.canTransferCurrentDevice)
+    }
+
+    @Test
+    fun supporterTierAndActiveTreatmentRoundTripFromProviderNeutralDecision() {
+        val decision = json.decodeFromString(
+            LicenseDecision.serializer(),
+            """{"reason":"lifetime","supporterTier":"gold","supporterActive":false,"unlockedFeatureIDs":["pro"]}""",
+        )
+
+        assertEquals("gold", decision.supporterTier)
+        assertFalse(decision.supporterActive)
+        assertTrue(decision.canUseApp)
     }
 }

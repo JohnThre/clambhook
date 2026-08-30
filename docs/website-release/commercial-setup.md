@@ -3,78 +3,71 @@
 
 # Website Commercial Setup
 
-This checklist is the source of truth for ClambHook direct-sale setup across
-`store.clambercloud.com` and `store.swiphtgroup.com`.
+This checklist is the source of truth for ClambHook subscription setup across
+`clambercloud.com` and `store.swiphtgroup.com`.
 
 ## Account Prerequisites
 
-- Confirm `store.clambercloud.com` serves ClambHook product, download guidance, support, and privacy routes.
+- Confirm `clambercloud.com` serves ClambHook product, download guidance, support, and privacy routes without commerce code.
 - Confirm `store.swiphtgroup.com` has the `DB` binding and ClambHook license migrations applied.
 - Confirm the official ClambHook GitHub Releases page and latest asset URLs are public.
-- Confirm Creem and NOWPayments product IDs are configured for the USD 49.99 license and USD 9.99 update-year renewal.
+- Confirm test-mode Creem and NOWPayments recurring annual products are configured for USD 79.99/year.
+- Confirm a dedicated license-key derivation secret is configured separately from provider webhook secrets and the public donation API key.
 - Confirm license grant email delivery is configured before accepting purchases.
 
 ## Product Page
 
 - Product name: `ClambHook`.
-- Product URL: `https://store.clambercloud.com/clambhook/`.
-- Download URL: `https://store.clambercloud.com/clambhook/download/`.
+- Product URL: `https://clambercloud.com/clambhook/`.
+- Download URL: `https://clambercloud.com/clambhook/download/`.
 - Buy URL: `https://store.swiphtgroup.com/clambhook/buy/`.
 - License Portal URL: `https://store.swiphtgroup.com/clambhook/portal/`.
-- Support URL: `https://store.clambercloud.com/clambhook/support/`.
-- Privacy Policy URL: `https://store.clambercloud.com/clambhook/privacy/`.
+- Support URL: `https://clambercloud.com/clambhook/support/`.
+- Privacy Policy URL: `https://clambercloud.com/clambhook/privacy/`.
 - Distribution copy: signed downloads from GitHub Releases.
 
-## License Products
+## Annual Product and Compatibility Entitlements
 
-Create and keep stable these product identifiers:
+Create one provider annual product/plan at USD 79.99/year. Keep these signed
+compatibility identifiers stable for older clients:
 
 | Display name | Product ID | Type | US base price |
 | --- | --- | --- | --- |
-| ClambHook License | `org.jpfchang.clambhook.unlock.lifetime` | Direct-sale license | USD 49.99 |
-| ClambHook Update Year | `org.jpfchang.clambhook.feature_update` | Direct-sale update-year renewal | USD 9.99 |
+| First verified paid term | `org.jpfchang.clambhook.unlock.lifetime` | Lifetime fallback entitlement | USD 79.99 annual term |
+| Each later paid term | `org.jpfchang.clambhook.feature_update` | Paid-through extension | USD 79.99 annual term |
 
-A single provider-neutral renewal SKU applies to each additional update year;
-there is no per-year product identifier.
-
-The USD 49.99 one-time license is required after the one-calendar-month trial
-and includes one year of all updates from the purchase date. Versions released
-on or before the update cutoff remain usable after the cutoff. Each license
-covers a maximum of 3 concurrently active devices across supported platforms.
-Device seats can be deactivated and moved to another device. A USD 9.99 renewal
-buys one additional update year, extending from the later of the current cutoff
-or the renewal payment date. After the cutoff, no later updates are included,
-including critical, bug, and security updates.
+New installations receive a 7-day trial; already-started legacy trials retain
+their original month-long end date. Each verified annual payment adds one paid
+term. Compatible releases from paid terms remain usable perpetually. One key
+covers a maximum of 6 concurrently active devices and may be reused for renewal,
+resubscription, or a provider change.
 
 ## Checkout
 
 - Creem and NOWPayments are the only accepted and advertised ClambHook purchase payment providers. Do not offer PayPal.
-- The checkout page posts to `/api/clambhook/checkout`.
-- License issuance and update-year renewal application happen from verified Creem or NOWPayments webhook events.
-- Update-year renewal checkout requires an existing license key.
-- The live Creem license product is the USD 49.99 one-time SKU. Creem prices are
-  immutable, so a price change means creating a new product and repointing
-  `CLAMBHOOK_CREEM_LICENSE_PRODUCT_ID` (Cloudflare Pages secret) at it. The
-  update-year renewal remains the USD 9.99 one-time SKU.
+- The checkout page posts `{ provider, email, licenseKey? }` to `/api/clambhook/checkout`.
+- License issuance and annual extension happen only from verified paid Creem or NOWPayments webhook events.
+- Email is required for license delivery; an existing key is optional for renewal, resubscription, or provider changes.
+- Cancellation schedules the end of future billing and never revokes an already-paid term.
+- Refunds revoke only the affected transaction; webhook retries are deduplicated by provider event or transaction ID.
 
 ## Device seat limit
 
-- The current terms cover a maximum of 3 concurrently active devices per license.
+- The current terms cover a maximum of 6 concurrently active devices per license.
 - The limit is enforced per license from `clambhook_licenses.max_active_devices`
   in D1 and by the `clambhook_device_limit_insert` / `clambhook_device_limit_reactivate`
-  triggers. New licenses default to 3.
-- To force all end users onto the current limit, migration
-  `015_clambhook_3_device_seats` sets every existing license to 3 and recreates
-  the triggers with a fallback of 3. The downgrade is graceful: no device is
-  deactivated, but licenses already over the limit cannot add or reactivate a
-  seat beyond 3 until they deactivate one.
+  triggers. New licenses default to 6.
+- Append-only migration `032_clambhook_annual_subscriptions` expands existing
+  licenses to six seats, recreates the trigger fallback at six, adds subscription
+  state and transaction revocation timestamps, and preserves historical records.
 
 ## Verification
 
 - Confirm `https://github.com/JohnThre/clambhook/releases/latest` exposes the current notarized DMG, signed APK, `.deb`, `.rpm`, checksums, signatures, and manifests.
 - Confirm the Clamber Cloud download page links to GitHub Releases.
-- Confirm license checkout creates a license and sends the license email.
-- Confirm the USD 9.99 renewal extends the update window by one year from the later of the current cutoff or renewal payment date.
-- Confirm activation enforces 3 active devices across supported platforms.
+- Confirm each provider's test-mode annual payment creates or extends a provider-neutral license and sends the email.
+- Confirm cancellation, lapse, resubscription, provider switching, refunds, chargebacks, and webhook replay behavior.
+- Confirm activation enforces 6 active devices across supported platforms.
 - Confirm deactivation, reactivation, and transfer flows update device seats.
-- Confirm the license portal can list devices and deactivate a selected device.
+- Confirm the portal shows subscription status and paid-through date, schedules cancellation, lists devices, and deactivates a selected device.
+- Do not enable live billing until both providers pass end-to-end test-mode verification.

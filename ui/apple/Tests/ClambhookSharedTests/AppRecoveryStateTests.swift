@@ -45,8 +45,8 @@ final class AppRecoveryStateTests: XCTestCase {
         XCTAssertEqual(state.title, "Trial ended")
         XCTAssertEqual(state.primaryAction, .buyLicense)
         XCTAssertTrue(state.secondaryActions.contains(.activateLicense))
-        XCTAssertTrue(state.message.contains("The one-calendar-month trial ended"))
-        XCTAssertTrue(state.message.contains("USD 49.99 one-time ClambHook license"))
+        XCTAssertTrue(state.message.contains("The ClambHook trial ended"))
+        XCTAssertTrue(state.message.contains("USD 79.99/year subscription"))
         XCTAssertTrue(state.message.contains("2026"))
     }
 
@@ -84,9 +84,9 @@ final class AppRecoveryStateTests: XCTestCase {
 
         XCTAssertEqual(state.kind, .licenseExpiredForUpdates)
         XCTAssertEqual(state.primaryAction, .renewUpdates)
-        XCTAssertTrue(state.message.contains("after your included update window ended"))
-        XCTAssertTrue(state.message.contains("including critical, bug, and security updates"))
-        XCTAssertTrue(state.diagnosticText.contains("USD 9.99 update-year renewal"))
+        XCTAssertTrue(state.message.contains("after your paid-through period ended"))
+        XCTAssertTrue(state.message.contains("compatible fallback version keeps working"))
+        XCTAssertTrue(state.diagnosticText.contains("resubscribe for later releases"))
     }
 
     func testLicenseExpiredForUpdatesIgnoresIncludedRelease() {

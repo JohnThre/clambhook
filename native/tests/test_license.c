@@ -74,6 +74,9 @@ void ch_test_license(void) {
     ) == CH_OK);
     CH_TEST_ASSERT(decision.reason == CH_LICENSE_REASON_LIFETIME);
     CH_TEST_ASSERT(decision.update_cutoff_date == ch_license_utc_date(2028, 8U, 1U));
+    CH_TEST_ASSERT(decision.supporter_tier == CH_LICENSE_SUPPORTER_SILVER);
+    CH_TEST_ASSERT(decision.supporter_active);
+    CH_TEST_ASSERT_STRING("silver", ch_license_supporter_tier_name(decision.supporter_tier));
     CH_TEST_ASSERT(ch_license_can_use_feature(&decision, CH_FEATURE_WIDGETS));
     CH_TEST_ASSERT(ch_license_can_install_update(
         &decision, true, ch_license_utc_date(2028, 8U, 1U), 0
@@ -117,20 +120,22 @@ void ch_test_license(void) {
     CH_TEST_ASSERT(decision.reason == CH_LICENSE_REASON_LOCKED && !decision.has_lifetime_unlock);
     ch_license_decision_clear(&decision);
 
-    CH_TEST_ASSERT_STRING("49.99", CH_LICENSE_PRICE_USD);
-    CH_TEST_ASSERT_STRING("9.99", CH_PAID_UPDATE_PRICE_USD);
-    CH_TEST_ASSERT(CH_MAX_ACTIVE_DEVICES == 3);
+    CH_TEST_ASSERT_STRING("79.99", CH_ANNUAL_SUBSCRIPTION_PRICE_USD);
+    CH_TEST_ASSERT(CH_MAX_ACTIVE_DEVICES == 6);
+    CH_TEST_ASSERT(CH_NEW_TRIAL_DAYS == 7);
 
     char *snapshot_json = NULL;
     CH_TEST_ASSERT(ch_license_ensure_trial_json(
         "", 1780444800000LL, &snapshot_json, &error
     ) == CH_OK);
     CH_TEST_ASSERT(strstr(snapshot_json, "\"trialStartDate\":\"2026-06-03T00:00:00Z\"") != NULL);
+    CH_TEST_ASSERT(strstr(snapshot_json, "\"trialDurationDays\":7") != NULL);
     char *decision_json = NULL;
     CH_TEST_ASSERT(ch_license_evaluate_json(
         snapshot_json, 1780444800000LL, &decision_json, &error
     ) == CH_OK);
     CH_TEST_ASSERT(strstr(decision_json, "\"reason\":\"trial\"") != NULL);
+    CH_TEST_ASSERT(strstr(decision_json, "\"trialEndsAt\":\"2026-06-10T00:00:00Z\"") != NULL);
     free(decision_json);
     bool allowed = false;
     CH_TEST_ASSERT(ch_license_update_allowed_json(
@@ -153,15 +158,14 @@ void ch_test_license(void) {
         "\"reason\":\"lifetime\",\"has_lifetime_unlock\":true,\"transactions\":[{"
         "\"productID\":\"org.jpfchang.clambhook.unlock.lifetime\",\"purchaseDate\":"
         "\"2026-06-03T00:00:00Z\"}]},\"device_state\":{\"current_device_id\":"
-        "\"device-1\",\"max_active_devices\":12,\"devices\":[],"
-        "\"payment_provider\":\"CREEM\"}}";
+        "\"device-1\",\"max_active_devices\":12,\"devices\":[]}}";
     char *applied = NULL;
     CH_TEST_ASSERT(ch_license_apply_server_response_json(
         server_response, "install-1", 1781049600000LL, &applied, &error
     ) == CH_OK);
     CH_TEST_ASSERT(strstr(applied, "\"current_install_id\":\"install-1\"") != NULL);
-    CH_TEST_ASSERT(strstr(applied, "\"max_active_devices\":3") != NULL);
-    CH_TEST_ASSERT(strstr(applied, "\"payment_provider\":\"creem\"") != NULL);
+    CH_TEST_ASSERT(strstr(applied, "\"max_active_devices\":6") != NULL);
+    CH_TEST_ASSERT(strstr(applied, "payment_provider") == NULL);
     CH_TEST_ASSERT(strstr(applied, "\"lastVerifiedAt\":\"2026-06-10T00:00:00Z\"") != NULL);
     CH_TEST_ASSERT(strstr(applied, "\"reason\":\"lifetime\"") != NULL);
     free(applied);

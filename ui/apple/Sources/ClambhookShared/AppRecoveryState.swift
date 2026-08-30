@@ -57,13 +57,13 @@ public enum AppRecoveryStateAction: String, Codable, Equatable, Identifiable, Se
         case .openAppSettings:
             return "Settings"
         case .buyLicense:
-            return "Buy License"
+            return "Buy Subscription"
         case .activateLicense:
             return "Activate License"
         case .openLicensePortal:
-            return "License Portal"
+            return "Manage Subscription"
         case .renewUpdates:
-            return "Renew Updates"
+            return "Resubscribe"
         case .openSystemSettings:
             return "Open System Settings"
         case .trustCertificate:
@@ -279,9 +279,9 @@ public enum AppRecoveryStateBuilder {
         let release = manifestPublishedAt.map { $0.formatted(date: .abbreviated, time: .omitted) }
         let message: String
         if let release {
-            message = "This update was published \(release), after your included update window ended \(cutoff). Your installed version keeps working; renew updates for USD 9.99 to install releases after the cutoff, including critical, bug, and security updates."
+            message = "This update was published \(release), after your paid-through period ended \(cutoff). Your compatible fallback version keeps working; resubscribe for USD 79.99/year to install later releases."
         } else {
-            message = "Your included update window ended \(cutoff). Your installed version keeps working; renew updates for USD 9.99 to install releases after the cutoff, including critical, bug, and security updates."
+            message = "Your paid-through period ended \(cutoff). Your compatible fallback version keeps working; resubscribe for USD 79.99/year to install later releases."
         }
         return AppRecoveryState(
             kind: .licenseExpiredForUpdates,
@@ -328,8 +328,8 @@ public enum AppRecoveryStateBuilder {
 
     private static func expiredTrialMessage(decision: MobileLicenseDecision) -> String {
         if let trialEndsAt = decision.trialEndsAt {
-            return "The one-calendar-month trial ended \(trialEndsAt.formatted(date: .abbreviated, time: .omitted)). Buy or activate a USD 49.99 one-time ClambHook license to continue."
+            return "The ClambHook trial ended \(trialEndsAt.formatted(date: .abbreviated, time: .omitted)). Start a USD 79.99/year subscription or activate an existing key to continue."
         }
-        return "Buy or activate a ClambHook license to continue."
+        return "Start a ClambHook subscription or activate an existing key to continue."
     }
 }

@@ -55,7 +55,7 @@ private final class SparkleDelegate: NSObject, SPUUpdaterDelegate {
         throw NSError(
             domain: "org.jpfchang.clambhook.sparkle",
             code: 1,
-            userInfo: [NSLocalizedDescriptionKey: "This update was released after your included update window. Renew updates for USD 9.99 at store.swiphtgroup.com to install it. Updates after the cutoff are not included, including critical, bug, and security updates."]
+            userInfo: [NSLocalizedDescriptionKey: "This update was released after your paid-through cutoff. Your compatible fallback remains usable; resubscribe for USD 79.99/year at store.swiphtgroup.com to install later releases."]
         )
     }
 }

@@ -14,11 +14,11 @@
 extern "C" {
 #endif
 
-#define CH_LICENSE_PRICE_USD "49.99"
-#define CH_PAID_UPDATE_PRICE_USD "9.99"
+#define CH_ANNUAL_SUBSCRIPTION_PRICE_USD "79.99"
 #define CH_INCLUDED_UPDATE_YEARS 1
-#define CH_MAX_ACTIVE_DEVICES 3
-#define CH_TRIAL_MONTHS 1
+#define CH_MAX_ACTIVE_DEVICES 6
+#define CH_NEW_TRIAL_DAYS 7
+#define CH_LEGACY_TRIAL_MONTHS 1
 #define CH_OFFLINE_GRACE_DAYS 7
 #define CH_LIFETIME_UNLOCK_PRODUCT_ID "org.jpfchang.clambhook.unlock.lifetime"
 #define CH_FEATURE_UPDATE_PRODUCT_ID "org.jpfchang.clambhook.feature_update"
@@ -45,6 +45,8 @@ typedef struct ch_license_transaction {
 typedef struct ch_license_snapshot {
     bool has_trial_start_date;
     ch_timestamp trial_start_date;
+    bool has_trial_duration_days;
+    int trial_duration_days;
     const ch_license_transaction *transactions;
     size_t transaction_count;
     bool has_last_verified_at;
@@ -53,6 +55,13 @@ typedef struct ch_license_snapshot {
     ch_timestamp last_verification_failed_at;
     ch_timestamp cached_at;
 } ch_license_snapshot;
+
+typedef enum ch_license_supporter_tier {
+    CH_LICENSE_SUPPORTER_NONE = 0,
+    CH_LICENSE_SUPPORTER_COPPER = 1,
+    CH_LICENSE_SUPPORTER_SILVER = 2,
+    CH_LICENSE_SUPPORTER_GOLD = 3
+} ch_license_supporter_tier;
 
 typedef struct ch_license_feature {
     const char *id;
@@ -77,6 +86,8 @@ typedef struct ch_license_decision {
     bool has_lifetime_unlock;
     bool has_update_cutoff_date;
     ch_timestamp update_cutoff_date;
+    ch_license_supporter_tier supporter_tier;
+    bool supporter_active;
     bool has_offline_grace_ends_at;
     ch_timestamp offline_grace_ends_at;
     char **unlocked_feature_ids;
@@ -100,6 +111,7 @@ ch_status ch_license_evaluate(
 
 void ch_license_decision_clear(ch_license_decision *decision);
 const char *ch_license_reason_name(ch_license_access_reason reason);
+const char *ch_license_supporter_tier_name(ch_license_supporter_tier tier);
 bool ch_license_can_use_app(const ch_license_decision *decision);
 bool ch_license_can_use_feature(const ch_license_decision *decision, const char *feature_id);
 bool ch_license_can_install_update(

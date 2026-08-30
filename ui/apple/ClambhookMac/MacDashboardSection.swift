@@ -91,6 +91,15 @@ struct MacDashboardSection: View {
                             systemImage: model.dashboard.apiOnline ? "checkmark.circle.fill" : "xmark.circle.fill",
                             tint: model.dashboard.apiOnline ? .white : .orange
                         )
+                        if model.licenseManager.decision.supporterTier != .none {
+                            DashboardPill(
+                                text: model.licenseManager.decision.supporterActive
+                                    ? "\(model.licenseManager.decision.supporterTier.displayName) · Active"
+                                    : model.licenseManager.decision.supporterTier.displayName,
+                                systemImage: model.licenseManager.decision.supporterActive ? "star.circle.fill" : "star.circle",
+                                tint: .white
+                            )
+                        }
                         if daemon.state.isBusy {
                             ProgressView()
                                 .controlSize(.small)

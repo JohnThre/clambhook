@@ -1382,7 +1382,7 @@ enum AppleAppModelError: Error, LocalizedError {
         case .invalidRules:
             return "The rule changes could not be encoded."
         case .licenseLocked:
-            return "The one-calendar-month trial has ended. Buy or activate a USD 49.99 one-time ClambHook license to keep using ClambHook."
+            return "The ClambHook trial has ended. Start a USD 79.99/year subscription or activate an existing key to keep using ClambHook."
         }
     }
 }

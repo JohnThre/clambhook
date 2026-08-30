@@ -5,6 +5,16 @@ import XCTest
 @testable import ClambhookShared
 
 final class MobileSupportTests: XCTestCase {
+    func testDonationDestinationsAreExactAndProviderNeutral() {
+        XCTAssertEqual(clambHookKoFiURL.absoluteString, "https://ko-fi.com/jpfchang")
+        XCTAssertEqual(clambHookLiberapayURL.absoluteString, "https://en.liberapay.com/jpfchang/")
+        XCTAssertEqual(clambHookIssueHuntURL.absoluteString, "https://oss.issuehunt.io/u/johnthre")
+        XCTAssertEqual(
+            clambHookNowPaymentsDonationURL.absoluteString,
+            "https://nowpayments.io/donation?api_key=4f798f1e-c93e-456e-8067-b03b200790cd"
+        )
+    }
+
     func testPurchaseProductIDsAreStableAndOrdered() {
         XCTAssertEqual(MobilePurchaseCatalog.productIDs, [
             "org.jpfchang.clambhook.unlock.lifetime",
@@ -76,7 +86,7 @@ final class MobileSupportTests: XCTestCase {
         )
     }
 
-    func testDirectSaleProductFixtureMatchesPurchaseCatalog() throws {
+    func testSignedCompatibilityEntitlementFixtureMatchesPurchaseCatalog() throws {
         let configURL = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
@@ -85,9 +95,9 @@ final class MobileSupportTests: XCTestCase {
         let data = try Data(contentsOf: configURL)
         let config = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
 
-        XCTAssertEqual(config["type"] as? String, "direct-sale")
-        XCTAssertEqual(config["version"] as? Int, 1)
-        XCTAssertEqual(config["paymentProviders"] as? [String], ["creem", "nowpayments"])
+        XCTAssertEqual(config["type"] as? String, "signed-entitlement-compatibility")
+        XCTAssertEqual(config["version"] as? Int, 2)
+        XCTAssertNil(config["paymentProviders"])
 
         let products = try XCTUnwrap(config["products"] as? [[String: Any]])
         let productsByID = Dictionary(uniqueKeysWithValues: products.compactMap { product -> (String, [String: Any])? in
@@ -98,21 +108,21 @@ final class MobileSupportTests: XCTestCase {
         })
         XCTAssertEqual(MobilePurchaseCatalog.orderedIDs(productsByID.keys), MobilePurchaseCatalog.productIDs)
 
-        try assertDirectSaleProduct(
+        try assertCompatibilityProduct(
             productsByID[MobilePurchaseCatalog.macLicenseProductID],
-            displayPrice: "49.99",
-            displayName: "ClambHook License",
-            description: "USD 49.99 one-time ClambHook license after a one-calendar-month trial; includes one year of all updates; versions released on or before the cutoff remain usable; maximum 3 concurrently active devices; deactivatable and transferable."
+            displayPrice: "79.99/year",
+            displayName: "ClambHook First Paid Term",
+            description: "The first verified USD 79.99 annual term creates this compatibility entitlement. It includes releases during the paid term, a perpetual compatible fallback, and up to six active devices."
         )
-        try assertDirectSaleProduct(
+        try assertCompatibilityProduct(
             productsByID[MobilePurchaseCatalog.featureUpdateProductID],
-            displayPrice: "9.99",
-            displayName: "ClambHook Update Year",
-            description: "USD 9.99 buys one additional update year from the later of the current cutoff or renewal payment date."
+            displayPrice: "79.99/year",
+            displayName: "ClambHook Renewed Paid Term",
+            description: "Each later verified annual payment creates this compatibility entitlement and extends the paid-through cutoff by one year."
         )
     }
 
-    private func assertDirectSaleProduct(
+    private func assertCompatibilityProduct(
         _ product: [String: Any]?,
         displayPrice: String,
         displayName: String,

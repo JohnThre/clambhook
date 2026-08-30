@@ -25,12 +25,14 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
+import java.lang.reflect.Field;
 import java.lang.reflect.Proxy;
 import java.net.URL;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.IdentityHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.Callable;
@@ -58,6 +60,20 @@ final class MainViewTest {
     @AfterAll
     static void stopJavaFx() {
         Platform.exit();
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void donationDestinationsAreExactAndProviderNeutral() throws Exception {
+        Field field = MainView.class.getDeclaredField("DONATION_URLS");
+        field.setAccessible(true);
+        Map<String, String> links = (Map<String, String>) field.get(null);
+        assertEquals(Map.of(
+                "Ko-fi", "https://ko-fi.com/jpfchang",
+                "Liberapay", "https://en.liberapay.com/jpfchang/",
+                "IssueHunt", "https://oss.issuehunt.io/u/johnthre",
+                "Donate crypto", "https://nowpayments.io/donation?api_key=4f798f1e-c93e-456e-8067-b03b200790cd"),
+                links);
     }
 
     @Test

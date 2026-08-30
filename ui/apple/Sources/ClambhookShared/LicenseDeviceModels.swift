@@ -3,72 +3,13 @@
 
 import Foundation
 
-public let mobileLicenseMaxActiveDevices = 3
+public let mobileLicenseMaxActiveDevices = 6
 public let mobileLicenseDeviceStateDefaultsKey = "clambhook.apple.license.device-state"
 
 public enum MobileLicenseCommercialTerms {
-    public static let licensePriceUSD = "49.99"
-    public static let paidFeatureUpdatePriceUSD = "9.99"
+    public static let annualSubscriptionPriceUSD = "79.99"
     public static let includedFeatureUpdateYears = 1
     public static let maxActiveDevices = mobileLicenseMaxActiveDevices
-}
-
-public enum MobileLicensePaymentProvider: Codable, Equatable, Sendable {
-    case creem
-    case nowPayments
-    case unsupported(String)
-
-    public static let acceptedPurchaseProviders: [MobileLicensePaymentProvider] = [
-        .creem,
-        .nowPayments,
-    ]
-
-    public var isAcceptedPurchaseProvider: Bool {
-        switch self {
-        case .creem, .nowPayments:
-            return true
-        case .unsupported:
-            return false
-        }
-    }
-
-    public var displayName: String {
-        switch self {
-        case .creem:
-            return "Creem"
-        case .nowPayments:
-            return "NOWPayments"
-        case .unsupported(let value):
-            return value
-        }
-    }
-
-    public init(from decoder: Decoder) throws {
-        let container = try decoder.singleValueContainer()
-        let value = try container.decode(String.self)
-        switch value.lowercased() {
-        case "creem":
-            self = .creem
-        case "nowpayments":
-            self = .nowPayments
-        default:
-            self = .unsupported(value)
-        }
-    }
-
-    public func encode(to encoder: Encoder) throws {
-        var container = encoder.singleValueContainer()
-        let value: String
-        switch self {
-        case .creem:
-            value = "creem"
-        case .nowPayments:
-            value = "nowpayments"
-        case .unsupported(let unsupportedValue):
-            value = unsupportedValue
-        }
-        try container.encode(value)
-    }
 }
 
 public enum MobileLicenseDeviceStatus: String, Codable, Equatable, Sendable {
@@ -163,20 +104,17 @@ public struct MobileLicenseDeviceState: Codable, Equatable, Sendable {
     public var currentDeviceID: String?
     public var maxActiveDevices: Int
     public var devices: [MobileLicenseDevice]
-    public var paymentProvider: MobileLicensePaymentProvider?
 
     public init(
         currentInstallID: String = "",
         currentDeviceID: String? = nil,
         maxActiveDevices: Int = mobileLicenseMaxActiveDevices,
-        devices: [MobileLicenseDevice] = [],
-        paymentProvider: MobileLicensePaymentProvider? = nil
+        devices: [MobileLicenseDevice] = []
     ) {
         self.currentInstallID = currentInstallID
         self.currentDeviceID = currentDeviceID
         self.maxActiveDevices = max(0, min(maxActiveDevices, mobileLicenseMaxActiveDevices))
         self.devices = devices
-        self.paymentProvider = paymentProvider
     }
 
     public var activeDevices: [MobileLicenseDevice] {
@@ -228,7 +166,6 @@ public struct MobileLicenseDeviceState: Codable, Equatable, Sendable {
         case currentDeviceID = "current_device_id"
         case maxActiveDevices = "max_active_devices"
         case devices
-        case paymentProvider = "payment_provider"
     }
 
     public init(from decoder: Decoder) throws {
@@ -239,10 +176,6 @@ public struct MobileLicenseDeviceState: Codable, Equatable, Sendable {
             ?? mobileLicenseMaxActiveDevices
         self.maxActiveDevices = max(0, min(decodedMaximum, mobileLicenseMaxActiveDevices))
         self.devices = try container.decodeIfPresent([MobileLicenseDevice].self, forKey: .devices) ?? []
-        self.paymentProvider = try container.decodeIfPresent(
-            MobileLicensePaymentProvider.self,
-            forKey: .paymentProvider
-        )
     }
 }
 

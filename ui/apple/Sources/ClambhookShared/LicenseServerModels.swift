@@ -6,6 +6,10 @@ import Foundation
 public let defaultLicenseValidationURL = URL(string: "https://store.swiphtgroup.com/clambhook/license")!
 public let defaultLicensePortalURL = URL(string: "https://store.swiphtgroup.com/clambhook/portal")!
 public let defaultLicensePurchaseURL = URL(string: "https://store.swiphtgroup.com/clambhook/buy")!
+public let clambHookKoFiURL = URL(string: "https://ko-fi.com/jpfchang")!
+public let clambHookLiberapayURL = URL(string: "https://en.liberapay.com/jpfchang/")!
+public let clambHookIssueHuntURL = URL(string: "https://oss.issuehunt.io/u/johnthre")!
+public let clambHookNowPaymentsDonationURL = URL(string: "https://nowpayments.io/donation?api_key=4f798f1e-c93e-456e-8067-b03b200790cd")!
 public let mobileLicenseServerGrantDefaultsKey = "clambhook.apple.license.server-grant"
 
 public struct MobileServerLicenseGrantResponse: Codable, Equatable, Sendable {

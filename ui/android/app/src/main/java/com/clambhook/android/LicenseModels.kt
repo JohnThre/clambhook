@@ -20,6 +20,8 @@ data class LicenseDecision(
     val trialDaysRemaining: Int = 0,
     val hasLifetimeUnlock: Boolean = false,
     val updateCutoffDate: String? = null,
+    val supporterTier: String = "none",
+    val supporterActive: Boolean = false,
     val offlineGraceEndsAt: String? = null,
     val unlockedFeatureIDs: List<String> = emptyList(),
 ) {
@@ -72,15 +74,11 @@ data class LicenseDevice(
 }
 
 @Serializable
-data class LicensePaymentProvider(val raw: String = "")
-
-@Serializable
 data class LicenseDeviceState(
     @SerialName("current_install_id") val currentInstallId: String = "",
     @SerialName("current_device_id") val currentDeviceId: String = "",
-    @SerialName("max_active_devices") val maxActiveDevices: Int = 3,
+    @SerialName("max_active_devices") val maxActiveDevices: Int = 6,
     val devices: List<LicenseDevice> = emptyList(),
-    @SerialName("payment_provider") val paymentProvider: String? = null,
 ) {
     val activeDeviceCount: Int get() = devices.count { it.isActive }
     val remainingActivations: Int get() = (maxActiveDevices - activeDeviceCount).coerceAtLeast(0)

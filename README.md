@@ -207,32 +207,48 @@ notarized DMG for Apple Silicon Macs running macOS 14 or later.
 
 The commercial product contract is:
 
-- a one-calendar-month trial;
-- a USD 49.99 one-time ClambHook license;
-- one year of all updates;
-- versions released on or before the update cutoff remain usable;
-- a maximum of 3 concurrently active devices;
+- a 7-day trial for new installations; already-started month-long trials are grandfathered;
+- a recurring USD 79.99 annual subscription;
+- releases published during each paid term;
+- versions released on or before the paid-through cutoff remain usable after cancellation or lapse;
+- a maximum of 6 concurrently active devices;
 - seats can be deactivated and transferred;
-- a USD 9.99 renewal adds one update year;
-- releases after the cutoff are unavailable, including critical, bug, and security updates;
+- cancellation stops future billing without revoking the paid term;
+- resubscription can reuse the same provider-neutral license key;
 - checkout uses Creem or NOWPayments, not PayPal.
 
 ```mermaid
 stateDiagram-v2
     [*] --> Trial
-    Trial --> Active: activate license
-    Active --> Active: refresh or renew
+    Trial --> Active: verified annual payment
+    Active --> Active: annual renewal
     Active --> Deactivated: deactivate seat
     Deactivated --> Active: activate on another device
-    Active --> Frozen: requested release is after cutoff
-    Frozen --> Active: renew update year
+    Active --> Fallback: cancel or paid term lapses
+    Fallback --> Active: resubscribe with the same key
 
     note right of Active
         C17 license helper evaluates the signed snapshot
         JavaFX, SwiftUI, and Kotlin platform services share the result
-        Maximum 3 concurrently active devices
+        Maximum 6 concurrently active devices
     end note
 ```
+
+## Support independent development
+
+Donations are separate from ClambHook subscriptions. They never create a
+license, extend a paid term, grant a supporter badge, or change support
+priority. You can donate through
+[Ko-fi](https://ko-fi.com/jpfchang),
+[Liberapay](https://en.liberapay.com/jpfchang/), or
+[IssueHunt](https://oss.issuehunt.io/u/johnthre).
+
+<a href="https://nowpayments.io/donation?api_key=4f798f1e-c93e-456e-8067-b03b200790cd" target="_blank" rel="noreferrer noopener" referrerpolicy="no-referrer">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://nowpayments.io/images/embeds/donation-button-white.svg">
+    <img src="https://nowpayments.io/images/embeds/donation-button-black.svg" width="213" height="60" alt="Crypto donation button by NOWPayments">
+  </picture>
+</a>
 
 The first-party application is GPL-3.0-only, with separate written commercial
 terms available. `clib/**` is Apache-2.0. Pinned third-party material retains

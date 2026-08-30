@@ -99,7 +99,15 @@ static ch_timestamp ch_add_months_clamped(ch_timestamp timestamp, int months) {
 }
 
 ch_timestamp ch_license_trial_end_date(ch_timestamp start) {
-    return ch_add_months_clamped(start, CH_TRIAL_MONTHS);
+    return ch_add_months_clamped(start, CH_LEGACY_TRIAL_MONTHS);
+}
+
+static ch_timestamp ch_trial_end_for_snapshot(const ch_license_snapshot *snapshot) {
+    if (snapshot->has_trial_duration_days) {
+        return snapshot->trial_start_date +
+            (ch_timestamp)snapshot->trial_duration_days * CH_NANOSECONDS_PER_DAY;
+    }
+    return ch_license_trial_end_date(snapshot->trial_start_date);
 }
 
 static int ch_decimal_pair(const char *text, unsigned *value) {
@@ -318,7 +326,7 @@ ch_status ch_license_evaluate(
         decision->has_trial_start_date = true;
         decision->trial_start_date = snapshot->trial_start_date;
         decision->has_trial_ends_at = true;
-        decision->trial_ends_at = ch_license_trial_end_date(snapshot->trial_start_date);
+        decision->trial_ends_at = ch_trial_end_for_snapshot(snapshot);
         trial_active = now < decision->trial_ends_at;
         int64_t remaining = ch_floor_div(decision->trial_ends_at, CH_NANOSECONDS_PER_DAY) -
             ch_floor_div(now, CH_NANOSECONDS_PER_DAY);
@@ -328,12 +336,19 @@ ch_status ch_license_evaluate(
 
     bool found_lifetime = false;
     ch_timestamp lifetime_purchase = 0;
+    size_t paid_term_count = 0U;
     for (size_t index = 0U; index < snapshot->transaction_count; ++index) {
         const ch_license_transaction *transaction = &snapshot->transactions[index];
-        if (transaction->has_revocation_date || !ch_is_lifetime_product(transaction->product_id)) continue;
-        if (!found_lifetime || transaction->purchase_date < lifetime_purchase) {
-            lifetime_purchase = transaction->purchase_date;
-            found_lifetime = true;
+        if (transaction->has_revocation_date) continue;
+        if (ch_is_lifetime_product(transaction->product_id) ||
+            ch_is_paid_update_product(transaction->product_id)) {
+            ++paid_term_count;
+        }
+        if (ch_is_lifetime_product(transaction->product_id)) {
+            if (!found_lifetime || transaction->purchase_date < lifetime_purchase) {
+                lifetime_purchase = transaction->purchase_date;
+                found_lifetime = true;
+            }
         }
     }
     decision->has_lifetime_unlock = found_lifetime;
@@ -345,6 +360,11 @@ ch_status ch_license_evaluate(
             return status;
         }
     }
+    if (paid_term_count == 1U) decision->supporter_tier = CH_LICENSE_SUPPORTER_COPPER;
+    else if (paid_term_count == 2U) decision->supporter_tier = CH_LICENSE_SUPPORTER_SILVER;
+    else if (paid_term_count >= 3U) decision->supporter_tier = CH_LICENSE_SUPPORTER_GOLD;
+    decision->supporter_active = decision->has_update_cutoff_date &&
+        now <= decision->update_cutoff_date;
 
     bool grace_active = false;
     if (snapshot->has_last_verification_failed_at &&
@@ -397,6 +417,16 @@ const char *ch_license_reason_name(ch_license_access_reason reason) {
         case CH_LICENSE_REASON_LOCKED: return "locked";
     }
     return "locked";
+}
+
+const char *ch_license_supporter_tier_name(ch_license_supporter_tier tier) {
+    switch (tier) {
+        case CH_LICENSE_SUPPORTER_COPPER: return "copper";
+        case CH_LICENSE_SUPPORTER_SILVER: return "silver";
+        case CH_LICENSE_SUPPORTER_GOLD: return "gold";
+        case CH_LICENSE_SUPPORTER_NONE: return "none";
+    }
+    return "none";
 }
 
 bool ch_license_can_use_app(const ch_license_decision *decision) {

@@ -88,26 +88,25 @@ done
 
 require_text "$readme" "https://github.com/JohnThre/clambhook/releases" "README distribution policy"
 require_text "$readme" "notarized DMG for Apple Silicon Macs running macOS 14 or later" "README macOS availability policy"
-product_promise="USD 49.99"
-versions_promise="on or before the update cutoff remain usable"
-device_promise="maximum of 3 concurrently active"
-transfer_promise="deactivated"
+product_promise="USD 79.99"
+versions_promise="ompatible"
+device_promise="6"
+transfer_promise="deactivat"
 
-require_text "$readme" "USD 49.99 one-time ClambHook license" "README license policy"
+require_text "$readme" "recurring USD 79.99 annual subscription" "README subscription policy"
 require_text "$readme" "$versions_promise" "README version-usability policy"
 require_text "$readme" "$device_promise" "README device policy"
 require_text "$readme" "$transfer_promise" "README transfer policy"
-require_text "$readme" "one year of all updates" "README included-update policy"
-require_text "$readme" "critical, bug, and security updates" "README strict update-cutoff policy"
+require_text "$readme" "7-day trial" "README new-install trial policy"
+require_text "$readme" "grandfathered" "README legacy trial policy"
 require_text "$readme" "Creem or NOWPayments, not PayPal" "README payment-provider policy"
 
-require_text "$distribution" "A USD 49.99 one-time ClambHook license is required after the trial and includes one year of all updates" "distribution policy"
+require_text "$distribution" "recurring USD 79.99" "distribution policy"
 require_text "$distribution" "$versions_promise" "distribution policy"
-require_text "$distribution" "A USD 9.99 renewal buys one additional update year" "distribution policy"
-require_text "$distribution" "free and supports Apple Silicon Macs running macOS 14.0 or later" "distribution macOS availability policy"
+require_text "$distribution" "supports Apple Silicon Macs running macOS 14.0 or later" "distribution macOS availability policy"
 require_text "$distribution" "Device seats can be deactivated" "distribution policy"
-require_text "$distribution" "ClambHook License" "distribution products"
-require_text "$distribution" "critical, bug, and security updates" "distribution update policy"
+require_text "$distribution" "six concurrently active devices" "distribution device policy"
+require_text "$distribution" "paid-through date" "distribution cancellation policy"
 require_text "$distribution" "Creem or NOWPayments, not PayPal" "distribution payment-provider policy"
 reject_text "$distribution" "In-App Purchase" "distribution policy"
 reject_text "$distribution" "StoreKit" "distribution policy"
@@ -121,13 +120,12 @@ for public_copy_file in "$commercial_setup" "$product_copy_en_us" "$copy_notes" 
     require_text "$public_copy_file" "$versions_promise" "public version-usability promise"
     require_text "$public_copy_file" "$device_promise" "public device promise"
     require_text "$public_copy_file" "$transfer_promise" "public transfer promise"
-    require_text "$public_copy_file" "one-calendar-month" "public trial promise"
-    require_text "$public_copy_file" "one year of all updates" "public included-update promise"
-    require_text "$public_copy_file" "critical, bug, and security updates" "public strict update-cutoff promise"
+    require_text "$public_copy_file" "7-day" "public new-install trial promise"
+    require_text "$public_copy_file" "month-long" "public legacy trial promise"
     require_text "$public_copy_file" "Creem" "public payment-provider promise"
     require_text "$public_copy_file" "NOWPayments" "public payment-provider promise"
-    reject_text "$public_copy_file" "Lifetime license" "public product copy"
-    reject_text "$public_copy_file" "lifetime license" "public product copy"
+    reject_text "$public_copy_file" "USD 49.99" "public stale price"
+    reject_text "$public_copy_file" "USD 9.99" "public stale renewal price"
 done
 
 require_text "$privacy" "HTTP Capture is a separate local opt-in" "privacy capture disclosure"
@@ -166,19 +164,19 @@ for ui_copy_file in "$licensing" "$recovery" "$app_model" "$purchase_view" "$mob
     reject_text "$ui_copy_file" "Lifetime Unlock" "macOS website license UI copy"
 done
 
-require_text "$licensing" "One-calendar-month trial" "macOS website license UI copy"
-require_text "$licensing" "including critical, bug, and security updates" "macOS strict update-cutoff UI copy"
-require_text "$license_devices" "case creem" "macOS Creem provider policy"
-require_text "$license_devices" "case nowPayments" "macOS NOWPayments provider policy"
-reject_text "$license_devices" "case manual" "macOS payment-provider policy"
+require_text "$licensing" "7-day trial" "macOS new-install trial UI copy"
+require_text "$licensing" "Grandfathered one-calendar-month trial" "macOS legacy trial UI copy"
+require_text "$licensing" "supporterTier" "macOS supporter entitlement policy"
+reject_text "$license_devices" "paymentProvider" "macOS provider-neutral client policy"
 require_text "$recovery" "Trial ended" "macOS website license recovery copy"
-require_text "$recovery" "including critical, bug, and security updates" "macOS strict update-cutoff recovery copy"
-require_text "$app_model" "one-calendar-month trial has ended" "macOS website license app copy"
+require_text "$recovery" "USD 79.99/year" "macOS annual subscription recovery copy"
+require_text "$app_model" "USD 79.99/year subscription" "macOS website license app copy"
 require_text "$app_model" "MobileLicenseUpdatePolicy.canInstallUpdate" "macOS update gating"
 reject_text "$sparkle_updater" "isCriticalUpdate ||" "Sparkle critical-update bypass"
-require_text "$sparkle_updater" "including critical, bug, and security updates" "Sparkle strict update-cutoff copy"
-require_text "$purchase_view" "Buy license - USD" "macOS website license purchase copy"
-require_text "$mobile_support" "ClambHook License" "macOS website license product copy"
+require_text "$sparkle_updater" "USD 79.99/year" "Sparkle annual subscription copy"
+require_text "$purchase_view" "Buy subscription - USD" "macOS website subscription copy"
+require_text "$purchase_view" "Thank you for supporting independent ClambHook development" "macOS supporter thank-you copy"
+require_text "$mobile_support" "signed compatibility" "macOS compatibility entitlement copy"
 require_text "$settings" "V6GG4HYABJ.org.jpfchang.clambhook" "macOS keychain access group constant"
 require_text "$ROOT_DIR/ui/apple/project.yml" "V6GG4HYABJ.org.jpfchang.clambhook" "macOS widget keychain access group build assertion"
 
@@ -191,27 +189,27 @@ import sys
 
 path = pathlib.Path(sys.argv[1])
 config = json.loads(path.read_text(encoding="utf-8"))
-if config.get("type") != "direct-sale":
-    raise SystemExit("product fixture must use type=direct-sale")
-if config.get("version") != 1:
-    raise SystemExit("product fixture must use version=1")
-if config.get("paymentProviders") != ["creem", "nowpayments"]:
-    raise SystemExit("product fixture payment providers must be exactly Creem and NOWPayments")
+if config.get("type") != "signed-entitlement-compatibility":
+    raise SystemExit("product fixture must use type=signed-entitlement-compatibility")
+if config.get("version") != 2:
+    raise SystemExit("product fixture must use version=2")
+if "paymentProviders" in config:
+    raise SystemExit("product fixture must not expose payment providers to clients")
 
 expected = [
     {
         "productID": "org.jpfchang.clambhook.unlock.lifetime",
-        "kind": "license",
-        "displayPrice": "49.99",
-        "displayName": "ClambHook License",
-        "description": "USD 49.99 one-time ClambHook license after a one-calendar-month trial; includes one year of all updates; versions released on or before the cutoff remain usable; maximum 3 concurrently active devices; deactivatable and transferable.",
+        "kind": "annual_subscription_first_term",
+        "displayPrice": "79.99/year",
+        "displayName": "ClambHook First Paid Term",
+        "description": "The first verified USD 79.99 annual term creates this compatibility entitlement. It includes releases during the paid term, a perpetual compatible fallback, and up to six active devices.",
     },
     {
         "productID": "org.jpfchang.clambhook.feature_update",
-        "kind": "feature_update",
-        "displayPrice": "9.99",
-        "displayName": "ClambHook Update Year",
-        "description": "USD 9.99 buys one additional update year from the later of the current cutoff or renewal payment date.",
+        "kind": "annual_subscription_renewal",
+        "displayPrice": "79.99/year",
+        "displayName": "ClambHook Renewed Paid Term",
+        "description": "Each later verified annual payment creates this compatibility entitlement and extends the paid-through cutoff by one year.",
     },
 ]
 

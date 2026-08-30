@@ -19,8 +19,8 @@ public enum MobilePurchaseCatalog {
     public static let featureUpdateProductID = "org.jpfchang.clambhook.feature_update"
 
     public static let products: [MobilePurchaseProduct] = [
-        MobilePurchaseProduct(id: macLicenseProductID, displayName: "ClambHook License"),
-        MobilePurchaseProduct(id: featureUpdateProductID, displayName: "ClambHook Update Year"),
+        MobilePurchaseProduct(id: macLicenseProductID, displayName: "ClambHook first paid term"),
+        MobilePurchaseProduct(id: featureUpdateProductID, displayName: "ClambHook renewed paid term"),
     ]
 
     public static let productIDs = products.map(\.id)
@@ -64,8 +64,9 @@ public enum MobilePurchaseCatalog {
         if id == macLicenseProductID {
             return .lifetimeUnlock
         }
-        // The renewal is a single provider-neutral SKU. Tolerate any future
-        // dated variant (…feature_update.YYYY) so older grants still resolve.
+        // The renewal is a single provider-neutral signed compatibility
+        // entitlement SKU. Tolerate any future dated variant
+        // (…feature_update.YYYY) so older grants still resolve.
         if id == featureUpdateProductID || id.hasPrefix(featureUpdateProductID + ".") {
             return .paidUpdate
         }

@@ -3,7 +3,8 @@
 
 import Foundation
 
-public let mobileLicenseTrialMonths = 1
+public let mobileLicenseNewTrialDays = 7
+public let mobileLicenseLegacyTrialMonths = 1
 public let mobileLicenseOfflineGraceDays = 7
 public let mobileLicenseSnapshotDefaultsKey = "clambhook.apple.license.snapshot"
 
@@ -86,6 +87,8 @@ public struct MobileLicenseTransaction: Codable, Equatable, Sendable {
 
 public struct MobileLicenseSnapshot: Codable, Equatable, Sendable {
     public var trialStartDate: Date?
+    /// Missing on legacy snapshots, which preserves the original one-month trial.
+    public var trialDurationDays: Int?
     public var transactions: [MobileLicenseTransaction]
     public var lastVerifiedAt: Date?
     public var lastVerificationFailedAt: Date?
@@ -93,12 +96,14 @@ public struct MobileLicenseSnapshot: Codable, Equatable, Sendable {
 
     public init(
         trialStartDate: Date? = nil,
+        trialDurationDays: Int? = nil,
         transactions: [MobileLicenseTransaction] = [],
         lastVerifiedAt: Date? = nil,
         lastVerificationFailedAt: Date? = nil,
         cachedAt: Date = Date()
     ) {
         self.trialStartDate = trialStartDate
+        self.trialDurationDays = trialDurationDays
         self.transactions = transactions
         self.lastVerifiedAt = lastVerifiedAt
         self.lastVerificationFailedAt = lastVerificationFailedAt
@@ -113,6 +118,22 @@ public enum MobileLicenseAccessReason: String, Codable, Equatable, Sendable {
     case locked
 }
 
+public enum MobileLicenseSupporterTier: String, Codable, Equatable, Sendable {
+    case none
+    case copper
+    case silver
+    case gold
+
+    public var displayName: String {
+        switch self {
+        case .none: return "Supporter"
+        case .copper: return "Copper Supporter"
+        case .silver: return "Silver Supporter"
+        case .gold: return "Gold Supporter"
+        }
+    }
+}
+
 public struct MobileLicenseDecision: Equatable, Sendable {
     public var reason: MobileLicenseAccessReason
     public var trialStartDate: Date?
@@ -120,6 +141,8 @@ public struct MobileLicenseDecision: Equatable, Sendable {
     public var trialDaysRemaining: Int
     public var hasLifetimeUnlock: Bool
     public var updateCutoffDate: Date?
+    public var supporterTier: MobileLicenseSupporterTier
+    public var supporterActive: Bool
     public var offlineGraceEndsAt: Date?
     public var unlockedFeatureIDs: Set<MobileLicenseFeatureID>
 
@@ -130,6 +153,8 @@ public struct MobileLicenseDecision: Equatable, Sendable {
         trialDaysRemaining: Int,
         hasLifetimeUnlock: Bool,
         updateCutoffDate: Date?,
+        supporterTier: MobileLicenseSupporterTier = .none,
+        supporterActive: Bool = false,
         offlineGraceEndsAt: Date?,
         unlockedFeatureIDs: Set<MobileLicenseFeatureID>
     ) {
@@ -139,6 +164,8 @@ public struct MobileLicenseDecision: Equatable, Sendable {
         self.trialDaysRemaining = trialDaysRemaining
         self.hasLifetimeUnlock = hasLifetimeUnlock
         self.updateCutoffDate = updateCutoffDate
+        self.supporterTier = supporterTier
+        self.supporterActive = supporterActive
         self.offlineGraceEndsAt = offlineGraceEndsAt
         self.unlockedFeatureIDs = unlockedFeatureIDs
     }
@@ -167,7 +194,13 @@ public enum MobileLicenseEvaluator {
         now: Date = Date(),
         calendar: Calendar = mobileLicenseCalendar
     ) -> MobileLicenseDecision {
-        let trialEndsAt = snapshot.trialStartDate.flatMap { mobileLicenseTrialEndDate(start: $0, calendar: calendar) }
+        let trialEndsAt = snapshot.trialStartDate.flatMap {
+            mobileLicenseTrialEndDate(
+                start: $0,
+                durationDays: snapshot.trialDurationDays,
+                calendar: calendar
+            )
+        }
         let trialActive = trialEndsAt.map { now < $0 } ?? false
         let trialDaysRemaining = trialEndsAt.map {
             max(0, calendar.dateComponents([.day], from: calendar.startOfDay(for: now), to: calendar.startOfDay(for: $0)).day ?? 0)
@@ -181,6 +214,15 @@ public enum MobileLicenseEvaluator {
 
         let cutoffDate = lifetime.flatMap {
             updateCutoffDate(lifetimePurchaseDate: $0.purchaseDate, transactions: activeTransactions, calendar: calendar)
+        }
+        let paidTermCount = activeTransactions.filter {
+            $0.productKind == .lifetimeUnlock || $0.productKind == .paidUpdate
+        }.count
+        let supporterTier: MobileLicenseSupporterTier = switch paidTermCount {
+        case 1: .copper
+        case 2: .silver
+        case 3...: .gold
+        default: .none
         }
         let activeOfflineGraceEndsAt = offlineGraceEndDate(snapshot: snapshot, calendar: calendar).flatMap { endsAt in
             now < endsAt ? endsAt : nil
@@ -218,6 +260,8 @@ public enum MobileLicenseEvaluator {
             trialDaysRemaining: trialDaysRemaining,
             hasLifetimeUnlock: lifetime != nil,
             updateCutoffDate: cutoffDate,
+            supporterTier: supporterTier,
+            supporterActive: cutoffDate.map { now <= $0 } ?? false,
             offlineGraceEndsAt: reason == .offlineGrace ? activeOfflineGraceEndsAt : nil,
             unlockedFeatureIDs: unlocked
         )
@@ -282,6 +326,7 @@ public enum MobileLicenseTrialStore {
         } else {
             try? credentialStore.saveToken(dateFormatter.string(from: now), account: trialAccount)
             next.trialStartDate = now
+            next.trialDurationDays = mobileLicenseNewTrialDays
         }
         next.cachedAt = now
         return next
@@ -300,7 +345,7 @@ public enum MobileLicenseTrialStore {
 
 public enum MobileLicenseCopy {
     public static func paidUpdatePolicy(cutoffDate: Date) -> String {
-        "The ClambHook license includes all updates released through \(cutoffDate.formatted(date: .abbreviated, time: .omitted)). Versions released during that window remain usable. Updates released after that date, including critical, bug, and security updates, require a USD 9.99 update-year renewal."
+        "Your paid terms include all ClambHook releases through \(cutoffDate.formatted(date: .abbreviated, time: .omitted)). Those compatible versions remain usable after cancellation or lapse; resubscribe for later releases."
     }
 }
 
@@ -360,7 +405,10 @@ public enum MobileLicenseProductStateBuilder {
         if let trialEndsAt = decision.trialEndsAt {
             states.append(MobileLicenseProductState(
                 kind: .trial,
-                title: "One-calendar-month trial",
+                title: decision.trialStartDate.map {
+                    trialEndsAt.timeIntervalSince($0) <= 7 * 24 * 60 * 60
+                        ? "7-day trial" : "Grandfathered one-calendar-month trial"
+                } ?? "7-day trial",
                 detail: decision.isTrialActive
                     ? "Trial ends \(trialEndsAt.formatted(date: .abbreviated, time: .omitted))."
                     : "Trial ended \(trialEndsAt.formatted(date: .abbreviated, time: .omitted)).",
@@ -369,7 +417,7 @@ public enum MobileLicenseProductStateBuilder {
         } else {
             states.append(MobileLicenseProductState(
                 kind: .trial,
-                title: "One-calendar-month trial",
+                title: "7-day trial",
                 detail: "Trial starts the first time this app records an access date.",
                 isActive: false
             ))
@@ -377,10 +425,10 @@ public enum MobileLicenseProductStateBuilder {
 
         states.append(MobileLicenseProductState(
             kind: .lifetimeUnlocked,
-            title: "ClambHook license",
+            title: "ClambHook supporter entitlement",
             detail: decision.hasLifetimeUnlock
                 ? "Versions released during the included update window remain usable."
-                : "Buy or activate a ClambHook license to keep using ClambHook after free access.",
+                : "Subscribe or activate a ClambHook key to keep using ClambHook after free access.",
             isActive: decision.hasLifetimeUnlock
         ))
 
@@ -395,7 +443,7 @@ public enum MobileLicenseProductStateBuilder {
             states.append(MobileLicenseProductState(
                 kind: .paidUpdateWindow,
                 title: "Included updates through DATE",
-                detail: "A ClambHook license includes one year of all updates from the purchase date.",
+                detail: "Each paid annual term includes all releases published during that period.",
                 isActive: false
             ))
         }
@@ -408,9 +456,9 @@ public enum MobileLicenseProductStateBuilder {
         }
         states.append(MobileLicenseProductState(
             kind: .newFeaturesLocked,
-            title: "Later updates require renewal",
+            title: "Later updates require an active subscription",
             detail: lockedFeatures.isEmpty
-                ? "All updates released after the cutoff, including critical, bug, and security updates, require a USD 9.99 update-year renewal."
+                ? "Your compatible fallback version remains usable. Resubscribe to receive releases after the paid-through cutoff."
                 : "Updates requiring renewal include: \(lockedFeatures.map(\.displayName).joined(separator: ", ")).",
             isActive: !lockedFeatures.isEmpty
         ))
@@ -513,7 +561,7 @@ public enum MobileLicenseRuntimeError: Error, LocalizedError {
     public var errorDescription: String? {
         switch self {
         case .locked:
-            return "The one-calendar-month trial has ended. Buy or activate a USD 49.99 one-time ClambHook license to keep using ClambHook."
+            return "The ClambHook trial has ended. Start a USD 79.99/year subscription or activate an existing key to continue."
         }
     }
 }
@@ -556,8 +604,15 @@ public let mobileLicenseCalendar: Calendar = {
     return calendar
 }()
 
-public func mobileLicenseTrialEndDate(start: Date, calendar: Calendar = mobileLicenseCalendar) -> Date? {
-    calendar.date(byAdding: .month, value: mobileLicenseTrialMonths, to: start)
+public func mobileLicenseTrialEndDate(
+    start: Date,
+    durationDays: Int? = nil,
+    calendar: Calendar = mobileLicenseCalendar
+) -> Date? {
+    if let durationDays {
+        return calendar.date(byAdding: .day, value: durationDays, to: start)
+    }
+    return calendar.date(byAdding: .month, value: mobileLicenseLegacyTrialMonths, to: start)
 }
 
 public func mobileLicenseUTCDate(year: Int, month: Int, day: Int) -> Date {
