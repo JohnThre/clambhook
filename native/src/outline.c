@@ -386,7 +386,8 @@ static ch_status outline_parse_ss(const char *raw, outline_key *key,
             return CH_ERROR_UNSUPPORTED;
         }
     }
-    if (fragment != NULL && fragment[1] != '\0') {
+    if (fragment != NULL && fragment[1] != '\0' &&
+        key->suggested_name == NULL) {
         key->suggested_name = outline_percent_decode(
             fragment + 1U, strlen(fragment + 1U), 0, error);
         if (key->suggested_name == NULL) return error->code;
@@ -1184,7 +1185,10 @@ ch_status ch_outline_review_request_json(const char *request_json,
     outline_key parsed;
     ch_status status = outline_resolve(access_key, &parsed, error);
     free(access_key);
-    if (status != CH_OK) return status;
+    if (status != CH_OK) {
+        outline_key_clear(&parsed);
+        return status;
+    }
     return outline_encode_review(&parsed, out_json, error);
 }
 
@@ -1296,7 +1300,11 @@ ch_status ch_outline_import_mutation_request_json(const char *request_json,
     outline_key parsed;
     ch_status status = outline_resolve(access_copy, &parsed, error);
     free(access_copy);
-    if (status != CH_OK) { free(name_copy); return status; }
+    if (status != CH_OK) {
+        free(name_copy);
+        outline_key_clear(&parsed);
+        return status;
+    }
     if (name_copy == NULL || name_copy[0] == '\0') {
         free(name_copy);
         name_copy = ch_strdup(parsed.suggested_name == NULL ||
