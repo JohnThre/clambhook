@@ -55,6 +55,10 @@ public interface PlatformServices extends AutoCloseable {
 
     CompletableFuture<Void> clipboardWrite(String value);
 
+    default CompletableFuture<String> takePendingOutlineAccessKey() {
+        return CompletableFuture.completedFuture("");
+    }
+
     CompletableFuture<Void> openBrowser(String uri);
 
     CompletableFuture<Void> notify(String title, String body);

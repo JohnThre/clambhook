@@ -10,6 +10,7 @@
 
 #include "clambhook/config.h"
 #include "clambhook/runtime.h"
+#include "outline.h"
 
 typedef struct ch_jni_runtime {
     JavaVM *vm;
@@ -360,6 +361,83 @@ Java_com_clambhook_android_NativeClambhookConfigBridge_nativeMutateConfig(
     jstring result = (*environment)->NewStringUTF(environment, response);
     ch_string_free(response);
     return result;
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_clambhook_android_NativeClambhookConfigBridge_nativeOutlineReview(
+    JNIEnv *environment, jobject bridge, jstring request_json
+) {
+    (void)bridge;
+    const char *request_utf = ch_jni_get_utf(environment, request_json);
+    if (request_utf == NULL) return NULL;
+    char *response = NULL;
+    ch_error error;
+    ch_status status = ch_outline_review_request_json(request_utf, &response,
+                                                      &error);
+    ch_jni_release_utf(environment, request_json, request_utf);
+    if (status != CH_OK) {
+        ch_jni_check(environment, status, &error);
+        return NULL;
+    }
+    jstring result = (*environment)->NewStringUTF(environment, response);
+    ch_string_free(response);
+    return result;
+}
+
+static jstring ch_jni_outline_mutation(JNIEnv *environment,
+                                       jstring config_path,
+                                       jstring request_json,
+                                       int refresh) {
+    const char *path_utf = ch_jni_get_utf(environment, config_path);
+    const char *request_utf = ch_jni_get_utf(environment, request_json);
+    if (path_utf == NULL || request_utf == NULL) {
+        ch_jni_release_utf(environment, config_path, path_utf);
+        ch_jni_release_utf(environment, request_json, request_utf);
+        return NULL;
+    }
+    ch_error error;
+    ch_config *config = NULL;
+    char *mutation = NULL;
+    char *response = NULL;
+    ch_status status = refresh ? ch_config_load(path_utf, &config, &error) :
+                                 CH_OK;
+    if (status == CH_OK) status = refresh ?
+        ch_outline_refresh_mutation_request_json(config, request_utf,
+                                                 &mutation, &error) :
+        ch_outline_import_mutation_request_json(request_utf, &mutation,
+                                                &error);
+    if (status == CH_OK) status = ch_runtime_config_mutate_file(
+        path_utf, refresh ? "refresh_outline" : "import_outline", "profiles",
+        mutation, &response, &error);
+    ch_config_free(config);
+    free(mutation);
+    ch_jni_release_utf(environment, config_path, path_utf);
+    ch_jni_release_utf(environment, request_json, request_utf);
+    if (status != CH_OK) {
+        ch_jni_check(environment, status, &error);
+        return NULL;
+    }
+    jstring result = (*environment)->NewStringUTF(environment, response);
+    ch_string_free(response);
+    return result;
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_clambhook_android_NativeClambhookConfigBridge_nativeOutlineImport(
+    JNIEnv *environment, jobject bridge, jstring config_path,
+    jstring request_json
+) {
+    (void)bridge;
+    return ch_jni_outline_mutation(environment, config_path, request_json, 0);
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_clambhook_android_NativeClambhookConfigBridge_nativeOutlineRefresh(
+    JNIEnv *environment, jobject bridge, jstring config_path,
+    jstring request_json
+) {
+    (void)bridge;
+    return ch_jni_outline_mutation(environment, config_path, request_json, 1);
 }
 
 JNIEXPORT jstring JNICALL

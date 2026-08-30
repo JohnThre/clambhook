@@ -188,6 +188,10 @@ name = "local"
   #       [profile.chain.server.settings]
   #       method = "aes-128-gcm"
   #       password = "replace-with-shadowsocks-password"
+  #       # Outline imports may add prefix_base64 plus independent UDP fields:
+  #       # udp_address, udp_method, udp_password, and udp_prefix_base64.
+  #       # Dynamic imports also persist outline_dynamic_key and
+  #       # outline_refreshed_at_ns. Treat the dynamic key as a secret.
   #       # Other supported AEAD-2018 methods: aes-256-gcm and
   #       # chacha20-ietf-poly1305. Legacy stream ciphers are rejected.
 

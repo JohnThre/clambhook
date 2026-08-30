@@ -8,17 +8,20 @@ public struct StatusPayload: Codable, Equatable, Sendable {
     public var profile: String
     public var listeners: [ListenerStatusPayload]
     public var tunnelMode: String
+    public var outlineRefresh: OutlineRefreshPayload
 
     enum CodingKeys: String, CodingKey {
         case running, profile, listeners
         case tunnelMode = "tunnel_mode"
+        case outlineRefresh = "outline_refresh"
     }
 
-    public init(running: Bool = false, profile: String = "", listeners: [ListenerStatusPayload] = [], tunnelMode: String = "") {
+    public init(running: Bool = false, profile: String = "", listeners: [ListenerStatusPayload] = [], tunnelMode: String = "", outlineRefresh: OutlineRefreshPayload = OutlineRefreshPayload()) {
         self.running = running
         self.profile = profile
         self.listeners = listeners
         self.tunnelMode = tunnelMode
+        self.outlineRefresh = outlineRefresh
     }
 
     public init(from decoder: Decoder) throws {
@@ -27,6 +30,53 @@ public struct StatusPayload: Codable, Equatable, Sendable {
         self.profile = try container.decodeIfPresent(String.self, forKey: .profile) ?? ""
         self.listeners = try container.decodeIfPresent([ListenerStatusPayload].self, forKey: .listeners) ?? []
         self.tunnelMode = try container.decodeIfPresent(String.self, forKey: .tunnelMode) ?? ""
+        self.outlineRefresh = try container.decodeIfPresent(OutlineRefreshPayload.self, forKey: .outlineRefresh) ?? OutlineRefreshPayload()
+    }
+}
+
+public struct OutlineRefreshPayload: Codable, Equatable, Sendable {
+    public var dynamic: Bool
+    public var lastSuccessTimestampNS: Int64
+    public var stale: Bool
+    public var warning: String
+
+    enum CodingKeys: String, CodingKey {
+        case dynamic, stale, warning
+        case lastSuccessTimestampNS = "last_success_ts_ns"
+    }
+
+    public init(dynamic: Bool = false, lastSuccessTimestampNS: Int64 = 0,
+                stale: Bool = false, warning: String = "") {
+        self.dynamic = dynamic
+        self.lastSuccessTimestampNS = lastSuccessTimestampNS
+        self.stale = stale
+        self.warning = warning
+    }
+}
+
+public struct OutlineEndpointReviewPayload: Codable, Equatable, Sendable {
+    public var address: String
+    public var cipher: String
+    public var prefixLength: Int
+
+    enum CodingKeys: String, CodingKey {
+        case address, cipher
+        case prefixLength = "prefix_length"
+    }
+}
+
+public struct OutlineReviewPayload: Codable, Equatable, Sendable {
+    public var kind: String
+    public var suggestedName: String
+    public var tcp: OutlineEndpointReviewPayload
+    public var udp: OutlineEndpointReviewPayload
+    public var dynamic: Bool
+    public var lowEntropyWarning: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case kind, tcp, udp, dynamic
+        case suggestedName = "suggested_name"
+        case lowEntropyWarning = "low_entropy_warning"
     }
 }
 

@@ -29,6 +29,7 @@
 #include "clambhook/traffic.h"
 #include "developer_internal.h"
 #include "internal.h"
+#include "outline.h"
 
 #define CH_RUNTIME_MAX_CONFIG_TRANSFER_BYTES (4U * 1024U * 1024U)
 
@@ -86,6 +87,7 @@ struct ch_runtime {
     ch_config *config;
     char *config_path;
     char *active_profile;
+    char *outline_warning;
     ch_runtime_options options;
 };
 
@@ -169,6 +171,47 @@ static bool ch_runtime_append_tunnel_status(ch_runtime *runtime,
     return ch_json_append(json, ",\"tunnel_mode\":\"tun\"");
 }
 
+static bool ch_runtime_append_outline_status(ch_runtime *runtime,
+                                             ch_json_buffer *json) {
+    const ch_config_table *profile = runtime->config == NULL ? NULL :
+        ch_config_profile_named(runtime->config, runtime->active_profile);
+    const ch_config_array *chains = profile == NULL ? NULL :
+        ch_config_table_get_array(profile, "chain");
+    int dynamic = 0;
+    int64_t refreshed_at = 0;
+    for (size_t chain_index = 0U; !dynamic &&
+         chain_index < ch_config_array_count(chains); ++chain_index) {
+        const ch_config_array *servers = ch_config_table_get_array(
+            ch_config_array_get_table(chains, chain_index), "server");
+        for (size_t server_index = 0U; !dynamic &&
+             server_index < ch_config_array_count(servers); ++server_index) {
+            const ch_config_table *settings = ch_config_table_get_table(
+                ch_config_array_get_table(servers, server_index), "settings");
+            char *source = NULL;
+            ch_error ignored;
+            if (ch_config_table_get_string(settings, "outline_dynamic_key",
+                                           &source, &ignored) == CH_OK &&
+                source[0] != '\0') {
+                dynamic = 1;
+                (void)ch_config_table_get_int(
+                    settings, "outline_refreshed_at_ns", &refreshed_at,
+                    &ignored);
+            }
+            free(source);
+        }
+    }
+    if (!ch_json_append_format(
+            json, ",\"outline_refresh\":{\"dynamic\":%s,"
+            "\"last_success_ts_ns\":%" PRId64 ",\"stale\":%s,"
+            "\"warning\":",
+            dynamic ? "true" : "false", refreshed_at,
+            runtime->outline_warning == NULL ? "false" : "true") ||
+        !ch_json_append_string(json, runtime->outline_warning == NULL ? "" :
+                              runtime->outline_warning) ||
+        !ch_json_append(json, "}")) return false;
+    return true;
+}
+
 static char *ch_runtime_status_json(ch_runtime *runtime) {
     ch_json_buffer json;
     ch_json_init(&json);
@@ -181,6 +224,7 @@ static char *ch_runtime_status_json(ch_runtime *runtime) {
         !ch_runtime_append_network_info(runtime, &json) ||
         !ch_runtime_append_dns_status(runtime, &json) ||
         !ch_runtime_append_tunnel_status(runtime, &json) ||
+        !ch_runtime_append_outline_status(runtime, &json) ||
         !ch_runtime_listener_set_append_status(runtime->listeners, &json) ||
         !ch_json_append(&json, "}")) {
         ch_json_dispose(&json);
@@ -1308,6 +1352,40 @@ static bool ch_runtime_persist_config_mutation(ch_runtime *runtime,
     return command->status == CH_OK;
 }
 
+static void ch_runtime_refresh_outline_before_connect(ch_runtime *runtime,
+                                                      ch_command *command) {
+    free(runtime->outline_warning);
+    runtime->outline_warning = NULL;
+    if (runtime->config == NULL || runtime->config_path == NULL ||
+        runtime->config_path[0] == '\0') return;
+    char *request = NULL;
+    ch_error refresh_error;
+    ch_status status = ch_outline_refresh_mutation_request_json(
+        runtime->config, "{}", &request, &refresh_error);
+    if (status == CH_ERROR_INVALID_ARGUMENT || status == CH_ERROR_NOT_FOUND) {
+        return;
+    }
+    if (status == CH_OK) {
+        ch_command refresh_command;
+        memset(&refresh_command, 0, sizeof(refresh_command));
+        status = ch_runtime_persist_config_mutation(
+            runtime, "refresh_outline", "profiles", request, false,
+            &refresh_command) ? CH_OK : refresh_command.status;
+        if (status != CH_OK) refresh_error = refresh_command.error;
+        free(refresh_command.response);
+    }
+    free(request);
+    if (status != CH_OK) {
+        runtime->outline_warning = ch_strdup(refresh_error.message[0] == '\0' ?
+            "dynamic Outline refresh failed; using last validated settings" :
+            refresh_error.message);
+        if (runtime->outline_warning == NULL) {
+            ch_command_fail(command, CH_ERROR_OUT_OF_MEMORY,
+                            "copy Outline refresh warning");
+        }
+    }
+}
+
 static bool ch_runtime_refresh_rule_feeds(
     ch_runtime *runtime, ch_rule_feed_kind kind, const char *request_json,
     ch_command *command) {
@@ -1513,6 +1591,9 @@ static void ch_command_process(ch_runtime *runtime, ch_command *command) {
         case CH_COMMAND_QUERY:
             if (strcmp(command->operation, "status") == 0) {
                 command->response = ch_runtime_status_json(runtime);
+            } else if (strcmp(command->operation, "outline_review") == 0) {
+                command->status = ch_outline_review_request_json(
+                    command->payload, &command->response, &command->error);
             } else if (strcmp(command->operation, "profiles") == 0) {
                 command->response = ch_runtime_profiles_json(runtime);
             } else if (strcmp(command->operation, "traffic") == 0 ||
@@ -1668,6 +1749,8 @@ static void ch_command_process(ch_runtime *runtime, ch_command *command) {
                     ch_command_fail(command, CH_ERROR_INVALID_STATE, "engine already running");
                     break;
                 }
+                ch_runtime_refresh_outline_before_connect(runtime, command);
+                if (command->status != CH_OK) break;
                 if (!ch_runtime_start_listeners(runtime, runtime->config,
                                                 runtime->active_profile, command)) {
                     break;
@@ -1754,6 +1837,34 @@ static void ch_command_process(ch_runtime *runtime, ch_command *command) {
                                               command)) {
                     break;
                 }
+            } else if (strcmp(command->operation, "outline_import") == 0) {
+                char *mutation = NULL;
+                command->status = ch_outline_import_mutation_request_json(
+                    command->payload, &mutation, &command->error);
+                if (command->status == CH_OK && !ch_runtime_persist_config_mutation(
+                        runtime, "import_outline", "profiles", mutation,
+                        true, command)) {
+                    /* The persistence helper populated the command error. */
+                }
+                free(mutation);
+            } else if (strcmp(command->operation, "outline_refresh") == 0) {
+                if (atomic_load_explicit(&runtime->running,
+                                         memory_order_acquire)) {
+                    ch_command_fail(command, CH_ERROR_INVALID_STATE,
+                                    "disconnect before refreshing an Outline profile");
+                    break;
+                }
+                char *mutation = NULL;
+                command->status = ch_outline_refresh_mutation_request_json(
+                    runtime->config, command->payload, &mutation,
+                    &command->error);
+                if (command->status == CH_OK && ch_runtime_persist_config_mutation(
+                        runtime, "refresh_outline", "profiles", mutation,
+                        true, command)) {
+                    free(runtime->outline_warning);
+                    runtime->outline_warning = NULL;
+                }
+                free(mutation);
             } else if (strcmp(command->operation,
                               "create_temporary_rule_from_connection") == 0) {
                 command->response =
@@ -2226,6 +2337,7 @@ void ch_runtime_destroy(ch_runtime *runtime) {
     uv_mutex_destroy(&runtime->queue_mutex);
     (void)uv_loop_close(&runtime->loop);
     free(runtime->config_path);
+    free(runtime->outline_warning);
     ch_config_free(runtime->config);
     free(runtime->active_profile);
     ch_developer_manager_destroy(runtime->developer);

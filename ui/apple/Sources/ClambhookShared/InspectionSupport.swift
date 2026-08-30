@@ -288,7 +288,8 @@ public enum InspectionExportBuilder {
     public static func redactText(_ value: String) -> String {
         var out = value
         out = replace(out, pattern: #"(?i)(bearer\s+)[A-Za-z0-9._~+/=-]+"#, template: "$1[redacted]")
-        out = replace(out, pattern: #"(?i)((?:token|password|passwd|secret|private[_ -]?key|preshared[_ -]?key|uuid)\s*[:=]\s*)[^\s,;]+"#, template: "$1[redacted]")
+        out = replace(out, pattern: #"(?i)((?:token|password|passwd|secret|access[_ -]?key|outline[_ -]?dynamic[_ -]?key|private[_ -]?key|preshared[_ -]?key|uuid)\s*[:=]\s*)[^\s,;]+"#, template: "$1[redacted]")
+        out = replace(out, pattern: #"(?i)ssconf://[^\s\"']+"#, template: "ssconf://[redacted]")
         out = replace(out, pattern: #"/[^\s]+?\.(?:toml|json|pem|key|conf|log)\b"#, template: "[redacted-path]")
         out = replace(out, pattern: #"\b(?:\d{1,3}\.){3}\d{1,3}(?::\d{1,5})?\b"#, template: "[redacted-address]")
         out = replace(out, pattern: #"\[[0-9a-fA-F:]+\](?::\d{1,5})?"#, template: "[redacted-address]")

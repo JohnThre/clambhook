@@ -28,6 +28,7 @@ int main(void) {
     if (ch_test_selected(selected, "listener")) ch_test_listener();
     if (ch_test_selected(selected, "netwatch")) ch_test_netwatch();
     if (ch_test_selected(selected, "openvpn")) ch_test_openvpn();
+    if (ch_test_selected(selected, "outline")) ch_test_outline();
     if (ch_test_selected(selected, "procattr")) ch_test_procattr();
     if (ch_test_selected(selected, "policy")) ch_test_policy();
     if (ch_test_selected(selected, "prompt")) ch_test_prompt();

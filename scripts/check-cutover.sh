@@ -33,10 +33,29 @@ if git grep -nEi \
     -- . \
     ':(exclude)docs/c-migration.md' \
     ':(exclude)docs/release-validation.md' \
+    ':(exclude).github/workflows/ci.yml' \
     ':(exclude)scripts/check-cutover.sh' \
+    ':(exclude)scripts/test-outline-interop.sh' \
     ':(exclude)scripts/package-smoke.sh' \
     ':(exclude)scripts/smoke-installed-linux-package.sh'; then
     fail "active build, runtime, or documentation instructions still reference the retired implementation"
+fi
+
+# Go remains forbidden in the product. The only exception is the isolated CI
+# build of a pinned, official Outline peer used as an interoperability oracle.
+grep -Fq 'actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.0.0' \
+    .github/workflows/ci.yml || fail "Outline peer Go toolchain action is not pinned"
+grep -Fq 'OUTLINE_COMMIT="4d09f750827738d21432095a46e455d24e172109"' \
+    scripts/test-outline-interop.sh || fail "official Outline peer revision is not pinned"
+[[ "$(rg -c 'actions/setup-go@' .github/workflows/ci.yml)" == "1" ]] ||
+    fail "unexpected Go toolchain actions are active"
+if rg -n '(buildGoModule|gomobile|go (build|run|test|vet|install|mod|env)|go\.mod|go\.sum)' \
+    .github/workflows/ci.yml; then
+    fail "retired product Go tooling returned to CI"
+fi
+if rg -n '(setup-go|buildGoModule|gomobile|go (build|run|test|vet|install|mod|env)|go\.mod|go\.sum)' \
+    scripts --glob '!check-cutover.sh' --glob '!test-outline-interop.sh'; then
+    fail "Go tooling escaped the isolated Outline interoperability harness"
 fi
 
 if git grep -nEi \

@@ -102,6 +102,11 @@ public final class AndroidPlatformServices implements PlatformServices {
     }
 
     @Override
+    public CompletableFuture<String> takePendingOutlineAccessKey() {
+        return call("outline-link-consume", "{}");
+    }
+
+    @Override
     public CompletableFuture<Void> openBrowser(String uri) {
         return call("browser-open", Json.object(Map.of("uri", Objects.requireNonNullElse(uri, ""))))
                 .thenApply(ignored -> null);

@@ -20,6 +20,24 @@ public protocol ClambhookAPIProviding: AnyObject {
     func updateDNS(_ request: DNSUpdateRequest, profile: String) async throws -> DNSPayload
     func exportConfig() async throws -> String
     func importConfig(_ toml: String) async throws -> ConfigImportResponse
+    func reviewOutlineAccessKey(_ accessKey: String) async throws -> OutlineReviewPayload
+    func importOutlineAccessKey(_ accessKey: String, profileName: String, activate: Bool) async throws -> ProfilesPayload
+    func refreshOutlineProfile(_ profile: String) async throws -> ProfilesPayload
+}
+
+public extension ClambhookAPIProviding {
+    func reviewOutlineAccessKey(_ accessKey: String) async throws -> OutlineReviewPayload {
+        throw URLError(.unsupportedURL)
+    }
+
+    func importOutlineAccessKey(_ accessKey: String, profileName: String,
+                                activate: Bool) async throws -> ProfilesPayload {
+        throw URLError(.unsupportedURL)
+    }
+
+    func refreshOutlineProfile(_ profile: String) async throws -> ProfilesPayload {
+        throw URLError(.unsupportedURL)
+    }
 }
 
 public protocol ClambhookRuleEditing: AnyObject {
@@ -610,6 +628,37 @@ public final class ClambhookAPIClient: ClambhookAPIProviding, ClambhookRuleEditi
         let body = Data(toml.utf8)
         let data = try await send(method: "POST", path: "/api/v1/config/import", body: body, contentType: "text/plain")
         return try decoder.decode(ConfigImportResponse.self, from: data)
+    }
+
+    public func reviewOutlineAccessKey(_ accessKey: String) async throws -> OutlineReviewPayload {
+        let body = try encoder.encode(["access_key": accessKey])
+        let data = try await send(method: "POST", path: "/api/v1/outline/review", body: body)
+        return try decoder.decode(OutlineReviewPayload.self, from: data)
+    }
+
+    public func importOutlineAccessKey(_ accessKey: String, profileName: String,
+                                       activate: Bool = false) async throws -> ProfilesPayload {
+        struct Request: Encodable {
+            var accessKey: String
+            var profileName: String
+            var activate: Bool
+            enum CodingKeys: String, CodingKey {
+                case activate
+                case accessKey = "access_key"
+                case profileName = "profile_name"
+            }
+        }
+        let body = try encoder.encode(Request(accessKey: accessKey,
+                                              profileName: profileName,
+                                              activate: activate))
+        let data = try await send(method: "POST", path: "/api/v1/outline/import", body: body)
+        return try decoder.decode(ProfilesPayload.self, from: data)
+    }
+
+    public func refreshOutlineProfile(_ profile: String) async throws -> ProfilesPayload {
+        let body = try encoder.encode(["profile": profile])
+        let data = try await send(method: "POST", path: "/api/v1/outline/refresh", body: body)
+        return try decoder.decode(ProfilesPayload.self, from: data)
     }
 
     public func connect() async throws {

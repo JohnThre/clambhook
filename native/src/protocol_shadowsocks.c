@@ -273,18 +273,59 @@ static int ch_ss_decrypt(const ch_ss_cipher *cipher, const uint8_t *key,
     return CNET_ERR_INIT;
 }
 
-ch_status ch_ss_encrypt_datagram(const ch_ss_cipher *cipher,
-                                 const uint8_t *master_key,
-                                 const char *target,
-                                 const uint8_t *payload,
-                                 size_t payload_length,
-                                 uint8_t **out_frame,
-                                 size_t *out_frame_length,
-                                 ch_error *error) {
+ch_status ch_ss_prefix_from_base64(const char *encoded,
+                                   const ch_ss_cipher *cipher,
+                                   uint8_t *out_prefix,
+                                   size_t *out_prefix_length,
+                                   ch_error *error) {
+    ch_error_clear(error);
+    if (encoded == NULL || cipher == NULL || out_prefix == NULL ||
+        out_prefix_length == NULL) {
+        ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
+                     "Shadowsocks prefix inputs are required");
+        return CH_ERROR_INVALID_ARGUMENT;
+    }
+    *out_prefix_length = 0U;
+    size_t length = strlen(encoded);
+    if (length == 0U) return CH_OK;
+    if (length > 44U || length % 4U != 0U) {
+        ch_error_set(error, CH_ERROR_PARSE,
+                     "Shadowsocks prefix is invalid Base64");
+        return CH_ERROR_PARSE;
+    }
+    uint8_t decoded[33] = {0};
+    int count = EVP_DecodeBlock(decoded,
+        (const unsigned char *)encoded, (int)length);
+    if (count < 0) {
+        ch_error_set(error, CH_ERROR_PARSE,
+                     "Shadowsocks prefix is invalid Base64");
+        return CH_ERROR_PARSE;
+    }
+    size_t actual = (size_t)count;
+    for (size_t index = length; index > 0U && encoded[index - 1U] == '=';
+         --index) {
+        if (actual > 0U) --actual;
+    }
+    if (actual > cipher->salt_size) {
+        ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
+                     "Shadowsocks prefix is longer than the cipher salt");
+        return CH_ERROR_INVALID_ARGUMENT;
+    }
+    memcpy(out_prefix, decoded, actual);
+    *out_prefix_length = actual;
+    return CH_OK;
+}
+
+ch_status ch_ss_encrypt_datagram_with_prefix(
+    const ch_ss_cipher *cipher, const uint8_t *master_key,
+    const uint8_t *prefix, size_t prefix_length, const char *target,
+    const uint8_t *payload, size_t payload_length, uint8_t **out_frame,
+    size_t *out_frame_length, ch_error *error) {
     ch_error_clear(error);
     if (cipher == NULL || master_key == NULL || target == NULL ||
         (payload == NULL && payload_length > 0U) || out_frame == NULL ||
-        out_frame_length == NULL) {
+        out_frame_length == NULL || prefix_length > cipher->salt_size ||
+        (prefix == NULL && prefix_length > 0U)) {
         ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
                      "invalid Shadowsocks UDP datagram input");
         return CH_ERROR_INVALID_ARGUMENT;
@@ -328,6 +369,7 @@ ch_status ch_ss_encrypt_datagram(const ch_ss_cipher *cipher,
         ch_error_set(error, status,
                      "generate Shadowsocks UDP salt failed");
     } else {
+        if (prefix_length > 0U) memcpy(frame, prefix, prefix_length);
         status = ch_ss_hkdf_sha1(
             master_key, cipher->key_size, frame, cipher->salt_size, info,
             sizeof(info) - 1U, subkey, cipher->key_size, error);
@@ -349,6 +391,19 @@ ch_status ch_ss_encrypt_datagram(const ch_ss_cipher *cipher,
     *out_frame = frame;
     *out_frame_length = frame_length;
     return CH_OK;
+}
+
+ch_status ch_ss_encrypt_datagram(const ch_ss_cipher *cipher,
+                                 const uint8_t *master_key,
+                                 const char *target,
+                                 const uint8_t *payload,
+                                 size_t payload_length,
+                                 uint8_t **out_frame,
+                                 size_t *out_frame_length,
+                                 ch_error *error) {
+    return ch_ss_encrypt_datagram_with_prefix(
+        cipher, master_key, NULL, 0U, target, payload, payload_length,
+        out_frame, out_frame_length, error);
 }
 
 ch_status ch_ss_decrypt_datagram(const ch_ss_cipher *cipher,
@@ -727,9 +782,11 @@ ch_status ch_protocol_shadowsocks_dial(const ch_config_table *server,
                                                                 "settings");
     char *method = ch_ss_optional_string(settings, "method");
     char *password = ch_ss_optional_string(settings, "password");
+    char *prefix_base64 = ch_ss_optional_string(settings, "prefix_base64");
     char *server_address = ch_ss_optional_string(server, "address");
-    if (method == NULL || password == NULL || server_address == NULL) {
-        free(method); free(password); free(server_address);
+    if (method == NULL || password == NULL || prefix_base64 == NULL ||
+        server_address == NULL) {
+        free(method); free(password); free(prefix_base64); free(server_address);
         ch_ss_close(&underlying_descriptor);
         ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
                      "copy Shadowsocks configuration");
@@ -737,7 +794,7 @@ ch_status ch_protocol_shadowsocks_dial(const ch_config_table *server,
     }
     if (method[0] == '\0' || password[0] == '\0') {
         const char *missing = method[0] == '\0' ? "method" : "password";
-        free(method); free(password); free(server_address);
+        free(method); free(password); free(prefix_base64); free(server_address);
         ch_ss_close(&underlying_descriptor);
         ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
                      "shadowsocks: %s is required", missing);
@@ -747,7 +804,7 @@ ch_status ch_protocol_shadowsocks_dial(const ch_config_table *server,
     ch_status status = ch_ss_cipher_from_name(method, &cipher, error);
     free(method);
     if (status != CH_OK) {
-        free(password); free(server_address);
+        free(password); free(prefix_base64); free(server_address);
         ch_ss_close(&underlying_descriptor);
         return status;
     }
@@ -756,6 +813,13 @@ ch_status ch_protocol_shadowsocks_dial(const ch_config_table *server,
                                     strlen(password), cipher.key_size,
                                     master_key, error);
     free(password);
+    uint8_t prefix[32];
+    size_t prefix_length = 0U;
+    if (status == CH_OK) {
+        status = ch_ss_prefix_from_base64(prefix_base64, &cipher, prefix,
+                                          &prefix_length, error);
+    }
+    free(prefix_base64);
     if (status != CH_OK) {
         free(server_address);
         ch_ss_close(&underlying_descriptor);
@@ -777,8 +841,14 @@ ch_status ch_protocol_shadowsocks_dial(const ch_config_table *server,
     }
     free(server_address);
     uint8_t salt[32];
-    if (RAND_bytes(salt, (int)cipher.salt_size) != 1 ||
-        !ch_ss_send_all(underlying_descriptor, salt, cipher.salt_size)) {
+    if (RAND_bytes(salt, (int)cipher.salt_size) != 1) {
+        ch_ss_close(&underlying_descriptor);
+        ch_error_set(error, CH_ERROR_IO,
+                     "initialize Shadowsocks salt failed");
+        return CH_ERROR_IO;
+    }
+    if (prefix_length > 0U) memcpy(salt, prefix, prefix_length);
+    if (!ch_ss_send_all(underlying_descriptor, salt, cipher.salt_size)) {
         ch_ss_close(&underlying_descriptor);
         ch_error_set(error, CH_ERROR_IO,
                      "initialize Shadowsocks salt failed");

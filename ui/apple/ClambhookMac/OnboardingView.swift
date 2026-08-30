@@ -364,6 +364,12 @@ private struct OnboardingProfileImportStep: View {
     @State private var importError = ""
     @State private var importSuccess = false
     @State private var pendingText = ""
+    @State private var outlineKey = ""
+    @State private var outlineName = "Outline"
+    @State private var outlineReview: OutlineReviewPayload?
+    @State private var reviewedOutlineKey = ""
+    @State private var outlineMessage = ""
+    @State private var outlineBusy = false
 
     var body: some View {
         OnboardingStepContainer(
@@ -411,6 +417,40 @@ private struct OnboardingProfileImportStep: View {
                     }
                 }
 
+                Divider()
+                Text("Or import an Outline access key")
+                    .font(.subheadline.weight(.semibold))
+                TextField("ss:// or ssconf:// access key", text: $outlineKey)
+                    .textFieldStyle(.roundedBorder)
+                    .accessibilityLabel("Outline access key")
+                    .onChange(of: outlineKey) { _, _ in outlineReview = nil }
+                HStack {
+                    TextField("Profile name", text: $outlineName)
+                        .textFieldStyle(.roundedBorder)
+                        .accessibilityLabel("Outline profile name")
+                    Button("Paste") {
+                        outlineKey = NSPasteboard.general.string(forType: .string) ?? ""
+                    }
+                    Button("Review") { reviewOutline() }
+                        .disabled(outlineBusy || outlineKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+                if let review = outlineReview {
+                    Text("Credentials hidden: \(review.kind) · TCP \(review.tcp.address) · \(review.tcp.cipher) · prefix \(review.tcp.prefixLength) byte(s) · profile \(outlineName)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Button("Import Reviewed Key") { importOutline() }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(outlineBusy || reviewedOutlineKey != outlineKey || outlineName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+
+                if !outlineMessage.isEmpty {
+                    Text(outlineMessage)
+                        .font(.caption)
+                        .foregroundStyle(outlineMessage.hasPrefix("Imported") ? .green : .red)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
                 if !importError.isEmpty {
                     Text(importError)
                         .font(.caption)
@@ -421,6 +461,42 @@ private struct OnboardingProfileImportStep: View {
         }
         .onDisappear {
             applyPendingImport()
+        }
+    }
+
+    private func reviewOutline() {
+        outlineBusy = true
+        outlineMessage = ""
+        let key = outlineKey
+        Task {
+            do {
+                let review = try await model.reviewOutlineAccessKey(key)
+                outlineReview = review
+                reviewedOutlineKey = key
+                if outlineName == "Outline" || outlineName.isEmpty {
+                    outlineName = review.suggestedName
+                }
+            } catch {
+                outlineReview = nil
+                outlineMessage = error.localizedDescription
+            }
+            outlineBusy = false
+        }
+    }
+
+    private func importOutline() {
+        outlineBusy = true
+        outlineMessage = ""
+        Task {
+            do {
+                try await model.importOutlineAccessKey(outlineKey, profileName: outlineName)
+                outlineMessage = "Imported \(outlineName). It will not connect automatically."
+                outlineKey = ""
+                outlineReview = nil
+            } catch {
+                outlineMessage = error.localizedDescription
+            }
+            outlineBusy = false
         }
     }
 

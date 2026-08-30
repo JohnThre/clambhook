@@ -89,6 +89,23 @@ add_library(tomlc99 STATIC
 target_include_directories(tomlc99 PUBLIC "${CLAMBHOOK_ROOT}/third_party/tomlc99")
 target_compile_definitions(tomlc99 PRIVATE _POSIX_C_SOURCE=200809L)
 
+set(LIBYAML_DIR "${CLAMBHOOK_ROOT}/third_party/libyaml")
+add_library(libyaml STATIC
+    "${LIBYAML_DIR}/src/api.c"
+    "${LIBYAML_DIR}/src/loader.c"
+    "${LIBYAML_DIR}/src/parser.c"
+    "${LIBYAML_DIR}/src/reader.c"
+    "${LIBYAML_DIR}/src/scanner.c"
+)
+target_include_directories(libyaml PUBLIC "${LIBYAML_DIR}/include")
+target_include_directories(libyaml PRIVATE "${LIBYAML_DIR}/src")
+target_compile_definitions(libyaml PRIVATE
+    YAML_VERSION_STRING="0.2.5"
+    YAML_VERSION_MAJOR=0
+    YAML_VERSION_MINOR=2
+    YAML_VERSION_PATCH=5
+)
+
 set(MAXMINDDB_DIR "${CLAMBHOOK_ROOT}/third_party/libmaxminddb")
 # Match the desktop core's strictly ISO C17 public-header representation.
 set(MMDB_UINT128_USING_MODE 0)
@@ -188,6 +205,7 @@ add_library(clambhook_jni SHARED
     "${CLAMBHOOK_ROOT}/native/src/license.c"
     "${CLAMBHOOK_ROOT}/native/src/license_json.c"
     "${CLAMBHOOK_ROOT}/native/src/lwip_context.c"
+    "${CLAMBHOOK_ROOT}/native/src/outline.c"
     "${CLAMBHOOK_ROOT}/native/src/policy.c"
     "${CLAMBHOOK_ROOT}/native/src/protocol.c"
     "${CLAMBHOOK_ROOT}/native/src/protocol_openvpn.c"
@@ -230,6 +248,7 @@ target_include_directories(clambhook_jni PRIVATE
     "${CLAMBHOOK_ROOT}/native/src"
     "${CLAMBHOOK_ROOT}/clib/include"
     "${CLAMBHOOK_ROOT}/third_party/tomlc99"
+    "${CLAMBHOOK_ROOT}/third_party/libyaml/include"
 )
 target_compile_definitions(clambhook_jni PRIVATE
     _POSIX_C_SOURCE=200809L
@@ -239,6 +258,6 @@ target_compile_options(clambhook_jni PRIVATE
     -Wall -Wextra -Wpedantic -Wconversion -Wshadow
 )
 target_link_libraries(clambhook_jni PRIVATE
-    log dl lwipcore maxminddb wireguard_protocol tomlc99 clambhook_android_libcurl
+    log dl lwipcore maxminddb wireguard_protocol tomlc99 libyaml clambhook_android_libcurl
     clambhook_android_ssl clambhook_android_crypto
 )

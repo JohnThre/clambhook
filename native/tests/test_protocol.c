@@ -2031,6 +2031,48 @@ static void protocol_test_shadowsocks_datagrams(void) {
             &cipher, master_key, (const uint8_t *)"x", 1U, &source,
             &decrypted, &decrypted_length,
             &error) == CH_ERROR_INVALID_ARGUMENT);
+
+        static const uint8_t prefix[] = {0x00U, 0xffU, 'G', 'E', 'T', ' '};
+        uint8_t *prefixed = NULL;
+        uint8_t *second = NULL;
+        size_t prefixed_length = 0U;
+        size_t second_length = 0U;
+        CH_TEST_ASSERT(ch_ss_encrypt_datagram_with_prefix(
+            &cipher, master_key, prefix, sizeof(prefix), "example.com:443",
+            plaintext, sizeof(plaintext), &prefixed, &prefixed_length,
+            &error) == CH_OK);
+        CH_TEST_ASSERT(memcmp(prefixed, prefix, sizeof(prefix)) == 0);
+        CH_TEST_ASSERT(ch_ss_decrypt_datagram(
+            &cipher, master_key, prefixed, prefixed_length, &source,
+            &decrypted, &decrypted_length, &error) == CH_OK);
+        CH_TEST_ASSERT(decrypted_length == sizeof(plaintext));
+        CH_TEST_ASSERT(memcmp(decrypted, plaintext, sizeof(plaintext)) == 0);
+        free(source);
+        free(decrypted);
+        CH_TEST_ASSERT(ch_ss_encrypt_datagram_with_prefix(
+            &cipher, master_key, prefix, sizeof(prefix), "example.com:443",
+            plaintext, sizeof(plaintext), &second, &second_length,
+            &error) == CH_OK);
+        CH_TEST_ASSERT(second_length == prefixed_length);
+        CH_TEST_ASSERT(cipher.salt_size == sizeof(prefix) ||
+            memcmp(prefixed + sizeof(prefix), second + sizeof(prefix),
+                   cipher.salt_size - sizeof(prefix)) != 0);
+        free(prefixed);
+        free(second);
+
+        uint8_t maximum_prefix[32];
+        memset(maximum_prefix, 0xa5, cipher.salt_size);
+        CH_TEST_ASSERT(ch_ss_encrypt_datagram_with_prefix(
+            &cipher, master_key, maximum_prefix, cipher.salt_size,
+            "example.com:443", plaintext, sizeof(plaintext), &prefixed,
+            &prefixed_length, &error) == CH_OK);
+        CH_TEST_ASSERT(memcmp(prefixed, maximum_prefix, cipher.salt_size) == 0);
+        CH_TEST_ASSERT(ch_ss_decrypt_datagram(
+            &cipher, master_key, prefixed, prefixed_length, &source,
+            &decrypted, &decrypted_length, &error) == CH_OK);
+        free(source);
+        free(decrypted);
+        free(prefixed);
     }
 }
 
@@ -2351,6 +2393,80 @@ static void protocol_test_shadowsocks_chain(void) {
     ch_config_free(config);
 }
 
+static void protocol_test_outline_official_peer(void) {
+    const char *endpoint = getenv("CLAMBHOOK_OUTLINE_ENDPOINT");
+    if (endpoint == NULL || endpoint[0] == '\0') return;
+    const char *tcp_target = getenv("CLAMBHOOK_OUTLINE_TCP_TARGET");
+    const char *udp_target = getenv("CLAMBHOOK_OUTLINE_UDP_TARGET");
+    CH_TEST_ASSERT(tcp_target != NULL && udp_target != NULL);
+    static const char *const methods[] = {
+        "aes-128-gcm", "aes-256-gcm", "chacha20-ietf-poly1305"
+    };
+    static const char *const passwords[] = {
+        "OutlineAES128", "OutlineAES256", "OutlineChaCha"
+    };
+    static const char *const prefixes[] = {
+        "R0VUIC8=", "UE9TVCA=", "ABEiM0Q="
+    };
+    for (size_t index = 0U; index < sizeof(methods) / sizeof(methods[0]);
+         ++index) {
+        char document[1800];
+        (void)snprintf(document, sizeof(document),
+            "active = \"outline\"\n"
+            "[[profile]]\nname = \"outline\"\n"
+            "[[profile.chain]]\nname = \"outline\"\n"
+            "[[profile.chain.server]]\nname = \"official\"\n"
+            "address = \"%s\"\nprotocol = \"shadowsocks\"\n"
+            "[profile.chain.server.settings]\nmethod = \"%s\"\n"
+            "password = \"%s\"\nprefix_base64 = \"%s\"\n"
+            "udp_address = \"%s\"\nudp_method = \"%s\"\n"
+            "udp_password = \"%s\"\nudp_prefix_base64 = \"%s\"\n",
+            endpoint, methods[index], passwords[index], prefixes[index],
+            endpoint, methods[index], passwords[index], prefixes[index]);
+        ch_error error;
+        ch_config *config = NULL;
+        CH_TEST_ASSERT(ch_config_parse(document, NULL, &config,
+                                       &error) == CH_OK);
+        const ch_config_table *profile = ch_config_active_profile(config);
+        const ch_config_table *chain = ch_config_array_get_table(
+            ch_config_table_get_array(profile, "chain"), 0U);
+        int stream = -1;
+        CH_TEST_ASSERT(ch_protocol_chain_dial(
+            chain, "tcp", tcp_target, &stream, &error) == CH_OK);
+        static const uint8_t tcp_payload[] = "outline-official-tcp";
+        uint8_t tcp_echo[sizeof(tcp_payload)];
+        CH_TEST_ASSERT(protocol_test_send_all(stream, tcp_payload,
+                                              sizeof(tcp_payload)));
+        CH_TEST_ASSERT(protocol_test_receive_exact(stream, tcp_echo,
+                                                   sizeof(tcp_echo)));
+        CH_TEST_ASSERT(memcmp(tcp_payload, tcp_echo,
+                              sizeof(tcp_payload)) == 0);
+        (void)shutdown(stream, SHUT_RDWR);
+        (void)close(stream);
+
+        ch_packet_connection *packet = NULL;
+        CH_TEST_ASSERT(ch_protocol_chain_dial_packet(
+            chain, udp_target, &packet, &error) == CH_OK);
+        static const uint8_t udp_payload[] = "outline-official-udp";
+        CH_TEST_ASSERT(ch_packet_connection_send(
+            packet, udp_target, udp_payload, sizeof(udp_payload),
+            &error) == CH_OK);
+        uint8_t udp_echo[128];
+        size_t udp_echo_length = 0U;
+        char *source = NULL;
+        CH_TEST_ASSERT(ch_packet_connection_receive_timeout(
+            packet, udp_echo, sizeof(udp_echo), &udp_echo_length, &source,
+            3000, &error) == CH_OK);
+        CH_TEST_ASSERT(strcmp(source, udp_target) == 0);
+        CH_TEST_ASSERT(udp_echo_length == sizeof(udp_payload));
+        CH_TEST_ASSERT(memcmp(udp_echo, udp_payload,
+                              sizeof(udp_payload)) == 0);
+        free(source);
+        ch_packet_connection_close(packet);
+        ch_config_free(config);
+    }
+}
+
 static void protocol_test_trojan_stream(void) {
     ch_error error;
     uint8_t *expected_header = NULL;
@@ -2502,6 +2618,7 @@ void ch_test_protocol(void) {
     protocol_test_trojan_packet_chain();
     protocol_test_shadowsocks_streams();
     protocol_test_shadowsocks_chain();
+    protocol_test_outline_official_peer();
     protocol_test_tor_streams();
     protocol_test_tor_after_trojan();
     protocol_test_vmess_vectors();

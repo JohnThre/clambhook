@@ -3,16 +3,36 @@
 
 package com.clambhook.android
 
+import android.app.Activity
+import android.app.Application
 import android.content.ContentProvider
 import android.content.ContentValues
 import android.content.Context
 import android.database.Cursor
 import android.net.Uri
+import android.os.Bundle
 
 /** Captures the application context before the Gluon activity is created. */
 class ClambhookPlatformInitializer : ContentProvider() {
     override fun onCreate(): Boolean {
-        context?.applicationContext?.let(AndroidPlatformEnvironment::initialize)
+        context?.applicationContext?.let { appContext ->
+            AndroidPlatformEnvironment.initialize(appContext)
+            (appContext as? Application)?.registerActivityLifecycleCallbacks(
+                object : Application.ActivityLifecycleCallbacks {
+                    override fun onActivityCreated(activity: Activity, state: Bundle?) = capture(activity)
+                    override fun onActivityResumed(activity: Activity) = capture(activity)
+                    override fun onActivityStarted(activity: Activity) = Unit
+                    override fun onActivityPaused(activity: Activity) = Unit
+                    override fun onActivityStopped(activity: Activity) = Unit
+                    override fun onActivitySaveInstanceState(activity: Activity, state: Bundle) = Unit
+                    override fun onActivityDestroyed(activity: Activity) = Unit
+
+                    private fun capture(activity: Activity) {
+                        activity.intent?.data?.let(AndroidPlatformEnvironment::receiveOutlineUri)
+                    }
+                },
+            )
+        }
         return true
     }
 
@@ -38,6 +58,8 @@ class ClambhookPlatformInitializer : ContentProvider() {
 internal object AndroidPlatformEnvironment {
     @Volatile
     private var applicationContext: Context? = null
+    @Volatile
+    private var pendingOutlineUri: String = ""
 
     fun initialize(context: Context) {
         applicationContext = context.applicationContext
@@ -45,4 +67,15 @@ internal object AndroidPlatformEnvironment {
 
     fun context(): Context = applicationContext
         ?: error("ClambHook Android platform context is not initialized")
+
+    fun receiveOutlineUri(uri: Uri) {
+        if (uri.scheme.equals("ss", ignoreCase = true) ||
+            uri.scheme.equals("ssconf", ignoreCase = true)) {
+            pendingOutlineUri = uri.toString()
+        }
+    }
+
+    fun consumeOutlineUri(): String = synchronized(this) {
+        pendingOutlineUri.also { pendingOutlineUri = "" }
+    }
 }

@@ -150,7 +150,9 @@ void ch_test_runtime(void) {
     CH_TEST_ASSERT(ch_runtime_query(runtime, "status", NULL, &json, &error) == CH_OK);
     CH_TEST_ASSERT_STRING(
         "{\"running\":false,\"profile\":\"default\",\"network_info\":{},"
-        "\"dns\":{\"enabled\":false}}",
+        "\"dns\":{\"enabled\":false},"
+        "\"outline_refresh\":{\"dynamic\":false,"
+        "\"last_success_ts_ns\":0,\"stale\":false,\"warning\":\"\"}}",
         json
     );
     ch_string_free(json);
@@ -174,7 +176,8 @@ void ch_test_runtime(void) {
     CH_TEST_ASSERT(ch_runtime_mutate(runtime, "disconnect", NULL, &json, &error) == CH_OK);
     CH_TEST_ASSERT_STRING(
         "{\"running\":false,\"profile\":\"default\",\"network_info\":{},"
-        "\"dns\":{\"enabled\":false}}",
+        "\"dns\":{\"enabled\":false},\"outline_refresh\":{\"dynamic\":false,"
+        "\"last_success_ts_ns\":0,\"stale\":false,\"warning\":\"\"}}",
         json
     );
     ch_string_free(json);
@@ -312,7 +315,9 @@ void ch_test_runtime(void) {
             &json, &error) == CH_OK);
         CH_TEST_ASSERT_STRING(
             "{\"running\":true,\"profile\":\"plain\","
-            "\"network_info\":{},\"dns\":{\"enabled\":false}}",
+            "\"network_info\":{},\"dns\":{\"enabled\":false},"
+            "\"outline_refresh\":{\"dynamic\":false,\"last_success_ts_ns\":0,"
+            "\"stale\":false,\"warning\":\"\"}}",
             json);
         ch_string_free(json);
         ch_runtime_destroy(runtime);
@@ -439,7 +444,8 @@ void ch_test_runtime(void) {
         ) == CH_OK);
         CH_TEST_ASSERT_STRING(
             "{\"running\":true,\"profile\":\"home\",\"network_info\":{},"
-            "\"dns\":{\"enabled\":false}}",
+            "\"dns\":{\"enabled\":false},\"outline_refresh\":{\"dynamic\":false,"
+            "\"last_success_ts_ns\":0,\"stale\":false,\"warning\":\"\"}}",
             json
         );
         ch_string_free(json);

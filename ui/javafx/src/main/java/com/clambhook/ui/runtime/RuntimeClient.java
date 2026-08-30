@@ -99,6 +99,25 @@ public interface RuntimeClient extends AutoCloseable {
                 Objects.requireNonNullElse(toml, "")).thenApply(Document::parse);
     }
 
+    default CompletableFuture<Document> reviewOutlineAccessKey(String accessKey) {
+        return request("POST", "/api/v1/outline/review",
+                Json.object(Map.of("access_key",
+                        Objects.requireNonNullElse(accessKey, ""))));
+    }
+
+    default CompletableFuture<Document> importOutlineAccessKey(
+            String accessKey, String profileName, boolean activate) {
+        return request("POST", "/api/v1/outline/import", Json.object(Map.of(
+                "access_key", Objects.requireNonNullElse(accessKey, ""),
+                "profile_name", Objects.requireNonNullElse(profileName, ""),
+                "activate", activate)));
+    }
+
+    default CompletableFuture<Document> refreshOutlineProfile(String profile) {
+        return request("POST", "/api/v1/outline/refresh",
+                Json.object(Map.of("profile", Objects.requireNonNullElse(profile, ""))));
+    }
+
     default CompletableFuture<Document> updateDns(String json) {
         return request("PUT", "/api/v1/dns", json);
     }

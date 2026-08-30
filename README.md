@@ -170,6 +170,7 @@ archives are rejected before linking.
 | `make ci-local` | Run the applicable local mirror of hosted CI. |
 
 See [Android development](docs/android-development.md),
+[Outline access keys](docs/outline-access-keys.md),
 [release validation](docs/release-validation.md), and
 [packaging](packaging/README.md).
 

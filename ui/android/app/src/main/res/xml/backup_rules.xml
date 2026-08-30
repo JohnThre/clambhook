@@ -6,4 +6,5 @@
 <full-backup-content>
     <exclude domain="sharedpref" path="clambhook_secrets.xml" />
     <exclude domain="sharedpref" path="clambhook_license.xml" />
+    <exclude domain="file" path="clambhook/" />
 </full-backup-content>

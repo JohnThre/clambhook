@@ -104,6 +104,15 @@ Licensed under Apache-2.0. ClambHook compiles the pinned reader as a private
 static dependency. The complete license, upstream version, archive digest, and
 vendored-file inventory are in `third_party/libmaxminddb/`.
 
+## libyaml 0.2.5
+
+Copyright (c) 2006 Kirill Simonov.
+
+Licensed under the MIT License. ClambHook vendors the upstream parser sources
+without modification to read basic Outline dynamic access-key documents,
+including anchors, aliases, and merge keys. The complete license, pinned commit,
+archive checksum, and imported-file inventory are in `third_party/libyaml/`.
+
 ## wireguard-lwip
 
 Copyright the wireguard-lwip contributors and the credited reference-crypto

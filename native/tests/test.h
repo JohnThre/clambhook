@@ -42,6 +42,7 @@ void ch_test_license(void);
 void ch_test_listener(void);
 void ch_test_netwatch(void);
 void ch_test_openvpn(void);
+void ch_test_outline(void);
 void ch_test_procattr(void);
 void ch_test_policy(void);
 void ch_test_prompt(void);

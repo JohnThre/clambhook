@@ -44,6 +44,8 @@ struct ch_packet_connection {
     int stream_descriptor;
     ch_ss_cipher cipher;
     uint8_t master_key[32];
+    uint8_t shadowsocks_prefix[32];
+    size_t shadowsocks_prefix_length;
     uint8_t *receive_buffer;
     size_t receive_length;
     size_t receive_capacity;
@@ -321,12 +323,22 @@ ch_status ch_protocol_chain_dial_packet(const ch_config_table *chain,
     if (kind == CH_PACKET_SHADOWSOCKS) {
         const ch_config_table *settings = ch_config_table_get_table(
             server, "settings");
-        char *method = ch_packet_optional_string(settings, "method");
-        char *password = ch_packet_optional_string(settings, "password");
-        char *address = ch_packet_optional_string(server, "address");
+        char *method = ch_packet_optional_string(settings, "udp_method");
+        char *password = ch_packet_optional_string(settings, "udp_password");
+        char *address = ch_packet_optional_string(settings, "udp_address");
+        char *prefix = ch_packet_optional_string(settings,
+                                                  "udp_prefix_base64");
+        if (method == NULL) method = ch_packet_optional_string(settings,
+                                                               "method");
+        if (password == NULL) password = ch_packet_optional_string(settings,
+                                                                   "password");
+        if (address == NULL) address = ch_packet_optional_string(server,
+                                                                  "address");
+        if (prefix == NULL) prefix = ch_packet_optional_string(
+            settings, "prefix_base64");
         if (method == NULL || password == NULL || address == NULL ||
             password[0] == '\0' || address[0] == '\0') {
-            free(method); free(password); free(address);
+            free(method); free(password); free(address); free(prefix);
             ch_packet_connection_close(connection);
             ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
                          "Shadowsocks packet method, password, and address "
@@ -341,9 +353,15 @@ ch_status ch_protocol_chain_dial_packet(const ch_config_table *chain,
                 connection->cipher.key_size, connection->master_key, error);
         }
         if (status == CH_OK) {
+            status = ch_ss_prefix_from_base64(
+                prefix == NULL ? "" : prefix, &connection->cipher,
+                connection->shadowsocks_prefix,
+                &connection->shadowsocks_prefix_length, error);
+        }
+        if (status == CH_OK) {
             status = ch_packet_connect_server(connection, address, error);
         }
-        free(method); free(password); free(address);
+        free(method); free(password); free(address); free(prefix);
         if (status != CH_OK) {
             ch_packet_connection_close(connection);
             return status;
@@ -620,8 +638,10 @@ ch_status ch_packet_connection_send(ch_packet_connection *connection,
     } else if (connection->kind == CH_PACKET_SHADOWSOCKS) {
         uint8_t *frame = NULL;
         size_t frame_length = 0U;
-        status = ch_ss_encrypt_datagram(
-            &connection->cipher, connection->master_key, target, payload,
+        status = ch_ss_encrypt_datagram_with_prefix(
+            &connection->cipher, connection->master_key,
+            connection->shadowsocks_prefix,
+            connection->shadowsocks_prefix_length, target, payload,
             payload_length, &frame, &frame_length, error);
         if (status == CH_OK && frame_length > CH_PACKET_MAX_WIRE_SIZE) {
             ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,

@@ -66,6 +66,16 @@ ch_status ch_ss_encrypt_datagram(const ch_ss_cipher *cipher,
                                  uint8_t **out_frame,
                                  size_t *out_frame_length,
                                  ch_error *error);
+ch_status ch_ss_encrypt_datagram_with_prefix(
+    const ch_ss_cipher *cipher, const uint8_t *master_key,
+    const uint8_t *prefix, size_t prefix_length, const char *target,
+    const uint8_t *payload, size_t payload_length, uint8_t **out_frame,
+    size_t *out_frame_length, ch_error *error);
+ch_status ch_ss_prefix_from_base64(const char *encoded,
+                                   const ch_ss_cipher *cipher,
+                                   uint8_t *out_prefix,
+                                   size_t *out_prefix_length,
+                                   ch_error *error);
 ch_status ch_ss_decrypt_datagram(const ch_ss_cipher *cipher,
                                  const uint8_t *master_key,
                                  const uint8_t *frame,

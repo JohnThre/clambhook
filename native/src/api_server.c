@@ -1417,6 +1417,27 @@ static void ch_api_route(ch_api_client *client) {
     }
     if (strcmp(method, "GET") == 0 && strcmp(path, "/api/v1/status") == 0) {
         status = ch_runtime_query(client->server->runtime, "status", "{}", &json, &error);
+    } else if (strcmp(method, "POST") == 0 &&
+               strcmp(path, "/api/v1/outline/review") == 0) {
+        status = ch_runtime_query(
+            client->server->runtime, "outline_review",
+            client->body.data == NULL ? "{}" : client->body.data,
+            &json, &error);
+    } else if (strcmp(method, "POST") == 0 &&
+               strcmp(path, "/api/v1/outline/import") == 0) {
+        persistence_required = 1;
+        status = ch_runtime_mutate(
+            client->server->runtime, "outline_import",
+            client->body.data == NULL ? "{}" : client->body.data,
+            &json, &error);
+    } else if (strcmp(method, "POST") == 0 &&
+               strcmp(path, "/api/v1/outline/refresh") == 0) {
+        persistence_required = 1;
+        conflict_on_invalid_state = 1;
+        status = ch_runtime_mutate(
+            client->server->runtime, "outline_refresh",
+            client->body.data == NULL ? "{}" : client->body.data,
+            &json, &error);
     } else if (strcmp(method, "GET") == 0 && strcmp(path, "/api/v1/profiles") == 0) {
         status = ch_runtime_query(client->server->runtime, "profiles", "{}", &json, &error);
     } else if (strcmp(method, "GET") == 0 && strcmp(path, "/api/v1/servers") == 0) {
@@ -1835,6 +1856,9 @@ static void ch_api_route(ch_api_client *client) {
             strncmp(path, "/api/v1/rules/temporary/", 24U) == 0 ||
             strcmp(path, "/api/v1/config/export") == 0 ||
             strcmp(path, "/api/v1/config/import") == 0 ||
+            strcmp(path, "/api/v1/outline/review") == 0 ||
+            strcmp(path, "/api/v1/outline/import") == 0 ||
+            strcmp(path, "/api/v1/outline/refresh") == 0 ||
             strcmp(path, "/api/v1/profiles/active") == 0 ||
             strcmp(path, "/api/v1/connect") == 0 || strcmp(path, "/api/v1/disconnect") == 0;
         ch_api_respond(client, known ? 405 : 404, NULL, known ? "method not allowed\n" : "not found\n");

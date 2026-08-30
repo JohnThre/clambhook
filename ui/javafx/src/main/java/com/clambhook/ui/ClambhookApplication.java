@@ -35,6 +35,17 @@ public final class ClambhookApplication extends Application {
         stage.setMinHeight(620);
         stage.setScene(scene);
         stage.show();
+        getParameters().getRaw().stream()
+                .filter(value -> value.regionMatches(true, 0, "ss://", 0, 5) ||
+                        value.regionMatches(true, 0, "ssconf://", 0, 9))
+                .findFirst()
+                .ifPresent(mainView::showOutlineAccessKey);
+        platformServices.takePendingOutlineAccessKey().thenAccept(value -> {
+            if (value != null && !value.isBlank()) {
+                javafx.application.Platform.runLater(
+                        () -> mainView.showOutlineAccessKey(value));
+            }
+        });
     }
 
     @Override

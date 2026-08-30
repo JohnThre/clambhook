@@ -87,6 +87,7 @@ public final class MainView implements AutoCloseable {
     private final Map<Page, Runnable> pageRefreshers = new EnumMap<>(Page.class);
     private final ScheduledExecutorService refreshScheduler;
     private final AtomicBoolean refreshInFlight = new AtomicBoolean();
+    private final AtomicBoolean outlineLinkReadInFlight = new AtomicBoolean();
     private final AtomicBoolean closed = new AtomicBoolean();
     private final AtomicReference<Flow.Subscription> liveEventSubscription =
             new AtomicReference<>();
@@ -110,6 +111,8 @@ public final class MainView implements AutoCloseable {
     private final TableView<DashboardData.Capture> capturesTable = new TableView<>();
     private final ListView<String> profilesList = new ListView<>();
     private final TextArea configTransfer = documentArea("TOML configuration");
+    private final TextArea outlineKey = new TextArea();
+    private final TextField outlineName = new TextField("Outline");
     private final TextArea decisionsDocument = documentArea("Traffic decisions JSON");
     private final TextArea temporaryRulesDocument = documentArea("Temporary rules JSON");
     private final TextArea policyGroupsDocument = documentArea("Policy groups JSON");
@@ -164,6 +167,20 @@ public final class MainView implements AutoCloseable {
 
     public Parent node() {
         return root;
+    }
+
+    /** Routes an external key into review; it never imports or connects. */
+    public void showOutlineAccessKey(String accessKey) {
+        String value = accessKey == null ? "" : accessKey.trim();
+        if (!value.regionMatches(true, 0, "ss://", 0, 5) &&
+                !value.regionMatches(true, 0, "ssconf://", 0, 9)) {
+            showError(new IllegalArgumentException(
+                    "External Outline links must use ss:// or ssconf://"));
+            return;
+        }
+        outlineKey.setText(value);
+        showPage(Page.PROFILES);
+        outlineKey.requestFocus();
     }
 
     /** Installs platform-standard keyboard navigation without stealing focus. */
@@ -338,10 +355,105 @@ public final class MainView implements AutoCloseable {
         HBox fileActions = new HBox(8, filePath, readFile, writeFile);
         HBox.setHgrow(filePath, Priority.ALWAYS);
         VBox transfer = card(sectionTitle("Import, export, and QR"),
-                new Label("TOML is validated and applied transactionally by the C17 runtime."),
+                new Label("TOML is validated transactionally. Exports can contain passwords and dynamic Outline URLs; handle them as secrets."),
                 configTransfer, transferActions, fileActions);
+        outlineKey.setPromptText("ss:// or ssconf:// access key");
+        outlineKey.setAccessibleText("Outline access key");
+        outlineKey.setPrefRowCount(3);
+        outlineName.setPromptText("Profile name");
+        outlineName.setAccessibleText("Outline profile name");
+        Label outlineReview = new Label(
+                "Review an access key before importing. Keys are never auto-connected.");
+        outlineReview.setWrapText(true);
+        outlineReview.getStyleClass().add("secondary-text");
+        Button reviewOutline = new Button("Review access key");
+        Button importOutline = new Button("Import Outline profile");
+        importOutline.getStyleClass().add("primary-button");
+        importOutline.setDisable(true);
+        AtomicReference<String> reviewedKey = new AtomicReference<>("");
+        AtomicReference<String> reviewedName = new AtomicReference<>("");
+        Runnable invalidateOutlineReview = () -> {
+            reviewedKey.set("");
+            reviewedName.set("");
+            importOutline.setDisable(true);
+        };
+        outlineKey.textProperty().addListener((ignored, oldValue, newValue) ->
+                invalidateOutlineReview.run());
+        outlineName.textProperty().addListener((ignored, oldValue, newValue) ->
+                invalidateOutlineReview.run());
+        Button pasteOutline = new Button("Paste key");
+        pasteOutline.setDisable(!platformServices.supports(
+                PlatformServices.Capability.CLIPBOARD));
+        pasteOutline.setOnAction(ignored -> platformServices.clipboardRead()
+                .whenComplete((value, failure) -> Platform.runLater(() -> {
+                    if (failure != null) showError(failure);
+                    else {
+                        outlineKey.setText(value == null ? "" : value.trim());
+                        importOutline.setDisable(true);
+                    }
+                })));
+        Button scanOutline = new Button("Scan key QR");
+        scanOutline.setDisable(!platformServices.supports(
+                PlatformServices.Capability.QR_SCAN));
+        scanOutline.setOnAction(ignored -> platformServices.scanQrCode()
+                .whenComplete((value, failure) -> Platform.runLater(() -> {
+                    if (failure != null) showError(failure);
+                    else {
+                        outlineKey.setText(value == null ? "" : value.trim());
+                        importOutline.setDisable(true);
+                    }
+                })));
+        reviewOutline.setOnAction(ignored -> {
+            String requestedKey = outlineKey.getText();
+            runtime.reviewOutlineAccessKey(requestedKey).whenComplete((preview, failure) ->
+                Platform.runLater(() -> {
+                    if (failure != null) {
+                        invalidateOutlineReview.run();
+                        showError(failure);
+                        return;
+                    }
+                    if (!requestedKey.equals(outlineKey.getText())) {
+                        invalidateOutlineReview.run();
+                        return;
+                    }
+                    String suggested = preview.root().get("suggested_name").text();
+                    if (!suggested.isBlank() && (outlineName.getText().isBlank() ||
+                            "Outline".equals(outlineName.getText()))) {
+                        outlineName.setText(suggested);
+                    }
+                    outlineReview.setText("Compatibility preview (credentials hidden):\n" +
+                            preview.rawJson() + "\nWill create profile: " + outlineName.getText());
+                    reviewedKey.set(requestedKey);
+                    reviewedName.set(outlineName.getText());
+                    importOutline.setDisable(false);
+                }));
+        });
+        importOutline.setOnAction(ignored -> {
+            if (!reviewedKey.get().equals(outlineKey.getText()) ||
+                    !reviewedName.get().equals(outlineName.getText())) {
+                invalidateOutlineReview.run();
+                showError(new IllegalStateException("Review this access key and profile name again"));
+                return;
+            }
+            runMutation(runtime.importOutlineAccessKey(outlineKey.getText(),
+                    outlineName.getText(), false));
+        });
+        Button refreshOutline = new Button("Refresh selected dynamic profile");
+        refreshOutline.setOnAction(ignored -> {
+            String selected = profilesList.getSelectionModel().getSelectedItem();
+            if (selected == null || selected.isBlank()) {
+                showError(new IllegalArgumentException("Select a profile first"));
+            } else {
+                runMutation(runtime.refreshOutlineProfile(selected));
+            }
+        });
+        FlowPane outlineActions = new FlowPane(8, 8, pasteOutline, scanOutline,
+                reviewOutline, importOutline, refreshOutline);
+        VBox outline = card(sectionTitle("Import Outline access key"),
+                new Label("Paste, scan, or open a standard ss:// or basic dynamic ssconf:// key."),
+                outlineKey, outlineName, outlineReview, outlineActions);
         VBox profileCard = card(sectionTitle("Profiles"), profilesList, activate);
-        VBox body = new VBox(16, profileCard, transfer);
+        VBox body = new VBox(16, profileCard, outline, transfer);
         body.getStyleClass().add("page-content");
         pageRefreshers.put(Page.PROFILES, () -> loadRaw(runtime.exportConfig(), configTransfer));
         return scroll(body);
@@ -1103,6 +1215,14 @@ public final class MainView implements AutoCloseable {
     }
 
     private void refresh() {
+        if (outlineLinkReadInFlight.compareAndSet(false, true)) {
+            platformServices.takePendingOutlineAccessKey().whenComplete((value, error) -> {
+                outlineLinkReadInFlight.set(false);
+                if (error == null && value != null && !value.isBlank()) {
+                    Platform.runLater(() -> showOutlineAccessKey(value));
+                }
+            });
+        }
         if (!refreshInFlight.compareAndSet(false, true)) {
             return;
         }

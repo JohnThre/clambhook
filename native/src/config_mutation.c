@@ -924,6 +924,228 @@ static ch_status mutation_select_profile(ch_json_value *root,
     return CH_ERROR_NOT_FOUND;
 }
 
+static int mutation_outline_placeholder(const ch_json_value *profiles) {
+    if (ch_json_array_size(profiles) != 1U) return 0;
+    const ch_json_value *profile = ch_json_array_get(profiles, 0U);
+    const char *name = ch_json_string_value(ch_json_object_get(profile,
+                                                               "name"));
+    const ch_json_value *chains = ch_json_object_get(profile, "chain");
+    if (name == NULL || strcmp(name, "default") != 0 ||
+        ch_json_array_size(chains) != 1U) return 0;
+    const ch_json_value *servers = ch_json_object_get(
+        ch_json_array_get(chains, 0U), "server");
+    if (ch_json_array_size(servers) != 1U) return 0;
+    const ch_json_value *server = ch_json_array_get(servers, 0U);
+    const char *server_name = ch_json_string_value(
+        ch_json_object_get(server, "name"));
+    const char *address = ch_json_string_value(
+        ch_json_object_get(server, "address"));
+    return (server_name != NULL && strcmp(server_name, "replace-me") == 0) ||
+        (address != NULL && strstr(address, "proxy.example.com") != NULL);
+}
+
+static ch_status mutation_outline_set_string(ch_json_value *object,
+                                             const ch_json_value *source,
+                                             const char *source_key,
+                                             const char *target_key,
+                                             ch_error *error) {
+    const char *value = ch_json_string_value(ch_json_object_get(source,
+                                                                source_key));
+    if (value == NULL) return mutation_type_error(source_key, "a string",
+                                                  error);
+    return mutation_set_owned(object, target_key,
+                              ch_json_value_new_string(value), error);
+}
+
+static ch_status mutation_outline_apply_server(ch_json_value *server,
+                                               const ch_json_value *request,
+                                               ch_error *error) {
+    const ch_json_value *tcp = ch_json_object_get(request, "tcp");
+    const ch_json_value *udp = ch_json_object_get(request, "udp");
+    if (ch_json_value_type(tcp) != CH_JSON_OBJECT ||
+        ch_json_value_type(udp) != CH_JSON_OBJECT) {
+        return mutation_type_error("tcp and udp", "objects", error);
+    }
+    if (mutation_outline_set_string(server, tcp, "address", "address",
+                                    error) != CH_OK ||
+        mutation_set_owned(server, "protocol",
+            ch_json_value_new_string("shadowsocks"), error) != CH_OK) {
+        return error->code;
+    }
+    ch_json_value *settings = ch_json_value_new_object();
+    if (settings == NULL) {
+        ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                     "allocate Outline settings");
+        return CH_ERROR_OUT_OF_MEMORY;
+    }
+    ch_status status = mutation_outline_set_string(
+        settings, tcp, "method", "method", error);
+    if (status == CH_OK) status = mutation_outline_set_string(
+        settings, tcp, "password", "password", error);
+    if (status == CH_OK) status = mutation_outline_set_string(
+        settings, tcp, "prefix_base64", "prefix_base64", error);
+    if (status == CH_OK) status = mutation_outline_set_string(
+        settings, udp, "address", "udp_address", error);
+    if (status == CH_OK) status = mutation_outline_set_string(
+        settings, udp, "method", "udp_method", error);
+    if (status == CH_OK) status = mutation_outline_set_string(
+        settings, udp, "password", "udp_password", error);
+    if (status == CH_OK) status = mutation_outline_set_string(
+        settings, udp, "prefix_base64", "udp_prefix_base64", error);
+    const char *dynamic_key = ch_json_string_value(ch_json_object_get(
+        request, "dynamic_key"));
+    int64_t refreshed_at = 0;
+    const ch_json_value *refreshed = ch_json_object_get(request,
+                                                        "refreshed_at_ns");
+    if (status == CH_OK && dynamic_key != NULL && dynamic_key[0] != '\0') {
+        status = mutation_set_owned(
+            settings, "outline_dynamic_key",
+            ch_json_value_new_string(dynamic_key), error);
+        if (status == CH_OK &&
+            ch_json_int64_value(refreshed, &refreshed_at)) {
+            status = mutation_set_owned(
+                settings, "outline_refreshed_at_ns",
+                ch_json_value_new_int64(refreshed_at), error);
+        }
+    }
+    if (status == CH_OK) status = mutation_set_owned(server, "settings",
+                                                      settings, error);
+    if (status != CH_OK) ch_json_value_destroy(settings);
+    return status;
+}
+
+static ch_status mutation_import_outline(ch_json_value *root,
+                                         const ch_json_value *request,
+                                         ch_error *error) {
+    const char *name_raw = ch_json_string_value(ch_json_object_get(
+        request, "profile_name"));
+    char *name = mutation_trimmed_copy(name_raw == NULL ? "" : name_raw);
+    if (name == NULL) {
+        ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                     "copy Outline profile name");
+        return CH_ERROR_OUT_OF_MEMORY;
+    }
+    if (name[0] == '\0') {
+        free(name);
+        ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
+                     "Outline profile name is required");
+        return CH_ERROR_INVALID_ARGUMENT;
+    }
+    ch_json_value *profiles = ch_json_object_get_mutable(root, "profile");
+    int placeholder = mutation_outline_placeholder(profiles);
+    for (size_t index = 0U; index < ch_json_array_size(profiles); ++index) {
+        const char *candidate = ch_json_string_value(ch_json_object_get(
+            ch_json_array_get(profiles, index), "name"));
+        if (!placeholder && candidate != NULL && strcmp(candidate, name) == 0) {
+            ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
+                         "profile %s already exists", name);
+            free(name);
+            return CH_ERROR_INVALID_ARGUMENT;
+        }
+    }
+    ch_json_value *base = ch_json_array_size(profiles) == 0U ?
+        ch_json_value_new_object() : ch_json_value_clone(
+            ch_json_array_get(profiles, 0U));
+    if (base == NULL) {
+        free(name);
+        ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                     "allocate Outline profile");
+        return CH_ERROR_OUT_OF_MEMORY;
+    }
+    (void)ch_json_object_remove(base, "chain");
+    (void)ch_json_object_remove(base, "policy_group");
+    if (mutation_set_owned(base, "name", ch_json_value_new_string(name),
+                           error) != CH_OK) {
+        ch_json_value_destroy(base); free(name); return error->code;
+    }
+    ch_json_value *chain = ch_json_value_new_object();
+    ch_json_value *chains = ch_json_value_new_array();
+    ch_json_value *server = ch_json_value_new_object();
+    ch_json_value *servers = ch_json_value_new_array();
+    if (chain == NULL || chains == NULL || server == NULL || servers == NULL) {
+        ch_json_value_destroy(chain); ch_json_value_destroy(chains);
+        ch_json_value_destroy(server); ch_json_value_destroy(servers);
+        ch_json_value_destroy(base); free(name);
+        ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                     "allocate Outline chain");
+        return CH_ERROR_OUT_OF_MEMORY;
+    }
+    ch_status status = mutation_set_owned(
+        chain, "name", ch_json_value_new_string("outline"), error);
+    if (status == CH_OK) status = mutation_set_owned(
+        server, "name", ch_json_value_new_string("Outline"), error);
+    if (status == CH_OK) status = mutation_outline_apply_server(
+        server, request, error);
+    if (status == CH_OK) status = ch_json_array_append(servers, server, error);
+    if (status == CH_OK) server = NULL;
+    if (status == CH_OK) status = mutation_set_owned(chain, "server", servers,
+                                                      error);
+    if (status == CH_OK) servers = NULL;
+    if (status == CH_OK) status = ch_json_array_append(chains, chain, error);
+    if (status == CH_OK) chain = NULL;
+    if (status == CH_OK) status = mutation_set_owned(base, "chain", chains,
+                                                      error);
+    if (status == CH_OK) chains = NULL;
+    ch_json_value *next = NULL;
+    if (status == CH_OK) next = ch_json_value_new_array();
+    if (status == CH_OK && next == NULL) {
+        ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                     "allocate Outline profile list");
+        status = CH_ERROR_OUT_OF_MEMORY;
+    }
+    for (size_t index = 0U; status == CH_OK && !placeholder &&
+         index < ch_json_array_size(profiles); ++index) {
+        ch_json_value *copy = ch_json_value_clone(ch_json_array_get(profiles,
+                                                                    index));
+        if (copy == NULL || ch_json_array_append(next, copy, error) != CH_OK) {
+            ch_json_value_destroy(copy);
+            status = error->code == CH_OK ? CH_ERROR_OUT_OF_MEMORY :
+                                            error->code;
+        }
+    }
+    if (status == CH_OK) status = ch_json_array_append(next, base, error);
+    if (status == CH_OK) base = NULL;
+    if (status == CH_OK) status = mutation_set_owned(root, "profile", next,
+                                                      error);
+    if (status == CH_OK) next = NULL;
+    if (status == CH_OK && ch_json_bool_value(
+            ch_json_object_get(request, "activate"), false)) {
+        status = mutation_set_owned(root, "active",
+                                    ch_json_value_new_string(name), error);
+    }
+    ch_json_value_destroy(server); ch_json_value_destroy(servers);
+    ch_json_value_destroy(chain); ch_json_value_destroy(chains);
+    ch_json_value_destroy(base); ch_json_value_destroy(next);
+    free(name);
+    return status;
+}
+
+static ch_status mutation_refresh_outline(ch_json_value *profile,
+                                          const ch_json_value *request,
+                                          ch_error *error) {
+    ch_json_value *chains = ch_json_object_get_mutable(profile, "chain");
+    for (size_t chain_index = 0U; chain_index < ch_json_array_size(chains);
+         ++chain_index) {
+        ch_json_value *servers = ch_json_object_get_mutable(
+            ch_json_array_get_mutable(chains, chain_index), "server");
+        for (size_t server_index = 0U;
+             server_index < ch_json_array_size(servers); ++server_index) {
+            ch_json_value *server = ch_json_array_get_mutable(servers,
+                                                               server_index);
+            const ch_json_value *settings = ch_json_object_get(server,
+                                                                "settings");
+            const char *source = ch_json_string_value(ch_json_object_get(
+                settings, "outline_dynamic_key"));
+            if (source != NULL && source[0] != '\0') {
+                return mutation_outline_apply_server(server, request, error);
+            }
+        }
+    }
+    ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
+                 "profile is not backed by a dynamic Outline key");
+    return CH_ERROR_INVALID_ARGUMENT;
+}
+
 static int mutation_append_toml_string(ch_json_buffer *output,
                                        const char *value) {
     static const char hex[] = "0123456789abcdef";
@@ -1153,9 +1375,13 @@ ch_status ch_config_mutate_document_json(const ch_config *config,
         return mutation_type_error("request", "an object", error);
     }
     ch_json_value *profile = NULL;
-    status = mutation_select_profile(root, request, fallback_profile, &profile,
-                                     error);
-    if (status == CH_OK) {
+    if (strcmp(operation, "import_outline") == 0) {
+        status = mutation_import_outline(root, request, error);
+    } else {
+        status = mutation_select_profile(root, request, fallback_profile,
+                                         &profile, error);
+    }
+    if (status == CH_OK && strcmp(operation, "import_outline") != 0) {
         char *active = mutation_trimmed_copy(
             fallback_profile == NULL ? "" : fallback_profile);
         if (active == NULL) {
@@ -1168,7 +1394,11 @@ ch_status ch_config_mutate_document_json(const ch_config *config,
         }
         free(active);
     }
-    if (status == CH_OK && strcmp(operation, "update_dns") == 0) {
+    if (status == CH_OK && strcmp(operation, "import_outline") == 0) {
+        /* Applied before profile selection because this creates a profile. */
+    } else if (status == CH_OK && strcmp(operation, "refresh_outline") == 0) {
+        status = mutation_refresh_outline(profile, request, error);
+    } else if (status == CH_OK && strcmp(operation, "update_dns") == 0) {
         ch_json_value *dns = NULL;
         status = mutation_build_dns(request, &dns, error);
         if (status == CH_OK) {

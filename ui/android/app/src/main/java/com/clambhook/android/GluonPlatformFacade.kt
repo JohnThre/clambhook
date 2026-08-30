@@ -141,6 +141,23 @@ object GluonPlatformFacade {
         if (verb == "POST" && route == "/api/v1/policy-groups/test") {
             return requireRuntime().mutate("test_policy_groups", requestBody)
         }
+        if (verb == "POST" && route == "/api/v1/outline/review") {
+            return NativeClambhookConfigBridge.outlineReview(requestBody)
+        }
+        if (verb == "POST" && route in setOf(
+                "/api/v1/outline/import", "/api/v1/outline/refresh")) {
+            val path = runBlocking { configStore.ensureConfig() }
+            val response = if (route.endsWith("/import")) {
+                NativeClambhookConfigBridge.outlineImport(path, requestBody)
+            } else {
+                check(ClambhookTunnelSession.runtime.value?.isRunning() != true) {
+                    "disconnect before refreshing an Outline profile"
+                }
+                NativeClambhookConfigBridge.outlineRefresh(path, requestBody)
+            }
+            ClambhookTunnelSession.runtime.value?.reload(path)
+            return response
+        }
 
         val queryOperation = when {
             verb == "POST" && route == "/api/v1/developer/curl/import" -> "developer_curl_import"
@@ -242,6 +259,7 @@ object GluonPlatformFacade {
                 )
                 "{}"
             }
+            "outline-link-consume" -> AndroidPlatformEnvironment.consumeOutlineUri()
             "browser-open" -> {
                 openBrowser(request.string("uri"))
                 "{}"

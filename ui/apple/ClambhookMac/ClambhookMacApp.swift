@@ -11,6 +11,7 @@ struct ClambhookMacApp: App {
     var body: some Scene {
         WindowGroup("clambhook", id: "dashboard") {
             MacDashboardWindowView(model: model)
+                .onOpenURL { model.receiveOutlineURL($0) }
         }
         .defaultSize(width: 1060, height: 700)
         .defaultPosition(.center)

@@ -289,6 +289,7 @@ final class MainViewTest {
                     case "supports" -> false;
                     case "requestVpnConsent" -> CompletableFuture.completedFuture(true);
                     case "startVpn", "stopVpn" -> CompletableFuture.completedFuture(null);
+                    case "takePendingOutlineAccessKey" -> CompletableFuture.completedFuture("");
                     case "platformName" -> "test platform";
                     case "close" -> null;
                     case "toString" -> "test platform proxy";

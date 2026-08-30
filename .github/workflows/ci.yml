@@ -75,6 +75,11 @@ jobs:
             build-essential cmake ninja-build pkg-config \
             libuv1-dev libsodium-dev libssl-dev libcurl4-openssl-dev \
             iproute2 openvpn socat wireguard-tools
+      - name: Set up Go for pinned official Outline peer
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.0.0
+        with:
+          go-version: '1.24.8'
+          cache: false
       - name: Run strict ASan and UBSan suite
         run: make test-native
       - name: Run real loopback WireGuard and OpenVPN peers
@@ -82,6 +87,8 @@ jobs:
           CLAMBHOOK_REQUIRE_REAL_PEERS=1
           scripts/test-real-protocol-peers.sh
           build-native-sanitize/clambhook-native-tests
+      - name: Run pinned official Outline TCP, UDP, and prefix peer
+        run: scripts/test-outline-interop.sh build-native-sanitize/clambhook-native-tests
 
   javafx:
     name: JavaFX runtime client, state, and accessibility tests

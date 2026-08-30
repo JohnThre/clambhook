@@ -16,6 +16,7 @@
 
 #include "clambhook/error.h"
 #include "clambhook/json.h"
+#include "internal.h"
 
 #ifndef CLAMBHOOK_VERSION
 #define CLAMBHOOK_VERSION "dev"
@@ -193,7 +194,8 @@ static char *tui_request(const char *base, const char *token,
     (void)curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, tui_write_response);
     (void)curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
     (void)curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT_MS, 1000L);
-    (void)curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, 2000L);
+    (void)curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS,
+                           strstr(path, "/outline/") == NULL ? 2000L : 17000L);
     (void)curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
     /* The control plane is loopback-only; never inherit an ambient proxy. */
     (void)curl_easy_setopt(curl, CURLOPT_NOPROXY, "*");
@@ -375,6 +377,15 @@ static void tui_render(const tui_snapshot *snapshot, const char *base,
                  tui_string(snapshot->status, "profile"),
                  interactive ? "\033[0m" : "",
                  tui_string(snapshot->status, "tunnel_mode"));
+    const ch_json_value *outline = tui_member(snapshot->status,
+                                               "outline_refresh");
+    if (ch_json_bool_value(tui_member(outline, "dynamic"), false)) {
+        (void)printf("Outline: dynamic · last refresh %lld%s%s\n",
+            (long long)tui_integer(outline, "last_success_ts_ns"),
+            ch_json_bool_value(tui_member(outline, "stale"), false) ?
+                " · STALE: " : "",
+            tui_string(outline, "warning"));
+    }
     const ch_json_value *network = tui_member(snapshot->status, "network_info");
     if (ch_json_value_type(network) == CH_JSON_OBJECT) {
         (void)printf("Network: %s%s%s\n", tui_string(network, "interface_name"),
@@ -411,6 +422,7 @@ static void tui_render(const tui_snapshot *snapshot, const char *base,
     tui_render_prompts(snapshot, interactive);
     if (interactive) {
         (void)puts("\nq quit · r refresh · j/k select · enter switch profile · c connect · d disconnect");
+        (void)puts("i import Outline key · R refresh selected dynamic profile while disconnected");
     }
     (void)fflush(stdout);
 }
@@ -457,6 +469,105 @@ static void tui_action(tui_snapshot *snapshot, const char *base,
     tui_refresh(snapshot, base, token);
     tui_set_error(snapshot->notice, sizeof(snapshot->notice),
                   failed ? error : "Action completed");
+}
+
+static char *tui_prompt_line(const char *prompt, bool secret) {
+    struct termios cooked = tui_saved_terminal;
+    if (secret) cooked.c_lflag &= (tcflag_t)~ECHO;
+    (void)tcsetattr(STDIN_FILENO, TCSAFLUSH, &cooked);
+    (void)fputs("\033[?25h\n", stdout);
+    (void)fputs(prompt, stdout);
+    (void)fflush(stdout);
+    char *line = NULL;
+    size_t capacity = 0U;
+    ssize_t length = getline(&line, &capacity, stdin);
+    if (secret) (void)putchar('\n');
+    struct termios raw = tui_saved_terminal;
+    raw.c_lflag &= (tcflag_t)~(ICANON | ECHO);
+    raw.c_iflag &= (tcflag_t)~(IXON | ICRNL);
+    raw.c_cc[VMIN] = 0;
+    raw.c_cc[VTIME] = 0;
+    (void)tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw);
+    (void)fputs("\033[?25l", stdout);
+    if (length <= 0) { free(line); return NULL; }
+    while (length > 0 && (line[length - 1] == '\n' ||
+           line[length - 1] == '\r')) line[--length] = '\0';
+    return line;
+}
+
+static char *tui_outline_body(const char *access_key, const char *profile) {
+    ch_json_buffer json;
+    ch_json_init(&json);
+    int okay = ch_json_append(&json, "{\"access_key\":") &&
+        ch_json_append_string(&json, access_key) &&
+        (profile == NULL || (ch_json_append(&json, ",\"profile_name\":") &&
+                             ch_json_append_string(&json, profile) &&
+                             ch_json_append(&json, ",\"activate\":false"))) &&
+        ch_json_append(&json, "}");
+    char *result = okay ? ch_json_take(&json) : NULL;
+    ch_json_dispose(&json);
+    return result;
+}
+
+static void tui_import_outline(tui_snapshot *snapshot, const char *base,
+                               const char *token) {
+    char *access_key = tui_prompt_line("Outline access key (hidden): ", true);
+    if (access_key == NULL || access_key[0] == '\0') { free(access_key); return; }
+    char *review_body = tui_outline_body(access_key, NULL);
+    char error[256] = {0};
+    char *review = review_body == NULL ? NULL : tui_request(
+        base, token, "POST", "/api/v1/outline/review", review_body, error,
+        sizeof(error));
+    free(review_body);
+    if (review == NULL) {
+        tui_set_error(snapshot->notice, sizeof(snapshot->notice), error);
+        free(access_key);
+        return;
+    }
+    (void)printf("\nCompatibility preview (credentials hidden):\n%s\n", review);
+    free(review);
+    char *profile = tui_prompt_line("Profile name [Outline]: ", false);
+    if (profile == NULL) { free(access_key); return; }
+    if (profile[0] == '\0') {
+        free(profile);
+        profile = strdup("Outline");
+    }
+    char confirmation_prompt[256];
+    (void)snprintf(confirmation_prompt, sizeof(confirmation_prompt),
+                   "Import as profile %.160s without connecting? [y/N] ",
+                   profile == NULL ? "Outline" : profile);
+    char *confirmation = tui_prompt_line(confirmation_prompt, false);
+    if (profile != NULL && confirmation != NULL &&
+        (confirmation[0] == 'y' || confirmation[0] == 'Y')) {
+        char *body = tui_outline_body(access_key, profile);
+        if (body != NULL) {
+            tui_action(snapshot, base, token, "POST",
+                       "/api/v1/outline/import", body);
+        }
+        free(body);
+    }
+    free(confirmation);
+    free(profile);
+    free(access_key);
+}
+
+static void tui_refresh_outline(tui_snapshot *snapshot, const char *base,
+                                const char *token) {
+    if (ch_json_bool_value(tui_member(snapshot->status, "running"), false)) {
+        tui_set_error(snapshot->notice, sizeof(snapshot->notice),
+                      "Disconnect before refreshing an Outline profile");
+        return;
+    }
+    const ch_json_value *profiles = tui_member(snapshot->profiles, "profiles");
+    const char *name = ch_json_string_value(ch_json_array_get(
+        profiles, snapshot->profile_cursor));
+    if (name == NULL) return;
+    char *body = tui_json_string_body("profile", name);
+    if (body != NULL) {
+        tui_action(snapshot, base, token, "POST",
+                   "/api/v1/outline/refresh", body);
+    }
+    free(body);
 }
 
 static void tui_switch_profile(tui_snapshot *snapshot, const char *base,
@@ -599,6 +710,10 @@ int main(int argc, char **argv) {
                 tui_action(&snapshot, base, token, "POST", "/api/v1/connect", NULL); redraw = true;
             } else if (key == 'd' && prompt_count == 0U) {
                 tui_action(&snapshot, base, token, "POST", "/api/v1/disconnect", NULL); redraw = true;
+            } else if (key == 'i' && prompt_count == 0U) {
+                tui_import_outline(&snapshot, base, token); redraw = true;
+            } else if (key == 'R' && prompt_count == 0U) {
+                tui_refresh_outline(&snapshot, base, token); redraw = true;
             } else if (prompt_count > 0U) {
                 if (key == 'a') tui_resolve_prompt(&snapshot, base, token, "allow", "once");
                 else if (key == 'A') tui_resolve_prompt(&snapshot, base, token, "allow", "forever");

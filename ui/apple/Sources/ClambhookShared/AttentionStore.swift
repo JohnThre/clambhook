@@ -152,7 +152,7 @@ public struct InboxImportPreview: Equatable, Sendable {
 
     private static func redactedLine(_ line: String) -> String {
         let lower = line.lowercased()
-        let sensitiveKeys = ["password", "private_key", "preshared_key", "token", "secret", "uuid"]
+        let sensitiveKeys = ["password", "private_key", "preshared_key", "token", "secret", "uuid", "outline_dynamic_key"]
         guard sensitiveKeys.contains(where: { lower.contains($0) }), let equals = line.firstIndex(of: "=") else {
             return line
         }

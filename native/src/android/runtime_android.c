@@ -4,6 +4,7 @@
 #include "clambhook/runtime.h"
 
 #include <ctype.h>
+#include <inttypes.h>
 #include <pthread.h>
 #include <stdatomic.h>
 #include <stdio.h>
@@ -26,6 +27,7 @@
 #include "clambhook/traffic.h"
 #include "cnet.h"
 #include "internal.h"
+#include "outline.h"
 #include "policy.h"
 
 typedef struct android_route {
@@ -63,6 +65,7 @@ struct ch_runtime {
     ch_temporary_rules *temporary_rules;
     ch_prompt_manager *prompts;
     ch_developer_manager *developer;
+    char *outline_warning;
     ch_runtime_options options;
 };
 
@@ -984,6 +987,45 @@ static bool android_runtime_append_dns_status(const ch_runtime *runtime,
     return ch_json_append(json, "]}");
 }
 
+static bool android_runtime_append_outline_status(const ch_runtime *runtime,
+                                                  ch_json_buffer *json) {
+    const ch_config_table *profile = runtime->config == NULL ? NULL :
+        ch_config_profile_named(runtime->config, runtime->active_profile);
+    const ch_config_array *chains = profile == NULL ? NULL :
+        ch_config_table_get_array(profile, "chain");
+    int dynamic = 0;
+    int64_t refreshed_at = 0;
+    for (size_t chain_index = 0U; !dynamic &&
+         chain_index < ch_config_array_count(chains); ++chain_index) {
+        const ch_config_array *servers = ch_config_table_get_array(
+            ch_config_array_get_table(chains, chain_index), "server");
+        for (size_t server_index = 0U; !dynamic &&
+             server_index < ch_config_array_count(servers); ++server_index) {
+            const ch_config_table *settings = ch_config_table_get_table(
+                ch_config_array_get_table(servers, server_index), "settings");
+            char *source = NULL;
+            ch_error ignored;
+            if (ch_config_table_get_string(settings, "outline_dynamic_key",
+                                           &source, &ignored) == CH_OK &&
+                source[0] != '\0') {
+                dynamic = 1;
+                (void)ch_config_table_get_int(
+                    settings, "outline_refreshed_at_ns", &refreshed_at,
+                    &ignored);
+            }
+            free(source);
+        }
+    }
+    return ch_json_append_format(
+        json, ",\"outline_refresh\":{\"dynamic\":%s,"
+        "\"last_success_ts_ns\":%" PRId64 ",\"stale\":%s,\"warning\":",
+        dynamic ? "true" : "false", refreshed_at,
+        runtime->outline_warning == NULL ? "false" : "true") &&
+        ch_json_append_string(json, runtime->outline_warning == NULL ? "" :
+                              runtime->outline_warning) &&
+        ch_json_append(json, "}");
+}
+
 static char *android_runtime_status_json(const ch_runtime *runtime) {
     ch_json_buffer json;
     ch_json_init(&json);
@@ -992,6 +1034,7 @@ static char *android_runtime_status_json(const ch_runtime *runtime) {
         !ch_json_append_string(&json, runtime->active_profile) ||
         !ch_json_append(&json, ",\"network_info\":{}") ||
         !android_runtime_append_dns_status(runtime, &json) ||
+        !android_runtime_append_outline_status(runtime, &json) ||
         (runtime->ip_stack != NULL &&
          !ch_json_append(&json, ",\"tunnel_mode\":\"tun\"")) ||
         !ch_json_append(&json, "}")) {
@@ -1295,6 +1338,7 @@ void ch_runtime_destroy(ch_runtime *runtime) {
     runtime->policy = NULL;
     free(runtime->config_path);
     free(runtime->active_profile);
+    free(runtime->outline_warning);
     pthread_mutex_unlock(&runtime->mutex);
     ch_protocol_reset_sessions();
     pthread_mutex_destroy(&runtime->mutex);
@@ -1597,6 +1641,14 @@ ch_status ch_runtime_query(ch_runtime *runtime, const char *operation,
     else if (strcmp(operation, "crypto_self_test") == 0) {
         response = android_runtime_crypto_self_test_json(error);
     }
+    else if (strcmp(operation, "outline_review") == 0) {
+        ch_status status = ch_outline_review_request_json(
+            request_json, &response, error);
+        if (status != CH_OK) {
+            pthread_mutex_unlock(&runtime->mutex);
+            return status;
+        }
+    }
     else if (strcmp(operation, "policy_groups") == 0) {
         response = android_runtime_policy_groups_json(runtime, request_json,
                                                       error);
@@ -1730,6 +1782,39 @@ static ch_status android_runtime_persist_config_mutation(
     }
     free(previous);
     return status;
+}
+
+static ch_status android_runtime_refresh_outline_before_connect(
+    ch_runtime *runtime, ch_error *error) {
+    free(runtime->outline_warning);
+    runtime->outline_warning = NULL;
+    if (runtime->config == NULL || runtime->config_path == NULL ||
+        runtime->config_path[0] == '\0') return CH_OK;
+    char *mutation = NULL;
+    ch_error refresh_error;
+    ch_status status = ch_outline_refresh_mutation_request_json(
+        runtime->config, "{}", &mutation, &refresh_error);
+    if (status == CH_ERROR_INVALID_ARGUMENT || status == CH_ERROR_NOT_FOUND) {
+        return CH_OK;
+    }
+    char *response = NULL;
+    if (status == CH_OK) {
+        status = android_runtime_persist_config_mutation(
+            runtime, "refresh_outline", "profiles", mutation, &response,
+            &refresh_error);
+    }
+    free(response);
+    free(mutation);
+    if (status == CH_OK) return CH_OK;
+    runtime->outline_warning = ch_strdup(refresh_error.message[0] == '\0' ?
+        "dynamic Outline refresh failed; using last validated settings" :
+        refresh_error.message);
+    if (runtime->outline_warning == NULL) {
+        ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
+                     "copy Outline refresh warning");
+        return CH_ERROR_OUT_OF_MEMORY;
+    }
+    return CH_OK;
 }
 
 static ch_status android_runtime_persist_active_profile(
@@ -1869,7 +1954,9 @@ ch_status ch_runtime_mutate(ch_runtime *runtime, const char *operation,
     pthread_mutex_lock(&runtime->mutex);
     if (strcmp(operation, "connect") == 0) {
         if (!runtime->running) {
-            ch_status status = runtime->policy == NULL ? CH_OK :
+            ch_status status = android_runtime_refresh_outline_before_connect(
+                runtime, error);
+            if (status == CH_OK) status = runtime->policy == NULL ? CH_OK :
                 ch_policy_manager_start(runtime->policy, error);
             if (status == CH_OK) {
                 status = android_runtime_start_ip_stack(runtime, error);
@@ -2020,6 +2107,38 @@ ch_status ch_runtime_mutate(ch_runtime *runtime, const char *operation,
     else if (strcmp(operation, "config_import") == 0) {
         ch_status status = android_runtime_import_config(
             runtime, request_json, response_json, error);
+        pthread_mutex_unlock(&runtime->mutex);
+        return status;
+    }
+    else if (strcmp(operation, "outline_import") == 0) {
+        char *mutation = NULL;
+        ch_status status = ch_outline_import_mutation_request_json(
+            request_json, &mutation, error);
+        if (status == CH_OK) status = android_runtime_persist_config_mutation(
+            runtime, "import_outline", "profiles", mutation, response_json,
+            error);
+        free(mutation);
+        pthread_mutex_unlock(&runtime->mutex);
+        return status;
+    }
+    else if (strcmp(operation, "outline_refresh") == 0) {
+        if (runtime->running) {
+            pthread_mutex_unlock(&runtime->mutex);
+            ch_error_set(error, CH_ERROR_INVALID_STATE,
+                         "disconnect before refreshing an Outline profile");
+            return CH_ERROR_INVALID_STATE;
+        }
+        char *mutation = NULL;
+        ch_status status = ch_outline_refresh_mutation_request_json(
+            runtime->config, request_json, &mutation, error);
+        if (status == CH_OK) status = android_runtime_persist_config_mutation(
+            runtime, "refresh_outline", "profiles", mutation, response_json,
+            error);
+        free(mutation);
+        if (status == CH_OK) {
+            free(runtime->outline_warning);
+            runtime->outline_warning = NULL;
+        }
         pthread_mutex_unlock(&runtime->mutex);
         return status;
     }

@@ -10,6 +10,7 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.pm.PackageManager
 import android.net.VpnService
+import android.net.Uri
 import android.os.Build
 import android.os.ParcelFileDescriptor
 import android.view.accessibility.AccessibilityNodeInfo
@@ -523,6 +524,45 @@ class NativeClambhookBridgeTest {
         assertEquals("work", profiles.getValue("active").jsonPrimitive.content)
         val installed = objectJson(GluonPlatformFacade.dispatch("installed-apps", "{}"))
         assertNotNull(installed["applications"])
+    }
+
+    @Test
+    fun outlineDeepLinksAreReviewedAndExplicitlyImportedWithoutConnecting() {
+        AndroidPlatformEnvironment.initialize(context)
+        AndroidPlatformEnvironment.receiveOutlineUri(Uri.parse("https://example.com/not-a-key"))
+        assertEquals("", AndroidPlatformEnvironment.consumeOutlineUri())
+
+        val accessKey = "ss://aes-128-gcm:device-secret@example.com:443#Device%20Outline"
+        AndroidPlatformEnvironment.receiveOutlineUri(Uri.parse(accessKey))
+        assertEquals(accessKey, AndroidPlatformEnvironment.consumeOutlineUri())
+        assertEquals("", AndroidPlatformEnvironment.consumeOutlineUri())
+
+        runBlocking {
+            AndroidConfigStore(context).saveConfig(configFile("outline-import.toml").readText())
+        }
+        val review = GluonPlatformFacade.request(
+            "POST",
+            "/api/v1/outline/review",
+            """{"access_key":${JsonPrimitive(accessKey)}}""",
+        )
+        assertFalse(review.contains("device-secret"))
+        assertEquals(
+            "Device Outline",
+            objectJson(review).getValue("suggested_name").jsonPrimitive.content,
+        )
+
+        val imported = objectJson(
+            GluonPlatformFacade.request(
+                "POST",
+                "/api/v1/outline/import",
+                """{"access_key":${JsonPrimitive(accessKey)},"profile_name":"Device Outline","activate":false}""",
+            ),
+        )
+        assertEquals("work", imported.getValue("active").jsonPrimitive.content)
+        assertTrue(array(imported, "profiles").any {
+            it.jsonPrimitive.content == "Device Outline"
+        })
+        assertNull(ClambhookTunnelSession.runtime.value)
     }
 
     @Test

@@ -26,11 +26,19 @@ struct MacProfilesSection: View {
     @State private var showImportConfirm = false
     @State private var importPreviewProfiles: [String] = []
     @State private var pendingImportText = ""
+    @State private var outlineKey = ""
+    @State private var outlineProfileName = "Outline"
+    @State private var outlineReview: OutlineReviewPayload?
+    @State private var reviewedOutlineKey = ""
+    @State private var outlineError = ""
+    @State private var outlineBusy = false
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 profileHeader
+                Divider()
+                outlineSection
                 Divider()
                 configFileSection
                 Divider()
@@ -66,7 +74,13 @@ struct MacProfilesSection: View {
         } message: {
             Text("This will overwrite the current config with the imported file. Profiles found: \(importPreviewProfiles.joined(separator: ", "))")
         }
-        .onAppear { refreshPathValidation() }
+        .onAppear {
+            refreshPathValidation()
+            consumePendingOutlineKey()
+        }
+        .onChange(of: model.pendingOutlineAccessKey) { _, _ in
+            consumePendingOutlineKey()
+        }
     }
 
     // MARK: - Profile header
@@ -105,6 +119,138 @@ struct MacProfilesSection: View {
                     .foregroundStyle(.orange)
                     .font(.caption)
             }
+            if model.dashboard.status.outlineRefresh.dynamic {
+                Label("Dynamic Outline profile", systemImage: "arrow.triangle.2.circlepath")
+                    .font(.caption)
+                if model.dashboard.status.outlineRefresh.lastSuccessTimestampNS > 0 {
+                    Text("Last refreshed \(outlineRefreshDate.formatted(date: .abbreviated, time: .shortened))")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                if model.dashboard.status.outlineRefresh.stale {
+                    Label(model.dashboard.status.outlineRefresh.warning,
+                          systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                }
+            } else {
+                Text("Static profile")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private var outlineRefreshDate: Date {
+        Date(timeIntervalSince1970: Double(
+            model.dashboard.status.outlineRefresh.lastSuccessTimestampNS) / 1_000_000_000)
+    }
+
+    private var outlineSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Import Outline Access Key")
+                .font(.headline)
+            Text("Paste or open a standard ss:// or basic dynamic ssconf:// key. ClambHook always reviews it before import and never auto-connects.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            TextEditor(text: $outlineKey)
+                .font(.system(.caption, design: .monospaced))
+                .frame(minHeight: 72)
+                .accessibilityLabel("Outline access key")
+                .onChange(of: outlineKey) { _, _ in outlineReview = nil }
+            TextField("Profile name", text: $outlineProfileName)
+                .accessibilityLabel("Outline profile name")
+            if let review = outlineReview {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Compatibility preview (credentials hidden)")
+                        .font(.subheadline.weight(.semibold))
+                    Text("\(review.kind.capitalized) · TCP \(review.tcp.address) · \(review.tcp.cipher) · prefix \(review.tcp.prefixLength) byte(s)")
+                    Text("UDP \(review.udp.address) · \(review.udp.cipher) · prefix \(review.udp.prefixLength) byte(s)")
+                    if review.lowEntropyWarning {
+                        Label("The prefix leaves little random salt entropy.",
+                              systemImage: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.orange)
+                    }
+                    Text("Will create profile: \(outlineProfileName)")
+                        .fontWeight(.semibold)
+                }
+                .font(.caption)
+            }
+            if !outlineError.isEmpty {
+                Text(outlineError).font(.caption).foregroundStyle(.red)
+            }
+            HStack {
+                Button("Paste") {
+                    outlineKey = NSPasteboard.general.string(forType: .string) ?? ""
+                }
+                Button("Review") { reviewOutlineKey() }
+                    .disabled(outlineBusy || outlineKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                Button("Import") { importOutlineKey() }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(outlineBusy || outlineReview == nil ||
+                              reviewedOutlineKey != outlineKey ||
+                              outlineProfileName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                Spacer()
+                Button("Refresh Dynamic Profile") { refreshOutlineProfile() }
+                    .disabled(outlineBusy || model.dashboard.status.running ||
+                              !model.dashboard.status.outlineRefresh.dynamic)
+            }
+        }
+    }
+
+    private func consumePendingOutlineKey() {
+        guard !model.pendingOutlineAccessKey.isEmpty else { return }
+        outlineKey = model.pendingOutlineAccessKey
+        model.pendingOutlineAccessKey = ""
+        outlineReview = nil
+    }
+
+    private func reviewOutlineKey() {
+        outlineBusy = true
+        outlineError = ""
+        let key = outlineKey
+        Task {
+            do {
+                let review = try await model.reviewOutlineAccessKey(key)
+                outlineReview = review
+                reviewedOutlineKey = key
+                if outlineProfileName == "Outline" || outlineProfileName.isEmpty {
+                    outlineProfileName = review.suggestedName
+                }
+            } catch {
+                outlineReview = nil
+                outlineError = error.localizedDescription
+            }
+            outlineBusy = false
+        }
+    }
+
+    private func importOutlineKey() {
+        outlineBusy = true
+        outlineError = ""
+        Task {
+            do {
+                try await model.importOutlineAccessKey(
+                    outlineKey, profileName: outlineProfileName)
+                outlineKey = ""
+                outlineReview = nil
+            } catch {
+                outlineError = error.localizedDescription
+            }
+            outlineBusy = false
+        }
+    }
+
+    private func refreshOutlineProfile() {
+        outlineBusy = true
+        outlineError = ""
+        Task {
+            do {
+                try await model.refreshOutlineProfile(model.dashboard.activeProfile)
+            } catch {
+                outlineError = error.localizedDescription
+            }
+            outlineBusy = false
         }
     }
 
@@ -165,7 +311,7 @@ struct MacProfilesSection: View {
                     ShareLink(
                         item: exportText,
                         subject: Text("clambhook config"),
-                        message: Text("clambhook TOML configuration export")
+                        message: Text("Sensitive clambhook TOML export; it may contain passwords and dynamic Outline URLs.")
                     ) {
                         Label("Export", systemImage: "square.and.arrow.up")
                     }

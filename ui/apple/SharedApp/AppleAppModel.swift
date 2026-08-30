@@ -31,6 +31,7 @@ final class AppleAppModel: ObservableObject {
     @Published private(set) var developerCAPEMText = ""
     @Published var apiToken = ""
     @Published var daemonMessage = ""
+    @Published var pendingOutlineAccessKey = ""
     @Published private(set) var keychainReadFailed = false
 
     let platform: AppPlatform
@@ -247,6 +248,31 @@ final class AppleAppModel: ObservableObject {
             await dashboard.setActiveProfile(profile)
             syncProfileRecoveryIssue()
         }
+    }
+
+    func reviewOutlineAccessKey(_ accessKey: String) async throws -> OutlineReviewPayload {
+        guard let apiClient else { throw URLError(.cannotConnectToHost) }
+        return try await apiClient.reviewOutlineAccessKey(accessKey)
+    }
+
+    func importOutlineAccessKey(_ accessKey: String, profileName: String) async throws {
+        guard let apiClient else { throw URLError(.cannotConnectToHost) }
+        _ = try await apiClient.importOutlineAccessKey(
+            accessKey, profileName: profileName, activate: false)
+        await dashboard.refreshDashboard()
+    }
+
+    func refreshOutlineProfile(_ profile: String) async throws {
+        guard let apiClient else { throw URLError(.cannotConnectToHost) }
+        _ = try await apiClient.refreshOutlineProfile(profile)
+        await dashboard.refreshDashboard()
+    }
+
+    func receiveOutlineURL(_ url: URL) {
+        let value = url.absoluteString
+        guard url.scheme?.lowercased() == "ss" ||
+                url.scheme?.lowercased() == "ssconf" else { return }
+        pendingOutlineAccessKey = value
     }
 
     func selectPolicyGroup(group: String, chain: String) {

@@ -53,6 +53,26 @@ add_library(tomlc99 STATIC third_party/tomlc99/toml.c)
 target_include_directories(tomlc99 PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/third_party/tomlc99)
 target_compile_definitions(tomlc99 PRIVATE _POSIX_C_SOURCE=200809L)
 
+# Pinned, unmodified MIT-licensed libyaml 0.2.5 read-side parser. Outline
+# dynamic access keys use YAML anchors and merge keys, so use the same frozen
+# parser on every supported platform.
+set(LIBYAML_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third_party/libyaml)
+add_library(libyaml STATIC
+  ${LIBYAML_DIR}/src/api.c
+  ${LIBYAML_DIR}/src/loader.c
+  ${LIBYAML_DIR}/src/parser.c
+  ${LIBYAML_DIR}/src/reader.c
+  ${LIBYAML_DIR}/src/scanner.c
+)
+target_include_directories(libyaml PUBLIC ${LIBYAML_DIR}/include)
+target_include_directories(libyaml PRIVATE ${LIBYAML_DIR}/src)
+target_compile_definitions(libyaml PRIVATE
+  YAML_VERSION_STRING="0.2.5"
+  YAML_VERSION_MAJOR=0
+  YAML_VERSION_MINOR=2
+  YAML_VERSION_PATCH=5
+)
+
 # Pinned Apache-2.0 libmaxminddb 1.13.3. The application links the static
 # reader so desktop and Android builds share the frozen MMDB geo contract.
 set(MAXMINDDB_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third_party/libmaxminddb)
@@ -165,6 +185,7 @@ add_library(clambhook_core STATIC
   native/src/listener.c
   native/src/lwip_context.c
   native/src/netwatch.c
+  native/src/outline.c
   native/src/policy.c
   native/src/procattr.c
   native/src/prompt.c
@@ -213,7 +234,7 @@ target_include_directories(clambhook_core
 target_link_libraries(clambhook_core PUBLIC
   PkgConfig::LIBUV PkgConfig::LIBSODIUM PkgConfig::CURL
   Clambhook::Crypto llhttp lwipcore maxminddb
-  wireguard_protocol tomlc99
+  wireguard_protocol tomlc99 libyaml
   Threads::Threads
 )
 if(APPLE)
@@ -294,6 +315,7 @@ if(CLAMBHOOK_BUILD_TESTS)
     native/tests/test_listener.c
     native/tests/test_netwatch.c
     native/tests/test_openvpn.c
+    native/tests/test_outline.c
     native/tests/test_policy.c
     native/tests/test_procattr.c
     native/tests/test_prompt.c
@@ -349,4 +371,7 @@ install(FILES third_party/curl/LICENSE.txt
   COMPONENT Runtime)
 install(FILES third_party/llhttp/LICENSE
   DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/doc/clambhook/licenses/llhttp
+  COMPONENT Runtime)
+install(FILES third_party/libyaml/LICENSE
+  DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/doc/clambhook/licenses/libyaml
   COMPONENT Runtime)
