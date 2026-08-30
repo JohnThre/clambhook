@@ -20,7 +20,7 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <project.build.outputTimestamp>2026-08-29T00:00:00Z</project.build.outputTimestamp>
         <maven.compiler.release>17</maven.compiler.release>
-        <javafx.version>21.0.12</javafx.version>
+        <javafx.version>26.0.2</javafx.version>
         <!-- Gluon's public Substrate ABI bundle is independent of the Maven
              JavaFX API/runtime artifacts and is the latest JavaFX 21 static
              bundle published for every locked target. -->
