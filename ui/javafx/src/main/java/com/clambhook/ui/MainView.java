@@ -142,6 +142,7 @@ public final class MainView implements AutoCloseable {
     private final Label dashboardSupporterBadge = new Label("Supporter status unavailable");
     private final Label dashboardConnectionSummary = new Label("Checking runtime status…");
     private final Label dashboardProfileSummary = new Label("No active profile");
+    private final Button dashboardProfileAction = new Button("Add a profile");
     private final Label settingsSupporterBadge = new Label("Supporter status unavailable");
     private final Label supporterThanks = new Label();
 
@@ -196,6 +197,9 @@ public final class MainView implements AutoCloseable {
                 new KeyCodeCombination(KeyCode.F5), this::refresh);
         scene.getAccelerators().put(
                 new KeyCodeCombination(KeyCode.ESCAPE), this::clearError);
+        scene.getAccelerators().put(
+                new KeyCodeCombination(KeyCode.ENTER, KeyCombination.SHORTCUT_DOWN),
+                this::changeConnectionState);
         KeyCode[] pageKeys = {
                 KeyCode.DIGIT1, KeyCode.DIGIT2, KeyCode.DIGIT3,
                 KeyCode.DIGIT4, KeyCode.DIGIT5, KeyCode.DIGIT6,
@@ -243,6 +247,9 @@ public final class MainView implements AutoCloseable {
         profilePicker.setPrefWidth(190);
         refreshButton.setTooltip(new Tooltip("Refresh all ClambHook data"));
         connectButton.getStyleClass().add("primary-button");
+        connectButton.setDisable(true);
+        connectButton.setAccessibleText("Connect (waiting for runtime status)");
+        connectButton.setTooltip(new Tooltip("Waiting for ClambHook runtime status"));
 
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
@@ -299,7 +306,12 @@ public final class MainView implements AutoCloseable {
         dashboardConnectionSummary.setAccessibleText("Connection summary");
         dashboardProfileSummary.getStyleClass().add("hero-subtitle");
         dashboardProfileSummary.setAccessibleText("Active profile summary");
-        VBox heroCopy = new VBox(6, dashboardConnectionSummary, dashboardProfileSummary);
+        dashboardProfileAction.setAccessibleText("Open Profiles to add a profile");
+        dashboardProfileAction.setOnAction(ignored -> showPage(Page.PROFILES));
+        dashboardProfileAction.setManaged(false);
+        dashboardProfileAction.setVisible(false);
+        VBox heroCopy = new VBox(6, dashboardConnectionSummary,
+                dashboardProfileSummary, dashboardProfileAction);
         HBox.setHgrow(heroCopy, Priority.ALWAYS);
         HBox hero = new HBox(18, heroCopy);
         hero.setAlignment(Pos.CENTER_LEFT);
@@ -1088,10 +1100,12 @@ public final class MainView implements AutoCloseable {
     }
 
     private void changeConnectionState() {
-        if (!runtime.supportsConnectionControl()) {
+        if (!runtime.supportsConnectionControl() || connectButton.isDisabled()) {
             return;
         }
         connectButton.setDisable(true);
+        connectButton.setText(currentData.running() ? "Disconnecting…" : "Connecting…");
+        connectButton.setAccessibleText(connectButton.getText());
         CompletableFuture<?> operation;
         if (currentData.running()) {
             operation = platformServices.stopVpn();
@@ -1453,12 +1467,20 @@ public final class MainView implements AutoCloseable {
         connectionState.setText(data.running() ? "Connected" : "Disconnected");
         setStatusClass(data.running() ? "status-connected" : "status-disconnected");
         connectButton.setText(data.running() ? "Disconnect" : "Connect");
-        connectButton.setDisable(false);
+        connectButton.setAccessibleText((data.running() ? "Disconnect" : "Connect")
+                + " (Control or Command plus Enter)");
+        boolean missingProfile = !data.running() && data.activeProfile().isBlank();
+        connectButton.setDisable(!runtime.supportsConnectionControl() || missingProfile);
+        connectButton.setTooltip(new Tooltip(missingProfile
+                ? "Add and select a profile before connecting"
+                : (data.running() ? "Disconnect ClambHook" : "Connect with the active profile")));
         dashboardConnectionSummary.setText(data.running()
                 ? "Your traffic is protected" : "Ready to connect");
         dashboardProfileSummary.setText(data.activeProfile().isBlank()
                 ? "Choose or import a profile to get started"
                 : "Active profile · " + data.activeProfile());
+        dashboardProfileAction.setManaged(missingProfile);
+        dashboardProfileAction.setVisible(missingProfile);
 
         updatingProfile = true;
         profilePicker.setItems(FXCollections.observableArrayList(data.profiles()));

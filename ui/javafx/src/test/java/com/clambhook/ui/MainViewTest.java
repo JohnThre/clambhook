@@ -116,6 +116,9 @@ final class MainViewTest {
                         .filter(node -> node.getStyleClass().contains("page-title"))
                         .map(node -> ((javafx.scene.control.Label) node).getText())
                         .findFirst().orElseThrow());
+                assertNotNull(fixture.scene().getAccelerators().get(
+                        new KeyCodeCombination(KeyCode.ENTER,
+                                KeyCombination.SHORTCUT_DOWN)));
 
                 root.resize(600, 760);
                 assertNull(root.getLeft());
@@ -123,6 +126,36 @@ final class MainViewTest {
                 root.resize(1180, 760);
                 assertNotNull(root.getLeft());
                 assertNull(root.getBottom());
+                return null;
+            });
+        } finally {
+            onFx(() -> {
+                fixture.view().close();
+                return null;
+            });
+        }
+    }
+
+    @Test
+    void missingProfileDisablesConnectAndOffersASetupRoute() throws Exception {
+        Fixture fixture = onFx(() -> fixture(false, true));
+        try {
+            flushFx();
+            onFx(() -> {
+                List<Node> nodes = logicalNodes(fixture.view().node());
+                Button connect = button(nodes, "Connect");
+                assertTrue(connect.isDisabled());
+                assertEquals("Add and select a profile before connecting",
+                        connect.getTooltip().getText());
+                Button addProfile = button(nodes, "Add a profile");
+                assertTrue(addProfile.isVisible());
+                assertEquals("Open Profiles to add a profile",
+                        addProfile.getAccessibleText());
+                addProfile.fire();
+                assertEquals("Profiles", nodes.stream()
+                        .filter(node -> node.getStyleClass().contains("page-title"))
+                        .map(node -> ((javafx.scene.control.Label) node).getText())
+                        .findFirst().orElseThrow());
                 return null;
             });
         } finally {
@@ -246,8 +279,12 @@ final class MainViewTest {
     }
 
     private static Fixture fixture(boolean failFirstStatus) {
+        return fixture(failFirstStatus, false);
+    }
+
+    private static Fixture fixture(boolean failFirstStatus, boolean emptyProfiles) {
         AtomicInteger statusCalls = new AtomicInteger();
-        RuntimeClient runtime = runtime(statusCalls, failFirstStatus);
+        RuntimeClient runtime = runtime(statusCalls, failFirstStatus, emptyProfiles);
         PlatformServices services = platformServices();
         MainView view = new MainView(runtime, services);
         Scene scene = new Scene(view.node(), 1180, 760);
@@ -258,7 +295,7 @@ final class MainViewTest {
     }
 
     private static RuntimeClient runtime(
-            AtomicInteger statusCalls, boolean failFirstStatus) {
+            AtomicInteger statusCalls, boolean failFirstStatus, boolean emptyProfiles) {
         return (RuntimeClient) Proxy.newProxyInstance(
                 RuntimeClient.class.getClassLoader(),
                 new Class<?>[]{RuntimeClient.class},
@@ -274,7 +311,9 @@ final class MainViewTest {
                     }
                     case "profiles" -> CompletableFuture.completedFuture(
                             RuntimeClient.Profiles.parse(
-                                    "{\"active\":\"default\",\"profiles\":[\"default\"]}"));
+                                    emptyProfiles
+                                            ? "{\"active\":\"\",\"profiles\":[]}"
+                                            : "{\"active\":\"default\",\"profiles\":[\"default\"]}"));
                     case "servers", "rules", "traffic", "dns", "developerStatus",
                             "developerEntries" -> CompletableFuture.completedFuture(
                             RuntimeClient.Document.parse("{}"));

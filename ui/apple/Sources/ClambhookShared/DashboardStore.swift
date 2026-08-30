@@ -3,6 +3,34 @@
 
 import Foundation
 
+public struct DashboardPrimaryActionState: Equatable, Sendable {
+    public let isEnabled: Bool
+    public let help: String
+
+    public static func connection(
+        running: Bool,
+        apiOnline: Bool,
+        activeProfile: String,
+        operationBusy: Bool
+    ) -> Self {
+        if operationBusy {
+            return Self(isEnabled: false, help: "Wait for the current connection action to finish")
+        }
+        if running {
+            return Self(isEnabled: true,
+                        help: "Stop the active ClambHook connection (Command-Return)")
+        }
+        if activeProfile.isEmpty {
+            return Self(isEnabled: false, help: "Add and select a profile before connecting")
+        }
+        if !apiOnline {
+            return Self(isEnabled: false, help: "Start or repair the local runtime before connecting")
+        }
+        return Self(isEnabled: true,
+                    help: "Start ClambHook with the selected profile (Command-Return)")
+    }
+}
+
 public let bandwidthSampleLimit = 60
 public let maxLogLines = 200
 

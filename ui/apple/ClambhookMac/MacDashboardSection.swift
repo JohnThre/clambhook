@@ -104,7 +104,13 @@ struct MacDashboardSection: View {
     }
 
     private var heroPrimaryContent: some View {
-        VStack(alignment: .leading, spacing: 18) {
+        let connectionAction = DashboardPrimaryActionState.connection(
+            running: model.dashboard.status.running,
+            apiOnline: model.dashboard.apiOnline,
+            activeProfile: model.dashboard.activeProfile,
+            operationBusy: daemon.state.isBusy
+        )
+        return VStack(alignment: .leading, spacing: 18) {
             HStack(spacing: 10) {
                 DashboardPill(text: statusText, systemImage: statusSymbol, tint: .white)
                 DashboardPill(text: tunnelModeLabel, systemImage: tunnelModeSymbol, tint: .white)
@@ -154,11 +160,9 @@ struct MacDashboardSection: View {
                         .buttonStyle(.borderedProminent)
                         .tint(model.dashboard.status.running ? .red : .green)
                         .controlSize(.large)
-                        .disabled(daemon.state.isBusy ||
-                            (!model.dashboard.apiOnline && !model.dashboard.status.running))
-                        .help(model.dashboard.status.running
-                            ? "Stop the active ClambHook connection"
-                            : "Start ClambHook with the selected profile")
+                        .keyboardShortcut(.return, modifiers: .command)
+                        .disabled(!connectionAction.isEnabled)
+                        .help(connectionAction.help)
                     }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

@@ -9,6 +9,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/ioctl.h>
 #include <sys/select.h>
 #include <termios.h>
 #include <time.h>
@@ -25,6 +26,12 @@
 #define TUI_BODY_LIMIT (4U * 1024U * 1024U)
 #define TUI_REFRESH_SECONDS 2
 #define TUI_RECENT_CONNECTIONS 12U
+
+enum tui_key {
+    TUI_KEY_NONE = 0,
+    TUI_KEY_UP = 256,
+    TUI_KEY_DOWN
+};
 
 typedef struct tui_buffer {
     char *data;
@@ -310,7 +317,24 @@ static void tui_refresh(tui_snapshot *snapshot, const char *base,
     tui_align_cursors(snapshot);
 }
 
-static void tui_render_profiles(const tui_snapshot *snapshot, bool color) {
+static size_t tui_terminal_columns(void) {
+    const char *configured = getenv("COLUMNS");
+    if (configured != NULL && configured[0] != '\0') {
+        char *end = NULL;
+        unsigned long value = strtoul(configured, &end, 10);
+        if (end != configured && *end == '\0' && value >= 40UL && value <= 1000UL) {
+            return (size_t)value;
+        }
+    }
+    struct winsize size = {0};
+    if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &size) == 0 && size.ws_col >= 40U) {
+        return (size_t)size.ws_col;
+    }
+    return 120U;
+}
+
+static void tui_render_profiles(const tui_snapshot *snapshot, bool color,
+                                bool compact) {
     const ch_json_value *profiles = tui_member(snapshot->profiles, "profiles");
     const char *active = tui_string(snapshot->profiles, "active");
     (void)printf("%sProfiles%s  ", color ? "\033[1;36m" : "",
@@ -320,11 +344,29 @@ static void tui_render_profiles(const tui_snapshot *snapshot, bool color) {
         if (name == NULL) continue;
         const char *cursor = index == snapshot->profile_cursor ? ">" : " ";
         const char *selected = strcmp(name, active) == 0 ? "*" : "";
-        (void)printf("%s%s%s%s%s ", cursor,
+        (void)printf(compact ? "\n %s%s%s%s%s" : "%s%s%s%s%s ", cursor,
                      color && strcmp(name, active) == 0 ? "\033[1;32m" : "",
                      name, selected, color ? "\033[0m" : "");
     }
     (void)putchar('\n');
+    if (ch_json_array_size(profiles) == 0U) {
+        (void)puts("  No profiles configured. Press i to import Outline or v to convert a profile.");
+    }
+}
+
+static void tui_format_bytes(int64_t bytes, char *destination, size_t capacity) {
+    static const char *units[] = {"B", "KiB", "MiB", "GiB", "TiB"};
+    double value = bytes < 0 ? 0.0 : (double)bytes;
+    size_t unit = 0U;
+    while (value >= 1024.0 && unit + 1U < sizeof(units) / sizeof(units[0])) {
+        value /= 1024.0;
+        unit++;
+    }
+    if (unit == 0U) {
+        (void)snprintf(destination, capacity, "%.0f %s", value, units[unit]);
+    } else {
+        (void)snprintf(destination, capacity, "%.1f %s", value, units[unit]);
+    }
 }
 
 static void tui_render_prompts(const tui_snapshot *snapshot, bool color) {
@@ -348,6 +390,7 @@ static void tui_render_prompts(const tui_snapshot *snapshot, bool color) {
 
 static void tui_render(const tui_snapshot *snapshot, const char *base,
                        bool interactive) {
+    bool compact = tui_terminal_columns() < 100U;
     if (interactive) (void)fputs("\033[H\033[2J", stdout);
     (void)printf("%s ClambHook C TUI %s  %s%s%s  %s\n",
                  interactive ? "\033[1;44;37m" : "",
@@ -392,7 +435,7 @@ static void tui_render(const tui_snapshot *snapshot, const char *base,
                      tui_string(network, "ssid")[0] == '\0' ? "" : " · ",
                      tui_string(network, "ssid"));
     }
-    tui_render_profiles(snapshot, interactive);
+    tui_render_profiles(snapshot, interactive, compact);
     const ch_json_value *listeners = tui_member(snapshot->status, "listeners");
     (void)printf("\n%sListeners%s\n", interactive ? "\033[1;36m" : "",
                  interactive ? "\033[0m" : "");
@@ -402,26 +445,39 @@ static void tui_render(const tui_snapshot *snapshot, const char *base,
                      tui_string(listener, "protocol"), tui_string(listener, "addr"),
                      (long long)tui_integer(listener, "active_conns"));
     }
+    if (ch_json_array_size(listeners) == 0U) (void)puts("  No active listeners");
     const ch_json_value *summary = tui_member(snapshot->traffic, "summary");
-    (void)printf("\n%sTraffic%s  %lld active · %lld B received · %lld B sent\n",
+    char received[32];
+    char sent[32];
+    tui_format_bytes(tui_integer(summary, "rx_total"), received, sizeof(received));
+    tui_format_bytes(tui_integer(summary, "tx_total"), sent, sizeof(sent));
+    (void)printf("\n%sTraffic%s  %lld active · %s received · %s sent\n",
                  interactive ? "\033[1;36m" : "",
                  interactive ? "\033[0m" : "",
                  (long long)tui_integer(summary, "active_connections"),
-                 (long long)tui_integer(summary, "rx_total"),
-                 (long long)tui_integer(summary, "tx_total"));
+                 received, sent);
     const ch_json_value *connections = tui_member(snapshot->traffic, "connections");
     size_t count = ch_json_array_size(connections);
     size_t shown = count < TUI_RECENT_CONNECTIONS ? count : TUI_RECENT_CONNECTIONS;
     for (size_t index = 0U; index < shown; ++index) {
         const ch_json_value *connection = ch_json_array_get(connections, index);
-        (void)printf(" %-8.8s %-7.7s %-34.34s %-18.18s %s\n",
-                     tui_string(connection, "state"), tui_string(connection, "network"),
-                     tui_string(connection, "target"), tui_string(connection, "rule_name"),
-                     tui_string(connection, "chain_name"));
+        if (compact) {
+            (void)printf(" %-8.8s %-7.7s %-42.42s\n",
+                         tui_string(connection, "state"),
+                         tui_string(connection, "network"),
+                         tui_string(connection, "target"));
+        } else {
+            (void)printf(" %-8.8s %-7.7s %-34.34s %-18.18s %s\n",
+                         tui_string(connection, "state"), tui_string(connection, "network"),
+                         tui_string(connection, "target"), tui_string(connection, "rule_name"),
+                         tui_string(connection, "chain_name"));
+        }
     }
+    if (count == 0U) (void)puts("  No recent connections");
     tui_render_prompts(snapshot, interactive);
     if (interactive) {
-        (void)puts("\nq quit · r refresh · j/k select · enter switch profile · c connect · d disconnect");
+        (void)puts("\nq quit · r refresh · ↑/↓ or j/k select · enter switch profile");
+        (void)puts("c connect · d disconnect · actions pause while prompts need a decision");
         (void)puts("i import Outline key · v convert Mihomo/Surge file · R refresh dynamic profile");
     }
     (void)fflush(stdout);
@@ -751,7 +807,7 @@ static void tui_resolve_prompt(tui_snapshot *snapshot, const char *base,
     curl_easy_cleanup(curl);
 }
 
-static int tui_read_key(unsigned char *key) {
+static int tui_read_key(void) {
     fd_set readable;
     FD_ZERO(&readable);
     FD_SET(STDIN_FILENO, &readable);
@@ -760,8 +816,16 @@ static int tui_read_key(unsigned char *key) {
     do {
         ready = select(STDIN_FILENO + 1, &readable, NULL, NULL, &timeout);
     } while (ready < 0 && errno == EINTR && !tui_stopping);
-    if (ready <= 0) return ready;
-    return read(STDIN_FILENO, key, 1U) == 1 ? 1 : 0;
+    if (ready <= 0) return TUI_KEY_NONE;
+    unsigned char key = 0U;
+    if (read(STDIN_FILENO, &key, 1U) != 1) return TUI_KEY_NONE;
+    if (key != 27U) return (int)key;
+    unsigned char sequence[2] = {0U, 0U};
+    if (read(STDIN_FILENO, &sequence[0], 1U) != 1 || sequence[0] != '[' ||
+        read(STDIN_FILENO, &sequence[1], 1U) != 1) return 27;
+    if (sequence[1] == 'A') return TUI_KEY_UP;
+    if (sequence[1] == 'B') return TUI_KEY_DOWN;
+    return TUI_KEY_NONE;
 }
 
 static void tui_destroy(tui_snapshot *snapshot) {
@@ -773,13 +837,24 @@ static void tui_destroy(tui_snapshot *snapshot) {
 
 static void tui_usage(FILE *stream) {
     (void)fprintf(stream,
-        "usage: clambhook-tui [-version] [-api-token token] [host:port]\n");
+        "usage: clambhook-tui [--help] [--version] [-api-token token] [host:port]\n"
+        "\nInteractive keys:\n"
+        "  Up/Down or j/k  Select a prompt or profile\n"
+        "  Enter           Activate the selected profile\n"
+        "  c/d             Connect or disconnect\n"
+        "  r               Refresh now\n"
+        "  q               Quit\n"
+        "\nThe layout adapts automatically to narrow terminals.\n");
 }
 
 int main(int argc, char **argv) {
     const char *address = "127.0.0.1:9090";
     const char *token = getenv("CLAMBHOOK_API_TOKEN");
     for (int index = 1; index < argc; ++index) {
+        if (strcmp(argv[index], "-h") == 0 || strcmp(argv[index], "--help") == 0) {
+            tui_usage(stdout);
+            return 0;
+        }
         if (strcmp(argv[index], "-version") == 0 ||
             strcmp(argv[index], "--version") == 0) {
             (void)printf("clambhook-tui %s\n", CLAMBHOOK_VERSION);
@@ -823,20 +898,19 @@ int main(int argc, char **argv) {
     }
     time_t next_refresh = time(NULL) + TUI_REFRESH_SECONDS;
     while (!tui_stopping) {
-        unsigned char key = 0U;
-        int read_result = tui_read_key(&key);
+        int key = tui_read_key();
         bool redraw = false;
         const ch_json_value *prompts = tui_member(snapshot.prompts, "prompts");
         size_t prompt_count = ch_json_array_size(prompts);
-        if (read_result > 0) {
+        if (key != TUI_KEY_NONE) {
             if (key == 'q' || key == 3U) break;
             if (key == 'r') {
                 tui_refresh(&snapshot, base, token); redraw = true;
-            } else if (key == 'k') {
+            } else if (key == 'k' || key == TUI_KEY_UP) {
                 if (prompt_count > 0U && snapshot.prompt_cursor > 0U) snapshot.prompt_cursor--;
                 else if (prompt_count == 0U && snapshot.profile_cursor > 0U) snapshot.profile_cursor--;
                 redraw = true;
-            } else if (key == 'j') {
+            } else if (key == 'j' || key == TUI_KEY_DOWN) {
                 if (prompt_count > 0U && snapshot.prompt_cursor + 1U < prompt_count) snapshot.prompt_cursor++;
                 else {
                     const ch_json_value *profiles = tui_member(snapshot.profiles, "profiles");

@@ -4,6 +4,32 @@
 import XCTest
 @testable import ClambhookShared
 
+final class DashboardPrimaryActionStateTests: XCTestCase {
+    func testConnectionRequiresAProfileAndOnlineRuntime() {
+        XCTAssertEqual(
+            DashboardPrimaryActionState.connection(
+                running: false, apiOnline: true, activeProfile: "", operationBusy: false
+            ),
+            .init(isEnabled: false, help: "Add and select a profile before connecting")
+        )
+        XCTAssertEqual(
+            DashboardPrimaryActionState.connection(
+                running: false, apiOnline: false, activeProfile: "work", operationBusy: false
+            ),
+            .init(isEnabled: false, help: "Start or repair the local runtime before connecting")
+        )
+    }
+
+    func testRunningConnectionCanDisconnectUnlessAnOperationIsBusy() {
+        XCTAssertTrue(DashboardPrimaryActionState.connection(
+            running: true, apiOnline: false, activeProfile: "", operationBusy: false
+        ).isEnabled)
+        XCTAssertFalse(DashboardPrimaryActionState.connection(
+            running: true, apiOnline: true, activeProfile: "work", operationBusy: true
+        ).isEnabled)
+    }
+}
+
 @MainActor
 final class DashboardStoreTests: XCTestCase {
     func testRefreshLoadsDashboardAndPersistsWidgetSnapshot() async throws {

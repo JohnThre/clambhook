@@ -39,6 +39,17 @@ struct MacDashboardWindowView: View {
         } detail: {
             detailContent
         }
+        .toolbar {
+            ToolbarItem {
+                Button {
+                    model.refresh()
+                } label: {
+                    Label("Refresh", systemImage: "arrow.clockwise")
+                }
+                .keyboardShortcut("r", modifiers: .command)
+                .help("Refresh dashboard data (Command-R)")
+            }
+        }
         .frame(minWidth: 720, minHeight: 480)
         .onChange(of: selection) { _, newValue in
             if case .profile(let name) = newValue {
@@ -66,10 +77,14 @@ struct MacDashboardWindowView: View {
 
             Section("Proxy") {
                 if model.dashboard.profiles.profiles.isEmpty {
-                    Label("No profiles", systemImage: "person.crop.circle")
-                        .foregroundStyle(.secondary)
-                        .font(.subheadline)
-                        .allowsHitTesting(false)
+                    Button {
+                        selection = .profile("")
+                    } label: {
+                        Label("Add a profile…", systemImage: "plus.circle")
+                    }
+                    .buttonStyle(.plain)
+                    .help("Open Profiles to import or create a connection profile")
+                    .accessibilityHint("Opens profile setup")
                 } else {
                     ForEach(model.dashboard.profiles.profiles, id: \.self) { profile in
                         HStack {

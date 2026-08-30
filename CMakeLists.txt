@@ -350,6 +350,10 @@ if(CLAMBHOOK_BUILD_TESTS)
     set_tests_properties(tui-version PROPERTIES
       PASS_REGULAR_EXPRESSION "^clambhook-tui ${PROJECT_VERSION}"
     )
+    add_test(NAME tui-help COMMAND clambhook-tui --help)
+    set_tests_properties(tui-help PROPERTIES
+      PASS_REGULAR_EXPRESSION "layout adapts automatically to narrow terminals"
+    )
   endif()
 endif()
 
