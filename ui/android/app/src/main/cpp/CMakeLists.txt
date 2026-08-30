@@ -215,7 +215,8 @@ add_library(clambhook_gluon_bridge STATIC
 )
 set_target_properties(clambhook_gluon_bridge PROPERTIES
     OUTPUT_NAME clambhook_gluon_bridge
-    ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_CURRENT_LIST_DIR}/../../../build/gluon"
+    ARCHIVE_OUTPUT_DIRECTORY
+        "${CMAKE_CURRENT_LIST_DIR}/../../../build/gluon/${CMAKE_BUILD_TYPE}/${ANDROID_ABI}"
 )
 target_compile_options(clambhook_gluon_bridge PRIVATE
     -Wall -Wextra -Wpedantic -Wconversion -Wshadow

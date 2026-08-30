@@ -7,6 +7,8 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 GRADLE_FILE="$ROOT_DIR/ui/android/app/build.gradle.kts"
 WORKFLOW_FILE="$ROOT_DIR/.github/workflows/ci.yml"
+CMAKE_FILE="$ROOT_DIR/ui/android/app/src/main/cpp/CMakeLists.txt"
+PREPARE_FILE="$ROOT_DIR/scripts/prepare-gluon-android.sh"
 DEBUG_AAR="$ROOT_DIR/ui/android/app/build/outputs/aar/clambhook-android-platform-debug.aar"
 RELEASE_AAR="$ROOT_DIR/ui/android/app/build/outputs/aar/clambhook-android-platform-release.aar"
 REQUIRE_DEBUG=0
@@ -39,6 +41,10 @@ grep -Fq -- '-Pclambhook.android.managedDeviceAbi=x86_64' "$WORKFLOW_FILE" ||
 if grep -Fq 'aosp_atd;arm64-v8a' "$WORKFLOW_FILE"; then
     fail "the hosted workflow still requests an ARM64 ATD image"
 fi
+grep -Fq "\${CMAKE_BUILD_TYPE}/\${ANDROID_ABI}" "$CMAKE_FILE" ||
+    fail "Gluon bridge outputs are not isolated by build type and ABI"
+grep -Fq 'RelWithDebInfo/arm64-v8a/libclambhook_gluon_bridge.a' "$PREPARE_FILE" ||
+    fail "Gluon does not select the production ARM64 bridge explicitly"
 
 inspect_aar() {
     local archive="$1"
