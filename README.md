@@ -182,7 +182,7 @@ flowchart LR
     policy --> jvm["JavaFX Maven tests<br/>Kotlin AAR tests"]
     policy --> apple["macOS C17 + SwiftUI<br/>build and tests"]
     ctest --> linux["GNU/Linux x86_64 + aarch64<br/>Ubuntu 24.04 · Fedora 44<br/>Gluon launch + install/uninstall"]
-    jvm --> android["Android ARM64<br/>Gluon build + API 31/33/36 ATD"]
+    jvm --> android["Android ARM64 artifacts<br/>API 31/33/36 x86_64 ATDs on Ubuntu/KVM"]
     linux --> packages["Ubuntu Debian package<br/>Fedora RPM"]
     android --> packages
     apple --> packages

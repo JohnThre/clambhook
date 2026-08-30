@@ -22,10 +22,11 @@ pin every third-party action to a full commit SHA, and grant job-scoped access.
 - Ubuntu 24.04 LTS and Fedora Linux 44 on x86_64 and aarch64 runners,
   including Gluon native image launch plus package install, integration, and
   uninstall checks;
-- Gluon Android ARM64 build and `aosp_atd/arm64-v8a` managed-device journeys
-  on API 31, 33, and 36. Device journeys use Apple Silicon hosted runners for
-  ARM64 hypervisor acceleration; Ubuntu and Fedora remain the complete
-  GNU/Linux application/package matrix.
+- Gluon Android ARM64 build and `aosp_atd/x86_64` managed-device journeys on
+  API 31, 33, and 36. Device journeys use Ubuntu 24.04 x86_64 hosted runners
+  with KVM and a debug-only x86_64 JNI slice; APK/AAB output remains
+  ARM64-only. Ubuntu and Fedora remain the complete GNU/Linux
+  application/package matrix.
 
 `.github/workflows/security.yml` runs C/C++, Java/Kotlin, and Swift CodeQL plus
 dependency review. Dependabot covers Actions, Maven, and Android Gradle
@@ -57,7 +58,7 @@ flowchart LR
     policy --> java["JavaFX + Kotlin"]
     policy --> swift["SwiftUI + C runtime"]
     c --> distro["Ubuntu 24.04 · Fedora 44<br/>x86_64 + aarch64"]
-    java --> device["Android API 31 · 33 · 36<br/>ARM64 managed devices"]
+    java --> device["Android API 31 · 33 · 36<br/>Ubuntu/KVM x86_64 ATDs"]
     distro --> required["Required checks"]
     device --> required
     swift --> required

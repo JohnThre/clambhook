@@ -210,7 +210,7 @@ jobs:
         with:
           path: ui/android/.native-deps
           key: >-
-            android-native-${{ runner.os }}-${{ runner.arch }}-ndk-${{
+            android-native-v2-${{ runner.os }}-${{ runner.arch }}-ndk-${{
             env.ANDROID_NDK_VERSION }}-${{ hashFiles(
             'scripts/build-android-openssl.sh',
             'scripts/build-android-curl.sh') }}
@@ -221,6 +221,14 @@ jobs:
           sdkmanager 'platform-tools' 'platforms;android-36' 'build-tools;36.0.0' "ndk;${ANDROID_NDK_VERSION}" "cmake;${ANDROID_CMAKE_VERSION}"
       - name: Test and assemble the Kotlin platform AAR
         run: make test-android
+      - name: Prebuild x86_64 managed-device runtime
+        working-directory: ui/android
+        run: |
+          ./gradlew --no-daemon \
+            :platform:assembleDebug \
+            -Pclambhook.android.managedDeviceAbi=x86_64
+          ../../scripts/check-android-abi-policy.sh \
+            --require-debug --require-release
       - name: Provision checksum-pinned Gluon GraalVM 17
         run: |
           graal_home="$(bash scripts/provision-graalvm17.sh "$RUNNER_TEMP/graalvm17" gluon)"
@@ -239,7 +247,7 @@ jobs:
           retention-days: 14
 
   android-device:
-    name: Android API ${{ matrix.api }} ARM64 managed-device journeys
+    name: Android API ${{ matrix.api }} x86_64 managed-device journeys
     needs: android
     strategy:
       fail-fast: false
@@ -251,10 +259,10 @@ jobs:
             task: pixel6Api33DebugAndroidTest
           - api: 36
             task: pixel6Api36DebugAndroidTest
-    # GitHub's hosted Linux ARM64 preview runners do not expose /dev/kvm.
-    # Apple Silicon runners provide the matching ARM64 hypervisor required by
-    # the aosp_atd/arm64-v8a managed devices.
-    runs-on: macos-15
+    # The product remains ARM64-only. Hosted instrumentation uses x86_64 ATDs
+    # on Ubuntu's KVM-enabled runners because hosted ARM runners do not expose
+    # nested virtualization.
+    runs-on: ubuntu-24.04
     timeout-minutes: 120
     permissions:
       contents: read
@@ -279,11 +287,11 @@ jobs:
         with:
           path: ui/android/.native-deps
           key: >-
-            android-native-${{ runner.os }}-${{ runner.arch }}-ndk-${{
+            android-native-v2-${{ runner.os }}-${{ runner.arch }}-ndk-${{
             env.ANDROID_NDK_VERSION }}-${{ hashFiles(
             'scripts/build-android-openssl.sh',
             'scripts/build-android-curl.sh') }}
-      - name: Install API ${{ matrix.api }} ARM64 ATD image and native toolchain
+      - name: Install API ${{ matrix.api }} x86_64 ATD image and native toolchain
         run: |
           yes | sdkmanager --licenses >/dev/null || true
           sdkmanager --channel=3 \
@@ -291,19 +299,27 @@ jobs:
             'platforms;android-36' 'build-tools;36.0.0' \
             'platforms;android-37.0' 'build-tools;37.0.0' \
             "ndk;${ANDROID_NDK_VERSION}" "cmake;${ANDROID_CMAKE_VERSION}" \
-            'system-images;android-${{ matrix.api }};aosp_atd;arm64-v8a'
-      - name: Verify ARM64 hypervisor acceleration
+            'system-images;android-${{ matrix.api }};aosp_atd;x86_64'
+      - name: Enable and verify KVM acceleration
         run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | \
+            sudo tee /etc/udev/rules.d/99-kvm4all.rules >/dev/null
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          test -c /dev/kvm
+          test -r /dev/kvm
+          test -w /dev/kvm
           "$ANDROID_HOME/emulator/emulator" -accel-check
       - name: Run VPN lifecycle and runtime journeys
         working-directory: ui/android
-        # ATDs are headless and disable hardware rendering. Use the emulator's
-        # current software selector instead of a host-display-dependent mode.
+        # ATDs are headless and disable hardware rendering. GitHub-hosted
+        # runners therefore use Android's documented software renderer.
         run: >-
           ./gradlew --no-daemon
           :platform:${{ matrix.task }}
+          -Pclambhook.android.managedDeviceAbi=x86_64
           -Pandroid.experimental.testOptions.managedDevices.maxConcurrentDevices=1
-          -Pandroid.testoptions.manageddevices.emulator.gpu=software
+          -Pandroid.testoptions.manageddevices.emulator.gpu=swiftshader_indirect
       - name: Upload managed-device reports
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

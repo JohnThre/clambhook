@@ -41,8 +41,8 @@ identifier, and release contracts are frozen.
 - Java 17, JavaFX 21.0.12, Gluon static substrate 21.0.1, and GluonFX 1.0.29;
 - Maven tests/coverage, Gradle Kotlin AAR, CMake/CTest, and standalone pinned
   workflow linting;
-- x86_64/aarch64 Ubuntu/Fedora lanes and API 31/33/36 ARM64 Android
-  managed devices;
+- x86_64/aarch64 Ubuntu/Fedora lanes and API 31/33/36 x86_64 Android ATDs on
+  Ubuntu/KVM, while release artifacts remain ARM64-only;
 - source-only, license-boundary, stale-reference, package payload, signing,
   checksum, and update-manifest gates.
 

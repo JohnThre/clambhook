@@ -37,9 +37,10 @@ The locked application ID is `org.jpfchang.clambhook`; `minSdk` is 31,
 ARM64-only. Portable C tests may still use other Android ABIs.
 
 Run `make test-android` for Kotlin unit tests, lint, native compilation, and the
-release AAR. Authoritative managed-device journeys run the
-`aosp_atd/arm64-v8a` images on API 31, 33, and 36 using Apple Silicon hosted
-runners for ARM64 hypervisor acceleration. With the repository Android
+ARM64-only release AAR. Authoritative managed-device journeys run
+`aosp_atd/x86_64` images on API 31, 33, and 36 using Ubuntu 24.04 hosted
+runners with KVM. Only the debug test package gains the x86_64 JNI slice; this
+does not expand the supported product ABI. With the repository Android
 CLI installed, use `android info`, `android emulator list`,
 `android emulator start <name>`, and
 `android run --device <serial> --apks <apk>` for supplemental local journeys.

@@ -89,7 +89,9 @@ make build-android
 make test-android-compatibility
 ```
 
-API 31, 33, and 36 use `aosp_atd/arm64-v8a`. Required independent journeys:
+API 31, 33, and 36 use `aosp_atd/x86_64` on Ubuntu/KVM with a debug-only
+x86_64 JNI slice. Release AAR/APK/AAB artifacts remain ARM64-only. Required
+independent journeys:
 
 1. consent grant and denial;
 2. foreground-service notification and TUN traffic;

@@ -170,6 +170,7 @@ build-android-native:
 
 test-android:
 	cd ui/android && ANDROID_HOME="$(ANDROID_HOME)" ./gradlew --no-daemon :platform:testDebugUnitTest :platform:lintDebug :platform:assembleRelease
+	./scripts/check-android-abi-policy.sh --require-release
 
 test-android-compatibility:
 	cd ui/android && ANDROID_HOME="$(ANDROID_HOME)" ./gradlew --no-daemon \

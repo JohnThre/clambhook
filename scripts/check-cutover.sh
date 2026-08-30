@@ -78,4 +78,6 @@ if grep -Fq "printf '!<arch>" scripts/prepare-gluon-linux-aarch64.sh; then
     fail "obsolete empty DRM archive workaround remains"
 fi
 
+"$ROOT_DIR/scripts/check-android-abi-policy.sh"
+
 echo "cutover check: all checks passed"

@@ -20,6 +20,12 @@ plugins {
 }
 
 val repositoryRoot = rootProject.layout.projectDirectory.dir("../..")
+val managedDeviceAbi =
+    providers.gradleProperty("clambhook.android.managedDeviceAbi").orNull
+
+require(managedDeviceAbi == null || managedDeviceAbi == "x86_64") {
+    "clambhook.android.managedDeviceAbi only supports the x86_64 hosted-test ABI"
+}
 
 abstract class GenerateThirdPartyNoticesTask : DefaultTask() {
     @get:InputFiles
@@ -111,6 +117,13 @@ android {
     buildTypes {
         debug {
             isMinifyEnabled = false
+            if (managedDeviceAbi != null) {
+                ndk {
+                    // Hosted Ubuntu/KVM journeys need an x86_64 JNI slice.
+                    // The release build remains ARM64-only by product policy.
+                    abiFilters += managedDeviceAbi
+                }
+            }
         }
         release {
             isMinifyEnabled = false

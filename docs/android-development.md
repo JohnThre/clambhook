@@ -89,10 +89,12 @@ the visual state.
 
 ## Managed-device matrix
 
-Hosted CI is authoritative and runs `aosp_atd/arm64-v8a` images on Apple
-Silicon runners, whose hypervisor supports the matching ARM64 guests. GitHub's
-hosted Linux ARM64 preview runners do not expose KVM and therefore are not used
-for emulator journeys:
+Hosted CI is authoritative and runs `aosp_atd/x86_64` images on Ubuntu 24.04
+x86_64 runners with KVM. The debug test package adds an x86_64 JNI slice with
+`-Pclambhook.android.managedDeviceAbi=x86_64`; the release AAR, Gluon APK, and
+AAB remain ARM64-only. This separates portable emulator validation from the
+locked production architecture and avoids relying on nested virtualization on
+hosted ARM runners:
 
 | API | Device profile | Required coverage |
 | --- | --- | --- |
@@ -136,8 +138,8 @@ signed update manifest. Do not store keystores or passwords in the repository.
   never launch the TUN runtime before consent succeeds.
 - If native dependency provisioning fails, verify the NDK path and archive
   checksum instead of bypassing validation.
-- If a managed device cannot boot, confirm the exact
-  `aosp_atd/arm64-v8a` image and API are installed. Do not substitute API 30 or
-  a release ABI.
+- If a hosted managed device cannot boot, confirm `/dev/kvm` is readable and
+  writable and the exact `aosp_atd/x86_64` image and API are installed. Do not
+  substitute API 30 or add x86_64 to a release artifact.
 - Inspect `android layout` before using screen coordinates in a journey, and
   verify input fields are focused before sending text.
