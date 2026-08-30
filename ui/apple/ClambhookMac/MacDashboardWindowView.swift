@@ -59,12 +59,12 @@ struct MacDashboardWindowView: View {
     @ViewBuilder
     private var sidebarContent: some View {
         List(selection: $selection) {
-            Section("OVERVIEW") {
+            Section("Overview") {
                 Label("Dashboard", systemImage: "gauge.with.dots.needle.33percent")
                     .tag(SidebarItem.dashboard)
             }
 
-            Section("PROXY") {
+            Section("Proxy") {
                 if model.dashboard.profiles.profiles.isEmpty {
                     Label("No profiles", systemImage: "person.crop.circle")
                         .foregroundStyle(.secondary)
@@ -90,7 +90,7 @@ struct MacDashboardWindowView: View {
                     .tag(SidebarItem.rules)
             }
 
-            Section("NETWORK") {
+            Section("Network") {
                 Label("DNS", systemImage: "network")
                     .tag(SidebarItem.dns)
                 Label("Activity", systemImage: "arrow.up.arrow.down")
@@ -103,7 +103,7 @@ struct MacDashboardWindowView: View {
                     .tag(SidebarItem.conditioner)
             }
 
-            Section("SYSTEM") {
+            Section("System") {
                 Label("Logs", systemImage: "text.alignleft")
                     .tag(SidebarItem.logs)
                 Label("Settings", systemImage: "gear")
@@ -136,6 +136,9 @@ struct MacDashboardWindowView: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
         .background(.bar)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Connection status")
+        .accessibilityValue(footerStatusText)
     }
 
     private var footerDotColor: Color {

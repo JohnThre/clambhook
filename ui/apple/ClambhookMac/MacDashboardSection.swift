@@ -23,6 +23,10 @@ struct MacDashboardSection: View {
             VStack(alignment: .leading, spacing: 18) {
                 heroPanel
 
+                if !model.dashboard.apiOnline || !model.dashboard.errorText.isEmpty {
+                    dashboardErrorPanel
+                }
+
                 if !model.appRecoveryStates.isEmpty {
                     recoveryStates
                 }
@@ -81,32 +85,50 @@ struct MacDashboardSection: View {
                 .frame(width: 300, height: 300)
                 .offset(x: 118, y: 34)
 
-            HStack(alignment: .center, spacing: 24) {
-                VStack(alignment: .leading, spacing: 18) {
-                    HStack(spacing: 10) {
-                        DashboardPill(text: statusText, systemImage: statusSymbol, tint: .white)
-                        DashboardPill(text: tunnelModeLabel, systemImage: tunnelModeSymbol, tint: .white)
-                        DashboardPill(
-                            text: model.dashboard.apiOnline ? "API online" : "API offline",
-                            systemImage: model.dashboard.apiOnline ? "checkmark.circle.fill" : "xmark.circle.fill",
-                            tint: model.dashboard.apiOnline ? .white : .orange
-                        )
-                        if model.licenseManager.decision.supporterTier != .none {
-                            DashboardPill(
-                                text: model.licenseManager.decision.supporterActive
-                                    ? "\(model.licenseManager.decision.supporterTier.displayName) · Active"
-                                    : model.licenseManager.decision.supporterTier.displayName,
-                                systemImage: model.licenseManager.decision.supporterActive ? "star.circle.fill" : "star.circle",
-                                tint: .white
-                            )
-                        }
-                        if daemon.state.isBusy {
-                            ProgressView()
-                                .controlSize(.small)
-                                .tint(.white)
-                                .scaleEffect(0.8)
-                        }
-                    }
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .center, spacing: 24) {
+                    heroPrimaryContent
+                    heroMetrics
+                }
+                VStack(alignment: .leading, spacing: 20) {
+                    heroPrimaryContent
+                    heroMetrics
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+            .padding(24)
+        }
+        .frame(minHeight: 220)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Connection overview")
+    }
+
+    private var heroPrimaryContent: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            HStack(spacing: 10) {
+                DashboardPill(text: statusText, systemImage: statusSymbol, tint: .white)
+                DashboardPill(text: tunnelModeLabel, systemImage: tunnelModeSymbol, tint: .white)
+                DashboardPill(
+                    text: model.dashboard.apiOnline ? "API online" : "API offline",
+                    systemImage: model.dashboard.apiOnline ? "checkmark.circle.fill" : "xmark.circle.fill",
+                    tint: model.dashboard.apiOnline ? .white : .orange
+                )
+                if model.licenseManager.decision.supporterTier != .none {
+                    DashboardPill(
+                        text: model.licenseManager.decision.supporterActive
+                            ? "\(model.licenseManager.decision.supporterTier.displayName) · Active"
+                            : model.licenseManager.decision.supporterTier.displayName,
+                        systemImage: model.licenseManager.decision.supporterActive ? "star.circle.fill" : "star.circle",
+                        tint: .white
+                    )
+                }
+                if daemon.state.isBusy {
+                    ProgressView()
+                        .controlSize(.small)
+                        .tint(.white)
+                        .scaleEffect(0.8)
+                }
+            }
 
                     VStack(alignment: .leading, spacing: 6) {
                         Text(model.dashboard.status.running ? "ClambHook is defending this Mac" : "ClambHook is ready to protect")
@@ -132,30 +154,63 @@ struct MacDashboardSection: View {
                         .buttonStyle(.borderedProminent)
                         .tint(model.dashboard.status.running ? .red : .green)
                         .controlSize(.large)
-                        .disabled(!model.dashboard.apiOnline && !model.dashboard.status.running)
+                        .disabled(daemon.state.isBusy ||
+                            (!model.dashboard.apiOnline && !model.dashboard.status.running))
+                        .help(model.dashboard.status.running
+                            ? "Stop the active ClambHook connection"
+                            : "Start ClambHook with the selected profile")
                     }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-                VStack(alignment: .leading, spacing: 14) {
-                    HStack(spacing: 16) {
-                        DashboardHeroMetric(title: "Down", value: formatRate(currentBandwidth.rxBps), systemImage: "arrow.down")
-                        DashboardHeroMetric(title: "Up", value: formatRate(currentBandwidth.txBps), systemImage: "arrow.up")
-                    }
-                    DashboardHeroMetric(title: "Active flows", value: "\(activeConnections)", systemImage: "bolt.horizontal.circle.fill")
-                    DashboardHeroMetric(title: "Best route", value: bestLatency, systemImage: "speedometer")
-                }
-                .padding(16)
-                .frame(width: 260, alignment: .leading)
-                .background(Color.black.opacity(0.18), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 18, style: .continuous)
-                        .stroke(Color.white.opacity(0.16), lineWidth: 1)
-                )
-            }
-            .padding(24)
         }
-        .frame(minHeight: 220)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var heroMetrics: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 16) {
+                DashboardHeroMetric(title: "Down", value: formatRate(currentBandwidth.rxBps), systemImage: "arrow.down")
+                DashboardHeroMetric(title: "Up", value: formatRate(currentBandwidth.txBps), systemImage: "arrow.up")
+            }
+            DashboardHeroMetric(title: "Active flows", value: "\(activeConnections)", systemImage: "bolt.horizontal.circle.fill")
+            DashboardHeroMetric(title: "Best route", value: bestLatency, systemImage: "speedometer")
+        }
+        .padding(16)
+        .frame(width: 260, alignment: .leading)
+        .background(Color.black.opacity(0.18), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(Color.white.opacity(0.16), lineWidth: 1)
+        )
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Traffic summary")
+    }
+
+    private var dashboardErrorPanel: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(.orange)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(model.dashboard.apiOnline ? "Dashboard needs attention" : "Runtime unavailable")
+                    .font(.headline)
+                Text(model.dashboard.errorText.isEmpty
+                    ? "ClambHook could not reach the local runtime. Check that the daemon is running, then retry."
+                    : model.dashboard.errorText)
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+            }
+            Spacer(minLength: 12)
+            Button("Retry", systemImage: "arrow.clockwise") {
+                model.refresh()
+            }
+            .buttonStyle(.borderedProminent)
+            .accessibilityHint("Reloads dashboard data from the local runtime")
+        }
+        .padding(16)
+        .background(.orange.opacity(0.1), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(.orange.opacity(0.35), lineWidth: 1)
+        )
+        .accessibilityElement(children: .contain)
     }
 
     private var heroGradient: [Color] {

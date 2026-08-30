@@ -135,6 +135,28 @@ final class DashboardStoreTests: XCTestCase {
         XCTAssertEqual(snapshot.listenerCount, 1)
     }
 
+    func testFailedRefreshExposesRecoverableOfflineStateAndRetryClearsIt() async {
+        let api = FakeDashboardAPI()
+        api.dashboardError = URLError(.cannotConnectToHost)
+        let store = DashboardStore(api: api, snapshotStore: .inMemory)
+
+        await store.refreshDashboard()
+
+        XCTAssertFalse(store.apiOnline)
+        XCTAssertFalse(store.errorText.isEmpty)
+
+        api.dashboardError = nil
+        api.dashboardResult = TunnelDashboardPayload(
+            status: StatusPayload(running: false, profile: "default", listeners: []),
+            profiles: ProfilesPayload(profiles: ["default"], active: "default")
+        )
+        await store.refreshDashboard()
+
+        XCTAssertTrue(store.apiOnline)
+        XCTAssertTrue(store.errorText.isEmpty)
+        XCTAssertEqual(store.activeProfile, "default")
+    }
+
     func testDashboardPayloadDecodesMissingPolicyGroups() throws {
         let data = Data("""
         {
@@ -435,10 +457,14 @@ private class FakeAPIClient: ClambhookAPIProviding {
 
 private final class FakeDashboardAPI: FakeAPIClient, ClambhookDashboardProviding {
     var dashboardResult = TunnelDashboardPayload()
+    var dashboardError: Error?
     private(set) var dashboardCalls = 0
 
     func dashboard() async throws -> TunnelDashboardPayload {
         dashboardCalls += 1
+        if let dashboardError {
+            throw dashboardError
+        }
         return dashboardResult
     }
 }

@@ -100,6 +100,8 @@ final class MainViewTest {
                                 && button.getAccessibleText().startsWith("Open ")));
 
                 assertSemanticLabels(nodes);
+                assertEquals("Ready to connect", label(nodes, "hero-title").getText());
+                assertEquals("Active profile · default", label(nodes, "hero-subtitle").getText());
                 root.applyCss();
                 Button refresh = button(nodes, "Refresh");
                 assertTrue(refresh.minHeight(-1) >= 48.0,
@@ -143,7 +145,10 @@ final class MainViewTest {
                         .findFirst().orElseThrow();
                 assertTrue(banner.isVisible());
                 assertTrue(banner.getAccessibleText().startsWith("Error: "));
-                button(nodes, "Refresh").fire();
+                Button retry = button(nodes, "Retry");
+                assertTrue(retry.isVisible());
+                assertEquals("Retry loading ClambHook data", retry.getAccessibleText());
+                retry.fire();
                 return null;
             });
             flushFx();
@@ -154,6 +159,7 @@ final class MainViewTest {
                         .findFirst().orElseThrow();
                 assertFalse(banner.isVisible());
                 assertEquals("", banner.getAccessibleText());
+                assertFalse(button(logicalNodes(fixture.view().node()), "Retry").isVisible());
                 assertTrue(fixture.statusCalls().get() >= 2);
                 return null;
             });
@@ -205,6 +211,14 @@ final class MainViewTest {
                 .filter(Button.class::isInstance)
                 .map(Button.class::cast)
                 .filter(button -> text.equals(button.getText()))
+                .findFirst().orElseThrow();
+    }
+
+    private static javafx.scene.control.Label label(List<Node> nodes, String styleClass) {
+        return nodes.stream()
+                .filter(javafx.scene.control.Label.class::isInstance)
+                .map(javafx.scene.control.Label.class::cast)
+                .filter(label -> label.getStyleClass().contains(styleClass))
                 .findFirst().orElseThrow();
     }
 

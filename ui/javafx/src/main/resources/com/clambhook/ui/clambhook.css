@@ -65,10 +65,20 @@
     -fx-text-fill: #ffb0b0;
 }
 
-.error-banner {
-    -fx-padding: 10 18 10 18;
+.error-bar {
+    -fx-padding: 8 12 8 18;
     -fx-background-color: #4a2429;
+}
+
+.error-banner {
     -fx-text-fill: #ffd3d3;
+}
+
+.error-retry-button {
+    -fx-min-height: 48px;
+    -fx-background-color: #ffd3d3;
+    -fx-text-fill: #35161a;
+    -fx-font-weight: 700;
 }
 
 .side-navigation {
@@ -110,6 +120,12 @@
     -fx-text-fill: -clambhook-text;
 }
 
+.side-nav-button:focused,
+.bottom-nav-button:focused {
+    -fx-border-color: -clambhook-accent;
+    -fx-border-width: 2;
+}
+
 .nav-selected {
     -fx-border-color: -clambhook-accent;
     -fx-border-width: 0 0 0 3;
@@ -133,6 +149,22 @@
     -fx-border-color: -clambhook-border;
     -fx-border-radius: 13;
     -fx-border-width: 1;
+}
+
+.dashboard-hero {
+    -fx-background-color: linear-gradient(to bottom right, #173e31, #182f4b);
+    -fx-border-color: #3a8066;
+    -fx-padding: 22;
+}
+
+.hero-title {
+    -fx-font-size: 23px;
+    -fx-font-weight: 700;
+}
+
+.hero-subtitle {
+    -fx-font-size: 14px;
+    -fx-text-fill: #c3d2e2;
 }
 
 .metric-card {

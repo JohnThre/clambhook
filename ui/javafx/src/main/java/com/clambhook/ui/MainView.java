@@ -96,6 +96,7 @@ public final class MainView implements AutoCloseable {
     private final Label pageTitle = new Label();
     private final Label connectionState = new Label("Checking…");
     private final Label errorBanner = new Label();
+    private final Button errorRetryButton = new Button("Retry");
     private final ComboBox<String> profilePicker = new ComboBox<>();
     private final Button connectButton = new Button("Connect");
     private final Button refreshButton = new Button("Refresh");
@@ -139,6 +140,8 @@ public final class MainView implements AutoCloseable {
     private final Button captureToggle = new Button("Enable capture");
     private final Label lastUpdated = new Label("Not refreshed yet");
     private final Label dashboardSupporterBadge = new Label("Supporter status unavailable");
+    private final Label dashboardConnectionSummary = new Label("Checking runtime status…");
+    private final Label dashboardProfileSummary = new Label("No active profile");
     private final Label settingsSupporterBadge = new Label("Supporter status unavailable");
     private final Label supporterThanks = new Label();
 
@@ -229,6 +232,11 @@ public final class MainView implements AutoCloseable {
         errorBanner.setWrapText(true);
         errorBanner.setManaged(false);
         errorBanner.setVisible(false);
+        errorRetryButton.getStyleClass().add("error-retry-button");
+        errorRetryButton.setAccessibleText("Retry loading ClambHook data");
+        errorRetryButton.setOnAction(ignored -> refresh());
+        errorRetryButton.setManaged(false);
+        errorRetryButton.setVisible(false);
 
         profilePicker.setPromptText("Profile");
         profilePicker.setAccessibleText("Active profile");
@@ -243,7 +251,15 @@ public final class MainView implements AutoCloseable {
         toolbar.setAlignment(Pos.CENTER_LEFT);
         toolbar.getStyleClass().add("toolbar");
 
-        VBox header = new VBox(errorBanner, toolbar);
+        Region errorSpacer = new Region();
+        HBox.setHgrow(errorSpacer, Priority.ALWAYS);
+        HBox errorBar = new HBox(12, errorBanner, errorSpacer, errorRetryButton);
+        errorBar.setAlignment(Pos.CENTER_LEFT);
+        errorBar.getStyleClass().add("error-bar");
+        errorBar.managedProperty().bind(errorBanner.visibleProperty());
+        errorBar.visibleProperty().bind(errorBanner.visibleProperty());
+
+        VBox header = new VBox(errorBar, toolbar);
         header.getStyleClass().add("header");
         return header;
     }
@@ -279,10 +295,22 @@ public final class MainView implements AutoCloseable {
         dnsSummary.getStyleClass().add("secondary-text");
         VBox dnsCard = card(dnsTitle, dnsSummary);
 
+        dashboardConnectionSummary.getStyleClass().add("hero-title");
+        dashboardConnectionSummary.setAccessibleText("Connection summary");
+        dashboardProfileSummary.getStyleClass().add("hero-subtitle");
+        dashboardProfileSummary.setAccessibleText("Active profile summary");
+        VBox heroCopy = new VBox(6, dashboardConnectionSummary, dashboardProfileSummary);
+        HBox.setHgrow(heroCopy, Priority.ALWAYS);
+        HBox hero = new HBox(18, heroCopy);
+        hero.setAlignment(Pos.CENTER_LEFT);
+        hero.getStyleClass().addAll("card", "dashboard-hero");
+
         lastUpdated.getStyleClass().add("secondary-text");
+        lastUpdated.setAccessibleText("Dashboard refresh status");
         dashboardSupporterBadge.setAccessibleText("ClambHook supporter status");
         dashboardSupporterBadge.getStyleClass().add("secondary-text");
-        VBox body = new VBox(18, dashboardSupporterBadge, metrics, listenersCard, dnsCard, lastUpdated);
+        VBox body = new VBox(18, hero, metrics, listenersCard, dnsCard,
+                dashboardSupporterBadge, lastUpdated);
         body.getStyleClass().add("page-content");
         if (platformServices.supports(PlatformServices.Capability.LICENSING)) {
             pageRefreshers.put(Page.DASHBOARD, () -> loadLicenseStatus(
@@ -1337,9 +1365,17 @@ public final class MainView implements AutoCloseable {
         if (!refreshInFlight.compareAndSet(false, true)) {
             return;
         }
+        Platform.runLater(() -> {
+            refreshButton.setDisable(true);
+            refreshButton.setText("Refreshing…");
+            lastUpdated.setText("Refreshing dashboard…");
+        });
         loader.load().whenComplete((data, error) -> {
             refreshInFlight.set(false);
             Platform.runLater(() -> {
+                refreshButton.setDisable(false);
+                refreshButton.setText(root.getWidth() > 0 && root.getWidth() < COMPACT_WIDTH
+                        ? "↻" : "Refresh");
                 if (error != null) {
                     showError(error);
                     connectionState.setText("Unavailable");
@@ -1418,6 +1454,11 @@ public final class MainView implements AutoCloseable {
         setStatusClass(data.running() ? "status-connected" : "status-disconnected");
         connectButton.setText(data.running() ? "Disconnect" : "Connect");
         connectButton.setDisable(false);
+        dashboardConnectionSummary.setText(data.running()
+                ? "Your traffic is protected" : "Ready to connect");
+        dashboardProfileSummary.setText(data.activeProfile().isBlank()
+                ? "Choose or import a profile to get started"
+                : "Active profile · " + data.activeProfile());
 
         updatingProfile = true;
         profilePicker.setItems(FXCollections.observableArrayList(data.profiles()));
@@ -1495,6 +1536,8 @@ public final class MainView implements AutoCloseable {
         errorBanner.setAccessibleText("Error: " + displayed);
         errorBanner.setManaged(true);
         errorBanner.setVisible(true);
+        errorRetryButton.setManaged(true);
+        errorRetryButton.setVisible(true);
     }
 
     private void clearError() {
@@ -1502,6 +1545,8 @@ public final class MainView implements AutoCloseable {
         errorBanner.setAccessibleText("");
         errorBanner.setManaged(false);
         errorBanner.setVisible(false);
+        errorRetryButton.setManaged(false);
+        errorRetryButton.setVisible(false);
     }
 
     private static Throwable unwrap(Throwable throwable) {
