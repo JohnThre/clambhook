@@ -60,7 +60,7 @@ struct ch_tunnel_command {
     ch_error error;
     union {
         struct {
-            uint8_t *bytes;
+            const uint8_t *bytes;
             size_t length;
         } inject;
         struct {
@@ -150,6 +150,11 @@ struct ch_tunnel_stack {
     ch_tunnel_flow *flows;
     ch_tunnel_packet *packets;
     int stopping;
+#ifdef CLAMBHOOK_MEMORY_TESTING
+    size_t injected_packets;
+    size_t payload_allocations;
+    size_t copied_bytes;
+#endif
 };
 
 static int ch_tunnel_set_nonblocking(int descriptor) {
@@ -219,6 +224,11 @@ static ch_status ch_tunnel_submit(ch_tunnel_stack *stack,
         stack->command_tail->next = command;
     }
     stack->command_tail = command;
+#ifdef CLAMBHOOK_MEMORY_TESTING
+    if (command->type == CH_TUNNEL_COMMAND_INJECT) {
+        ++stack->injected_packets;
+    }
+#endif
     uint8_t wake = 1U;
     ssize_t wake_result;
     do {
@@ -1387,6 +1397,31 @@ void ch_tunnel_stack_destroy(ch_tunnel_stack *stack) {
     free(stack);
 }
 
+#ifdef CLAMBHOOK_MEMORY_TESTING
+void ch_tunnel_stack_memory_stats(ch_tunnel_stack *stack,
+                                  size_t *injected_packets,
+                                  size_t *payload_allocations,
+                                  size_t *copied_bytes) {
+    if (injected_packets != NULL) {
+        *injected_packets = stack == NULL ? 0U : stack->injected_packets;
+    }
+    if (payload_allocations != NULL) {
+        *payload_allocations = stack == NULL ? 0U :
+            stack->payload_allocations;
+    }
+    if (copied_bytes != NULL) {
+        *copied_bytes = stack == NULL ? 0U : stack->copied_bytes;
+    }
+}
+
+void ch_tunnel_stack_stop_for_testing(ch_tunnel_stack *stack) {
+    if (stack == NULL) return;
+    (void)pthread_mutex_lock(&stack->queue_mutex);
+    stack->stopping = 1;
+    (void)pthread_mutex_unlock(&stack->queue_mutex);
+}
+#endif
+
 ch_status ch_tunnel_stack_inject(ch_tunnel_stack *stack,
                                  const uint8_t *packet, size_t length,
                                  ch_error *error) {
@@ -1398,25 +1433,17 @@ ch_status ch_tunnel_stack_inject(ch_tunnel_stack *stack,
                      "invalid tunnel IP packet");
         return CH_ERROR_INVALID_ARGUMENT;
     }
-    uint8_t *copy = malloc(length);
-    if (copy == NULL) {
-        ch_error_set(error, CH_ERROR_OUT_OF_MEMORY,
-                     "copy tunnel IP packet");
-        return CH_ERROR_OUT_OF_MEMORY;
-    }
-    memcpy(copy, packet, length);
     ch_tunnel_command command;
     if (!ch_tunnel_command_initialize(&command, CH_TUNNEL_COMMAND_INJECT)) {
-        free(copy);
         ch_error_set(error, CH_ERROR_INTERNAL,
                      "initialize tunnel input command");
         return CH_ERROR_INTERNAL;
     }
-    command.value.inject.bytes = copy;
+    /* Submission waits for the worker to finish, so the caller retains this
+     * buffer for the complete interval in which the worker can access it. */
+    command.value.inject.bytes = packet;
     command.value.inject.length = length;
-    ch_status status = ch_tunnel_submit(stack, &command, error);
-    free(copy);
-    return status;
+    return ch_tunnel_submit(stack, &command, error);
 }
 
 ch_status ch_tunnel_stack_dial_tcp(ch_tunnel_stack *stack,

@@ -334,6 +334,7 @@ if(CLAMBHOOK_BUILD_TESTS)
     native/tests/test_socks.c
     native/tests/test_temporary_rules.c
     native/tests/test_traffic.c
+    native/tests/test_tunnel_stack.c
     native/tests/test_watcher.c
     native/tests/test_wireguard.c
   )

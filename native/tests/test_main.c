@@ -43,6 +43,7 @@ int main(void) {
     if (ch_test_selected(selected, "socks")) ch_test_socks();
     if (ch_test_selected(selected, "temporary_rules")) ch_test_temporary_rules();
     if (ch_test_selected(selected, "traffic")) ch_test_traffic();
+    if (ch_test_selected(selected, "tunnel_stack")) ch_test_tunnel_stack();
     if (ch_test_selected(selected, "watcher")) ch_test_watcher();
     if (ch_test_selected(selected, "wireguard")) ch_test_wireguard();
     if (ch_test_failures != 0) {
