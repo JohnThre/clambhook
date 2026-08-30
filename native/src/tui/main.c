@@ -807,22 +807,32 @@ static void tui_resolve_prompt(tui_snapshot *snapshot, const char *base,
     curl_easy_cleanup(curl);
 }
 
-static int tui_read_key(void) {
-    fd_set readable;
-    FD_ZERO(&readable);
-    FD_SET(STDIN_FILENO, &readable);
-    struct timeval timeout = {.tv_sec = 0, .tv_usec = 250000};
+static int tui_wait_for_input(suseconds_t microseconds) {
     int ready;
     do {
+        fd_set readable;
+        FD_ZERO(&readable);
+        FD_SET(STDIN_FILENO, &readable);
+        struct timeval timeout = {.tv_sec = 0, .tv_usec = microseconds};
         ready = select(STDIN_FILENO + 1, &readable, NULL, NULL, &timeout);
     } while (ready < 0 && errno == EINTR && !tui_stopping);
+    return ready;
+}
+
+static int tui_read_key(void) {
+    int ready = tui_wait_for_input(250000);
     if (ready <= 0) return TUI_KEY_NONE;
     unsigned char key = 0U;
     if (read(STDIN_FILENO, &key, 1U) != 1) return TUI_KEY_NONE;
     if (key != 27U) return (int)key;
     unsigned char sequence[2] = {0U, 0U};
-    if (read(STDIN_FILENO, &sequence[0], 1U) != 1 || sequence[0] != '[' ||
-        read(STDIN_FILENO, &sequence[1], 1U) != 1) return 27;
+    for (size_t index = 0U; index < sizeof(sequence); ++index) {
+        ready = tui_wait_for_input(50000);
+        if (ready <= 0 || read(STDIN_FILENO, &sequence[index], 1U) != 1) {
+            return 27;
+        }
+    }
+    if (sequence[0] != '[') return TUI_KEY_NONE;
     if (sequence[1] == 'A') return TUI_KEY_UP;
     if (sequence[1] == 'B') return TUI_KEY_DOWN;
     return TUI_KEY_NONE;

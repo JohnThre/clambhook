@@ -147,6 +147,8 @@ public final class MainView implements AutoCloseable {
     private final Label supporterThanks = new Label();
 
     private volatile DashboardData currentData = DashboardData.empty();
+    private boolean connectionOperationPending;
+    private boolean connectionOperationStarting;
     private volatile boolean updatingProfile;
     private Page currentPage = Page.DASHBOARD;
 
@@ -1103,8 +1105,10 @@ public final class MainView implements AutoCloseable {
         if (!runtime.supportsConnectionControl() || connectButton.isDisabled()) {
             return;
         }
+        connectionOperationPending = true;
+        connectionOperationStarting = !currentData.running();
         connectButton.setDisable(true);
-        connectButton.setText(currentData.running() ? "Disconnecting…" : "Connecting…");
+        connectButton.setText(connectionOperationStarting ? "Connecting…" : "Disconnecting…");
         connectButton.setAccessibleText(connectButton.getText());
         CompletableFuture<?> operation;
         if (currentData.running()) {
@@ -1118,7 +1122,17 @@ public final class MainView implements AutoCloseable {
                 return platformServices.startVpn();
             });
         }
-        runMutation(operation);
+        operation.whenComplete((ignored, error) -> Platform.runLater(() -> {
+            connectionOperationPending = false;
+            if (error != null) {
+                showError(error);
+                applyData(currentData);
+            } else {
+                clearError();
+                applyData(currentData);
+                refresh();
+            }
+        }));
     }
 
     private void runMutation(CompletableFuture<?> operation) {
@@ -1127,7 +1141,6 @@ public final class MainView implements AutoCloseable {
 
     private void runMutation(CompletableFuture<?> operation, Runnable afterSuccess) {
         operation.whenComplete((ignored, error) -> Platform.runLater(() -> {
-            connectButton.setDisable(false);
             if (error != null) {
                 showError(error);
             } else {
@@ -1466,12 +1479,20 @@ public final class MainView implements AutoCloseable {
     private void applyData(DashboardData data) {
         connectionState.setText(data.running() ? "Connected" : "Disconnected");
         setStatusClass(data.running() ? "status-connected" : "status-disconnected");
-        connectButton.setText(data.running() ? "Disconnect" : "Connect");
-        connectButton.setAccessibleText((data.running() ? "Disconnect" : "Connect")
-                + " (Control or Command plus Enter)");
+        String connectionAction = data.running() ? "Disconnect" : "Connect";
+        if (connectionOperationPending) {
+            connectionAction = connectionOperationStarting ? "Connecting…" : "Disconnecting…";
+        }
+        connectButton.setText(connectionAction);
+        connectButton.setAccessibleText(connectionOperationPending
+                ? connectionAction
+                : connectionAction + " (Control or Command plus Enter)");
         boolean missingProfile = !data.running() && data.activeProfile().isBlank();
-        connectButton.setDisable(!runtime.supportsConnectionControl() || missingProfile);
-        connectButton.setTooltip(new Tooltip(missingProfile
+        connectButton.setDisable(connectionOperationPending
+                || !runtime.supportsConnectionControl() || missingProfile);
+        connectButton.setTooltip(new Tooltip(connectionOperationPending
+                ? "Wait for the current connection action to finish"
+                : missingProfile
                 ? "Add and select a profile before connecting"
                 : (data.running() ? "Disconnect ClambHook" : "Connect with the active profile")));
         dashboardConnectionSummary.setText(data.running()

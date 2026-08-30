@@ -167,6 +167,43 @@ final class MainViewTest {
     }
 
     @Test
+    void refreshCannotReenableConnectWhileConnectionActionIsPending() throws Exception {
+        CompletableFuture<Void> pendingStart = new CompletableFuture<>();
+        Fixture fixture = onFx(() -> fixture(false, false, pendingStart));
+        try {
+            flushFx();
+            onFx(() -> {
+                List<Node> nodes = logicalNodes(fixture.view().node());
+                button(nodes, "Connect").fire();
+                assertTrue(button(nodes, "Connecting…").isDisabled());
+                button(nodes, "Refresh").fire();
+                return null;
+            });
+            flushFx();
+            flushFx();
+            onFx(() -> {
+                Button connect = button(logicalNodes(fixture.view().node()), "Connecting…");
+                assertTrue(connect.isDisabled());
+                assertEquals("Wait for the current connection action to finish",
+                        connect.getTooltip().getText());
+                return null;
+            });
+            pendingStart.complete(null);
+            flushFx();
+            flushFx();
+            onFx(() -> {
+                assertFalse(button(logicalNodes(fixture.view().node()), "Connect").isDisabled());
+                return null;
+            });
+        } finally {
+            onFx(() -> {
+                fixture.view().close();
+                return null;
+            });
+        }
+    }
+
+    @Test
     void failedRefreshIsAnnouncedAndAUserRetryClearsIt() throws Exception {
         Fixture fixture = onFx(() -> fixture(true));
         try {
@@ -283,9 +320,15 @@ final class MainViewTest {
     }
 
     private static Fixture fixture(boolean failFirstStatus, boolean emptyProfiles) {
+        return fixture(failFirstStatus, emptyProfiles,
+                CompletableFuture.completedFuture(null));
+    }
+
+    private static Fixture fixture(boolean failFirstStatus, boolean emptyProfiles,
+                                   CompletableFuture<Void> startVpn) {
         AtomicInteger statusCalls = new AtomicInteger();
         RuntimeClient runtime = runtime(statusCalls, failFirstStatus, emptyProfiles);
-        PlatformServices services = platformServices();
+        PlatformServices services = platformServices(startVpn);
         MainView view = new MainView(runtime, services);
         Scene scene = new Scene(view.node(), 1180, 760);
         URL stylesheet = ClambhookApplication.class.getResource("clambhook.css");
@@ -333,7 +376,7 @@ final class MainViewTest {
                 });
     }
 
-    private static PlatformServices platformServices() {
+    private static PlatformServices platformServices(CompletableFuture<Void> startVpn) {
         return (PlatformServices) Proxy.newProxyInstance(
                 PlatformServices.class.getClassLoader(),
                 new Class<?>[]{PlatformServices.class},
@@ -341,7 +384,8 @@ final class MainViewTest {
                     case "capabilities" -> Set.of();
                     case "supports" -> false;
                     case "requestVpnConsent" -> CompletableFuture.completedFuture(true);
-                    case "startVpn", "stopVpn" -> CompletableFuture.completedFuture(null);
+                    case "startVpn" -> startVpn;
+                    case "stopVpn" -> CompletableFuture.completedFuture(null);
                     case "takePendingOutlineAccessKey" -> CompletableFuture.completedFuture("");
                     case "platformName" -> "test platform";
                     case "close" -> null;
