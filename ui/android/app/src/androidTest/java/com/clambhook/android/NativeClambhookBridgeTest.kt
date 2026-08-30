@@ -267,13 +267,17 @@ class NativeClambhookBridgeTest {
         'm'.code.toByte(), 0x00, 0x00, 0x01, 0x00, 0x01,
     )
 
-    private fun assertDnsServfail(packet: ByteArray) {
+    private fun assertDnsServfail(
+        packet: ByteArray,
+        identifierHigh: Int = 0x12,
+        identifierLow: Int = 0x34,
+    ) {
         assertEquals(53, ((packet[20].toInt() and 0xff) shl 8) or
             (packet[21].toInt() and 0xff))
         assertEquals(42000, ((packet[22].toInt() and 0xff) shl 8) or
             (packet[23].toInt() and 0xff))
-        assertEquals(0x12, packet[28].toInt() and 0xff)
-        assertEquals(0x34, packet[29].toInt() and 0xff)
+        assertEquals(identifierHigh, packet[28].toInt() and 0xff)
+        assertEquals(identifierLow, packet[29].toInt() and 0xff)
         assertEquals(0x80, packet[30].toInt() and 0x80)
         assertEquals(0x02, packet[31].toInt() and 0x0f)
     }
@@ -528,9 +532,8 @@ class NativeClambhookBridgeTest {
             }
         }
         assertEquals(2, outputs.size)
-        outputs.forEach(::assertDnsServfail)
-        assertEquals(0x56, outputs.last()[28].toInt() and 0xff)
-        assertEquals(0x78, outputs.last()[29].toInt() and 0xff)
+        assertDnsServfail(outputs.first())
+        assertDnsServfail(outputs.last(), 0x56, 0x78)
     }
 
     @Test
