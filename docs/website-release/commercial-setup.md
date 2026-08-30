@@ -46,6 +46,8 @@ resubscription, or a provider change.
 
 - Creem and NOWPayments are the only accepted and advertised ClambHook purchase payment providers. Do not offer PayPal.
 - The checkout page posts `{ provider, email, licenseKey? }` to `/api/clambhook/checkout`.
+- Disable repeated checkout submission while provider-session creation is in
+  flight; a failed request must restore the action for a safe retry.
 - License issuance and annual extension happen only from verified paid Creem or NOWPayments webhook events.
 - Email is required for license delivery; an existing key is optional for renewal, resubscription, or provider changes.
 - Cancellation schedules the end of future billing and never revokes an already-paid term.
@@ -69,5 +71,5 @@ resubscription, or a provider change.
 - Confirm cancellation, lapse, resubscription, provider switching, refunds, chargebacks, and webhook replay behavior.
 - Confirm activation enforces 6 active devices across supported platforms.
 - Confirm deactivation, reactivation, and transfer flows update device seats.
-- Confirm the portal shows subscription status and paid-through date, schedules cancellation, lists devices, and deactivates a selected device.
+- Confirm the portal shows subscription status and paid-through date, schedules cancellation, lists devices, deactivates an active device, reactivates a known device when a seat is available, and frees an active seat for transfer.
 - Do not enable live billing until both providers pass end-to-end test-mode verification.

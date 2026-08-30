@@ -37,10 +37,14 @@ license activation.
 Website checkout accepts `{ provider, email, licenseKey? }` through `/api/clambhook/checkout`.
 ClambHook purchase payments are accepted only through Creem or NOWPayments, not
 PayPal, and license transactions must originate from verified provider webhook
-events in the `swiphtgroup.com` store.
+events in the `swiphtgroup.com` store. The checkout UI permits only one pending
+provider-session request at a time so repeated clicks cannot create duplicate
+checkout sessions.
 
 Users can manage device seats from
-`https://store.swiphtgroup.com/clambhook/portal/`.
+`https://store.swiphtgroup.com/clambhook/portal/`. The portal lists active and
+deactivated devices, can reactivate a known seat, and can free an active seat
+for transfer without deleting its device history.
 
 ## Client State and Helper Boundary
 
