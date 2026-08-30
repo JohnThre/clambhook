@@ -62,7 +62,8 @@ build: build-native
 
 test-native:
 	cmake -S . -B "$(NATIVE_SANITIZE_DIR)" -G Ninja \
-		-DCMAKE_BUILD_TYPE=Debug -DCLAMBHOOK_ENABLE_SANITIZERS=ON
+		-DCMAKE_BUILD_TYPE=Debug -DCLAMBHOOK_ENABLE_SANITIZERS=ON \
+		-DCLAMBHOOK_ENABLE_MEMORY_TESTING=ON
 	cmake --build "$(NATIVE_SANITIZE_DIR)"
 	ctest --test-dir "$(NATIVE_SANITIZE_DIR)" --output-on-failure
 	cmake --build "$(NATIVE_SANITIZE_DIR)" --target license-contract

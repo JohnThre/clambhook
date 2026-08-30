@@ -73,8 +73,10 @@ struct ch_ip_stack_tcp_flow {
     uint8_t *pending;
     size_t pending_offset;
     size_t pending_length;
+    size_t pending_capacity;
     uint8_t *remote_pending;
     size_t remote_pending_length;
+    size_t remote_pending_capacity;
     int client_eof;
     int remote_eof;
     int dead;
@@ -155,7 +157,44 @@ struct ch_ip_stack {
     uint16_t next_tcp_port;
     s8_t ipv6_index;
     unsigned int mtu;
+    uint8_t *emit_buffer;
+    size_t emit_capacity;
+#ifdef CLAMBHOOK_MEMORY_TESTING
+    size_t buffer_allocations;
+    size_t buffer_appends;
+    size_t emitted_packets;
+#endif
 };
+
+static int ch_ip_stack_buffer_reserve(uint8_t **buffer, size_t *offset,
+                                      size_t length, size_t *capacity,
+                                      size_t amount) {
+    if (amount == 0U) return 1;
+    if (length > CH_IP_STACK_TCP_QUEUE_LIMIT - amount) return 0;
+    size_t needed = length + amount;
+    if (*offset <= *capacity && needed <= *capacity - *offset) return 1;
+    if (*offset > 0U && length > 0U && needed <= *capacity) {
+        memmove(*buffer, *buffer + *offset, length);
+        *offset = 0U;
+        return 1;
+    }
+    size_t grown = *capacity == 0U ? CH_IP_STACK_TCP_READ_SIZE : *capacity;
+    while (grown < needed) {
+        size_t next = grown > CH_IP_STACK_TCP_QUEUE_LIMIT / 2U ?
+            CH_IP_STACK_TCP_QUEUE_LIMIT : grown * 2U;
+        if (next == grown) return 0;
+        grown = next;
+    }
+    uint8_t *next = realloc(*buffer, grown);
+    if (next == NULL) return 0;
+    *buffer = next;
+    *capacity = grown;
+    if (*offset > 0U && length > 0U) {
+        memmove(*buffer, *buffer + *offset, length);
+    }
+    *offset = 0U;
+    return 1;
+}
 
 static atomic_uint_fast32_t ch_ip_stack_random_fallback =
     UINT32_C(0x9e3779b9);
@@ -1064,24 +1103,30 @@ static err_t ch_ip_stack_tcp_receive(void *context, struct tcp_pcb *client,
         return ERR_OK;
     }
     size_t queued = flow->pending_length - flow->pending_offset;
-    if (packet->tot_len > CH_IP_STACK_TCP_QUEUE_LIMIT - queued) {
+#ifdef CLAMBHOOK_MEMORY_TESTING
+    size_t prior_capacity = flow->pending_capacity;
+#endif
+    if (!ch_ip_stack_buffer_reserve(&flow->pending,
+                                    &flow->pending_offset, queued,
+                                    &flow->pending_capacity,
+                                    packet->tot_len)) {
         return ERR_MEM;
     }
-    uint8_t *next = malloc(queued + packet->tot_len);
-    if (next == NULL) return ERR_MEM;
-    if (queued > 0U) {
-        memcpy(next, flow->pending + flow->pending_offset, queued);
+#ifdef CLAMBHOOK_MEMORY_TESTING
+    if (flow->pending_capacity != prior_capacity) {
+        ++flow->stack->buffer_allocations;
     }
-    u16_t copied = pbuf_copy_partial(packet, next + queued, packet->tot_len,
-                                     0U);
+#endif
+    u16_t copied = pbuf_copy_partial(
+        packet, flow->pending + flow->pending_offset + queued,
+        packet->tot_len, 0U);
     if (copied != packet->tot_len) {
-        free(next);
         return ERR_BUF;
     }
-    free(flow->pending);
-    flow->pending = next;
-    flow->pending_offset = 0U;
-    flow->pending_length = queued + packet->tot_len;
+    flow->pending_length = flow->pending_offset + queued + packet->tot_len;
+#ifdef CLAMBHOOK_MEMORY_TESTING
+    ++flow->stack->buffer_appends;
+#endif
     tcp_recved(client, packet->tot_len);
     (void)pbuf_free(packet);
     return ERR_OK;
@@ -1299,8 +1344,6 @@ static void ch_ip_stack_tcp_flow_tick(ch_ip_stack_tcp_flow *flow) {
         return;
     }
     if (flow->pending_offset == flow->pending_length) {
-        free(flow->pending);
-        flow->pending = NULL;
         flow->pending_offset = 0U;
         flow->pending_length = 0U;
     }
@@ -1323,8 +1366,6 @@ static void ch_ip_stack_tcp_flow_tick(ch_ip_stack_tcp_flow *flow) {
             flow->remote_pending_length -= amount;
             return;
         }
-        free(flow->remote_pending);
-        flow->remote_pending = NULL;
         flow->remote_pending_length = 0U;
     }
     for (unsigned int attempt = 0U; attempt < 4U && !flow->remote_eof;
@@ -1339,11 +1380,22 @@ static void ch_ip_stack_tcp_flow_tick(ch_ip_stack_tcp_flow *flow) {
             err_t write_error = tcp_write(
                 flow->client, buffer, (u16_t)received, TCP_WRITE_FLAG_COPY);
             if (write_error == ERR_MEM) {
-                flow->remote_pending = malloc((size_t)received);
-                if (flow->remote_pending == NULL) {
+                size_t ignored_offset = 0U;
+#ifdef CLAMBHOOK_MEMORY_TESTING
+                size_t prior_capacity = flow->remote_pending_capacity;
+#endif
+                if (!ch_ip_stack_buffer_reserve(
+                        &flow->remote_pending, &ignored_offset, 0U,
+                        &flow->remote_pending_capacity, (size_t)received)) {
                     ch_ip_stack_tcp_flow_abort(flow);
                     return;
                 }
+#ifdef CLAMBHOOK_MEMORY_TESTING
+                if (flow->remote_pending_capacity != prior_capacity) {
+                    ++flow->stack->buffer_allocations;
+                }
+                ++flow->stack->buffer_appends;
+#endif
                 memcpy(flow->remote_pending, buffer, (size_t)received);
                 flow->remote_pending_length = (size_t)received;
                 break;
@@ -1867,19 +1919,37 @@ static err_t ch_ip_stack_emit(struct netif *interface, struct pbuf *packet) {
     if (stack == NULL || packet == NULL || packet->tot_len == 0U) {
         return ERR_ARG;
     }
-    uint8_t *bytes = malloc(packet->tot_len);
-    if (bytes == NULL) return ERR_MEM;
-    u16_t copied = pbuf_copy_partial(packet, bytes, packet->tot_len, 0U);
+    if (packet->tot_len > stack->emit_capacity) {
+        size_t capacity = stack->emit_capacity == 0U ? 2048U :
+            stack->emit_capacity;
+        while (capacity < packet->tot_len) {
+            size_t next = capacity > CH_IP_STACK_MAX_PACKET / 2U ?
+                CH_IP_STACK_MAX_PACKET : capacity * 2U;
+            if (next == capacity) return ERR_MEM;
+            capacity = next;
+        }
+        uint8_t *grown = realloc(stack->emit_buffer, capacity);
+        if (grown == NULL) return ERR_MEM;
+        stack->emit_buffer = grown;
+        stack->emit_capacity = capacity;
+#ifdef CLAMBHOOK_MEMORY_TESTING
+        ++stack->buffer_allocations;
+#endif
+    }
+    u16_t copied = pbuf_copy_partial(packet, stack->emit_buffer,
+                                     packet->tot_len, 0U);
     if (copied != packet->tot_len) {
-        free(bytes);
         return ERR_BUF;
     }
-    ch_ip_stack_rewrite_tcp_output(stack, bytes, packet->tot_len);
+    ch_ip_stack_rewrite_tcp_output(stack, stack->emit_buffer,
+                                   packet->tot_len);
     if (stack->packet_writer != NULL) {
-        stack->packet_writer(bytes, packet->tot_len,
+        stack->packet_writer(stack->emit_buffer, packet->tot_len,
                              stack->packet_writer_context);
     }
-    free(bytes);
+#ifdef CLAMBHOOK_MEMORY_TESTING
+    ++stack->emitted_packets;
+#endif
     return ERR_OK;
 }
 
@@ -2035,6 +2105,7 @@ void ch_ip_stack_destroy(ch_ip_stack *stack) {
     }
     ch_ip_stack_fragment_sweep(stack);
     free(stack->dns_entries);
+    free(stack->emit_buffer);
     netif_set_link_down(&stack->interface);
     netif_set_down(&stack->interface);
     if (netif_default == &stack->interface) {
@@ -2044,6 +2115,22 @@ void ch_ip_stack_destroy(ch_ip_stack *stack) {
     free(stack);
     ch_lwip_context_unlock();
 }
+
+#ifdef CLAMBHOOK_MEMORY_TESTING
+void ch_ip_stack_memory_stats(ch_ip_stack *stack, size_t *buffer_allocations,
+                              size_t *buffer_appends,
+                              size_t *emitted_packets) {
+    if (buffer_allocations != NULL) {
+        *buffer_allocations = stack == NULL ? 0U : stack->buffer_allocations;
+    }
+    if (buffer_appends != NULL) {
+        *buffer_appends = stack == NULL ? 0U : stack->buffer_appends;
+    }
+    if (emitted_packets != NULL) {
+        *emitted_packets = stack == NULL ? 0U : stack->emitted_packets;
+    }
+}
+#endif
 
 ch_status ch_ip_stack_inject(ch_ip_stack *stack, const uint8_t *packet,
                              size_t length, ch_error *error) {

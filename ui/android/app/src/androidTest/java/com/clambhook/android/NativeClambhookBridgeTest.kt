@@ -504,6 +504,36 @@ class NativeClambhookBridgeTest {
     }
 
     @Test
+    fun injectsOnlyValidPrefixFromReusablePacketBuffer() {
+        val outputs = mutableListOf<ByteArray>()
+        NativeClambhookBridge { packet -> outputs += packet }.use { bridge ->
+            bridge.start(encryptedDnsConfig("dot").absolutePath)
+            val reusable = ByteArray(65_535) { 0x7f }
+            val first = ipv4UdpPacket(53, dnsQuery())
+            first.copyInto(reusable)
+            bridge.injectPacket(reusable, first.size)
+
+            val second = ipv4UdpPacket(53, dnsQuery().also {
+                it[0] = 0x56
+                it[1] = 0x78
+            })
+            second.copyInto(reusable)
+            bridge.injectPacket(reusable, second.size)
+
+            assertThrows(IllegalArgumentException::class.java) {
+                bridge.injectPacket(reusable, 0)
+            }
+            assertThrows(IllegalArgumentException::class.java) {
+                bridge.injectPacket(reusable, reusable.size + 1)
+            }
+        }
+        assertEquals(2, outputs.size)
+        outputs.forEach(::assertDnsServfail)
+        assertEquals(0x56, outputs.last()[28].toInt() and 0xff)
+        assertEquals(0x78, outputs.last()[29].toInt() and 0xff)
+    }
+
+    @Test
     fun forwardsDirectUdpAndTicksRemoteResponse() {
         val server = DatagramSocket(0, InetAddress.getByName("127.0.0.1"))
         val responseReady = CountDownLatch(1)

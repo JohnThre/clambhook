@@ -12,6 +12,7 @@
 
 #include "clambhook/ip_stack.h"
 #include "internal.h"
+#include "memory_testing.h"
 
 typedef struct ip_stack_test_output {
     uint8_t packet[2048];
@@ -952,6 +953,16 @@ void ch_test_ip_stack(void) {
     CH_TEST_ASSERT(observer.rx_total > 0U);
     CH_TEST_ASSERT(observer.tx_total > 0U);
     CH_TEST_ASSERT(observer.last_flow_id != 0U);
+#ifdef CLAMBHOOK_MEMORY_TESTING
+    size_t buffer_allocations = 0U;
+    size_t buffer_appends = 0U;
+    size_t emitted_packets = 0U;
+    ch_ip_stack_memory_stats(stack, &buffer_allocations, &buffer_appends,
+                             &emitted_packets);
+    CH_TEST_ASSERT(emitted_packets > 1U);
+    CH_TEST_ASSERT(buffer_appends > 1U);
+    CH_TEST_ASSERT(buffer_allocations < emitted_packets + buffer_appends);
+#endif
     ch_ip_stack_destroy(stack);
     CH_TEST_ASSERT(udp.close_count == 6U);
     CH_TEST_ASSERT(observer.close_events == 8U);

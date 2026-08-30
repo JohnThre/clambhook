@@ -195,7 +195,8 @@ Java_com_clambhook_android_NativeClambhookBridge_nativeReload(
 
 JNIEXPORT void JNICALL
 Java_com_clambhook_android_NativeClambhookBridge_nativeInjectPacket(
-    JNIEnv *environment, jobject bridge, jlong handle, jbyteArray packet
+    JNIEnv *environment, jobject bridge, jlong handle, jbyteArray packet,
+    jint valid_length
 ) {
     (void)bridge;
     ch_jni_runtime *state = ch_jni_from_handle(environment, handle);
@@ -205,11 +206,16 @@ Java_com_clambhook_android_NativeClambhookBridge_nativeInjectPacket(
         return;
     }
     jsize length = (*environment)->GetArrayLength(environment, packet);
+    if (valid_length <= 0 || valid_length > length) {
+        ch_jni_throw(environment, "java/lang/IllegalArgumentException",
+                     "packet length must be within the buffer");
+        return;
+    }
     jbyte *bytes = (*environment)->GetByteArrayElements(environment, packet, NULL);
     if (bytes == NULL) return;
     ch_error error;
     ch_status status = ch_runtime_inject_packet(
-        state->runtime, (const uint8_t *)bytes, (size_t)length, &error
+        state->runtime, (const uint8_t *)bytes, (size_t)valid_length, &error
     );
     (*environment)->ReleaseByteArrayElements(environment, packet, bytes, JNI_ABORT);
     ch_jni_check(environment, status, &error);

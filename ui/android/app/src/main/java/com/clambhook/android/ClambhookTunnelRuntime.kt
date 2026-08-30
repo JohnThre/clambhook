@@ -8,7 +8,7 @@ interface ClambhookTunnelRuntime {
     fun start(configPath: String)
     fun stop()
     fun reload(configPath: String)
-    fun injectPacket(packet: ByteArray)
+    fun injectPacket(packet: ByteArray, length: Int = packet.size)
     fun isRunning(): Boolean
 
     /** Frozen query contract consumed by the shared JavaFX application. */

@@ -18,7 +18,10 @@ internal class NativeClambhookBridge(
     fun start(configPath: String) = nativeStart(requireHandle(), configPath)
     fun stop() = nativeStop(requireHandle())
     fun reload(configPath: String) = nativeReload(requireHandle(), configPath)
-    fun injectPacket(packet: ByteArray) = nativeInjectPacket(requireHandle(), packet)
+    fun injectPacket(packet: ByteArray, length: Int = packet.size) {
+        require(length in 1..packet.size) { "packet length must be within the buffer" }
+        nativeInjectPacket(requireHandle(), packet, length)
+    }
     fun isRunning(): Boolean = nativeIsRunning(requireHandle())
     fun query(operation: String, requestJson: String = "{}"): String =
         nativeQuery(requireHandle(), operation, requestJson)
@@ -43,7 +46,7 @@ internal class NativeClambhookBridge(
     private external fun nativeStart(handle: Long, configPath: String)
     private external fun nativeStop(handle: Long)
     private external fun nativeReload(handle: Long, configPath: String)
-    private external fun nativeInjectPacket(handle: Long, packet: ByteArray)
+    private external fun nativeInjectPacket(handle: Long, packet: ByteArray, length: Int)
     private external fun nativeIsRunning(handle: Long): Boolean
     private external fun nativeQuery(handle: Long, operation: String, requestJson: String): String
     private external fun nativeMutate(handle: Long, operation: String, requestJson: String): String

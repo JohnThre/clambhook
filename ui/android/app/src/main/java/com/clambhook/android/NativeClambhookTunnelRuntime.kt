@@ -12,7 +12,7 @@ internal class NativeClambhookTunnelRuntime(
     override fun start(configPath: String) = bridge.start(configPath)
     override fun stop() = bridge.stop()
     override fun reload(configPath: String) = bridge.reload(configPath)
-    override fun injectPacket(packet: ByteArray) = bridge.injectPacket(packet)
+    override fun injectPacket(packet: ByteArray, length: Int) = bridge.injectPacket(packet, length)
     override fun isRunning(): Boolean = bridge.isRunning()
     override fun query(operation: String, requestJson: String): String =
         bridge.query(operation, requestJson)

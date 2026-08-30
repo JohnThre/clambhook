@@ -19,6 +19,7 @@ option(CLAMBHOOK_BUILD_TUI "Build the native terminal client" ON)
 option(CLAMBHOOK_BUILD_LICENSE_HELPER "Build the license helper" ON)
 option(CLAMBHOOK_BUILD_TESTS "Build the native unit tests" ${BUILD_TESTING})
 option(CLAMBHOOK_ENABLE_SANITIZERS "Enable AddressSanitizer and UndefinedBehaviorSanitizer" OFF)
+option(CLAMBHOOK_ENABLE_MEMORY_TESTING "Enable internal allocation counters" OFF)
 option(CLAMBHOOK_WARNINGS_AS_ERRORS "Treat first-party C warnings as errors" ON)
 
 set(CLAMBHOOK_WARNING_FLAGS
@@ -300,6 +301,9 @@ if(CLAMBHOOK_BUILD_LICENSE_HELPER)
 endif()
 
 if(CLAMBHOOK_BUILD_TESTS)
+  if(CLAMBHOOK_ENABLE_MEMORY_TESTING)
+    target_compile_definitions(clambhook_core PRIVATE CLAMBHOOK_MEMORY_TESTING)
+  endif()
   add_executable(clambhook-native-tests
     native/src/api_server.c
     native/tests/test_api_server.c
@@ -338,6 +342,10 @@ if(CLAMBHOOK_BUILD_TESTS)
     CLAMBHOOK_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
     _POSIX_C_SOURCE=200809L
   )
+  if(CLAMBHOOK_ENABLE_MEMORY_TESTING)
+    target_compile_definitions(clambhook-native-tests PRIVATE
+      CLAMBHOOK_MEMORY_TESTING)
+  endif()
   if(APPLE)
     target_compile_definitions(clambhook-native-tests PRIVATE _DARWIN_C_SOURCE)
   elseif(UNIX)

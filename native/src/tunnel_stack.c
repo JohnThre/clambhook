@@ -93,9 +93,11 @@ struct ch_tunnel_flow {
     uint8_t *to_local;
     size_t to_local_offset;
     size_t to_local_length;
+    size_t to_local_capacity;
     uint8_t *to_remote;
     size_t to_remote_offset;
     size_t to_remote_length;
+    size_t to_remote_capacity;
     uint32_t created_at;
     int connected;
     int local_eof;
@@ -135,6 +137,8 @@ struct ch_tunnel_stack {
     unsigned int mtu;
     ch_tunnel_stack_packet_writer packet_writer;
     void *packet_writer_context;
+    uint8_t *emit_buffer;
+    size_t emit_capacity;
     char **dns_servers;
     size_t dns_server_count;
     int wake_read;
@@ -289,19 +293,43 @@ static int ch_tunnel_format_endpoint(const ip_addr_t *address, uint16_t port,
     return 1;
 }
 
-static int ch_tunnel_buffer_append(uint8_t **buffer, size_t *offset,
-                                   size_t *length, const uint8_t *bytes,
-                                   size_t amount) {
+static int ch_tunnel_buffer_reserve(uint8_t **buffer, size_t *offset,
+                                    size_t *length, size_t *capacity,
+                                    size_t amount) {
     if (amount == 0U) return 1;
     if (*length > CH_TUNNEL_BUFFER_LIMIT - amount) return 0;
-    if (*offset > 0U && *length > 0U) {
+    size_t needed = *length + amount;
+    if (*offset <= *capacity && needed <= *capacity - *offset) return 1;
+    if (*offset > 0U && *length > 0U && needed <= *capacity) {
         memmove(*buffer, *buffer + *offset, *length);
         *offset = 0U;
+        return 1;
     }
-    uint8_t *next = realloc(*buffer, *length + amount);
+    size_t grown = *capacity == 0U ? 16384U : *capacity;
+    while (grown < needed) {
+        size_t next = grown > CH_TUNNEL_BUFFER_LIMIT / 2U ?
+            CH_TUNNEL_BUFFER_LIMIT : grown * 2U;
+        if (next == grown) return 0;
+        grown = next;
+    }
+    uint8_t *next = realloc(*buffer, grown);
     if (next == NULL) return 0;
-    memcpy(next + *length, bytes, amount);
     *buffer = next;
+    *capacity = grown;
+    if (*offset > 0U && *length > 0U) {
+        memmove(*buffer, *buffer + *offset, *length);
+    }
+    *offset = 0U;
+    return 1;
+}
+
+static int ch_tunnel_buffer_append(uint8_t **buffer, size_t *offset,
+                                   size_t *length, size_t *capacity,
+                                   const uint8_t *bytes, size_t amount) {
+    if (!ch_tunnel_buffer_reserve(buffer, offset, length, capacity, amount)) {
+        return 0;
+    }
+    memcpy(*buffer + *offset + *length, bytes, amount);
     *length += amount;
     return 1;
 }
@@ -311,16 +339,26 @@ static err_t ch_tunnel_emit(struct netif *interface, struct pbuf *packet) {
     if (stack == NULL || packet == NULL || packet->tot_len == 0U) {
         return ERR_ARG;
     }
-    uint8_t *bytes = malloc(packet->tot_len);
-    if (bytes == NULL) return ERR_MEM;
-    if (pbuf_copy_partial(packet, bytes, packet->tot_len, 0U) !=
+    if (packet->tot_len > stack->emit_capacity) {
+        size_t capacity = stack->emit_capacity == 0U ? 2048U :
+            stack->emit_capacity;
+        while (capacity < packet->tot_len) {
+            size_t next = capacity > CH_TUNNEL_MAX_PACKET / 2U ?
+                CH_TUNNEL_MAX_PACKET : capacity * 2U;
+            if (next == capacity) return ERR_MEM;
+            capacity = next;
+        }
+        uint8_t *grown = realloc(stack->emit_buffer, capacity);
+        if (grown == NULL) return ERR_MEM;
+        stack->emit_buffer = grown;
+        stack->emit_capacity = capacity;
+    }
+    if (pbuf_copy_partial(packet, stack->emit_buffer, packet->tot_len, 0U) !=
         packet->tot_len) {
-        free(bytes);
         return ERR_BUF;
     }
-    stack->packet_writer(bytes, packet->tot_len,
+    stack->packet_writer(stack->emit_buffer, packet->tot_len,
                          stack->packet_writer_context);
-    free(bytes);
     return ERR_OK;
 }
 
@@ -435,18 +473,18 @@ static err_t ch_tunnel_tcp_receive(void *context, struct tcp_pcb *pcb,
     if (flow->to_local_length > CH_TUNNEL_BUFFER_LIMIT - packet->tot_len) {
         return ERR_MEM;
     }
-    uint8_t *bytes = malloc(packet->tot_len);
-    if (bytes == NULL) return ERR_MEM;
-    if (pbuf_copy_partial(packet, bytes, packet->tot_len, 0U) !=
-        packet->tot_len ||
-        !ch_tunnel_buffer_append(&flow->to_local,
-                                 &flow->to_local_offset,
-                                 &flow->to_local_length,
-                                 bytes, packet->tot_len)) {
-        free(bytes);
+    if (!ch_tunnel_buffer_reserve(&flow->to_local,
+                                  &flow->to_local_offset,
+                                  &flow->to_local_length,
+                                  &flow->to_local_capacity,
+                                  packet->tot_len) ||
+        pbuf_copy_partial(packet,
+                          flow->to_local + flow->to_local_offset +
+                              flow->to_local_length,
+                          packet->tot_len, 0U) != packet->tot_len) {
         return ERR_MEM;
     }
-    free(bytes);
+    flow->to_local_length += packet->tot_len;
     (void)pbuf_free(packet);
     return ERR_OK;
 }
@@ -482,8 +520,6 @@ static void ch_tunnel_flow_tick(ch_tunnel_flow *flow) {
             flow->to_local_length -= amount;
             if (flow->pcb != NULL) tcp_recved(flow->pcb, (u16_t)amount);
             if (flow->to_local_length == 0U) {
-                free(flow->to_local);
-                flow->to_local = NULL;
                 flow->to_local_offset = 0U;
             }
         } else if (written < 0 && errno != EINTR && errno != EAGAIN &&
@@ -500,6 +536,7 @@ static void ch_tunnel_flow_tick(ch_tunnel_flow *flow) {
             if (!ch_tunnel_buffer_append(&flow->to_remote,
                                          &flow->to_remote_offset,
                                          &flow->to_remote_length,
+                                         &flow->to_remote_capacity,
                                          bytes, (size_t)received)) {
                 flow->dead = 1;
             }
@@ -523,8 +560,6 @@ static void ch_tunnel_flow_tick(ch_tunnel_flow *flow) {
             flow->to_remote_length -= amount;
             (void)tcp_output(flow->pcb);
             if (flow->to_remote_length == 0U) {
-                free(flow->to_remote);
-                flow->to_remote = NULL;
                 flow->to_remote_offset = 0U;
             }
         }
@@ -1348,6 +1383,7 @@ void ch_tunnel_stack_destroy(ch_tunnel_stack *stack) {
     ch_tunnel_close_descriptor(&stack->wake_write);
     (void)pthread_mutex_destroy(&stack->queue_mutex);
     ch_tunnel_free_dns(stack);
+    free(stack->emit_buffer);
     free(stack);
 }
 

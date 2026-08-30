@@ -228,7 +228,7 @@ class ClambhookVpnService : VpnService() {
                     val n = input.read(buffer)
                     if (n < 0) break
                     if (n == 0) continue
-                    runCatching { rt.injectPacket(buffer.copyOf(n)) }
+                    runCatching { rt.injectPacket(buffer, n) }
                         .onFailure { Log.w(logTag, "inject packet failed", it) }
                 }
             } catch (error: Throwable) {
