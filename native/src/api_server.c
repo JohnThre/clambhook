@@ -56,6 +56,7 @@ struct ch_api_client {
     ch_json_buffer value;
     ch_json_buffer body;
     char *authorization;
+    char *content_type;
     char *host;
     char *origin;
     char *connection;
@@ -911,6 +912,7 @@ static void ch_api_client_maybe_free(ch_api_client *client) {
     ch_json_dispose(&client->value);
     ch_json_dispose(&client->body);
     free(client->authorization);
+    free(client->content_type);
     free(client->host);
     free(client->origin);
     free(client->connection);
@@ -966,6 +968,7 @@ static const char *ch_api_reason(int status) {
         case 404: return "Not Found";
         case 405: return "Method Not Allowed";
         case 409: return "Conflict";
+        case 415: return "Unsupported Media Type";
         default: return "Internal Server Error";
     }
 }
@@ -1343,6 +1346,18 @@ static void ch_api_route(ch_api_client *client) {
         ch_api_respond(client, 500, NULL, "internal error\n");
         return;
     }
+    int converter_json = strcmp(path, "/api/v1/config/converter/review") == 0 ||
+        strcmp(path, "/api/v1/config/converter/import") == 0 ||
+        strcmp(path, "/api/v1/config/import/apply") == 0;
+    int import_toml = strcmp(path, "/api/v1/config/import/review") == 0;
+    if ((converter_json && (client->content_type == NULL ||
+         strncasecmp(client->content_type, "application/json", 16U) != 0)) ||
+        (import_toml && (client->content_type == NULL ||
+         strncasecmp(client->content_type, "text/plain", 10U) != 0))) {
+        ch_api_respond(client, 415, NULL, "unsupported media type\n");
+        free(path);
+        return;
+    }
     if (ch_api_is_license_gated_request(method, path) &&
         client->server->license_path != NULL &&
         client->server->license_path[0] != '\0') {
@@ -1436,6 +1451,21 @@ static void ch_api_route(ch_api_client *client) {
         conflict_on_invalid_state = 1;
         status = ch_runtime_mutate(
             client->server->runtime, "outline_refresh",
+            client->body.data == NULL ? "{}" : client->body.data,
+            &json, &error);
+    } else if (strcmp(method, "POST") == 0 &&
+               strcmp(path, "/api/v1/config/converter/review") == 0) {
+        config_transfer = 1;
+        status = ch_runtime_query(
+            client->server->runtime, "profile_converter_review",
+            client->body.data == NULL ? "{}" : client->body.data,
+            &json, &error);
+    } else if (strcmp(method, "POST") == 0 &&
+               strcmp(path, "/api/v1/config/converter/import") == 0) {
+        config_transfer = 1;
+        persistence_required = 1;
+        status = ch_runtime_mutate(
+            client->server->runtime, "profile_converter_import",
             client->body.data == NULL ? "{}" : client->body.data,
             &json, &error);
     } else if (strcmp(method, "GET") == 0 && strcmp(path, "/api/v1/profiles") == 0) {
@@ -1804,6 +1834,20 @@ static void ch_api_route(ch_api_client *client) {
             client->server->runtime, "config_import",
             client->body.data == NULL ? "" : client->body.data,
             &json, &error);
+    } else if (strcmp(method, "POST") == 0 &&
+               strcmp(path, "/api/v1/config/import/review") == 0) {
+        config_transfer = 1;
+        status = ch_runtime_query(
+            client->server->runtime, "config_import_review",
+            client->body.data == NULL ? "" : client->body.data,
+            &json, &error);
+    } else if (strcmp(method, "POST") == 0 &&
+               strcmp(path, "/api/v1/config/import/apply") == 0) {
+        config_transfer = 1;
+        status = ch_runtime_mutate(
+            client->server->runtime, "config_import_reviewed",
+            client->body.data == NULL ? "{}" : client->body.data,
+            &json, &error);
     } else if (strcmp(method, "PUT") == 0 &&
                strcmp(path, "/api/v1/profiles/active") == 0) {
         status = ch_runtime_mutate(
@@ -1856,6 +1900,10 @@ static void ch_api_route(ch_api_client *client) {
             strncmp(path, "/api/v1/rules/temporary/", 24U) == 0 ||
             strcmp(path, "/api/v1/config/export") == 0 ||
             strcmp(path, "/api/v1/config/import") == 0 ||
+            strcmp(path, "/api/v1/config/import/review") == 0 ||
+            strcmp(path, "/api/v1/config/import/apply") == 0 ||
+            strcmp(path, "/api/v1/config/converter/review") == 0 ||
+            strcmp(path, "/api/v1/config/converter/import") == 0 ||
             strcmp(path, "/api/v1/outline/review") == 0 ||
             strcmp(path, "/api/v1/outline/import") == 0 ||
             strcmp(path, "/api/v1/outline/refresh") == 0 ||
@@ -1918,6 +1966,7 @@ static int ch_api_on_value_complete(llhttp_t *parser) {
     const char *value = client->value.data == NULL ? "" : client->value.data;
     char **destination = NULL;
     if (ch_ascii_equal(field, "authorization")) destination = &client->authorization;
+    else if (ch_ascii_equal(field, "content-type")) destination = &client->content_type;
     else if (ch_ascii_equal(field, "host")) destination = &client->host;
     else if (ch_ascii_equal(field, "origin")) destination = &client->origin;
     else if (ch_ascii_equal(field, "connection")) destination = &client->connection;
@@ -1941,8 +1990,13 @@ static int ch_api_on_body(llhttp_t *parser, const char *at, size_t length) {
     const char *url = client->url.data == NULL ? "" : client->url.data;
     static const char import_path[] = "/api/v1/config/import";
     size_t import_length = sizeof(import_path) - 1U;
-    int is_import = strncmp(url, import_path, import_length) == 0 &&
-        (url[import_length] == '\0' || url[import_length] == '?');
+    static const char converter_path[] = "/api/v1/config/converter/";
+    int is_import = (strncmp(url, import_path, import_length) == 0 &&
+        (url[import_length] == '\0' || url[import_length] == '?'));
+    is_import = is_import || strncmp(url, converter_path,
+                                     sizeof(converter_path) - 1U) == 0;
+    is_import = is_import || strncmp(url, "/api/v1/config/import/",
+                                     sizeof("/api/v1/config/import/") - 1U) == 0;
     size_t limit = is_import ? CH_API_MAX_CONFIG_TRANSFER_BYTES :
         CH_API_MAX_REQUEST_BYTES;
     if (memchr(at, '\0', length) != NULL || length > limit ||

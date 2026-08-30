@@ -36,6 +36,13 @@ internal object NativeClambhookConfigBridge {
     fun outlineReview(requestJson: String): String = nativeOutlineReview(requestJson)
 
     @Synchronized
+    fun converterReview(requestJson: String): String = nativeConverterReview(requestJson)
+
+    @Synchronized
+    fun converterImport(configPath: String, requestJson: String): String =
+        nativeConverterImport(configPath, requestJson)
+
+    @Synchronized
     fun outlineImport(configPath: String, requestJson: String): String =
         nativeOutlineImport(configPath, requestJson)
 
@@ -59,6 +66,8 @@ internal object NativeClambhookConfigBridge {
     private external fun nativeImportConfig(configPath: String, document: String): String
     private external fun nativeSetActiveProfile(configPath: String, requestJson: String): String
     private external fun nativeOutlineReview(requestJson: String): String
+    private external fun nativeConverterReview(requestJson: String): String
+    private external fun nativeConverterImport(configPath: String, requestJson: String): String
     private external fun nativeOutlineImport(configPath: String, requestJson: String): String
     private external fun nativeOutlineRefresh(configPath: String, requestJson: String): String
 

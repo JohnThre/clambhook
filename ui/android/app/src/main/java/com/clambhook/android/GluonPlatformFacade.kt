@@ -144,6 +144,15 @@ object GluonPlatformFacade {
         if (verb == "POST" && route == "/api/v1/outline/review") {
             return NativeClambhookConfigBridge.outlineReview(requestBody)
         }
+        if (verb == "POST" && route == "/api/v1/config/converter/review") {
+            return NativeClambhookConfigBridge.converterReview(requestBody)
+        }
+        if (verb == "POST" && route == "/api/v1/config/converter/import") {
+            val path = runBlocking { configStore.ensureConfig() }
+            val response = NativeClambhookConfigBridge.converterImport(path, requestBody)
+            ClambhookTunnelSession.runtime.value?.reload(path)
+            return response
+        }
         if (verb == "POST" && route in setOf(
                 "/api/v1/outline/import", "/api/v1/outline/refresh")) {
             val path = runBlocking { configStore.ensureConfig() }

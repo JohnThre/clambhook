@@ -47,6 +47,38 @@ final class APIClientTests: XCTestCase {
         XCTAssertEqual(decoded, ["name": "B"])
     }
 
+    func testProfileConverterReviewAndImportUseHashContract() async throws {
+        MockURLProtocol.responseData = Data("""
+        {"format":"surge","sha256":"abc123","profiles":[{"source_name":"Travel","suggested_name":"Travel","chain_count":1,"group_count":0,"rule_count":1}],"warnings":[],"toml":"active = \\"Travel\\""}
+        """.utf8)
+        let client = ClambhookAPIClient(
+            baseURL: URL(string: "http://127.0.0.1:9090")!,
+            tokenProvider: { "token" }, session: mockSession())
+
+        let review = try await client.reviewProfileConversion(
+            source: "[Proxy]\n", format: "surge", profileName: "Travel")
+        XCTAssertEqual(review.format, "surge")
+        XCTAssertEqual(review.profiles.first?.chainCount, 1)
+        XCTAssertEqual(MockURLProtocol.lastRequest?.url?.path,
+                       "/api/v1/config/converter/review")
+        var body = try JSONSerialization.jsonObject(
+            with: try XCTUnwrap(MockURLProtocol.lastBody)) as? [String: Any]
+        XCTAssertEqual(body?["profile_name"] as? String, "Travel")
+
+        MockURLProtocol.responseData = Data("""
+        {"profiles":["base","Travel"],"active":"base","backup_path":"/tmp/config.bak","message":"imported"}
+        """.utf8)
+        _ = try await client.importProfileConversion(
+            source: "[Proxy]\n", format: "surge", profileName: "Travel",
+            expectedSHA256: review.sha256, activate: false)
+        XCTAssertEqual(MockURLProtocol.lastRequest?.url?.path,
+                       "/api/v1/config/converter/import")
+        body = try JSONSerialization.jsonObject(
+            with: try XCTUnwrap(MockURLProtocol.lastBody)) as? [String: Any]
+        XCTAssertEqual(body?["expected_sha256"] as? String, "abc123")
+        XCTAssertEqual(body?["activate"] as? Bool, false)
+    }
+
     func testEventsURLUsesWebSocketSchemeAndFiltersConnectionAndLogEvents() {
         let httpClient = ClambhookAPIClient(baseURL: URL(string: "http://127.0.0.1:9090")!)
         XCTAssertEqual(

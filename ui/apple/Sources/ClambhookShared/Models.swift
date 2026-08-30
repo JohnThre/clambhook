@@ -80,6 +80,37 @@ public struct OutlineReviewPayload: Codable, Equatable, Sendable {
     }
 }
 
+public struct ProfileConversionWarningPayload: Codable, Equatable, Sendable, Identifiable {
+    public var code: String
+    public var path: String
+    public var message: String
+    public var id: String { "\(code):\(path):\(message)" }
+}
+
+public struct ProfileConversionSummaryPayload: Codable, Equatable, Sendable {
+    public var sourceName: String
+    public var suggestedName: String
+    public var chainCount: Int
+    public var groupCount: Int
+    public var ruleCount: Int
+
+    enum CodingKeys: String, CodingKey {
+        case sourceName = "source_name"
+        case suggestedName = "suggested_name"
+        case chainCount = "chain_count"
+        case groupCount = "group_count"
+        case ruleCount = "rule_count"
+    }
+}
+
+public struct ProfileConversionReviewPayload: Codable, Equatable, Sendable {
+    public var format: String
+    public var sha256: String
+    public var profiles: [ProfileConversionSummaryPayload]
+    public var warnings: [ProfileConversionWarningPayload]
+    public var toml: String
+}
+
 public struct ListenerStatusPayload: Codable, Equatable, Identifiable, Sendable {
     public var id: String { "\(self.protocol)-\(addr)" }
     public var `protocol`: String

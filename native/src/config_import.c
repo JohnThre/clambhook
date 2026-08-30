@@ -262,6 +262,134 @@ static ch_status import_set_owned(ch_json_value *object, const char *key,
     return status;
 }
 
+ch_status ch_config_merge_reviewed_import_document(const ch_config *current,
+                                                   const char *request_json,
+                                                   char **out_toml,
+                                                   ch_error *error) {
+    ch_error_clear(error);
+    if (current == NULL || request_json == NULL || out_toml == NULL) {
+        ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
+                     "current config, reviewed request, and output are required");
+        return CH_ERROR_INVALID_ARGUMENT;
+    }
+    *out_toml = NULL;
+    ch_json_value *request = ch_json_parse(request_json, strlen(request_json), error);
+    if (request == NULL || ch_json_value_type(request) != CH_JSON_OBJECT) {
+        ch_json_value_destroy(request);
+        if (error->code == CH_OK) ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
+                                               "reviewed import request must be an object");
+        return error->code == CH_OK ? CH_ERROR_INVALID_ARGUMENT : error->code;
+    }
+    const char *import_text = ch_json_string_value(ch_json_object_get(request, "import_text"));
+    const ch_json_value *selection = ch_json_object_get(request, "profiles");
+    if (import_text == NULL || import_text[0] == '\0' ||
+        ch_json_value_type(selection) != CH_JSON_ARRAY || ch_json_array_size(selection) == 0U) {
+        ch_json_value_destroy(request);
+        ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
+                     import_text == NULL || import_text[0] == '\0' ?
+                     "import text is required" : "select at least one profile");
+        return CH_ERROR_INVALID_ARGUMENT;
+    }
+    ch_config *imported = NULL;
+    char *current_json = NULL, *import_json = NULL, *document = NULL;
+    ch_json_value *root = NULL, *import_root = NULL;
+    import_strings selected_names = {0};
+    ch_status status = ch_config_parse(import_text, NULL, &imported, error);
+    if (status == CH_OK) status = ch_config_table_json(ch_config_root(current), &current_json, error);
+    if (status == CH_OK) status = ch_config_table_json(ch_config_root(imported), &import_json, error);
+    if (status == CH_OK) {
+        root = ch_json_parse(current_json, strlen(current_json), error);
+        import_root = ch_json_parse(import_json, strlen(import_json), error);
+        if (root == NULL || import_root == NULL) status = error->code;
+    }
+    ch_json_value *current_profiles = status == CH_OK ? ch_json_object_get_mutable(root, "profile") : NULL;
+    const ch_json_value *import_profiles = status == CH_OK ? ch_json_object_get(import_root, "profile") : NULL;
+    if (status == CH_OK && (ch_json_value_type(current_profiles) != CH_JSON_ARRAY ||
+                            ch_json_value_type(import_profiles) != CH_JSON_ARRAY)) {
+        ch_error_set(error, CH_ERROR_PARSE, "imported and current profiles must be arrays");
+        status = CH_ERROR_PARSE;
+    }
+    int placeholder = status == CH_OK ? import_profile_is_placeholder(current_profiles) : 0;
+    ch_json_value *next_profiles = placeholder ? ch_json_value_new_array() : current_profiles;
+    int next_profiles_owned = placeholder;
+    if (status == CH_OK && next_profiles == NULL) {
+        ch_error_set(error, CH_ERROR_OUT_OF_MEMORY, "allocate imported profile selection");
+        status = CH_ERROR_OUT_OF_MEMORY;
+    }
+    for (size_t index = 0U; status == CH_OK && index < ch_json_array_size(selection); ++index) {
+        const ch_json_value *row = ch_json_array_get(selection, index);
+        const char *source_raw = ch_json_string_value(ch_json_object_get(row, "source_name"));
+        const char *target_raw = ch_json_string_value(ch_json_object_get(row, "target_name"));
+        char *source = import_trimmed_copy(source_raw);
+        char *target = import_trimmed_copy(target_raw);
+        if (source == NULL || target == NULL || source[0] == '\0' || target[0] == '\0' ||
+            source_raw == NULL || target_raw == NULL || strcmp(target, target_raw) != 0) {
+            ch_error_set(error, CH_ERROR_INVALID_ARGUMENT,
+                         "profile %zu source_name and trimmed target_name are required", index);
+            status = CH_ERROR_INVALID_ARGUMENT;
+        }
+        for (size_t prior = 0U; status == CH_OK && prior < selected_names.count; ++prior)
+            if (strcmp(selected_names.items[prior], target) == 0) {
+                ch_error_set(error, CH_ERROR_INVALID_ARGUMENT, "profile %s: duplicate target name", target);
+                status = CH_ERROR_INVALID_ARGUMENT;
+            }
+        if (status == CH_OK && !placeholder && import_profile_named(current_profiles, target) != NULL) {
+            ch_error_set(error, CH_ERROR_INVALID_ARGUMENT, "profile %s already exists", target);
+            status = CH_ERROR_INVALID_ARGUMENT;
+        }
+        const ch_json_value *source_profile = status == CH_OK ? import_profile_named(import_profiles, source) : NULL;
+        if (status == CH_OK && source_profile == NULL) {
+            ch_error_set(error, CH_ERROR_NOT_FOUND, "import profile %s not found", source);
+            status = CH_ERROR_NOT_FOUND;
+        }
+        ch_json_value *copy = status == CH_OK ? ch_json_value_clone(source_profile) : NULL;
+        if (status == CH_OK && copy == NULL) {
+            ch_error_set(error, CH_ERROR_OUT_OF_MEMORY, "copy imported profile");
+            status = CH_ERROR_OUT_OF_MEMORY;
+        }
+        if (status == CH_OK) status = import_set_owned(copy, "name", ch_json_value_new_string(target), error);
+        int appended = 0;
+        if (status == CH_OK) { status = ch_json_array_append(next_profiles, copy, error); appended = status == CH_OK; }
+        if (!appended) ch_json_value_destroy(copy);
+        if (status == CH_OK) status = import_strings_add_unique(&selected_names, target, 0, error);
+        free(source); free(target);
+    }
+    if (status == CH_OK && placeholder) {
+        status = import_set_owned(root, "profile", next_profiles, error);
+        next_profiles = NULL; next_profiles_owned = 0;
+    }
+    const ch_json_value *active_value = ch_json_object_get(request, "activate_profile");
+    const char *active_raw = active_value == NULL ? "" : ch_json_string_value(active_value);
+    char *active = import_trimmed_copy(active_raw);
+    if (status == CH_OK && active == NULL) {
+        ch_error_set(error, CH_ERROR_INVALID_ARGUMENT, "activate_profile must be a string");
+        status = CH_ERROR_INVALID_ARGUMENT;
+    }
+    bool active_selected = active != NULL && active[0] == '\0';
+    for (size_t index = 0U; active != NULL && active[0] != '\0' && index < selected_names.count; ++index)
+        if (strcmp(active, selected_names.items[index]) == 0) active_selected = true;
+    if (status == CH_OK && !active_selected) {
+        ch_error_set(error, CH_ERROR_INVALID_ARGUMENT, "activate_profile was not selected");
+        status = CH_ERROR_INVALID_ARGUMENT;
+    }
+    const char *current_active = ch_json_string_value(ch_json_object_get(root, "active"));
+    if (status == CH_OK && active[0] != '\0')
+        status = import_set_owned(root, "active", ch_json_value_new_string(active), error);
+    else if (status == CH_OK && (placeholder || current_active == NULL || current_active[0] == '\0'))
+        status = import_set_owned(root, "active", ch_json_value_new_string(selected_names.items[0]), error);
+    free(active);
+    if (status == CH_OK) status = ch_config_render_document_json(root, &document, error);
+    ch_config *validated = NULL;
+    if (status == CH_OK) status = ch_config_parse(document, NULL, &validated, error);
+    ch_config_free(validated);
+    if (status == CH_OK) { *out_toml = document; document = NULL; }
+    if (next_profiles_owned != 0 && next_profiles != NULL) ch_json_value_destroy(next_profiles);
+    import_strings_clear(&selected_names); ch_json_value_destroy(import_root);
+    ch_json_value_destroy(root); free(document); free(import_json); free(current_json);
+    ch_config_free(imported); ch_json_value_destroy(request);
+    return status;
+}
+
 ch_status ch_config_apply_reviewed_import_file(const char *path,
                                                const char *request_json,
                                                ch_error *error) {

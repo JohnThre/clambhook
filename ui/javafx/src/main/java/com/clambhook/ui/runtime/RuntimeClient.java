@@ -118,6 +118,27 @@ public interface RuntimeClient extends AutoCloseable {
                 Json.object(Map.of("profile", Objects.requireNonNullElse(profile, ""))));
     }
 
+    default CompletableFuture<Document> reviewProfileConversion(
+            String source, String format, String profileName) {
+        return request("POST", "/api/v1/config/converter/review",
+                Json.object(Map.of(
+                        "source", Objects.requireNonNullElse(source, ""),
+                        "format", Objects.requireNonNullElse(format, "auto"),
+                        "profile_name", Objects.requireNonNullElse(profileName, ""))));
+    }
+
+    default CompletableFuture<Document> importProfileConversion(
+            String source, String format, String profileName,
+            String expectedSha256, boolean activate) {
+        return request("POST", "/api/v1/config/converter/import",
+                Json.object(Map.of(
+                        "source", Objects.requireNonNullElse(source, ""),
+                        "format", Objects.requireNonNullElse(format, "auto"),
+                        "profile_name", Objects.requireNonNullElse(profileName, ""),
+                        "expected_sha256", Objects.requireNonNullElse(expectedSha256, ""),
+                        "activate", activate)));
+    }
+
     default CompletableFuture<Document> updateDns(String json) {
         return request("PUT", "/api/v1/dns", json);
     }

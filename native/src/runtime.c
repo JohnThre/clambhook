@@ -30,6 +30,7 @@
 #include "developer_internal.h"
 #include "internal.h"
 #include "outline.h"
+#include "profile_converter.h"
 
 #define CH_RUNTIME_MAX_CONFIG_TRANSFER_BYTES (4U * 1024U * 1024U)
 
@@ -1594,6 +1595,12 @@ static void ch_command_process(ch_runtime *runtime, ch_command *command) {
             } else if (strcmp(command->operation, "outline_review") == 0) {
                 command->status = ch_outline_review_request_json(
                     command->payload, &command->response, &command->error);
+            } else if (strcmp(command->operation, "profile_converter_review") == 0) {
+                command->status = ch_profile_converter_review_request_json(
+                    command->payload, &command->response, &command->error);
+            } else if (strcmp(command->operation, "config_import_review") == 0) {
+                command->status = ch_config_import_review_json(
+                    command->payload, &command->response, &command->error);
             } else if (strcmp(command->operation, "profiles") == 0) {
                 command->response = ch_runtime_profiles_json(runtime);
             } else if (strcmp(command->operation, "traffic") == 0 ||
@@ -1837,6 +1844,28 @@ static void ch_command_process(ch_runtime *runtime, ch_command *command) {
                                               command)) {
                     break;
                 }
+            } else if (strcmp(command->operation, "profile_converter_import") == 0) {
+                char *document = NULL;
+                char *review = NULL;
+                command->status = ch_profile_converter_import_request_json(
+                    runtime->config, command->payload, &document, &review,
+                    &command->error);
+                free(review);
+                if (command->status == CH_OK &&
+                    !ch_runtime_import_config(runtime, document, command)) {
+                    /* Import populated the command error and restored on failure. */
+                }
+                free(document);
+            } else if (strcmp(command->operation, "config_import_reviewed") == 0) {
+                char *document = NULL;
+                command->status = ch_config_merge_reviewed_import_document(
+                    runtime->config, command->payload, &document,
+                    &command->error);
+                if (command->status == CH_OK &&
+                    !ch_runtime_import_config(runtime, document, command)) {
+                    /* Import populated the command error and restored on failure. */
+                }
+                free(document);
             } else if (strcmp(command->operation, "outline_import") == 0) {
                 char *mutation = NULL;
                 command->status = ch_outline_import_mutation_request_json(

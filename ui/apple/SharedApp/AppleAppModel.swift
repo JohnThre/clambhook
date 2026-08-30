@@ -268,6 +268,34 @@ final class AppleAppModel: ObservableObject {
         await dashboard.refreshDashboard()
     }
 
+    func reviewProfileConversion(source: String, format: String,
+                                 profileName: String) async throws -> ProfileConversionReviewPayload {
+        guard let apiClient else { throw URLError(.cannotConnectToHost) }
+        return try await apiClient.reviewProfileConversion(
+            source: source, format: format, profileName: profileName)
+    }
+
+    func reviewConfigImport(_ toml: String) async throws -> TunnelImportReviewPayload {
+        guard let apiClient else { throw URLError(.cannotConnectToHost) }
+        return try await apiClient.reviewConfigImport(toml)
+    }
+
+    func applyReviewedConfigImport(_ request: ReviewedTunnelImportRequest) async throws {
+        guard let apiClient else { throw URLError(.cannotConnectToHost) }
+        _ = try await apiClient.applyReviewedConfigImport(request)
+        await dashboard.refreshDashboard()
+    }
+
+    func importProfileConversion(source: String, format: String,
+                                 profileName: String, expectedSHA256: String,
+                                 activate: Bool) async throws {
+        guard let apiClient else { throw URLError(.cannotConnectToHost) }
+        _ = try await apiClient.importProfileConversion(
+            source: source, format: format, profileName: profileName,
+            expectedSHA256: expectedSHA256, activate: activate)
+        await dashboard.refreshDashboard()
+    }
+
     func receiveOutlineURL(_ url: URL) {
         let value = url.absoluteString
         guard url.scheme?.lowercased() == "ss" ||

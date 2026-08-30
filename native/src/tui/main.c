@@ -422,7 +422,7 @@ static void tui_render(const tui_snapshot *snapshot, const char *base,
     tui_render_prompts(snapshot, interactive);
     if (interactive) {
         (void)puts("\nq quit · r refresh · j/k select · enter switch profile · c connect · d disconnect");
-        (void)puts("i import Outline key · R refresh selected dynamic profile while disconnected");
+        (void)puts("i import Outline key · v convert Mihomo/Surge file · R refresh dynamic profile");
     }
     (void)fflush(stdout);
 }
@@ -507,6 +507,145 @@ static char *tui_outline_body(const char *access_key, const char *profile) {
     char *result = okay ? ch_json_take(&json) : NULL;
     ch_json_dispose(&json);
     return result;
+}
+
+static char *tui_read_converter_file(const char *path, char *error,
+                                     size_t error_capacity) {
+    FILE *file = fopen(path, "rb");
+    if (file == NULL) {
+        tui_set_error(error, error_capacity, "open converter source file");
+        return NULL;
+    }
+    tui_buffer buffer = {0};
+    unsigned char chunk[8192];
+    while (!feof(file)) {
+        size_t count = fread(chunk, 1U, sizeof(chunk), file);
+        if (count > 0U && (!tui_buffer_reserve(&buffer, count) ||
+                          buffer.length + count > TUI_BODY_LIMIT)) {
+            buffer.failed = true;
+            break;
+        }
+        if (count > 0U) {
+            memcpy(buffer.data + buffer.length, chunk, count);
+            buffer.length += count;
+            buffer.data[buffer.length] = '\0';
+        }
+        if (ferror(file)) { buffer.failed = true; break; }
+    }
+    (void)fclose(file);
+    if (buffer.failed || buffer.length == 0U) {
+        free(buffer.data);
+        tui_set_error(error, error_capacity,
+                      buffer.failed ? "converter source exceeds 4 MiB or cannot be read" :
+                                      "converter source is empty");
+        return NULL;
+    }
+    return buffer.data;
+}
+
+static char *tui_converter_body(const char *source, const char *format,
+                                const char *profile, const char *sha,
+                                bool activate) {
+    ch_json_buffer json;
+    ch_json_init(&json);
+    int okay = ch_json_append(&json, "{\"source\":") &&
+        ch_json_append_string(&json, source) &&
+        ch_json_append(&json, ",\"format\":") &&
+        ch_json_append_string(&json, format) &&
+        ch_json_append(&json, ",\"profile_name\":") &&
+        ch_json_append_string(&json, profile);
+    if (okay && sha != NULL) {
+        okay = ch_json_append(&json, ",\"expected_sha256\":") &&
+            ch_json_append_string(&json, sha) &&
+            ch_json_append(&json, activate ? ",\"activate\":true" :
+                                             ",\"activate\":false");
+    }
+    okay = okay && ch_json_append(&json, "}");
+    char *result = okay ? ch_json_take(&json) : NULL;
+    ch_json_dispose(&json);
+    return result;
+}
+
+static void tui_converter_review_print(const ch_json_value *review) {
+    const ch_json_value *profiles = tui_member(review, "profiles");
+    const ch_json_value *profile = ch_json_array_get(profiles, 0U);
+    (void)printf("\nConverter review (credentials hidden)\n"
+                 "Format: %s · profile: %s · %lld chains · %lld groups · %lld rules\n",
+                 tui_string(review, "format"), tui_string(profile, "suggested_name"),
+                 (long long)tui_integer(profile, "chain_count"),
+                 (long long)tui_integer(profile, "group_count"),
+                 (long long)tui_integer(profile, "rule_count"));
+    const ch_json_value *warnings = tui_member(review, "warnings");
+    for (size_t index = 0U; index < ch_json_array_size(warnings); ++index) {
+        const ch_json_value *warning = ch_json_array_get(warnings, index);
+        (void)printf("Warning [%s] %s: %s\n", tui_string(warning, "code"),
+                     tui_string(warning, "path"), tui_string(warning, "message"));
+    }
+}
+
+static void tui_convert_profile(tui_snapshot *snapshot, const char *base,
+                                const char *token) {
+    char *path = tui_prompt_line("Mihomo YAML or Surge profile path: ", false);
+    if (path == NULL || path[0] == '\0') { free(path); return; }
+    char error[256] = {0};
+    char *source = tui_read_converter_file(path, error, sizeof(error));
+    free(path);
+    if (source == NULL) {
+        tui_set_error(snapshot->notice, sizeof(snapshot->notice), error);
+        return;
+    }
+    char *format = tui_prompt_line("Format [auto/mihomo/surge, default auto]: ", false);
+    char *profile = tui_prompt_line("Profile name [Converted Profile]: ", false);
+    if (format == NULL || profile == NULL) { free(source); free(format); free(profile); return; }
+    if (format[0] == '\0') { free(format); format = strdup("auto"); }
+    if (profile[0] == '\0') { free(profile); profile = strdup("Converted Profile"); }
+    char *body = format == NULL || profile == NULL ? NULL :
+        tui_converter_body(source, format, profile, NULL, false);
+    char *response = body == NULL ? NULL : tui_request(
+        base, token, "POST", "/api/v1/config/converter/review", body,
+        error, sizeof(error));
+    free(body);
+    ch_error parse_error;
+    ch_json_value *review = response == NULL ? NULL :
+        ch_json_parse(response, strlen(response), &parse_error);
+    if (review == NULL) {
+        tui_set_error(snapshot->notice, sizeof(snapshot->notice),
+                      response == NULL ? error : "parse converter review");
+        free(response); free(source); free(format); free(profile);
+        return;
+    }
+    tui_converter_review_print(review);
+    const char *sha_value = tui_string(review, "sha256");
+    const char *toml = tui_string(review, "toml");
+    char *sha = strdup(sha_value);
+    char *export_toml = strdup(toml);
+    ch_json_value_destroy(review); free(response);
+    char *choice = tui_prompt_line("Merge, export sensitive TOML, or cancel? [m/e/N] ", false);
+    if (choice != NULL && (choice[0] == 'm' || choice[0] == 'M')) {
+        char *activation = tui_prompt_line("Activate imported profile? [y/N] ", false);
+        bool activate = activation != NULL &&
+            (activation[0] == 'y' || activation[0] == 'Y');
+        free(activation);
+        body = sha == NULL ? NULL : tui_converter_body(
+            source, format, profile, sha, activate);
+        if (body != NULL) tui_action(snapshot, base, token, "POST",
+                                     "/api/v1/config/converter/import", body);
+        free(body);
+    } else if (choice != NULL && (choice[0] == 'e' || choice[0] == 'E')) {
+        char *output = tui_prompt_line("Sensitive TOML output path: ", false);
+        FILE *file = output == NULL || output[0] == '\0' ? NULL : fopen(output, "wb");
+        if (file == NULL || export_toml == NULL ||
+            fwrite(export_toml, 1U, strlen(export_toml), file) != strlen(export_toml)) {
+            tui_set_error(snapshot->notice, sizeof(snapshot->notice),
+                          "write sensitive converter export");
+        } else {
+            tui_set_error(snapshot->notice, sizeof(snapshot->notice),
+                          "Sensitive TOML export written");
+        }
+        if (file != NULL) (void)fclose(file);
+        free(output);
+    }
+    free(choice); free(sha); free(export_toml); free(source); free(format); free(profile);
 }
 
 static void tui_import_outline(tui_snapshot *snapshot, const char *base,
@@ -712,6 +851,8 @@ int main(int argc, char **argv) {
                 tui_action(&snapshot, base, token, "POST", "/api/v1/disconnect", NULL); redraw = true;
             } else if (key == 'i' && prompt_count == 0U) {
                 tui_import_outline(&snapshot, base, token); redraw = true;
+            } else if (key == 'v' && prompt_count == 0U) {
+                tui_convert_profile(&snapshot, base, token); redraw = true;
             } else if (key == 'R' && prompt_count == 0U) {
                 tui_refresh_outline(&snapshot, base, token); redraw = true;
             } else if (prompt_count > 0U) {

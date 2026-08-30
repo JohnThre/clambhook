@@ -171,6 +171,7 @@ archives are rejected before linking.
 
 See [Android development](docs/android-development.md),
 [Outline access keys](docs/outline-access-keys.md),
+[Mihomo and Surge profile conversion](docs/profile-conversion.md),
 [release validation](docs/release-validation.md), and
 [packaging](packaging/README.md).
 

@@ -20,12 +20,27 @@ public protocol ClambhookAPIProviding: AnyObject {
     func updateDNS(_ request: DNSUpdateRequest, profile: String) async throws -> DNSPayload
     func exportConfig() async throws -> String
     func importConfig(_ toml: String) async throws -> ConfigImportResponse
+    func reviewConfigImport(_ toml: String) async throws -> TunnelImportReviewPayload
+    func applyReviewedConfigImport(_ request: ReviewedTunnelImportRequest) async throws -> ConfigImportResponse
     func reviewOutlineAccessKey(_ accessKey: String) async throws -> OutlineReviewPayload
     func importOutlineAccessKey(_ accessKey: String, profileName: String, activate: Bool) async throws -> ProfilesPayload
     func refreshOutlineProfile(_ profile: String) async throws -> ProfilesPayload
+    func reviewProfileConversion(source: String, format: String,
+                                 profileName: String) async throws -> ProfileConversionReviewPayload
+    func importProfileConversion(source: String, format: String,
+                                 profileName: String, expectedSHA256: String,
+                                 activate: Bool) async throws -> ConfigImportResponse
 }
 
 public extension ClambhookAPIProviding {
+    func reviewConfigImport(_ toml: String) async throws -> TunnelImportReviewPayload {
+        throw URLError(.unsupportedURL)
+    }
+
+    func applyReviewedConfigImport(_ request: ReviewedTunnelImportRequest) async throws -> ConfigImportResponse {
+        throw URLError(.unsupportedURL)
+    }
+
     func reviewOutlineAccessKey(_ accessKey: String) async throws -> OutlineReviewPayload {
         throw URLError(.unsupportedURL)
     }
@@ -36,6 +51,17 @@ public extension ClambhookAPIProviding {
     }
 
     func refreshOutlineProfile(_ profile: String) async throws -> ProfilesPayload {
+        throw URLError(.unsupportedURL)
+    }
+
+    func reviewProfileConversion(source: String, format: String,
+                                 profileName: String) async throws -> ProfileConversionReviewPayload {
+        throw URLError(.unsupportedURL)
+    }
+
+    func importProfileConversion(source: String, format: String,
+                                 profileName: String, expectedSHA256: String,
+                                 activate: Bool) async throws -> ConfigImportResponse {
         throw URLError(.unsupportedURL)
     }
 }
@@ -627,6 +653,66 @@ public final class ClambhookAPIClient: ClambhookAPIProviding, ClambhookRuleEditi
     public func importConfig(_ toml: String) async throws -> ConfigImportResponse {
         let body = Data(toml.utf8)
         let data = try await send(method: "POST", path: "/api/v1/config/import", body: body, contentType: "text/plain")
+        return try decoder.decode(ConfigImportResponse.self, from: data)
+    }
+
+    public func reviewConfigImport(_ toml: String) async throws -> TunnelImportReviewPayload {
+        let data = try await send(
+            method: "POST", path: "/api/v1/config/import/review",
+            body: Data(toml.utf8), contentType: "text/plain")
+        return try decoder.decode(TunnelImportReviewPayload.self, from: data)
+    }
+
+    public func applyReviewedConfigImport(
+        _ request: ReviewedTunnelImportRequest
+    ) async throws -> ConfigImportResponse {
+        let data = try await send(
+            method: "POST", path: "/api/v1/config/import/apply",
+            body: try encoder.encode(request))
+        return try decoder.decode(ConfigImportResponse.self, from: data)
+    }
+
+    public func reviewProfileConversion(source: String, format: String = "auto",
+                                        profileName: String) async throws -> ProfileConversionReviewPayload {
+        struct Request: Encodable {
+            var source: String
+            var format: String
+            var profileName: String
+            enum CodingKeys: String, CodingKey {
+                case source, format
+                case profileName = "profile_name"
+            }
+        }
+        let body = try encoder.encode(Request(source: source, format: format,
+                                              profileName: profileName))
+        let data = try await send(method: "POST",
+                                  path: "/api/v1/config/converter/review",
+                                  body: body)
+        return try decoder.decode(ProfileConversionReviewPayload.self, from: data)
+    }
+
+    public func importProfileConversion(source: String, format: String = "auto",
+                                        profileName: String,
+                                        expectedSHA256: String,
+                                        activate: Bool = false) async throws -> ConfigImportResponse {
+        struct Request: Encodable {
+            var source: String
+            var format: String
+            var profileName: String
+            var expectedSHA256: String
+            var activate: Bool
+            enum CodingKeys: String, CodingKey {
+                case source, format, activate
+                case profileName = "profile_name"
+                case expectedSHA256 = "expected_sha256"
+            }
+        }
+        let body = try encoder.encode(Request(
+            source: source, format: format, profileName: profileName,
+            expectedSHA256: expectedSHA256, activate: activate))
+        let data = try await send(method: "POST",
+                                  path: "/api/v1/config/converter/import",
+                                  body: body)
         return try decoder.decode(ConfigImportResponse.self, from: data)
     }
 

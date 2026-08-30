@@ -26,12 +26,20 @@ struct MacProfilesSection: View {
     @State private var showImportConfirm = false
     @State private var importPreviewProfiles: [String] = []
     @State private var pendingImportText = ""
+    @State private var pendingImportReview: TunnelImportReviewPayload?
     @State private var outlineKey = ""
     @State private var outlineProfileName = "Outline"
     @State private var outlineReview: OutlineReviewPayload?
     @State private var reviewedOutlineKey = ""
     @State private var outlineError = ""
     @State private var outlineBusy = false
+    @State private var converterSource = ""
+    @State private var converterFormat = "auto"
+    @State private var converterProfileName = "Imported Profile"
+    @State private var converterReview: ProfileConversionReviewPayload?
+    @State private var converterError = ""
+    @State private var converterBusy = false
+    @State private var converterActivate = false
 
     var body: some View {
         ScrollView {
@@ -39,6 +47,8 @@ struct MacProfilesSection: View {
                 profileHeader
                 Divider()
                 outlineSection
+                Divider()
+                converterSection
                 Divider()
                 configFileSection
                 Divider()
@@ -56,23 +66,34 @@ struct MacProfilesSection: View {
             configEditorSheet
         }
         .confirmationDialog(
-            "Replace Config?",
+            "Merge Reviewed Profiles?",
             isPresented: $showImportConfirm,
             titleVisibility: .visible
         ) {
-            Button("Replace Config", role: .destructive) {
-                do {
-                    try model.writeConfigFile(pendingImportText)
-                    model.reloadDaemon()
-                    refreshPathValidation()
-                } catch {
-                    importError = error.localizedDescription
+            Button("Merge Profiles") {
+                if let review = pendingImportReview {
+                    let request = ReviewedTunnelImportRequest(
+                        importText: pendingImportText,
+                        profiles: review.profiles.map {
+                            ReviewedTunnelImportProfile(
+                                sourceName: $0.name, targetName: $0.name)
+                        })
+                    Task {
+                        do {
+                            try await model.applyReviewedConfigImport(request)
+                            refreshPathValidation()
+                        } catch { importError = error.localizedDescription }
+                    }
                 }
                 pendingImportText = ""
+                pendingImportReview = nil
             }
-            Button("Cancel", role: .cancel) { pendingImportText = "" }
+            Button("Cancel", role: .cancel) {
+                pendingImportText = ""
+                pendingImportReview = nil
+            }
         } message: {
-            Text("This will overwrite the current config with the imported file. Profiles found: \(importPreviewProfiles.joined(separator: ", "))")
+            Text("This preserves unrelated profiles and root settings. Profiles found: \(importPreviewProfiles.joined(separator: ", "))")
         }
         .onAppear {
             refreshPathValidation()
@@ -254,6 +275,124 @@ struct MacProfilesSection: View {
         }
     }
 
+    private var converterSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Convert Mihomo or Surge Profile")
+                .font(.headline)
+            Text("Conversion is offline. Unsupported items are omitted only after review and are listed below; exported TOML can contain credentials.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Picker("Source format", selection: $converterFormat) {
+                Text("Auto-detect").tag("auto")
+                Text("Mihomo YAML").tag("mihomo")
+                Text("Surge profile").tag("surge")
+            }
+            .pickerStyle(.segmented)
+            .onChange(of: converterFormat) { _, _ in converterReview = nil }
+            TextField("Converted profile name", text: $converterProfileName)
+                .accessibilityLabel("Converted profile name")
+                .onChange(of: converterProfileName) { _, _ in converterReview = nil }
+            TextEditor(text: $converterSource)
+                .font(.system(.caption, design: .monospaced))
+                .frame(minHeight: 110)
+                .accessibilityLabel("Mihomo or Surge source profile")
+                .onChange(of: converterSource) { _, _ in converterReview = nil }
+            if let review = converterReview, let summary = review.profiles.first {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("\(review.format.capitalized) · \(summary.chainCount) chains · \(summary.groupCount) groups · \(summary.ruleCount) rules")
+                        .font(.caption.weight(.semibold))
+                    ForEach(review.warnings) { warning in
+                        Label("\(warning.path): \(warning.message)",
+                              systemImage: "exclamationmark.triangle.fill")
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                    }
+                }
+            }
+            if !converterError.isEmpty {
+                Text(converterError).font(.caption).foregroundStyle(.red)
+            }
+            Toggle("Activate after import", isOn: $converterActivate)
+                .font(.caption)
+            HStack {
+                Button("Open File") { openConverterFile() }
+                Button("Review") { reviewConversion() }
+                    .disabled(converterBusy || converterSource.isEmpty || converterProfileName.isEmpty)
+                Button("Merge") { importConversion() }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(converterBusy || converterReview == nil)
+                Button("Export TOML") { exportConversion() }
+                    .disabled(converterReview == nil)
+            }
+        }
+    }
+
+    private func openConverterFile() {
+        let panel = NSOpenPanel()
+        panel.title = "Open Mihomo or Surge profile"
+        panel.allowedContentTypes = ["yaml", "yml", "conf"].compactMap {
+            .init(filenameExtension: $0)
+        }
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        if panel.runModal() == .OK, let url = panel.url {
+            do {
+                converterSource = try String(contentsOf: url, encoding: .utf8)
+                converterProfileName = url.deletingPathExtension().lastPathComponent
+                converterFormat = url.pathExtension.lowercased() == "conf" ? "surge" : "mihomo"
+                converterReview = nil
+                converterError = ""
+            } catch { converterError = error.localizedDescription }
+        }
+    }
+
+    private func reviewConversion() {
+        converterBusy = true
+        converterError = ""
+        let source = converterSource
+        let name = converterProfileName
+        let format = converterFormat
+        Task {
+            do {
+                let review = try await model.reviewProfileConversion(
+                    source: source, format: format, profileName: name)
+                if source == converterSource && name == converterProfileName {
+                    converterReview = review
+                }
+            } catch { converterReview = nil; converterError = error.localizedDescription }
+            converterBusy = false
+        }
+    }
+
+    private func importConversion() {
+        guard let review = converterReview else { return }
+        converterBusy = true
+        converterError = ""
+        Task {
+            do {
+                try await model.importProfileConversion(
+                    source: converterSource, format: converterFormat,
+                    profileName: converterProfileName,
+                    expectedSHA256: review.sha256, activate: converterActivate)
+                converterSource = ""
+                converterReview = nil
+            } catch { converterError = error.localizedDescription }
+            converterBusy = false
+        }
+    }
+
+    private func exportConversion() {
+        guard let review = converterReview else { return }
+        let panel = NSSavePanel()
+        panel.title = "Export converted ClambHook profile"
+        panel.nameFieldStringValue = "\(converterProfileName).toml"
+        panel.allowedContentTypes = [.init(filenameExtension: "toml") ?? .data]
+        if panel.runModal() == .OK, let url = panel.url {
+            do { try review.toml.write(to: url, atomically: true, encoding: .utf8) }
+            catch { converterError = error.localizedDescription }
+        }
+    }
+
     // MARK: - Config file
 
     private var configFileSection: some View {
@@ -401,18 +540,36 @@ struct MacProfilesSection: View {
 
     private func runImport() {
         let panel = NSOpenPanel()
-        panel.title = "Import clambhook config"
-        panel.allowedContentTypes = [.init(filenameExtension: "toml") ?? .data]
+        panel.title = "Import ClambHook, Mihomo, or Surge profile"
+        panel.allowedContentTypes = ["toml", "yaml", "yml", "conf"].compactMap {
+            .init(filenameExtension: $0)
+        }
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = false
         if panel.runModal() == .OK, let url = panel.url {
             do {
                 let text = try String(contentsOf: url, encoding: .utf8)
+                if url.pathExtension.lowercased() != "toml" {
+                    converterSource = text
+                    converterProfileName = url.deletingPathExtension().lastPathComponent
+                    converterFormat = url.pathExtension.lowercased() == "conf" ?
+                        "surge" : "mihomo"
+                    converterReview = nil
+                    converterError = ""
+                    reviewConversion()
+                    return
+                }
                 _ = try TunnelImportDecoder.decode(text)
-                importPreviewProfiles = profileNames(in: text)
-                pendingImportText = text
-                importError = ""
-                showImportConfirm = true
+                Task {
+                    do {
+                        let review = try await model.reviewConfigImport(text)
+                        pendingImportReview = review
+                        importPreviewProfiles = review.profiles.map(\.name)
+                        pendingImportText = text
+                        importError = ""
+                        showImportConfirm = true
+                    } catch { importError = error.localizedDescription }
+                }
             } catch {
                 importError = error.localizedDescription
             }

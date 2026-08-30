@@ -207,6 +207,7 @@ add_library(clambhook_jni SHARED
     "${CLAMBHOOK_ROOT}/native/src/lwip_context.c"
     "${CLAMBHOOK_ROOT}/native/src/outline.c"
     "${CLAMBHOOK_ROOT}/native/src/policy.c"
+    "${CLAMBHOOK_ROOT}/native/src/profile_converter.c"
     "${CLAMBHOOK_ROOT}/native/src/protocol.c"
     "${CLAMBHOOK_ROOT}/native/src/protocol_openvpn.c"
     "${CLAMBHOOK_ROOT}/native/src/protocol_packet.c"

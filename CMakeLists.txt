@@ -189,6 +189,7 @@ add_library(clambhook_core STATIC
   native/src/policy.c
   native/src/procattr.c
   native/src/prompt.c
+  native/src/profile_converter.c
   native/src/protocol.c
   native/src/protocol_openvpn.c
   native/src/protocol_packet.c
@@ -316,6 +317,7 @@ if(CLAMBHOOK_BUILD_TESTS)
     native/tests/test_netwatch.c
     native/tests/test_openvpn.c
     native/tests/test_outline.c
+    native/tests/test_profile_converter.c
     native/tests/test_policy.c
     native/tests/test_procattr.c
     native/tests/test_prompt.c

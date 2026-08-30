@@ -29,6 +29,7 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.boolean
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -86,6 +87,36 @@ class NativeClambhookBridgeTest {
                 """.trimIndent() + "\n",
             )
         }
+
+    @Test
+    fun converterReviewAndImportRunThroughAndroidJniAdapter() {
+        val config = configFile("converter-bridge.toml")
+        val source = """
+            [Proxy]
+            Mobile = ss, proxy.example, 8388, encrypt-method=aes-256-gcm, password=private
+            [Rule]
+            FINAL,Mobile
+        """.trimIndent()
+        val reviewRequest = buildJsonObject {
+            put("source", JsonPrimitive(source))
+            put("format", JsonPrimitive("surge"))
+            put("profile_name", JsonPrimitive("Mobile Import"))
+        }.toString()
+        val review = objectJson(
+            NativeClambhookConfigBridge.converterReview(reviewRequest),
+        )
+        assertEquals("surge", review.getValue("format").jsonPrimitive.content)
+        val importRequest = buildJsonObject {
+            put("source", JsonPrimitive(source))
+            put("format", JsonPrimitive("surge"))
+            put("profile_name", JsonPrimitive("Mobile Import"))
+            put("expected_sha256", review.getValue("sha256"))
+            put("activate", JsonPrimitive(false))
+        }.toString()
+        NativeClambhookConfigBridge.converterImport(config.absolutePath, importRequest)
+        assertTrue(config.readText().contains("name = \"Mobile Import\""))
+        assertTrue(config.readText().contains("active = \"work\""))
+    }
 
     private fun shell(command: String): String {
         val descriptor = InstrumentationRegistry.getInstrumentation()

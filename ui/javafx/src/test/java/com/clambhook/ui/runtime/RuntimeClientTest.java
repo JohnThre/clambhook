@@ -92,6 +92,24 @@ final class RuntimeClientTest {
     }
 
     @Test
+    void profileConverterUsesReviewedHashContract() {
+        RecordingBackend backend = new RecordingBackend();
+        try (RuntimeClient client = new DefaultRuntimeClient(backend)) {
+            client.reviewProfileConversion("proxies:\n", "mihomo", "Travel").join();
+            client.importProfileConversion(
+                    "[Proxy]\n", "surge", "Travel", "abc123", true).join();
+        }
+
+        assertTrue(backend.calls.get(0).startsWith(
+                "POST /api/v1/config/converter/review "));
+        assertTrue(backend.calls.get(0).contains("\"profile_name\":\"Travel\""));
+        assertTrue(backend.calls.get(1).startsWith(
+                "POST /api/v1/config/converter/import "));
+        assertTrue(backend.calls.get(1).contains("\"expected_sha256\":\"abc123\""));
+        assertTrue(backend.calls.get(1).contains("\"activate\":true"));
+    }
+
+    @Test
     void liveEventsUseTheWebSocketPathAndDecodeTypedFrames()
             throws InterruptedException {
         RecordingBackend backend = new RecordingBackend();

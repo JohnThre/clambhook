@@ -11,6 +11,7 @@
 #include "clambhook/config.h"
 #include "clambhook/runtime.h"
 #include "outline.h"
+#include "profile_converter.h"
 
 typedef struct ch_jni_runtime {
     JavaVM *vm;
@@ -376,6 +377,65 @@ Java_com_clambhook_android_NativeClambhookConfigBridge_nativeOutlineReview(
                                                       &error);
     ch_jni_release_utf(environment, request_json, request_utf);
     if (status != CH_OK) {
+        ch_jni_check(environment, status, &error);
+        return NULL;
+    }
+    jstring result = (*environment)->NewStringUTF(environment, response);
+    ch_string_free(response);
+    return result;
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_clambhook_android_NativeClambhookConfigBridge_nativeConverterReview(
+    JNIEnv *environment, jobject bridge, jstring request_json
+) {
+    (void)bridge;
+    const char *request_utf = ch_jni_get_utf(environment, request_json);
+    if (request_utf == NULL) return NULL;
+    char *response = NULL;
+    ch_error error;
+    ch_status status = ch_profile_converter_review_request_json(
+        request_utf, &response, &error);
+    ch_jni_release_utf(environment, request_json, request_utf);
+    if (status != CH_OK) {
+        ch_jni_check(environment, status, &error);
+        return NULL;
+    }
+    jstring result = (*environment)->NewStringUTF(environment, response);
+    ch_string_free(response);
+    return result;
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_clambhook_android_NativeClambhookConfigBridge_nativeConverterImport(
+    JNIEnv *environment, jobject bridge, jstring config_path,
+    jstring request_json
+) {
+    (void)bridge;
+    const char *path_utf = ch_jni_get_utf(environment, config_path);
+    const char *request_utf = ch_jni_get_utf(environment, request_json);
+    if (path_utf == NULL || request_utf == NULL) {
+        ch_jni_release_utf(environment, config_path, path_utf);
+        ch_jni_release_utf(environment, request_json, request_utf);
+        return NULL;
+    }
+    ch_config *config = NULL;
+    char *document = NULL;
+    char *review = NULL;
+    char *response = NULL;
+    ch_error error;
+    ch_status status = ch_config_load(path_utf, &config, &error);
+    if (status == CH_OK) status = ch_profile_converter_import_request_json(
+        config, request_utf, &document, &review, &error);
+    if (status == CH_OK) status = ch_runtime_config_import_file(
+        path_utf, document, &response, &error);
+    ch_config_free(config);
+    free(document);
+    free(review);
+    ch_jni_release_utf(environment, config_path, path_utf);
+    ch_jni_release_utf(environment, request_json, request_utf);
+    if (status != CH_OK) {
+        ch_string_free(response);
         ch_jni_check(environment, status, &error);
         return NULL;
     }

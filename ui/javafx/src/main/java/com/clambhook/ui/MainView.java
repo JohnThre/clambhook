@@ -21,6 +21,7 @@ import javafx.scene.Node;
 import javafx.scene.Parent;
 import javafx.scene.Scene;
 import javafx.scene.control.Button;
+import javafx.scene.control.CheckBox;
 import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
 import javafx.scene.control.ListView;
@@ -452,8 +453,118 @@ public final class MainView implements AutoCloseable {
         VBox outline = card(sectionTitle("Import Outline access key"),
                 new Label("Paste, scan, or open a standard ss:// or basic dynamic ssconf:// key."),
                 outlineKey, outlineName, outlineReview, outlineActions);
+        TextArea converterSource = new TextArea();
+        converterSource.setPromptText("Paste Mihomo YAML or a Surge profile");
+        converterSource.setAccessibleText("Mihomo or Surge source profile");
+        converterSource.setPrefRowCount(7);
+        ComboBox<String> converterFormat = new ComboBox<>(
+                FXCollections.observableArrayList("auto", "mihomo", "surge"));
+        converterFormat.getSelectionModel().select("auto");
+        converterFormat.setAccessibleText("Source profile format");
+        TextField converterName = new TextField("Imported Profile");
+        converterName.setPromptText("Converted profile name");
+        converterName.setAccessibleText("Converted profile name");
+        CheckBox converterActivate = new CheckBox("Activate after import");
+        converterActivate.setAccessibleText("Activate converted profile after import");
+        Label converterReviewLabel = new Label(
+                "Conversion is offline. Review every omitted or changed item before merging.");
+        converterReviewLabel.setWrapText(true);
+        converterReviewLabel.getStyleClass().add("secondary-text");
+        AtomicReference<RuntimeClient.Document> converterReview = new AtomicReference<>();
+        Runnable invalidateConverter = () -> converterReview.set(null);
+        converterSource.textProperty().addListener((ignored, oldValue, newValue) ->
+                invalidateConverter.run());
+        converterName.textProperty().addListener((ignored, oldValue, newValue) ->
+                invalidateConverter.run());
+        converterFormat.valueProperty().addListener((ignored, oldValue, newValue) ->
+                invalidateConverter.run());
+        Button reviewConverter = new Button("Review conversion");
+        Button mergeConverter = new Button("Merge profile");
+        mergeConverter.getStyleClass().add("primary-button");
+        mergeConverter.setDisable(true);
+        Button exportConverter = new Button("Copy TOML to editor");
+        exportConverter.setDisable(true);
+        converterSource.textProperty().addListener((ignored, oldValue, newValue) -> {
+            mergeConverter.setDisable(true);
+            exportConverter.setDisable(true);
+        });
+        converterName.textProperty().addListener((ignored, oldValue, newValue) -> {
+            mergeConverter.setDisable(true);
+            exportConverter.setDisable(true);
+        });
+        converterFormat.valueProperty().addListener((ignored, oldValue, newValue) -> {
+            mergeConverter.setDisable(true);
+            exportConverter.setDisable(true);
+        });
+        reviewConverter.setOnAction(ignored -> runtime.reviewProfileConversion(
+                converterSource.getText(), converterFormat.getValue(),
+                converterName.getText()).whenComplete((preview, failure) ->
+                Platform.runLater(() -> {
+                    if (failure != null) {
+                        invalidateConverter.run();
+                        mergeConverter.setDisable(true);
+                        exportConverter.setDisable(true);
+                        showError(failure);
+                        return;
+                    }
+                    converterReview.set(preview);
+                    var summary = preview.root().get("profiles").elements();
+                    var warnings = preview.root().get("warnings").elements();
+                    String details = summary.isEmpty() ? "No converted profile" :
+                            preview.root().get("format").text() + " · " +
+                            summary.get(0).get("chain_count").longValue(0) + " chains · " +
+                            summary.get(0).get("group_count").longValue(0) + " groups · " +
+                            summary.get(0).get("rule_count").longValue(0) + " rules";
+                    if (!warnings.isEmpty()) {
+                        StringBuilder text = new StringBuilder(details).append("\nWarnings:");
+                        warnings.forEach(warning -> text.append("\n• ")
+                                .append(warning.get("path").text()).append(": ")
+                                .append(warning.get("message").text()));
+                        details = text.toString();
+                    }
+                    converterReviewLabel.setText(details);
+                    mergeConverter.setDisable(false);
+                    exportConverter.setDisable(false);
+                })));
+        mergeConverter.setOnAction(ignored -> {
+            RuntimeClient.Document preview = converterReview.get();
+            if (preview == null) return;
+            runMutation(runtime.importProfileConversion(
+                    converterSource.getText(), converterFormat.getValue(),
+                    converterName.getText(), preview.root().get("sha256").text(),
+                    converterActivate.isSelected()));
+        });
+        exportConverter.setOnAction(ignored -> {
+            RuntimeClient.Document preview = converterReview.get();
+            if (preview != null) configTransfer.setText(preview.root().get("toml").text());
+        });
+        FlowPane converterActions = new FlowPane(8, 8, reviewConverter,
+                mergeConverter, exportConverter);
+        TextField converterFile = new TextField();
+        converterFile.setPromptText("Mihomo YAML or Surge .conf path");
+        converterFile.setAccessibleText("Converter source file path");
+        Button loadConverterFile = new Button("Read source file");
+        loadConverterFile.setDisable(!files);
+        loadConverterFile.setOnAction(ignored -> {
+            try {
+                loadRaw(platformServices.readTextFile(
+                        java.nio.file.Path.of(converterFile.getText()),
+                        4 * 1024 * 1024), converterSource);
+            } catch (RuntimeException error) {
+                showError(error);
+            }
+        });
+        HBox converterFileActions = new HBox(8, converterFile, loadConverterFile);
+        HBox.setHgrow(converterFile, Priority.ALWAYS);
+        HBox converterIdentity = new HBox(8, converterFormat, converterName,
+                converterActivate);
+        HBox.setHgrow(converterName, Priority.ALWAYS);
+        VBox converter = card(sectionTitle("Convert Mihomo or Surge profile"),
+                new Label("No providers, includes, or sidecars are fetched during conversion."),
+                converterIdentity, converterSource, converterReviewLabel,
+                converterActions, converterFileActions);
         VBox profileCard = card(sectionTitle("Profiles"), profilesList, activate);
-        VBox body = new VBox(16, profileCard, outline, transfer);
+        VBox body = new VBox(16, profileCard, outline, converter, transfer);
         body.getStyleClass().add("page-content");
         pageRefreshers.put(Page.PROFILES, () -> loadRaw(runtime.exportConfig(), configTransfer));
         return scroll(body);

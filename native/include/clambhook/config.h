@@ -78,6 +78,13 @@ ch_status ch_config_apply_reviewed_import_file(const char *path,
                                                const char *request_json,
                                                ch_error *error);
 
+/* Produces the same reviewed merge without writing it, for live runtime
+ * transactions such as source-profile conversion. */
+ch_status ch_config_merge_reviewed_import_document(const ch_config *current,
+                                                   const char *request_json,
+                                                   char **out_toml,
+                                                   ch_error *error);
+
 bool ch_config_table_has(const ch_config_table *table, const char *key);
 const ch_config_table *ch_config_table_get_table(const ch_config_table *table,
                                                   const char *key);
