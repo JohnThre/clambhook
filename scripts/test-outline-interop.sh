@@ -12,6 +12,8 @@ WORK_DIR="$(mktemp -d "${TMPDIR:-/tmp}/clambhook-outline.XXXXXX")"
 SERVER_PID=""
 TCP_PID=""
 UDP_PID=""
+TARGET_ADDRESS_ADDED=0
+TARGET_HOST="192.0.2.1"
 
 cleanup() {
     local status=$?
@@ -28,36 +30,44 @@ cleanup() {
     [[ -z "$SERVER_PID" ]] || kill "$SERVER_PID" 2>/dev/null
     [[ -z "$TCP_PID" ]] || kill "$TCP_PID" 2>/dev/null
     [[ -z "$UDP_PID" ]] || kill "$UDP_PID" 2>/dev/null
+    if ((TARGET_ADDRESS_ADDED != 0)); then
+        sudo -n ip address delete "$TARGET_HOST/32" dev lo 2>/dev/null
+    fi
     rm -rf "$WORK_DIR"
 }
 trap cleanup EXIT INT TERM
 
 wait_for_tcp_listener() {
-    local port="$1"
-    local label="$2"
-    local pid="$3"
+    local host="$1"
+    local port="$2"
+    local label="$3"
+    local pid="$4"
     for _ in {1..100}; do
         kill -0 "$pid" 2>/dev/null || {
             echo "$label exited before becoming ready" >&2
             return 1
         }
-        if (exec 9<>"/dev/tcp/127.0.0.1/$port") 2>/dev/null; then
+        if (exec 9<>"/dev/tcp/$host/$port") 2>/dev/null; then
             exec 9>&-
             exec 9<&-
             return 0
         fi
         sleep 0.1
     done
-    echo "$label did not listen on 127.0.0.1:$port" >&2
+    echo "$label did not listen on $host:$port" >&2
     return 1
 }
 
-for tool in git go socat; do
+for tool in git go ip socat sudo; do
     command -v "$tool" >/dev/null 2>&1 || {
         echo "Outline interoperability requires $tool" >&2
         exit 2
     }
 done
+sudo -n true 2>/dev/null || {
+    echo "Outline interoperability requires non-interactive sudo" >&2
+    exit 2
+}
 [[ -x "$TEST_BINARY" ]] || {
     echo "native test binary is missing: $TEST_BINARY" >&2
     exit 2
@@ -74,6 +84,8 @@ SERVER_PORT=$((29000 + ($$ % 1000)))
 TCP_PORT=$((30000 + ($$ % 1000)))
 UDP_PORT=$((31000 + ($$ % 1000)))
 CONFIG="$WORK_DIR/outline.yml"
+sudo -n ip address add "$TARGET_HOST/32" dev lo
+TARGET_ADDRESS_ADDED=1
 cat > "$CONFIG" <<EOF
 services:
   - listeners:
@@ -93,18 +105,18 @@ services:
         secret: OutlineChaCha
 EOF
 
-socat TCP4-LISTEN:"$TCP_PORT",bind=127.0.0.1,reuseaddr,fork EXEC:/bin/cat \
+socat TCP4-LISTEN:"$TCP_PORT",bind="$TARGET_HOST",reuseaddr,fork EXEC:/bin/cat \
     >"$WORK_DIR/tcp.log" 2>&1 &
 TCP_PID=$!
-socat UDP4-RECVFROM:"$UDP_PORT",bind=127.0.0.1,reuseaddr,fork EXEC:/bin/cat \
+socat UDP4-RECVFROM:"$UDP_PORT",bind="$TARGET_HOST",reuseaddr,fork EXEC:/bin/cat \
     >"$WORK_DIR/udp.log" 2>&1 &
 UDP_PID=$!
 "$WORK_DIR/outline-ss-server" -config "$CONFIG" \
     >"$WORK_DIR/server.log" 2>&1 &
 SERVER_PID=$!
 
-wait_for_tcp_listener "$TCP_PORT" "TCP echo target" "$TCP_PID"
-wait_for_tcp_listener "$SERVER_PORT" "Outline server" "$SERVER_PID"
+wait_for_tcp_listener "$TARGET_HOST" "$TCP_PORT" "TCP echo target" "$TCP_PID"
+wait_for_tcp_listener "127.0.0.1" "$SERVER_PORT" "Outline server" "$SERVER_PID"
 kill -0 "$UDP_PID" 2>/dev/null || {
     echo "UDP echo target exited before the test" >&2
     exit 1
@@ -113,8 +125,8 @@ kill -0 "$UDP_PID" 2>/dev/null || {
 env \
     CLAMBHOOK_TEST_GROUP=protocol \
     CLAMBHOOK_OUTLINE_ENDPOINT="127.0.0.1:${SERVER_PORT}" \
-    CLAMBHOOK_OUTLINE_TCP_TARGET="127.0.0.1:${TCP_PORT}" \
-    CLAMBHOOK_OUTLINE_UDP_TARGET="127.0.0.1:${UDP_PORT}" \
+    CLAMBHOOK_OUTLINE_TCP_TARGET="${TARGET_HOST}:${TCP_PORT}" \
+    CLAMBHOOK_OUTLINE_UDP_TARGET="${TARGET_HOST}:${UDP_PORT}" \
     "$TEST_BINARY"
 
 echo "Outline interoperability: TCP, UDP, and prefixes passed for all supported ciphers"
