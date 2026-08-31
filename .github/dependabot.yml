@@ -14,6 +14,11 @@ updates:
     groups:
       actions:
         patterns: ['*']
+    ignore:
+      # setup-go is deliberately hard-pinned to v6.0.0 (verified by
+      # scripts/check-cutover.sh) for the isolated official Outline
+      # interoperability peer. Bumps cannot pass the policy gate.
+      - dependency-name: actions/setup-go
 
   - package-ecosystem: gradle
     directory: /ui/android
@@ -36,6 +41,11 @@ updates:
     groups:
       javafx-gluon:
         patterns: ['*']
+    ignore:
+      # JavaFX is hard-pinned to 21.0.12 (verified by scripts/check-sbom.py)
+      # for GluonFX 1.0.29 native-image compatibility. Newer JavaFX lines
+      # (e.g. 26.x) break the Gluon substrate and cannot pass the policy gate.
+      - dependency-name: org.openjfx:*
 
   - package-ecosystem: swift
     directory: /ui/apple
