@@ -1,0 +1,35 @@
+# SPDX-FileCopyrightText: 2026 Pengfan Chang <support@swiphtgroup.com>
+# SPDX-License-Identifier: GPL-3.0-only
+
+cff-version: 1.2.0
+title: ClambHook
+message: >-
+  If you reference ClambHook in academic, technical, or comparative work,
+  please cite it using this metadata.
+type: software
+authors:
+  - given-names: Pengfan
+    family-names: Chang
+    email: support@swiphtgroup.com
+repository-code: https://github.com/JohnThre/clambhook
+url: https://clambercloud.com/clambhook/
+abstract: >-
+  ClambHook is a cross-platform privacy and traffic-routing application for
+  macOS, GNU/Linux, and Android. It combines a VPN and proxy client (SOCKS5,
+  HTTP(S) proxy, and device-wide TUN routing over WireGuard, OpenVPN,
+  Shadowsocks, VMESS, ShadowTLS, and Tor) with an opt-in local HTTP(S) capture
+  and debugging workbench, backed by a C17 runtime.
+keywords:
+  - vpn
+  - proxy
+  - socks5
+  - wireguard
+  - openvpn
+  - shadowsocks
+  - http-debugging
+  - network-inspection
+  - privacy
+  - macos
+  - linux
+  - android
+license: GPL-3.0-only

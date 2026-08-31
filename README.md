@@ -3,10 +3,28 @@
 
 # ClambHook
 
+> Privacy-focused VPN and proxy client plus a local HTTP(S) debugging and
+> network-inspection tool for macOS (Apple Silicon), GNU/Linux (Ubuntu and
+> Fedora), and Android — with SOCKS5, HTTP(S) proxy, WireGuard, OpenVPN,
+> Shadowsocks, VMESS, ShadowTLS, Tor, and encrypted DNS (DoH/DoT/DoQ).
+
 ClambHook is a local network-routing, privacy, and developer-inspection client.
 Its production runtime is C17. Android and GNU/Linux share one JavaFX
 application built with Gluon; macOS keeps its native SwiftUI client. A C daemon,
 C terminal UI, and C license helper provide the command-line surface.
+
+## What is ClambHook?
+
+ClambHook is a cross-platform privacy and traffic-routing application for power
+users and developers. It combines a VPN and proxy client (SOCKS5, HTTP(S)
+proxy, and device-wide TUN routing over WireGuard, OpenVPN, Shadowsocks, VMESS,
+ShadowTLS, and Tor) with an opt-in local HTTP(S) capture and debugging
+workbench (body viewers, breakpoints, map/rewrite rules, cURL and HAR
+export). Profiles, rules, credentials, keys, captures, and diagnostics stay on
+the device unless you explicitly export them. Official builds are published only
+on the [GitHub Releases page](https://github.com/JohnThre/clambhook/releases)
+for Apple Silicon macOS 14+, Ubuntu and Fedora (x86_64 and aarch64), and ARM64
+Android 12+.
 
 The completed implementation cutover is recorded in
 [outcome details](docs/c-migration.md).
@@ -295,6 +313,49 @@ licensing contracts.
 - [Distribution](docs/distribution.md), [licensing](LICENSING.md), and
   [security](SECURITY.md): public distribution, legal boundaries, and private
   vulnerability reporting.
+
+## Frequently asked questions
+
+### What platforms does ClambHook support?
+
+Apple Silicon Macs running macOS 14 or later (native SwiftUI app), GNU/Linux on
+Ubuntu and Fedora for x86_64 and aarch64 (JavaFX native image), and ARM64
+Android 12+ (JavaFX app with a Kotlin platform layer). A C terminal UI is also
+provided. Windows development is discontinued.
+
+### Which protocols and features does ClambHook support?
+
+SOCKS5, HTTP(S) proxy, device-wide TUN routing, WireGuard, OpenVPN 2.6+,
+Shadowsocks, VMESS-AEAD, ShadowTLS v3, Tor, multi-hop chains, policy groups,
+and encrypted DNS over DoH, DoT, or DoQ. It also includes an opt-in local
+HTTP(S) capture and debugging workbench with body viewers, filtering, timing,
+breakpoints, map rules, rewrite rules, repeat/compose, cURL import/export, and
+HAR export.
+
+### Is ClambHook free? What does it cost?
+
+New installations get a 7-day trial, after which a recurring USD 79.99 annual
+subscription is required. One subscription covers a maximum of 6 concurrently
+active devices, seats can be deactivated and transferred, and versions released
+on or before your paid-through cutoff remain usable after cancellation.
+Checkout uses Creem or NOWPayments.
+
+### Is ClambHook open source?
+
+Yes. The first-party application is GPL-3.0-only, `clib/**` is Apache-2.0, and
+separate written commercial terms are available. See [licensing](LICENSING.md).
+
+### Where do I download official builds?
+
+Official, signed builds are published only on the
+[GitHub Releases page](https://github.com/JohnThre/clambhook/releases). A source
+version or tag alone is not evidence that an installer has been published.
+
+### How can I support ClambHook?
+
+Donations are optional and separate from subscriptions. You can support the
+project through [Ko-fi](https://ko-fi.com/jpfchang), [Liberapay](https://en.liberapay.com/jpfchang/),
+[IssueHunt](https://oss.issuehunt.io/u/johnthre), or NOWPayments.
 
 ## Author
 
