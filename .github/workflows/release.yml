@@ -5,7 +5,7 @@ name: Release to GitHub
 
 on:
   push:
-    tags: ['v*']
+    tags: ["v*"]
   workflow_dispatch:
     inputs:
       version:
@@ -32,9 +32,9 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  JAVA_VERSION: '17'
-  ANDROID_NDK_VERSION: '28.2.13676358'
-  ANDROID_CMAKE_VERSION: '3.22.1'
+  JAVA_VERSION: "17"
+  ANDROID_NDK_VERSION: "28.2.13676358"
+  ANDROID_CMAKE_VERSION: "3.22.1"
 
 jobs:
   prepare:
@@ -177,7 +177,7 @@ jobs:
           sudo apt-get install -y -qq gnupg
       - name: Build Ubuntu and Fedora packages with Gluon native image
         env:
-          CLAMBHOOK_LINUX_RELEASE_BUILD: '1'
+          CLAMBHOOK_LINUX_RELEASE_BUILD: "1"
         run: scripts/validate-linux-distros.sh ubuntu fedora
       - name: Import isolated GPG release key
         env:
@@ -283,7 +283,7 @@ jobs:
     permissions:
       contents: write
     env:
-      HOMEBREW_NO_AUTO_UPDATE: '1'
+      HOMEBREW_NO_AUTO_UPDATE: "1"
       VERSION: ${{ needs.prepare.outputs.version }}
       BUILD_NUMBER: ${{ needs.prepare.outputs.build-number }}
       UPDATE_CHANNEL: ${{ needs.prepare.outputs.channel }}

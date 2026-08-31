@@ -6,7 +6,7 @@ name: CI
 on:
   push:
     branches: [master]
-    tags: ['v*']
+    tags: ["v*"]
   pull_request:
     branches: [master]
   workflow_dispatch:
@@ -18,11 +18,11 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  JAVA_VERSION: '17'
-  ANDROID_NDK_VERSION: '28.2.13676358'
-  ANDROID_CMAKE_VERSION: '3.22.1'
-  ACTIONLINT_VERSION: '1.7.12'
-  ACTIONLINT_LINUX_AMD64_SHA256: '8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8'
+  JAVA_VERSION: "17"
+  ANDROID_NDK_VERSION: "28.2.13676358"
+  ANDROID_CMAKE_VERSION: "3.22.1"
+  ACTIONLINT_VERSION: "1.7.12"
+  ACTIONLINT_LINUX_AMD64_SHA256: "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8"
 
 jobs:
   policy:
@@ -78,7 +78,7 @@ jobs:
       - name: Set up Go for pinned official Outline peer
         uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.0.0
         with:
-          go-version: '1.24.8'
+          go-version: "1.24.8"
           cache: false
       - name: Run strict ASan and UBSan suite
         run: make test-native
@@ -167,7 +167,7 @@ jobs:
     permissions:
       contents: read
     env:
-      HOMEBREW_NO_AUTO_UPDATE: '1'
+      HOMEBREW_NO_AUTO_UPDATE: "1"
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

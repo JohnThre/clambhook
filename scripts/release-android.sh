@@ -80,8 +80,14 @@ fi
 
 APK_SRC="$(find "$GVM_DIR" -maxdepth 1 -type f -name '*.apk' -print -quit 2>/dev/null || true)"
 AAB_SRC="$(find "$GVM_DIR" -maxdepth 1 -type f -name '*.aab' -print -quit 2>/dev/null || true)"
-[[ -f "$APK_SRC" ]] || { echo "Gluon Android APK was not produced in $GVM_DIR" >&2; exit 1; }
-[[ -f "$AAB_SRC" ]] || { echo "Gluon Android App Bundle was not produced in $GVM_DIR" >&2; exit 1; }
+[[ -f "$APK_SRC" ]] || {
+    echo "Gluon Android APK was not produced in $GVM_DIR" >&2
+    exit 1
+}
+[[ -f "$AAB_SRC" ]] || {
+    echo "Gluon Android App Bundle was not produced in $GVM_DIR" >&2
+    exit 1
+}
 
 APK="$DIST_DIR/ClambHook-arm64.apk"
 AAB="$DIST_DIR/ClambHook-arm64.aab"
