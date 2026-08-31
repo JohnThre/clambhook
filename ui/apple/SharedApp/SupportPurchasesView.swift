@@ -93,6 +93,39 @@ struct DonationLinksPanel: View {
     }
 }
 
+struct PaymentProviderTrustRow: View {
+    private let creem = clambHookPaymentProviderDetails[0]
+    private let nowPayments = clambHookPaymentProviderDetails[1]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 6) {
+                    providerLink(creem)
+                    Text("·").accessibilityHidden(true)
+                    providerLink(nowPayments)
+                }
+                VStack(alignment: .leading, spacing: 4) {
+                    providerLink(creem)
+                    providerLink(nowPayments)
+                }
+            }
+            Text("Checkout opens in your browser at Swipht Store.")
+                .foregroundStyle(.secondary)
+        }
+        .font(.footnote)
+        .accessibilityElement(children: .contain)
+    }
+
+    private func providerLink(_ provider: MobilePaymentProviderDetails) -> some View {
+        HStack(spacing: 3) {
+            Text("\(provider.paymentTypeLabel) via")
+            Link(provider.label, destination: provider.officialURL)
+                .accessibilityLabel("\(provider.label), \(provider.paymentTypeLabel) payment provider")
+        }
+    }
+}
+
 private struct ProductStateRow: View {
     var state: MobileLicenseProductState
 
@@ -194,6 +227,8 @@ struct MacLicenseSection: View {
             Link(destination: defaultLicensePurchaseURL) {
                 Label("Buy subscription - USD \(MobileLicenseCommercialTerms.annualSubscriptionPriceUSD)/year", systemImage: "cart")
             }
+
+            PaymentProviderTrustRow()
 
             Link(destination: defaultLicensePortalURL) {
                 Label("Manage Subscription", systemImage: "safari")

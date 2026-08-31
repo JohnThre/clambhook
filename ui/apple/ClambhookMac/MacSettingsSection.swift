@@ -92,6 +92,8 @@ private struct MacLicenseControls: View {
                 Label("Buy subscription - USD \(MobileLicenseCommercialTerms.annualSubscriptionPriceUSD)/year", systemImage: "cart")
             }
 
+            PaymentProviderTrustRow()
+
             Link(destination: defaultLicensePortalURL) {
                 Label("Manage Subscription", systemImage: "safari")
             }

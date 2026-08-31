@@ -15,6 +15,59 @@ final class MobileSupportTests: XCTestCase {
         )
     }
 
+    func testPaymentProviderTrustMetadataIsExactAndExcludesPayPal() {
+        XCTAssertEqual(clambHookPaymentTrustSummary, "Card via Creem · Cryptocurrency via NOWPayments")
+        XCTAssertEqual(
+            clambHookPaymentProviderDetails,
+            [
+                MobilePaymentProviderDetails(
+                    id: "creem",
+                    label: "Creem",
+                    paymentTypeLabel: "Card",
+                    officialURL: URL(string: "https://creem.io/")!,
+                    flowDescription: "You’ll continue to Creem’s hosted card checkout."
+                ),
+                MobilePaymentProviderDetails(
+                    id: "nowpayments",
+                    label: "NOWPayments",
+                    paymentTypeLabel: "Cryptocurrency",
+                    officialURL: URL(string: "https://nowpayments.io/")!,
+                    flowDescription: "NOWPayments will email your cryptocurrency subscription link."
+                ),
+            ]
+        )
+        XCTAssertFalse(clambHookPaymentProviderDetails.contains { $0.id == "paypal" })
+    }
+
+    func testPaymentProviderTrustRowKeepsLinkedAccessibleDisclosure() throws {
+        let appleRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let source = try String(
+            contentsOf: appleRoot.appendingPathComponent("SharedApp/SupportPurchasesView.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(source.contains("struct PaymentProviderTrustRow: View"))
+        XCTAssertTrue(source.contains("Text(\"\\(provider.paymentTypeLabel) via\")"))
+        XCTAssertTrue(source.contains("Link(provider.label, destination: provider.officialURL)"))
+        XCTAssertTrue(source.contains(".accessibilityLabel(\"\\(provider.label), \\(provider.paymentTypeLabel) payment provider\")"))
+        XCTAssertTrue(source.contains("Checkout opens in your browser at Swipht Store."))
+
+        for path in [
+            "SharedApp/SupportPurchasesView.swift",
+            "ClambhookMac/MacSettingsSection.swift",
+            "ClambhookMac/OnboardingView.swift",
+        ] {
+            let purchaseSurface = try String(
+                contentsOf: appleRoot.appendingPathComponent(path),
+                encoding: .utf8
+            )
+            XCTAssertTrue(purchaseSurface.contains("PaymentProviderTrustRow()"), path)
+        }
+    }
+
     func testPurchaseProductIDsAreStableAndOrdered() {
         XCTAssertEqual(MobilePurchaseCatalog.productIDs, [
             "org.jpfchang.clambhook.unlock.lifetime",

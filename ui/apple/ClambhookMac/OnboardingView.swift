@@ -230,6 +230,7 @@ private struct OnboardingLicenseActivationInline: View {
                     Link("Buy license", destination: defaultLicensePurchaseURL)
                         .font(.subheadline)
                 }
+                PaymentProviderTrustRow()
                 if !manager.statusMessage.isEmpty {
                     Text(manager.statusMessage)
                         .font(.caption)

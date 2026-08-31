@@ -24,6 +24,7 @@ import javafx.scene.control.Button;
 import javafx.scene.control.CheckBox;
 import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
+import javafx.scene.control.Hyperlink;
 import javafx.scene.control.ListView;
 import javafx.scene.control.PasswordField;
 import javafx.scene.control.ScrollPane;
@@ -69,6 +70,11 @@ public final class MainView implements AutoCloseable {
     private static final double COMPACT_WIDTH = 760;
     private static final String CLAMBHOOK_BUY_URL = "https://store.swiphtgroup.com/clambhook/buy/";
     private static final String CLAMBHOOK_PORTAL_URL = "https://store.swiphtgroup.com/clambhook/portal/";
+    private static final Map<String, String> PAYMENT_PROVIDER_URLS = Map.of(
+            "Creem", "https://creem.io/",
+            "NOWPayments", "https://nowpayments.io/");
+    private static final String PAYMENT_PROVIDER_TRUST_SUMMARY =
+            "Card via Creem · Cryptocurrency via NOWPayments";
     private static final Map<String, String> DONATION_URLS = Map.of(
             "Ko-fi", "https://ko-fi.com/jpfchang",
             "Liberapay", "https://en.liberapay.com/jpfchang/",
@@ -933,6 +939,17 @@ public final class MainView implements AutoCloseable {
         deactivate.setDisable(!licensing);
         Button buySubscription = externalLinkButton("Buy Subscription", CLAMBHOOK_BUY_URL);
         Button manageSubscription = externalLinkButton("Manage Subscription", CLAMBHOOK_PORTAL_URL);
+        FlowPane paymentProviderTrust = new FlowPane(4, 4,
+                new Label("Card via"),
+                externalLink("Creem", PAYMENT_PROVIDER_URLS.get("Creem")),
+                new Label("·"),
+                new Label("Cryptocurrency via"),
+                externalLink("NOWPayments", PAYMENT_PROVIDER_URLS.get("NOWPayments")));
+        paymentProviderTrust.setAccessibleText(PAYMENT_PROVIDER_TRUST_SUMMARY);
+        Label paymentProviderDestination = new Label(
+                "Checkout opens in your browser at Swipht Store.");
+        paymentProviderDestination.setWrapText(true);
+        paymentProviderDestination.getStyleClass().add("secondary-text");
         supporterThanks.setWrapText(true);
         supporterThanks.setAccessibleText("Supporter thank-you message");
         settingsSupporterBadge.setAccessibleText("ClambHook supporter status");
@@ -949,6 +966,8 @@ public final class MainView implements AutoCloseable {
                 new HBox(8, email, licenseKey),
                 new FlowPane(8, 8, licenseStatus, activate, deactivate),
                 new FlowPane(8, 8, buySubscription, manageSubscription),
+                paymentProviderTrust,
+                paymentProviderDestination,
                 sectionTitle("Support independent ClambHook development"),
                 donationNotice,
                 donationButtons,
@@ -1235,6 +1254,14 @@ public final class MainView implements AutoCloseable {
         button.setDisable(!platformServices.supports(PlatformServices.Capability.BROWSER));
         button.setOnAction(ignored -> runMutation(platformServices.openBrowser(uri)));
         return button;
+    }
+
+    private Hyperlink externalLink(String label, String uri) {
+        Hyperlink link = new Hyperlink(label);
+        link.setAccessibleText(label + " payment provider (opens in browser)");
+        link.setDisable(!platformServices.supports(PlatformServices.Capability.BROWSER));
+        link.setOnAction(ignored -> runMutation(platformServices.openBrowser(uri)));
+        return link;
     }
 
     private void createConnectionRule(String name, String action,

@@ -11,6 +11,7 @@ import javafx.scene.Node;
 import javafx.scene.Parent;
 import javafx.scene.Scene;
 import javafx.scene.control.Button;
+import javafx.scene.control.Hyperlink;
 import javafx.scene.control.ComboBoxBase;
 import javafx.scene.control.ListView;
 import javafx.scene.control.ScrollPane;
@@ -77,6 +78,24 @@ final class MainViewTest {
     }
 
     @Test
+    @SuppressWarnings("unchecked")
+    void paymentProviderTrustMetadataIsExactAndExcludesPayPal() throws Exception {
+        Field linksField = MainView.class.getDeclaredField("PAYMENT_PROVIDER_URLS");
+        linksField.setAccessible(true);
+        Map<String, String> links = (Map<String, String>) linksField.get(null);
+        assertEquals(Map.of(
+                "Creem", "https://creem.io/",
+                "NOWPayments", "https://nowpayments.io/"), links);
+        assertFalse(links.containsKey("PayPal"));
+
+        Field summaryField = MainView.class.getDeclaredField(
+                "PAYMENT_PROVIDER_TRUST_SUMMARY");
+        summaryField.setAccessible(true);
+        assertEquals("Card via Creem · Cryptocurrency via NOWPayments",
+                summaryField.get(null));
+    }
+
+    @Test
     void navigationIsResponsiveKeyboardAccessibleAndTouchSized() throws Exception {
         Fixture fixture = onFx(() -> fixture(false));
         try {
@@ -116,6 +135,18 @@ final class MainViewTest {
                         .filter(node -> node.getStyleClass().contains("page-title"))
                         .map(node -> ((javafx.scene.control.Label) node).getText())
                         .findFirst().orElseThrow());
+                assertTrue(nodes.stream()
+                        .filter(Hyperlink.class::isInstance)
+                        .map(Hyperlink.class::cast)
+                        .anyMatch(link -> "Creem".equals(link.getText())
+                                && "Creem payment provider (opens in browser)".equals(
+                                        link.getAccessibleText())));
+                assertTrue(nodes.stream()
+                        .filter(Hyperlink.class::isInstance)
+                        .map(Hyperlink.class::cast)
+                        .anyMatch(link -> "NOWPayments".equals(link.getText())
+                                && "NOWPayments payment provider (opens in browser)".equals(
+                                        link.getAccessibleText())));
                 assertNotNull(fixture.scene().getAccelerators().get(
                         new KeyCodeCombination(KeyCode.ENTER,
                                 KeyCombination.SHORTCUT_DOWN)));

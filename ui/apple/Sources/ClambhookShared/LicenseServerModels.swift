@@ -12,6 +12,47 @@ public let clambHookIssueHuntURL = URL(string: "https://oss.issuehunt.io/u/johnt
 public let clambHookNowPaymentsDonationURL = URL(string: "https://nowpayments.io/donation?api_key=4f798f1e-c93e-456e-8067-b03b200790cd")!
 public let mobileLicenseServerGrantDefaultsKey = "clambhook.apple.license.server-grant"
 
+public struct MobilePaymentProviderDetails: Equatable, Sendable {
+    public let id: String
+    public let label: String
+    public let paymentTypeLabel: String
+    public let officialURL: URL
+    public let flowDescription: String
+
+    public init(
+        id: String,
+        label: String,
+        paymentTypeLabel: String,
+        officialURL: URL,
+        flowDescription: String
+    ) {
+        self.id = id
+        self.label = label
+        self.paymentTypeLabel = paymentTypeLabel
+        self.officialURL = officialURL
+        self.flowDescription = flowDescription
+    }
+}
+
+public let clambHookPaymentProviderDetails = [
+    MobilePaymentProviderDetails(
+        id: "creem",
+        label: "Creem",
+        paymentTypeLabel: "Card",
+        officialURL: URL(string: "https://creem.io/")!,
+        flowDescription: "You’ll continue to Creem’s hosted card checkout."
+    ),
+    MobilePaymentProviderDetails(
+        id: "nowpayments",
+        label: "NOWPayments",
+        paymentTypeLabel: "Cryptocurrency",
+        officialURL: URL(string: "https://nowpayments.io/")!,
+        flowDescription: "NOWPayments will email your cryptocurrency subscription link."
+    ),
+]
+
+public let clambHookPaymentTrustSummary = "Card via Creem · Cryptocurrency via NOWPayments"
+
 public struct MobileServerLicenseGrantResponse: Codable, Equatable, Sendable {
     public var grant: MobileServerLicenseGrant
     public var snapshot: MobileServerGrantSnapshot
