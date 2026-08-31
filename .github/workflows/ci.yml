@@ -224,7 +224,6 @@ jobs:
       - name: Install Android SDK and NDK components
         run: |
           yes | sdkmanager --licenses >/dev/null || true
-          sdkmanager --channel=3 'platforms;android-37.0' 'build-tools;37.0.0'
           sdkmanager 'platform-tools' 'platforms;android-36' 'build-tools;36.0.0' "ndk;${ANDROID_NDK_VERSION}" "cmake;${ANDROID_CMAKE_VERSION}"
       - name: Test and assemble the Kotlin platform AAR
         run: make test-android
@@ -301,10 +300,9 @@ jobs:
       - name: Install API ${{ matrix.api }} x86_64 ATD image and native toolchain
         run: |
           yes | sdkmanager --licenses >/dev/null || true
-          sdkmanager --channel=3 \
+          sdkmanager \
             'platform-tools' 'emulator' \
             'platforms;android-36' 'build-tools;36.0.0' \
-            'platforms;android-37.0' 'build-tools;37.0.0' \
             "ndk;${ANDROID_NDK_VERSION}" "cmake;${ANDROID_CMAKE_VERSION}" \
             'system-images;android-${{ matrix.api }};aosp_atd;x86_64'
       - name: Enable and verify KVM acceleration

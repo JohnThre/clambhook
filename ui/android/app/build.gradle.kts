@@ -1,7 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Pengfan Chang <support@swiphtgroup.com>
 // SPDX-License-Identifier: GPL-3.0-only
 
-import javax.inject.Inject
 import org.gradle.api.DefaultTask
 import org.gradle.api.file.ConfigurableFileCollection
 import org.gradle.api.file.DirectoryProperty
@@ -13,6 +12,7 @@ import org.gradle.api.tasks.OutputDirectory
 import org.gradle.api.tasks.PathSensitive
 import org.gradle.api.tasks.PathSensitivity
 import org.gradle.api.tasks.TaskAction
+import javax.inject.Inject
 
 plugins {
     id("com.android.library")
@@ -74,8 +74,8 @@ base {
 
 android {
     namespace = "com.clambhook.android"
-    compileSdk = 37
-    buildToolsVersion = "37.0.0"
+    compileSdk = 36
+    buildToolsVersion = "36.0.0"
     ndkVersion = "28.2.13676358"
 
     defaultConfig {
