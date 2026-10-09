@@ -12,7 +12,7 @@ Build-Depends:
  cmake,
  ninja-build,
  pkgconf,
- openjdk-21-jdk-headless,
+ openjdk-21-jdk,
  libcurl4-openssl-dev,
  libsodium-dev,
  libssl-dev,

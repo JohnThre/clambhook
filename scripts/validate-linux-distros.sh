@@ -38,7 +38,7 @@ apt-get update -qq
 apt-get install -y -qq \
   build-essential cmake ninja-build pkg-config \
   libuv1-dev libsodium-dev libssl-dev libcurl4-openssl-dev \
-  openjdk-21-jdk-headless \
+  openjdk-21-jdk \
   libx11-6 libxext6 libxi6 libxrender1 libxtst6 libfontconfig1 libfreetype6 \
   xvfb xauth dbus-x11 gnome-keyring libsecret-tools \
   debhelper dpkg-dev fakeroot rsync iproute2 polkitd systemd \

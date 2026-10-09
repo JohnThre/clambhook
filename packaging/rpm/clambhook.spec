@@ -19,9 +19,11 @@
 # brp-compress pass would rename them with a .gz suffix.
 %global __brp_compress %{nil}
 # The bundled desktop runtime is private: never export its libraries as
-# package-wide Provides, and never require them from the system.
+# package-wide Provides. Its own libraries (libjvm.so, libawt.so, ...) are
+# unversioned and must not be required from the system; the versioned system
+# libraries it links (giflib, lcms2, libjpeg, ...) remain automatic Requires.
 %global __provides_exclude_from ^%{_prefix}/lib/clambhook/ui/.*$
-%global __requires_exclude_from ^%{_prefix}/lib/clambhook/ui/.*$
+%global __requires_exclude ^lib[^.]*\\.so\\(.*$
 
 Name:           clambhook
 Version:        %{?version}%{!?version:1.0.2}

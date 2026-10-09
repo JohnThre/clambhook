@@ -170,7 +170,7 @@ The source build needs CMake 3.22+, Ninja, a C17 compiler, `pkg-config`,
 OpenSSL 3, libsodium, libuv, and libcurl. The pinned llhttp parser is compiled
 from `third_party/llhttp/`. The Kotlin UI (`ui/kotlin`) uses JDK 17+ and the
 pinned Gradle wrapper; the GNU/Linux desktop distributable additionally needs
-`jlink` and the JDK `jmods` (Ubuntu `openjdk-21-jdk-headless`, Fedora
+`jlink` and the JDK `jmods` (Ubuntu `openjdk-21-jdk`, Fedora
 `java-25-openjdk-devel` and `java-25-openjdk-jmods`). Android builds need the Android SDK (API 36) and NDK.
 Without an Android SDK, or with `-Pclambhook.desktopOnly=true`, Gradle
 configures only the shared and desktop modules.
