@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 
 # Install one freshly built GNU/Linux package inside an explicitly marked CI
-# container, exercise its C daemon/TUI/JavaFX/secret-service integration, and
+# container, exercise its C daemon/TUI/desktop/secret-service integration, and
 # uninstall it again. The opt-in marker prevents accidental host mutation.
 set -euo pipefail
 
@@ -21,7 +21,7 @@ fail() {
 package_path="$(realpath "$1")"
 [[ -f "$package_path" ]] || fail "package does not exist: $package_path"
 
-for tool in curl file readelf runuser secret-tool strings timeout xvfb-run; do
+for tool in curl file gpg readelf runuser secret-tool strings timeout xvfb-run; do
     command -v "$tool" >/dev/null 2>&1 || fail "$tool is required"
 done
 
@@ -80,9 +80,32 @@ for installed in /usr/bin/clambhook /usr/bin/clambhook-tui \
     [[ -e "$installed" ]] || fail "installed payload is missing $installed"
 done
 
+# Installed packages must configure the signed repository with the pinned
+# developer@jpfchang.org release key.
+case "$manager" in
+    deb)
+        repo_key=/usr/share/keyrings/clambhook-archive-keyring.asc
+        repo_config=/etc/apt/sources.list.d/clambhook.sources
+        ;;
+    rpm)
+        repo_key=/etc/pki/rpm-gpg/RPM-GPG-KEY-clambhook
+        repo_config=/etc/yum.repos.d/clambhook.repo
+        ;;
+esac
+[[ -f "$repo_key" && -f "$repo_config" ]] ||
+    fail "signed repository configuration is missing"
+gpg --batch --show-keys --with-colons "$repo_key" 2>/dev/null |
+    grep -q '^fpr:::::::::BAFC7769FDA1E0D4EBD23E2F6FF4807EAD977A9B:' ||
+    fail "repository key is not the pinned developer@jpfchang.org key"
+
 if printf '%s\n' "$payload" |
-        grep -Eqi '(^|/)([^/]*\.go|go\.mod|go\.sum|[^/]*compose[^/]*|[^/]*gtk[^/]*|jre|jdk)(/|$)'; then
-    fail "retired source, UI, or Java-runtime payload is installed"
+        grep -Eqi '(^|/)([^/]*\.go|go\.mod|go\.sum|[^/]*gtk[^/]*|[^/]*javafx[^/]*|[^/]*gluon[^/]*|[^/]*graalvm[^/]*)(/|$)'; then
+    fail "retired source or UI payload is installed"
+fi
+# The only Java runtime is the desktop controller's private jlink image.
+if printf '%s\n' "$payload" | grep -E '(^|/)(jre|jdk|runtime)(/|$)' |
+        grep -Ev '^/usr/lib/clambhook/ui/lib/runtime(/|$)' | grep -q .; then
+    fail "a Java runtime is installed outside the private desktop runtime"
 fi
 
 for binary in /usr/bin/clambhook /usr/bin/clambhook-tui \
@@ -94,11 +117,14 @@ for binary in /usr/bin/clambhook /usr/bin/clambhook-tui \
         fail "$binary architecture does not match the host"
 done
 
-ldd_output="$(ldd /usr/bin/clambhook-ui 2>&1 || true)"
-printf '%s\n' "$ldd_output" | grep -Eqi '(libjvm|/jre/|/jdk/)' &&
-    fail "the JavaFX native image depends on a JRE"
-strings /usr/bin/clambhook-ui | grep -Fq '[GluonDRM]' &&
-    fail "the JavaFX native image contains Gluon's excluded DRM extension"
+[[ -L /usr/bin/clambhook-ui &&
+    "$(readlink -f /usr/bin/clambhook-ui)" == /usr/lib/clambhook/ui/bin/clambhook-ui ]] ||
+    fail "clambhook-ui must launch the packaged desktop distributable"
+compgen -G '/usr/lib/clambhook/ui/lib/runtime/lib/server/libjvm.so' >/dev/null ||
+    fail "the desktop controller's private runtime is missing"
+if ldd /usr/lib/clambhook/ui/lib/runtime/bin/java 2>&1 | grep -q 'not found'; then
+    fail "the desktop controller's private runtime has unresolved shared libraries"
+fi
 
 license_result="$(printf '%s\n' \
     '{"command":"ensure-trial","snapshot":""}' |
@@ -155,12 +181,12 @@ timeout 5s xvfb-run -a env \
     XDG_CONFIG_HOME="$ui_config" \
     CLAMBHOOK_API_URL="http://127.0.0.1:$api_port" \
     CLAMBHOOK_API_TOKEN="$api_token" \
-    /usr/bin/clambhook-ui >/tmp/clambhook-installed-javafx.log 2>&1
+    /usr/bin/clambhook-ui >/tmp/clambhook-installed-ui.log 2>&1
 ui_status=$?
 set -e
 [[ "$ui_status" == "124" ]] || {
-    cat /tmp/clambhook-installed-javafx.log >&2 || true
-    fail "installed JavaFX controller did not remain healthy during launch smoke"
+    cat /tmp/clambhook-installed-ui.log >&2 || true
+    fail "installed desktop controller did not remain healthy during launch smoke"
 }
 
 command -v dbus-run-session >/dev/null 2>&1 ||
@@ -218,4 +244,4 @@ for removed in /usr/bin/clambhook /usr/bin/clambhook-tui \
     [[ ! -e "$removed" ]] || fail "uninstall left package payload at $removed"
 done
 
-echo "installed-package-smoke: metadata, install, daemon, TUI, JavaFX, secret storage, and uninstall passed"
+echo "installed-package-smoke: metadata, install, daemon, TUI, desktop, secret storage, and uninstall passed"

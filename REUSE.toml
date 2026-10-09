@@ -18,7 +18,8 @@ path = [
   "keys/clambhook-release-key.asc",
   "packaging/icons/**/*.png",
   "packaging/sbom.cdx.json",
-  "ui/android/app/src/main/res/**/*.png",
+  "ui/kotlin/platform/src/main/res/**/*.png",
+  "ui/kotlin/platform/src/test/resources/release-signatures/**",
   "ui/apple/**/*.png",
   "ui/apple/**/*.json",
   "ui/apple/**/*.pbxproj",
@@ -33,9 +34,9 @@ SPDX-License-Identifier = "GPL-3.0-only"
 # Unmodified Gradle wrapper launchers and binaries retain Apache-2.0.
 [[annotations]]
 path = [
-  "ui/android/gradlew",
-  "ui/android/gradle/wrapper/gradle-wrapper.jar",
-  "ui/android/gradle/wrapper/gradle-wrapper.properties",
+  "ui/kotlin/gradlew",
+  "ui/kotlin/gradle/wrapper/gradle-wrapper.jar",
+  "ui/kotlin/gradle/wrapper/gradle-wrapper.properties",
 ]
 precedence = "override"
 SPDX-FileCopyrightText = "2015 the original Gradle authors"

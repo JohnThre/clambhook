@@ -20,7 +20,8 @@ done)"
     fail "tracked Go source files remain"
 }
 
-for obsolete in go.mod go.sum cmd internal pkg test vendor ui/linux ui/linux-gtk ui/skip; do
+for obsolete in go.mod go.sum cmd internal pkg test vendor ui/linux ui/linux-gtk ui/skip \
+    ui/javafx ui/android; do
     if git ls-files "$obsolete" "$obsolete/**" | while IFS= read -r source; do
         [[ ! -e "$source" ]] || { printf '%s\n' "$source"; break; }
     done | grep -q .; then
@@ -34,6 +35,7 @@ if git grep -nEi \
     ':(exclude)docs/c-migration.md' \
     ':(exclude)docs/release-validation.md' \
     ':(exclude).github/workflows/ci.yml' \
+    ':(exclude).github/dependabot.yml' \
     ':(exclude)scripts/check-cutover.sh' \
     ':(exclude)scripts/test-outline-interop.sh' \
     ':(exclude)scripts/package-smoke.sh' \
@@ -58,15 +60,29 @@ if rg -n '(setup-go|buildGoModule|gomobile|go (build|run|test|vet|install|mod|en
     fail "Go tooling escaped the isolated Outline interoperability harness"
 fi
 
+# The Android and GNU/Linux GUI is Kotlin only (Compose Multiplatform in
+# ui/kotlin). JavaFX, Gluon, GraalVM native-image, GTK, and Java UI sources are
+# retired and must not return.
+if git ls-files 'ui/*.java' 'ui/**/*.java' 'ui/**/pom.xml' | grep -q .; then
+    git ls-files 'ui/*.java' 'ui/**/*.java' 'ui/**/pom.xml' >&2
+    fail "Java or Maven UI sources remain; the Android and GNU/Linux GUI is Kotlin only"
+fi
 if git grep -nEi \
-    '(Jetpack Compose|Compose Multiplatform|GTK([ +][0-9]| UI| application| prototype)|libadwaita)' \
-    -- . \
-    ':(exclude)docs/c-migration.md' \
+    '(javafx|gluonfx|gluon|graalvm|native-image|GRAALVM_HOME|GTK([ +][0-9]| UI| application| prototype)|libadwaita)' \
+    -- Makefile CMakeLists.txt ui scripts .github debian packaging \
     ':(exclude)scripts/check-cutover.sh' \
     ':(exclude)scripts/package-smoke.sh' \
-    ':(exclude)scripts/smoke-installed-linux-package.sh'; then
-    fail "active instructions still reference a retired user-interface stack"
+    ':(exclude)scripts/smoke-installed-linux-package.sh' \
+    ':(exclude)scripts/release-android.sh' \
+    ':(exclude)scripts/check-sbom.py' \
+    ':(exclude)*.md' \
+    ':(exclude)packaging/sbom.cdx.json' \
+    ':(exclude)packaging/rpm/clambhook.spec' \
+    ':(exclude)debian/changelog'; then
+    fail "active build, packaging, or UI files still reference a retired user-interface stack"
 fi
+grep -Fq 'id("org.jetbrains.compose")' ui/kotlin/shared/build.gradle.kts ||
+    fail "the shared Kotlin UI is not built with Compose Multiplatform"
 
 for binary in build-native/clambhook build-native/clambhook-tui build-native/clambhook-license; do
     [[ -f "$binary" ]] || continue
@@ -75,27 +91,12 @@ for binary in build-native/clambhook build-native/clambhook-tui build-native/cla
     fi
 done
 
-grep -Fq '<name>clambhook-ui</name>' ui/javafx/pom.xml ||
-    fail "Gluon project name no longer matches the production Linux executable"
-grep -Fq '<javafx.static.version>21.0.1</javafx.static.version>' ui/javafx/pom.xml ||
-    fail "unexpected Gluon JavaFX static SDK version"
-grep -Fq 'GLUON_JAVAFX_STATIC_VERSION ?= 21.0.1' Makefile ||
-    fail "Make and Maven disagree on the Gluon JavaFX static SDK version"
-grep -Fq '<enableSWRendering>true</enableSWRendering>' ui/javafx/pom.xml ||
-    fail "Gluon desktop native images lack the software-rendering fallback"
-grep -Fq '44beff405df3719f597e046cbdcd8f8ec245c4813ad3d0f5418e6ab50992231b' \
-    scripts/prepare-gluon-linux-aarch64.sh ||
-    fail "Linux AArch64 GTK static SDK is not checksum-pinned"
-grep -Fq 'd2ba5f26578e4aa81e358f2e9fdf107c1d528294920db4e4a70841a678e49cf4' \
-    scripts/patch-gluon-substrate-aarch64.py ||
-    fail "Linux AArch64 Substrate input is not checksum-pinned"
-if ! grep -Fq 'ORIGINAL_SELECTOR = b"aarch64"' scripts/patch-gluon-substrate-aarch64.py ||
-    ! grep -Fq 'GTK_SELECTOR = b"gtkarch"' scripts/patch-gluon-substrate-aarch64.py; then
-    fail "Linux AArch64 GTK backend patch changed unexpectedly"
+if ! grep -Fq 'linux-dist/clambhook-ui' ui/kotlin/desktop/build.gradle.kts ||
+    [[ ! -x ui/kotlin/desktop/src/linux/clambhook-ui ]]; then
+    fail "desktop distributable name no longer matches the production Linux executable"
 fi
-if grep -Fq "printf '!<arch>" scripts/prepare-gluon-linux-aarch64.sh; then
-    fail "obsolete empty DRM archive workaround remains"
-fi
+grep -Fq 'applicationId = "org.jpfchang.clambhook"' ui/kotlin/app/build.gradle.kts ||
+    fail "the Android application ID changed"
 
 "$ROOT_DIR/scripts/check-android-abi-policy.sh"
 

@@ -9,8 +9,9 @@ tracked separately by the protected release workflow.
 
 ## Current architecture
 
-ClambHook has one C17 runtime and one shared JavaFX/Gluon application for
-Android and GNU/Linux. Android retains a Kotlin platform AAR; macOS retains
+ClambHook has one C17 runtime and one shared Kotlin/Compose Multiplatform
+application for Android and GNU/Linux (Ubuntu and Fedora). Android keeps a
+Kotlin platform library; macOS retains
 SwiftUI. The public CLI, TOML, JSON, HTTP/WebSocket, persistence, licensing,
 identifier, and release contracts are frozen.
 
@@ -33,7 +34,7 @@ identifier, and release contracts are frozen.
 
 - typed asynchronous `RuntimeClient` route and event mapping;
 - `PlatformServices` separation and background-thread boundaries;
-- JavaFX responsive navigation, keyboard/focus/accessibility state, and
+- Compose responsive navigation, keyboard/focus/accessibility state, and
   mutation failure/retry behavior;
 - Android service ownership, consent, foreground lifecycle, process restart,
   per-application routing, secure storage, QR/files, notifications, licensing,
@@ -42,8 +43,8 @@ identifier, and release contracts are frozen.
 
 ### Build, package, and release
 
-- Java 17, JavaFX 21.0.12, Gluon static substrate 21.0.1, and GluonFX 1.0.29;
-- Maven tests/coverage, Gradle Kotlin AAR, CMake/CTest, and standalone pinned
+- JDK 17+, Kotlin 2.4.10, and Compose Multiplatform 1.11.1;
+- Gradle Kotlin/Compose tests, the Android platform library, CMake/CTest, and standalone pinned
   workflow linting;
 - x86_64/aarch64 Ubuntu/Fedora lanes and API 31/33/36 x86_64 Android ATDs on
   Ubuntu/KVM, while release artifacts remain ARM64-only;
@@ -53,7 +54,7 @@ identifier, and release contracts are frozen.
 ## Review conclusions
 
 - The production tree has a single runtime source of truth.
-- JavaFX is the only Android/GNU/Linux product UI.
+- Kotlin/Compose is the only Android/GNU/Linux product UI.
 - Android activity lifecycle cannot destroy the service-owned runtime.
 - GNU/Linux packages contain a self-contained native UI and no bundled JRE.
 - macOS embeds the C runtime and remains Apple Silicon/macOS 14+ only.
@@ -67,7 +68,7 @@ identifier, and release contracts are frozen.
 
 - Keep external WireGuard/OpenVPN interoperability peers in addition to
   deterministic fixtures.
-- Re-run accessibility journeys when JavaFX/Gluon or Android system images
+- Re-run accessibility journeys when Compose or Android system images
   change.
 - Inspect every release archive after toolchain upgrades.
 - Treat any control-route, persistence, identifier, license, or update-manifest

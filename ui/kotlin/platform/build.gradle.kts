@@ -1,0 +1,227 @@
+// SPDX-FileCopyrightText: 2026 Pengfan Chang <support@swiphtgroup.com>
+// SPDX-License-Identifier: GPL-3.0-only
+
+import org.gradle.api.DefaultTask
+import org.gradle.api.file.ConfigurableFileCollection
+import org.gradle.api.file.DirectoryProperty
+import org.gradle.api.file.FileSystemOperations
+import org.gradle.api.file.RegularFileProperty
+import org.gradle.api.tasks.InputFile
+import org.gradle.api.tasks.InputFiles
+import org.gradle.api.tasks.OutputDirectory
+import org.gradle.api.tasks.PathSensitive
+import org.gradle.api.tasks.PathSensitivity
+import org.gradle.api.tasks.TaskAction
+import javax.inject.Inject
+
+plugins {
+    id("com.android.library")
+    id("org.jetbrains.kotlin.plugin.serialization")
+}
+
+val repositoryRoot = rootProject.layout.projectDirectory.dir("../..")
+val managedDeviceAbi =
+    providers.gradleProperty("clambhook.android.managedDeviceAbi").orNull
+
+require(managedDeviceAbi == null || managedDeviceAbi == "x86_64") {
+    "clambhook.android.managedDeviceAbi only supports the x86_64 hosted-test ABI"
+}
+
+abstract class GenerateThirdPartyNoticesTask : DefaultTask() {
+    @get:InputFiles
+    @get:PathSensitive(PathSensitivity.RELATIVE)
+    abstract val rootNotices: ConfigurableFileCollection
+
+    @get:InputFile
+    @get:PathSensitive(PathSensitivity.RELATIVE)
+    abstract val opensslLicense: RegularFileProperty
+
+    @get:InputFile
+    @get:PathSensitive(PathSensitivity.RELATIVE)
+    abstract val curlLicense: RegularFileProperty
+
+    @get:InputFile
+    @get:PathSensitive(PathSensitivity.RELATIVE)
+    abstract val llhttpLicense: RegularFileProperty
+
+    // Pinned developer@jpfchang.org public key used by the in-app updater to
+    // verify signed manifests and APKs.
+    @get:InputFile
+    @get:PathSensitive(PathSensitivity.RELATIVE)
+    abstract val releasePublicKey: RegularFileProperty
+
+    @get:OutputDirectory
+    abstract val outputDirectory: DirectoryProperty
+
+    @get:Inject
+    abstract val fileSystemOperations: FileSystemOperations
+
+    @TaskAction
+    fun generate() {
+        fileSystemOperations.sync {
+            from(rootNotices)
+            from(opensslLicense) {
+                into("licenses/openssl")
+            }
+            from(curlLicense) {
+                into("licenses/curl")
+            }
+            from(llhttpLicense) {
+                into("licenses/llhttp")
+            }
+            from(releasePublicKey)
+            into(outputDirectory)
+        }
+    }
+}
+
+base {
+    archivesName.set("clambhook-android-platform")
+}
+
+android {
+    namespace = "com.clambhook.android"
+    compileSdk = 36
+    buildToolsVersion = "36.0.0"
+    ndkVersion = "28.2.13676358"
+
+    defaultConfig {
+        minSdk = 31
+        testApplicationId = "org.jpfchang.clambhook.platform.test"
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        consumerProguardFiles("consumer-rules.pro")
+        ndk {
+            // Android packages are AArch64-only by product decision.
+            abiFilters += "arm64-v8a"
+        }
+        externalNativeBuild {
+            cmake {
+                arguments += "-DANDROID_STL=none"
+            }
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+            version = "3.22.1"
+        }
+    }
+
+    buildFeatures {
+        buildConfig = false
+    }
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+
+    packaging {
+        resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
+        // bcprov, bcutil, and bcpg ship the same MIT license text (test APKs).
+        resources.pickFirsts += "/META-INF/LICENSE.md"
+    }
+
+    buildTypes {
+        debug {
+            isMinifyEnabled = false
+            if (managedDeviceAbi != null) {
+                ndk {
+                    // Hosted Ubuntu/KVM journeys need an x86_64 JNI slice.
+                    // The release build remains ARM64-only by product policy.
+                    abiFilters += managedDeviceAbi
+                }
+            }
+        }
+        release {
+            isMinifyEnabled = false
+        }
+    }
+
+    testOptions {
+        targetSdk = 36
+        animationsDisabled = true
+        managedDevices {
+            localDevices {
+                create("pixel2Api31") {
+                    device = "Pixel 2"
+                    apiLevel = 31
+                    systemImageSource = "aosp-atd"
+                    require64Bit = true
+                }
+                create("pixel6Api33") {
+                    device = "Pixel 6"
+                    apiLevel = 33
+                    systemImageSource = "aosp-atd"
+                    require64Bit = true
+                }
+                create("pixel6Api36") {
+                    device = "Pixel 6"
+                    apiLevel = 36
+                    systemImageSource = "aosp-atd"
+                    require64Bit = true
+                }
+            }
+            groups {
+                create("androidCompatibility") {
+                    targetDevices.add(allDevices["pixel2Api31"])
+                    targetDevices.add(allDevices["pixel6Api33"])
+                    targetDevices.add(allDevices["pixel6Api36"])
+                }
+            }
+        }
+    }
+}
+
+androidComponents {
+    onVariants(selector().all()) { variant ->
+        val capitalizedVariantName = variant.name.replaceFirstChar { it.uppercase() }
+        val generateThirdPartyNotices =
+            tasks.register<GenerateThirdPartyNoticesTask>(
+                "generate${capitalizedVariantName}ThirdPartyNotices",
+            ) {
+                rootNotices.from(
+                    repositoryRoot.file("LICENSE"),
+                    repositoryRoot.file("LICENSE-APACHE"),
+                    repositoryRoot.file("LICENSING.md"),
+                    repositoryRoot.file("NOTICE"),
+                    repositoryRoot.file("TRADEMARKS.md"),
+                    repositoryRoot.file("THIRD_PARTY_NOTICES.md"),
+                )
+                opensslLicense.set(repositoryRoot.file("third_party/openssl/LICENSE.txt"))
+                curlLicense.set(repositoryRoot.file("third_party/curl/LICENSE.txt"))
+                llhttpLicense.set(repositoryRoot.file("third_party/llhttp/LICENSE"))
+                releasePublicKey.set(repositoryRoot.file("keys/clambhook-release-key.asc"))
+            }
+
+        variant.sources.assets?.addGeneratedSourceDirectory(
+            generateThirdPartyNotices,
+            GenerateThirdPartyNoticesTask::outputDirectory,
+        )
+    }
+}
+
+kotlin {
+    compilerOptions {
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+    }
+}
+
+dependencies {
+    implementation("androidx.core:core-ktx:1.18.0")
+    implementation("androidx.datastore:datastore-preferences:1.1.1")
+    implementation("androidx.security:security-crypto:1.1.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
+    implementation("com.squareup.okhttp3:okhttp:5.4.0")
+    implementation("com.journeyapps:zxing-android-embedded:4.3.0")
+    implementation("org.bouncycastle:bcpg-jdk18on:1.86")
+
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.11.0")
+
+    androidTestImplementation("androidx.test:core:1.7.0")
+    androidTestImplementation("androidx.test.ext:junit:1.3.0")
+    androidTestImplementation("androidx.test:runner:1.7.0")
+}

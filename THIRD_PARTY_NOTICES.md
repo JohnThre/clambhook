@@ -122,52 +122,36 @@ Licensed under BSD-3-Clause, with the separate X25519 notice retained beside
 that source. The exact revision and imported-file boundary are in
 `third_party/wireguard_lwip/PROVENANCE.md`.
 
-## OpenJFX 21.0.12
+## Kotlin and Compose Multiplatform
 
-Copyright Oracle and/or its affiliates and OpenJFX contributors.
+Copyright JetBrains s.r.o., The Android Open Source Project, and contributors.
 
-JavaFX base, graphics, and controls are licensed under GPL-2.0-only with the
-Classpath exception where designated by their source headers. ClambHook's
-Maven API/runtime artifacts are pinned at 21.0.12. Gluon's independently
-published static JavaFX 21 substrate is pinned at 21.0.1 for native targets.
-Source and license information: https://github.com/openjdk/jfx
+The Android and GNU/Linux user interface uses Kotlin 2.4.10 and Compose
+Multiplatform 1.11.1 (runtime, foundation, ui, and material3 1.9.0), together
+with the AndroidX Compose artifacts it resolves on Android and Skiko on the
+desktop. These components are licensed under Apache-2.0 and keep their
+upstream notices. Source and license information:
 
-## GluonFX 1.0.29 and Substrate 0.0.69
-
-Copyright Gluon.
-
-The GluonFX Maven plugin is BSD-3-Clause and is used only at build time.
-Substrate source used to create the native launcher declares GPL-3.0-or-later
-in its source headers. Exact Maven versions are pinned in `ui/javafx/pom.xml`.
-Gluon's separately licensed DRM/framebuffer extension is not downloaded,
-linked, or shipped. Substrate 0.0.69 assumes Linux AArch64 means its Raspberry
-Pi/Monocle backend. For Ubuntu and Fedora, ClambHook checksum-verifies the
-official Substrate JAR and changes only that class-local backend selector in an
-isolated build repository. The architecture triplet remains AArch64. The
-official, checksum-pinned non-Monocle JavaFX 21.0.1 static SDK supplies the GTK
-desktop libraries; the build rejects Monocle and DRM archives before linking.
-Source and license information:
-
-- https://github.com/gluonhq/gluonfx-maven-plugin
-- https://github.com/gluonhq/substrate
+- https://github.com/JetBrains/kotlin
+- https://github.com/JetBrains/compose-multiplatform
 
 ## Android/Kotlin dependencies
 
-The Android application and platform AAR use AndroidX Activity 1.11.0, Core
-1.19.0, DataStore 1.1.1, Security Crypto 1.1.0, Kotlin 2.4.10,
-kotlinx.coroutines 1.11.0, kotlinx.serialization 1.11.0, OkHttp 5.5.0, and ZXing
-Android Embedded 4.3.0. These components are licensed under Apache-2.0 and
-retain their upstream notices. JUnit and AndroidX Test dependencies are
-test-only and are not shipped in product packages. Exact coordinates and
-scopes are recorded in
-`packaging/sbom.cdx.json` and the Gradle build.
+The Android application and platform library use AndroidX Activity Compose
+1.13.0, Core 1.18.0, DataStore 1.1.1, Security Crypto 1.1.0, kotlinx.coroutines
+1.11.0, kotlinx.serialization 1.11.0, OkHttp 5.4.0, and ZXing Android Embedded
+4.3.0. These are licensed under Apache-2.0 and keep their upstream notices.
+The updater verifies OpenPGP signatures with Bouncy Castle `bcpg-jdk18on` 1.86,
+which is MIT licensed. JUnit and AndroidX Test dependencies are test-only and
+are not shipped in product packages. Exact coordinates and scopes are recorded
+in `packaging/sbom.cdx.json` and the Gradle build.
 
-## GraalVM 17 build toolchains
+## OpenJDK runtime (GNU/Linux desktop controller)
 
-GraalVM Community Edition 17.0.9 builds the GNU/Linux native images. Gluon
-GraalVM for Java 17 version 22.1.0.1-Final builds the Android native image with
-the matching Substrate CAP cache. Both are checksum-pinned build tools and are
-not shipped as a JRE or SDK in ClambHook packages. Upstream license and
-component notices accompany the official archives. Archive URLs and
-per-platform SHA-256 values are recorded in
-`scripts/provision-graalvm17.sh`.
+Copyright Oracle and/or its affiliates and OpenJDK contributors.
+
+The Ubuntu and Fedora packages ship a private, jlink-reduced OpenJDK runtime
+under `/usr/lib/clambhook/ui/lib/runtime`. It is built from the distribution's
+OpenJDK packages (21 on Ubuntu, 25 on Fedora) and licensed under GPL-2.0-only with the
+Classpath exception. Its `legal/` directory carries the upstream notices.
+Source and license information: https://openjdk.org/

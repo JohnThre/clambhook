@@ -9,8 +9,9 @@
 > Shadowsocks, VMESS, ShadowTLS, Tor, and encrypted DNS (DoH/DoT/DoQ).
 
 ClambHook is a local network-routing, privacy, and developer-inspection client.
-Its production runtime is C17. Android and GNU/Linux share one JavaFX
-application built with Gluon; macOS keeps its native SwiftUI client. A C daemon,
+Its production runtime is C17. Android and GNU/Linux share one Kotlin
+application built with Compose Multiplatform; macOS keeps its native SwiftUI
+client. A C daemon,
 C terminal UI, and C license helper provide the command-line surface.
 
 ## What is ClambHook?
@@ -41,8 +42,8 @@ an installer has been published.
 flowchart TB
     subgraph clients["Product surfaces"]
         mac["macOS 14+<br/>SwiftUI"]
-        linux["GNU/Linux<br/>JavaFX 21.0.12 native image"]
-        android["Android 12+ ARM64<br/>JavaFX 21.0.12 native image"]
+        linux["GNU/Linux (Ubuntu · Fedora)<br/>Kotlin · Compose Desktop"]
+        android["Android 12+ ARM64<br/>Kotlin · Compose"]
         tui["C terminal UI"]
     end
 
@@ -68,7 +69,7 @@ flowchart TB
     mac --> macHelper
     linux -->|authenticated loopback| control
     linux --> linuxServices
-    android --> kotlin -->|Dalvik/JNI| control
+    android --> kotlin -->|JNI| control
     tui -->|authenticated loopback| control
     control --> config
     control --> routing
@@ -81,7 +82,7 @@ flowchart TB
     linuxServices --> control
 ```
 
-The Java layer is split deliberately:
+The shared Kotlin layer (`ui/kotlin/shared`) is split deliberately:
 
 - `RuntimeClient` is a typed, asynchronous view of the frozen control and event
   contracts.
@@ -89,16 +90,16 @@ The Java layer is split deliberately:
   files, QR, secure storage, clipboard/browser integration, notifications,
   licensing, updates, and Android per-application routing.
 - On Android, `ClambhookVpnService` owns the single C runtime. Closing the
-  JavaFX activity never destroys it.
-- On GNU/Linux, the JavaFX native image communicates with the supervised C
-  daemon over authenticated loopback HTTP and WebSocket endpoints.
+  Compose activity never destroys it.
+- On GNU/Linux, the Compose Desktop controller communicates with the supervised
+  C daemon over authenticated loopback HTTP and WebSocket endpoints.
 
 ## Runtime data flow
 
 ```mermaid
 sequenceDiagram
     participant User
-    participant UI as JavaFX or SwiftUI client
+    participant UI as Kotlin/Compose or SwiftUI client
     participant Platform as Kotlin AAR or desktop services
     participant API as C17 control/event boundary
     participant Router as C17 policy and chain engine
@@ -157,8 +158,8 @@ developer changes roll back if activation fails.
 | Platform | Product UI | Runtime and packaging |
 | --- | --- | --- |
 | macOS 14+ Apple Silicon | SwiftUI | Bundled and signed C17 daemon/TUI; notarized DMG |
-| GNU/Linux x86_64 and aarch64 | JavaFX 21.0.12 / GluonFX 1.0.29 | Self-contained native image beside C17 binaries; no bundled JRE |
-| Android 12+ ARM64 | JavaFX 21.0.12 / GluonFX 1.0.29 | Kotlin platform AAR, JNI C runtime, signed APK and AAB; application ID `org.jpfchang.clambhook`, minSdk 31, targetSdk 36 |
+| Ubuntu 24.04 LTS and Fedora 44, x86_64 and aarch64 (the only supported GNU/Linux distributions) | Kotlin 2.4 / Compose Multiplatform 1.11 | Compose Desktop controller with a private jlink runtime beside C17 binaries; GPG-signed `.deb`/`.rpm` and signed apt/dnf repositories |
+| Android 12+ ARM64 | Kotlin 2.4 / Compose Multiplatform 1.11 | Kotlin platform library, JNI C runtime, signed APK and AAB; application ID `org.jpfchang.clambhook`, minSdk 31, targetSdk 36 |
 | Terminal | C17 | `clambhook`, `clambhook-tui`, `clambhook-license` |
 
 Windows development is discontinued with no planned resumption date.
@@ -167,35 +168,23 @@ Windows development is discontinued with no planned resumption date.
 
 The source build needs CMake 3.22+, Ninja, a C17 compiler, `pkg-config`,
 OpenSSL 3, libsodium, libuv, and libcurl. The pinned llhttp parser is compiled
-from `third_party/llhttp/`. JavaFX work uses Java 17 and Maven. Gluon
-GNU/Linux native-image builds use the checksum-pinned GraalVM Community 17
-toolchain provisioned by `scripts/provision-graalvm17.sh`. Android uses the
-same provisioner with its `gluon` argument to select the CAP-cache-compatible,
-checksum-pinned Gluon GraalVM 17 distribution.
-
-JavaFX Maven dependencies are pinned at 21.0.12. Gluon's independently
-published JavaFX 21 static ABI substrate is pinned at 21.0.1, the public bundle
-available for every locked native target. GluonFX is pinned at 1.0.29. The
-Linux AArch64 image is a GTK/X11 desktop build and excludes Gluon's separate
-commercial DRM/framebuffer extension. Because Substrate 0.0.69 otherwise
-selects its Raspberry Pi/Monocle backend for every AArch64 Linux target, the
-build verifies and patches its single class-local backend selector inside an
-isolated Maven repository. The AArch64 target triplet is unchanged, and
-Gluon's checksum-pinned non-Monocle static SDK supplies the ordinary GTK
-libraries. The desktop image includes JavaFX's software renderer as a fallback
-for Xvfb, virtual machines, and systems without usable OpenGL. Monocle and DRM
-archives are rejected before linking.
+from `third_party/llhttp/`. The Kotlin UI (`ui/kotlin`) uses JDK 17+ and the
+pinned Gradle wrapper; the GNU/Linux desktop distributable additionally needs
+`jlink` and the JDK `jmods` (Ubuntu `openjdk-21-jdk`, Fedora
+`java-25-openjdk-devel` and `java-25-openjdk-jmods`). Android builds need the Android SDK (API 36) and NDK.
+Without an Android SDK, or with `-Pclambhook.desktopOnly=true`, Gradle
+configures only the shared and desktop modules.
 
 | Command | Purpose |
 | --- | --- |
 | `make build-native` | Build the production C17 daemon, TUI, and license helper. |
 | `make test-native` | Run strict C tests under ASan/UBSan and the frozen license contract. |
-| `make test-javafx` | Run JavaFX typed-client, model, state, and coverage tests. |
-| `make test-android` | Test/lint the Kotlin AAR and build its ARM64 native payload. |
-| `make build-android` | Build the shared Gluon Android application. |
-| `make build-linux` | Build the host-architecture Gluon GNU/Linux native image. |
+| `make test-linux` | Run the shared Kotlin client, model, Compose UI, accessibility, and GNU/Linux service tests. |
+| `make test-android` | Test/lint the Kotlin platform library and application and build the ARM64 native payload. |
+| `make build-android` | Build the Kotlin/Compose Android APK and App Bundle. |
+| `make build-linux` | Build the host-architecture Compose Desktop distributable (Ubuntu or Fedora host). |
 | `make build-apple` / `make test-apple` | Build and test the macOS SwiftUI client against the C runtime. |
-| `make lint` | Run license/cutover checks, shell checks, warning-as-error C build, Java packaging, and Android lint. |
+| `make lint` | Run license/cutover checks, shell checks, warning-as-error C build, Kotlin desktop build, and Android lint. |
 | `make ci-local` | Run the applicable local mirror of hosted CI. |
 
 See [Android development](docs/android-development.md),
@@ -210,14 +199,14 @@ See [Android development](docs/android-development.md),
 flowchart LR
     source["Signed source commit"] --> policy["Policy gates<br/>SPDX · shell · actionlint<br/>zero retired sources"]
     policy --> ctest["C17 strict + ASan/UBSan<br/>contract and protocol fixtures"]
-    policy --> jvm["JavaFX Maven tests<br/>Kotlin AAR tests"]
+    policy --> jvm["Kotlin/Compose UI tests<br/>Android platform tests"]
     policy --> apple["macOS C17 + SwiftUI<br/>build and tests"]
-    ctest --> linux["GNU/Linux x86_64 + aarch64<br/>Ubuntu 24.04 · Fedora 44<br/>Gluon launch + install/uninstall"]
+    ctest --> linux["GNU/Linux x86_64 + aarch64<br/>Ubuntu 24.04 · Fedora 44<br/>desktop launch + install/uninstall"]
     jvm --> android["Android ARM64 artifacts<br/>API 31/33/36 x86_64 ATDs on Ubuntu/KVM"]
     linux --> packages["Ubuntu Debian package<br/>Fedora RPM"]
     android --> packages
     apple --> packages
-    packages --> protected["Protected release workflow<br/>inspect · sign · notarize · checksum"]
+    packages --> protected["Protected release workflow<br/>inspect · GPG-sign · notarize · verify"]
     protected --> releases["Versioned GitHub Release<br/>only after every selected job succeeds"]
 ```
 
@@ -235,7 +224,11 @@ signed tags or an approved protected dispatch. See
 When available, official downloads are hosted only at
 <https://github.com/JohnThre/clambhook/releases>. The protected workflow
 publishes a notarized DMG for Apple Silicon Macs running macOS 14 or later,
-signed ARM64 Android packages, and signed GNU/Linux packages. If the page has
+signed ARM64 Android packages, and signed Ubuntu and Fedora packages. Every
+installer, checksum, manifest, and apt/dnf repository index carries a
+signature from the developer@jpfchang.org release key
+(`BAFC 7769 FDA1 E0D4 EBD2 3E2F 6FF4 807E AD97 7A9B`), which the release
+workflow verifies before upload; see [release signing](docs/website-release/signing.md). If the page has
 no release, no official binary has been published yet; build locally or wait
 for a protected release rather than obtaining an installer elsewhere.
 
@@ -244,7 +237,7 @@ The commercial product contract is:
 - a 7-day trial for new installations; already-started month-long trials are grandfathered;
 - a recurring USD 79.99 annual subscription;
 - releases published during each paid term;
-- versions released on or before the paid-through cutoff remain usable after cancellation or lapse;
+- versions released on or before the paid-through cutoff remain usable after cancellation or lapse (a perpetual compatible fallback);
 - a maximum of 6 concurrently active devices;
 - seats can be deactivated and transferred;
 - cancellation stops future billing without revoking the paid term;
@@ -267,7 +260,7 @@ stateDiagram-v2
 
     note right of Active
         C17 license helper evaluates the signed snapshot
-        JavaFX, SwiftUI, and Kotlin platform services share the result
+        Kotlin, SwiftUI, and Android platform services share the result
         Maximum 6 concurrently active devices
     end note
 ```
@@ -306,7 +299,7 @@ licensing contracts.
   delivered architecture, current priorities, and reviewed boundaries.
 - [Android development](docs/android-development.md),
   [macOS scope](docs/macos-v1-scope.md), and the
-  [JavaFX client](ui/javafx/README.md): platform ownership and toolchains.
+  [Kotlin client](ui/kotlin/README.md): platform ownership and toolchains.
 - [Release validation](docs/release-validation.md),
   [GitHub CI/CD](docs/github-cicd.md), and
   [packaging](packaging/README.md): release evidence and artifact policy.
@@ -319,8 +312,9 @@ licensing contracts.
 ### What platforms does ClambHook support?
 
 Apple Silicon Macs running macOS 14 or later (native SwiftUI app), GNU/Linux on
-Ubuntu and Fedora for x86_64 and aarch64 (JavaFX native image), and ARM64
-Android 12+ (JavaFX app with a Kotlin platform layer). A C terminal UI is also
+Ubuntu and Fedora for x86_64 and aarch64 (Kotlin/Compose Desktop app), and
+ARM64 Android 12+ (Kotlin/Compose app). Other GNU/Linux distributions are not
+supported. A C terminal UI is also
 provided. Windows development is discontinued.
 
 ### Which protocols and features does ClambHook support?

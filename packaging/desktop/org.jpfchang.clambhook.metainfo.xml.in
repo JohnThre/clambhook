@@ -10,7 +10,7 @@
   <project_license>GPL-3.0-only</project_license>
   <developer_name>Pengfan Chang</developer_name>
   <description>
-    <p>ClambHook for GNU/Linux manages daemon connectivity, profiles, server chains, policies, routing rules, prompts, encrypted DNS, firewall and conditioner settings, HTTP(S) developer capture, licensing, and traffic from a self-contained JavaFX and Gluon native application.</p>
+    <p>ClambHook for GNU/Linux manages daemon connectivity, profiles, server chains, policies, routing rules, prompts, encrypted DNS, firewall and conditioner settings, HTTP(S) developer capture, licensing, and traffic from a self-contained Kotlin and Compose Multiplatform desktop application. Supported on Ubuntu and Fedora.</p>
     <p>The application communicates only with the local C17 daemon over its authenticated loopback control and event interfaces.</p>
   </description>
   <launchable type="desktop-id">@app_id@.desktop</launchable>

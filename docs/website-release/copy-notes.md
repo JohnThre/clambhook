@@ -25,7 +25,7 @@ license device management happen on `store.swiphtgroup.com`.
 - ClambHook purchase payments are accepted only through Creem or NOWPayments, not PayPal.
 - HTTP(S) capture is public for macOS v1 only in the current website marketing
   contract, as a local opt-in workflow with explicit HTTPS CA trust. The shared
-  JavaFX client implements the same local developer surface for GNU/Linux and
+  Kotlin/Compose client implements the same local developer surface for GNU/Linux and
   Android; advertise it only for platform assets that have passed the
   publication gate.
 

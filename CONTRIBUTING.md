@@ -6,7 +6,7 @@
 Bug reports and security reports are welcome. Security issues must follow
 [`SECURITY.md`](SECURITY.md) and must not be reported publicly.
 
-ClambHook has one C17 runtime, a shared JavaFX/Gluon application for Android
+ClambHook has one C17 runtime, a shared Kotlin/Compose Multiplatform application for Android
 and GNU/Linux, a Kotlin Android platform AAR, and a SwiftUI macOS client. The
 CLI, TOML, JSON, HTTP/WebSocket, persistence, identifier, licensing, and release
 contracts are compatibility surfaces; describe and test intentional changes to
@@ -39,7 +39,7 @@ To arrange signature or ask a licensing question, contact
   change is an intentional dependency update with refreshed provenance.
 - Add focused regression coverage beside the affected C, Java, Kotlin, or Swift
   implementation. Keep the C17 build warning-clean.
-- Use `make test-native`, `make test-javafx`, `make test-android`,
+- Use `make test-native`, `make test-linux`, `make test-android`,
   `make test-apple`, and `make lint` as applicable. Documentation and workflow
   changes must at least pass the cutover, license, GitHub Actions, and staged
   whitespace checks documented in

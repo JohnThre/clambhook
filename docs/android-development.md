@@ -9,11 +9,12 @@ and 32-bit release ABIs are not supported.
 
 ## Ownership boundaries
 
-The user-facing application is the shared JavaFX 21.0.12 UI built by
-GluonFX 1.0.29. `ui/android` builds a non-UI Kotlin AAR named
-`clambhook-android-platform`.
+The user-facing application is the shared Kotlin / Compose Multiplatform UI
+(`ui/kotlin/shared`), hosted by the Android application module
+`ui/kotlin/app` (`MainActivity`). The Android library `ui/kotlin/platform`
+(published as `clambhook-android-platform`) has no product screens.
 
-The AAR owns:
+The platform library owns:
 
 - VPN consent and `VpnService` foreground lifecycle;
 - the single JNI-backed C17 runtime and TUN descriptor;
@@ -23,9 +24,10 @@ The AAR owns:
 - encrypted secure storage, clipboard/browser, notifications, licensing, and
   updater integration.
 
-The JavaFX activity attaches through `AndroidDalvikBridge` and
-`GluonPlatformFacade`. Activity destruction closes only the view attachment;
-it does not stop or destroy the service-owned runtime.
+The Compose activity reaches the runtime through `AndroidBackend` and
+`AndroidPlatformServices` (`shared/src/androidMain`), which call
+`AndroidRuntimeFacade` directly. Activity destruction closes only the view
+attachment; it does not stop or destroy the service-owned runtime.
 
 ## Toolchain
 
@@ -33,10 +35,12 @@ it does not stop or destroy the service-owned runtime.
 - Android Gradle Plugin 9.3.2 with built-in Kotlin and the Kotlin 2.4.10
   serialization plugin
 - Gradle 9.7.1 wrapper
-- compileSdk 37 with build-tools 37.0.0; targetSdk 36
+- compileSdk 36 with build-tools 36.0.0; targetSdk 36 (stable SDK only;
+  dependencies that need compileSdk 37 are pinned below that line)
 - Android NDK `28.2.13676358`
 - CMake 3.22.1
-- Maven, GraalVM for JDK 17, JavaFX 21.0.12, and GluonFX 1.0.29
+- Compose Multiplatform 1.11.1 and AndroidX Activity Compose 1.13.0
+- Bouncy Castle `bcpg-jdk18on` 1.86 for updater signature verification
 - OpenSSL 3.5.8 and curl 8.18.0 source archives verified by SHA-256
 
 Use the Android CLI for local SDK and device management:
@@ -44,35 +48,25 @@ Use the Android CLI for local SDK and device management:
 ```sh
 android info
 android sdk list --all 'platforms*'
-android sdk install --beta platforms/android-37.0 build-tools/37.0.0
 android sdk install platforms/android-36 build-tools/36.0.0
 ```
 
 The Gradle build will provision the pinned native sources into
-`ui/android/.native-deps`. Release packages contain only `arm64-v8a` native
+`ui/kotlin/.native-deps`. Release packages contain only `arm64-v8a` native
 libraries.
 
 ## Build and test
 
 ```sh
-make test-javafx
+make test-linux      # shared Kotlin/Compose UI tests (JVM)
 make test-android
-
-# Android native-image builds require the checksum-pinned Gluon distribution.
-# The published toolchain runs on a Linux x86_64 host.
-bash scripts/provision-graalvm17.sh /absolute/empty/graalvm17-directory gluon
-export GRAALVM_HOME=/absolute/empty/graalvm17-directory
-export JAVA_HOME="$GRAALVM_HOME"
-export PATH="$GRAALVM_HOME/bin:$PATH"
-
 make build-android
-make build-android-release
 ```
 
-`make test-android` runs Kotlin unit tests, Android lint, ARM64 JNI/C
-compilation, and release AAR assembly. `make build-android` copies that AAR
-into Gluon's Android project and builds the JavaFX native application.
-`make build-android-release` packages both an APK and AAB.
+`make test-android` runs Kotlin unit tests, Android lint for both modules,
+ARM64 JNI/C compilation, and release AAR and APK assembly. `make build-android`
+builds the release APK and App Bundle. They are unsigned unless the
+`CLAMBHOOK_ANDROID_KEYSTORE_*` environment is present.
 
 Local installation and launch use the Android CLI:
 
@@ -91,7 +85,7 @@ the visual state.
 
 Hosted CI is authoritative and runs `aosp_atd/x86_64` images on Ubuntu 24.04
 x86_64 runners with KVM. The debug test package adds an x86_64 JNI slice with
-`-Pclambhook.android.managedDeviceAbi=x86_64`; the release AAR, Gluon APK, and
+`-Pclambhook.android.managedDeviceAbi=x86_64`; the release AAR, APK, and
 AAB remain ARM64-only. This separates portable emulator validation from the
 locked production architecture and avoids relying on nested virtualization on
 hosted ARM runners:
@@ -113,22 +107,21 @@ licensing; and updater behavior. Each journey is independent, stops on crash or
 freeze, and reports every action as passed, failed, or skipped. A physical
 device may supplement these lanes but never replaces them.
 
-## Manifest and native-image metadata
+## Manifest and signing
 
-`ui/javafx/src/android/AndroidManifest.xml` supplies the Gluon activity and
-product identifiers. The platform AAR manifest merges its provider,
-`VpnConsentActivity`, QR activity, FileProvider, permissions, and
-`ClambhookVpnService`. Maven configuration pins:
-
-- JavaFX resources and CSS;
-- JNI and Dalvik bridge classes;
-- the static C bridge archive;
-- app label, version name/code, and application ID;
-- release keystore inputs supplied only by the protected workflow.
+`ui/kotlin/app/src/main/AndroidManifest.xml` declares the launcher activity
+and the `ss://`/`ssconf://` link handlers. The platform library manifest merges
+its provider, `VpnConsentActivity`, QR activity, FileProvider, permissions, and
+`ClambhookVpnService`. `ui/kotlin/app/build.gradle.kts` pins the application
+ID, the ARM64 ABI filter, the version name/code (`VERSION`, `VERSION_CODE`),
+and the release keystore inputs, which only the protected workflow supplies.
 
 The protected release workflow inspects APK/AAB ABI contents, verifies APK and
-bundle signatures, produces SHA-256 files and GPG signatures, and writes the
-signed update manifest. Do not store keystores or passwords in the repository.
+bundle signatures, and writes SHA-256 files plus detached developer@jpfchang.org
+GPG signatures for the APK, the AAB, their checksums, and the update manifest.
+`scripts/verify-release-signatures.sh` then re-verifies all of them. The
+in-app updater rejects a manifest or APK whose `.sig` does not verify against
+the bundled release key. Do not store keystores or passwords in the repository.
 
 ## Runtime troubleshooting
 

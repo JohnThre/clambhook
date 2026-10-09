@@ -7,7 +7,7 @@
 
 - C17 daemon, protocol/chain engine, packet stack, API/WebSocket server,
   configuration/persistence, developer tools, terminal UI, and license helper.
-- Shared JavaFX 21.0.12 / GluonFX 1.0.29 application for Android and GNU/Linux.
+- Shared Kotlin / Compose Multiplatform 1.11 application for Android and GNU/Linux (Ubuntu and Fedora).
 - Kotlin-only Android platform AAR with service-owned runtime and ARM64
   APK/AAB output at the API 31 floor.
 - SwiftUI macOS 14+ Apple Silicon client using only the C runtime.

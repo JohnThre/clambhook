@@ -174,8 +174,8 @@ jobs:
       - name: Install release tools
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq gnupg
-      - name: Build Ubuntu and Fedora packages with Gluon native image
+          sudo apt-get install -y -qq gnupg rpm debsigs debsig-verify
+      - name: Build Ubuntu and Fedora packages with the Kotlin desktop controller
         env:
           CLAMBHOOK_LINUX_RELEASE_BUILD: "1"
         run: scripts/validate-linux-distros.sh ubuntu fedora
@@ -184,13 +184,65 @@ jobs:
           GPG_PRIVATE_KEY_BASE64: ${{ secrets.GPG_PRIVATE_KEY_BASE64 }}
           GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
         run: scripts/prepare-ci-release-gpg.sh "$RUNNER_TEMP" "$GITHUB_ENV"
-      - name: Sign package checksums and manifest
+      - name: Embed package signatures and sign packages, checksums, and manifest
         run: scripts/sign-linux-release-artifacts.sh
+      - name: Verify developer@jpfchang.org signatures before upload
+        run: scripts/verify-release-signatures.sh dist/linux
       - name: Publish GNU/Linux assets to GitHub Release
         run: |
           shopt -s nullglob
           assets=(dist/linux/*.deb dist/linux/*.rpm dist/linux/*.sha256 dist/linux/*.sig dist/linux/clambhook-linux-*-manifest.json)
           (( ${#assets[@]} > 0 ))
+          gh release upload "$RELEASE_TAG" "${assets[@]}" --repo "$GITHUB_REPOSITORY" --clobber
+
+  linux-repo:
+    name: Build, verify, and publish signed apt/dnf repositories
+    needs: [prepare, release, linux]
+    if: needs.prepare.outputs.platform == 'all' || needs.prepare.outputs.platform == 'linux'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    environment: production
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+      UPDATE_CHANNEL: ${{ needs.prepare.outputs.channel }}
+      RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Check out complete source history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install repository tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq gnupg rpm debsig-verify apt-utils createrepo-c podman
+      - name: Download signed GNU/Linux packages
+        run: |
+          mkdir -p "$RUNNER_TEMP/linux-packages"
+          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+            --dir "$RUNNER_TEMP/linux-packages" \
+            --pattern 'ClambHook-*.deb' --pattern 'ClambHook-*.deb.sig' \
+            --pattern 'ClambHook-*.rpm' --pattern 'ClambHook-*.rpm.sig'
+          scripts/verify-release-signatures.sh "$RUNNER_TEMP/linux-packages"
+      - name: Import isolated GPG release key
+        env:
+          GPG_PRIVATE_KEY_BASE64: ${{ secrets.GPG_PRIVATE_KEY_BASE64 }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+        run: scripts/prepare-ci-release-gpg.sh "$RUNNER_TEMP" "$GITHUB_ENV"
+      - name: Build signed apt and dnf repositories
+        run: scripts/build-linux-repos.sh "$RUNNER_TEMP/linux-packages" dist/linux-repo
+      - name: Install from signed repositories on Ubuntu and Fedora
+        run: scripts/test-linux-repo-install.sh dist/linux-repo/clambhook-linux-repo ubuntu fedora
+      - name: Verify developer@jpfchang.org signatures before upload
+        run: scripts/verify-release-signatures.sh dist/linux-repo
+      - name: Publish repository bundle to GitHub Release
+        run: |
+          shopt -s nullglob
+          assets=(dist/linux-repo/clambhook-linux-repo-*.tar.gz dist/linux-repo/clambhook-linux-repo-*.tar.gz.sig dist/linux-repo/clambhook-linux-repo-*.tar.gz.sha256 dist/linux-repo/clambhook-linux-repo-*.tar.gz.sha256.sig)
+          (( ${#assets[@]} == 4 ))
           gh release upload "$RELEASE_TAG" "${assets[@]}" --repo "$GITHUB_REPOSITORY" --clobber
 
   android:
@@ -228,7 +280,7 @@ jobs:
       - name: Restore Android native dependencies
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: ui/android/.native-deps
+          path: ui/kotlin/.native-deps
           key: >-
             android-native-${{ runner.os }}-${{ runner.arch }}-ndk-${{
             env.ANDROID_NDK_VERSION }}-${{ hashFiles(
@@ -243,13 +295,7 @@ jobs:
             'build-tools;36.0.0' \
             "ndk;${ANDROID_NDK_VERSION}" \
             "cmake;${ANDROID_CMAKE_VERSION}"
-      - name: Provision checksum-pinned Gluon GraalVM 17
-        run: |
-          graal_home="$(bash scripts/provision-graalvm17.sh "$RUNNER_TEMP/graalvm17" gluon)"
-          echo "$graal_home/bin" >> "$GITHUB_PATH"
-          echo "GRAALVM_HOME=$graal_home" >> "$GITHUB_ENV"
-          echo "JAVA_HOME=$graal_home" >> "$GITHUB_ENV"
-      - name: Prepare protected Gluon Android signing
+      - name: Prepare protected Android signing
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
@@ -261,8 +307,10 @@ jobs:
           GPG_PRIVATE_KEY_BASE64: ${{ secrets.GPG_PRIVATE_KEY_BASE64 }}
           GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
         run: scripts/prepare-ci-release-gpg.sh "$RUNNER_TEMP" "$GITHUB_ENV"
-      - name: Build, sign, inspect, and package Gluon Android release
+      - name: Build, sign, inspect, and package Android release
         run: make release-android
+      - name: Verify developer@jpfchang.org signatures before upload
+        run: scripts/verify-release-signatures.sh dist/android
       - name: Publish Android assets to GitHub Release
         run: |
           shopt -s nullglob
@@ -368,12 +416,24 @@ jobs:
         run: scripts/prepare-ci-release-gpg.sh "$RUNNER_TEMP" "$GITHUB_ENV"
       - name: Build, sign, notarize, and package macOS release
         run: make release-macos
+      - name: Verify developer@jpfchang.org signatures before upload
+        run: |
+          scripts/verify-release-signatures.sh \
+            dist/macos/ClambhookMac-arm64.dmg \
+            dist/macos/ClambhookMac-arm64.dmg.sha256 \
+            dist/macos/ClambhookMac-arm64.zip \
+            dist/macos/ClambhookMac-arm64.zip.sha256 \
+            dist/macos/clambhook*-update-manifest.json
       - name: Publish macOS assets to GitHub Release
         run: |
           shopt -s nullglob
           assets=(
             dist/macos/ClambhookMac-arm64.zip
+            dist/macos/ClambhookMac-arm64.zip.sig
+            dist/macos/ClambhookMac-arm64.zip.sha256
+            dist/macos/ClambhookMac-arm64.zip.sha256.sig
             dist/macos/ClambhookMac-arm64.dmg
+            dist/macos/ClambhookMac-arm64.dmg.sig
             dist/macos/ClambhookMac-arm64.dmg.sha256
             dist/macos/ClambhookMac-arm64.dmg.sha256.sig
             dist/macos/clambhook*-update-manifest.json
@@ -395,8 +455,8 @@ jobs:
 
   beta-channel:
     name: Update rolling beta channel
-    needs: [prepare, release, linux, android, macos]
-    if: always() && needs.prepare.outputs.channel == 'beta' && needs.release.result == 'success' && (needs.linux.result == 'success' || needs.linux.result == 'skipped') && (needs.android.result == 'success' || needs.android.result == 'skipped') && (needs.macos.result == 'success' || needs.macos.result == 'skipped')
+    needs: [prepare, release, linux, linux-repo, android, macos]
+    if: always() && needs.prepare.outputs.channel == 'beta' && needs.release.result == 'success' && (needs.linux.result == 'success' || needs.linux.result == 'skipped') && (needs.linux-repo.result == 'success' || needs.linux-repo.result == 'skipped') && (needs.android.result == 'success' || needs.android.result == 'skipped') && (needs.macos.result == 'success' || needs.macos.result == 'skipped')
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     environment: production

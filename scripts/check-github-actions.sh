@@ -71,6 +71,21 @@ grep -q 'contents: write' "$release_workflow" || \
   fail "release workflow needs job-scoped contents: write"
 grep -q 'gh release upload' "$release_workflow" || \
   fail "release workflow does not upload GitHub Release assets"
+# Every installer upload must follow a developer@jpfchang.org signature
+# verification gate in the same job. The public key itself and the rolling beta
+# mirror (which re-publishes already verified assets) are exempt.
+unverified_upload="$(awk '
+  /^jobs:/ { in_jobs = 1; next }
+  in_jobs && /^  [A-Za-z0-9_-]+:[[:space:]]*$/ { job = $1; verified = 0; next }
+  /scripts\/verify-release-signatures\.sh/ { verified = 1 }
+  /gh release upload/ {
+    if ($0 ~ /keys\/clambhook-release-key\.asc/ || $0 ~ /gh release upload beta /) next
+    if (!verified) { print NR ": " job; exit }
+  }
+' "$release_workflow")"
+[[ -z "$unverified_upload" ]] || \
+  fail "release upload without a preceding signature verification gate (line $unverified_upload)"
+
 if grep -Eiq '(wrangler|Cloudflare R2|CLOUDFLARE_|CLAMBHOOK_R2_)' "$release_workflow"; then
   fail "release workflow still references Cloudflare R2"
 fi

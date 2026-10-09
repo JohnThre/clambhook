@@ -25,7 +25,7 @@ release documentation.
 
 All other first-party material in this repository is licensed under the GNU
 General Public License version 3 only (`GPL-3.0-only`). This includes the C17
-runtime and public ABI, Kotlin Android platform bridge, JavaFX and SwiftUI
+runtime and public ABI, Kotlin Android platform bridge, Kotlin/Compose and SwiftUI
 clients, command-line programs, build and release tooling, documentation,
 configuration, packaging, and first-party assets. The complete license text is
 in [`LICENSE`](LICENSE).

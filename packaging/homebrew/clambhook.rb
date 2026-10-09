@@ -2,13 +2,15 @@
 # SPDX-License-Identifier: GPL-3.0-only
 
 # Internal developer QA formula only. End-user macOS distribution is the
-# signed and notarized SwiftUI application from GitHub Releases.
+# signed and notarized SwiftUI application from GitHub Releases. GNU/Linux is
+# supported only on Ubuntu and Fedora through the signed .deb/.rpm packages.
 class Clambhook < Formula
   desc "C17 local connectivity daemon and terminal interface"
   homepage "https://github.com/JohnThre/clambhook"
   url "https://github.com/JohnThre/clambhook.git", tag: "v1.0.2"
   license "GPL-3.0-only"
 
+  depends_on :macos
   depends_on "cmake" => :build
   depends_on "ninja" => :build
   depends_on "pkgconf" => :build

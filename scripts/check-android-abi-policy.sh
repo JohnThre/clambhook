@@ -5,12 +5,14 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-GRADLE_FILE="$ROOT_DIR/ui/android/app/build.gradle.kts"
+GRADLE_FILE="$ROOT_DIR/ui/kotlin/platform/build.gradle.kts"
+APP_GRADLE_FILE="$ROOT_DIR/ui/kotlin/app/build.gradle.kts"
 WORKFLOW_FILE="$ROOT_DIR/.github/workflows/ci.yml"
-CMAKE_FILE="$ROOT_DIR/ui/android/app/src/main/cpp/CMakeLists.txt"
-PREPARE_FILE="$ROOT_DIR/scripts/prepare-gluon-android.sh"
-DEBUG_AAR="$ROOT_DIR/ui/android/app/build/outputs/aar/clambhook-android-platform-debug.aar"
-RELEASE_AAR="$ROOT_DIR/ui/android/app/build/outputs/aar/clambhook-android-platform-release.aar"
+DEBUG_AAR="$ROOT_DIR/ui/kotlin/platform/build/outputs/aar/clambhook-android-platform-debug.aar"
+RELEASE_AAR="$ROOT_DIR/ui/kotlin/platform/build/outputs/aar/clambhook-android-platform-release.aar"
+RELEASE_APK="$ROOT_DIR/ui/kotlin/app/build/outputs/apk/release/app-release.apk"
+# Without the release keystore, AGP names the local output *-unsigned.apk.
+[[ -f "$RELEASE_APK" ]] || RELEASE_APK="${RELEASE_APK%.apk}-unsigned.apk"
 REQUIRE_DEBUG=0
 REQUIRE_RELEASE=0
 
@@ -41,10 +43,8 @@ grep -Fq -- '-Pclambhook.android.managedDeviceAbi=x86_64' "$WORKFLOW_FILE" ||
 if grep -Fq 'aosp_atd;arm64-v8a' "$WORKFLOW_FILE"; then
     fail "the hosted workflow still requests an ARM64 ATD image"
 fi
-grep -Fq "\${CMAKE_BUILD_TYPE}/\${ANDROID_ABI}" "$CMAKE_FILE" ||
-    fail "Gluon bridge outputs are not isolated by build type and ABI"
-grep -Fq 'RelWithDebInfo/arm64-v8a/libclambhook_gluon_bridge.a' "$PREPARE_FILE" ||
-    fail "Gluon does not select the production ARM64 bridge explicitly"
+grep -Fq 'abiFilters += "arm64-v8a"' "$APP_GRADLE_FILE" ||
+    fail "the application ABI filter is not ARM64"
 
 inspect_aar() {
     local archive="$1"
@@ -70,6 +70,14 @@ if [[ -f "$RELEASE_AAR" ]]; then
     inspect_aar "$RELEASE_AAR" 'arm64-v8a' "release AAR"
 elif (( REQUIRE_RELEASE )); then
     fail "required release AAR is missing"
+fi
+
+if [[ -f "$RELEASE_APK" ]]; then
+    actual="$(unzip -Z1 "$RELEASE_APK" | awk -F/ '$1 == "lib" && $2 != "" { print $2 }' | sort -u)"
+    [[ "$actual" == "arm64-v8a" ]] || {
+        printf 'release APK ABI set was:\n%s\n' "${actual:-<empty>}" >&2
+        fail "release APK has an unexpected native ABI set"
+    }
 fi
 
 echo "android ABI policy: all checks passed"

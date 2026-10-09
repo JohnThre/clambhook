@@ -8,18 +8,36 @@ VERSION := $(shell head -1 $(CURDIR)/debian/changelog | cut -d' ' -f2 | tr -d '(
 %:
 	dh $@
 
+# The desktop controller bundles a private jlink runtime; build it with the
+# distribution's OpenJDK 21 (jlink + jmods).
+export JAVA_HOME ?= /usr/lib/jvm/java-21-openjdk-$(shell dpkg-architecture -qDEB_HOST_ARCH)
+export PATH := $(JAVA_HOME)/bin:$(PATH)
+UI_RUNTIME := usr/lib/clambhook/ui
+
 override_dh_auto_build:
-	test -n "$(GRAALVM_HOME)"
 	$(MAKE) build VERSION=$(VERSION)
 	$(MAKE) build-linux VERSION=$(VERSION)
 
 override_dh_auto_test:
 	$(MAKE) test-native
-	$(MAKE) test-javafx JAVAFX_TEST_GOALS=verify
+	$(MAKE) test-linux
 
 override_dh_auto_install:
 	$(MAKE) install VERSION=$(VERSION) DESTDIR=$(CURDIR)/debian/clambhook PREFIX=/usr
 	$(MAKE) install-linux VERSION=$(VERSION) DESTDIR=$(CURDIR)/debian/clambhook PREFIX=/usr
+	install -Dpm 0644 keys/clambhook-release-key.asc $(CURDIR)/debian/clambhook/usr/share/keyrings/clambhook-archive-keyring.asc
+	install -Dpm 0644 packaging/repos/clambhook.sources $(CURDIR)/debian/clambhook/etc/apt/sources.list.d/clambhook.sources
+
+# The private desktop runtime ships as built by jlink: do not strip or dwz it,
+# and resolve its internal libraries when computing shared-library depends.
+override_dh_strip:
+	dh_strip -X$(UI_RUNTIME)
+
+override_dh_dwz:
+	dh_dwz -X$(UI_RUNTIME)
+
+override_dh_shlibdeps:
+	dh_shlibdeps -l$(CURDIR)/debian/clambhook/$(UI_RUNTIME)/lib/runtime/lib:$(CURDIR)/debian/clambhook/$(UI_RUNTIME)/lib/runtime/lib/server
 
 # dh_installdocs recreates the package documentation directory after CMake's
 # install step. Restore the structured third-party license tree after

@@ -21,31 +21,25 @@ updates:
       - dependency-name: actions/setup-go
 
   - package-ecosystem: gradle
-    directory: /ui/android
+    directory: /ui/kotlin
     schedule:
       interval: weekly
       day: monday
       time: "02:30"
       timezone: Asia/Singapore
     groups:
-      android:
-        patterns: ["*"]
-
-  - package-ecosystem: maven
-    directory: /ui/javafx
-    schedule:
-      interval: weekly
-      day: monday
-      time: "02:45"
-      timezone: Asia/Singapore
-    groups:
-      javafx-gluon:
+      kotlin-ui:
         patterns: ["*"]
     ignore:
-      # JavaFX is hard-pinned to 21.0.12 (verified by scripts/check-sbom.py)
-      # for GluonFX 1.0.29 native-image compatibility. Newer JavaFX lines
-      # (e.g. 26.x) break the Gluon substrate and cannot pass the policy gate.
-      - dependency-name: org.openjfx:*
+      # The Android build is standardized on the stable API 36 SDK.
+      # androidx.core 1.19+, okhttp-android 5.5+, and Compose 1.12+ (androidx
+      # compose 1.12) require compileSdk 37, which is preview/canary-only.
+      - dependency-name: androidx.core:*
+        versions: [">= 1.19.0"]
+      - dependency-name: com.squareup.okhttp3:*
+        versions: [">= 5.5.0"]
+      - dependency-name: org.jetbrains.compose*
+        versions: [">= 1.12.0"]
 
   - package-ecosystem: swift
     directory: /ui/apple

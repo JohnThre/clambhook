@@ -40,7 +40,7 @@
 
 ClambHook helps advanced users manage local network profiles, routing rules,
 status views, diagnostics, and opt-in HTTP(S) capture. macOS uses a native
-SwiftUI app; GNU/Linux and Android share a JavaFX interface with platform-native
+SwiftUI app; GNU/Linux and Android share a Kotlin/Compose interface with platform-native
 service integration. Official binaries are distributed through GitHub Releases;
 `clambercloud.com` is marketing-only, while checkout, license delivery, and
 device-seat management are handled by `store.swiphtgroup.com`.
