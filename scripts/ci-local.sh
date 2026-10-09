@@ -70,8 +70,8 @@ section_linux() {
         echo "ci-local: [linux] skip: an Ubuntu or Fedora host is required" >&2
         return "$SKIP_RC"
     }
-    if ! have jpackage; then
-        echo "ci-local: [linux] skip: a JDK 17+ with jpackage and jmods is required" >&2
+    if ! have jlink; then
+        echo "ci-local: [linux] skip: a JDK 17+ with jlink and jmods is required" >&2
         return "$SKIP_RC"
     fi
     echo "==================== ci-local: linux ===================="
@@ -91,7 +91,7 @@ section_smoke() {
     if [[ "$HOST_OS" == "Darwin" ]]; then
         make macos-release-contract-check
     fi
-    if [[ "$HOST_OS" == "Linux" ]] && have jpackage; then
+    if [[ "$HOST_OS" == "Linux" ]] && have jlink; then
         make package-smoke
     else
         echo "ci-local: [smoke] skip: package smoke is authoritative on GNU/Linux" >&2

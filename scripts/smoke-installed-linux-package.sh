@@ -122,8 +122,8 @@ done
     fail "clambhook-ui must launch the packaged desktop distributable"
 compgen -G '/usr/lib/clambhook/ui/lib/runtime/lib/server/libjvm.so' >/dev/null ||
     fail "the desktop controller's private runtime is missing"
-if ldd /usr/lib/clambhook/ui/bin/clambhook-ui 2>&1 | grep -q 'not found'; then
-    fail "the desktop launcher has unresolved shared libraries"
+if ldd /usr/lib/clambhook/ui/lib/runtime/bin/java 2>&1 | grep -q 'not found'; then
+    fail "the desktop controller's private runtime has unresolved shared libraries"
 fi
 
 license_result="$(printf '%s\n' \

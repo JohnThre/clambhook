@@ -9,7 +9,7 @@ VERSION := $(shell head -1 $(CURDIR)/debian/changelog | cut -d' ' -f2 | tr -d '(
 	dh $@
 
 # The desktop controller bundles a private jlink runtime; build it with the
-# distribution's JDK 21 (jpackage + jmods).
+# distribution's OpenJDK 21 (jlink + jmods).
 export JAVA_HOME ?= /usr/lib/jvm/java-21-openjdk-$(shell dpkg-architecture -qDEB_HOST_ARCH)
 export PATH := $(JAVA_HOME)/bin:$(PATH)
 UI_RUNTIME := usr/lib/clambhook/ui

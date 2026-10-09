@@ -38,7 +38,7 @@ apt-get update -qq
 apt-get install -y -qq \
   build-essential cmake ninja-build pkg-config \
   libuv1-dev libsodium-dev libssl-dev libcurl4-openssl-dev \
-  openjdk-21-jdk-headless openjdk-21-jmods \
+  openjdk-21-jdk-headless \
   libx11-6 libxext6 libxi6 libxrender1 libxtst6 libfontconfig1 libfreetype6 \
   xvfb xauth dbus-x11 gnome-keyring libsecret-tools \
   debhelper dpkg-dev fakeroot rsync iproute2 polkitd systemd \
@@ -48,7 +48,7 @@ rpm_setup='dnf install -y -q --allowerasing \
   gcc gcc-c++ make cmake ninja-build pkgconf-pkg-config \
   libasan libubsan \
   libuv-devel libsodium-devel openssl-devel libcurl-devel \
-  java-21-openjdk-devel java-21-openjdk-jmods \
+  java-25-openjdk-devel java-25-openjdk-jmods \
   libX11 libXext libXi libXrender libXtst fontconfig freetype \
   xorg-x11-server-Xvfb xorg-x11-xauth dbus-daemon gnome-keyring libsecret \
   rpm-build systemd-rpm-macros polkit-devel iproute \
@@ -65,7 +65,7 @@ make test-native
 make test-linux
 make build
 make build-linux
-CLAMBHOOK_UI="ui/kotlin/desktop/build/compose/binaries/main-release/app/clambhook-ui/bin/clambhook-ui"
+CLAMBHOOK_UI="ui/kotlin/desktop/build/linux-dist/clambhook-ui/bin/clambhook-ui"
 if [[ ! -x "$CLAMBHOOK_UI" ]]; then
   echo "desktop distributable not found: $CLAMBHOOK_UI" >&2
   exit 2

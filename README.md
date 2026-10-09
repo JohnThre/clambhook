@@ -170,8 +170,8 @@ The source build needs CMake 3.22+, Ninja, a C17 compiler, `pkg-config`,
 OpenSSL 3, libsodium, libuv, and libcurl. The pinned llhttp parser is compiled
 from `third_party/llhttp/`. The Kotlin UI (`ui/kotlin`) uses JDK 17+ and the
 pinned Gradle wrapper; the GNU/Linux desktop distributable additionally needs
-`jpackage` and the JDK `jmods` (Ubuntu `openjdk-21-jmods`, Fedora
-`java-21-openjdk-jmods`). Android builds need the Android SDK (API 36) and NDK.
+`jlink` and the JDK `jmods` (Ubuntu `openjdk-21-jdk-headless`, Fedora
+`java-25-openjdk-devel` and `java-25-openjdk-jmods`). Android builds need the Android SDK (API 36) and NDK.
 Without an Android SDK, or with `-Pclambhook.desktopOnly=true`, Gradle
 configures only the shared and desktop modules.
 
@@ -237,7 +237,7 @@ The commercial product contract is:
 - a 7-day trial for new installations; already-started month-long trials are grandfathered;
 - a recurring USD 79.99 annual subscription;
 - releases published during each paid term;
-- versions released on or before the paid-through cutoff remain usable after cancellation or lapse;
+- versions released on or before the paid-through cutoff remain usable after cancellation or lapse (a perpetual compatible fallback);
 - a maximum of 6 concurrently active devices;
 - seats can be deactivated and transferred;
 - cancellation stops future billing without revoking the paid term;

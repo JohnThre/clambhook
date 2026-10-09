@@ -490,7 +490,7 @@
       "type": "platform",
       "bom-ref": "pkg:generic/openjdk-runtime@21",
       "name": "OpenJDK runtime (jlink image, GNU/Linux desktop)",
-      "version": "21",
+      "version": "21/25",
       "licenses": [
         {
           "expression": "GPL-2.0-only WITH Classpath-exception-2.0"
@@ -500,7 +500,7 @@
       "properties": [
         {
           "name": "clambhook:source",
-          "value": "Ubuntu openjdk-21 / Fedora java-21-openjdk distribution packages at build time"
+          "value": "Ubuntu openjdk-21 / Fedora java-25-openjdk distribution packages at build time"
         }
       ]
     }

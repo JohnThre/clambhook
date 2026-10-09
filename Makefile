@@ -20,7 +20,7 @@ ANDROID_SDK ?= $(ANDROID_HOME)
 ANDROID_NDK ?= $(ANDROID_SDK)/ndk/$(ANDROID_NDK_VERSION)
 CLAMBHOOK_HOST_OS ?= $(shell uname -s)
 GRADLE = ./gradlew --no-daemon
-LINUX_UI_DIST ?= ui/kotlin/desktop/build/compose/binaries/main-release/app/clambhook-ui
+LINUX_UI_DIST ?= ui/kotlin/desktop/build/linux-dist/clambhook-ui
 
 require-command = @command -v $(1) >/dev/null 2>&1 || { echo "$(1) is required for $(2)." >&2; echo "$(3)" >&2; exit 2; }
 internal-release-notice = @printf '%s\n' "local build only: publishing is performed by the protected GitHub Release workflow."
@@ -69,12 +69,12 @@ test-linux:
 
 check-linux-ui-deps:
 	@test "$$(uname -s)" = "Linux" || { echo "GNU/Linux (Ubuntu or Fedora) is required for the desktop target." >&2; exit 2; }
-	$(call require-command,jpackage,the GNU/Linux desktop distributable,Install a JDK 17+ with jpackage and jmods.)
+	$(call require-command,jlink,the GNU/Linux desktop distributable,Install a JDK 17+ with jlink and jmods.)
 
-# Self-contained Compose Desktop distributable with a jlink runtime; no system
+# Self-contained desktop distributable with a private jlink runtime; no system
 # JRE is required at run time.
 build-linux: check-linux-ui-deps
-	cd ui/kotlin && VERSION="$(VERSION)" $(GRADLE) :desktop:createReleaseDistributable
+	cd ui/kotlin && $(GRADLE) :desktop:linuxDistribution
 
 install: build-native
 	DESTDIR="$(DESTDIR)" cmake --install "$(NATIVE_BUILD_DIR)" --prefix "$(PREFIX)" --component Runtime

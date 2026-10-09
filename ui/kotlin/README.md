@@ -13,7 +13,7 @@ and Fedora are the only supported distributions.
 | `:shared` | Kotlin Multiplatform: the Compose UI (`commonMain`), the typed `RuntimeClient` and `PlatformServices` boundaries, JSON contracts, and the dashboard model. `desktopMain` holds the loopback HTTP/WebSocket backend (OkHttp) and the Ubuntu/Fedora platform services. `androidMain` holds the in-process JNI backend and Android platform services. |
 | `:platform` | Android library: `ClambhookVpnService`, TUN, the JNI C runtime, consent, QR, secure storage, licensing, per-app routing, and the signed updater. |
 | `:app` | Android application `org.jpfchang.clambhook` (minSdk 31, targetSdk 36, ARM64 only). |
-| `:desktop` | GNU/Linux entry point, packaged as a Compose Desktop distributable with a private jlink runtime and installed as `clambhook-ui`. |
+| `:desktop` | GNU/Linux entry point. `:desktop:linuxDistribution` builds the app jars, a private jlink runtime, and the `clambhook-ui` launcher. |
 
 ```mermaid
 flowchart TB
@@ -36,7 +36,7 @@ so closing the activity only detaches the UI.
 
 ```sh
 make test-linux       # shared + desktop tests (Compose UI under Xvfb on headless Linux)
-make build-linux      # Compose Desktop distributable (Ubuntu or Fedora host; needs jpackage + jmods)
+make build-linux      # desktop distributable: jars + private jlink runtime (Ubuntu or Fedora host)
 make test-android     # :platform unit tests and lint, :app lint, release APK
 make build-android    # release APK and App Bundle
 ```

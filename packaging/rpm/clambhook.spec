@@ -38,8 +38,8 @@ BuildRequires:  gcc
 BuildRequires:  cmake
 BuildRequires:  ninja-build
 BuildRequires:  pkgconf-pkg-config
-BuildRequires:  java-21-openjdk-devel
-BuildRequires:  java-21-openjdk-jmods
+BuildRequires:  java-25-openjdk-devel
+BuildRequires:  java-25-openjdk-jmods
 BuildRequires:  curl
 BuildRequires:  libcurl-devel
 BuildRequires:  libuv-devel
@@ -80,13 +80,13 @@ store.swiphtgroup.com (Creem or NOWPayments; PayPal is not accepted).
 %autosetup -n %{name}-%{version}
 
 %build
-export JAVA_HOME=%{_jvmdir}/java-21-openjdk
+export JAVA_HOME=%{_jvmdir}/java-25-openjdk
 export PATH="$JAVA_HOME/bin:$PATH"
 make build VERSION=%{version}
 make build-linux VERSION=%{version}
 
 %install
-export JAVA_HOME=%{_jvmdir}/java-21-openjdk
+export JAVA_HOME=%{_jvmdir}/java-25-openjdk
 export PATH="$JAVA_HOME/bin:$PATH"
 make install-linux DESTDIR=%{buildroot} PREFIX=%{_prefix}
 # %%license installs the two first-party licenses in the RPM license directory.

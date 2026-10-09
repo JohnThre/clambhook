@@ -119,6 +119,8 @@ android {
 
     packaging {
         resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
+        // bcprov, bcutil, and bcpg ship the same MIT license text (test APKs).
+        resources.pickFirsts += "/META-INF/LICENSE.md"
     }
 
     buildTypes {

@@ -298,7 +298,7 @@ smoke_linux_gui_install() {
     log "staging Linux GUI install under temporary DESTDIR"
 
     require_linux_target "Linux GUI install" || return 0
-    need_tools java jpackage pkg-config || return 0
+    need_tools java jlink pkg-config || return 0
     if ! pkg-config --exists libsodium; then
         skip_or_fail "missing libsodium development pkg-config dependency"
         return 0

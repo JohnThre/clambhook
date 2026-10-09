@@ -150,8 +150,8 @@ in `packaging/sbom.cdx.json` and the Gradle build.
 
 Copyright Oracle and/or its affiliates and OpenJDK contributors.
 
-The Ubuntu and Fedora packages ship a private, jlink-reduced OpenJDK 21
-runtime under `/usr/lib/clambhook/ui/lib/runtime`. It is built from the
-distribution's OpenJDK 21 packages and licensed under GPL-2.0-only with the
+The Ubuntu and Fedora packages ship a private, jlink-reduced OpenJDK runtime
+under `/usr/lib/clambhook/ui/lib/runtime`. It is built from the distribution's
+OpenJDK packages (21 on Ubuntu, 25 on Fedora) and licensed under GPL-2.0-only with the
 Classpath exception. Its `legal/` directory carries the upstream notices.
 Source and license information: https://openjdk.org/

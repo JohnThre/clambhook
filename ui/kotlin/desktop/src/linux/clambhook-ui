@@ -1,0 +1,11 @@
+#!/bin/sh
+# SPDX-FileCopyrightText: 2026 Pengfan Chang <support@swiphtgroup.com>
+# SPDX-License-Identifier: GPL-3.0-only
+#
+# ClambHook GNU/Linux controller launcher. Runs the bundled private runtime;
+# /usr/bin/clambhook-ui is a symlink to this file.
+set -eu
+self="$(readlink -f "$0")"
+root="$(dirname "$(dirname "$self")")"
+exec "$root/lib/runtime/bin/java" -Dfile.encoding=UTF-8 \
+    -cp "$root/lib/app/*" com.clambhook.desktop.MainKt "$@"

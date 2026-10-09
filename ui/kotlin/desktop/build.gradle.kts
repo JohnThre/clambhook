@@ -9,7 +9,6 @@ plugins {
     id("org.jetbrains.compose")
 }
 
-val clambhookVersion = providers.environmentVariable("VERSION").orElse("1.0.2")
 
 kotlin {
     compilerOptions {
@@ -30,22 +29,51 @@ dependencies {
 
 compose.desktop {
     application {
+        // `./gradlew :desktop:run` for local development.
         mainClass = "com.clambhook.desktop.MainKt"
         jvmArgs += listOf("-Dfile.encoding=UTF-8")
-        nativeDistributions {
-            // The executable keeps the frozen clambhook-ui name. Packaging into
-            // Ubuntu .deb and Fedora .rpm is done by debian/ and the RPM spec,
-            // which install this self-contained distributable (bundled jlink
-            // runtime, no system JRE) under /usr/lib/clambhook/ui.
-            packageName = "clambhook-ui"
-            packageVersion = clambhookVersion.get().substringBefore('-').ifBlank { "1.0.2" }
-            description = "ClambHook network controller"
-            vendor = "Pengfan Chang"
-            licenseFile.set(rootProject.file("../../LICENSE"))
-            modules("java.net.http", "jdk.crypto.ec", "java.naming")
-            linux {
-                iconFile.set(rootProject.file("../../packaging/icons/256x256/apps/com.clambhook.Clambhook.png"))
-            }
-        }
     }
+}
+
+// GNU/Linux distributable for the Ubuntu and Fedora packages:
+//   build/linux-dist/clambhook-ui/{bin/clambhook-ui, lib/app/*.jar, lib/runtime/}
+// The private runtime is produced with jlink from the build JDK (Ubuntu's
+// OpenJDK 21 does not ship jpackage, and Fedora 44 ships OpenJDK 25), so the
+// packages never depend on a system JRE. debian/ and the RPM spec install the
+// tree under /usr/lib/clambhook/ui and link /usr/bin/clambhook-ui to the launcher.
+val linuxRuntimeModules = listOf(
+    "java.base", "java.datatransfer", "java.desktop", "java.instrument", "java.logging",
+    "java.management", "java.naming", "java.net.http", "java.prefs", "java.scripting",
+    "java.security.jgss", "java.sql", "java.xml", "jdk.accessibility", "jdk.crypto.ec",
+    "jdk.unsupported", "jdk.zipfs",
+)
+val buildJdkHome = providers.environmentVariable("JAVA_HOME").orElse(providers.systemProperty("java.home"))
+val linuxRuntimeDir = layout.buildDirectory.dir("linux-dist/runtime")
+
+val linuxRuntime by tasks.registering(Exec::class) {
+    description = "Creates the private jlink runtime for the GNU/Linux controller."
+    val output = linuxRuntimeDir.get().asFile
+    inputs.property("modules", linuxRuntimeModules)
+    inputs.property("jdk", buildJdkHome)
+    outputs.dir(output)
+    doFirst { output.deleteRecursively() }
+    executable = File(buildJdkHome.get(), "bin/jlink").path
+    args(
+        "--add-modules", linuxRuntimeModules.joinToString(","),
+        "--strip-debug", "--no-header-files", "--no-man-pages",
+        "--output", output.path,
+    )
+}
+
+val linuxDistribution by tasks.registering(Sync::class) {
+    description = "Assembles the self-contained clambhook-ui tree for Ubuntu and Fedora packages."
+    dependsOn(linuxRuntime)
+    into(layout.buildDirectory.dir("linux-dist/clambhook-ui"))
+    from(layout.projectDirectory.file("src/linux/clambhook-ui")) {
+        into("bin")
+        filePermissions { unix("rwxr-xr-x") }
+    }
+    from(tasks.named("jar")) { into("lib/app") }
+    from(configurations.named("runtimeClasspath")) { into("lib/app") }
+    from(linuxRuntimeDir) { into("lib/runtime") }
 }
