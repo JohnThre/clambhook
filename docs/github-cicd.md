@@ -18,12 +18,12 @@ commit SHA, and grant job-scoped access.
   for Linux x86_64);
 - strict C17 builds, ASan/UBSan, CTest, license/CLI/TUI contracts, protocol
   tamper/replay/rekey fixtures, configuration rollback, API, and WebSocket tests;
-- JavaFX Maven/JUnit/JaCoCo verification and Kotlin AAR tests/lint;
+- Kotlin/Compose shared UI and desktop tests (Gradle, Xvfb) and Android platform tests/lint;
 - unsigned SwiftUI macOS build/test with the C runtime;
 - Ubuntu 24.04 LTS and Fedora Linux 44 on x86_64 and aarch64 runners,
-  including Gluon native image launch plus package install, integration, and
+  including Compose Desktop launch plus package install, integration, and
   uninstall checks;
-- Gluon Android ARM64 build and `aosp_atd/x86_64` managed-device journeys on
+- Kotlin/Compose Android ARM64 build and `aosp_atd/x86_64` managed-device journeys on
   API 31, 33, and 36. Device journeys use Ubuntu 24.04 x86_64 hosted runners
   with KVM and a debug-only x86_64 JNI slice; APK/AAB output remains
   ARM64-only. Ubuntu and Fedora remain the complete GNU/Linux
@@ -47,17 +47,27 @@ It builds and signs:
 - ARM64 Android APK/AAB files with the protected Android keystore;
 - the Apple Silicon SwiftUI app, embedded C runtime, notarized DMG, and Sparkle
   appcast;
+- signed apt (Ubuntu) and dnf (Fedora) repositories, bundled as
+  `clambhook-linux-repo-<version>.tar.gz`;
 - manifests, SHA-256 files, and GPG signatures.
 
-Ubuntu and Fedora are the complete GNU/Linux validation matrix. No additional
-distribution is treated as a release or compatibility authority.
+Every installer, checksum, manifest, and repository index is signed with the
+developer@jpfchang.org key: embedded `rpmsign`/`debsigs` signatures for
+packages, and detached `.sig` files for everything. Each upload step is
+preceded by `scripts/verify-release-signatures.sh`, which
+`scripts/check-github-actions.sh` enforces. See
+[release signing](website-release/signing.md).
+
+Ubuntu and Fedora are the only supported GNU/Linux distributions and the
+complete validation matrix. No other distribution is a release or
+compatibility target.
 
 ```mermaid
 flowchart TB
     subgraph ci["Continuous integration"]
         push["Push / pull request"] --> policy["Source · license · cutover<br/>workflow + actionlint"]
         policy --> c["C17 strict + sanitizers<br/>real protocol peers"]
-        policy --> java["JavaFX + Kotlin<br/>JUnit · JaCoCo · lint"]
+        policy --> java["Kotlin/Compose<br/>UI tests · lint"]
         policy --> swift["SwiftUI + bundled C runtime"]
         c --> distro["Ubuntu 24.04 · Fedora 44<br/>x86_64 + aarch64"]
         java --> device["Android API 31 · 33 · 36<br/>x86_64 ATDs on Ubuntu/KVM"]
@@ -72,9 +82,11 @@ flowchart TB
         release --> linux["Build + inspect<br/>DEB/RPM"]
         release --> android["Build + inspect<br/>APK/AAB"]
         release --> macos["Build + inspect<br/>DMG/ZIP/appcast"]
-        linux --> signed["GPG checksums<br/>and manifests"]
+        linux --> signed["GPG: embedded package sigs<br/>detached .sig · manifests"]
+        signed --> repo["Signed apt/dnf repos<br/>install-tested on Ubuntu + Fedora"]
+        repo --> assets
         android --> signed
-        macos --> signedMac["Developer ID · notarization<br/>Sparkle + GPG"]
+        macos --> signedMac["Developer ID · notarization<br/>Sparkle + GPG (DMG/ZIP)"]
         signed --> assets["Versioned release assets"]
         signedMac --> assets
         assets --> beta["Rolling beta mirror<br/>beta channel only"]

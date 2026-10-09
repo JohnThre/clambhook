@@ -8,7 +8,9 @@
 
   outputs = { self, nixpkgs }:
     let
-      systems = [ "aarch64-darwin" "aarch64-linux" "x86_64-darwin" "x86_64-linux" ];
+      # GNU/Linux is supported only on Ubuntu and Fedora through the signed
+      # .deb/.rpm packages and repositories; this flake is a macOS developer aid.
+      systems = [ "aarch64-darwin" "x86_64-darwin" ];
       forAllSystems = nixpkgs.lib.genAttrs systems;
     in {
       packages = forAllSystems (system:
@@ -34,7 +36,7 @@
               homepage = "https://github.com/JohnThre/clambhook";
               license = licenses.gpl3Only;
               mainProgram = "clambhook";
-              platforms = platforms.unix;
+              platforms = platforms.darwin;
             };
           };
         });
@@ -54,7 +56,7 @@
         let pkgs = import nixpkgs { inherit system; };
         in {
           default = pkgs.mkShell {
-            nativeBuildInputs = with pkgs; [ cmake ninja pkg-config maven jdk17 ];
+            nativeBuildInputs = with pkgs; [ cmake ninja pkg-config jdk17 ];
             buildInputs = with pkgs; [ curl libuv libsodium openssl ];
           };
         });

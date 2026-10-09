@@ -3,7 +3,7 @@
 ClambHook's Android native build downloads and statically links the official
 curl 8.18.0 source archive. The archive is not committed to this repository;
 `scripts/build-android-curl.sh` stores verified, per-ABI build outputs in the
-ignored `ui/android/.native-deps/` cache.
+ignored `ui/kotlin/.native-deps/` cache.
 
 - Version: 8.18.0
 - Release archive:

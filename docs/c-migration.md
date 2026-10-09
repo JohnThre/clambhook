@@ -8,6 +8,19 @@ It intentionally names the retired Go,
 gomobile, Compose, and GTK implementations as historical artifacts; they are
 not build options, rollback paths, or active instructions.
 
+## Addendum: Kotlin-only Android and GNU/Linux UI
+
+After 1.0.2, the JavaFX/Gluon application (`ui/javafx`), the Gluon Android
+bridge, and the GraalVM native-image toolchain were retired. Android and
+GNU/Linux now share one Kotlin / Compose Multiplatform application in
+`ui/kotlin` (`:shared`, `:platform`, `:app`, `:desktop`). The C17 runtime and
+the frozen control, JSON, persistence, identifier, and licensing contracts did
+not change. GNU/Linux support is limited to Ubuntu and Fedora. The sections
+below describe the 1.0.2 JavaFX cutover as it was recorded. Where they mention
+JavaFX, Gluon, Maven, or `make test-javafx`, the current equivalents are
+Compose, Gradle, and `make test-linux`. `scripts/check-cutover.sh` now rejects
+JavaFX/Gluon/GraalVM and Java UI sources instead of Compose.
+
 ## Outcome
 
 The production runtime, daemon, terminal UI, license helper, protocol engine,
@@ -127,7 +140,7 @@ The cutover gate is represented by these commands and hosted lanes:
 
 ```sh
 make test-native
-make test-javafx
+make test-linux
 make test-android
 make build-apple
 make test-apple

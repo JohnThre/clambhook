@@ -5,7 +5,7 @@
 
 This document defines the evidence required before and after a protected
 ClambHook release. It is also the continuing regression checklist for the C17
-and JavaFX/Gluon architecture. Passing source checks does not prove that public
+and Kotlin/Compose architecture. Passing source checks does not prove that public
 release assets exist.
 
 ## Validation topology
@@ -14,19 +14,19 @@ release assets exist.
 flowchart TD
     source["Source tree"] --> policy["Source-only · SPDX · secrets<br/>workflow + cutover policy"]
     policy --> native["C17 strict build<br/>ASan/UBSan · CTest"]
-    policy --> ui["JavaFX JUnit/JaCoCo<br/>Kotlin AAR tests/lint"]
+    policy --> ui["Kotlin/Compose UI tests<br/>Android platform tests/lint"]
     policy --> mac["SwiftUI + embedded C runtime"]
     native --> protocols["Deterministic fixtures<br/>real WireGuard/OpenVPN peers"]
     native --> contracts["TOML · JSON · HTTP · WebSocket<br/>rollback · CLI · TUI · license"]
     ui --> android["ARM64 product build<br/>API 31 · 33 · 36 x86_64 ATDs"]
-    ui --> linux["Gluon native images<br/>x86_64 · aarch64"]
+    ui --> linux["Compose Desktop distributables<br/>x86_64 · aarch64"]
     linux --> distros["Ubuntu 24.04 · Fedora 44<br/>install · launch · secret store · uninstall"]
     protocols --> ready["Source readiness"]
     contracts --> ready
     android --> ready
     distros --> ready
     mac --> ready
-    ready --> protected["Protected build · inspection<br/>signing · notarization"]
+    ready --> protected["Protected build · inspection<br/>GPG signing + verification · notarization"]
     protected --> published["Versioned GitHub Release"]
     published --> download["Independent download<br/>hash · signature · install · update smoke"]
 ```
@@ -63,25 +63,24 @@ TLS-EKM data path, and fails if TUN privileges or peer tooling are unavailable.
 The deterministic packet/control fixtures remain mandatory and are never
 replaced by the peer smoke.
 
-## JavaFX gate
+## Kotlin UI gate
 
 ```sh
-make test-javafx
+make test-linux
 ```
 
 Tests cover typed route construction/decoding, event cursors, profile and
 dashboard mapping, asynchronous success/failure/retry, background thread
 boundaries, navigation state, keyboard accelerators, focus behavior, accessible
 names/roles, compact and expanded layouts, scale-sensitive sizing, and color
-contrast tokens. JaCoCo reports are retained as CI reports.
+contrast tokens, the strict JSON parser, the loopback-only HTTP/WebSocket
+transport, and the Ubuntu/Fedora-only update provider. Gradle test reports are
+retained as CI reports.
 
-On GNU/Linux, each architecture builds `clambhook-ui` with Gluon, launches it
-under Xvfb against an unavailable endpoint to exercise failure/retry without a
-JRE, then launches it against the local C daemon. The AArch64 inspection also
-requires the GTK/X11 image to contain no Gluon DRM/framebuffer extension. Its
-build verifies the official Substrate and JavaFX static SDK checksums, applies
-the documented GTK backend-selector patch in an isolated Maven repository,
-and rejects Monocle or DRM archives before linking.
+On Ubuntu and Fedora, each architecture builds the `clambhook-ui` Compose
+Desktop distributable. The harness launches it under Xvfb, first against an
+unavailable endpoint to exercise failure/retry, then against the local C
+daemon.
 
 ## Android gate
 
@@ -107,7 +106,7 @@ independent journeys:
 10. licensing activation/deactivation/cutoff;
 11. updater check, signature/hash rejection, and install handoff.
 
-The service-owned runtime must survive JavaFX activity closure. Each journey
+The service-owned runtime must survive Compose activity closure. Each journey
 fails on a crash, freeze, missing action target, or unmet expectation. Physical
 devices are supplemental. API 30 is never substituted.
 
@@ -120,13 +119,13 @@ make package-smoke
 
 Both x86_64 and aarch64 lanes:
 
-- build/test C17 and JavaFX;
-- produce and launch the Gluon native image with no bundled JRE;
-- install the C daemon/TUI/license helper and JavaFX UI;
+- build/test C17 and the Kotlin UI;
+- produce and launch the Compose Desktop distributable (private runtime only);
+- install the C daemon/TUI/license helper and the desktop UI;
 - validate desktop/AppStream/icon metadata;
 - validate systemd/polkit/sysusers/tmpfiles integration;
 - use `secret-tool` for secure storage;
-- install the native package, launch its C daemon, connect the TUI and JavaFX
+- install the native package, launch its C daemon, connect the TUI and desktop
   controller to the authenticated loopback API, exercise an ephemeral Secret
   Service/keyring, and then remove the package while checking that all payload
   registrations disappear;
@@ -180,13 +179,17 @@ git ls-files go.mod go.sum vendor
 
 The last two commands must print nothing. Inspect all packages to require:
 
-- no JRE/JDK or obsolete UI payload;
+- no system JRE/JDK dependency, no Java runtime outside `/usr/lib/clambhook/ui`, and no JavaFX/Gluon/GTK payload;
 - no retired runtime build-information section;
 - no migration guards or suffixed executable names;
 - only ARM64 native libraries in Android APK/AAB;
 - correct application/bundle identifiers and API floors;
-- correct C17 executables, JavaFX native image, licenses, notices, and update
-  manifests.
+- correct C17 executables, desktop distributable, licenses, notices, and update
+  manifests;
+- valid developer@jpfchang.org signatures on every installer, checksum,
+  manifest, and repository index (`scripts/verify-release-signatures.sh`), plus
+  embedded `rpm -K` and `debsig-verify` signatures and a signed-repository
+  install on Ubuntu and Fedora (`scripts/test-linux-repo-install.sh`).
 
 ## Source delivery gate
 

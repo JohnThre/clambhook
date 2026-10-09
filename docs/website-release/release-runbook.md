@@ -13,7 +13,7 @@ The workflow then archives with Developer ID, notarizes and staples the app and
 DMG, creates SHA-256 and GPG signatures, and signs the Sparkle appcast with the
 pinned EdDSA key.
 
-For Android, Gluon builds the shared JavaFX application with the protected
+For Android, Gradle builds the shared Kotlin/Compose application with the protected
 keystore, produces ARM64 APK and AAB files, verifies both signatures and ABI
 contents, and produces GPG-signed checksums and an update manifest. The
 application ID remains `org.jpfchang.clambhook`, the minimum remains Android

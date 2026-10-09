@@ -50,7 +50,7 @@ for transfer without deleting its device history.
 ## Client State and Helper Boundary
 
 All clients evaluate the same signed state through the production
-`clambhook-license` C17 helper. The GNU/Linux JavaFX client sends the frozen
+`clambhook-license` C17 helper. The GNU/Linux Kotlin client sends the frozen
 `install-id`, `ensure-trial`, `status`, `activate`, `device-action`, and
 `mark-verification-failure` requests to that helper. It stores the license key
 in the desktop secret service using `secret-tool`, never in its JSON state.

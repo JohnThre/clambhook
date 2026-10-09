@@ -3,7 +3,7 @@
 
 # Security architecture review
 
-This document records the current C17/JavaFX security architecture. It is not a
+This document records the current C17/Kotlin security architecture. It is not a
 claim that future versions are vulnerability-free. Vulnerabilities must be
 reported privately under [SECURITY.md](../SECURITY.md).
 
@@ -14,7 +14,7 @@ reported privately under [SECURITY.md](../SECURITY.md).
 2. Local clients reach only the authenticated loopback HTTP/WebSocket server.
 3. HTTPS capture is disabled by default and uses a user-approved local CA.
 4. Android system privileges terminate at the Kotlin AAR and
-   `ClambhookVpnService`; JavaFX does not own the TUN descriptor.
+   `ClambhookVpnService`; the Compose UI does not own the TUN descriptor.
 5. GNU/Linux device-wide routing terminates at the hardened systemd service and
    polkit policy.
 6. macOS privileged routing terminates at the signed helper/LaunchDaemon.
@@ -71,7 +71,7 @@ reported privately under [SECURITY.md](../SECURITY.md).
 
 - The C license helper evaluates a versioned signed snapshot and returns a
   bounded JSON result. Device-seat and update-cutoff rules are identical across
-  JavaFX, Kotlin, and SwiftUI surfaces.
+  Kotlin/Compose, Android, and SwiftUI surfaces.
 - Android checks update metadata/hash/signature before install handoff.
 - GNU/Linux update actions use `apt` or `dnf` only when an administrator has
   configured a signed repository; official repository metadata remains a
@@ -84,7 +84,7 @@ reported privately under [SECURITY.md](../SECURITY.md).
 ## Supply chain
 
 - Third-party actions use immutable commit SHAs.
-- actionlint and GraalVM archives use pinned SHA-256 values.
+- actionlint archives and the Gradle wrapper distribution use pinned SHA-256 values.
 - Android OpenSSL/curl archives are checksum-pinned.
 - C dependencies retained in `third_party/` include provenance and license
   records.
@@ -97,7 +97,7 @@ reported privately under [SECURITY.md](../SECURITY.md).
 
 ```sh
 make test-native
-make test-javafx
+make test-linux
 make test-android
 scripts/check-license-policy.sh
 scripts/check-cutover.sh

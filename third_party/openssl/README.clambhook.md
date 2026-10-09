@@ -3,7 +3,7 @@
 ClambHook's Android native build downloads and statically links the official
 OpenSSL 3.5.8 LTS source archive. The archive is not committed to this
 repository; `scripts/build-android-openssl.sh` stores verified, per-ABI build
-outputs in the ignored `ui/android/.native-deps/` cache.
+outputs in the ignored `ui/kotlin/.native-deps/` cache.
 
 - Version: 3.5.8
 - Release archive:

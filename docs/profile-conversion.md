@@ -43,7 +43,7 @@ behavior cannot be preserved safely.
 ## Workflow
 
 The macOS app accepts `.yaml`, `.yml`, and Surge `.conf` files in the converter
-panel. The GNU/Linux and Android JavaFX view supports paste or the platform file
+panel. The GNU/Linux and Android Kotlin/Compose view supports paste or the platform file
 adapter. In the C TUI, press `v`, select a source path, review the sanitized
 counts and warnings, and choose merge or sensitive TOML export. Activation is
 off by default; merge preserves unrelated profiles and root settings and uses
