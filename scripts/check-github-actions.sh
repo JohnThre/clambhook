@@ -52,43 +52,30 @@ while IFS= read -r workflow; do
     fail "$workflow must default to permissions: {}"
 done < <(find "$WORKFLOW_DIR" -maxdepth 1 -type f -name '*.yml' -print | sort)
 
-# Unsigned macOS build and test jobs are permitted in CI. Signing, notarizing,
-# packaging, and publishing remain exclusive to the protected release workflow.
-
-# Reports and logs may use Actions artifacts. Installer/package outputs and the
-# dist tree are permitted only in the protected release workflow.
-if grep -RiqE --include='*.yml' --exclude='release.yml' \
+# Releases are built, signed, verified and published from the maintainer's
+# machine with scripts/publish-release.sh. No workflow may build, sign or
+# publish installers, and no workflow may hold release credentials.
+[[ ! -e "$WORKFLOW_DIR/release.yml" ]] || \
+  fail "release.yml returned; releases are published locally by scripts/publish-release.sh"
+if grep -RiqE --include='*.yml' \
   '(^|[[:space:]/])(dist(/|$)|[^[:space:]]+\.(apk|aab|dmg|pkg|deb|rpm|flatpak|AppImage))' \
   "$WORKFLOW_DIR"; then
-  fail "non-release workflow references an installer/package artifact or dist/ path"
+  fail "workflow references an installer/package artifact or dist/ path"
+fi
+if grep -RiqE --include='*.yml' \
+  '(gh release (create|upload)|GPG_PRIVATE_KEY|APPLE_DEVELOPER_ID|ANDROID_KEYSTORE|SPARKLE_PRIVATE_KEY|environment:[[:space:]]*production)' \
+  "$WORKFLOW_DIR"; then
+  fail "workflow handles release publication or signing credentials"
 fi
 
-release_workflow="$WORKFLOW_DIR/release.yml"
-[[ -f "$release_workflow" ]] || fail "missing release workflow"
-grep -q 'name: Release to GitHub' "$release_workflow" || \
-  fail "release workflow must publish to GitHub Releases"
-grep -q 'contents: write' "$release_workflow" || \
-  fail "release workflow needs job-scoped contents: write"
-grep -q 'gh release upload' "$release_workflow" || \
-  fail "release workflow does not upload GitHub Release assets"
-# Every installer upload must follow a developer@jpfchang.org signature
-# verification gate in the same job. The public key itself and the rolling beta
-# mirror (which re-publishes already verified assets) are exempt.
-unverified_upload="$(awk '
-  /^jobs:/ { in_jobs = 1; next }
-  in_jobs && /^  [A-Za-z0-9_-]+:[[:space:]]*$/ { job = $1; verified = 0; next }
-  /scripts\/verify-release-signatures\.sh/ { verified = 1 }
-  /gh release upload/ {
-    if ($0 ~ /keys\/clambhook-release-key\.asc/ || $0 ~ /gh release upload beta /) next
-    if (!verified) { print NR ": " job; exit }
-  }
-' "$release_workflow")"
-[[ -z "$unverified_upload" ]] || \
-  fail "release upload without a preceding signature verification gate (line $unverified_upload)"
-
-if grep -Eiq '(wrangler|Cloudflare R2|CLOUDFLARE_|CLAMBHOOK_R2_)' "$release_workflow"; then
-  fail "release workflow still references Cloudflare R2"
-fi
+publish_script="$ROOT_DIR/scripts/publish-release.sh"
+[[ -x "$publish_script" ]] || fail "missing executable scripts/publish-release.sh"
+# Every installer upload must follow the developer@jpfchang.org signature
+# verification gate.
+verify_line="$(grep -n 'scripts/verify-release-signatures\.sh' "$publish_script" | head -1 | cut -d: -f1)"
+upload_line="$(grep -n 'gh release upload' "$publish_script" | head -1 | cut -d: -f1)"
+[[ -n "$verify_line" && -n "$upload_line" && "$verify_line" -lt "$upload_line" ]] || \
+  fail "publish-release.sh uploads without a preceding signature verification gate"
 
 "$ROOT_DIR/scripts/check-source-only.sh" "$ROOT_DIR"
 echo "GitHub Actions policy check passed."

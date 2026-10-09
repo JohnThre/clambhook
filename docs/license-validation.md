@@ -95,4 +95,5 @@ Cancellation stops future billing at the paid-through date. Compatible releases
 from paid terms remain usable perpetually, and resubscription can reuse the same
 key. Public installers are downloaded from
 `https://github.com/JohnThre/clambhook/releases` when a release is available;
-only the protected release workflow may publish generated installer artifacts.
+only the maintainer publishes installer artifacts, through
+`scripts/publish-release.sh` after signature verification.

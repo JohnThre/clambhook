@@ -66,9 +66,6 @@ build_rpm() {
   mkdir -p "$topdir"/{BUILD,RPMS,SOURCES,SPECS,SRPMS}
   local rpmver="${VERSION//-/.}"
   tar --exclude-vcs --exclude='./dist' --exclude='./build-native*' \
-    --exclude='./ui/kotlin/.gradle' --exclude='./ui/kotlin/.kotlin' \
-    --exclude='./ui/kotlin/.native-deps' --exclude='./ui/kotlin/*/build' \
-    --exclude='./ui/kotlin/build' --exclude='./ui/kotlin/platform/.cxx' \
     --transform "s,^\.,clambhook-${rpmver}," \
     -czf "$topdir/SOURCES/clambhook-${rpmver}.tar.gz" .
   rpmbuild --define "_topdir $topdir" --define "version ${rpmver}" \

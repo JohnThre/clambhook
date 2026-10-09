@@ -11,12 +11,12 @@ cd "$ROOT_DIR"
 
 HOST_OS="$(uname -s 2>/dev/null || echo unknown)"
 SKIP_RC=200
-ALL_SECTIONS=(native kotlin android apple linux smoke)
+ALL_SECTIONS=(native linux smoke)
 
 have() { command -v "$1" >/dev/null 2>&1; }
 
 usage() {
-    printf 'Usage: %s [native|kotlin|android|apple|linux|smoke|all ...]\n' "$0"
+    printf 'Usage: %s [native|linux|smoke|all ...]\n' "$0"
     exit 0
 }
 
@@ -30,52 +30,12 @@ section_native() {
     make lint
 }
 
-section_kotlin() {
-    if ! have java; then
-        echo "ci-local: [kotlin] skip: JDK 17+ is required" >&2
-        return "$SKIP_RC"
-    fi
-    echo "==================== ci-local: kotlin ===================="
-    make test-linux
-}
-
-section_android() {
-    if ! have java || [[ ! -x ui/kotlin/gradlew ]]; then
-        echo "ci-local: [android] skip: JDK 17 or the Kotlin Gradle wrapper is missing" >&2
-        return "$SKIP_RC"
-    fi
-    echo "==================== ci-local: android ===================="
-    make test-android
-    make build-android
-    if have android && [[ -n "${CI_LOCAL_ANDROID_AVD:-}" ]]; then
-        android emulator start "$CI_LOCAL_ANDROID_AVD"
-        make run-android
-    else
-        echo "ci-local: [android] skip: optional AVD journey needs android CLI and CI_LOCAL_ANDROID_AVD" >&2
-    fi
-}
-
-section_apple() {
-    if [[ "$HOST_OS" != "Darwin" ]] || ! have xcodebuild || ! have xcodegen; then
-        echo "ci-local: [apple] skip: macOS, Xcode, and XcodeGen are required" >&2
-        return "$SKIP_RC"
-    fi
-    echo "==================== ci-local: apple ===================="
-    make build-apple
-    make test-apple
-}
-
 section_linux() {
     [[ "$HOST_OS" == "Linux" ]] || {
         echo "ci-local: [linux] skip: an Ubuntu or Fedora host is required" >&2
         return "$SKIP_RC"
     }
-    if ! have jlink; then
-        echo "ci-local: [linux] skip: a JDK 17+ with jlink and jmods is required" >&2
-        return "$SKIP_RC"
-    fi
     echo "==================== ci-local: linux ===================="
-    make build-linux
     if have podman || have docker; then
         scripts/validate-linux-distros.sh
     else
@@ -88,10 +48,8 @@ section_smoke() {
     scripts/check-cutover.sh
     scripts/check-license-policy.sh
     scripts/validate-systemd-unit.sh
-    if [[ "$HOST_OS" == "Darwin" ]]; then
-        make macos-release-contract-check
-    fi
-    if [[ "$HOST_OS" == "Linux" ]] && have jlink; then
+    scripts/check-github-actions.sh
+    if [[ "$HOST_OS" == "Linux" ]]; then
         make package-smoke
     else
         echo "ci-local: [smoke] skip: package smoke is authoritative on GNU/Linux" >&2
@@ -103,7 +61,7 @@ for arg in "$@"; do
     case "$arg" in
         -h|--help) usage ;;
         all) sections=("${ALL_SECTIONS[@]}"); break ;;
-        native|kotlin|android|apple|linux|smoke) sections+=("$arg") ;;
+        native|linux|smoke) sections+=("$arg") ;;
         *) echo "ci-local: unknown section '$arg'" >&2; exit 2 ;;
     esac
 done

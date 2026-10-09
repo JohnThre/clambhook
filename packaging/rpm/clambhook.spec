@@ -8,9 +8,9 @@
 #   tar --transform "s,^,clambhook-${VERSION}/," -czf ~/rpmbuild/SOURCES/clambhook-${VERSION}.tar.gz .
 #   rpmbuild -bb packaging/rpm/clambhook.spec --define "version ${VERSION}"
 #
-# The Kotlin/Compose desktop controller is built with the Gradle wrapper and
-# bundles a private jlink runtime under %%{_prefix}/lib/clambhook/ui. Release
-# packages are signed with the developer@jpfchang.org key after the build
+# This is the GPL-3.0-only core package. The desktop controller and TUI are the
+# separate proprietary clambhook-ui package. Release packages are signed with
+# the developer@jpfchang.org key after the build
 # (scripts/sign-linux-release-artifacts.sh).
 
 %global debug_package %{nil}
@@ -18,20 +18,14 @@
 # Dependency-license filenames are a frozen package contract. Fedora's default
 # brp-compress pass would rename them with a .gz suffix.
 %global __brp_compress %{nil}
-# The bundled desktop runtime is private: never export its libraries as
-# package-wide Provides. Its own libraries (libjvm.so, libawt.so, ...) are
-# unversioned and must not be required from the system; the versioned system
-# libraries it links (giflib, lcms2, libjpeg, ...) remain automatic Requires.
-%global __provides_exclude_from ^%{_prefix}/lib/clambhook/ui/.*$
-%global __requires_exclude ^lib[^.]*\\.so\\(.*$
 
 Name:           clambhook
 Version:        %{?version}%{!?version:1.0.2}
 Release:        1%{?dist}
 Summary:        Private VPN and proxy router with local metadata-first inspection
 
-# The distributed application is GPL-3.0-only. Its reusable crypto libraries
-# are Apache-2.0 and vendored dependencies retain their upstream licenses.
+# The core is GPL-3.0-only. Its reusable crypto libraries are Apache-2.0 and
+# vendored dependencies retain their upstream licenses.
 License:        GPL-3.0-only AND Apache-2.0
 URL:            https://store.clambercloud.com/clambhook/
 Source0:        %{name}-%{version}.tar.gz
@@ -40,8 +34,6 @@ BuildRequires:  gcc
 BuildRequires:  cmake
 BuildRequires:  ninja-build
 BuildRequires:  pkgconf-pkg-config
-BuildRequires:  java-25-openjdk-devel
-BuildRequires:  java-25-openjdk-jmods
 BuildRequires:  curl
 BuildRequires:  libcurl-devel
 BuildRequires:  libuv-devel
@@ -49,30 +41,21 @@ BuildRequires:  libsodium-devel
 BuildRequires:  openssl-devel
 BuildRequires:  systemd-rpm-macros
 
-# libsecret is used via the secret-tool CLI for API token and license key
-# storage against the host Secret Service.
-Requires:       libsecret
 Requires:       libsodium
-Requires:       polkit
 Requires:       systemd
 Requires:       iproute
-# Graphical session libraries used by the bundled desktop runtime.
-Requires:       libX11
-Requires:       libXext
-Requires:       libXi
-Requires:       libXrender
-Requires:       libXtst
-Requires:       fontconfig
-Requires:       freetype
+# The desktop controller and TUI (proprietary) are a weak dependency so that
+# upgrades from the combined 1.0.x package keep the user interface.
+Recommends:     clambhook-ui
 # The daemon runs as a dedicated unprivileged system user created in %%pre.
 Requires(pre):  shadow-utils
 
 %description
 ClambHook is a private VPN and proxy router with its own protocol core and
-local, metadata-first traffic inspection. This package installs the clambhook
-daemon, the self-contained Kotlin/Compose desktop controller, the terminal
-dashboard, and the license helper used for trial and license activation
-against the hosted store backend.
+local, metadata-first traffic inspection. This package installs the
+GPL-3.0-only core: the clambhook daemon, its systemd unit, and the license
+helper used for trial and license activation against the hosted store backend.
+The desktop controller and terminal dashboard ship in clambhook-ui.
 
 New installations include a 7-day trial. Continued use requires a USD 79.99/year
 subscription purchased from
@@ -82,14 +65,9 @@ store.swiphtgroup.com (Creem or NOWPayments; PayPal is not accepted).
 %autosetup -n %{name}-%{version}
 
 %build
-export JAVA_HOME=%{_jvmdir}/java-25-openjdk
-export PATH="$JAVA_HOME/bin:$PATH"
 make build VERSION=%{version}
-make build-linux VERSION=%{version}
 
 %install
-export JAVA_HOME=%{_jvmdir}/java-25-openjdk
-export PATH="$JAVA_HOME/bin:$PATH"
 make install-linux DESTDIR=%{buildroot} PREFIX=%{_prefix}
 # %%license installs the two first-party licenses in the RPM license directory.
 # Drop the generic CMake documentation copies to avoid duplicate, unpackaged
@@ -136,14 +114,8 @@ exit 0
 %doc %{_datadir}/doc/clambhook/TRADEMARKS.md
 %doc %{_datadir}/doc/clambhook/THIRD_PARTY_NOTICES.md
 %{_bindir}/clambhook
-%{_bindir}/clambhook-tui
 %{_bindir}/clambhook-license
-%{_bindir}/clambhook-ui
-%{_prefix}/lib/clambhook
 %{_datadir}/doc/clambhook/licenses
-%{_datadir}/applications/org.jpfchang.clambhook.desktop
-%{_datadir}/metainfo/org.jpfchang.clambhook.metainfo.xml
-%{_datadir}/icons/hicolor/1024x1024/apps/org.jpfchang.clambhook.png
 # The daemon's runtime user owns its config directory so it can atomically
 # rewrite config, rule-set/subscription caches, and the developer CA. The
 # config file itself stays root-owned but group-readable by the daemon.
@@ -155,7 +127,6 @@ exit 0
 %{_sysusersdir}/clambhook.conf
 %{_tmpfilesdir}/clambhook.conf
 %{_unitdir}/clambhook-daemon.service
-%{_datadir}/polkit-1/actions/com.clambhook.Clambhook.policy
 # Signed dnf repository and the developer@jpfchang.org release key that
 # verifies its packages (gpgcheck) and metadata (repo_gpgcheck).
 %config(noreplace) %{_sysconfdir}/yum.repos.d/clambhook.repo

@@ -28,12 +28,6 @@ jobs:
           - language: c-cpp
             runner: ubuntu-24.04
             build-mode: manual
-          - language: java-kotlin
-            runner: ubuntu-24.04
-            build-mode: none
-          - language: swift
-            runner: macos-15
-            build-mode: manual
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 45
     permissions:
@@ -60,9 +54,6 @@ jobs:
       - name: Trace C17 sources
         if: matrix.language == 'c-cpp'
         run: make build-native
-      - name: Trace Swift package sources without building the macOS app
-        if: matrix.language == 'swift'
-        run: swift build --package-path ui/apple --target ClambhookShared
       - name: Analyze source
         uses: github/codeql-action/analyze@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4
 

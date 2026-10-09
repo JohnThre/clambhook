@@ -15,7 +15,6 @@ set(CMAKE_C_EXTENSIONS OFF)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 option(CLAMBHOOK_BUILD_DAEMON "Build the native daemon" ON)
-option(CLAMBHOOK_BUILD_TUI "Build the native terminal client" ON)
 option(CLAMBHOOK_BUILD_LICENSE_HELPER "Build the license helper" ON)
 option(CLAMBHOOK_BUILD_TESTS "Build the native unit tests" ${BUILD_TESTING})
 option(CLAMBHOOK_ENABLE_SANITIZERS "Enable AddressSanitizer and UndefinedBehaviorSanitizer" OFF)
@@ -267,20 +266,6 @@ if(CLAMBHOOK_BUILD_DAEMON)
           COMPONENT Runtime)
 endif()
 
-if(CLAMBHOOK_BUILD_TUI)
-  add_executable(clambhook-tui native/src/tui/main.c)
-  target_link_libraries(clambhook-tui PRIVATE Clambhook::Core PkgConfig::CURL)
-  target_compile_definitions(clambhook-tui PRIVATE
-    CLAMBHOOK_VERSION="${PROJECT_VERSION}"
-    _POSIX_C_SOURCE=200809L
-  )
-  target_compile_options(clambhook-tui PRIVATE
-    ${CLAMBHOOK_WARNING_FLAGS}
-  )
-  install(TARGETS clambhook-tui RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
-          COMPONENT Runtime)
-endif()
-
 if(CLAMBHOOK_BUILD_LICENSE_HELPER)
   add_executable(clambhook-license native/src/license_helper/main.c)
   target_include_directories(clambhook-license PRIVATE native/src)
@@ -354,16 +339,6 @@ if(CLAMBHOOK_BUILD_TESTS)
   endif()
   target_link_libraries(clambhook-native-tests PRIVATE Clambhook::Core)
   add_test(NAME native-unit COMMAND clambhook-native-tests)
-  if(CLAMBHOOK_BUILD_TUI)
-    add_test(NAME tui-version COMMAND clambhook-tui --version)
-    set_tests_properties(tui-version PROPERTIES
-      PASS_REGULAR_EXPRESSION "^clambhook-tui ${PROJECT_VERSION}"
-    )
-    add_test(NAME tui-help COMMAND clambhook-tui --help)
-    set_tests_properties(tui-help PROPERTIES
-      PASS_REGULAR_EXPRESSION "layout adapts automatically to narrow terminals"
-    )
-  endif()
 endif()
 
 install(TARGETS clambhook_core clambhook_crypto

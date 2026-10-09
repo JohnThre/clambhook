@@ -12,13 +12,10 @@ Build-Depends:
  cmake,
  ninja-build,
  pkgconf,
- openjdk-21-jdk,
  libcurl4-openssl-dev,
  libsodium-dev,
  libssl-dev,
- libuv1-dev,
- xauth,
- xvfb
+ libuv1-dev
 Standards-Version: 4.7.0
 Homepage: https://github.com/JohnThre/clambhook
 Vcs-Browser: https://github.com/JohnThre/clambhook
@@ -31,19 +28,12 @@ Depends:
  ${misc:Depends},
  ${shlibs:Depends},
  iproute2,
- libsecret-tools,
- polkitd | policykit-1,
- systemd,
- libx11-6,
- libxext6,
- libxi6,
- libxrender1,
- libxtst6,
- libfontconfig1,
- libfreetype6
-Description: C17 network daemon, Kotlin controller, and terminal dashboard
- clambhook provides a C17 network client daemon, frozen HTTP/WebSocket control
- API, a self-contained Kotlin/Compose desktop controller with a private
- runtime, a terminal dashboard, and the license helper used for trial and
- license activation. Supported on Ubuntu; packages and the apt repository are
- signed with the developer@jpfchang.org release key.
+ systemd
+Recommends: clambhook-ui
+Description: ClambHook core: C17 network daemon and license helper
+ clambhook provides the GPL-3.0-only ClambHook core: a C17 network client
+ daemon with the frozen HTTP/WebSocket control API, its systemd unit, and the
+ license helper used for trial and license activation. The desktop controller
+ and terminal dashboard ship in the separate clambhook-ui package. Supported
+ on Ubuntu; packages and the apt repository are signed with the
+ developer@jpfchang.org release key.
