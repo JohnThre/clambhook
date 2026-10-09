@@ -1,21 +1,27 @@
 # SPDX-FileCopyrightText: 2026 Pengfan Chang <support@swiphtgroup.com>
 # SPDX-License-Identifier: GPL-3.0-only
 
-# ClambHook RPM package for the Fedora validation and release lane.
+# ClambHook RPM package for Fedora, the only supported RPM-based distribution.
 #
 # Build from the repository root, e.g.:
 #   VERSION=$(git describe --tags --always | sed 's/^v//;s/-/./g')
 #   tar --transform "s,^,clambhook-${VERSION}/," -czf ~/rpmbuild/SOURCES/clambhook-${VERSION}.tar.gz .
 #   rpmbuild -bb packaging/rpm/clambhook.spec --define "version ${VERSION}"
 #
-# CI supplies the checksum-pinned GraalVM 17 toolchain. Maven, Gluon, and the
-# Linux AArch64 preparation script verify every explicitly pinned build input.
+# The Kotlin/Compose desktop controller is built with the Gradle wrapper and
+# bundles a private jlink runtime under %%{_prefix}/lib/clambhook/ui. Release
+# packages are signed with the developer@jpfchang.org key after the build
+# (scripts/sign-linux-release-artifacts.sh).
 
 %global debug_package %{nil}
 %global _build_id_links none
 # Dependency-license filenames are a frozen package contract. Fedora's default
 # brp-compress pass would rename them with a .gz suffix.
 %global __brp_compress %{nil}
+# The bundled desktop runtime is private: never export its libraries as
+# package-wide Provides, and never require them from the system.
+%global __provides_exclude_from ^%{_prefix}/lib/clambhook/ui/.*$
+%global __requires_exclude_from ^%{_prefix}/lib/clambhook/ui/.*$
 
 Name:           clambhook
 Version:        %{?version}%{!?version:1.0.2}
@@ -32,28 +38,14 @@ BuildRequires:  gcc
 BuildRequires:  cmake
 BuildRequires:  ninja-build
 BuildRequires:  pkgconf-pkg-config
-BuildRequires:  maven
+BuildRequires:  java-21-openjdk-devel
+BuildRequires:  java-21-openjdk-jmods
 BuildRequires:  curl
-BuildRequires:  python3
-BuildRequires:  alsa-lib-devel
-BuildRequires:  pkgconfig(libavcodec)
-BuildRequires:  pkgconfig(libavformat)
-BuildRequires:  pkgconfig(libavutil)
-BuildRequires:  freetype-devel
-BuildRequires:  gtk3-devel
-BuildRequires:  libX11-devel
-BuildRequires:  libXtst-devel
 BuildRequires:  libcurl-devel
-BuildRequires:  pkgconfig(libdrm)
 BuildRequires:  libuv-devel
 BuildRequires:  libsodium-devel
-BuildRequires:  pkgconfig(egl)
-BuildRequires:  pkgconfig(gbm)
-BuildRequires:  mesa-libGL-devel
 BuildRequires:  openssl-devel
-BuildRequires:  pango-devel
 BuildRequires:  systemd-rpm-macros
-BuildRequires:  zlib-devel
 
 # libsecret is used via the secret-tool CLI for API token and license key
 # storage against the host Secret Service.
@@ -62,13 +54,21 @@ Requires:       libsodium
 Requires:       polkit
 Requires:       systemd
 Requires:       iproute
+# Graphical session libraries used by the bundled desktop runtime.
+Requires:       libX11
+Requires:       libXext
+Requires:       libXi
+Requires:       libXrender
+Requires:       libXtst
+Requires:       fontconfig
+Requires:       freetype
 # The daemon runs as a dedicated unprivileged system user created in %%pre.
 Requires(pre):  shadow-utils
 
 %description
 ClambHook is a private VPN and proxy router with its own protocol core and
 local, metadata-first traffic inspection. This package installs the clambhook
-daemon, the self-contained JavaFX/Gluon desktop controller, the terminal
+daemon, the self-contained Kotlin/Compose desktop controller, the terminal
 dashboard, and the license helper used for trial and license activation
 against the hosted store backend.
 
@@ -80,11 +80,14 @@ store.swiphtgroup.com (Creem or NOWPayments; PayPal is not accepted).
 %autosetup -n %{name}-%{version}
 
 %build
-test -n "$GRAALVM_HOME"
+export JAVA_HOME=%{_jvmdir}/java-21-openjdk
+export PATH="$JAVA_HOME/bin:$PATH"
 make build VERSION=%{version}
 make build-linux VERSION=%{version}
 
 %install
+export JAVA_HOME=%{_jvmdir}/java-21-openjdk
+export PATH="$JAVA_HOME/bin:$PATH"
 make install-linux DESTDIR=%{buildroot} PREFIX=%{_prefix}
 # %%license installs the two first-party licenses in the RPM license directory.
 # Drop the generic CMake documentation copies to avoid duplicate, unpackaged
@@ -95,6 +98,8 @@ install -Dpm 0644 packaging/config/config.toml %{buildroot}%{_sysconfdir}/clambh
 install -Dpm 0644 packaging/systemd/clambhook-sysusers.conf %{buildroot}%{_sysusersdir}/clambhook.conf
 install -Dpm 0644 packaging/systemd/clambhook-tmpfiles.conf %{buildroot}%{_tmpfilesdir}/clambhook.conf
 install -d %{buildroot}%{_localstatedir}/lib/clambhook
+install -Dpm 0644 packaging/repos/clambhook.repo %{buildroot}%{_sysconfdir}/yum.repos.d/clambhook.repo
+install -Dpm 0644 keys/clambhook-release-key.asc %{buildroot}%{_sysconfdir}/pki/rpm-gpg/RPM-GPG-KEY-clambhook
 
 %pre
 # Create the dedicated system user/group before the payload is laid down so the
@@ -132,6 +137,7 @@ exit 0
 %{_bindir}/clambhook-tui
 %{_bindir}/clambhook-license
 %{_bindir}/clambhook-ui
+%{_prefix}/lib/clambhook
 %{_datadir}/doc/clambhook/licenses
 %{_datadir}/applications/org.jpfchang.clambhook.desktop
 %{_datadir}/metainfo/org.jpfchang.clambhook.metainfo.xml
@@ -148,6 +154,10 @@ exit 0
 %{_tmpfilesdir}/clambhook.conf
 %{_unitdir}/clambhook-daemon.service
 %{_datadir}/polkit-1/actions/com.clambhook.Clambhook.policy
+# Signed dnf repository and the developer@jpfchang.org release key that
+# verifies its packages (gpgcheck) and metadata (repo_gpgcheck).
+%config(noreplace) %{_sysconfdir}/yum.repos.d/clambhook.repo
+%{_sysconfdir}/pki/rpm-gpg/RPM-GPG-KEY-clambhook
 
 %changelog
 * Sat Aug 29 2026 Pengfan Chang <support@swiphtgroup.com> - 1.0.2-1

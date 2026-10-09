@@ -105,4 +105,16 @@ class UpdateManagerTest {
         }.exceptionOrNull()
         assertTrue(error is kotlin.coroutines.cancellation.CancellationException)
     }
+
+    @Test
+    fun decodesTheReleaseScriptManifestShape() {
+        val decoded = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
+            .decodeFromString<AndroidUpdateManifest>(
+                """{"versionCode":7,"versionName":"1.2.3","minSdk":31,""" +
+                    """"apkUrl":"https://github.com/JohnThre/clambhook/releases/download/v1.2.3/ClambHook-arm64.apk",""" +
+                    """"apkSha256":"abc123","bundleSha256":"def456"}""",
+            )
+        assertEquals("abc123", decoded.sha256)
+        assertEquals(UpdateClassification.Installable, classifyUpdate(decoded, currentVersionCode = 1, currentSdk = 34))
+    }
 }

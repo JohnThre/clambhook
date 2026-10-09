@@ -28,8 +28,10 @@ import java.util.concurrent.TimeUnit
  * In-app sideload updater. Polls the latest GitHub Release Android update
  * manifest, compares against the installed version, gates installs through the
  * shared license update policy (renewed update window), constrains the download
- * to the trusted update origin, downloads the signed APK, verifies its SHA-256,
- * and hands it to the system installer.
+ * to the trusted update origin, downloads the signed APK, verifies its SHA-256
+ * and its detached developer@jpfchang.org OpenPGP signature, and hands it to the
+ * system installer. The manifest itself is rejected unless its detached
+ * signature (`<manifest>.sig`) verifies against the pinned release key.
  *
  * @param licenseGate returns whether a release published at the given epoch-ms
  *   may be installed under the current license (delegates to [LicenseManager]).
@@ -46,6 +48,13 @@ class UpdateManager(
         .writeTimeout(30, TimeUnit.SECONDS)
         .build()
 
+    private val verifier by lazy {
+        ReleaseSignatureVerifier(
+            appContext.assets.open(ReleaseSignatureVerifier.RELEASE_KEY_ASSET)
+                .bufferedReader().use { it.readText() },
+        )
+    }
+
     private val _state = MutableStateFlow(UpdateUiState())
     val state: StateFlow<UpdateUiState> = _state.asStateFlow()
 
@@ -58,9 +67,13 @@ class UpdateManager(
                     _state.update { it.copy(available = null, upToDate = true, message = "No update available.") }
                     return@withContext
                 }
-                resp.body.string()
+                resp.body.bytes()
             }
-            val manifest = json.decodeFromString<AndroidUpdateManifest>(body)
+            val signature = fetchSignature(MANIFEST_URL)
+            if (!verifier.verify(body, signature)) {
+                error("update manifest signature is invalid; update rejected")
+            }
+            val manifest = json.decodeFromString<AndroidUpdateManifest>(body.decodeToString())
             val current = currentVersionCode()
             when (classifyUpdate(manifest, current, Build.VERSION.SDK_INT)) {
                 UpdateClassification.UpToDate ->
@@ -145,7 +158,27 @@ class UpdateManager(
             target.delete()
             error("checksum mismatch; download rejected")
         }
+        val signature = runCatching { fetchSignature(manifest.apkUrl) }.getOrElse {
+            target.delete()
+            throw it
+        }
+        if (!verifier.verify(target, signature)) {
+            target.delete()
+            error("APK signature is invalid; download rejected")
+        }
         return target
+    }
+
+    /** Fetches the detached armored signature published next to [url]. */
+    private fun fetchSignature(url: String): String {
+        val signatureUrl = signatureUrlFor(url)
+        if (!isTrustedUpdateOrigin(signatureUrl)) error("signature origin not allowed")
+        return client.newCall(Request.Builder().url(signatureUrl).build()).execute().use { resp ->
+            if (!resp.isSuccessful) error("release signature is missing (${resp.code}); update rejected")
+            val body = resp.body.string()
+            if (body.length > MAX_SIGNATURE_CHARS) error("release signature is too large")
+            body
+        }
     }
 
     private fun launchInstall(apk: File) {
@@ -174,6 +207,7 @@ class UpdateManager(
 
     private companion object {
         const val MANIFEST_URL = "https://github.com/JohnThre/clambhook/releases/latest/download/clambhook-android-manifest.json"
+        const val MAX_SIGNATURE_CHARS = 16 * 1024
     }
 }
 
@@ -221,6 +255,12 @@ fun isTrustedUpdateOrigin(apkUrl: String): Boolean {
     val host = uri.host?.lowercase() ?: return false
     return host in trustedUpdateHosts
 }
+
+/**
+ * URL of the detached armored signature for a release asset: every installer,
+ * checksum, and manifest is published with `<asset>.sig` next to it.
+ */
+fun signatureUrlFor(assetUrl: String): String = assetUrl.trim() + ".sig"
 
 /** Lowercase hex encoding of a digest. */
 fun ByteArray.toHexString(): String = joinToString("") { "%02x".format(it) }

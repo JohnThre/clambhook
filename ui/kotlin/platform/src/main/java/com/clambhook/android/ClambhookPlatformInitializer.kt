@@ -12,7 +12,7 @@ import android.database.Cursor
 import android.net.Uri
 import android.os.Bundle
 
-/** Captures the application context before the Gluon activity is created. */
+/** Captures the application context before the UI activity is created. */
 class ClambhookPlatformInitializer : ContentProvider() {
     override fun onCreate(): Boolean {
         context?.applicationContext?.let { appContext ->

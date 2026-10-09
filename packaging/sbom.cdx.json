@@ -183,83 +183,11 @@
       ]
     },
     {
-      "type": "framework",
-      "bom-ref": "pkg:maven/org.openjfx/javafx-controls@21.0.12",
-      "group": "org.openjfx",
-      "name": "javafx-controls",
-      "version": "21.0.12",
-      "licenses": [
-        {
-          "expression": "GPL-2.0-only WITH Classpath-exception-2.0"
-        }
-      ],
-      "purl": "pkg:maven/org.openjfx/javafx-controls@21.0.12"
-    },
-    {
-      "type": "framework",
-      "bom-ref": "pkg:maven/com.gluonhq/javafx-static-sdk@21.0.1",
-      "group": "com.gluonhq",
-      "name": "javafx-static-sdk",
-      "version": "21.0.1",
-      "licenses": [
-        {
-          "expression": "GPL-2.0-only WITH Classpath-exception-2.0"
-        }
-      ],
-      "purl": "pkg:maven/com.gluonhq/javafx-static-sdk@21.0.1",
-      "properties": [
-        {
-          "name": "clambhook:linux-aarch64-gtk-archive-sha256",
-          "value": "44beff405df3719f597e046cbdcd8f8ec245c4813ad3d0f5418e6ab50992231b"
-        }
-      ]
-    },
-    {
       "type": "library",
-      "bom-ref": "pkg:maven/com.gluonhq/substrate@0.0.69",
-      "group": "com.gluonhq",
-      "name": "substrate",
-      "version": "0.0.69",
-      "licenses": [
-        {
-          "license": {
-            "id": "GPL-3.0-or-later"
-          }
-        }
-      ],
-      "purl": "pkg:maven/com.gluonhq/substrate@0.0.69",
-      "properties": [
-        {
-          "name": "clambhook:official-jar-sha256",
-          "value": "d2ba5f26578e4aa81e358f2e9fdf107c1d528294920db4e4a70841a678e49cf4"
-        },
-        {
-          "name": "clambhook:linux-aarch64-backend-selector",
-          "value": "GTK patch in isolated build repository; target triplet unchanged"
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "bom-ref": "pkg:maven/androidx.activity/activity@1.11.0",
-      "group": "androidx.activity",
-      "name": "activity",
-      "version": "1.11.0",
-      "licenses": [
-        {
-          "license": {
-            "id": "Apache-2.0"
-          }
-        }
-      ],
-      "purl": "pkg:maven/androidx.activity/activity@1.11.0"
-    },
-    {
-      "type": "library",
-      "bom-ref": "pkg:maven/androidx.core/core-ktx@1.19.0",
+      "bom-ref": "pkg:maven/androidx.core/core-ktx@1.18.0",
       "group": "androidx.core",
       "name": "core-ktx",
-      "version": "1.19.0",
+      "version": "1.18.0",
       "licenses": [
         {
           "license": {
@@ -267,7 +195,7 @@
           }
         }
       ],
-      "purl": "pkg:maven/androidx.core/core-ktx@1.19.0"
+      "purl": "pkg:maven/androidx.core/core-ktx@1.18.0"
     },
     {
       "type": "library",
@@ -331,10 +259,10 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:maven/com.squareup.okhttp3/okhttp@5.5.0",
+      "bom-ref": "pkg:maven/com.squareup.okhttp3/okhttp@5.4.0",
       "group": "com.squareup.okhttp3",
       "name": "okhttp",
-      "version": "5.5.0",
+      "version": "5.4.0",
       "licenses": [
         {
           "license": {
@@ -342,7 +270,7 @@
           }
         }
       ],
-      "purl": "pkg:maven/com.squareup.okhttp3/okhttp@5.5.0"
+      "purl": "pkg:maven/com.squareup.okhttp3/okhttp@5.4.0"
     },
     {
       "type": "library",
@@ -358,22 +286,6 @@
         }
       ],
       "purl": "pkg:maven/com.journeyapps/zxing-android-embedded@4.3.0"
-    },
-    {
-      "type": "application",
-      "bom-ref": "tool:gluonfx-maven-plugin:1.0.29",
-      "group": "com.gluonhq",
-      "name": "gluonfx-maven-plugin",
-      "version": "1.0.29",
-      "scope": "excluded",
-      "licenses": [
-        {
-          "license": {
-            "id": "BSD-3-Clause"
-          }
-        }
-      ],
-      "purl": "pkg:maven/com.gluonhq/gluonfx-maven-plugin@1.0.29"
     },
     {
       "type": "application",
@@ -438,48 +350,157 @@
       "purl": "pkg:maven/org.jetbrains.kotlin/kotlin-stdlib@2.4.10"
     },
     {
-      "type": "application",
-      "bom-ref": "tool:graalvm-community:17.0.9",
-      "name": "GraalVM Community Edition",
-      "version": "17.0.9",
-      "scope": "excluded",
+      "type": "framework",
+      "bom-ref": "pkg:maven/org.jetbrains.compose.runtime/runtime@1.11.1",
+      "group": "org.jetbrains.compose.runtime",
+      "name": "runtime",
+      "version": "1.11.1",
       "licenses": [
         {
           "license": {
-            "name": "GraalVM Community Edition license bundle"
+            "id": "Apache-2.0"
           }
         }
       ],
-      "externalReferences": [
+      "purl": "pkg:maven/org.jetbrains.compose.runtime/runtime@1.11.1"
+    },
+    {
+      "type": "framework",
+      "bom-ref": "pkg:maven/org.jetbrains.compose.foundation/foundation@1.11.1",
+      "group": "org.jetbrains.compose.foundation",
+      "name": "foundation",
+      "version": "1.11.1",
+      "licenses": [
         {
-          "type": "website",
-          "url": "https://github.com/graalvm/graalvm-ce-builds/releases/tag/jdk-17.0.9"
+          "license": {
+            "id": "Apache-2.0"
+          }
         }
-      ]
+      ],
+      "purl": "pkg:maven/org.jetbrains.compose.foundation/foundation@1.11.1"
+    },
+    {
+      "type": "framework",
+      "bom-ref": "pkg:maven/org.jetbrains.compose.ui/ui@1.11.1",
+      "group": "org.jetbrains.compose.ui",
+      "name": "ui",
+      "version": "1.11.1",
+      "licenses": [
+        {
+          "license": {
+            "id": "Apache-2.0"
+          }
+        }
+      ],
+      "purl": "pkg:maven/org.jetbrains.compose.ui/ui@1.11.1"
+    },
+    {
+      "type": "framework",
+      "bom-ref": "pkg:maven/org.jetbrains.compose.material3/material3@1.9.0",
+      "group": "org.jetbrains.compose.material3",
+      "name": "material3",
+      "version": "1.9.0",
+      "licenses": [
+        {
+          "license": {
+            "id": "Apache-2.0"
+          }
+        }
+      ],
+      "purl": "pkg:maven/org.jetbrains.compose.material3/material3@1.9.0"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:maven/androidx.activity/activity-compose@1.13.0",
+      "group": "androidx.activity",
+      "name": "activity-compose",
+      "version": "1.13.0",
+      "licenses": [
+        {
+          "license": {
+            "id": "Apache-2.0"
+          }
+        }
+      ],
+      "purl": "pkg:maven/androidx.activity/activity-compose@1.13.0"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:maven/org.bouncycastle/bcpg-jdk18on@1.86",
+      "group": "org.bouncycastle",
+      "name": "bcpg-jdk18on",
+      "version": "1.86",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "purl": "pkg:maven/org.bouncycastle/bcpg-jdk18on@1.86"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:maven/org.jetbrains.kotlinx/kotlinx-coroutines-swing@1.11.0",
+      "group": "org.jetbrains.kotlinx",
+      "name": "kotlinx-coroutines-swing",
+      "version": "1.11.0",
+      "licenses": [
+        {
+          "license": {
+            "id": "Apache-2.0"
+          }
+        }
+      ],
+      "purl": "pkg:maven/org.jetbrains.kotlinx/kotlinx-coroutines-swing@1.11.0"
     },
     {
       "type": "application",
-      "bom-ref": "tool:gluon-graalvm-java17:22.1.0.1-Final",
-      "name": "Gluon GraalVM for Java 17",
-      "version": "22.1.0.1-Final",
+      "bom-ref": "tool:compose-gradle-plugin:1.11.1",
+      "group": "org.jetbrains.compose",
+      "name": "compose-gradle-plugin",
+      "version": "1.11.1",
       "scope": "excluded",
-      "hashes": [
-        {
-          "alg": "SHA-256",
-          "content": "70df79831e4e55289414b4e9c4ab78b74e31d7b7db7ba70cfff86ab8f9f8d4ef"
-        }
-      ],
       "licenses": [
         {
           "license": {
-            "name": "GraalVM Community Edition license bundle"
+            "id": "Apache-2.0"
           }
         }
       ],
-      "externalReferences": [
+      "purl": "pkg:maven/org.jetbrains.compose/compose-gradle-plugin@1.11.1"
+    },
+    {
+      "type": "application",
+      "bom-ref": "tool:kotlin-multiplatform:2.4.10",
+      "group": "org.jetbrains.kotlin",
+      "name": "kotlin-multiplatform-plugin",
+      "version": "2.4.10",
+      "scope": "excluded",
+      "licenses": [
         {
-          "type": "distribution",
-          "url": "https://github.com/gluonhq/graal/releases/tag/gluon-22.1.0.1-Final"
+          "license": {
+            "id": "Apache-2.0"
+          }
+        }
+      ],
+      "purl": "pkg:maven/org.jetbrains.kotlin/kotlin-gradle-plugin@2.4.10"
+    },
+    {
+      "type": "platform",
+      "bom-ref": "pkg:generic/openjdk-runtime@21",
+      "name": "OpenJDK runtime (jlink image, GNU/Linux desktop)",
+      "version": "21",
+      "licenses": [
+        {
+          "expression": "GPL-2.0-only WITH Classpath-exception-2.0"
+        }
+      ],
+      "purl": "pkg:generic/openjdk-runtime@21",
+      "properties": [
+        {
+          "name": "clambhook:source",
+          "value": "Ubuntu openjdk-21 / Fedora java-21-openjdk distribution packages at build time"
         }
       ]
     }
@@ -496,17 +517,22 @@
         "pkg:github/smartalock/wireguard-lwip@c54f20dbe76ac8b3411ad21e0ed7deea6f0cfd4d",
         "pkg:generic/openssl@3.5.8?download_url=https%3A%2F%2Fwww.openssl.org%2Fsource%2Fopenssl-3.5.8.tar.gz",
         "pkg:generic/curl@8.18.0",
-        "pkg:maven/org.openjfx/javafx-controls@21.0.12",
-        "pkg:maven/com.gluonhq/substrate@0.0.69",
-        "pkg:maven/androidx.activity/activity@1.11.0",
-        "pkg:maven/androidx.core/core-ktx@1.19.0",
+        "pkg:maven/androidx.core/core-ktx@1.18.0",
         "pkg:maven/androidx.datastore/datastore-preferences@1.1.1",
         "pkg:maven/androidx.security/security-crypto@1.1.0",
         "pkg:maven/org.jetbrains.kotlinx/kotlinx-coroutines-android@1.11.0",
         "pkg:maven/org.jetbrains.kotlinx/kotlinx-serialization-json@1.11.0",
         "pkg:maven/org.jetbrains.kotlin/kotlin-stdlib@2.4.10",
-        "pkg:maven/com.squareup.okhttp3/okhttp@5.5.0",
-        "pkg:maven/com.journeyapps/zxing-android-embedded@4.3.0"
+        "pkg:maven/com.squareup.okhttp3/okhttp@5.4.0",
+        "pkg:maven/com.journeyapps/zxing-android-embedded@4.3.0",
+        "pkg:maven/org.jetbrains.compose.runtime/runtime@1.11.1",
+        "pkg:maven/org.jetbrains.compose.foundation/foundation@1.11.1",
+        "pkg:maven/org.jetbrains.compose.ui/ui@1.11.1",
+        "pkg:maven/org.jetbrains.compose.material3/material3@1.9.0",
+        "pkg:maven/androidx.activity/activity-compose@1.13.0",
+        "pkg:maven/org.bouncycastle/bcpg-jdk18on@1.86",
+        "pkg:maven/org.jetbrains.kotlinx/kotlinx-coroutines-swing@1.11.0",
+        "pkg:generic/openjdk-runtime@21"
       ]
     }
   ]

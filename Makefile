@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 
 .PHONY: all build build-clib build-daemon build-tui build-license build-native \
-	test-native test-javafx test-android test-android-compatibility test-linux \
+	test-native test-android test-android-compatibility test-linux \
 	build-linux build-linux-package install install-linux prepare-apple-runtime \
 	generate-apple build-apple test-apple check-macos-signing release-macos \
 	release-linux release-check ci-local macos-release-contract-check \
@@ -18,23 +18,9 @@ ANDROID_HOME ?= $(HOME)/Library/Android/sdk
 ANDROID_NDK_VERSION ?= 28.2.13676358
 ANDROID_SDK ?= $(ANDROID_HOME)
 ANDROID_NDK ?= $(ANDROID_SDK)/ndk/$(ANDROID_NDK_VERSION)
-MAVEN ?= mvn
-JAVAFX_TEST_GOALS ?= clean verify
 CLAMBHOOK_HOST_OS ?= $(shell uname -s)
-GLUON_LINUX_ARCH ?= $(shell uname -m)
-GLUON_LINUX_TARGET = $(if $(filter arm64 aarch64,$(GLUON_LINUX_ARCH)),aarch64-linux,x86_64-linux)
-GLUON_LINUX_BINARY ?= ui/javafx/target/gluonfx/$(GLUON_LINUX_TARGET)/clambhook-ui
-GLUON_JAVAFX_STATIC_VERSION ?= 21.0.1
-GLUON_ARM64_BUILD_DIR ?= $(CURDIR)/build-gluon-linux-aarch64
-GLUON_ARM64_MAVEN_REPO ?= $(GLUON_ARM64_BUILD_DIR)/m2
-GLUON_ARM64_JAVAFX_SDK ?= $(GLUON_ARM64_BUILD_DIR)/javafx-static-sdk
-
-ifeq ($(GLUON_LINUX_TARGET),aarch64-linux)
-GLUON_LINUX_MAVEN = JAVAFX_STATIC_SDK_PATH="$(GLUON_ARM64_JAVAFX_SDK)" \
-	$(MAVEN) -Dmaven.repo.local="$(GLUON_ARM64_MAVEN_REPO)"
-else
-GLUON_LINUX_MAVEN = $(MAVEN)
-endif
+GRADLE = ./gradlew --no-daemon
+LINUX_UI_DIST ?= ui/kotlin/desktop/build/compose/binaries/main-release/app/clambhook-ui
 
 require-command = @command -v $(1) >/dev/null 2>&1 || { echo "$(1) is required for $(2)." >&2; echo "$(3)" >&2; exit 2; }
 internal-release-notice = @printf '%s\n' "local build only: publishing is performed by the protected GitHub Release workflow."
@@ -68,51 +54,38 @@ test-native:
 	ctest --test-dir "$(NATIVE_SANITIZE_DIR)" --output-on-failure
 	cmake --build "$(NATIVE_SANITIZE_DIR)" --target license-contract
 
-test-javafx:
-	@if [ "$(CLAMBHOOK_HOST_OS)" = "Linux" ]; then \
-		command -v timeout >/dev/null 2>&1 || { \
-			echo "timeout is required for GNU/Linux JavaFX tests." >&2; \
+# Kotlin/Compose desktop and shared UI tests. Headless GNU/Linux hosts run
+# them under Xvfb.
+test-linux:
+	@if [ "$(CLAMBHOOK_HOST_OS)" = "Linux" ] && [ -z "$${DISPLAY:-}" ]; then \
+		command -v xvfb-run >/dev/null 2>&1 || { \
+			echo "xvfb-run is required for headless GNU/Linux UI tests." >&2; \
 			exit 2; \
 		}; \
-		if [ -z "$${DISPLAY:-}" ]; then \
-			command -v xvfb-run >/dev/null 2>&1 || { \
-				echo "xvfb-run is required for headless GNU/Linux JavaFX tests." >&2; \
-				exit 2; \
-			}; \
-			cd ui/javafx && timeout --kill-after=15s 10m xvfb-run -a $(MAVEN) -B $(JAVAFX_TEST_GOALS); \
-		else \
-			cd ui/javafx && timeout --kill-after=15s 10m $(MAVEN) -B $(JAVAFX_TEST_GOALS); \
-		fi; \
+		cd ui/kotlin && timeout --kill-after=15s 20m xvfb-run -a $(GRADLE) :shared:desktopTest; \
 	else \
-		cd ui/javafx && $(MAVEN) -B $(JAVAFX_TEST_GOALS); \
+		cd ui/kotlin && $(GRADLE) :shared:desktopTest; \
 	fi
-
-test-linux: test-javafx
 
 check-linux-ui-deps:
-	@test "$$(uname -s)" = "Linux" || { echo "GNU/Linux is required for the Gluon desktop target." >&2; exit 2; }
-	$(call require-command,$(MAVEN),GNU/Linux JavaFX targets,Install Maven 3.9+.)
-	@test -n "$${GRAALVM_HOME:-}" || { echo "GRAALVM_HOME must point to GraalVM for JDK 17." >&2; exit 2; }
+	@test "$$(uname -s)" = "Linux" || { echo "GNU/Linux (Ubuntu or Fedora) is required for the desktop target." >&2; exit 2; }
+	$(call require-command,jpackage,the GNU/Linux desktop distributable,Install a JDK 17+ with jpackage and jmods.)
 
+# Self-contained Compose Desktop distributable with a jlink runtime; no system
+# JRE is required at run time.
 build-linux: check-linux-ui-deps
-	@if [ "$(GLUON_LINUX_TARGET)" = "aarch64-linux" ]; then \
-		scripts/prepare-gluon-linux-aarch64.sh \
-			"$(GLUON_JAVAFX_STATIC_VERSION)" "$(GLUON_ARM64_BUILD_DIR)"; \
-	fi
-	cd ui/javafx && $(GLUON_LINUX_MAVEN) -B -Pdesktop gluonfx:compile
-	cd ui/javafx && $(GLUON_LINUX_MAVEN) -B -Pdesktop gluonfx:link
-
-build-linux-package: build-linux
-	cd ui/javafx && $(MAVEN) -B -Pdesktop gluonfx:package
+	cd ui/kotlin && VERSION="$(VERSION)" $(GRADLE) :desktop:createReleaseDistributable
 
 install: build-native
 	DESTDIR="$(DESTDIR)" cmake --install "$(NATIVE_BUILD_DIR)" --prefix "$(PREFIX)" --component Runtime
 
 install-linux: install
-	@test -x "$(GLUON_LINUX_BINARY)" || $(MAKE) build-linux
-	@test -x "$(GLUON_LINUX_BINARY)" || { echo "Gluon image not found: $(GLUON_LINUX_BINARY)" >&2; exit 2; }
-	install -d "$(DESTDIR)$(PREFIX)/bin"
-	install -m 0755 "$(GLUON_LINUX_BINARY)" "$(DESTDIR)$(PREFIX)/bin/clambhook-ui"
+	@test -x "$(LINUX_UI_DIST)/bin/clambhook-ui" || $(MAKE) build-linux
+	@test -x "$(LINUX_UI_DIST)/bin/clambhook-ui" || { echo "desktop distributable not found: $(LINUX_UI_DIST)" >&2; exit 2; }
+	rm -rf "$(DESTDIR)$(PREFIX)/lib/clambhook/ui"
+	install -d "$(DESTDIR)$(PREFIX)/lib/clambhook" "$(DESTDIR)$(PREFIX)/bin"
+	cp -a "$(LINUX_UI_DIST)" "$(DESTDIR)$(PREFIX)/lib/clambhook/ui"
+	ln -sfn ../lib/clambhook/ui/bin/clambhook-ui "$(DESTDIR)$(PREFIX)/bin/clambhook-ui"
 	install -d "$(DESTDIR)$(PREFIX)/share/applications"
 	sed 's/@app_id@/org.jpfchang.clambhook/g' packaging/desktop/org.jpfchang.clambhook.desktop.in > "$(DESTDIR)$(PREFIX)/share/applications/org.jpfchang.clambhook.desktop"
 	install -d "$(DESTDIR)$(PREFIX)/share/metainfo"
@@ -164,52 +137,50 @@ package-smoke:
 	./scripts/package-smoke.sh
 
 build-android-platform:
-	cd ui/android && ANDROID_HOME="$(ANDROID_HOME)" ./gradlew --no-daemon :platform:assembleRelease
+	cd ui/kotlin && ANDROID_HOME="$(ANDROID_HOME)" $(GRADLE) :platform:assembleRelease
 
 build-android-native:
-	cd ui/android && ANDROID_HOME="$(ANDROID_HOME)" ./gradlew --no-daemon :platform:externalNativeBuildDebug
+	cd ui/kotlin && ANDROID_HOME="$(ANDROID_HOME)" $(GRADLE) :platform:externalNativeBuildDebug
 
 test-android:
-	cd ui/android && ANDROID_HOME="$(ANDROID_HOME)" ./gradlew --no-daemon :platform:testDebugUnitTest :platform:lintDebug :platform:assembleRelease
+	cd ui/kotlin && ANDROID_HOME="$(ANDROID_HOME)" $(GRADLE) \
+		:platform:testDebugUnitTest :platform:lintDebug :platform:assembleRelease \
+		:app:lintDebug :app:assembleRelease
 	./scripts/check-android-abi-policy.sh --require-release
 
 test-android-compatibility:
-	cd ui/android && ANDROID_HOME="$(ANDROID_HOME)" ./gradlew --no-daemon \
+	cd ui/kotlin && ANDROID_HOME="$(ANDROID_HOME)" $(GRADLE) \
 		:platform:androidCompatibilityGroupDebugAndroidTest \
 		-Pandroid.experimental.testOptions.managedDevices.maxConcurrentDevices=1 \
 		-Pandroid.testoptions.manageddevices.emulator.gpu=software
 
-build-android: build-android-platform
-	@test -n "$${GRAALVM_HOME:-}" || { echo "GRAALVM_HOME must point to GraalVM for JDK 17." >&2; exit 2; }
+# ARM64 Kotlin/Compose application (unsigned unless the release keystore
+# environment from scripts/prepare-ci-android-signing.sh is present).
+build-android:
 	@test -d "$(ANDROID_SDK)" || { echo "ANDROID_SDK does not exist: $(ANDROID_SDK)" >&2; exit 2; }
-	@test -d "$(ANDROID_NDK)" || { echo "ANDROID_NDK does not exist: $(ANDROID_NDK)" >&2; exit 2; }
-	bash scripts/prepare-gluon-android.sh
-	cd ui/javafx && ANDROID_SDK="$(ANDROID_SDK)" ANDROID_NDK="$(ANDROID_NDK)" \
-		$(MAVEN) -B -Pandroid gluonfx:build
+	cd ui/kotlin && ANDROID_HOME="$(ANDROID_HOME)" $(GRADLE) :app:assembleRelease :app:bundleRelease
 
 lint-android:
-	cd ui/android && ANDROID_HOME="$(ANDROID_HOME)" ./gradlew --no-daemon :platform:lintDebug
+	cd ui/kotlin && ANDROID_HOME="$(ANDROID_HOME)" $(GRADLE) :platform:lintDebug :app:lintDebug
 
 run-android:
-	cd ui/android && android run
+	cd ui/kotlin && android run
 
 build-android-release: build-android
 	$(internal-release-notice)
-	cd ui/javafx && $(MAVEN) -B -Pandroid gluonfx:package
 
 release-android:
 	$(internal-release-notice)
 	./scripts/release-android.sh
 
-test: test-native test-javafx test-android
+test: test-native test-linux test-android
 
 lint:
 	./scripts/lint.sh
 
 clean:
-	rm -rf bin/ "$(NATIVE_BUILD_DIR)/" "$(NATIVE_SANITIZE_DIR)/" \
-		"$(GLUON_ARM64_BUILD_DIR)/"
+	rm -rf bin/ "$(NATIVE_BUILD_DIR)/" "$(NATIVE_SANITIZE_DIR)/"
 	rm -rf ui/apple/Frameworks/*.xcframework
-	rm -rf ui/android/build/ ui/android/app/build/ ui/android/app/libs/
-	rm -rf ui/javafx/target/
+	rm -rf ui/kotlin/build/ ui/kotlin/platform/build/ ui/kotlin/platform/.cxx/ \
+		ui/kotlin/shared/build/ ui/kotlin/app/build/ ui/kotlin/desktop/build/
 	$(MAKE) -C clib clean

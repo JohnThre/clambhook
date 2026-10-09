@@ -44,6 +44,12 @@ abstract class GenerateThirdPartyNoticesTask : DefaultTask() {
     @get:PathSensitive(PathSensitivity.RELATIVE)
     abstract val llhttpLicense: RegularFileProperty
 
+    // Pinned developer@jpfchang.org public key used by the in-app updater to
+    // verify signed manifests and APKs.
+    @get:InputFile
+    @get:PathSensitive(PathSensitivity.RELATIVE)
+    abstract val releasePublicKey: RegularFileProperty
+
     @get:OutputDirectory
     abstract val outputDirectory: DirectoryProperty
 
@@ -63,6 +69,7 @@ abstract class GenerateThirdPartyNoticesTask : DefaultTask() {
             from(llhttpLicense) {
                 into("licenses/llhttp")
             }
+            from(releasePublicKey)
             into(outputDirectory)
         }
     }
@@ -84,7 +91,7 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         consumerProguardFiles("consumer-rules.pro")
         ndk {
-            // Gluon Android packages are AArch64-only by product decision.
+            // Android packages are AArch64-only by product decision.
             abiFilters += "arm64-v8a"
         }
         externalNativeBuild {
@@ -183,6 +190,7 @@ androidComponents {
                 opensslLicense.set(repositoryRoot.file("third_party/openssl/LICENSE.txt"))
                 curlLicense.set(repositoryRoot.file("third_party/curl/LICENSE.txt"))
                 llhttpLicense.set(repositoryRoot.file("third_party/llhttp/LICENSE"))
+                releasePublicKey.set(repositoryRoot.file("keys/clambhook-release-key.asc"))
             }
 
         variant.sources.assets?.addGeneratedSourceDirectory(
@@ -199,13 +207,14 @@ kotlin {
 }
 
 dependencies {
-    implementation("androidx.core:core-ktx:1.19.0")
+    implementation("androidx.core:core-ktx:1.18.0")
     implementation("androidx.datastore:datastore-preferences:1.1.1")
     implementation("androidx.security:security-crypto:1.1.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
-    implementation("com.squareup.okhttp3:okhttp:5.5.0")
+    implementation("com.squareup.okhttp3:okhttp:5.4.0")
     implementation("com.journeyapps:zxing-android-embedded:4.3.0")
+    implementation("org.bouncycastle:bcpg-jdk18on:1.86")
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.11.0")

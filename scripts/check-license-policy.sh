@@ -26,8 +26,8 @@ is_mapped() {
     case "$1" in
         .pi-lens.json|clambhook-icon-1024.png|flake.lock|NOTICE|debian/changelog|debian/source/format|keys/clambhook-release-key.asc|packaging/sbom.cdx.json) return 0 ;;
         packaging/icons/*.png|third_party/libmaxminddb/testdata/*.mmdb) return 0 ;;
-        ui/android/gradlew|ui/android/gradle/wrapper/*) return 0 ;;
-        ui/android/app/src/main/res/*.png|ui/apple/*.png|ui/apple/*.json|ui/apple/*.pbxproj|ui/apple/*.resolved|ui/apple/*.xcworkspacedata|ui/apple/*.xcscheme) return 0 ;;
+        ui/kotlin/gradlew|ui/kotlin/gradle/wrapper/*) return 0 ;;
+        ui/kotlin/platform/src/main/res/*.png|ui/kotlin/platform/src/test/resources/release-signatures/*|ui/apple/*.png|ui/apple/*.json|ui/apple/*.pbxproj|ui/apple/*.resolved|ui/apple/*.xcworkspacedata|ui/apple/*.xcscheme) return 0 ;;
     esac
     return 1
 }
@@ -77,7 +77,7 @@ if rg -ni \
     README.md SECURITY.md LICENSING.md docs/distribution.md \
     docs/website-release/release-runbook.md \
     docs/website-release/linux-release-runbook.md flake.nix debian/copyright \
-    packaging/rpm/clambhook.spec ui/android/app/src/main/res/values/strings.xml \
+    packaging/rpm/clambhook.spec ui/kotlin/platform/src/main/res/values/strings.xml \
     ui/apple/ClambhookMac/MacLegalFooter.swift \
     packaging/desktop/org.jpfchang.clambhook.metainfo.xml.in; then
     fail "obsolete proprietary/view-only language remains in current legal surfaces"

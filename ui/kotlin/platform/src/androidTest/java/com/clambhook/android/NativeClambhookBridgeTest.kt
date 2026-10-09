@@ -163,7 +163,7 @@ class NativeClambhookBridgeTest {
         val failure = AtomicReference<Throwable?>()
         val request = Thread {
             try {
-                response.set(GluonPlatformFacade.dispatch("vpn-consent", "{}"))
+                response.set(AndroidRuntimeFacade.dispatch("vpn-consent", "{}"))
             } catch (error: Throwable) {
                 failure.set(error)
             }
@@ -583,10 +583,10 @@ class NativeClambhookBridgeTest {
         AndroidPlatformEnvironment.initialize(context)
         runBlocking { AndroidConfigStore(context).saveConfig(configFile().readText()) }
         val profiles = objectJson(
-            GluonPlatformFacade.request("GET", "/api/v1/profiles", ""),
+            AndroidRuntimeFacade.request("GET", "/api/v1/profiles", ""),
         )
         assertEquals("work", profiles.getValue("active").jsonPrimitive.content)
-        val installed = objectJson(GluonPlatformFacade.dispatch("installed-apps", "{}"))
+        val installed = objectJson(AndroidRuntimeFacade.dispatch("installed-apps", "{}"))
         assertNotNull(installed["applications"])
     }
 
@@ -604,7 +604,7 @@ class NativeClambhookBridgeTest {
         runBlocking {
             AndroidConfigStore(context).saveConfig(configFile("outline-import.toml").readText())
         }
-        val review = GluonPlatformFacade.request(
+        val review = AndroidRuntimeFacade.request(
             "POST",
             "/api/v1/outline/review",
             """{"access_key":${JsonPrimitive(accessKey)}}""",
@@ -616,7 +616,7 @@ class NativeClambhookBridgeTest {
         )
 
         val imported = objectJson(
-            GluonPlatformFacade.request(
+            AndroidRuntimeFacade.request(
                 "POST",
                 "/api/v1/outline/import",
                 """{"access_key":${JsonPrimitive(accessKey)},"profile_name":"Device Outline","activate":false}""",
@@ -634,38 +634,38 @@ class NativeClambhookBridgeTest {
         AndroidPlatformEnvironment.initialize(context)
         val target = File(context.cacheDir, "platform/facade-profile.toml")
         val contents = configFile("platform-source.toml").readText()
-        GluonPlatformFacade.dispatch(
+        AndroidRuntimeFacade.dispatch(
             "file-write",
             """{"path":"${target.absolutePath}","value":${JsonPrimitive(contents)}}""",
         )
         assertEquals(
             contents,
-            GluonPlatformFacade.dispatch(
+            AndroidRuntimeFacade.dispatch(
                 "file-read",
                 """{"path":"${target.absolutePath}","maximum_bytes":1048576}""",
             ),
         )
         assertThrows(IllegalStateException::class.java) {
-            GluonPlatformFacade.dispatch(
+            AndroidRuntimeFacade.dispatch(
                 "file-read",
                 """{"path":"${File(context.filesDir, "../escape").absolutePath}"}""",
             )
         }
 
         val storageKey = "managed-device-secret"
-        GluonPlatformFacade.dispatch(
+        AndroidRuntimeFacade.dispatch(
             "secure-write",
             """{"key":"$storageKey","value":"sensitive-device-value"}""",
         )
         assertEquals(
             "sensitive-device-value",
-            GluonPlatformFacade.dispatch("secure-read", """{"key":"$storageKey"}"""),
+            AndroidRuntimeFacade.dispatch("secure-read", """{"key":"$storageKey"}"""),
         )
-        GluonPlatformFacade.dispatch("secure-delete", """{"key":"$storageKey"}""")
-        assertEquals("", GluonPlatformFacade.dispatch("secure-read", """{"key":"$storageKey"}"""))
+        AndroidRuntimeFacade.dispatch("secure-delete", """{"key":"$storageKey"}""")
+        assertEquals("", AndroidRuntimeFacade.dispatch("secure-read", """{"key":"$storageKey"}"""))
 
         val routing = objectJson(
-            GluonPlatformFacade.dispatch(
+            AndroidRuntimeFacade.dispatch(
                 "per-app-routing-update",
                 """{"mode":"include","packages":["com.example.zeta","invalid package","com.example.alpha"]}""",
             ),
@@ -687,12 +687,12 @@ class NativeClambhookBridgeTest {
         )
 
         val imported = objectJson(
-            GluonPlatformFacade.request("POST", "/api/v1/config/import", contents),
+            AndroidRuntimeFacade.request("POST", "/api/v1/config/import", contents),
         )
         assertEquals("work", imported.getValue("active").jsonPrimitive.content)
         assertEquals(
             "work",
-            objectJson(GluonPlatformFacade.request("GET", "/api/v1/profiles", ""))
+            objectJson(AndroidRuntimeFacade.request("GET", "/api/v1/profiles", ""))
                 .getValue("active").jsonPrimitive.content,
         )
     }
@@ -702,7 +702,7 @@ class NativeClambhookBridgeTest {
     fun vpnConsentForegroundRuntimeReconnectAndFrameworkRevokeJourney() {
         AndroidPlatformEnvironment.initialize(context)
         runBlocking { AndroidConfigStore(context).saveConfig(configFile("vpn-service.toml").readText()) }
-        GluonPlatformFacade.dispatch("vpn-stop", "{}")
+        AndroidRuntimeFacade.dispatch("vpn-stop", "{}")
         waitUntil { ClambhookTunnelSession.runtime.value == null }
 
         try {
@@ -732,7 +732,7 @@ class NativeClambhookBridgeTest {
 
             assertEquals(
                 true,
-                objectJson(GluonPlatformFacade.dispatch("vpn-start", "{}"))
+                objectJson(AndroidRuntimeFacade.dispatch("vpn-start", "{}"))
                     .getValue("accepted").jsonPrimitive.boolean,
             )
             assertTrue("foreground VPN runtime did not attach", waitUntil {
@@ -740,7 +740,7 @@ class NativeClambhookBridgeTest {
             })
             val firstRuntime = requireNotNull(ClambhookTunnelSession.runtime.value)
             assertTrue(
-                objectJson(GluonPlatformFacade.request("GET", "/api/v1/status", ""))
+                objectJson(AndroidRuntimeFacade.request("GET", "/api/v1/status", ""))
                     .getValue("running").jsonPrimitive.boolean,
             )
             assertNotNull(
@@ -748,18 +748,18 @@ class NativeClambhookBridgeTest {
                     .getNotificationChannel("clambhook_vpn"),
             )
 
-            GluonPlatformFacade.dispatch("vpn-start", "{}")
+            AndroidRuntimeFacade.dispatch("vpn-start", "{}")
             assertTrue("reconnect did not replace the runtime atomically", waitUntil {
                 ClambhookTunnelSession.runtime.value?.let {
                     it !== firstRuntime && it.isRunning()
                 } == true
             })
-            GluonPlatformFacade.dispatch("vpn-stop", "{}")
+            AndroidRuntimeFacade.dispatch("vpn-stop", "{}")
             assertTrue("explicit stop left the runtime attached", waitUntil {
                 ClambhookTunnelSession.runtime.value == null
             })
 
-            GluonPlatformFacade.dispatch("vpn-start", "{}")
+            AndroidRuntimeFacade.dispatch("vpn-start", "{}")
             assertTrue("restart did not restore the runtime", waitUntil {
                 ClambhookTunnelSession.runtime.value?.isRunning() == true
             })
@@ -769,7 +769,7 @@ class NativeClambhookBridgeTest {
                 ClambhookTunnelSession.runtime.value == null
             })
         } finally {
-            GluonPlatformFacade.dispatch("vpn-stop", "{}")
+            AndroidRuntimeFacade.dispatch("vpn-stop", "{}")
             waitUntil { ClambhookTunnelSession.runtime.value == null }
             setVpnAuthorization("ignore")
         }

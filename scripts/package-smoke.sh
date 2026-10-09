@@ -175,15 +175,22 @@ smoke_installed_linux_gui() {
     assert_file "$base/share/metainfo/org.jpfchang.clambhook.metainfo.xml"
     assert_file "$base/share/icons/hicolor/1024x1024/apps/org.jpfchang.clambhook.png"
 
-    if find "$base" -type f \( -iname '*.jar' -o -iname '*.go' -o \
-            -iname '*compose*' -o -iname '*gtk*' \) -print -quit | grep -q .; then
-        echo "package-smoke: legacy UI/runtime payload found under $base" >&2
+    if find "$base" \( -iname '*.go' -o -iname '*javafx*' -o -iname '*gluon*' -o \
+            -iname '*gtk*' \) -print -quit | grep -q .; then
+        echo "package-smoke: retired UI payload found under $base" >&2
         exit 1
     fi
-    if find "$base" -type d \( -iname 'jre' -o -iname 'jdk' \) -print -quit | grep -q .; then
-        echo "package-smoke: bundled Java runtime found under $base" >&2
+    # The desktop controller's private jlink runtime is the only Java runtime.
+    if find "$base" -type d \( -iname 'jre' -o -iname 'jdk' -o -name 'runtime' \) \
+            -not -path "$base/lib/clambhook/ui/lib/runtime" -print -quit | grep -q .; then
+        echo "package-smoke: Java runtime found outside the private desktop runtime under $base" >&2
         exit 1
     fi
+    [ -L "$base/bin/clambhook-ui" ] || {
+        echo "package-smoke: clambhook-ui must link to the packaged desktop distributable" >&2
+        exit 1
+    }
+    assert_executable "$base/lib/clambhook/ui/bin/clambhook-ui"
     if command -v readelf >/dev/null 2>&1; then
         for binary in "$base/bin/clambhook" "$base/bin/clambhook-tui" \
                 "$base/bin/clambhook-license"; do
@@ -224,13 +231,12 @@ prepare_source_tree() {
             --exclude '/bin' \
             --exclude '/build-native' \
             --exclude '/build-native-sanitize' \
-            --exclude '/build-gluon-linux-aarch64' \
-            --exclude '/ui/android/build' \
-            --exclude '/ui/android/.gradle' \
-            --exclude '/ui/android/.native-deps' \
-            --exclude '/ui/android/app/build' \
-            --exclude '/ui/android/app/libs' \
-            --exclude '/ui/javafx/target' \
+            --exclude '/ui/kotlin/.gradle' \
+            --exclude '/ui/kotlin/.kotlin' \
+            --exclude '/ui/kotlin/.native-deps' \
+            --exclude '/ui/kotlin/build' \
+            --exclude '/ui/kotlin/*/build' \
+            --exclude '/ui/kotlin/platform/.cxx' \
             "$ROOT"/ "$dest"/
         return
     fi
@@ -243,13 +249,12 @@ prepare_source_tree() {
             --exclude './bin' \
             --exclude './build-native' \
             --exclude './build-native-sanitize' \
-            --exclude './build-gluon-linux-aarch64' \
-            --exclude './ui/android/build' \
-            --exclude './ui/android/.gradle' \
-            --exclude './ui/android/.native-deps' \
-            --exclude './ui/android/app/build' \
-            --exclude './ui/android/app/libs' \
-            --exclude './ui/javafx/target' \
+            --exclude './ui/kotlin/.gradle' \
+            --exclude './ui/kotlin/.kotlin' \
+            --exclude './ui/kotlin/.native-deps' \
+            --exclude './ui/kotlin/build' \
+            --exclude './ui/kotlin/*/build' \
+            --exclude './ui/kotlin/platform/.cxx' \
             .
     ) | (
         cd "$dest"
@@ -264,7 +269,7 @@ smoke_paths() {
     assert_file "$ROOT/packaging/homebrew/clambhook.rb"
     assert_file "$ROOT/packaging/desktop/org.jpfchang.clambhook.desktop.in"
     assert_file "$ROOT/packaging/desktop/org.jpfchang.clambhook.metainfo.xml.in"
-    assert_file "$ROOT/ui/javafx/pom.xml"
+    assert_file "$ROOT/ui/kotlin/desktop/build.gradle.kts"
     assert_file "$ROOT/clambhook-icon-1024.png"
     assert_file "$ROOT/debian/control"
     assert_file "$ROOT/debian/copyright"
@@ -277,8 +282,9 @@ smoke_paths() {
     assert_file "$ROOT/NOTICE"
     assert_file "$ROOT/TRADEMARKS.md"
     assert_file "$ROOT/packaging/sbom.cdx.json"
-    assert_file "$ROOT/ui/android/app/build.gradle.kts"
-    assert_file "$ROOT/ui/android/app/src/main/AndroidManifest.xml"
+    assert_file "$ROOT/ui/kotlin/platform/build.gradle.kts"
+    assert_file "$ROOT/ui/kotlin/app/build.gradle.kts"
+    assert_file "$ROOT/ui/kotlin/app/src/main/AndroidManifest.xml"
 }
 
 smoke_systemd() {
@@ -292,11 +298,7 @@ smoke_linux_gui_install() {
     log "staging Linux GUI install under temporary DESTDIR"
 
     require_linux_target "Linux GUI install" || return 0
-    need_tools java mvn pkg-config || return 0
-    if [ -z "${GRAALVM_HOME:-}" ] || [ ! -x "$GRAALVM_HOME/bin/native-image" ]; then
-        skip_or_fail "GRAALVM_HOME does not point to GraalVM for JDK 17"
-        return 0
-    fi
+    need_tools java jpackage pkg-config || return 0
     if ! pkg-config --exists libsodium; then
         skip_or_fail "missing libsodium development pkg-config dependency"
         return 0

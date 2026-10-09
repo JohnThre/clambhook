@@ -1,53 +1,69 @@
 <!-- SPDX-FileCopyrightText: 2026 Pengfan Chang <support@swiphtgroup.com> -->
 <!-- SPDX-License-Identifier: GPL-3.0-only -->
 
-# Android platform AAR
+# Kotlin application (Android and GNU/Linux)
 
-This module contains Android framework integration only. It has no
-user-facing activity hierarchy beyond short-lived permission/QR bridges; the
-Gluon JavaFX application in `ui/javafx` owns every product screen.
+This Gradle build holds the only user interface shipped on Android and
+GNU/Linux. It is written entirely in Kotlin with Compose Multiplatform 1.11, on
+Kotlin 2.4, AGP 9.3, and the pinned Gradle 9.7.1 wrapper. On GNU/Linux, Ubuntu
+and Fedora are the only supported distributions.
 
-The Kotlin AAR retains `VpnService`, TUN ownership, foreground-service and
-notification lifecycle, consent/revoke handling, encrypted secure storage,
-signed updater support, QR/file sharing, installed-app inventory, and per-app
-routing. `ClambhookVpnService` owns the single in-process C17 runtime. Closing
-or recreating the JavaFX activity only detaches the controller and never
-destroys that runtime.
+| Module | Contents |
+| --- | --- |
+| `:shared` | Kotlin Multiplatform: the Compose UI (`commonMain`), the typed `RuntimeClient` and `PlatformServices` boundaries, JSON contracts, and the dashboard model. `desktopMain` holds the loopback HTTP/WebSocket backend (OkHttp) and the Ubuntu/Fedora platform services. `androidMain` holds the in-process JNI backend and Android platform services. |
+| `:platform` | Android library: `ClambhookVpnService`, TUN, the JNI C runtime, consent, QR, secure storage, licensing, per-app routing, and the signed updater. |
+| `:app` | Android application `org.jpfchang.clambhook` (minSdk 31, targetSdk 36, ARM64 only). |
+| `:desktop` | GNU/Linux entry point, packaged as a Compose Desktop distributable with a private jlink runtime and installed as `clambhook-ui`. |
 
 ```mermaid
-sequenceDiagram
-    participant UI as JavaFX/Gluon activity
-    participant Bridge as Dalvik/JNI bridge
-    participant Facade as Kotlin platform facade
-    participant VPN as ClambhookVpnService
-    participant Core as C17 runtime
-    participant OS as Android VPN framework
-    UI->>Bridge: typed runtime/platform request
-    Bridge->>Facade: platform operation
-    Facade->>OS: request consent when required
-    Facade->>VPN: start foreground service
-    VPN->>OS: establish ARM64 TUN
-    VPN->>Core: create one runtime and attach TUN
-    Bridge->>Core: route typed control request
-    UI-->>Bridge: detach when activity closes
-    Note over VPN,Core: service and runtime continue
-    Facade->>VPN: explicit stop or OS revoke
-    VPN->>Core: stop runtime
-    VPN->>OS: close TUN and foreground notification
+flowchart TB
+    views["Compose UI (commonMain)"] --> client["RuntimeClient"]
+    views --> services["PlatformServices"]
+    client -->|"desktopMain: authenticated<br/>loopback HTTP + WebSocket"| daemon["Supervised C17 daemon"]
+    client -->|"androidMain: JNI"| runtime["Service-owned C17 runtime"]
+    services --> linux["Ubuntu/Fedora: systemd · polkit · secret-tool<br/>signed apt/dnf repository updates"]
+    services --> android[":platform · VpnService · files · QR<br/>secure storage · GPG-verified updater"]
+    android --> runtime
 ```
 
-The locked application ID is `org.jpfchang.clambhook`; `minSdk` is 31,
-`targetSdk` is 36, `compileSdk` is 37, and product APK/AAB output is
-ARM64-only. Portable C tests may still use other Android ABIs.
+`RuntimeClient` owns the frozen JSON and control-route types and never exposes
+HTTP, JNI, or Android lifecycle objects to views. The GNU/Linux transport
+accepts loopback HTTP(S) origins only and uses the same bearer token for HTTP
+and WebSocket requests. `ClambhookVpnService` owns the single Android runtime,
+so closing the activity only detaches the UI.
 
-Run `make test-android` for Kotlin unit tests, lint, native compilation, and the
-ARM64-only release AAR. Authoritative managed-device journeys run
-`aosp_atd/x86_64` images on API 31, 33, and 36 using Ubuntu 24.04 hosted
-runners with KVM. Only the debug test package gains the x86_64 JNI slice; this
-does not expand the supported product ABI. With the repository Android
-CLI installed, use `android info`, `android emulator list`,
-`android emulator start <name>`, and
-`android run --device <serial> --apks <apk>` for supplemental local journeys.
-Use `adb logcat --pid=$(adb shell pidof org.jpfchang.clambhook)` when runtime
-logs are needed. See
-[`docs/android-development.md`](../../docs/android-development.md).
+## Build and test
+
+```sh
+make test-linux       # shared + desktop tests (Compose UI under Xvfb on headless Linux)
+make build-linux      # Compose Desktop distributable (Ubuntu or Fedora host; needs jpackage + jmods)
+make test-android     # :platform unit tests and lint, :app lint, release APK
+make build-android    # release APK and App Bundle
+```
+
+The Android modules are configured only when an Android SDK is found
+(`ANDROID_HOME`, `ANDROID_SDK_ROOT`, or `local.properties`). Pass
+`-Pclambhook.desktopOnly=true` to force a desktop-only build, as the Ubuntu and
+Fedora package builds do implicitly.
+
+The Android build stays on the stable API 36 SDK. `androidx.core` 1.19+,
+`okhttp-android` 5.5+, and Compose 1.12+ need compileSdk 37, so they are pinned
+below those versions and excluded from Dependabot.
+
+## Signing and updates
+
+Android release builds read the keystore from the
+`CLAMBHOOK_ANDROID_KEYSTORE_*` environment that
+`scripts/prepare-ci-android-signing.sh` sets up. The application ID and keystore
+never change, so existing installs upgrade in place. The in-app updater accepts
+a manifest and APK only when their detached `.sig` files verify against the
+bundled developer@jpfchang.org key (`ReleaseSignatureVerifier`, Bouncy Castle),
+and only when the SHA-256 also matches.
+
+On GNU/Linux, updates come only from the signed apt (Ubuntu) or dnf (Fedora)
+repository that the package configures. On any other distribution, the desktop
+updater reports that updates are unsupported.
+
+License keys live in the Secret Service via `secret-tool`. The install ID and
+signed helper state are written atomically with private permissions under
+`$XDG_CONFIG_HOME/clambhook/`.

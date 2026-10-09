@@ -12,30 +12,14 @@ Build-Depends:
  cmake,
  ninja-build,
  pkgconf,
- maven,
- python3,
- default-jdk-headless (>= 17) | openjdk-17-jdk-headless,
- libasound2-dev,
- libavcodec-dev,
- libavformat-dev,
- libavutil-dev,
+ default-jdk-headless (>= 2:1.21) | openjdk-21-jdk-headless,
+ openjdk-21-jmods | default-jdk-headless (>= 2:1.21),
  libcurl4-openssl-dev,
- libdrm-dev,
- libegl-dev,
- libfreetype6-dev,
- libgbm-dev,
- libgl-dev,
- libglib2.0-dev,
- libgtk-3-dev,
- libpango1.0-dev,
  libsodium-dev,
  libssl-dev,
  libuv1-dev,
- libx11-dev,
- libxtst-dev,
  xauth,
- xvfb,
- zlib1g-dev
+ xvfb
 Standards-Version: 4.7.0
 Homepage: https://github.com/JohnThre/clambhook
 Vcs-Browser: https://github.com/JohnThre/clambhook
@@ -50,8 +34,17 @@ Depends:
  iproute2,
  libsecret-tools,
  polkitd | policykit-1,
- systemd
-Description: C17 network daemon, JavaFX controller, and terminal dashboard
+ systemd,
+ libx11-6,
+ libxext6,
+ libxi6,
+ libxrender1,
+ libxtst6,
+ libfontconfig1,
+ libfreetype6
+Description: C17 network daemon, Kotlin controller, and terminal dashboard
  clambhook provides a C17 network client daemon, frozen HTTP/WebSocket control
- API, a self-contained JavaFX/Gluon native controller, a terminal dashboard,
- and the license helper used for trial and license activation.
+ API, a self-contained Kotlin/Compose desktop controller with a private
+ runtime, a terminal dashboard, and the license helper used for trial and
+ license activation. Supported on Ubuntu; packages and the apt repository are
+ signed with the developer@jpfchang.org release key.

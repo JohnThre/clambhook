@@ -46,9 +46,9 @@ build_rpm() {
     (
         cd "$ROOT_DIR"
         tar --exclude-vcs --exclude='./dist' --exclude='./build-native*' \
-            --exclude='./build-gluon-linux-aarch64' \
-            --exclude='./ui/javafx/target' --exclude='./ui/android/.gradle' \
-            --exclude='./ui/android/.native-deps' --exclude='./ui/android/app/build' \
+            --exclude='./ui/kotlin/.gradle' --exclude='./ui/kotlin/.kotlin' \
+            --exclude='./ui/kotlin/.native-deps' --exclude='./ui/kotlin/*/build' \
+            --exclude='./ui/kotlin/build' --exclude='./ui/kotlin/platform/.cxx' \
             --transform "s,^\.,clambhook-${version}," \
             -czf "$source" .
         rpmbuild --define "_topdir $topdir" --define "version $version" \

@@ -3,14 +3,17 @@
 
 package com.clambhook.android
 
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonNames
 
 /**
- * Update manifest served by store.clambercloud.com's
- * `/api/clambhook/android-manifest`. ClambHook is sideloaded (no Play Store), so
- * the app polls this to detect and install newer signed APKs from
- * store.clambercloud.com.
+ * Android update manifest (`clambhook-android-manifest.json`) published on
+ * GitHub Releases by `scripts/release-android.sh` and signed with the
+ * developer@jpfchang.org key. ClambHook is sideloaded (no Play Store), so the
+ * app polls it to detect and install newer signed APKs.
  */
+@OptIn(ExperimentalSerializationApi::class)
 @Serializable
 data class AndroidUpdateManifest(
     val versionCode: Long = 0,
@@ -18,6 +21,8 @@ data class AndroidUpdateManifest(
     val minSdk: Int = 0,
     val publishedAt: String = "",
     val apkUrl: String = "",
+    // The release script publishes the APK digest as `apkSha256`.
+    @JsonNames("apkSha256")
     val sha256: String = "",
     val notes: String = "",
 )

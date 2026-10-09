@@ -11,10 +11,10 @@ interface ClambhookTunnelRuntime {
     fun injectPacket(packet: ByteArray, length: Int = packet.size)
     fun isRunning(): Boolean
 
-    /** Frozen query contract consumed by the shared JavaFX application. */
+    /** Frozen query contract consumed by the shared Kotlin UI. */
     fun query(operation: String, requestJson: String = "{}"): String
 
-    /** Frozen mutation contract consumed by the shared JavaFX application. */
+    /** Frozen mutation contract consumed by the shared Kotlin UI. */
     fun mutate(operation: String, requestJson: String = "{}"): String
 
     fun developerRequest(repeat: Boolean, requestJson: String): String

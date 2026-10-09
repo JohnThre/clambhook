@@ -48,111 +48,67 @@ expected = {
     "wireguard-lwip": "c54f20dbe76ac8b3411ad21e0ed7deea6f0cfd4d",
     "OpenSSL": "3.5.8",
     "curl": "8.18.0",
-    "javafx-controls": "21.0.12",
-    "javafx-static-sdk": "21.0.1",
-    "substrate": "0.0.69",
-    "gluonfx-maven-plugin": "1.0.29",
     "android-gradle-plugin": "9.3.2",
     "Gradle": "9.7.1",
     "kotlin-serialization-plugin": "2.4.10",
+    "kotlin-multiplatform-plugin": "2.4.10",
     "kotlin-stdlib": "2.4.10",
-    "GraalVM Community Edition": "17.0.9",
-    "Gluon GraalVM for Java 17": "22.1.0.1-Final",
-    "activity": "1.11.0",
-    "core-ktx": "1.19.0",
+    "compose-gradle-plugin": "1.11.1",
+    "runtime": "1.11.1",
+    "foundation": "1.11.1",
+    "ui": "1.11.1",
+    "material3": "1.9.0",
+    "activity-compose": "1.13.0",
+    "core-ktx": "1.18.0",
     "datastore-preferences": "1.1.1",
     "security-crypto": "1.1.0",
     "kotlinx-coroutines-android": "1.11.0",
+    "kotlinx-coroutines-swing": "1.11.0",
     "kotlinx-serialization-json": "1.11.0",
-    "okhttp": "5.5.0",
+    "okhttp": "5.4.0",
     "zxing-android-embedded": "4.3.0",
+    "bcpg-jdk18on": "1.86",
 }
 actual = {component.get("name"): component.get("version") for component in components}
 for name, version in expected.items():
     if actual.get(name) != version:
         fail(f"missing or stale component: {name} {version}")
+for retired in ("javafx-controls", "javafx-static-sdk", "substrate", "gluonfx-maven-plugin"):
+    if retired in actual:
+        fail(f"retired JavaFX/Gluon component remains: {retired}")
 
-pom = (ROOT / "ui" / "javafx" / "pom.xml").read_text(encoding="utf-8")
-gradle = (ROOT / "ui" / "android" / "app" / "build.gradle.kts").read_text(
+KOTLIN = ROOT / "ui" / "kotlin"
+root_gradle = (KOTLIN / "build.gradle.kts").read_text(encoding="utf-8")
+platform_gradle = (KOTLIN / "platform" / "build.gradle.kts").read_text(encoding="utf-8")
+shared_gradle = (KOTLIN / "shared" / "build.gradle.kts").read_text(encoding="utf-8")
+app_gradle = (KOTLIN / "app" / "build.gradle.kts").read_text(encoding="utf-8")
+gradle_wrapper = (KOTLIN / "gradle" / "wrapper" / "gradle-wrapper.properties").read_text(
     encoding="utf-8"
 )
-root_gradle = (ROOT / "ui" / "android" / "build.gradle.kts").read_text(
-    encoding="utf-8"
-)
-gradle_wrapper = (
-    ROOT / "ui" / "android" / "gradle" / "wrapper" / "gradle-wrapper.properties"
-).read_text(encoding="utf-8")
-gluon_android = (ROOT / "ui" / "javafx" / "src" / "android" / "build.gradle").read_text(
-    encoding="utf-8"
-)
-graalvm_provisioner = (ROOT / "scripts" / "provision-graalvm17.sh").read_text(
-    encoding="utf-8"
-)
-arm64_preparer = (ROOT / "scripts" / "prepare-gluon-linux-aarch64.sh").read_text(
-    encoding="utf-8"
-)
-substrate_patcher = (ROOT / "scripts" / "patch-gluon-substrate-aarch64.py").read_text(
-    encoding="utf-8"
-)
-for value in ("21.0.12", "21.0.1", "1.0.29"):
-    if value not in pom:
-        fail(f"JavaFX/Gluon pin {value} is absent from pom.xml")
-for value in (
-    "1.19.0",
-    "1.1.1",
-    "1.1.0",
-    "1.11.0",
-    "5.5.0",
-    "4.3.0",
-):
-    if value not in gradle:
-        fail(f"Android dependency pin {value} is absent from app/build.gradle.kts")
-for value in ("9.3.2", "2.4.10"):
-    if value not in root_gradle:
-        fail(f"Android build-tool pin {value} is absent from build.gradle.kts")
+pins = {
+    "build.gradle.kts": (root_gradle, ("9.3.2", "2.4.10", '"1.11.1"')),
+    "platform/build.gradle.kts": (
+        platform_gradle,
+        ("core-ktx:1.18.0", "datastore-preferences:1.1.1", "security-crypto:1.1.0",
+         "coroutines-android:1.11.0", "serialization-json:1.11.0", "okhttp:5.4.0",
+         "zxing-android-embedded:4.3.0", "bcpg-jdk18on:1.86"),
+    ),
+    "shared/build.gradle.kts": (
+        shared_gradle,
+        ('composeVersion = "1.11.1"', "material3:1.9.0", "coroutines-swing:1.11.0"),
+    ),
+    "app/build.gradle.kts": (app_gradle, ("activity-compose:1.13.0", "core-ktx:1.18.0")),
+}
+for label, (text, values) in pins.items():
+    for value in values:
+        if value not in text:
+            fail(f"dependency pin {value} is absent from ui/kotlin/{label}")
 for value in (
     "gradle-9.7.1-bin.zip",
     "acd53f1edaf02f1a8ff99879f8a34b302661a057d9b063ae9e35b552f804d20a",
 ):
     if value not in gradle_wrapper:
         fail(f"Gradle wrapper pin is absent from gradle-wrapper.properties: {value}")
-for value in ("1.11.0", "1.19.0", "1.1.1", "1.1.0", "2.4.10", "5.5.0", "4.3.0"):
-    if value not in gluon_android:
-        fail(f"Gluon Android dependency pin {value} is absent from src/android/build.gradle")
-for value in (
-    "17.0.9",
-    "22.1.0.1-Final",
-    "70df79831e4e55289414b4e9c4ab78b74e31d7b7db7ba70cfff86ab8f9f8d4ef",
-):
-    if value not in graalvm_provisioner:
-        fail(f"GraalVM toolchain pin is absent from provision-graalvm17.sh: {value}")
-for value in (
-    "44beff405df3719f597e046cbdcd8f8ec245c4813ad3d0f5418e6ab50992231b",
-    "d2ba5f26578e4aa81e358f2e9fdf107c1d528294920db4e4a70841a678e49cf4",
-    "40365f7737cceb4561ef0a586e3f6a54b7e5fc98b2df604c0d88bff3209b72d1",
-):
-    if value not in arm64_preparer:
-        fail(f"Linux AArch64 Gluon pin is absent from its preparer: {value}")
-if "d2ba5f26578e4aa81e358f2e9fdf107c1d528294920db4e4a70841a678e49cf4" not in substrate_patcher:
-    fail("Substrate patcher does not verify the official 0.0.69 JAR")
-
-component_by_name = {component.get("name"): component for component in components}
-static_properties = {
-    item.get("name"): item.get("value")
-    for item in component_by_name["javafx-static-sdk"].get("properties", [])
-}
-substrate_properties = {
-    item.get("name"): item.get("value")
-    for item in component_by_name["substrate"].get("properties", [])
-}
-if static_properties.get("clambhook:linux-aarch64-gtk-archive-sha256") != (
-    "44beff405df3719f597e046cbdcd8f8ec245c4813ad3d0f5418e6ab50992231b"
-):
-    fail("SBOM omits the Linux AArch64 GTK static SDK checksum")
-if substrate_properties.get("clambhook:official-jar-sha256") != (
-    "d2ba5f26578e4aa81e358f2e9fdf107c1d528294920db4e4a70841a678e49cf4"
-):
-    fail("SBOM omits the patched Substrate input checksum")
 
 dependency_refs = {
     reference

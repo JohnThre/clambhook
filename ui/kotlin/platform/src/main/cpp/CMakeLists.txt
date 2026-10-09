@@ -14,7 +14,7 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 get_filename_component(CLAMBHOOK_ROOT "${CMAKE_CURRENT_LIST_DIR}/../../../../../.." ABSOLUTE)
 
 set(CLAMBHOOK_ANDROID_OPENSSL_ROOT
-    "${CLAMBHOOK_ROOT}/ui/android/.native-deps"
+    "${CLAMBHOOK_ROOT}/ui/kotlin/.native-deps"
     CACHE PATH "Shared Android OpenSSL build cache")
 string(REGEX REPLACE "^android-" "" CLAMBHOOK_ANDROID_API "${ANDROID_PLATFORM}")
 set(CLAMBHOOK_ANDROID_OPENSSL_INSTALL
@@ -230,20 +230,7 @@ add_library(clambhook_jni SHARED
     "${CLAMBHOOK_ROOT}/native/src/wireguard_platform.c"
 )
 
-add_library(clambhook_gluon_bridge STATIC
-    "${CLAMBHOOK_ROOT}/native/src/android/gluon_bridge.c"
-)
-set_target_properties(clambhook_gluon_bridge PROPERTIES
-    OUTPUT_NAME clambhook_gluon_bridge
-    ARCHIVE_OUTPUT_DIRECTORY
-        "${CMAKE_CURRENT_LIST_DIR}/../../../build/gluon/${CMAKE_BUILD_TYPE}/${ANDROID_ABI}"
-)
-target_compile_options(clambhook_gluon_bridge PRIVATE
-    -Wall -Wextra -Wpedantic -Wconversion -Wshadow
-)
-
 add_dependencies(clambhook_jni clambhook_android_openssl clambhook_android_curl)
-add_dependencies(clambhook_jni clambhook_gluon_bridge)
 
 target_include_directories(clambhook_jni PRIVATE
     "${CLAMBHOOK_ROOT}/native/include"

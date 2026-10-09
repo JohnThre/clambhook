@@ -11,12 +11,12 @@ cd "$ROOT_DIR"
 
 HOST_OS="$(uname -s 2>/dev/null || echo unknown)"
 SKIP_RC=200
-ALL_SECTIONS=(native javafx android apple linux smoke)
+ALL_SECTIONS=(native kotlin android apple linux smoke)
 
 have() { command -v "$1" >/dev/null 2>&1; }
 
 usage() {
-    printf 'Usage: %s [native|javafx|android|apple|linux|smoke|all ...]\n' "$0"
+    printf 'Usage: %s [native|kotlin|android|apple|linux|smoke|all ...]\n' "$0"
     exit 0
 }
 
@@ -30,27 +30,23 @@ section_native() {
     make lint
 }
 
-section_javafx() {
-    if ! have java || ! have mvn; then
-        echo "ci-local: [javafx] skip: JDK 17 and Maven are required" >&2
+section_kotlin() {
+    if ! have java; then
+        echo "ci-local: [kotlin] skip: JDK 17+ is required" >&2
         return "$SKIP_RC"
     fi
-    echo "==================== ci-local: javafx ===================="
-    make test-javafx
+    echo "==================== ci-local: kotlin ===================="
+    make test-linux
 }
 
 section_android() {
-    if ! have java || [[ ! -x ui/android/gradlew ]]; then
-        echo "ci-local: [android] skip: JDK 17 or Android Gradle wrapper is missing" >&2
+    if ! have java || [[ ! -x ui/kotlin/gradlew ]]; then
+        echo "ci-local: [android] skip: JDK 17 or the Kotlin Gradle wrapper is missing" >&2
         return "$SKIP_RC"
     fi
     echo "==================== ci-local: android ===================="
     make test-android
-    if [[ -n "${GRAALVM_HOME:-}" ]]; then
-        make build-android
-    else
-        echo "ci-local: [android] skip: Gluon image build needs GRAALVM_HOME" >&2
-    fi
+    make build-android
     if have android && [[ -n "${CI_LOCAL_ANDROID_AVD:-}" ]]; then
         android emulator start "$CI_LOCAL_ANDROID_AVD"
         make run-android
@@ -71,11 +67,11 @@ section_apple() {
 
 section_linux() {
     [[ "$HOST_OS" == "Linux" ]] || {
-        echo "ci-local: [linux] skip: GNU/Linux host required for Gluon native image" >&2
+        echo "ci-local: [linux] skip: an Ubuntu or Fedora host is required" >&2
         return "$SKIP_RC"
     }
-    if [[ -z "${GRAALVM_HOME:-}" ]] || ! have mvn; then
-        echo "ci-local: [linux] skip: GRAALVM_HOME and Maven are required" >&2
+    if ! have jpackage; then
+        echo "ci-local: [linux] skip: a JDK 17+ with jpackage and jmods is required" >&2
         return "$SKIP_RC"
     fi
     echo "==================== ci-local: linux ===================="
@@ -95,7 +91,7 @@ section_smoke() {
     if [[ "$HOST_OS" == "Darwin" ]]; then
         make macos-release-contract-check
     fi
-    if [[ "$HOST_OS" == "Linux" && -n "${GRAALVM_HOME:-}" ]]; then
+    if [[ "$HOST_OS" == "Linux" ]] && have jpackage; then
         make package-smoke
     else
         echo "ci-local: [smoke] skip: package smoke is authoritative on GNU/Linux" >&2
@@ -107,7 +103,7 @@ for arg in "$@"; do
     case "$arg" in
         -h|--help) usage ;;
         all) sections=("${ALL_SECTIONS[@]}"); break ;;
-        native|javafx|android|apple|linux|smoke) sections+=("$arg") ;;
+        native|kotlin|android|apple|linux|smoke) sections+=("$arg") ;;
         *) echo "ci-local: unknown section '$arg'" >&2; exit 2 ;;
     esac
 done

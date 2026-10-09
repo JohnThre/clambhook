@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 
 # Decode the protected Android keystore into the runner temporary directory
-# and export GluonFX signing inputs through the GitHub Actions environment file.
+# and export Android release signing inputs through the GitHub Actions environment file.
 set -euo pipefail
 
 TEMP_ROOT="${1:?temporary root is required}"
@@ -33,4 +33,4 @@ chmod 0600 "$KEYSTORE"
     printf 'CLAMBHOOK_ANDROID_KEY_PASSWORD=%s\n' "$ANDROID_KEY_PASSWORD"
 } >>"$ENV_FILE"
 
-echo "Prepared protected Gluon Android signing configuration."
+echo "Prepared protected Android signing configuration."

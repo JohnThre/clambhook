@@ -36,11 +36,13 @@ import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 
 /**
- * Java-facing process boundary used by the Gluon native image. The VPN service
- * remains the sole owner of the C runtime; this facade only attaches to the
- * published session and therefore never destroys it when JavaFX closes.
+ * Process boundary used by the shared Kotlin/Compose UI. It routes the frozen
+ * control-API paths to the in-process C runtime and implements the Android
+ * platform operations. The VPN service remains the sole owner of the C
+ * runtime; this facade only attaches to the published session and therefore
+ * never destroys it when the activity closes.
  */
-object GluonPlatformFacade {
+object AndroidRuntimeFacade {
     private val licenseStarted = AtomicBoolean(false)
     private val context: Context get() = AndroidPlatformEnvironment.context()
     private val configStore: AndroidConfigStore by lazy { AndroidConfigStore(context) }
@@ -61,7 +63,6 @@ object GluonPlatformFacade {
         )
     }
 
-    @JvmStatic
     fun request(method: String, path: String, body: String): String {
         val verb = method.trim().uppercase()
         val uri = Uri.parse(path)
@@ -222,7 +223,6 @@ object GluonPlatformFacade {
         error("unsupported runtime route $verb $route")
     }
 
-    @JvmStatic
     fun dispatch(operation: String, requestJson: String): String {
         val request = parseObject(requestJson)
         return when (operation) {
