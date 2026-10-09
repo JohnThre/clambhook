@@ -14,7 +14,7 @@ import kotlinx.coroutines.CompletableDeferred
 import java.util.concurrent.atomic.AtomicInteger
 
 /** Backend answering the frozen GET routes with canned documents. */
-class ScriptedBackend(
+open class ScriptedBackend(
     override var baseUrl: String = "http://127.0.0.1:9090",
     var failStatus: Boolean = false,
     var activeProfile: String = "default",

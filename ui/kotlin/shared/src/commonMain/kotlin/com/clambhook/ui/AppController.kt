@@ -90,6 +90,7 @@ class AppController(
     }
 
     private var refreshJob: Job? = null
+    private var refreshQueued = false
     private var loopJob: Job? = null
     private var eventsJob: Job? = null
     private var outlineLinkRead = false
@@ -147,7 +148,13 @@ class AppController(
 
     fun refresh() {
         consumePendingOutlineLink()
-        if (refreshJob?.isActive == true) return
+        if (refreshJob?.isActive == true) {
+            // Never drop a request (for example Retry) that arrives while a
+            // refresh is finishing; run exactly one more afterwards.
+            refreshQueued = true
+            return
+        }
+        refreshQueued = false
         refreshing = true
         lastUpdated = "Refreshing dashboard…"
         refreshJob = scope.launch {
@@ -168,6 +175,9 @@ class AppController(
             } finally {
                 refreshing = false
             }
+        }
+        refreshJob?.invokeOnCompletion { cause ->
+            if (cause == null && refreshQueued) scope.launch { refresh() }
         }
     }
 
