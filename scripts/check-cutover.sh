@@ -91,9 +91,10 @@ for binary in build-native/clambhook build-native/clambhook-tui build-native/cla
     fi
 done
 
-grep -Fq 'linux-dist/clambhook-ui' ui/kotlin/desktop/build.gradle.kts &&
-    [[ -x ui/kotlin/desktop/src/linux/clambhook-ui ]] ||
+if ! grep -Fq 'linux-dist/clambhook-ui' ui/kotlin/desktop/build.gradle.kts ||
+    [[ ! -x ui/kotlin/desktop/src/linux/clambhook-ui ]]; then
     fail "desktop distributable name no longer matches the production Linux executable"
+fi
 grep -Fq 'applicationId = "org.jpfchang.clambhook"' ui/kotlin/app/build.gradle.kts ||
     fail "the Android application ID changed"
 
