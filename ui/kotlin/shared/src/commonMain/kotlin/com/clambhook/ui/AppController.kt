@@ -84,6 +84,7 @@ class AppController(
         private set
     var outlineKeyRequest by mutableStateOf<String?>(null)
         private set
+    private var errorFromRefresh = false
 
     val documents = mutableStateMapOf<Doc, String>().apply {
         put(Doc.DEVELOPER_COMPOSER, "{\n  \"method\": \"GET\",\n  \"url\": \"https://example.com/\"\n}")
@@ -169,7 +170,7 @@ class AppController(
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Throwable) {
-                showError(error)
+                showError(error, fromRefresh = true)
                 statusText = "Unavailable"
                 statusKind = StatusKind.ERROR
             } finally {
@@ -256,7 +257,7 @@ class AppController(
                     check(platform.requestVpnConsent()) { "VPN consent was not granted" }
                     platform.startVpn()
                 }
-                clearError()
+                clearOperationError()
                 connectionPending = false
                 refresh()
             } catch (error: CancellationException) {
@@ -272,7 +273,7 @@ class AppController(
         scope.launch {
             try {
                 operation()
-                clearError()
+                clearOperationError()
                 afterSuccess?.invoke()
             } catch (error: CancellationException) {
                 throw error
@@ -289,7 +290,7 @@ class AppController(
         scope.launch {
             try {
                 documents[key] = operation()
-                clearError()
+                clearOperationError()
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Throwable) {
@@ -315,7 +316,7 @@ class AppController(
             try {
                 val result = operation()
                 documents[key] = result.payload.ifBlank { result.message }
-                if (result.successful) clearError() else showError(IllegalStateException(result.message))
+                if (result.successful) clearOperationError() else showError(IllegalStateException(result.message))
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Throwable) {
@@ -330,7 +331,7 @@ class AppController(
                 val result = operation()
                 if (key != null) documents[key] = result.payload.ifBlank { result.message }
                 applySupporterStatus(result.payload)
-                if (result.successful) clearError() else showError(IllegalStateException(result.message))
+                if (result.successful) clearOperationError() else showError(IllegalStateException(result.message))
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Throwable) {
@@ -359,13 +360,26 @@ class AppController(
         }
     }
 
-    fun showError(throwable: Throwable) {
+    fun showError(throwable: Throwable, fromRefresh: Boolean = false) {
         val message = throwable.message
         errorMessage = if (message.isNullOrBlank()) throwable.toString() else message
+        errorFromRefresh = fromRefresh
     }
 
+    /** Dismisses the current error (Esc, a successful refresh, or a user action). */
     fun clearError() {
         errorMessage = null
+        errorFromRefresh = false
+    }
+
+    /**
+     * Success of a background load or mutation clears only errors that such
+     * operations raised. A failed dashboard refresh (for example an
+     * unreachable daemon) stays visible until a refresh succeeds or the user
+     * dismisses it, so an unrelated success never hides it.
+     */
+    private fun clearOperationError() {
+        if (!errorFromRefresh) errorMessage = null
     }
 
     /** Re-requests every document a page shows when the page opens. */

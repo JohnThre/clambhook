@@ -39,4 +39,24 @@ class AppControllerTest {
         assertEquals(2, backend.statusCalls.get())
         assertNull(controller.errorMessage, "the queued retry must clear the error")
     }
+
+    @Test
+    fun anUnrelatedBackgroundSuccessNeverHidesARefreshFailure() = runTest {
+        val backend = ScriptedBackend(failStatus = true)
+        val platform = FakePlatformServices()
+        val controller = AppController(DefaultRuntimeClient(backend), platform, this)
+        controller.refresh()
+        advanceUntilIdle()
+        assertEquals("Cannot reach the daemon", controller.errorMessage)
+        // Startup also loads license status and page documents in the background.
+        controller.loadLicenseStatus(null) { platform.licensing("status", "{}") }
+        controller.loadDocument(Doc.DNS) { DefaultRuntimeClient(backend).dns() }
+        advanceUntilIdle()
+        assertEquals("Cannot reach the daemon", controller.errorMessage)
+        // Only a successful refresh clears it.
+        backend.failStatus = false
+        controller.refresh()
+        advanceUntilIdle()
+        assertNull(controller.errorMessage)
+    }
 }
