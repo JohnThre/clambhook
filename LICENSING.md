@@ -25,13 +25,29 @@ release documentation.
 
 All other first-party material in this repository is licensed under the GNU
 General Public License version 3 only (`GPL-3.0-only`). This includes the C17
-runtime and public ABI, Kotlin Android platform bridge, Kotlin/Compose and SwiftUI
-clients, command-line programs, build and release tooling, documentation,
-configuration, packaging, and first-party assets. The complete license text is
+runtime and public ABI, the `clambhook` daemon and `clambhook-license` helper,
+build and release tooling, documentation, configuration, packaging, and
+first-party assets. The complete license text is
 in [`LICENSE`](LICENSE).
 
 SPDX declarations in a file, and the exceptions recorded in `REUSE.toml`, take
 precedence over this directory-level summary.
+
+## ClambHook apps
+
+The ClambHook apps — the SwiftUI macOS app, the Kotlin/Compose Android app and
+GNU/Linux desktop controller (`clambhook-ui`), the `clambhook-tui` terminal
+client, and the Android JNI bridge — are not part of this repository. From
+version 1.1.0 they are proprietary and are developed in a private repository.
+Versions 1.0.2 and earlier of those clients were published here under
+GPL-3.0-only; copies obtained under that license keep it, and that history
+remains in this repository.
+
+The apps bundle, link, or launch this core. The copyright holder distributes
+them under the separate terms described below. Every app build ships this
+core's license texts and points to this repository for its complete
+corresponding source. Nothing in the apps' terms limits the GPL rights that
+attach to this core.
 
 ## Separate commercial licensing
 
@@ -51,8 +67,7 @@ ClambHook trademarks or present a modified build as an official build.
 
 ## Third-party material
 
-Files under `third_party/**`, Gradle wrapper files identified in
-`REUSE.toml`, and other expressly identified upstream material remain under
+Files under `third_party/**` and other expressly identified upstream material remain under
 their respective licenses. See [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)
 and the notices distributed beside those files. No first-party license changes
 an upstream copyright or license.

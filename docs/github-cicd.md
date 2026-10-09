@@ -3,10 +3,15 @@
 
 # GitHub CI/CD
 
-GitHub Actions is the authoritative automation and GitHub Releases is the only
-official binary distribution channel when a protected publication succeeds.
-Workflows default to no permissions, pin every third-party action to a full
-commit SHA, and grant job-scoped access.
+GitHub Actions builds and tests the GPL-3.0-only core. GitHub Releases is the
+only official binary distribution channel. Releases are built, signed, and
+published from the maintainer's machine; no workflow builds, signs, or uploads
+installers, and no workflow holds release credentials. Workflows default to no
+permissions, pin every third-party action to a full commit SHA, and grant
+job-scoped access.
+
+The proprietary apps (SwiftUI, Kotlin/Compose, TUI) have their own build-and-test
+CI in the private apps repository.
 
 ## Continuous integration
 
@@ -16,83 +21,74 @@ commit SHA, and grant job-scoped access.
 - checksum-pinned standalone actionlint 1.7.12
   (`8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8`
   for Linux x86_64);
-- strict C17 builds, ASan/UBSan, CTest, license/CLI/TUI contracts, protocol
+- strict C17 builds, ASan/UBSan, CTest, license/CLI contracts, protocol
   tamper/replay/rekey fixtures, configuration rollback, API, and WebSocket tests;
-- Kotlin/Compose shared UI and desktop tests (Gradle, Xvfb) and Android platform tests/lint;
-- unsigned SwiftUI macOS build/test with the C runtime;
+- the C17 runtime test suite on macOS;
 - Ubuntu 24.04 LTS and Fedora Linux 44 on x86_64 and aarch64 runners,
-  including Compose Desktop launch plus package install, integration, and
-  uninstall checks;
-- Kotlin/Compose Android ARM64 build and `aosp_atd/x86_64` managed-device journeys on
-  API 31, 33, and 36. Device journeys use Ubuntu 24.04 x86_64 hosted runners
-  with KVM and a debug-only x86_64 JNI slice; APK/AAB output remains
-  ARM64-only. Ubuntu and Fedora remain the complete GNU/Linux
-  application/package matrix.
+  including core package install, daemon, and uninstall checks.
 
-`.github/workflows/security.yml` runs C/C++, Java/Kotlin, and Swift CodeQL plus
-dependency review. Dependabot covers Actions, Maven, and Android Gradle
-dependencies.
+`.github/workflows/security.yml` runs C/C++ CodeQL plus dependency review.
+Dependabot covers GitHub Actions.
 
-Ordinary workflows may upload logs, test reports, and coverage. They must not
-upload installers or package outputs.
+Workflows may upload logs, test reports, and coverage. They must not reference
+installers, package outputs, `dist/`, release uploads, or signing secrets;
+`scripts/check-github-actions.sh` enforces this and rejects a returning
+`release.yml`.
 
-## Release workflow
+## Local release
 
-`.github/workflows/release.yml` is protected by the `production` environment.
-It accepts either a verified signed stable tag or an approved manual request.
-It builds and signs:
+The maintainer builds a release on their own machine:
 
-- Debian packages from Ubuntu on x86_64 and aarch64;
-- RPM packages from Fedora on x86_64 and aarch64;
-- ARM64 Android APK/AAB files with the protected Android keystore;
-- the Apple Silicon SwiftUI app, embedded C runtime, notarized DMG, and Sparkle
-  appcast;
-- signed apt (Ubuntu) and dnf (Fedora) repositories, bundled as
-  `clambhook-linux-repo-<version>.tar.gz`;
-- manifests, SHA-256 files, and GPG signatures.
+1. Sign the release tag with `scripts/sign-release-tag.sh`.
+2. In this repository, build and sign the core Debian and RPM packages for
+   x86_64 and aarch64 in Ubuntu 24.04 and Fedora 44 containers
+   (`scripts/release-linux.sh` through `scripts/validate-linux-distros.sh` with
+   `CLAMBHOOK_LINUX_RELEASE_BUILD=1`).
+3. In the private apps repository, build and sign the `clambhook-ui` packages,
+   the ARM64 Android APK/AAB, and the notarized Apple Silicon DMG/ZIP with its
+   Sparkle appcast.
+4. Build the signed apt and dnf repositories from both sets of packages
+   (`scripts/build-linux-repos.sh`) and install-test them
+   (`scripts/test-linux-repo-install.sh`).
+5. Run `scripts/publish-release.sh VERSION` (a dry run). It verifies the signed
+   tag against the pinned key, then runs `scripts/verify-release-signatures.sh`
+   over every asset in both repositories' `dist/` trees.
+6. Run `scripts/publish-release.sh --publish VERSION` (or `--publish --beta`).
+   It creates the GitHub Release and uploads the assets; beta releases are also
+   mirrored to the rolling `beta` release.
 
 Every installer, checksum, manifest, and repository index is signed with the
 developer@jpfchang.org key: embedded `rpmsign`/`debsigs` signatures for
-packages, and detached `.sig` files for everything. Each upload step is
-preceded by `scripts/verify-release-signatures.sh`, which
-`scripts/check-github-actions.sh` enforces. See
+packages, and detached `.sig` files for everything. See
 [release signing](website-release/signing.md).
 
 Ubuntu and Fedora are the only supported GNU/Linux distributions and the
-complete validation matrix. No other distribution is a release or
-compatibility target.
+complete validation matrix.
 
 ```mermaid
 flowchart TB
-    subgraph ci["Continuous integration"]
+    subgraph ci["Continuous integration (core)"]
         push["Push / pull request"] --> policy["Source · license · cutover<br/>workflow + actionlint"]
         policy --> c["C17 strict + sanitizers<br/>real protocol peers"]
-        policy --> java["Kotlin/Compose<br/>UI tests · lint"]
-        policy --> swift["SwiftUI + bundled C runtime"]
+        policy --> mac["C17 runtime on macOS"]
         c --> distro["Ubuntu 24.04 · Fedora 44<br/>x86_64 + aarch64"]
-        java --> device["Android API 31 · 33 · 36<br/>x86_64 ATDs on Ubuntu/KVM"]
         distro --> checks["Required CI evidence"]
-        device --> checks
-        swift --> checks
+        mac --> checks
     end
 
-    subgraph publication["Protected publication"]
-        request["Verified signed tag<br/>or approved dispatch"] --> guard["Policy recheck<br/>production environment"]
-        guard --> release["Create or normalize<br/>versioned GitHub Release"]
-        release --> linux["Build + inspect<br/>DEB/RPM"]
-        release --> android["Build + inspect<br/>APK/AAB"]
-        release --> macos["Build + inspect<br/>DMG/ZIP/appcast"]
-        linux --> signed["GPG: embedded package sigs<br/>detached .sig · manifests"]
-        signed --> repo["Signed apt/dnf repos<br/>install-tested on Ubuntu + Fedora"]
-        repo --> assets
-        android --> signed
-        macos --> signedMac["Developer ID · notarization<br/>Sparkle + GPG (DMG/ZIP)"]
-        signed --> assets["Versioned release assets"]
-        signedMac --> assets
-        assets --> beta["Rolling beta mirror<br/>beta channel only"]
+    subgraph publication["Local publication"]
+        tag["Signed tag"] --> core["Core DEB/RPM<br/>this repository"]
+        tag --> apps["clambhook-ui DEB/RPM · APK/AAB<br/>DMG/ZIP/appcast<br/>private apps repository"]
+        core --> repo["Signed apt/dnf repos<br/>install-tested on Ubuntu + Fedora"]
+        apps --> repo
+        repo --> verify["verify-release-signatures.sh"]
+        core --> verify
+        apps --> verify
+        verify --> publish["publish-release.sh<br/>versioned GitHub Release"]
+        publish --> beta["Rolling beta mirror<br/>beta channel only"]
     end
 
-    checks -. maintainer release decision .-> request
+    checks -. maintainer release decision .-> tag
 ```
 
 ## Local workflow checks
@@ -112,8 +108,9 @@ without a language package manager.
 
 - Never force-push a release or cutover commit.
 - Never create a tag merely to validate a build.
-- Never expose signing secrets in files, logs, caches, or artifacts.
-- Never replace the API 31 floor with API 30.
+- Never put signing secrets in files, logs, caches, artifacts, or workflows.
+- Never upload an asset that `scripts/verify-release-signatures.sh` has not
+  verified; use `scripts/publish-release.sh`.
 - Never use Apple’s `container` CLI for hosted or local authority.
 - Never describe a source version, tag, or successful CI run as a published
   release; verify the versioned release and its assets independently.

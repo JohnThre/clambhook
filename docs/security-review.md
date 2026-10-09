@@ -78,8 +78,10 @@ reported privately under [SECURITY.md](../SECURITY.md).
   roadmap item.
 - macOS requires manifest hash, GPG signature, Sparkle signature, Developer ID,
   notarization, and stapling.
-- Protected workflows keep Android, GPG, Apple, and Sparkle private keys in
-  runner-temporary files with restrictive modes and remove them afterward.
+- Android, GPG, Apple, and Sparkle private keys never enter CI. Releases are
+  signed on the maintainer's machine (keychain, GnuPG agent, and a git-ignored
+  local release configuration), and `scripts/check-github-actions.sh` rejects
+  any workflow that references signing credentials or release uploads.
 
 ## Supply chain
 
@@ -90,8 +92,9 @@ reported privately under [SECURITY.md](../SECURITY.md).
   records.
 - Maven/Gradle lock versions are explicit; dependency review, CodeQL, SPDX,
   source-only, and package-payload gates run in CI.
-- Installer/package outputs are prohibited from ordinary CI and are published
-  only by the protected release workflow.
+- Installer/package outputs are prohibited from CI and are published only by
+  `scripts/publish-release.sh`, after `scripts/verify-release-signatures.sh`
+  passes.
 
 ## Verification
 

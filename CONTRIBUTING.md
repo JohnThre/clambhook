@@ -6,9 +6,11 @@
 Bug reports and security reports are welcome. Security issues must follow
 [`SECURITY.md`](SECURITY.md) and must not be reported publicly.
 
-ClambHook has one C17 runtime, a shared Kotlin/Compose Multiplatform application for Android
-and GNU/Linux, a Kotlin Android platform AAR, and a SwiftUI macOS client. The
-CLI, TOML, JSON, HTTP/WebSocket, persistence, identifier, licensing, and release
+This repository is the GPL-3.0-only ClambHook core: the C17 runtime, the
+`clambhook` daemon and control API, and the `clambhook-license` helper. The
+proprietary apps (SwiftUI, Kotlin/Compose, and the TUI) are developed in a
+private repository and do not accept outside contributions; report bugs in them
+here as issues. The CLI, TOML, JSON, HTTP/WebSocket, persistence, identifier, licensing, and release
 contracts are compatibility surfaces; describe and test intentional changes to
 them explicitly.
 
@@ -37,15 +39,14 @@ To arrange signature or ask a licensing question, contact
 - Preserve SPDX headers and the GPL-3.0-only/Apache-2.0 component boundaries in
   [`LICENSING.md`](LICENSING.md). Do not edit pinned upstream sources unless the
   change is an intentional dependency update with refreshed provenance.
-- Add focused regression coverage beside the affected C, Java, Kotlin, or Swift
-  implementation. Keep the C17 build warning-clean.
-- Use `make test-native`, `make test-linux`, `make test-android`,
-  `make test-apple`, and `make lint` as applicable. Documentation and workflow
+- Add focused regression coverage beside the affected C implementation. Keep the
+  C17 build warning-clean.
+- Use `make test-native` and `make lint`. Documentation and workflow
   changes must at least pass the cutover, license, GitHub Actions, and staged
   whitespace checks documented in
   [`docs/release-validation.md`](docs/release-validation.md).
-- Do not publish local build outputs as official binaries. Only the protected
-  GitHub Release workflow may create official installers.
+- Do not publish local build outputs as official binaries. Only the maintainer
+  publishes official installers, through `scripts/publish-release.sh`.
 
 Pull requests should summarize behavior, compatibility and packaging effects,
 validation commands, and linked issues. Include screenshots for visible UI

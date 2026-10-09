@@ -20,7 +20,7 @@ Options:
 
 Environment:
   PACKAGE_SMOKE_TARGETS          Space-separated targets to run.
-                                 Default: paths systemd install linux-gui homebrew debian
+                                 Default: paths systemd install linux-core homebrew debian
   PACKAGE_SMOKE_VERSION          Version string used for staged install checks.
                                  Default: package-smoke
   PACKAGE_SMOKE_REQUIRE_TOOLS    If 1, missing optional packaging tools fail.
@@ -33,7 +33,7 @@ USAGE
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 echo "internal-only: packaging checks must not publish end-user installers or packages on GitHub." >&2
 HOST_OS="$(uname -s 2>/dev/null || echo unknown)"
-TARGETS="${PACKAGE_SMOKE_TARGETS:-paths systemd install linux-gui homebrew debian}"
+TARGETS="${PACKAGE_SMOKE_TARGETS:-paths systemd install linux-core homebrew debian}"
 SMOKE_VERSION="${PACKAGE_SMOKE_VERSION:-1.0.2}"
 REQUIRE_TOOLS="${PACKAGE_SMOKE_REQUIRE_TOOLS:-0}"
 HOMEBREW_INSTALL="${PACKAGE_SMOKE_HOMEBREW_INSTALL:-0}"
@@ -147,16 +147,17 @@ smoke_installed_root() {
     fi
 
     assert_executable "$bindir/clambhook"
-    assert_executable "$bindir/clambhook-tui"
     assert_version_output "$bindir/clambhook"
-    assert_version_output "$bindir/clambhook-tui"
 
     assert_file "$root$prefix/share/doc/clambhook/licenses/openssl/LICENSE.txt"
     assert_file "$root$prefix/share/doc/clambhook/licenses/curl/LICENSE.txt"
     assert_file "$root$prefix/share/doc/clambhook/licenses/llhttp/LICENSE"
 }
 
-smoke_installed_linux_gui() {
+# The core package carries only the GPL-3.0-only daemon and license helper. The
+# proprietary desktop controller, TUI and their desktop integration ship in the
+# separate clambhook-ui package.
+smoke_installed_core_payload() {
     local root="$1"
     local prefix="${2-/usr}"
     local base
@@ -167,33 +168,24 @@ smoke_installed_linux_gui() {
         base="$root"
     fi
 
-    assert_executable "$base/bin/clambhook-ui"
     assert_executable "$base/bin/clambhook"
-    assert_executable "$base/bin/clambhook-tui"
     assert_executable "$base/bin/clambhook-license"
-    assert_file "$base/share/applications/org.jpfchang.clambhook.desktop"
-    assert_file "$base/share/metainfo/org.jpfchang.clambhook.metainfo.xml"
-    assert_file "$base/share/icons/hicolor/1024x1024/apps/org.jpfchang.clambhook.png"
-
+    for client in "$base/bin/clambhook-ui" "$base/bin/clambhook-tui" \
+            "$base/lib/clambhook/ui" \
+            "$base/share/applications/org.jpfchang.clambhook.desktop" \
+            "$base/share/polkit-1/actions/com.clambhook.Clambhook.policy"; do
+        if [ -e "$client" ] || [ -L "$client" ]; then
+            echo "package-smoke: client payload belongs in clambhook-ui: $client" >&2
+            exit 1
+        fi
+    done
     if find "$base" \( -iname '*.go' -o -iname '*javafx*' -o -iname '*gluon*' -o \
-            -iname '*gtk*' \) -print -quit | grep -q .; then
-        echo "package-smoke: retired UI payload found under $base" >&2
+            -iname '*gtk*' -o -iname 'jre' -o -iname 'jdk' \) -print -quit | grep -q .; then
+        echo "package-smoke: retired or client payload found under $base" >&2
         exit 1
     fi
-    # The desktop controller's private jlink runtime is the only Java runtime.
-    if find "$base" -type d \( -iname 'jre' -o -iname 'jdk' -o -name 'runtime' \) \
-            -not -path "$base/lib/clambhook/ui/lib/runtime" -print -quit | grep -q .; then
-        echo "package-smoke: Java runtime found outside the private desktop runtime under $base" >&2
-        exit 1
-    fi
-    [ -L "$base/bin/clambhook-ui" ] || {
-        echo "package-smoke: clambhook-ui must link to the packaged desktop distributable" >&2
-        exit 1
-    }
-    assert_executable "$base/lib/clambhook/ui/bin/clambhook-ui"
     if command -v readelf >/dev/null 2>&1; then
-        for binary in "$base/bin/clambhook" "$base/bin/clambhook-tui" \
-                "$base/bin/clambhook-license"; do
+        for binary in "$base/bin/clambhook" "$base/bin/clambhook-license"; do
             if readelf -S "$binary" 2>/dev/null | grep -q '\.go\.buildinfo'; then
                 echo "package-smoke: Go build information found in $binary" >&2
                 exit 1
@@ -231,12 +223,6 @@ prepare_source_tree() {
             --exclude '/bin' \
             --exclude '/build-native' \
             --exclude '/build-native-sanitize' \
-            --exclude '/ui/kotlin/.gradle' \
-            --exclude '/ui/kotlin/.kotlin' \
-            --exclude '/ui/kotlin/.native-deps' \
-            --exclude '/ui/kotlin/build' \
-            --exclude '/ui/kotlin/*/build' \
-            --exclude '/ui/kotlin/platform/.cxx' \
             "$ROOT"/ "$dest"/
         return
     fi
@@ -249,12 +235,6 @@ prepare_source_tree() {
             --exclude './bin' \
             --exclude './build-native' \
             --exclude './build-native-sanitize' \
-            --exclude './ui/kotlin/.gradle' \
-            --exclude './ui/kotlin/.kotlin' \
-            --exclude './ui/kotlin/.native-deps' \
-            --exclude './ui/kotlin/build' \
-            --exclude './ui/kotlin/*/build' \
-            --exclude './ui/kotlin/platform/.cxx' \
             .
     ) | (
         cd "$dest"
@@ -267,10 +247,6 @@ smoke_paths() {
     log "checking packaging metadata paths"
 
     assert_file "$ROOT/packaging/homebrew/clambhook.rb"
-    assert_file "$ROOT/packaging/desktop/org.jpfchang.clambhook.desktop.in"
-    assert_file "$ROOT/packaging/desktop/org.jpfchang.clambhook.metainfo.xml.in"
-    assert_file "$ROOT/ui/kotlin/desktop/build.gradle.kts"
-    assert_file "$ROOT/clambhook-icon-1024.png"
     assert_file "$ROOT/debian/control"
     assert_file "$ROOT/debian/copyright"
     assert_file "$ROOT/debian/rules"
@@ -282,9 +258,6 @@ smoke_paths() {
     assert_file "$ROOT/NOTICE"
     assert_file "$ROOT/TRADEMARKS.md"
     assert_file "$ROOT/packaging/sbom.cdx.json"
-    assert_file "$ROOT/ui/kotlin/platform/build.gradle.kts"
-    assert_file "$ROOT/ui/kotlin/app/build.gradle.kts"
-    assert_file "$ROOT/ui/kotlin/app/src/main/AndroidManifest.xml"
 }
 
 smoke_systemd() {
@@ -293,23 +266,22 @@ smoke_systemd() {
     "$ROOT/scripts/validate-systemd-unit.sh"
 }
 
-smoke_linux_gui_install() {
-    want linux-gui || return 0
-    log "staging Linux GUI install under temporary DESTDIR"
+smoke_linux_core_install() {
+    want linux-core || return 0
+    log "staging Linux core install under temporary DESTDIR"
 
-    require_linux_target "Linux GUI install" || return 0
-    need_tools java jlink pkg-config || return 0
+    require_linux_target "Linux core install" || return 0
+    need_tools pkg-config || return 0
     if ! pkg-config --exists libsodium; then
         skip_or_fail "missing libsodium development pkg-config dependency"
         return 0
     fi
 
-    local root="$WORKDIR/linux-gui-root"
+    local root="$WORKDIR/linux-core-root"
     mkdir -p "$root"
     (cd "$ROOT" && make install-linux DESTDIR="$root" PREFIX=/usr VERSION="$SMOKE_VERSION")
-    smoke_installed_linux_gui "$root" /usr
-    assert_version_output "$root/usr/bin/clambhook"
-    assert_version_output "$root/usr/bin/clambhook-tui"
+    smoke_installed_core_payload "$root" /usr
+    smoke_installed_root "$root" /usr
 }
 
 smoke_make_install() {
@@ -368,7 +340,7 @@ smoke_debian() {
     fi
     dpkg-deb -x "$deb" "$root"
     smoke_installed_root "$root" /usr
-    smoke_installed_linux_gui "$root" /usr
+    smoke_installed_core_payload "$root" /usr
     smoke_installed_daemon_assets "$root" /usr
 
     # The runtime user must be created and its directories owned before the
@@ -396,7 +368,7 @@ smoke_debian() {
 smoke_paths
 smoke_systemd
 smoke_make_install
-smoke_linux_gui_install
+smoke_linux_core_install
 smoke_homebrew
 smoke_debian
 

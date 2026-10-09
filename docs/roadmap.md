@@ -20,7 +20,7 @@
 
 ## Current priorities
 
-1. Publish and independently verify the first complete protected release for
+1. Publish and independently verify the first complete locally signed release for
    macOS, GNU/Linux, and Android, including immutable downloads and signatures.
 2. Expand real-world interoperability fixtures for WireGuard and OpenVPN peers
    while preserving deterministic packet/control tests.

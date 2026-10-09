@@ -9,10 +9,12 @@
 > Shadowsocks, VMESS, ShadowTLS, Tor, and encrypted DNS (DoH/DoT/DoQ).
 
 ClambHook is a local network-routing, privacy, and developer-inspection client.
-Its production runtime is C17. Android and GNU/Linux share one Kotlin
-application built with Compose Multiplatform; macOS keeps its native SwiftUI
-client. A C daemon,
-C terminal UI, and C license helper provide the command-line surface.
+Its production runtime is C17. **This repository is the free-software ClambHook
+core** (GPL-3.0-only): the runtime library, the `clambhook` daemon and its
+control API, and the `clambhook-license` helper. The ClambHook apps — the
+SwiftUI macOS client, the Kotlin/Compose Android and GNU/Linux client, and the
+`clambhook-tui` terminal client — are proprietary and developed in a separate
+private repository; they are built on this core.
 
 ## What is ClambHook?
 
@@ -30,11 +32,9 @@ Android 12+.
 The completed implementation cutover is recorded in
 [outcome details](docs/c-migration.md).
 
-The source tree contains protected release automation for every supported
-platform. Official binaries appear only on the
-[GitHub Releases page](https://github.com/JohnThre/clambhook/releases) after a
-protected workflow finishes; a source version or tag alone is not evidence that
-an installer has been published.
+Official binaries appear only on the
+[GitHub Releases page](https://github.com/JohnThre/clambhook/releases); a source
+version or tag alone is not evidence that an installer has been published.
 
 ## Architecture
 
@@ -82,7 +82,7 @@ flowchart TB
     linuxServices --> control
 ```
 
-The shared Kotlin layer (`ui/kotlin/shared`) is split deliberately:
+The shared Kotlin layer of the apps is split deliberately:
 
 - `RuntimeClient` is a typed, asynchronous view of the frozen control and event
   contracts.
@@ -157,38 +157,28 @@ developer changes roll back if activation fails.
 
 | Platform | Product UI | Runtime and packaging |
 | --- | --- | --- |
-| macOS 14+ Apple Silicon | SwiftUI | Bundled and signed C17 daemon/TUI; notarized DMG |
-| Ubuntu 24.04 LTS and Fedora 44, x86_64 and aarch64 (the only supported GNU/Linux distributions) | Kotlin 2.4 / Compose Multiplatform 1.11 | Compose Desktop controller with a private jlink runtime beside C17 binaries; GPG-signed `.deb`/`.rpm` and signed apt/dnf repositories |
+| macOS 14+ Apple Silicon | SwiftUI | Bundled and signed C17 daemon and TUI; notarized DMG |
+| Ubuntu 24.04 LTS and Fedora 44, x86_64 and aarch64 (the only supported GNU/Linux distributions) | Kotlin 2.4 / Compose Multiplatform 1.11 | `clambhook` (GPL core: daemon, license helper, systemd unit) and `clambhook-ui` (desktop controller with a private jlink runtime, TUI); GPG-signed `.deb`/`.rpm` and signed apt/dnf repositories |
 | Android 12+ ARM64 | Kotlin 2.4 / Compose Multiplatform 1.11 | Kotlin platform library, JNI C runtime, signed APK and AAB; application ID `org.jpfchang.clambhook`, minSdk 31, targetSdk 36 |
-| Terminal | C17 | `clambhook`, `clambhook-tui`, `clambhook-license` |
+| Terminal | C17 | `clambhook` and `clambhook-license` (core); `clambhook-tui` (apps) |
 
 Windows development is discontinued with no planned resumption date.
 
 ## Build and test
 
-The source build needs CMake 3.22+, Ninja, a C17 compiler, `pkg-config`,
+The core build needs CMake 3.22+, Ninja, a C17 compiler, `pkg-config`,
 OpenSSL 3, libsodium, libuv, and libcurl. The pinned llhttp parser is compiled
-from `third_party/llhttp/`. The Kotlin UI (`ui/kotlin`) uses JDK 17+ and the
-pinned Gradle wrapper; the GNU/Linux desktop distributable additionally needs
-`jlink` and the JDK `jmods` (Ubuntu `openjdk-21-jdk`, Fedora
-`java-25-openjdk-devel` and `java-25-openjdk-jmods`). Android builds need the Android SDK (API 36) and NDK.
-Without an Android SDK, or with `-Pclambhook.desktopOnly=true`, Gradle
-configures only the shared and desktop modules.
+from `third_party/llhttp/`.
 
 | Command | Purpose |
 | --- | --- |
-| `make build-native` | Build the production C17 daemon, TUI, and license helper. |
+| `make build-native` | Build the production C17 daemon and license helper. |
 | `make test-native` | Run strict C tests under ASan/UBSan and the frozen license contract. |
-| `make test-linux` | Run the shared Kotlin client, model, Compose UI, accessibility, and GNU/Linux service tests. |
-| `make test-android` | Test/lint the Kotlin platform library and application and build the ARM64 native payload. |
-| `make build-android` | Build the Kotlin/Compose Android APK and App Bundle. |
-| `make build-linux` | Build the host-architecture Compose Desktop distributable (Ubuntu or Fedora host). |
-| `make build-apple` / `make test-apple` | Build and test the macOS SwiftUI client against the C runtime. |
-| `make lint` | Run license/cutover checks, shell checks, warning-as-error C build, Kotlin desktop build, and Android lint. |
+| `make lint` | Run license/cutover checks, shell checks, and the warning-as-error C build. |
+| `make package-smoke` | Validate the core package payload and recipes. |
 | `make ci-local` | Run the applicable local mirror of hosted CI. |
 
-See [Android development](docs/android-development.md),
-[Outline access keys](docs/outline-access-keys.md),
+See [Outline access keys](docs/outline-access-keys.md),
 [Mihomo and Surge profile conversion](docs/profile-conversion.md),
 [release validation](docs/release-validation.md), and
 [packaging](packaging/README.md).
@@ -199,38 +189,30 @@ See [Android development](docs/android-development.md),
 flowchart LR
     source["Signed source commit"] --> policy["Policy gates<br/>SPDX · shell · actionlint<br/>zero retired sources"]
     policy --> ctest["C17 strict + ASan/UBSan<br/>contract and protocol fixtures"]
-    policy --> jvm["Kotlin/Compose UI tests<br/>Android platform tests"]
-    policy --> apple["macOS C17 + SwiftUI<br/>build and tests"]
-    ctest --> linux["GNU/Linux x86_64 + aarch64<br/>Ubuntu 24.04 · Fedora 44<br/>desktop launch + install/uninstall"]
-    jvm --> android["Android ARM64 artifacts<br/>API 31/33/36 x86_64 ATDs on Ubuntu/KVM"]
-    linux --> packages["Ubuntu Debian package<br/>Fedora RPM"]
-    android --> packages
-    apple --> packages
-    packages --> protected["Protected release workflow<br/>inspect · GPG-sign · notarize · verify"]
-    protected --> releases["Versioned GitHub Release<br/>only after every selected job succeeds"]
+    policy --> macos["C17 runtime on macOS"]
+    ctest --> linux["GNU/Linux x86_64 + aarch64<br/>Ubuntu 24.04 · Fedora 44<br/>core package install/uninstall"]
+    linux --> local["Maintainer release build<br/>GPG-sign · notarize · verify"]
+    local --> releases["Versioned GitHub Release<br/>scripts/publish-release.sh"]
 ```
 
-Hosted distro and Android managed-device lanes are authoritative. Podman or
-Docker is optional for local distro isolation. Apple's `container` CLI is not
-used. Ordinary CI uploads reports only; installers are created and published
-only by the protected release workflow.
-
-Do not create a release by running build targets locally. Maintainers use
-signed tags or an approved protected dispatch. See
-[GitHub CI/CD](docs/github-cicd.md).
+CI builds and tests only; no workflow builds, signs, or publishes installers.
+Releases — the core packages here and the app installers from the private apps
+repository — are built and signed on the maintainer's machine, checked with
+`scripts/verify-release-signatures.sh`, and uploaded by
+`scripts/publish-release.sh`. See [GitHub CI/CD](docs/github-cicd.md).
 
 ## Distribution and licensing
 
 When available, official downloads are hosted only at
-<https://github.com/JohnThre/clambhook/releases>. The protected workflow
+<https://github.com/JohnThre/clambhook/releases>. Each release
 publishes a notarized DMG for Apple Silicon Macs running macOS 14 or later,
 signed ARM64 Android packages, and signed Ubuntu and Fedora packages. Every
 installer, checksum, manifest, and apt/dnf repository index carries a
 signature from the developer@jpfchang.org release key
-(`BAFC 7769 FDA1 E0D4 EBD2 3E2F 6FF4 807E AD97 7A9B`), which the release
-workflow verifies before upload; see [release signing](docs/website-release/signing.md). If the page has
-no release, no official binary has been published yet; build locally or wait
-for a protected release rather than obtaining an installer elsewhere.
+(`BAFC 7769 FDA1 E0D4 EBD2 3E2F 6FF4 807E AD97 7A9B`), which is verified
+before upload; see [release signing](docs/website-release/signing.md). If the page has
+no release, no official binary has been published yet; build the core locally
+or wait for a release rather than obtaining an installer elsewhere.
 
 The commercial product contract is:
 
@@ -281,8 +263,10 @@ priority. You can donate through
   </picture>
 </a>
 
-The first-party application is GPL-3.0-only, with separate written commercial
-terms available. `clib/**` is Apache-2.0. Pinned third-party material retains
+The ClambHook core in this repository is GPL-3.0-only, with separate written
+commercial terms available; `clib/**` is Apache-2.0. The ClambHook apps are
+proprietary; app versions 1.0.2 and earlier were published under GPL-3.0-only
+and remain available under it. Pinned third-party material retains
 its upstream licenses and provenance. See [licensing](LICENSING.md),
 [notice](NOTICE), and [third-party notices](THIRD_PARTY_NOTICES.md).
 
@@ -297,9 +281,6 @@ licensing contracts.
 
 - [Roadmap](docs/roadmap.md) and [project review](docs/project-review.md):
   delivered architecture, current priorities, and reviewed boundaries.
-- [Android development](docs/android-development.md),
-  [macOS scope](docs/macos-v1-scope.md), and the
-  [Kotlin client](ui/kotlin/README.md): platform ownership and toolchains.
 - [Release validation](docs/release-validation.md),
   [GitHub CI/CD](docs/github-cicd.md), and
   [packaging](packaging/README.md): release evidence and artifact policy.
@@ -336,8 +317,11 @@ Checkout uses Creem or NOWPayments.
 
 ### Is ClambHook open source?
 
-Yes. The first-party application is GPL-3.0-only, `clib/**` is Apache-2.0, and
-separate written commercial terms are available. See [licensing](LICENSING.md).
+The core is. The runtime, daemon, control API, and license helper in this
+repository are GPL-3.0-only (`clib/**` is Apache-2.0), and separate written
+commercial terms are available. The macOS, Android, and GNU/Linux apps and the
+terminal client are proprietary from version 1.1.0; earlier app releases remain
+GPL-3.0-only. See [licensing](LICENSING.md).
 
 ### Where do I download official builds?
 

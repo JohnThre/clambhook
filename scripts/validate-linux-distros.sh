@@ -9,9 +9,10 @@
 #   scripts/validate-linux-distros.sh ubuntu     # one target
 #
 # Ubuntu and Fedora are the only supported GNU/Linux distributions. The harness
-# supports Podman or Docker. It validates the sanitizer-backed C17 runtime, the
-# self-contained Kotlin/Compose desktop distributable (private jlink runtime),
-# and the authoritative distro-family package recipe. No artifact is published.
+# supports Podman or Docker. It validates the sanitizer-backed C17 runtime and
+# the authoritative distro-family recipe for the GPL-3.0-only core package. The
+# proprietary clambhook-ui package is validated from the private apps
+# repository. No artifact is published.
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -38,58 +39,27 @@ apt-get update -qq
 apt-get install -y -qq \
   build-essential cmake ninja-build pkg-config \
   libuv1-dev libsodium-dev libssl-dev libcurl4-openssl-dev \
-  openjdk-21-jdk \
-  libx11-6 libxext6 libxi6 libxrender1 libxtst6 libfontconfig1 libfreetype6 \
-  xvfb xauth dbus-x11 gnome-keyring libsecret-tools \
-  debhelper dpkg-dev fakeroot rsync iproute2 polkitd systemd \
+  debhelper dpkg-dev fakeroot rsync iproute2 systemd \
   git curl wget ca-certificates gnupg tar file xz-utils python3 unzip >/dev/null'
 
 rpm_setup='dnf install -y -q --allowerasing \
   gcc gcc-c++ make cmake ninja-build pkgconf-pkg-config \
   libasan libubsan \
   libuv-devel libsodium-devel openssl-devel libcurl-devel \
-  java-25-openjdk-devel java-25-openjdk-jmods \
-  libX11 libXext libXi libXrender libXtst fontconfig freetype \
-  xorg-x11-server-Xvfb xorg-x11-xauth dbus-daemon gnome-keyring libsecret \
-  rpm-build systemd-rpm-macros polkit-devel iproute \
+  rpm-build systemd-rpm-macros iproute \
   git curl wget tar gzip file which rsync ca-certificates gnupg2 python3 unzip >/dev/null'
-
-# shellcheck disable=SC2016 # Expanded by bash inside the target container.
-toolchain='JAVA_HOME=$(dirname "$(dirname "$(readlink -f "$(command -v javac)")")")
-export JAVA_HOME PATH=$JAVA_HOME/bin:$PATH'
 
 # shellcheck disable=SC2016 # Expanded by bash inside the target container.
 smoke='set -euo pipefail
 cd /src
 make test-native
-make test-linux
 make build
-make build-linux
-CLAMBHOOK_UI="ui/kotlin/desktop/build/linux-dist/clambhook-ui/bin/clambhook-ui"
-if [[ ! -x "$CLAMBHOOK_UI" ]]; then
-  echo "desktop distributable not found: $CLAMBHOOK_UI" >&2
-  exit 2
-fi
-CLAMBHOOK_UI_CONFIG=$(mktemp -d)
-set +e
-timeout 8s xvfb-run -a env \
-  XDG_CONFIG_HOME="$CLAMBHOOK_UI_CONFIG" \
-  CLAMBHOOK_API_URL=http://127.0.0.1:1 \
-  "$CLAMBHOOK_UI" >/tmp/clambhook-ui-smoke.log 2>&1
-CLAMBHOOK_UI_EXIT=$?
-set -e
-if [[ "$CLAMBHOOK_UI_EXIT" -ne 124 ]]; then
-  echo "desktop controller exited unexpectedly: $CLAMBHOOK_UI_EXIT" >&2
-  cat /tmp/clambhook-ui-smoke.log >&2
-  exit 1
-fi
 SNAP=$(echo "{\"command\":\"ensure-trial\",\"snapshot\":\"\"}" | ./build-native/clambhook-license)
 echo "license: $SNAP"
 echo "$SNAP" | grep -q "\"ok\":true"
 ./build-native/clambhook -version
-./build-native/clambhook-tui -version
 ! readelf -S ./build-native/clambhook | grep -q "\.go\.buildinfo"
-echo "ClambHook C17 and Kotlin/Compose desktop smoke: OK"'
+echo "ClambHook C17 core smoke: OK"'
 
 run_one() {
   local distro="$1" image="${IMAGE[$1]:-}" setup recipe command
@@ -145,7 +115,7 @@ CLAMBHOOK_CONTAINER_PACKAGE_SMOKE=1 scripts/smoke-installed-linux-package.sh "$r
     "${container_env[@]}" \
     --volume "$repo_root:/src${mount_suffix}" \
     --workdir /src \
-    "$image" bash -lc "$setup; $toolchain; $command; $recipe"
+    "$image" bash -lc "$setup; $command; $recipe"
   echo "==================== $distro: PASS ===================="
 }
 
