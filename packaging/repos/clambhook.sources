@@ -1,0 +1,10 @@
+# SPDX-FileCopyrightText: 2026 Pengfan Chang <support@swiphtgroup.com>
+# SPDX-License-Identifier: GPL-3.0-only
+#
+# Signed ClambHook apt repository for Ubuntu. Repository metadata (InRelease)
+# must be signed by the developer@jpfchang.org release key.
+Types: deb
+URIs: https://jpfchang.org/clambhook/linux/apt
+Suites: stable
+Components: main
+Signed-By: /usr/share/keyrings/clambhook-archive-keyring.asc

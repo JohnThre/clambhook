@@ -213,55 +213,35 @@ echo "$DMG_SHA256  ClambhookMac-arm64.dmg" > "$FINAL_DMG_CHECKSUM"
 echo "Checksum: $DMG_SHA256"
 
 # Sign release artifacts so users, the website, and Sparkle can verify them.
-# ClambHook releases MUST carry the developer@jpfchang.org GPG signature (DMG
-# checksum + update manifest) AND an EdDSA-signed Sparkle appcast. The release
-# key is pinned to EAA876B70B1832F5; pass CLAMBHOOK_GPG_KEY to override for a
-# non-production environment. Set CLAMBHOOK_SKIP_GPG=1 ONLY for internal
-# build-validation archives that are never published — it disables both GPG
-# and appcast signing.
-EXPECTED_GPG_KEY="EAA876B70B1832F5"
-GPG_KEY="${CLAMBHOOK_GPG_KEY:-$EXPECTED_GPG_KEY}"
+# ClambHook releases MUST carry the developer@jpfchang.org GPG signature (DMG,
+# ZIP, their checksums, and the update manifest) AND an EdDSA-signed Sparkle
+# appcast. The release key is pinned in scripts/lib/release-gpg.sh; pass
+# CLAMBHOOK_GPG_KEY to override for a non-production environment. Set
+# CLAMBHOOK_SKIP_GPG=1 ONLY for internal build-validation archives that are
+# never published — it disables both GPG and appcast signing.
 REQUIRE_SIGNING=1
 if [[ "${CLAMBHOOK_SKIP_GPG:-0}" == "1" ]]; then
     REQUIRE_SIGNING=0
     echo "CLAMBHOOK_SKIP_GPG=1 set: skipping GPG + appcast signing (internal build-validation archive; do not publish)." >&2
 fi
-if [[ "$REQUIRE_SIGNING" == "1" && "$GPG_KEY" != "$EXPECTED_GPG_KEY" ]]; then
-    echo "WARNING: GPG key $GPG_KEY does not match the project release key $EXPECTED_GPG_KEY. Only use this for non-production builds." >&2
+if [[ -n "${CLAMBHOOK_GPG_KEY:-}" ]]; then
+    GPG_KEY="$CLAMBHOOK_GPG_KEY"
+fi
+# shellcheck source=scripts/lib/release-gpg.sh
+source "$ROOT_DIR/scripts/lib/release-gpg.sh"
+if ch_gpg_signing_enabled; then
+    if [[ "$GPG_KEY" != "$CLAMBHOOK_GPG_SIGNING_KEYID" ]]; then
+        echo "WARNING: GPG key $GPG_KEY does not match the project release key $CLAMBHOOK_GPG_SIGNING_KEYID. Only use this for non-production builds." >&2
+    fi
+    ch_gpg_check_expiry
 fi
 
-gpg_sign_release() {
-    # gpg_sign_release <file> — writes a detached, armored signature to <file>.sig.
-    local target="$1"
-    local passphrase_args=()
-    if [[ "$REQUIRE_SIGNING" != "1" ]]; then
-        return 0
-    fi
-    if [[ -z "$GPG_KEY" ]]; then
-        echo "ClambHook releases must be GPG-signed, but no signing key is configured. Set CLAMBHOOK_GPG_KEY (or git config user.signingkey to the developer@jpfchang.org release key), or set CLAMBHOOK_SKIP_GPG=1 for an internal-only archive." >&2
-        exit 1
-    fi
-    if ! command -v gpg >/dev/null 2>&1; then
-        echo "ClambHook releases must be GPG-signed, but gpg was not found on PATH." >&2
-        exit 1
-    fi
-    if [[ -n "${GPG_PASSPHRASE_FILE:-}" ]]; then
-        if [[ ! -f "$GPG_PASSPHRASE_FILE" ]]; then
-            echo "GPG_PASSPHRASE_FILE does not exist." >&2
-            exit 2
-        fi
-        passphrase_args=(--passphrase-file "$GPG_PASSPHRASE_FILE")
-    fi
-    if ! gpg --batch --yes --pinentry-mode loopback --local-user "$GPG_KEY" \
-        "${passphrase_args[@]}" \
-        --detach-sign --armor --output "$target.sig" "$target"; then
-        echo "GPG signing failed for $target with key $GPG_KEY (check the release key passphrase / gpg-agent)." >&2
-        exit 1
-    fi
-    echo "GPG-signed $target with $GPG_KEY → $target.sig"
-}
-
-gpg_sign_release "$FINAL_DMG_CHECKSUM"
+FINAL_ZIP_CHECKSUM="$FINAL_ZIP.sha256"
+(cd "$DIST_DIR" && shasum -a 256 "$(basename "$FINAL_ZIP")" > "$FINAL_ZIP_CHECKSUM")
+ch_gpg_sign "$FINAL_DMG"
+ch_gpg_sign "$FINAL_ZIP"
+ch_gpg_sign "$FINAL_ZIP_CHECKSUM"
+ch_gpg_sign "$FINAL_DMG_CHECKSUM"
 
 # DMG stats for the update manifest. SHORT_VERSION / BUILD_NUMBER were resolved
 # before the build so the app bundle, manifest, and appcast all match.
@@ -284,7 +264,7 @@ cat > "$UPDATE_MANIFEST" <<JSON
 JSON
 echo "Created $UPDATE_MANIFEST"
 
-gpg_sign_release "$UPDATE_MANIFEST"
+ch_gpg_sign "$UPDATE_MANIFEST"
 
 # Generate a Sparkle appcast with an EdDSA-signed enclosure when Sparkle's
 # sign_update tool and private key are available. The signing key is owner-held
@@ -325,6 +305,12 @@ else
         exit 1
     fi
     echo "Skipping appcast generation: Sparkle sign_update not found (internal build-validation archive; do not publish)." >&2
+fi
+
+if ch_gpg_signing_enabled; then
+    "$ROOT_DIR/scripts/verify-release-signatures.sh" \
+        "$FINAL_DMG" "$FINAL_DMG_CHECKSUM" "$FINAL_ZIP" "$FINAL_ZIP_CHECKSUM" \
+        "$UPDATE_MANIFEST"
 fi
 
 echo "Publish the generated files from $DIST_DIR on GitHub Release $RELEASE_TAG."

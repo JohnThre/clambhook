@@ -9,9 +9,10 @@ set -euo pipefail
 
 TEMP_ROOT="${1:?temporary root is required}"
 ENV_FILE="${2:?GitHub environment file is required}"
-GPG_KEY="${GPG_KEY:-EAA876B70B1832F5}"
-EXPECTED_PRIMARY_FINGERPRINT="BAFC7769FDA1E0D4EBD23E2F6FF4807EAD977A9B"
-EXPECTED_SIGNING_FINGERPRINT="F09990BBE647C2D43F58D6F0EAA876B70B1832F5"
+# shellcheck source=scripts/lib/release-gpg.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/scripts/lib/release-gpg.sh"
+EXPECTED_PRIMARY_FINGERPRINT="$CLAMBHOOK_GPG_PRIMARY_FPR"
+EXPECTED_SIGNING_FINGERPRINT="$CLAMBHOOK_GPG_SIGNING_FPR"
 
 [[ -n "${GPG_PRIVATE_KEY_BASE64:-}" ]] || {
   echo "GPG_PRIVATE_KEY_BASE64 is required." >&2
