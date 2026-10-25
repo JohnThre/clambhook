@@ -20,7 +20,7 @@
 %global __brp_compress %{nil}
 
 Name:           clambhook
-Version:        %{?version}%{!?version:1.0.2}
+Version:        %{?version}%{!?version:1.1.0}
 Release:        1%{?dist}
 Summary:        Private VPN and proxy router with local metadata-first inspection
 
@@ -133,6 +133,10 @@ exit 0
 %{_sysconfdir}/pki/rpm-gpg/RPM-GPG-KEY-clambhook
 
 %changelog
+* Sun Oct 25 2026 Pengfan Chang <support@swiphtgroup.com> - 1.1.0-1
+- Ship only the GPL-3.0-only core; the desktop controller and terminal client
+  move to the separate clambhook-ui package, recommended by this package.
+
 * Sat Aug 29 2026 Pengfan Chang <support@swiphtgroup.com> - 1.0.2-1
 - Complete C17 daemon and self-contained JavaFX/Gluon native-image cutover.
 

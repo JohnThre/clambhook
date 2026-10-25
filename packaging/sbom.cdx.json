@@ -13,10 +13,10 @@
     ],
     "component": {
       "type": "application",
-      "bom-ref": "pkg:github/JohnThre/clambhook@1.0.2",
+      "bom-ref": "pkg:github/JohnThre/clambhook@1.1.0",
       "group": "org.jpfchang",
       "name": "clambhook",
-      "version": "1.0.2",
+      "version": "1.1.0",
       "licenses": [
         {
           "license": {
@@ -24,16 +24,16 @@
           }
         }
       ],
-      "purl": "pkg:github/JohnThre/clambhook@1.0.2"
+      "purl": "pkg:github/JohnThre/clambhook@1.1.0"
     }
   },
   "components": [
     {
       "type": "library",
-      "bom-ref": "clambhook:clib:1.0.2",
+      "bom-ref": "clambhook:clib:1.1.0",
       "group": "org.jpfchang.clambhook",
       "name": "clib",
-      "version": "1.0.2",
+      "version": "1.1.0",
       "licenses": [
         {
           "license": {
@@ -185,9 +185,9 @@
   ],
   "dependencies": [
     {
-      "ref": "pkg:github/JohnThre/clambhook@1.0.2",
+      "ref": "pkg:github/JohnThre/clambhook@1.1.0",
       "dependsOn": [
-        "clambhook:clib:1.0.2",
+        "clambhook:clib:1.1.0",
         "pkg:generic/lwip@2.2.1",
         "pkg:github/cktan/tomlc99@29076dfd095bbbbd50a3c1b2760d29f4b83e74ac",
         "pkg:github/nodejs/llhttp@9.4.3",

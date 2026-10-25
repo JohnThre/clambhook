@@ -8,7 +8,19 @@
 # indexed; repository metadata is signed with the developer@jpfchang.org key.
 #
 #   UPDATE_CHANNEL=stable VERSION=1.2.3 \
-#     scripts/build-linux-repos.sh <signed-packages-dir> <output-dir>
+#     scripts/build-linux-repos.sh <signed-packages-dir> <output-dir> [more-package-dirs...]
+#
+# Pass the core package directories and the clambhook-ui package directories
+# from the apps repository; one repository serves both packages.
+#
+# CLAMBHOOK_REPO_STAGE splits the work for a maintainer machine without the
+# Debian/Fedora tooling:
+#   generate  verify every package and write the unsigned repository tree
+#             (run in a key-free Ubuntu container with apt-utils,
+#             createrepo-c, rpm, debsig-verify, and gpg);
+#   sign      sign and verify the repository metadata and bundle it (run on
+#             the host that holds the signing key);
+#   all       both (default; a GNU/Linux host with every tool and the key).
 #
 # Layout of <output-dir>/clambhook-linux-repo/:
 #   clambhook-release-key.asc
@@ -24,29 +36,65 @@ source "$ROOT_DIR/scripts/lib/release-gpg.sh"
 # shellcheck source=scripts/lib/linux-package-signing.sh
 source "$ROOT_DIR/scripts/lib/linux-package-signing.sh"
 
-INPUT_DIR="${1:?signed package directory is required}"
+INPUT_DIRS=("${1:?signed package directory is required}")
 OUTPUT_DIR="${2:?output directory is required}"
+INPUT_DIRS+=("${@:3}")
 VERSION="${VERSION:?VERSION is required}"
 CHANNEL="${UPDATE_CHANNEL:-stable}"
 [[ "$CHANNEL" == "stable" || "$CHANNEL" == "beta" ]] ||
     ch_gpg_fail "UPDATE_CHANNEL must be stable or beta" 2
 
-ch_gpg_signing_enabled || ch_gpg_fail "repository signing requires REQUIRE_SIGNING=1"
+STAGE="${CLAMBHOOK_REPO_STAGE:-all}"
+[[ "$STAGE" == "generate" || "$STAGE" == "sign" || "$STAGE" == "all" ]] ||
+    ch_gpg_fail "CLAMBHOOK_REPO_STAGE must be generate, sign, or all" 2
+REPO="$OUTPUT_DIR/clambhook-linux-repo"
+
+sign_repository() {
+    ch_gpg_signing_enabled || ch_gpg_fail "repository signing requires REQUIRE_SIGNING=1"
+    ch_gpg_require tar "repository bundling"
+    ch_gpg_check_expiry
+    local dists="$REPO/apt/dists/$CHANNEL" arch_dir
+    [[ -f "$dists/Release" ]] || ch_gpg_fail "unsigned repository not found in $REPO"
+    ch_gpg_clearsign "$dists/Release" "$dists/InRelease"
+    ch_gpg_sign "$dists/Release" "$dists/Release.gpg"
+    ch_gpg_verify_clearsigned "$dists/InRelease"
+    ch_gpg_verify "$dists/Release" "$dists/Release.gpg"
+    for arch_dir in "$REPO/rpm/$CHANNEL"/*/; do
+        arch_dir="${arch_dir%/}"
+        ch_gpg_sign "$arch_dir/repodata/repomd.xml" "$arch_dir/repodata/repomd.xml.asc"
+        ch_gpg_verify "$arch_dir/repodata/repomd.xml" "$arch_dir/repodata/repomd.xml.asc"
+    done
+    local bundle="$OUTPUT_DIR/clambhook-linux-repo-${VERSION}.tar.gz"
+    local -a tar_flags=(--owner=0 --group=0 --numeric-owner)
+    tar --version 2>/dev/null | grep -q 'GNU tar' && tar_flags+=(--sort=name)
+    tar -C "$OUTPUT_DIR" "${tar_flags[@]}" -czf "$bundle" clambhook-linux-repo
+    ch_checksum_and_sign "$bundle"
+    echo "Signed apt/dnf repositories written to $REPO and bundled as $bundle"
+}
+
+if [[ "$STAGE" == "sign" ]]; then
+    sign_repository
+    exit 0
+fi
+
 for tool in apt-ftparchive createrepo_c dpkg-deb rpm gzip tar; do
     ch_gpg_require "$tool" "Linux repository generation"
 done
-ch_gpg_check_expiry
 
-REPO="$OUTPUT_DIR/clambhook-linux-repo"
 rm -rf "$REPO"
 mkdir -p "$REPO"
 install -m 0644 "$CLAMBHOOK_RELEASE_PUBLIC_KEY" "$REPO/clambhook-release-key.asc"
 
 shopt -s nullglob
-debs=("$INPUT_DIR"/*.deb)
-rpms=("$INPUT_DIR"/*.rpm)
-(( ${#debs[@]} > 0 )) || ch_gpg_fail "no .deb packages in $INPUT_DIR"
-(( ${#rpms[@]} > 0 )) || ch_gpg_fail "no .rpm packages in $INPUT_DIR"
+debs=()
+rpms=()
+for input_dir in "${INPUT_DIRS[@]}"; do
+    [[ -d "$input_dir" ]] || ch_gpg_fail "package directory not found: $input_dir"
+    debs+=("$input_dir"/*.deb)
+    rpms+=("$input_dir"/*.rpm)
+done
+(( ${#debs[@]} > 0 )) || ch_gpg_fail "no .deb packages in ${INPUT_DIRS[*]}"
+(( ${#rpms[@]} > 0 )) || ch_gpg_fail "no .rpm packages in ${INPUT_DIRS[*]}"
 
 # --- apt ---------------------------------------------------------------------
 apt_root="$REPO/apt"
@@ -80,10 +128,6 @@ done
     -o "APT::FTPArchive::Release::Description=ClambHook packages for Ubuntu" \
     release "dists/$CHANNEL") >"$dists/Release.tmp"
 mv "$dists/Release.tmp" "$dists/Release"
-ch_gpg_clearsign "$dists/Release" "$dists/InRelease"
-ch_gpg_sign "$dists/Release" "$dists/Release.gpg"
-ch_gpg_verify_clearsigned "$dists/InRelease"
-ch_gpg_verify "$dists/Release" "$dists/Release.gpg"
 
 # --- dnf ---------------------------------------------------------------------
 rpm_root="$REPO/rpm/$CHANNEL"
@@ -99,13 +143,10 @@ done
 for arch_dir in "$rpm_root"/*/; do
     arch_dir="${arch_dir%/}"
     createrepo_c --quiet --general-compress-type=gz "$arch_dir"
-    ch_gpg_sign "$arch_dir/repodata/repomd.xml" "$arch_dir/repodata/repomd.xml.asc"
-    ch_gpg_verify "$arch_dir/repodata/repomd.xml" "$arch_dir/repodata/repomd.xml.asc"
 done
 
-# --- bundle ------------------------------------------------------------------
-bundle="$OUTPUT_DIR/clambhook-linux-repo-${VERSION}.tar.gz"
-tar -C "$OUTPUT_DIR" --sort=name --owner=0 --group=0 --numeric-owner \
-    -czf "$bundle" clambhook-linux-repo
-ch_checksum_and_sign "$bundle"
-echo "Signed apt/dnf repositories written to $REPO and bundled as $bundle"
+if [[ "$STAGE" == "generate" ]]; then
+    echo "Unsigned apt/dnf repositories written to $REPO"
+    exit 0
+fi
+sign_repository

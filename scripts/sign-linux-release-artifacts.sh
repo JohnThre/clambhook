@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 
 # Sign Ubuntu and Fedora packages after isolated container builds. The private
-# key remains on the protected runner, never in a container. For every package:
+# key stays on the maintainer's machine and never enters a container. For every package:
 #   1. embed an OpenPGP signature (rpmsign / debsigs) and verify it,
 #   2. regenerate its checksum (embedding changes the package bytes),
 #   3. write detached .sig files for the package and its checksum.
@@ -39,6 +39,12 @@ for package in "${debs[@]}"; do
     ch_checksum_and_sign "$package"
 done
 
+# The manifest describes ClambHook-<version>-<arch>.{deb,rpm}; take the
+# version and architecture from the signed packages, not from this host.
+first_package="$(basename "${debs[0]:-${rpms[0]}}")"
+[[ "$first_package" =~ ^ClambHook-(.+)-(x86_64|aarch64)\.(deb|rpm)$ ]] ||
+    ch_gpg_fail "unexpected Linux package name: $first_package"
 rm -f "$DIST_DIR"/clambhook-linux-*-manifest.json "$DIST_DIR"/clambhook-linux-*-manifest.json.sig
 CLAMBHOOK_LINUX_DIST_DIR="$DIST_DIR" REQUIRE_SIGNING=1 \
+    VERSION="${BASH_REMATCH[1]}" CLAMBHOOK_LINUX_ARCH="${BASH_REMATCH[2]}" \
     "$ROOT_DIR/scripts/release-linux.sh" manifest

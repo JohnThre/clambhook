@@ -16,21 +16,29 @@ then written for the package, its checksum, and
 `clambhook-linux-<arch>-manifest.json`.
 
 1. Create and push the signed tag with
-   `scripts/sign-release-tag.sh v1.2.3 create`.
-2. Build and sign the core packages:
-   `CLAMBHOOK_LINUX_RELEASE_BUILD=1 VERSION=1.2.3 scripts/validate-linux-distros.sh ubuntu fedora`,
-   then `scripts/sign-linux-release-artifacts.sh`. Each container build also
-   runs the installed-package smoke test.
-3. Build and sign the `clambhook-ui` packages in the apps repository.
-4. Build the signed apt and dnf repositories from both sets of packages with
-   `scripts/build-linux-repos.sh`, and install-test them in Ubuntu and Fedora
-   containers with `scripts/test-linux-repo-install.sh`. This proves that
-   installing `clambhook-ui` pulls in `clambhook`, that an upgrade from 1.0.x
-   keeps the desktop controller, and that tampered metadata is refused.
-5. Publish with `scripts/publish-release.sh --publish 1.2.3`. It runs
+   `scripts/sign-release-tag.sh v1.2.3 create`, and pin the apps repository's
+   `core/` submodule to it.
+2. Run `VERSION=1.2.3 UPDATE_CHANNEL=stable scripts/release-linux-local.sh`.
+   It needs Podman or Docker; x86_64 builds run under emulation on Apple
+   Silicon. It:
+   - builds the core packages for each architecture in Ubuntu and Fedora
+     containers (each build runs the installed-package smoke test);
+   - builds the `clambhook-ui` packages through the apps repository's
+     `scripts/release-linux-ui.sh`;
+   - signs every package on the host (embedded `rpmsign`/`debsigs`-format and
+     detached signatures, checksums, manifests). The private key never enters a
+     container;
+   - verifies every package with `debsig-verify`/`rpmkeys` in a key-free
+     container and generates the apt/dnf metadata there;
+   - signs the repository metadata on the host and bundles it as
+     `clambhook-linux-repo-<version>.tar.gz`;
+   - installs from the signed repositories on Ubuntu and Fedora. This proves
+     that `clambhook-ui` pulls in `clambhook` and that tampered metadata is
+     refused. Set `CLAMBHOOK_UPGRADE_FROM` to a directory of 1.0.x packages to
+     also prove that an upgrade keeps the desktop controller.
+3. Publish with `scripts/publish-release.sh --publish 1.2.3`. It runs
    `scripts/verify-release-signatures.sh` over every asset before uploading.
-6. Deploy the `clambhook-linux-repo/` tree from the signed
-   `clambhook-linux-repo-<version>.tar.gz` to
+4. Deploy the `clambhook-linux-repo/` tree from the signed bundle to
    `https://jpfchang.org/clambhook/linux/`, after verifying its signature.
    Installed packages point apt/dnf at that location.
 

@@ -30,7 +30,7 @@ if document.get("bomFormat") != "CycloneDX" or document.get("specVersion") != "1
 
 metadata = document.get("metadata", {})
 application = metadata.get("component", {})
-if application.get("name") != "clambhook" or application.get("version") != "1.0.2":
+if application.get("name") != "clambhook" or application.get("version") != "1.1.0":
     fail("application component or version is stale")
 
 components = document.get("components", [])

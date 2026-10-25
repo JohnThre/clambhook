@@ -7,7 +7,7 @@
 class Clambhook < Formula
   desc "C17 local connectivity daemon"
   homepage "https://github.com/JohnThre/clambhook"
-  url "https://github.com/JohnThre/clambhook.git", tag: "v1.0.2"
+  url "https://github.com/JohnThre/clambhook.git", tag: "v1.1.0"
   license "GPL-3.0-only"
 
   depends_on :macos

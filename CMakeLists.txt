@@ -3,7 +3,7 @@
 
 cmake_minimum_required(VERSION 3.22)
 
-project(clambhook VERSION 1.0.2 LANGUAGES C)
+project(clambhook VERSION 1.1.0 LANGUAGES C)
 
 include(GNUInstallDirs)
 include(CTest)

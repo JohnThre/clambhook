@@ -34,7 +34,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 echo "internal-only: packaging checks must not publish end-user installers or packages on GitHub." >&2
 HOST_OS="$(uname -s 2>/dev/null || echo unknown)"
 TARGETS="${PACKAGE_SMOKE_TARGETS:-paths systemd install linux-core homebrew debian}"
-SMOKE_VERSION="${PACKAGE_SMOKE_VERSION:-1.0.2}"
+SMOKE_VERSION="${PACKAGE_SMOKE_VERSION:-1.1.0}"
 REQUIRE_TOOLS="${PACKAGE_SMOKE_REQUIRE_TOOLS:-0}"
 HOMEBREW_INSTALL="${PACKAGE_SMOKE_HOMEBREW_INSTALL:-0}"
 

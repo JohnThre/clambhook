@@ -9,7 +9,7 @@
 #     scripts/release-linux.sh            # build deb and rpm
 #   scripts/release-linux.sh manifest     # only regenerate the manifest
 #
-# Containerized builds run with REQUIRE_SIGNING=0. The protected runner then
+# Containerized builds run with REQUIRE_SIGNING=0. The maintainer's machine then
 # embeds package signatures and detached .sig files with
 # scripts/sign-linux-release-artifacts.sh, which regenerates checksums and the
 # manifest afterwards because embedding a signature changes package bytes.
@@ -26,10 +26,12 @@ source "$ROOT_DIR/scripts/lib/release-gpg.sh"
 
 VERSION="${VERSION:-$(git describe --tags --always --dirty 2>/dev/null | sed 's/^v//' || echo dev)}"
 UPDATE_CHANNEL="${UPDATE_CHANNEL:-stable}"
-case "$(uname -m)" in
+# CLAMBHOOK_LINUX_ARCH names the packages' architecture when the manifest is
+# regenerated on a different host (the maintainer's Mac after signing).
+case "${CLAMBHOOK_LINUX_ARCH:-$(uname -m)}" in
   x86_64|amd64) ARCH="x86_64" ;;
   aarch64|arm64) ARCH="aarch64" ;;
-  *) echo "Unsupported GNU/Linux release architecture: $(uname -m)" >&2; exit 2 ;;
+  *) echo "Unsupported GNU/Linux release architecture: ${CLAMBHOOK_LINUX_ARCH:-$(uname -m)}" >&2; exit 2 ;;
 esac
 DIST_DIR="${CLAMBHOOK_LINUX_DIST_DIR:-$ROOT_DIR/dist/linux}"
 RELEASE_TAG="${RELEASE_TAG:-v${VERSION}}"

@@ -86,13 +86,14 @@ run_one() {
       return 2
     }
     container_env+=(--env "VERSION=$VERSION")
+    container_env+=(--env "CLAMBHOOK_LINUX_DIST_DIR=/src/${CLAMBHOOK_LINUX_DIST_SUBDIR:-dist/linux}")
     container_env+=(--env "UPDATE_CHANNEL=${UPDATE_CHANNEL:-stable}")
     case "$distro" in
       ubuntu)
         # shellcheck disable=SC2016 # Expanded by bash inside the target container.
         command='make clean
 REQUIRE_SIGNING=0 CLAMBHOOK_RELEASE_APPEND=0 scripts/release-linux.sh deb
-release_package=$(find dist/linux -maxdepth 1 -type f -name "*.deb" -print -quit)
+release_package=$(find "$CLAMBHOOK_LINUX_DIST_DIR" -maxdepth 1 -type f -name "*.deb" -print -quit)
 test -n "$release_package"
 CLAMBHOOK_CONTAINER_PACKAGE_SMOKE=1 scripts/smoke-installed-linux-package.sh "$release_package"'
         ;;
@@ -100,7 +101,7 @@ CLAMBHOOK_CONTAINER_PACKAGE_SMOKE=1 scripts/smoke-installed-linux-package.sh "$r
         # shellcheck disable=SC2016 # Expanded by bash inside the target container.
         command='make clean
 REQUIRE_SIGNING=0 CLAMBHOOK_RELEASE_APPEND=1 scripts/release-linux.sh rpm
-release_package=$(find dist/linux -maxdepth 1 -type f -name "*.rpm" -print -quit)
+release_package=$(find "$CLAMBHOOK_LINUX_DIST_DIR" -maxdepth 1 -type f -name "*.rpm" -print -quit)
 test -n "$release_package"
 CLAMBHOOK_CONTAINER_PACKAGE_SMOKE=1 scripts/smoke-installed-linux-package.sh "$release_package"'
         ;;
@@ -111,8 +112,13 @@ CLAMBHOOK_CONTAINER_PACKAGE_SMOKE=1 scripts/smoke-installed-linux-package.sh "$r
   fi
 
   echo "==================== $distro ($image) ===================="
+  # CLAMBHOOK_LINUX_PLATFORM (linux/amd64 or linux/arm64) selects the
+  # architecture; a non-native platform runs under emulation.
+  local -a platform=()
+  [[ -z "${CLAMBHOOK_LINUX_PLATFORM:-}" ]] || platform=(--platform "$CLAMBHOOK_LINUX_PLATFORM")
   "$engine" run --rm \
-    "${container_env[@]}" \
+    ${platform[@]+"${platform[@]}"} \
+    ${container_env[@]+"${container_env[@]}"} \
     --volume "$repo_root:/src${mount_suffix}" \
     --workdir /src \
     "$image" bash -lc "$setup; $command; $recipe"

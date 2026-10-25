@@ -40,16 +40,13 @@ installers, package outputs, `dist/`, release uploads, or signing secrets;
 The maintainer builds a release on their own machine:
 
 1. Sign the release tag with `scripts/sign-release-tag.sh`.
-2. In this repository, build and sign the core Debian and RPM packages for
-   x86_64 and aarch64 in Ubuntu 24.04 and Fedora 44 containers
-   (`scripts/release-linux.sh` through `scripts/validate-linux-distros.sh` with
-   `CLAMBHOOK_LINUX_RELEASE_BUILD=1`).
-3. In the private apps repository, build and sign the `clambhook-ui` packages,
-   the ARM64 Android APK/AAB, and the notarized Apple Silicon DMG/ZIP with its
-   Sparkle appcast.
-4. Build the signed apt and dnf repositories from both sets of packages
-   (`scripts/build-linux-repos.sh`) and install-test them
-   (`scripts/test-linux-repo-install.sh`).
+2. Build and sign every GNU/Linux asset with `scripts/release-linux-local.sh`.
+   Containers build the core and `clambhook-ui` packages for x86_64 and
+   aarch64, verify them, and generate the apt/dnf metadata. The host signs.
+3. In the private apps repository, build and sign the ARM64 Android APK/AAB and
+   the notarized Apple Silicon DMG/ZIP with its Sparkle appcast.
+4. `scripts/release-linux-local.sh` also install-tests the signed
+   repositories.
 5. Run `scripts/publish-release.sh VERSION` (a dry run). It verifies the signed
    tag against the pinned key, then runs `scripts/verify-release-signatures.sh`
    over every asset in both repositories' `dist/` trees.
