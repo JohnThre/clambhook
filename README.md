@@ -159,7 +159,7 @@ developer changes roll back if activation fails.
 | --- | --- | --- |
 | macOS 14+ Apple Silicon | SwiftUI | Bundled and signed C17 daemon and TUI; notarized DMG |
 | Ubuntu 24.04 LTS and Fedora 44, x86_64 and aarch64 (the only supported GNU/Linux distributions) | Kotlin 2.4 / Compose Multiplatform 1.11 | `clambhook` (GPL core: daemon, license helper, systemd unit) and `clambhook-ui` (desktop controller with a private jlink runtime, TUI); GPG-signed `.deb`/`.rpm` and signed apt/dnf repositories |
-| Android 12+ ARM64 | Kotlin 2.4 / Compose Multiplatform 1.11 | Kotlin platform library, JNI C runtime, signed APK and AAB; application ID `org.jpfchang.clambhook`, minSdk 31, targetSdk 36 |
+| Android 12+ ARM64 | Kotlin 2.4 / Compose Multiplatform 1.11 | Kotlin platform library, JNI C runtime, signed APK; application ID `org.jpfchang.clambhook`, minSdk 31, targetSdk 36 |
 | Terminal | C17 | `clambhook` and `clambhook-license` (core); `clambhook-tui` (apps) |
 
 Windows development is discontinued with no planned resumption date.

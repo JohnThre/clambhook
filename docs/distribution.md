@@ -13,7 +13,8 @@ are not releases.
   only on Ubuntu 24.04 LTS and Fedora Linux 44: `clambhook` (the GPL-3.0-only
   core daemon and license helper) and `clambhook-ui` (the proprietary
   Kotlin/Compose desktop controller and TUI).
-- Android: signed ARM64 Kotlin/Compose APK and AAB for Android 12/API 31+.
+- Android: signed ARM64 Kotlin/Compose APK for Android 12/API 31+, sideloaded;
+  no App Bundle and no app-store distribution.
 
 Stable releases are created from verified signed `v*` tags. Each release is
 stored under `releases/<tag>/` and served at
@@ -40,7 +41,7 @@ subscription can reuse the same key. Checkout accepts Creem or NOWPayments, not 
 
 Every published package has a SHA-256 record or signed manifest covered by an
 armored GPG signature. macOS updates also use Sparkle EdDSA signatures, Apple
-code signing, notarization, and stapling; Android packages retain APK/AAB
+code signing, notarization, and stapling; Android packages retain APK
 signature verification. The public GPG key is attached to each release and
 tracked in `keys/`.
 

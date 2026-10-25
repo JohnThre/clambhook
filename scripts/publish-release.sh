@@ -102,7 +102,7 @@ for dir in "${asset_dirs[@]}"; do
     while IFS= read -r -d '' asset; do
         assets+=("$asset")
     done < <(find "$dir" -maxdepth 1 -type f \
-        \( -name '*.dmg' -o -name '*.zip' -o -name '*.apk' -o -name '*.aab' \
+        \( -name '*.dmg' -o -name '*.zip' -o -name '*.apk' \
            -o -name '*.deb' -o -name '*.rpm' -o -name '*.json' -o -name '*.xml' \
            -o -name '*.sha256' -o -name '*.sig' \) \
         ! -name '*notary*' ! -name '.*' -print0 | sort -z)
@@ -126,7 +126,7 @@ if len(names) != len(paths):
     sys.exit("duplicate asset file names across dist directories")
 patterns = [
     (r"ClambhookMac-(arm64)\.(dmg|zip)", "macos", "clambhook"),
-    (r"ClambHook-(arm64)\.(apk|aab)", "android", "clambhook"),
+    (r"ClambHook-(arm64)\.(apk)", "android", "clambhook"),
     (r"ClambHook-UI-" + re.escape(version) + r"-(x86_64|aarch64)\.(deb|rpm)", "linux", "clambhook-ui"),
     (r"ClambHook-" + re.escape(version) + r"-(x86_64|aarch64)\.(deb|rpm)", "linux", "clambhook"),
 ]
