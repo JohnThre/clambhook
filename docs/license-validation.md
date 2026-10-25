@@ -5,8 +5,8 @@
 
 ClambHook uses the hosted `store.swiphtgroup.com` license backend for trial,
 activation, device-seat, annual-subscription, paid-through, and supporter state.
-Official installers and update manifests are served through GitHub Releases
-only after the protected publication workflow succeeds.
+Official installers and update manifests are served only by clambercloud.com,
+after the maintainer publishes a verified release with `scripts/publish-release.sh`.
 
 ## Production Backend
 
@@ -94,6 +94,6 @@ covers releases published during each paid term and up to six active devices.
 Cancellation stops future billing at the paid-through date. Compatible releases
 from paid terms remain usable perpetually, and resubscription can reuse the same
 key. Public installers are downloaded from
-`https://github.com/JohnThre/clambhook/releases` when a release is available;
+`https://clambercloud.com/clambhook/download/` when a release is available;
 only the maintainer publishes installer artifacts, through
 `scripts/publish-release.sh` after signature verification.

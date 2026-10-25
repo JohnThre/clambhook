@@ -5,9 +5,8 @@
 
 For ClambHook support, contact support@swiphtgroup.com.
 
-Official installers, when published, are downloaded from
-`https://github.com/JohnThre/clambhook/releases` or through links on
-`clambercloud.com`. Purchases, renewals, and license device management are
+Official installers, when published, are downloaded only from
+`https://clambercloud.com/clambhook/download/`. Purchases, renewals, and license device management are
 handled by `store.swiphtgroup.com`.
 
 For license questions, include the purchase email and a redacted license key

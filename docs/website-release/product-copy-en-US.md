@@ -7,7 +7,7 @@
 
 - Title: ClambHook.
 - Description: Private VPN and proxy router for Apple Silicon Macs running macOS 14 or later, Ubuntu and Fedora systems, and ARM64 Android 12+ devices.
-  Download verified builds from GitHub Releases, start a 7-day trial, then
+  Download verified builds from clambercloud.com, start a 7-day trial, then
   subscribe through `store.swiphtgroup.com`.
 - Primary action: Download.
 - Secondary action: Subscription & Pricing.
@@ -41,8 +41,8 @@
 ClambHook helps advanced users manage local network profiles, routing rules,
 status views, diagnostics, and opt-in HTTP(S) capture. macOS uses a native
 SwiftUI app; GNU/Linux and Android share a Kotlin/Compose interface with platform-native
-service integration. Official binaries are distributed through GitHub Releases;
-`clambercloud.com` is marketing-only, while checkout, license delivery, and
+service integration. Official binaries are distributed only through
+`clambercloud.com`, while checkout, license delivery, and
 device-seat management are handled by `store.swiphtgroup.com`.
 
 Use ClambHook to import or edit profiles, choose the active profile, apply
@@ -54,7 +54,7 @@ the device unless the user explicitly exports or sends them.
 ## Copy Guardrails
 
 - Use "7-day trial", "USD 79.99/year subscription", "maximum of 6 concurrently active devices", and "perpetual compatible fallback" for commercial copy.
-- Public download CTAs point to GitHub Releases through `clambercloud.com`.
+- Public download CTAs point to the release files on `clambercloud.com`.
 - Do not show a platform CTA until its versioned artifacts and signatures have
   passed the publication checklist.
 - Subscription and license portal CTAs point to `store.swiphtgroup.com`.

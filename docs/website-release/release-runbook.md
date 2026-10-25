@@ -3,8 +3,8 @@
 
 # macOS and Android release runbook
 
-GitHub Releases on this repository is the sole public artifact host, and the
-in-app updaters read it. The macOS and Android installers are built in the
+clambercloud.com (the `clambhook-artifacts` R2 bucket) is the sole public
+artifact host, and the in-app updaters read it. The macOS and Android installers are built in the
 private apps repository on the maintainer's Mac, then published from here with
 `scripts/publish-release.sh`, which verifies every signature before uploading.
 

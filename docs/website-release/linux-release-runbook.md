@@ -39,7 +39,7 @@ then written for the package, its checksum, and
 3. Publish with `scripts/publish-release.sh --publish 1.2.3`. It runs
    `scripts/verify-release-signatures.sh` over every asset before uploading.
 4. Deploy the `clambhook-linux-repo/` tree from the signed bundle to
-   `https://jpfchang.org/clambhook/linux/`, after verifying its signature.
+   `https://clambercloud.com/clambhook/linux/`, after verifying its signature.
    Installed packages point apt/dnf at that location.
 
 For a local preflight without release builds, run:

@@ -25,15 +25,15 @@ ShadowTLS, and Tor) with an opt-in local HTTP(S) capture and debugging
 workbench (body viewers, breakpoints, map/rewrite rules, cURL and HAR
 export). Profiles, rules, credentials, keys, captures, and diagnostics stay on
 the device unless you explicitly export them. Official builds are published only
-on the [GitHub Releases page](https://github.com/JohnThre/clambhook/releases)
+on [clambercloud.com](https://clambercloud.com/clambhook/download/)
 for Apple Silicon macOS 14+, Ubuntu and Fedora (x86_64 and aarch64), and ARM64
 Android 12+.
 
 The completed implementation cutover is recorded in
 [outcome details](docs/c-migration.md).
 
-Official binaries appear only on the
-[GitHub Releases page](https://github.com/JohnThre/clambhook/releases); a source
+Official binaries appear only on
+[clambercloud.com](https://clambercloud.com/clambhook/download/); a source
 version or tag alone is not evidence that an installer has been published.
 
 ## Architecture
@@ -192,7 +192,7 @@ flowchart LR
     policy --> macos["C17 runtime on macOS"]
     ctest --> linux["GNU/Linux x86_64 + aarch64<br/>Ubuntu 24.04 · Fedora 44<br/>core package install/uninstall"]
     linux --> local["Maintainer release build<br/>GPG-sign · notarize · verify"]
-    local --> releases["Versioned GitHub Release<br/>scripts/publish-release.sh"]
+    local --> releases["clambercloud.com release<br/>scripts/publish-release.sh"]
 ```
 
 CI builds and tests only; no workflow builds, signs, or publishes installers.
@@ -204,7 +204,7 @@ repository — are built and signed on the maintainer's machine, checked with
 ## Distribution and licensing
 
 When available, official downloads are hosted only at
-<https://github.com/JohnThre/clambhook/releases>. Each release
+<https://clambercloud.com/clambhook/download/>. Each release
 publishes a notarized DMG for Apple Silicon Macs running macOS 14 or later,
 signed ARM64 Android packages, and signed Ubuntu and Fedora packages. Every
 installer, checksum, manifest, and apt/dnf repository index carries a
@@ -325,8 +325,8 @@ GPL-3.0-only. See [licensing](LICENSING.md).
 
 ### Where do I download official builds?
 
-Official, signed builds are published only on the
-[GitHub Releases page](https://github.com/JohnThre/clambhook/releases). A source
+Official, signed builds are published only on
+[clambercloud.com](https://clambercloud.com/clambhook/download/). A source
 version or tag alone is not evidence that an installer has been published.
 
 ### How can I support ClambHook?

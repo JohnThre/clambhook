@@ -12,8 +12,8 @@ production provider response.
 
 - Confirm `clambercloud.com` serves ClambHook product, download guidance, support, and privacy routes without commerce code.
 - Confirm `store.swiphtgroup.com` has the `DB` binding and ClambHook license migrations applied.
-- Confirm the official ClambHook GitHub Releases page contains a completed
-  published release before enabling download calls to action.
+- Confirm `https://clambercloud.com/clambhook/channels/stable/release.json`
+  names a completed published release before enabling download calls to action.
 - Confirm test-mode Creem and NOWPayments recurring annual products are configured for USD 79.99/year.
 - Confirm a dedicated license-key derivation secret is configured separately from provider webhook secrets and the public donation API key.
 - Confirm license grant email delivery is configured before accepting purchases.
@@ -27,7 +27,7 @@ production provider response.
 - License Portal URL: `https://store.swiphtgroup.com/clambhook/portal/`.
 - Support URL: `https://clambercloud.com/clambhook/support/`.
 - Privacy Policy URL: `https://clambercloud.com/clambhook/privacy/`.
-- Distribution copy: signed downloads from GitHub Releases.
+- Distribution copy: signed downloads from clambercloud.com.
 
 ## Annual Product and Compatibility Entitlements
 
@@ -68,10 +68,10 @@ resubscription, or a provider change.
 
 ## Verification
 
-- Confirm `https://github.com/JohnThre/clambhook/releases/latest` exposes the
+- Confirm the stable channel on `https://clambercloud.com/clambhook/` exposes the
   current notarized DMG, signed APK/AAB, both architecture variants of `.deb`
   and `.rpm`, checksums, signatures, and manifests.
-- Confirm the Clamber Cloud download page links to GitHub Releases.
+- Confirm the Clamber Cloud download page links to the clambercloud.com release files.
 - Confirm each provider's test-mode annual payment creates or extends a provider-neutral license and sends the email.
 - Confirm cancellation, lapse, resubscription, provider switching, refunds, chargebacks, and webhook replay behavior.
 - Confirm activation enforces 6 active devices across supported platforms.
