@@ -101,3 +101,7 @@ out/
 /clambhook
 /clambhook-tui
 /socks5_udp
+
+# Python bytecode
+__pycache__/
+*.pyc
