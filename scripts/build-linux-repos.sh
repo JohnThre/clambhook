@@ -4,7 +4,7 @@
 
 # Build signed apt (Ubuntu) and dnf (Fedora) repositories from already-signed
 # release packages, and bundle them for deployment to
-# https://jpfchang.org/clambhook/linux/. Every package is verified before it is
+# https://clambercloud.com/clambhook/linux/. Every package is verified before it is
 # indexed; repository metadata is signed with the developer@jpfchang.org key.
 #
 #   UPDATE_CHANNEL=stable VERSION=1.2.3 \

@@ -70,10 +70,10 @@ fi
 
 publish_script="$ROOT_DIR/scripts/publish-release.sh"
 [[ -x "$publish_script" ]] || fail "missing executable scripts/publish-release.sh"
-# Every installer upload must follow the developer@jpfchang.org signature
-# verification gate.
+# Every installer upload (to the clambercloud.com R2 bucket) must follow the
+# developer@jpfchang.org signature verification gate.
 verify_line="$(grep -n 'scripts/verify-release-signatures\.sh' "$publish_script" | head -1 | cut -d: -f1)"
-upload_line="$(grep -n 'gh release upload' "$publish_script" | head -1 | cut -d: -f1)"
+upload_line="$(grep -n 'r2 object put' "$publish_script" | head -1 | cut -d: -f1)"
 [[ -n "$verify_line" && -n "$upload_line" && "$verify_line" -lt "$upload_line" ]] || \
   fail "publish-release.sh uploads without a preceding signature verification gate"
 

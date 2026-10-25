@@ -3,8 +3,8 @@
 
 # Copy Notes
 
-ClambHook official binaries are distributed through GitHub Releases after a
-protected publication and described on `clambercloud.com`. Subscriptions and
+ClambHook official binaries are distributed and described only on
+`clambercloud.com`, after a verified local publication. Subscriptions and
 license device management happen on `store.swiphtgroup.com`.
 
 ## Commercial Facts

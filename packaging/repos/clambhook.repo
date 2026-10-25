@@ -6,7 +6,7 @@
 # developer@jpfchang.org release key.
 [clambhook]
 name=ClambHook
-baseurl=https://jpfchang.org/clambhook/linux/rpm/stable/$basearch
+baseurl=https://clambercloud.com/clambhook/linux/rpm/stable/$basearch
 enabled=1
 gpgcheck=1
 repo_gpgcheck=1

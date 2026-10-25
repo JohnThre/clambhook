@@ -22,7 +22,7 @@ flowchart TD
     distros --> ready
     apps["App gates<br/>private apps repository"] --> ready
     ready --> local["Local build · inspection<br/>GPG signing + verification · notarization"]
-    local --> published["Versioned GitHub Release"]
+    local --> published["clambercloud.com release"]
     published --> download["Independent download<br/>hash · signature · install · update smoke"]
 ```
 

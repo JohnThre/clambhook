@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 
 # Internal developer QA formula for the GPL-3.0-only core only. End-user macOS
-# distribution is the signed and notarized app from GitHub Releases. GNU/Linux is
+# distribution is the signed and notarized app from clambercloud.com. GNU/Linux is
 # supported only on Ubuntu and Fedora through the signed .deb/.rpm packages.
 class Clambhook < Formula
   desc "C17 local connectivity daemon"

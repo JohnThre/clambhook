@@ -3,7 +3,7 @@
 
 # Release signing
 
-ClambHook GitHub Releases use three independent trust layers:
+ClambHook releases on clambercloud.com use three independent trust layers:
 
 - GPG signs **every installer** and its checksum, every update manifest, and
   the apt/dnf repository metadata with the developer@jpfchang.org key pinned in
@@ -82,7 +82,7 @@ future updates automatically:
 
 Each release publishes `clambhook-linux-repo-<version>.tar.gz` (signed). Its
 `clambhook-linux-repo/` tree must be deployed unchanged to
-`https://jpfchang.org/clambhook/linux/` (so `apt/` and `rpm/` sit directly
+`https://clambercloud.com/clambhook/linux/` (so `apt/` and `rpm/` sit directly
 below that URL). Verify the bundle's `.sig` before deploying.
 
 A successful verification proves integrity and key ownership; it does not

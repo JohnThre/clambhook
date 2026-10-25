@@ -2,7 +2,7 @@
 # SPDX-FileCopyrightText: 2026 Pengfan Chang <support@swiphtgroup.com>
 # SPDX-License-Identifier: GPL-3.0-only
 
-# Build, checksum, and GPG-sign the ClambHook GNU/Linux GitHub Release assets
+# Build, checksum, and GPG-sign the ClambHook GNU/Linux release assets
 # for the only supported distributions: Ubuntu (.deb) and Fedora (.rpm).
 #
 #   UPDATE_CHANNEL=stable REQUIRE_SIGNING=1 GPG_KEY=EAA876B70B1832F5 \
@@ -15,7 +15,7 @@
 # manifest afterwards because embedding a signature changes package bytes.
 set -euo pipefail
 
-echo "Building GNU/Linux release assets for GitHub Releases." >&2
+echo "Building GNU/Linux release assets for clambercloud.com." >&2
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
@@ -35,7 +35,7 @@ case "${CLAMBHOOK_LINUX_ARCH:-$(uname -m)}" in
 esac
 DIST_DIR="${CLAMBHOOK_LINUX_DIST_DIR:-$ROOT_DIR/dist/linux}"
 RELEASE_TAG="${RELEASE_TAG:-v${VERSION}}"
-RELEASE_BASE="https://github.com/${GITHUB_REPOSITORY:-JohnThre/clambhook}/releases/download/${RELEASE_TAG}"
+RELEASE_BASE="${CLAMBHOOK_RELEASE_BASE:-https://clambercloud.com/clambhook/releases/${RELEASE_TAG}}"
 
 TARGETS="${1:-deb rpm}"
 if [[ "$TARGETS" == "manifest" ]]; then
@@ -125,5 +125,5 @@ echo "Generated $MANIFEST"
 cat <<SUMMARY
 
 Linux release artifacts written to $DIST_DIR
-Publish these files on GitHub Release $RELEASE_TAG.
+Publish them on clambercloud.com with scripts/publish-release.sh.
 SUMMARY

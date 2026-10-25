@@ -5,8 +5,8 @@
 
 Last updated: 2026-08-30
 
-ClambHook official binaries are distributed through GitHub Releases after a
-protected publication and described on `clambercloud.com`. On macOS it offers
+ClambHook official binaries are distributed and described only on
+`clambercloud.com`, after a verified local publication. On macOS it offers
 System Proxy mode for apps that honor system proxy settings and daemon-backed
 Enhanced Mode for device-wide routing. GNU/Linux uses the supervised daemon;
 Android uses the system VPN service and an in-process C runtime.

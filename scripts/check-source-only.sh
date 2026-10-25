@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 
 # Keep generated installer artifacts out of the source tree. Signed binaries
-# are published as GitHub Release assets, never committed to Git.
+# are published on clambercloud.com, never committed to Git.
 set -euo pipefail
 
 ROOT_DIR="${1:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"

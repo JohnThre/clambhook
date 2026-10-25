@@ -4,9 +4,9 @@
 # Distribution policy
 
 The sole official binary distribution channel, once a release has been
-published, is <https://github.com/JohnThre/clambhook/releases>. An empty release
-page means that no official binary is currently published; repository build
-outputs and CI reports are not releases.
+published, is <https://clambercloud.com/clambhook/download/>, served from the `clambhook-artifacts` Cloudflare R2
+bucket. GitHub hosts only source code; repository build outputs and CI reports
+are not releases.
 
 - macOS: signed, notarized Apple-silicon DMG for macOS 14+.
 - GNU/Linux: x86_64/aarch64 GPG-checksummed `.deb` and `.rpm` packages, validated
@@ -15,15 +15,18 @@ outputs and CI reports are not releases.
   Kotlin/Compose desktop controller and TUI).
 - Android: signed ARM64 Kotlin/Compose APK and AAB for Android 12/API 31+.
 
-Stable releases are created from verified signed `v*` tags. Approved betas are
-GitHub prereleases and are also exposed through the rolling `beta` release for
-update discovery. Assets are not mirrored to Cloudflare R2, app marketplaces,
-Homebrew, package registries, or third-party download hosts. The GNU/Linux UI
-can use `apt` or `dnf` only when the administrator has independently configured
-a signed repository containing ClambHook; official repository metadata is not
-currently published.
+Stable releases are created from verified signed `v*` tags. Each release is
+stored under `releases/<tag>/` and served at
+`https://clambercloud.com/clambhook/releases/<tag>/`. The signed channel pointer
+`channels/<stable|beta>/release.json` names the current release, and the
+in-app updaters read their manifests and the Sparkle appcast through
+`https://clambercloud.com/clambhook/channels/<channel>/`. Assets are not
+mirrored to GitHub Releases, app marketplaces, Homebrew, package registries, or
+third-party download hosts. The signed apt and dnf repositories are served at
+`https://clambercloud.com/clambhook/linux/`, and the `clambhook` package
+installs their source definitions.
 
-The Clamber Cloud website provides product information and links to GitHub.
+The Clamber Cloud website hosts the downloads and links to the source on GitHub.
 Subscription purchase, renewal, activation, cancellation, and device management remain on the
 Swipht Group store and are independent of binary hosting.
 

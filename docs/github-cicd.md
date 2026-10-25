@@ -3,8 +3,8 @@
 
 # GitHub CI/CD
 
-GitHub Actions builds and tests the GPL-3.0-only core. GitHub Releases is the
-only official binary distribution channel. Releases are built, signed, and
+GitHub Actions builds and tests the GPL-3.0-only core. clambercloud.com is the
+only official binary distribution channel; GitHub hosts source only. Releases are built, signed, and
 published from the maintainer's machine; no workflow builds, signs, or uploads
 installers, and no workflow holds release credentials. Workflows default to no
 permissions, pin every third-party action to a full commit SHA, and grant
@@ -51,8 +51,9 @@ The maintainer builds a release on their own machine:
    tag against the pinned key, then runs `scripts/verify-release-signatures.sh`
    over every asset in both repositories' `dist/` trees.
 6. Run `scripts/publish-release.sh --publish VERSION` (or `--publish --beta`).
-   It creates the GitHub Release and uploads the assets; beta releases are also
-   mirrored to the rolling `beta` release.
+   It uploads the assets and the signed apt/dnf repositories to the
+   `clambhook-artifacts` R2 bucket served by clambercloud.com, then moves the
+   `stable` (or `beta`) channel pointer to the new release.
 
 Every installer, checksum, manifest, and repository index is signed with the
 developer@jpfchang.org key: embedded `rpmsign`/`debsigs` signatures for
@@ -81,7 +82,7 @@ flowchart TB
         repo --> verify["verify-release-signatures.sh"]
         core --> verify
         apps --> verify
-        verify --> publish["publish-release.sh<br/>versioned GitHub Release"]
+        verify --> publish["publish-release.sh<br/>clambercloud.com (R2)"]
         publish --> beta["Rolling beta mirror<br/>beta channel only"]
     end
 

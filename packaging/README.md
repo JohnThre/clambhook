@@ -79,7 +79,7 @@ architecture the release contains:
 Fedora 44 containers with signature checking enabled and proves that tampered
 metadata is refused. The repository tree is published as
 `clambhook-linux-repo-<version>.tar.gz` (signed) and deployed to
-`https://jpfchang.org/clambhook/linux/`. All signatures use the
+`https://clambercloud.com/clambhook/linux/`. All signatures use the
 developer@jpfchang.org key; see
 [release signing](../docs/website-release/signing.md).
 
@@ -88,9 +88,9 @@ notarized Apple Silicon DMG and ZIP, update manifest and Sparkle appcast) come
 from the apps repository with the same signing rules.
 
 `scripts/publish-release.sh` runs `scripts/verify-release-signatures.sh` over
-every asset before it uploads anything to GitHub Releases. No CI workflow
-builds, signs, or publishes installers. The asset list is a release contract,
-not evidence that the GitHub Release currently exists.
+every asset before it uploads anything to the clambercloud.com R2 bucket. No
+CI workflow builds, signs, or publishes installers. The asset list is a release
+contract, not evidence that a release is currently published.
 
 See [release validation](../docs/release-validation.md) and
 [distribution policy](../docs/distribution.md).
