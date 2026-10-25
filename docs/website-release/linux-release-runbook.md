@@ -3,33 +3,52 @@
 
 # GNU/Linux release runbook
 
-The protected GitHub workflow builds `.deb` packages in Ubuntu 24.04 LTS and
-`.rpm` packages in Fedora Linux 44 on x86_64 and aarch64. These are the only
-authoritative and only supported GNU/Linux targets. After the container
-builds, the protected runner embeds an RPM header signature or `debsigs`
-origin signature in each package, then writes detached developer@jpfchang.org
-signatures for the package, its checksum, and
-`clambhook-linux-<arch>-manifest.json`. `scripts/verify-release-signatures.sh`
-must pass before anything is uploaded to the versioned GitHub Release. The
-`linux-repo` job then builds signed apt and dnf repositories, installs from
-them in Ubuntu and Fedora containers, and publishes
-`clambhook-linux-repo-<version>.tar.gz`. Deploy that bundle's
-`clambhook-linux-repo/` tree to `https://jpfchang.org/clambhook/linux/` after
-verifying its signature; installed packages point apt/dnf at that location. Every package contains the C17 command-line programs
-and the self-contained Kotlin/Compose desktop controller with its private runtime.
+GNU/Linux releases ship two packages per format and architecture: `clambhook`
+(the GPL-3.0-only core, built here) and `clambhook-ui` (the proprietary desktop
+controller and TUI, built in the private apps repository). Both are built on
+the maintainer's machine in Ubuntu 24.04 LTS (`.deb`) and Fedora Linux 44
+(`.rpm`) containers for x86_64 and aarch64. These are the only authoritative
+and only supported GNU/Linux targets.
 
-For local preflight, run the same container matrix without publishing:
+After the container builds, each package gets an embedded RPM header signature
+or `debsigs` origin signature. Detached developer@jpfchang.org signatures are
+then written for the package, its checksum, and
+`clambhook-linux-<arch>-manifest.json`.
+
+1. Create and push the signed tag with
+   `scripts/sign-release-tag.sh v1.2.3 create`, and pin the apps repository's
+   `core/` submodule to it.
+2. Run `VERSION=1.2.3 UPDATE_CHANNEL=stable scripts/release-linux-local.sh`.
+   It needs Podman or Docker; x86_64 builds run under emulation on Apple
+   Silicon. It:
+   - builds the core packages for each architecture in Ubuntu and Fedora
+     containers (each build runs the installed-package smoke test);
+   - builds the `clambhook-ui` packages through the apps repository's
+     `scripts/release-linux-ui.sh`;
+   - signs every package on the host (embedded `rpmsign`/`debsigs`-format and
+     detached signatures, checksums, manifests). The private key never enters a
+     container;
+   - verifies every package with `debsig-verify`/`rpmkeys` in a key-free
+     container and generates the apt/dnf metadata there;
+   - signs the repository metadata on the host and bundles it as
+     `clambhook-linux-repo-<version>.tar.gz`;
+   - installs from the signed repositories on Ubuntu and Fedora. This proves
+     that `clambhook-ui` pulls in `clambhook` and that tampered metadata is
+     refused. Set `CLAMBHOOK_UPGRADE_FROM` to a directory of 1.0.x packages to
+     also prove that an upgrade keeps the desktop controller.
+3. Publish with `scripts/publish-release.sh --publish 1.2.3`. It runs
+   `scripts/verify-release-signatures.sh` over every asset before uploading.
+4. Deploy the `clambhook-linux-repo/` tree from the signed bundle to
+   `https://jpfchang.org/clambhook/linux/`, after verifying its signature.
+   Installed packages point apt/dnf at that location.
+
+For a local preflight without release builds, run:
 
 ```sh
 scripts/validate-linux-distros.sh ubuntu fedora
 ```
 
-`make release-linux` is a local artifact/signing helper for a suitably
-provisioned GNU/Linux host; it does not publish and does not replace the
-protected two-architecture workflow.
-
-Before publishing, verify both architectures, package metadata, daemon and
-secret-storage integration, desktop controller launch, clean uninstall, SHA-256 files,
-embedded and detached GPG signatures, signed repository metadata, and the immutable GitHub URLs in each manifest. Create and
-push the signed tag with `scripts/sign-release-tag.sh v1.2.3 create`; GitHub
-Actions performs publication after production approval.
+Before publishing, verify both architectures, package metadata, daemon
+integration, clean uninstall, SHA-256 files, embedded and detached GPG
+signatures, signed repository metadata, and the immutable GitHub URLs in each
+manifest.

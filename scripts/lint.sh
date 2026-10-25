@@ -30,11 +30,4 @@ cmake -S . -B "$BUILD_DIR" -G Ninja \
     -DCLAMBHOOK_WARNINGS_AS_ERRORS=ON
 cmake --build "$BUILD_DIR"
 
-(cd ui/kotlin && ./gradlew --no-daemon :desktop:compileKotlin)
-if (cd ui/kotlin && ./gradlew --no-daemon -q projects | grep -q "':platform'"); then
-    (cd ui/kotlin && ./gradlew --no-daemon :platform:lintDebug :app:lintDebug)
-else
-    echo "lint: Android lint skipped: no Android SDK configured" >&2
-fi
-
 echo "lint: all checks passed"

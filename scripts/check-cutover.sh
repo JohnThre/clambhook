@@ -60,44 +60,26 @@ if rg -n '(setup-go|buildGoModule|gomobile|go (build|run|test|vet|install|mod|en
     fail "Go tooling escaped the isolated Outline interoperability harness"
 fi
 
-# The Android and GNU/Linux GUI is Kotlin only (Compose Multiplatform in
-# ui/kotlin). JavaFX, Gluon, GraalVM native-image, GTK, and Java UI sources are
-# retired and must not return.
-if git ls-files 'ui/*.java' 'ui/**/*.java' 'ui/**/pom.xml' | grep -q .; then
-    git ls-files 'ui/*.java' 'ui/**/*.java' 'ui/**/pom.xml' >&2
-    fail "Java or Maven UI sources remain; the Android and GNU/Linux GUI is Kotlin only"
+# The public repository is the GPL-3.0-only core only. The proprietary
+# clients (SwiftUI, Kotlin/Compose, TUI and the Android JNI bridge) live in the
+# private clambhook-apps repository and must not return here.
+for client in ui native/src/tui native/src/android packaging/desktop packaging/polkit; do
+    if git ls-files "$client" "$client/**" | while IFS= read -r source; do
+        [[ ! -e "$source" ]] || { printf '%s\n' "$source"; break; }
+    done | grep -q .; then
+        fail "client path belongs in the private clambhook-apps repository: $client"
+    fi
+done
+if git ls-files '*.kt' '*.kts' '*.swift' '*.java' 'gradlew' | grep -q .; then
+    git ls-files '*.kt' '*.kts' '*.swift' '*.java' 'gradlew' >&2
+    fail "client sources returned to the core repository"
 fi
-if git grep -nEi \
-    '(javafx|gluonfx|gluon|graalvm|native-image|GRAALVM_HOME|GTK([ +][0-9]| UI| application| prototype)|libadwaita)' \
-    -- Makefile CMakeLists.txt ui scripts .github debian packaging \
-    ':(exclude)scripts/check-cutover.sh' \
-    ':(exclude)scripts/package-smoke.sh' \
-    ':(exclude)scripts/smoke-installed-linux-package.sh' \
-    ':(exclude)scripts/release-android.sh' \
-    ':(exclude)scripts/check-sbom.py' \
-    ':(exclude)*.md' \
-    ':(exclude)packaging/sbom.cdx.json' \
-    ':(exclude)packaging/rpm/clambhook.spec' \
-    ':(exclude)debian/changelog'; then
-    fail "active build, packaging, or UI files still reference a retired user-interface stack"
-fi
-grep -Fq 'id("org.jetbrains.compose")' ui/kotlin/shared/build.gradle.kts ||
-    fail "the shared Kotlin UI is not built with Compose Multiplatform"
 
-for binary in build-native/clambhook build-native/clambhook-tui build-native/clambhook-license; do
+for binary in build-native/clambhook build-native/clambhook-license; do
     [[ -f "$binary" ]] || continue
     if command -v readelf >/dev/null 2>&1 && readelf -S "$binary" 2>/dev/null | grep -q '\.go\.buildinfo'; then
         fail "retired runtime build information found in $binary"
     fi
 done
-
-if ! grep -Fq 'linux-dist/clambhook-ui' ui/kotlin/desktop/build.gradle.kts ||
-    [[ ! -x ui/kotlin/desktop/src/linux/clambhook-ui ]]; then
-    fail "desktop distributable name no longer matches the production Linux executable"
-fi
-grep -Fq 'applicationId = "org.jpfchang.clambhook"' ui/kotlin/app/build.gradle.kts ||
-    fail "the Android application ID changed"
-
-"$ROOT_DIR/scripts/check-android-abi-policy.sh"
 
 echo "cutover check: all checks passed"

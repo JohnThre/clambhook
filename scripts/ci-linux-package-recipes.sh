@@ -46,9 +46,6 @@ build_rpm() {
     (
         cd "$ROOT_DIR"
         tar --exclude-vcs --exclude='./dist' --exclude='./build-native*' \
-            --exclude='./ui/kotlin/.gradle' --exclude='./ui/kotlin/.kotlin' \
-            --exclude='./ui/kotlin/.native-deps' --exclude='./ui/kotlin/*/build' \
-            --exclude='./ui/kotlin/build' --exclude='./ui/kotlin/platform/.cxx' \
             --transform "s,^\.,clambhook-${version}," \
             -czf "$source" .
         rpmbuild --define "_topdir $topdir" --define "version $version" \

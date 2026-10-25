@@ -32,7 +32,7 @@
             doCheck = true;
 
             meta = with pkgs.lib; {
-              description = "ClambHook C17 daemon, terminal UI, and license helper";
+              description = "ClambHook C17 core daemon and license helper";
               homepage = "https://github.com/JohnThre/clambhook";
               license = licenses.gpl3Only;
               mainProgram = "clambhook";
@@ -46,17 +46,13 @@
           type = "app";
           program = "${self.packages.${system}.default}/bin/clambhook";
         };
-        tui = {
-          type = "app";
-          program = "${self.packages.${system}.default}/bin/clambhook-tui";
-        };
       });
 
       devShells = forAllSystems (system:
         let pkgs = import nixpkgs { inherit system; };
         in {
           default = pkgs.mkShell {
-            nativeBuildInputs = with pkgs; [ cmake ninja pkg-config jdk17 ];
+            nativeBuildInputs = with pkgs; [ cmake ninja pkg-config ];
             buildInputs = with pkgs; [ curl libuv libsodium openssl ];
           };
         });

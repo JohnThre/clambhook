@@ -3,15 +3,16 @@
 
 # Distribution policy
 
-The sole official binary distribution channel, once a protected release has
-completed, is <https://github.com/JohnThre/clambhook/releases>. An empty release
+The sole official binary distribution channel, once a release has been
+published, is <https://github.com/JohnThre/clambhook/releases>. An empty release
 page means that no official binary is currently published; repository build
 outputs and CI reports are not releases.
 
 - macOS: signed, notarized Apple-silicon DMG for macOS 14+.
-- GNU/Linux: x86_64/aarch64 GPG-checksummed `.deb` and `.rpm` packages with a
-  self-contained Kotlin/Compose desktop controller, validated only on Ubuntu 24.04 LTS
-  and Fedora Linux 44.
+- GNU/Linux: x86_64/aarch64 GPG-checksummed `.deb` and `.rpm` packages, validated
+  only on Ubuntu 24.04 LTS and Fedora Linux 44: `clambhook` (the GPL-3.0-only
+  core daemon and license helper) and `clambhook-ui` (the proprietary
+  Kotlin/Compose desktop controller and TUI).
 - Android: signed ARM64 Kotlin/Compose APK and AAB for Android 12/API 31+.
 
 Stable releases are created from verified signed `v*` tags. Approved betas are
@@ -41,6 +42,7 @@ signature verification. The public GPG key is attached to each release and
 tracked in `keys/`.
 
 The macOS download supports Apple Silicon Macs running macOS 14.0 or later.
-Official downloads carry ClambHook trademarks. GPL-compliant forks may build
-and redistribute the public core under their own branding without implying
-official status.
+Official downloads carry ClambHook trademarks. The apps are proprietary; the
+core in this repository is GPL-3.0-only, and the apps ship its license texts and
+a pointer to this source. GPL-compliant forks may build and redistribute the
+public core under their own branding without implying official status.

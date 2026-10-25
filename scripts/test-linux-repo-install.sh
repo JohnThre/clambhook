@@ -10,6 +10,10 @@
 #   UPDATE_CHANNEL=stable scripts/test-linux-repo-install.sh <repo-dir> [ubuntu] [fedora]
 #
 # <repo-dir> is the clambhook-linux-repo directory from build-linux-repos.sh.
+# When the repository carries clambhook-ui, installing it must pull in the
+# matching clambhook core package. With CLAMBHOOK_UPGRADE_FROM set to a
+# directory holding a combined 1.0.x .deb/.rpm, the test first installs that
+# package and proves that upgrading clambhook keeps the desktop controller.
 set -euo pipefail
 
 REPO_DIR="$(cd "${1:?repository directory is required}" && pwd)"
@@ -45,11 +49,28 @@ EOF
 apt-get update -o Dir::Etc::sourcelist=/dev/null \
     -o Dir::Etc::sourceparts=/etc/apt/sources.list.d \
     -o APT::Update::Error-Mode=any -qq
-apt-get install -y -qq clambhook >/dev/null
+old_deb=$(find /upgrade-from -maxdepth 1 -name "*.deb" -print -quit 2>/dev/null || true)
+if [[ -n "$old_deb" ]]; then
+  apt-get install -y -qq "$old_deb" >/dev/null
+  apt-get --only-upgrade install -y -qq clambhook >/dev/null
+  dpkg-query -W -f "\${Status}\n" clambhook-ui | grep -q "install ok installed"
+  test -x /usr/bin/clambhook-ui
+  apt-get purge -y -qq clambhook-ui clambhook >/dev/null
+fi
+if apt-cache show clambhook-ui >/dev/null 2>&1; then
+  apt-get install -y -qq clambhook-ui >/dev/null
+  dpkg-query -W -f "\${Status}\n" clambhook-ui | grep -q "install ok installed"
+else
+  apt-get install -y -qq clambhook >/dev/null
+fi
 dpkg-query -W -f "\${Status}\n" clambhook | grep -q "install ok installed"
 test -f /usr/share/keyrings/clambhook-archive-keyring.asc
 test -f /etc/apt/sources.list.d/clambhook.sources
 apt-get purge -y -qq clambhook >/dev/null
+if dpkg-query -W -f "\${Status}\n" clambhook-ui 2>/dev/null | grep -q "install ok installed"; then
+  echo "removing clambhook left clambhook-ui installed" >&2
+  exit 1
+fi
 # Tampered metadata must be rejected.
 rm -rf /var/lib/apt/lists/*_tmp_repo_*
 sed -i "s/^Version: .*/Version: 0.0.0-tampered/" "/tmp/repo/apt/dists/$CHANNEL/InRelease"
@@ -74,11 +95,28 @@ gpgcheck=1
 repo_gpgcheck=1
 gpgkey=file:///tmp/repo/clambhook-release-key.asc
 EOF
-dnf --setopt=tsflags= install -y -q --repo=clambhook-test --repo=fedora --repo=updates clambhook
+old_rpm=$(find /upgrade-from -maxdepth 1 -name "*.rpm" -print -quit 2>/dev/null || true)
+if [[ -n "$old_rpm" ]]; then
+  dnf --setopt=tsflags= install -y -q --nogpgcheck "$old_rpm"
+  dnf --setopt=tsflags= upgrade -y -q --repo=clambhook-test --repo=fedora --repo=updates clambhook
+  rpm -q clambhook-ui
+  test -x /usr/bin/clambhook-ui
+  dnf remove -y -q clambhook-ui clambhook
+fi
+if ls /tmp/repo/rpm/$CHANNEL/$(uname -m)/clambhook-ui-*.rpm >/dev/null 2>&1; then
+  dnf --setopt=tsflags= install -y -q --repo=clambhook-test --repo=fedora --repo=updates clambhook-ui
+  rpm -q clambhook-ui
+else
+  dnf --setopt=tsflags= install -y -q --repo=clambhook-test --repo=fedora --repo=updates clambhook
+fi
 rpm -q clambhook
 test -f /etc/yum.repos.d/clambhook.repo
 test -f /etc/pki/rpm-gpg/RPM-GPG-KEY-clambhook
 dnf remove -y -q clambhook
+if rpm -q clambhook-ui >/dev/null 2>&1; then
+  echo "removing clambhook left clambhook-ui installed" >&2
+  exit 1
+fi
 # Tampered metadata must be rejected.
 arch_dir="/tmp/repo/rpm/$CHANNEL/$(uname -m)"
 printf "\n<!-- tampered -->\n" >>"$arch_dir/repodata/repomd.xml"
@@ -96,9 +134,14 @@ for target in "${targets[@]}"; do
         *) echo "Unknown target: $target (known: ubuntu fedora)" >&2; exit 2 ;;
     esac
     echo "==================== $target repository install ===================="
+    upgrade_mount=()
+    if [[ -n "${CLAMBHOOK_UPGRADE_FROM:-}" ]]; then
+        upgrade_mount=(--volume "$(cd "$CLAMBHOOK_UPGRADE_FROM" && pwd):/upgrade-from:ro${mount_suffix}")
+    fi
     "$engine" run --rm \
         --env "CHANNEL=$CHANNEL" \
         --volume "$REPO_DIR:/repo:ro${mount_suffix}" \
+        ${upgrade_mount[@]+"${upgrade_mount[@]}"} \
         "$image" bash -c "$script"
 done
 echo "Signed repository install tests passed."

@@ -121,37 +121,3 @@ authors.
 Licensed under BSD-3-Clause, with the separate X25519 notice retained beside
 that source. The exact revision and imported-file boundary are in
 `third_party/wireguard_lwip/PROVENANCE.md`.
-
-## Kotlin and Compose Multiplatform
-
-Copyright JetBrains s.r.o., The Android Open Source Project, and contributors.
-
-The Android and GNU/Linux user interface uses Kotlin 2.4.10 and Compose
-Multiplatform 1.11.1 (runtime, foundation, ui, and material3 1.9.0), together
-with the AndroidX Compose artifacts it resolves on Android and Skiko on the
-desktop. These components are licensed under Apache-2.0 and keep their
-upstream notices. Source and license information:
-
-- https://github.com/JetBrains/kotlin
-- https://github.com/JetBrains/compose-multiplatform
-
-## Android/Kotlin dependencies
-
-The Android application and platform library use AndroidX Activity Compose
-1.13.0, Core 1.18.0, DataStore 1.1.1, Security Crypto 1.1.0, kotlinx.coroutines
-1.11.0, kotlinx.serialization 1.11.0, OkHttp 5.4.0, and ZXing Android Embedded
-4.3.0. These are licensed under Apache-2.0 and keep their upstream notices.
-The updater verifies OpenPGP signatures with Bouncy Castle `bcpg-jdk18on` 1.86,
-which is MIT licensed. JUnit and AndroidX Test dependencies are test-only and
-are not shipped in product packages. Exact coordinates and scopes are recorded
-in `packaging/sbom.cdx.json` and the Gradle build.
-
-## OpenJDK runtime (GNU/Linux desktop controller)
-
-Copyright Oracle and/or its affiliates and OpenJDK contributors.
-
-The Ubuntu and Fedora packages ship a private, jlink-reduced OpenJDK runtime
-under `/usr/lib/clambhook/ui/lib/runtime`. It is built from the distribution's
-OpenJDK packages (21 on Ubuntu, 25 on Fedora) and licensed under GPL-2.0-only with the
-Classpath exception. Its `legal/` directory carries the upstream notices.
-Source and license information: https://openjdk.org/

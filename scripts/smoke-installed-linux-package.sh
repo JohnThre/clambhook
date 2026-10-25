@@ -2,9 +2,11 @@
 # SPDX-FileCopyrightText: 2026 Pengfan Chang <support@swiphtgroup.com>
 # SPDX-License-Identifier: GPL-3.0-only
 
-# Install one freshly built GNU/Linux package inside an explicitly marked CI
-# container, exercise its C daemon/TUI/desktop/secret-service integration, and
-# uninstall it again. The opt-in marker prevents accidental host mutation.
+# Install one freshly built GNU/Linux core package inside an explicitly marked
+# container, exercise its C daemon and license helper, and uninstall it again.
+# The proprietary clambhook-ui package (desktop controller, TUI, Secret Service
+# integration) is smoke-tested from the private apps repository. The opt-in
+# marker prevents accidental host mutation.
 set -euo pipefail
 
 fail() {
@@ -21,7 +23,7 @@ fail() {
 package_path="$(realpath "$1")"
 [[ -f "$package_path" ]] || fail "package does not exist: $package_path"
 
-for tool in curl file gpg readelf runuser secret-tool strings timeout xvfb-run; do
+for tool in curl file gpg readelf strings timeout; do
     command -v "$tool" >/dev/null 2>&1 || fail "$tool is required"
 done
 
@@ -69,15 +71,17 @@ case "$package_path" in
     *) fail "unsupported package type: $package_path" ;;
 esac
 
-for installed in /usr/bin/clambhook /usr/bin/clambhook-tui \
-        /usr/bin/clambhook-license /usr/bin/clambhook-ui \
+for installed in /usr/bin/clambhook /usr/bin/clambhook-license \
         /usr/lib/systemd/system/clambhook-daemon.service \
         /usr/share/doc/clambhook/licenses/openssl/LICENSE.txt \
         /usr/share/doc/clambhook/licenses/curl/LICENSE.txt \
-        /usr/share/doc/clambhook/licenses/llhttp/LICENSE \
-        /usr/share/applications/org.jpfchang.clambhook.desktop \
-        /usr/share/metainfo/org.jpfchang.clambhook.metainfo.xml; do
+        /usr/share/doc/clambhook/licenses/llhttp/LICENSE; do
     [[ -e "$installed" ]] || fail "installed payload is missing $installed"
+done
+for client in /usr/bin/clambhook-ui /usr/bin/clambhook-tui /usr/lib/clambhook/ui \
+        /usr/share/applications/org.jpfchang.clambhook.desktop \
+        /usr/share/polkit-1/actions/com.clambhook.Clambhook.policy; do
+    [[ ! -e "$client" ]] || fail "client payload belongs in clambhook-ui: $client"
 done
 
 # Installed packages must configure the signed repository with the pinned
@@ -102,29 +106,17 @@ if printf '%s\n' "$payload" |
         grep -Eqi '(^|/)([^/]*\.go|go\.mod|go\.sum|[^/]*gtk[^/]*|[^/]*javafx[^/]*|[^/]*gluon[^/]*|[^/]*graalvm[^/]*)(/|$)'; then
     fail "retired source or UI payload is installed"
 fi
-# The only Java runtime is the desktop controller's private jlink image.
-if printf '%s\n' "$payload" | grep -E '(^|/)(jre|jdk|runtime)(/|$)' |
-        grep -Ev '^/usr/lib/clambhook/ui/lib/runtime(/|$)' | grep -q .; then
-    fail "a Java runtime is installed outside the private desktop runtime"
+if printf '%s\n' "$payload" | grep -Eq '(^|/)(jre|jdk|runtime)(/|$)'; then
+    fail "the core package installs a Java runtime"
 fi
 
-for binary in /usr/bin/clambhook /usr/bin/clambhook-tui \
-        /usr/bin/clambhook-license; do
+for binary in /usr/bin/clambhook /usr/bin/clambhook-license; do
     if readelf -S "$binary" | grep '\.go\.buildinfo' >/dev/null; then
         fail "Go build information remains in $binary"
     fi
     file "$binary" | grep -q "$(uname -m | sed 's/aarch64/ARM aarch64/;s/x86_64/x86-64/')" ||
         fail "$binary architecture does not match the host"
 done
-
-[[ -L /usr/bin/clambhook-ui &&
-    "$(readlink -f /usr/bin/clambhook-ui)" == /usr/lib/clambhook/ui/bin/clambhook-ui ]] ||
-    fail "clambhook-ui must launch the packaged desktop distributable"
-compgen -G '/usr/lib/clambhook/ui/lib/runtime/lib/server/libjvm.so' >/dev/null ||
-    fail "the desktop controller's private runtime is missing"
-if ldd /usr/lib/clambhook/ui/lib/runtime/bin/java 2>&1 | grep -q 'not found'; then
-    fail "the desktop controller's private runtime has unresolved shared libraries"
-fi
 
 license_result="$(printf '%s\n' \
     '{"command":"ensure-trial","snapshot":""}' |
@@ -169,54 +161,6 @@ fi
 grep -q '"profile":"local"' "$status_file" ||
     fail "installed daemon did not load the packaged profile"
 
-CLAMBHOOK_API_TOKEN="$api_token" /usr/bin/clambhook-tui \
-    "127.0.0.1:$api_port" >/tmp/clambhook-installed-tui.log 2>&1 || {
-        cat /tmp/clambhook-installed-tui.log >&2 || true
-        fail "installed TUI could not read the daemon control API"
-    }
-
-ui_config="$(mktemp -d /tmp/clambhook-installed-ui.XXXXXX)"
-set +e
-timeout 5s xvfb-run -a env \
-    XDG_CONFIG_HOME="$ui_config" \
-    CLAMBHOOK_API_URL="http://127.0.0.1:$api_port" \
-    CLAMBHOOK_API_TOKEN="$api_token" \
-    /usr/bin/clambhook-ui >/tmp/clambhook-installed-ui.log 2>&1
-ui_status=$?
-set -e
-[[ "$ui_status" == "124" ]] || {
-    cat /tmp/clambhook-installed-ui.log >&2 || true
-    fail "installed desktop controller did not remain healthy during launch smoke"
-}
-
-command -v dbus-run-session >/dev/null 2>&1 ||
-    fail "dbus-run-session is required for secret storage smoke"
-command -v gnome-keyring-daemon >/dev/null 2>&1 ||
-    fail "gnome-keyring-daemon is required for secret storage smoke"
-secret_home="$(mktemp -d /tmp/clambhook-secret-home.XXXXXX)"
-secret_runtime="$(mktemp -d /tmp/clambhook-secret-runtime.XXXXXX)"
-chmod 0700 "$secret_home" "$secret_runtime"
-secret_user="$(id -un 65534 2>/dev/null || true)"
-[[ -n "$secret_user" ]] || fail "an unprivileged uid 65534 is required"
-chown "$secret_user" "$secret_home" "$secret_runtime"
-# shellcheck disable=SC2016 # Expanded by the nested D-Bus session shell.
-if ! timeout 20s runuser -u "$secret_user" -- \
-        env HOME="$secret_home" XDG_RUNTIME_DIR="$secret_runtime" \
-        dbus-run-session -- bash -euo pipefail -c '
-    printf "%s\n" "clambhook-keyring-smoke" |
-        gnome-keyring-daemon --unlock --components=secrets >/dev/null
-    printf "%s" "clambhook-secret-smoke" |
-        secret-tool store --label="ClambHook package smoke" \
-            service clambhook account package-smoke
-    test "$(secret-tool lookup service clambhook account package-smoke)" = \
-        "clambhook-secret-smoke"
-    secret-tool clear service clambhook account package-smoke
-'; then
-    rm -rf "$secret_home" "$secret_runtime"
-    fail "installed Secret Service integration failed"
-fi
-rm -rf "$secret_home" "$secret_runtime"
-
 cleanup_daemon
 trap - EXIT
 case "$manager" in
@@ -234,14 +178,9 @@ case "$manager" in
         ;;
 esac
 
-for removed in /usr/bin/clambhook /usr/bin/clambhook-tui \
-        /usr/bin/clambhook-license /usr/bin/clambhook-ui \
-        /usr/lib/systemd/system/clambhook-daemon.service \
-        /usr/share/applications/org.jpfchang.clambhook.desktop \
-        /usr/share/metainfo/org.jpfchang.clambhook.metainfo.xml \
-        /usr/share/icons/hicolor/1024x1024/apps/org.jpfchang.clambhook.png \
-        /usr/share/polkit-1/actions/com.clambhook.Clambhook.policy; do
+for removed in /usr/bin/clambhook /usr/bin/clambhook-license \
+        /usr/lib/systemd/system/clambhook-daemon.service; do
     [[ ! -e "$removed" ]] || fail "uninstall left package payload at $removed"
 done
 
-echo "installed-package-smoke: metadata, install, daemon, TUI, desktop, secret storage, and uninstall passed"
+echo "installed-package-smoke: metadata, install, daemon, license helper, and uninstall passed"

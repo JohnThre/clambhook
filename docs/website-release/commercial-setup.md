@@ -13,7 +13,7 @@ production provider response.
 - Confirm `clambercloud.com` serves ClambHook product, download guidance, support, and privacy routes without commerce code.
 - Confirm `store.swiphtgroup.com` has the `DB` binding and ClambHook license migrations applied.
 - Confirm the official ClambHook GitHub Releases page contains a completed
-  protected release before enabling download calls to action.
+  published release before enabling download calls to action.
 - Confirm test-mode Creem and NOWPayments recurring annual products are configured for USD 79.99/year.
 - Confirm a dedicated license-key derivation secret is configured separately from provider webhook secrets and the public donation API key.
 - Confirm license grant email delivery is configured before accepting purchases.

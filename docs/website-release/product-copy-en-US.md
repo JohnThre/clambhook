@@ -21,7 +21,7 @@
 - Privacy Policy URL: `https://clambercloud.com/clambhook/privacy/`.
 - Support URL: `https://clambercloud.com/clambhook/support/`.
 - No account is required to download or use the trial.
-- Show download actions only after the corresponding protected release assets
+- Show download actions only after the corresponding published release assets
   have been independently verified.
 
 ## Pricing

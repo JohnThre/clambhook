@@ -5,7 +5,7 @@
 
 This review describes the version 1.0.2 source and release contracts. It does
 not by itself certify that a public installer exists; publication evidence is
-tracked separately by the protected release workflow.
+tracked separately on the versioned GitHub Release.
 
 ## Current architecture
 

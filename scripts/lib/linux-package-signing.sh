@@ -54,11 +54,17 @@ ch_rpm_verify() {
     echo "Verified embedded RPM signature on $package"
 }
 
-# ch_deb_sign <package.deb>: add a debsigs "origin" signature in place.
+# ch_deb_sign <package.deb>: add a debsigs "origin" signature in place. Hosts
+# without debsigs (the maintainer's Mac) build the identical _gpgorigin member
+# with gpg and scripts/lib/deb_ar.py; debsig-verify then checks the result in
+# a key-free container.
 ch_deb_sign() {
     local package="$1" wrapper
     ch_gpg_signing_enabled || ch_gpg_fail "Debian package signing requires REQUIRE_SIGNING=1"
-    ch_gpg_require debsigs "Debian package signing"
+    if ! command -v debsigs >/dev/null 2>&1; then
+        ch_deb_sign_portable "$package"
+        return
+    fi
     wrapper="$(mktemp -d "${TMPDIR:-/tmp}/clambhook-gpg-wrapper.XXXXXX")"
     ch_gpg_wrapper_dir "$wrapper"
     PATH="$wrapper:$PATH" debsigs --sign=origin -k "${GPG_KEY}!" "$package" || {
@@ -69,11 +75,48 @@ ch_deb_sign() {
     echo "debsigs-signed $package"
 }
 
+# ch_deb_sign_portable <package.deb>: debsigs origin signature via gpg + ar.
+ch_deb_sign_portable() {
+    local package="$1" work
+    ch_gpg_require python3 "portable Debian package signing"
+    work="$(mktemp -d "${TMPDIR:-/tmp}/clambhook-debsig-sign.XXXXXX")"
+    python3 "$CLAMBHOOK_GPG_ROOT/scripts/lib/deb_ar.py" origin-payload "$package" "$work/payload" || {
+        rm -rf "$work"
+        ch_gpg_fail "cannot read Debian package members of $package"
+    }
+    ch_gpg_run_signer --openpgp --detach-sign --armor --output "$work/_gpgorigin" "$work/payload" || {
+        rm -rf "$work"
+        ch_gpg_fail "GPG signing failed for $package"
+    }
+    python3 "$CLAMBHOOK_GPG_ROOT/scripts/lib/deb_ar.py" append "$package" "$work/_gpgorigin" _gpgorigin || {
+        rm -rf "$work"
+        ch_gpg_fail "cannot embed the origin signature in $package"
+    }
+    rm -rf "$work"
+    echo "debsigs-signed $package (portable)"
+}
+
 # ch_deb_verify <package.deb>: debsig-verify with the committed policy and a
-# keyring generated from the pinned public key.
+# keyring generated from the pinned public key. Without debsig-verify, check
+# the _gpgorigin member against the pinned signing subkey directly.
 ch_deb_verify() {
-    local package="$1" keyrings policy_dir
-    ch_gpg_require debsig-verify "Debian package signature verification"
+    local package="$1" keyrings policy_dir work
+    if ! command -v debsig-verify >/dev/null 2>&1; then
+        ch_gpg_require python3 "portable Debian package signature verification"
+        work="$(mktemp -d "${TMPDIR:-/tmp}/clambhook-debsig-verify.XXXXXX")"
+        if ! python3 "$CLAMBHOOK_GPG_ROOT/scripts/lib/deb_ar.py" extract "$package" _gpgorigin "$work/_gpgorigin" ||
+            ! python3 "$CLAMBHOOK_GPG_ROOT/scripts/lib/deb_ar.py" signed-payload "$package" "$work/payload"; then
+            rm -rf "$work"
+            ch_gpg_fail "cannot read the origin signature of $package"
+        fi
+        (ch_gpg_verify "$work/payload" "$work/_gpgorigin") || {
+            rm -rf "$work"
+            ch_gpg_fail "embedded origin signature rejected for $package"
+        }
+        rm -rf "$work"
+        echo "Verified embedded debsigs signature on $package (portable)"
+        return
+    fi
     policy_dir="$CLAMBHOOK_DEBSIG_POLICIES/$CLAMBHOOK_GPG_SIGNING_KEYID"
     [[ -f "$policy_dir/clambhook.pol" ]] || ch_gpg_fail "missing debsig policy in $policy_dir"
     keyrings="$(mktemp -d "${TMPDIR:-/tmp}/clambhook-debsig.XXXXXX")"

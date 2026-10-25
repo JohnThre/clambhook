@@ -11,36 +11,16 @@ SPDX-PackageDownloadLocation = "https://github.com/JohnThre/clambhook"
 path = [
   ".pi-lens.json",
   "NOTICE",
-  "clambhook-icon-1024.png",
   "debian/changelog",
   "debian/source/format",
   "flake.lock",
   "keys/clambhook-release-key.asc",
   "packaging/icons/**/*.png",
   "packaging/sbom.cdx.json",
-  "ui/kotlin/platform/src/main/res/**/*.png",
-  "ui/kotlin/platform/src/test/resources/release-signatures/**",
-  "ui/apple/**/*.png",
-  "ui/apple/**/*.json",
-  "ui/apple/**/*.pbxproj",
-  "ui/apple/**/*.resolved",
-  "ui/apple/**/*.xcworkspacedata",
-  "ui/apple/**/*.xcscheme",
 ]
 precedence = "aggregate"
 SPDX-FileCopyrightText = "2026 Pengfan Chang <support@swiphtgroup.com>"
 SPDX-License-Identifier = "GPL-3.0-only"
-
-# Unmodified Gradle wrapper launchers and binaries retain Apache-2.0.
-[[annotations]]
-path = [
-  "ui/kotlin/gradlew",
-  "ui/kotlin/gradle/wrapper/gradle-wrapper.jar",
-  "ui/kotlin/gradle/wrapper/gradle-wrapper.properties",
-]
-precedence = "override"
-SPDX-FileCopyrightText = "2015 the original Gradle authors"
-SPDX-License-Identifier = "Apache-2.0"
 
 # MaxMind-DB test fixtures are vendored unchanged under Apache-2.0.
 [[annotations]]
