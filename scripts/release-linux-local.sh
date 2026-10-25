@@ -92,9 +92,11 @@ CLAMBHOOK_REPO_STAGE=generate REQUIRE_SIGNING=0 \
 ' bash "${container_inputs[@]}"
 
 echo "== sign the repository (host) =="
-first_input="${core_dirs[0]}"
+host_inputs=()
+for dir in "${ui_dirs[@]}"; do host_inputs+=("$APPS_DIR/$dir"); done
 CLAMBHOOK_REPO_STAGE=sign REQUIRE_SIGNING=1 VERSION="$VERSION" UPDATE_CHANNEL="$CHANNEL" \
-    scripts/build-linux-repos.sh "$first_input" dist/linux-repo
+    scripts/build-linux-repos.sh "${core_dirs[0]}" dist/linux-repo \
+    "${core_dirs[@]:1}" "${host_inputs[@]}"
 
 echo "== install from the signed repositories (containers) =="
 UPDATE_CHANNEL="$CHANNEL" scripts/test-linux-repo-install.sh dist/linux-repo/clambhook-linux-repo

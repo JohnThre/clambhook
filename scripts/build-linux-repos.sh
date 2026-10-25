@@ -53,8 +53,31 @@ sign_repository() {
     ch_gpg_signing_enabled || ch_gpg_fail "repository signing requires REQUIRE_SIGNING=1"
     ch_gpg_require tar "repository bundling"
     ch_gpg_check_expiry
-    local dists="$REPO/apt/dists/$CHANNEL" arch_dir
+    local dists="$REPO/apt/dists/$CHANNEL" arch_dir allowlist package
     [[ -f "$dists/Release" ]] || ch_gpg_fail "unsigned repository not found in $REPO"
+    # The tree may come from a container: sign it only if every package is one
+    # this host verified and every metadata hash matches the files it names.
+    allowlist="$(mktemp "${TMPDIR:-/tmp}/clambhook-repo-allow.XXXXXX")"
+    shopt -s nullglob
+    for input_dir in "${INPUT_DIRS[@]}"; do
+        for package in "$input_dir"/*.deb "$input_dir"/*.rpm; do
+            ch_gpg_verify "$package"
+            case "$package" in
+                *.deb) ch_deb_verify "$package" ;;
+                *.rpm) ch_rpm_verify "$package" ;;
+            esac
+            if command -v sha256sum >/dev/null 2>&1; then
+                sha256sum "$package" | awk '{print $1}' >>"$allowlist"
+            else
+                shasum -a 256 "$package" | awk '{print $1}' >>"$allowlist"
+            fi
+        done
+    done
+    python3 "$ROOT_DIR/scripts/lib/verify_repo_tree.py" "$REPO" "$CHANNEL" "$allowlist" || {
+        rm -f "$allowlist"
+        ch_gpg_fail "refusing to sign an unverified repository tree"
+    }
+    rm -f "$allowlist"
     ch_gpg_clearsign "$dists/Release" "$dists/InRelease"
     ch_gpg_sign "$dists/Release" "$dists/Release.gpg"
     ch_gpg_verify_clearsigned "$dists/InRelease"
