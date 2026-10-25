@@ -116,6 +116,18 @@ CLAMBHOOK_CONTAINER_PACKAGE_SMOKE=1 scripts/smoke-installed-linux-package.sh "$r
   # architecture; a non-native platform runs under emulation.
   local -a platform=()
   [[ -z "${CLAMBHOOK_LINUX_PLATFORM:-}" ]] || platform=(--platform "$CLAMBHOOK_LINUX_PLATFORM")
+  # Sanitizer builds fail under QEMU user emulation, so a non-native
+  # platform skips the package test step (DEB_BUILD_OPTIONS=nocheck). The
+  # native architecture still runs the full sanitizer suite, and every
+  # architecture still runs the installed-package smoke test.
+  local native_platform=""
+  case "$(uname -m)" in
+    arm64 | aarch64) native_platform=linux/arm64 ;;
+    x86_64 | amd64) native_platform=linux/amd64 ;;
+  esac
+  if [[ -n "${CLAMBHOOK_LINUX_PLATFORM:-}" && "$CLAMBHOOK_LINUX_PLATFORM" != "$native_platform" ]]; then
+    container_env+=(--env "DEB_BUILD_OPTIONS=nocheck")
+  fi
   "$engine" run --rm \
     ${platform[@]+"${platform[@]}"} \
     ${container_env[@]+"${container_env[@]}"} \
