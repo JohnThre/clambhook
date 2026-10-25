@@ -69,7 +69,7 @@ resubscription, or a provider change.
 ## Verification
 
 - Confirm the stable channel on `https://clambercloud.com/clambhook/` exposes the
-  current notarized DMG, signed APK/AAB, both architecture variants of `.deb`
+  current notarized DMG, signed APK, both architecture variants of `.deb`
   and `.rpm`, checksums, signatures, and manifests.
 - Confirm the Clamber Cloud download page links to the clambercloud.com release files.
 - Confirm each provider's test-mode annual payment creates or extends a provider-neutral license and sends the email.

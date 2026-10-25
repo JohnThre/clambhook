@@ -108,7 +108,7 @@ The last two commands must print nothing. Inspect all packages to require:
 - in `clambhook`: no client payload and no Java runtime; in `clambhook-ui`: no system JRE/JDK dependency, no Java runtime outside `/usr/lib/clambhook/ui`, and no JavaFX/Gluon/GTK payload;
 - no retired runtime build-information section;
 - no migration guards or suffixed executable names;
-- only ARM64 native libraries in Android APK/AAB;
+- only ARM64 native libraries in the Android APK;
 - correct application/bundle identifiers and API floors;
 - correct C17 executables, desktop distributable, licenses, notices, and update
   manifests;
@@ -136,7 +136,7 @@ test -z "$(git status --porcelain)"
 
 After `scripts/publish-release.sh --publish` completes, download every selected-platform asset
 from its immutable versioned URL. Verify SHA-256 records, GPG signatures, APK
-and AAB signatures, Developer ID/notarization/stapling, Sparkle signatures, and
+signatures, Developer ID/notarization/stapling, Sparkle signatures, and
 manifest URLs before calling the release public. Install, launch, update-check,
 and uninstall smoke tests must use the downloaded bytes rather than workspace
 artifacts. A release page created before every selected platform's assets are uploaded is

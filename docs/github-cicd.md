@@ -43,7 +43,7 @@ The maintainer builds a release on their own machine:
 2. Build and sign every GNU/Linux asset with `scripts/release-linux-local.sh`.
    Containers build the core and `clambhook-ui` packages for x86_64 and
    aarch64, verify them, and generate the apt/dnf metadata. The host signs.
-3. In the private apps repository, build and sign the ARM64 Android APK/AAB and
+3. In the private apps repository, build and sign the ARM64 Android APK and
    the notarized Apple Silicon DMG/ZIP with its Sparkle appcast.
 4. `scripts/release-linux-local.sh` also install-tests the signed
    repositories.
@@ -76,7 +76,7 @@ flowchart TB
 
     subgraph publication["Local publication"]
         tag["Signed tag"] --> core["Core DEB/RPM<br/>this repository"]
-        tag --> apps["clambhook-ui DEB/RPM · APK/AAB<br/>DMG/ZIP/appcast<br/>private apps repository"]
+        tag --> apps["clambhook-ui DEB/RPM · APK<br/>DMG/ZIP/appcast<br/>private apps repository"]
         core --> repo["Signed apt/dnf repos<br/>install-tested on Ubuntu + Fedora"]
         apps --> repo
         repo --> verify["verify-release-signatures.sh"]

@@ -11,14 +11,14 @@ ClambHook releases on clambercloud.com use three independent trust layers:
   `BAFC 7769 FDA1 E0D4 EBD2 3E2F 6FF4 807E AD97 7A9B`, signing subkey
   `F099 90BB E647 C2D4 3F58 D6F0 EAA8 76B7 0B18 32F5`).
 - Apple Developer ID, notarization, stapling, and Sparkle EdDSA protect macOS.
-- The stable Android keystore signs APK and AAB files; `apksigner verify`
+- The dedicated ClambHook Android keystore signs the APK; `apksigner verify`
   and `jarsigner -verify -strict` run before upload.
 
 | Installer | GPG signatures |
 | --- | --- |
 | Ubuntu `.deb` | embedded `debsigs` origin signature, detached `.deb.sig`, signed `.sha256`, signed apt `InRelease`/`Release.gpg` |
 | Fedora `.rpm` | embedded RPM header signature, detached `.rpm.sig`, signed `.sha256`, signed dnf `repomd.xml.asc` |
-| Android `.apk`/`.aab` | detached `.sig`, signed `.sha256`, signed update manifest |
+| Android `.apk` | detached `.sig`, signed `.sha256`, signed update manifest |
 | macOS `.dmg`/`.zip` | detached `.sig`, signed `.sha256`, signed update manifest |
 
 All signing goes through `scripts/lib/release-gpg.sh`. Before any asset is

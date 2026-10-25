@@ -24,7 +24,7 @@ signs the Sparkle appcast with the pinned EdDSA key.
 
 For Android, run `make test-android` and `make release-android` in the apps
 repository. Gradle builds the shared Kotlin/Compose application with the
-release keystore, produces ARM64 APK and AAB files, verifies both signatures
+release keystore, produces the ARM64 APK, verifies its signature
 and ABI contents, and produces GPG-signed checksums and an update manifest. The
 application ID remains `org.jpfchang.clambhook`, the minimum remains Android
 12/API 31, and the target remains API 36.
@@ -32,7 +32,7 @@ application ID remains `org.jpfchang.clambhook`, the minimum remains Android
 Run `scripts/publish-release.sh 1.2.3` (dry run), then
 `scripts/publish-release.sh --publish 1.2.3`. Afterwards, download every
 release asset, verify checksums and signatures, confirm macOS notarization and
-the APK/AAB signatures, and exercise stable update discovery. Do not announce a
+the APK signature, and exercise stable update discovery. Do not announce a
 release until every selected platform's assets are uploaded. Use `--beta` for a
 beta prerelease; beta assets are also mirrored to the rolling `beta`
 prerelease.

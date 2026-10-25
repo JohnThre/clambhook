@@ -83,7 +83,7 @@ metadata is refused. The repository tree is published as
 developer@jpfchang.org key; see
 [release signing](../docs/website-release/signing.md).
 
-The Android release (`ClambHook-arm64.apk`/`.aab`) and the macOS release (the
+The Android release (`ClambHook-arm64.apk`, the only Android artifact) and the macOS release (the
 notarized Apple Silicon DMG and ZIP, update manifest and Sparkle appcast) come
 from the apps repository with the same signing rules.
 
