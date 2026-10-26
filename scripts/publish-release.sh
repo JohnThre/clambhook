@@ -201,13 +201,22 @@ content_type() {
     esac
 }
 
+# Large puts occasionally fail with a transient 502/504; retry before giving up.
 r2_put() {
-    local key="$1" file="$2"
+    local key="$1" file="$2" attempt
     echo "upload $key"
-    (cd "$SITE_DIR" && env -u http_proxy -u https_proxy -u all_proxy \
-        -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY \
-        "$wrangler" r2 object put "$BUCKET/$key" --remote \
-        --file "$file" --content-type "$(content_type "$key")" >/dev/null)
+    for attempt in 1 2 3 4; do
+        if (cd "$SITE_DIR" && env -u http_proxy -u https_proxy -u all_proxy \
+            -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY \
+            "$wrangler" r2 object put "$BUCKET/$key" --remote \
+            --file "$file" --content-type "$(content_type "$key")" >/dev/null); then
+            return 0
+        fi
+        echo "upload $key failed (attempt $attempt)" >&2
+        sleep $((attempt * 10))
+    done
+    echo "giving up on $key" >&2
+    exit 1
 }
 
 r2_put "releases/$tag/$(basename "$KEY")" "$KEY"
