@@ -24,7 +24,7 @@
 #
 # Layout of <output-dir>/clambhook-linux-repo/:
 #   clambhook-release-key.asc
-#   apt/pool/main/c/clambhook/*.deb
+#   apt/pool/main/c/clambhook/<package>_<version>_<arch>.deb
 #   apt/dists/<channel>/{Release,InRelease,Release.gpg}
 #   apt/dists/<channel>/main/binary-{amd64,arm64}/Packages{,.gz}
 #   rpm/<channel>/{x86_64,aarch64}/*.rpm + repodata/repomd.xml{,.asc}
@@ -127,8 +127,10 @@ deb_arches=()
 for deb in "${debs[@]}"; do
     ch_gpg_verify "$deb"
     ch_deb_verify "$deb"
-    install -m 0644 "$deb" "$pool/"
     arch="$(dpkg-deb -f "$deb" Architecture)"
+    # apt-ftparchive --arch only indexes files named <name>_<version>_<arch>.deb.
+    install -m 0644 "$deb" \
+        "$pool/$(dpkg-deb -f "$deb" Package)_$(dpkg-deb -f "$deb" Version)_$arch.deb"
     [[ " ${deb_arches[*]} " == *" $arch "* ]] || deb_arches+=("$arch")
 done
 
@@ -137,6 +139,7 @@ for arch in "${deb_arches[@]}"; do
     binary="$dists/main/binary-$arch"
     mkdir -p "$binary"
     (cd "$apt_root" && apt-ftparchive --arch "$arch" packages pool) >"$binary/Packages"
+    [[ -s "$binary/Packages" ]] || ch_gpg_fail "no packages indexed for $arch"
     gzip -9nkf "$binary/Packages"
 done
 
