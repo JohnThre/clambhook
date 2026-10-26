@@ -59,16 +59,14 @@ can be checked as well:
 sudo rpm --import clambhook-release-key.asc
 rpm -K ClambHook-1.2.3-x86_64.rpm          # expect "digests signatures OK"
 
-# Ubuntu (debsig-verify package)
-sudo install -d /etc/debsig/policies/EAA876B70B1832F5 \
-    /usr/share/debsig/keyrings/EAA876B70B1832F5
-sudo install -m 0644 clambhook.pol /etc/debsig/policies/EAA876B70B1832F5/
-gpg --dearmor < clambhook-release-key.asc | \
-    sudo tee /usr/share/debsig/keyrings/EAA876B70B1832F5/debsig.gpg >/dev/null
-debsig-verify ClambHook-1.2.3-x86_64.deb
+# Ubuntu: the embedded debsigs origin signature covers debian-binary,
+# control.tar.* and data.tar.*, in that order
+ar x ClambHook-1.2.3-x86_64.deb
+cat debian-binary control.tar.* data.tar.* | gpg --verify _gpgorigin -
 ```
 
-`clambhook.pol` is `packaging/debsig/policies/EAA876B70B1832F5/clambhook.pol`.
+`debsig-verify` cannot check these packages: it only matches its policies
+against primary keys, and the packages are signed by the signing subkey.
 
 ## Signed package repositories
 

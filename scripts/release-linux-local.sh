@@ -86,7 +86,7 @@ for dir in "${ui_dirs[@]}"; do container_inputs+=("/apps/$dir"); done
 set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq >/dev/null
-apt-get install -y -qq apt-utils createrepo-c rpm debsig-verify gnupg >/dev/null
+apt-get install -y -qq apt-utils createrepo-c rpm python3 gnupg >/dev/null
 CLAMBHOOK_REPO_STAGE=generate REQUIRE_SIGNING=0 \
     /core/scripts/build-linux-repos.sh "$1" /out "${@:2}"
 ' bash "${container_inputs[@]}"

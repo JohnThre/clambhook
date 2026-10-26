@@ -17,7 +17,7 @@
 # Debian/Fedora tooling:
 #   generate  verify every package and write the unsigned repository tree
 #             (run in a key-free Ubuntu container with apt-utils,
-#             createrepo-c, rpm, debsig-verify, and gpg);
+#             createrepo-c, rpm, python3, and gpg);
 #   sign      sign and verify the repository metadata and bundle it (run on
 #             the host that holds the signing key);
 #   all       both (default; a GNU/Linux host with every tool and the key).
