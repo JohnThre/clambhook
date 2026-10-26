@@ -77,6 +77,8 @@ future updates automatically:
   `Signed-By: /usr/share/keyrings/clambhook-archive-keyring.asc`.
 - Fedora: `/etc/yum.repos.d/clambhook.repo` with `gpgcheck=1`,
   `repo_gpgcheck=1`, and `/etc/pki/rpm-gpg/RPM-GPG-KEY-clambhook`.
+  dnf5 (Fedora 44) does not yet enforce `repo_gpgcheck`; it still rejects
+  any package whose embedded signature is not from the pinned key.
 
 Each release publishes `clambhook-linux-repo-<version>.tar.gz` (signed). Its
 `clambhook-linux-repo/` tree must be deployed unchanged to

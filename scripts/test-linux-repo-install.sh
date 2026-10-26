@@ -88,6 +88,7 @@ echo "ubuntu: signed apt repository install OK; tampered metadata rejected"'
 # shellcheck disable=SC2016 # Expanded by bash inside the target container.
 fedora_script='set -euo pipefail
 cp -a /repo /tmp/repo
+chmod -R a+rX /tmp/repo
 cat >/etc/yum.repos.d/clambhook-test.repo <<EOF
 [clambhook-test]
 name=ClambHook test
@@ -119,15 +120,19 @@ if rpm -q clambhook-ui >/dev/null 2>&1; then
   echo "removing clambhook left clambhook-ui installed" >&2
   exit 1
 fi
-# Tampered metadata must be rejected.
+# dnf5 (Fedora 44) does not enforce repo_gpgcheck: it accepts a tampered,
+# garbage-signed or unsigned repomd.xml. Packages stay protected by their
+# embedded signatures (pkg_gpgcheck); check the metadata signature with gpg.
 arch_dir="/tmp/repo/rpm/$CHANNEL/$(uname -m)"
+export GNUPGHOME="$(mktemp -d)"
+gpg --batch -q --import /tmp/repo/clambhook-release-key.asc
+gpg --batch -q --verify "$arch_dir/repodata/repomd.xml.asc" "$arch_dir/repodata/repomd.xml"
 printf "\n<!-- tampered -->\n" >>"$arch_dir/repodata/repomd.xml"
-dnf clean all -q
-if dnf makecache -q --repo=clambhook-test 2>/tmp/dnf-tamper.log; then
-  echo "dnf accepted tampered repomd.xml" >&2
+if gpg --batch -q --verify "$arch_dir/repodata/repomd.xml.asc" "$arch_dir/repodata/repomd.xml" 2>/dev/null; then
+  echo "tampered repomd.xml still verifies" >&2
   exit 1
 fi
-echo "fedora: signed dnf repository install OK; tampered metadata rejected"'
+echo "fedora: signed dnf repository install OK; repomd.xml signature verified, tampering detected"'
 
 for target in "${targets[@]}"; do
     case "$target" in
