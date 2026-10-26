@@ -39,6 +39,8 @@ ubuntu_script='set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq >/dev/null
 cp -a /repo /tmp/repo
+# apt verifies as the unprivileged _apt user; host modes may not survive the mount.
+chmod -R a+rX /tmp/repo
 cat >/etc/apt/sources.list.d/clambhook-test.sources <<EOF
 Types: deb
 URIs: file:/tmp/repo/apt
