@@ -40,10 +40,11 @@ ch_rpm_verify() {
     }
     output="$(rpmkeys --dbpath "$db" --checksig -v "$package" 2>&1 || true)"
     rm -rf "$db"
-    # rpm 4.x prints "Signature, key ID <subkey-id>: OK"; rpm 6 prints
-    # "signature, key fingerprint: <primary-fpr>: OK". The scratch database
-    # holds only the pinned key, so either form identifies it.
-    signer="(key ID ${CLAMBHOOK_GPG_SIGNING_KEYID}|key fingerprint: (${CLAMBHOOK_GPG_PRIMARY_FPR}|${CLAMBHOOK_GPG_SIGNING_FPR})): OK"
+    # rpm 4.x prints "Signature, key ID <subkey-id>: OK" with the long or (on
+    # Ubuntu's rpm 4.18) the short key ID; rpm 6 prints "signature, key
+    # fingerprint: <primary-fpr>: OK". The scratch database holds only the
+    # pinned key, so any of these forms identifies it.
+    signer="(key ID (${CLAMBHOOK_GPG_SIGNING_KEYID}|${CLAMBHOOK_GPG_SIGNING_KEYID: -8})|key fingerprint: (${CLAMBHOOK_GPG_PRIMARY_FPR}|${CLAMBHOOK_GPG_SIGNING_FPR})): OK"
     if ! grep -Eiq "signature, ${signer}" <<<"$output" ||
         grep -Eq '(BAD|NOKEY|NOTTRUSTED|NOT OK)' <<<"$output"; then
         printf '%s\n' "$output" >&2
