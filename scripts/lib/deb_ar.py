@@ -14,8 +14,9 @@
     deb_ar.py extract <package.deb> <member-name> <output>
         Copy one member's bytes.
 
-Used only on hosts without dpkg/debsigs (the maintainer's Mac); the real
-debsig-verify still checks every package in a container afterwards.
+Signing uses it on hosts without dpkg/debsigs (the maintainer's Mac);
+verification always uses it, because debsig-verify rejects signatures made by
+a signing subkey.
 """
 
 from __future__ import annotations

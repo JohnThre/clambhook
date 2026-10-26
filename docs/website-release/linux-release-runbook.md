@@ -28,7 +28,7 @@ then written for the package, its checksum, and
    - signs every package on the host (embedded `rpmsign`/`debsigs`-format and
      detached signatures, checksums, manifests). The private key never enters a
      container;
-   - verifies every package with `debsig-verify`/`rpmkeys` in a key-free
+   - verifies every package's embedded signature (`rpmkeys`, debsigs origin) in a key-free
      container and generates the apt/dnf metadata there;
    - signs the repository metadata on the host and bundles it as
      `clambhook-linux-repo-<version>.tar.gz`;

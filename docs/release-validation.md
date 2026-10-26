@@ -114,7 +114,7 @@ The last two commands must print nothing. Inspect all packages to require:
   manifests;
 - valid developer@jpfchang.org signatures on every installer, checksum,
   manifest, and repository index (`scripts/verify-release-signatures.sh`), plus
-  embedded `rpm -K` and `debsig-verify` signatures and a signed-repository
+  embedded `rpm -K` and debsigs origin signatures and a signed-repository
   install on Ubuntu and Fedora (`scripts/test-linux-repo-install.sh`).
 
 ## Source delivery gate
