@@ -78,8 +78,8 @@ for dir in "${core_dirs[@]}"; do container_inputs+=("/core/$dir"); done
 for dir in "${ui_dirs[@]}"; do container_inputs+=("/apps/$dir"); done
 # shellcheck disable=SC2016 # Expanded by bash inside the container.
 "$engine" run --rm \
-    --volume "$ROOT_DIR:/core:ro${mount_suffix}" \
-    --volume "$APPS_DIR/dist:/apps/dist:ro${mount_suffix}" \
+    --volume "$ROOT_DIR:/core:ro${mount_suffix/:/,}" \
+    --volume "$APPS_DIR/dist:/apps/dist:ro${mount_suffix/:/,}" \
     --volume "$ROOT_DIR/dist/linux-repo:/out${mount_suffix}" \
     --env "VERSION=$VERSION" --env "UPDATE_CHANNEL=$CHANNEL" \
     docker.io/library/ubuntu:24.04 bash -c '

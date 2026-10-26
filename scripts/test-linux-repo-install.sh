@@ -136,11 +136,11 @@ for target in "${targets[@]}"; do
     echo "==================== $target repository install ===================="
     upgrade_mount=()
     if [[ -n "${CLAMBHOOK_UPGRADE_FROM:-}" ]]; then
-        upgrade_mount=(--volume "$(cd "$CLAMBHOOK_UPGRADE_FROM" && pwd):/upgrade-from:ro${mount_suffix}")
+        upgrade_mount=(--volume "$(cd "$CLAMBHOOK_UPGRADE_FROM" && pwd):/upgrade-from:ro${mount_suffix/:/,}")
     fi
     "$engine" run --rm \
         --env "CHANNEL=$CHANNEL" \
-        --volume "$REPO_DIR:/repo:ro${mount_suffix}" \
+        --volume "$REPO_DIR:/repo:ro${mount_suffix/:/,}" \
         ${upgrade_mount[@]+"${upgrade_mount[@]}"} \
         "$image" bash -c "$script"
 done
